@@ -1,0 +1,262 @@
+{
+  "family_id": "demo_family",
+  "project_name": "CoGA demo family",
+  "assembly": "GRCh38",
+  "species": "Homo sapiens",
+  "samples": [
+    {
+      "sample_id": "father",
+      "role": "father",
+      "sex": "male",
+      "affected": false,
+      "is_proband": false
+    },
+    {
+      "sample_id": "mother",
+      "role": "mother",
+      "sex": "female",
+      "affected": false,
+      "is_proband": false
+    },
+    {
+      "sample_id": "son",
+      "role": "proband",
+      "sex": "male",
+      "affected": true,
+      "is_proband": true
+    },
+    {
+      "sample_id": "daughter",
+      "role": "sibling",
+      "sex": "female",
+      "affected": false,
+      "is_proband": false
+    }
+  ],
+  "counts": {
+    "coverage_bin_size": 15000,
+    "apcad_target_points_per_sample": 50000,
+    "coverage_bins_per_sample": {
+      "father": 190402,
+      "mother": 190402,
+      "son": 190402,
+      "daughter": 190402
+    },
+    "segments_per_sample": {
+      "father": 49,
+      "mother": 48,
+      "son": 54,
+      "daughter": 54
+    },
+    "apcad_upload_rows_per_sample": {
+      "father": 50000,
+      "mother": 50000,
+      "son": 50000,
+      "daughter": 50000
+    },
+    "apcad_import_rows_per_sample": {
+      "father": 50000,
+      "mother": 50000,
+      "son": 50000,
+      "daughter": 50000
+    },
+    "manual_structural_rows_per_sample": {
+      "father": 5010,
+      "mother": 5068,
+      "son": 5043,
+      "daughter": 5028
+    },
+    "sniffles_records_per_sample": {
+      "father": 5010,
+      "mother": 5068,
+      "son": 5043,
+      "daughter": 5028
+    },
+    "spectre_records_per_sample": {
+      "father": 5010,
+      "mother": 5068,
+      "son": 5043,
+      "daughter": 5028
+    },
+    "trgt_records_per_sample": {
+      "father": 21,
+      "mother": 21,
+      "son": 21,
+      "daughter": 21
+    },
+    "clair3_family_variants": 5184,
+    "glimpse_family_variants": 5184,
+    "recombination_blocks_per_child": {
+      "son": 81,
+      "daughter": 80
+    }
+  },
+  "no_data_intervals": {
+    "1": [
+      [
+        121700000,
+        125100000
+      ]
+    ],
+    "2": [
+      [
+        91800000,
+        96000000
+      ]
+    ],
+    "3": [
+      [
+        87800000,
+        94000000
+      ]
+    ],
+    "4": [
+      [
+        48200000,
+        52700000
+      ]
+    ],
+    "5": [
+      [
+        46100000,
+        51400000
+      ]
+    ],
+    "6": [
+      [
+        58500000,
+        62600000
+      ]
+    ],
+    "7": [
+      [
+        58100000,
+        62000000
+      ]
+    ],
+    "8": [
+      [
+        43200000,
+        47200000
+      ]
+    ],
+    "9": [
+      [
+        39000000,
+        45500000
+      ],
+      [
+        68500000,
+        71500000
+      ]
+    ],
+    "10": [
+      [
+        38000000,
+        41600000
+      ]
+    ],
+    "11": [
+      [
+        51000000,
+        55800000
+      ]
+    ],
+    "12": [
+      [
+        33200000,
+        37800000
+      ]
+    ],
+    "13": [
+      [
+        0,
+        17200000
+      ],
+      [
+        17200000,
+        19000000
+      ]
+    ],
+    "14": [
+      [
+        0,
+        16100000
+      ],
+      [
+        16100000,
+        18200000
+      ]
+    ],
+    "15": [
+      [
+        0,
+        17500000
+      ],
+      [
+        17500000,
+        20500000
+      ]
+    ],
+    "16": [
+      [
+        35300000,
+        38400000
+      ],
+      [
+        44800000,
+        46700000
+      ]
+    ],
+    "17": [
+      [
+        22200000,
+        25800000
+      ]
+    ],
+    "18": [
+      [
+        15400000,
+        21500000
+      ]
+    ],
+    "19": [
+      [
+        24200000,
+        28100000
+      ]
+    ],
+    "20": [
+      [
+        25700000,
+        30400000
+      ]
+    ],
+    "21": [
+      [
+        0,
+        11200000
+      ],
+      [
+        11200000,
+        13100000
+      ]
+    ],
+    "22": [
+      [
+        0,
+        13700000
+      ],
+      [
+        13700000,
+        17400000
+      ]
+    ],
+    "X": [
+      [
+        58100000,
+        63800000
+      ]
+    ]
+  }
+}

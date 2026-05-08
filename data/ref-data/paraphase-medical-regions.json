@@ -1,0 +1,283 @@
+{
+  "schema_version": 1,
+  "source": "Curated Paraphase medically relevant duplicated and difficult regions",
+  "regions": [
+    {
+      "region_id": "smn1_smn2",
+      "display_name": "SMN1/SMN2",
+      "genes": ["SMN1", "SMN2"],
+      "aliases": ["smn1", "smn2", "smn"],
+      "summary": "Clinically relevant copy-number calls for SMN1, SMN2, and SMN exon 7-8 deletion alleles.",
+      "clinical_priority": 1,
+      "key_copy_number_fields": ["smn1_cn", "smn2_cn", "smn_del78_cn", "smn2_del78_cn"],
+      "key_read_fields": ["smn1_read_number", "smn2_read_number", "smn_del78_read_number", "smn2_del78_read_number"],
+      "key_haplotype_fields": ["smn1_haplotypes", "smn2_haplotypes", "smn_del78_haplotypes", "smn2_del78_haplotypes"],
+      "notes": [
+        "A null SMN1 or SMN2 copy-number call can occur when Paraphase finds one haplotype but depth does not unambiguously support copy number one versus two."
+      ],
+      "disorders": [
+        {
+          "name": "Spinal muscular atrophy",
+          "omim_url": "https://www.omim.org/entry/253300"
+        }
+      ]
+    },
+    {
+      "region_id": "rccx",
+      "display_name": "RCCX module",
+      "genes": ["RCCX", "CYP21A2", "TNXB", "C4A", "C4B"],
+      "aliases": ["rccx", "cyp21a2", "tnxb", "c4a", "c4b"],
+      "summary": "Complex RCCX structural variation spanning CYP21A2, TNXB, and complement C4 genes.",
+      "clinical_priority": 2,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "key_extra_fields": [
+        "annotated_alleles",
+        "hap_variants",
+        "phasing_success",
+        "starting_hap",
+        "ending_hap",
+        "deletion_hap"
+      ],
+      "field_descriptions": {
+        "ending_hap": "Final RCCX copy on each allele; only these copies contain TNXB rather than TNXA.",
+        "starting_hap": "First RCCX copy on each allele, used to infer RCCX haplotype order.",
+        "deletion_hap": "Deletion haplotype with both starting and ending characteristics, consistent with one RCCX copy on the allele.",
+        "hap_variants": "Common CYP21A2/CYP21A1P differentiating variants used for allele annotation.",
+        "phasing_success": "Whether RCCX haplotypes could be connected into alleles.",
+        "annotated_alleles": "Per-allele CYP21A2 annotations such as WT, pseudogene deletion, gene duplication, or fusion deletion alleles."
+      },
+      "disorders": [
+        {
+          "name": "21-hydroxylase-deficient congenital adrenal hyperplasia",
+          "omim_url": "https://www.omim.org/entry/201910"
+        },
+        {
+          "name": "Ehlers-Danlos syndrome due to TNXB deficiency",
+          "omim_url": "https://www.omim.org/entry/606408"
+        },
+        {
+          "name": "Complement C4 variation and autoimmune disease susceptibility",
+          "omim_url": "https://www.omim.org/search?index=entry&search=C4A%20C4B%20autoimmune"
+        }
+      ]
+    },
+    {
+      "region_id": "pms2",
+      "display_name": "PMS2",
+      "genes": ["PMS2"],
+      "aliases": ["pms2"],
+      "summary": "PMS2 copy-number and haplotype resolution in a duplicated/pseudogene-rich Lynch syndrome region.",
+      "clinical_priority": 3,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Lynch syndrome",
+          "omim_url": "https://www.omim.org/search?index=entry&search=PMS2%20Lynch%20syndrome"
+        }
+      ]
+    },
+    {
+      "region_id": "strc",
+      "display_name": "STRC",
+      "genes": ["STRC"],
+      "aliases": ["strc"],
+      "summary": "STRC copy-number changes are a common cause of hereditary hearing loss.",
+      "clinical_priority": 4,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Hereditary hearing loss and deafness",
+          "omim_url": "https://www.omim.org/search?index=entry&search=STRC%20deafness"
+        }
+      ]
+    },
+    {
+      "region_id": "ikbkg",
+      "display_name": "IKBKG",
+      "genes": ["IKBKG"],
+      "aliases": ["ikbkg", "nemo"],
+      "summary": "IKBKG copy-number and rearrangement calls in the duplicated IKBKG/pseudogene region.",
+      "clinical_priority": 5,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Incontinentia pigmenti",
+          "omim_url": "https://www.omim.org/entry/308300"
+        }
+      ]
+    },
+    {
+      "region_id": "ncf1",
+      "display_name": "NCF1",
+      "genes": ["NCF1"],
+      "aliases": ["ncf1"],
+      "summary": "NCF1 copy-number and pseudogene-aware calls relevant to oxidative burst disease and Williams syndrome region interpretation.",
+      "clinical_priority": 6,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Chronic granulomatous disease",
+          "omim_url": "https://www.omim.org/search?index=entry&search=NCF1%20chronic%20granulomatous%20disease"
+        },
+        {
+          "name": "Williams syndrome region",
+          "omim_url": "https://www.omim.org/entry/194050"
+        }
+      ]
+    },
+    {
+      "region_id": "neb",
+      "display_name": "NEB",
+      "genes": ["NEB"],
+      "aliases": ["neb"],
+      "summary": "NEB duplicated-region calls relevant to nemaline myopathy.",
+      "clinical_priority": 7,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Nemaline myopathy",
+          "omim_url": "https://www.omim.org/search?index=entry&search=NEB%20nemaline%20myopathy"
+        }
+      ]
+    },
+    {
+      "region_id": "f8",
+      "display_name": "F8",
+      "genes": ["F8"],
+      "aliases": ["f8", "factor8"],
+      "summary": "F8 intron 22 inversion and related structural events in hemophilia A.",
+      "clinical_priority": 8,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Hemophilia A",
+          "omim_url": "https://www.omim.org/entry/306700"
+        }
+      ]
+    },
+    {
+      "region_id": "cfc1",
+      "display_name": "CFC1",
+      "genes": ["CFC1"],
+      "aliases": ["cfc1"],
+      "summary": "CFC1 region calls relevant to heterotaxy and laterality disorders.",
+      "clinical_priority": 9,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Heterotaxy syndrome",
+          "omim_url": "https://www.omim.org/search?index=entry&search=CFC1%20heterotaxy"
+        }
+      ]
+    },
+    {
+      "region_id": "opsin",
+      "display_name": "OPN1LW/OPN1MW",
+      "genes": ["OPN1LW", "OPN1MW"],
+      "aliases": ["opn1lw", "opn1mw", "opsin"],
+      "summary": "X-linked opsin array copy-number and haplotype calls relevant to color vision deficiency.",
+      "clinical_priority": 10,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Color vision deficiencies",
+          "omim_url": "https://www.omim.org/search?index=entry&search=OPN1LW%20OPN1MW%20color%20vision"
+        }
+      ]
+    },
+    {
+      "region_id": "hba",
+      "display_name": "HBA1/HBA2",
+      "genes": ["HBA1", "HBA2"],
+      "aliases": ["hba1", "hba2", "hba"],
+      "summary": "Alpha-globin locus copy-number calls relevant to alpha-thalassemia.",
+      "clinical_priority": 11,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Alpha-thalassemia",
+          "omim_url": "https://www.omim.org/search?index=entry&search=HBA1%20HBA2%20alpha-thalassemia"
+        }
+      ]
+    },
+    {
+      "region_id": "gba",
+      "display_name": "GBA",
+      "genes": ["GBA"],
+      "aliases": ["gba", "gba1"],
+      "summary": "GBA copy-number and recombinant allele calls in the GBA/GBAP1 region.",
+      "clinical_priority": 12,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Gaucher disease",
+          "omim_url": "https://www.omim.org/entry/230800"
+        },
+        {
+          "name": "Parkinson disease susceptibility",
+          "omim_url": "https://www.omim.org/search?index=entry&search=GBA%20Parkinson"
+        }
+      ]
+    },
+    {
+      "region_id": "cyp11b",
+      "display_name": "CYP11B1/CYP11B2",
+      "genes": ["CYP11B1", "CYP11B2"],
+      "aliases": ["cyp11b1", "cyp11b2", "cyp11b"],
+      "summary": "CYP11B1/CYP11B2 copy-number and hybrid gene calls relevant to adrenal steroid disorders.",
+      "clinical_priority": 13,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Glucocorticoid-remediable aldosteronism",
+          "omim_url": "https://www.omim.org/search?index=entry&search=CYP11B1%20CYP11B2%20glucocorticoid-remediable%20aldosteronism"
+        }
+      ]
+    },
+    {
+      "region_id": "cfh_cfhr",
+      "display_name": "CFH/CFHR locus",
+      "genes": ["CFH", "CFHR1", "CFHR2", "CFHR3", "CFHR4"],
+      "aliases": ["cfh", "cfhr1", "cfhr2", "cfhr3", "cfhr4", "cfh_cfhr"],
+      "summary": "CFH/CFHR large deletion and duplication calls relevant to complement-mediated disease.",
+      "clinical_priority": 14,
+      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_read_fields": [],
+      "key_haplotype_fields": ["final_haplotypes"],
+      "disorders": [
+        {
+          "name": "Atypical hemolytic uremic syndrome",
+          "omim_url": "https://www.omim.org/search?index=entry&search=CFH%20CFHR%20atypical%20hemolytic%20uremic%20syndrome"
+        },
+        {
+          "name": "Age-related macular degeneration",
+          "omim_url": "https://www.omim.org/search?index=entry&search=CFH%20age-related%20macular%20degeneration"
+        }
+      ]
+    }
+  ]
+}

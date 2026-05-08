@@ -1,0 +1,5 @@
+sample_id,role,sex,affected,is_proband
+father,father,male,false,false
+mother,mother,female,false,false
+son,proband,male,true,true
+daughter,sibling,female,false,false

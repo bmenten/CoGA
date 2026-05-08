@@ -1,0 +1,4 @@
+demo_family	father	0	0	1	1
+demo_family	mother	0	0	2	1
+demo_family	son	father	mother	1	2
+demo_family	daughter	father	mother	2	1

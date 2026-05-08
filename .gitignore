@@ -1,0 +1,61 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+.eggs/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.cache/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+
+# Editor directories
+.vscode/
+.idea/
+
+# Data files
+/data/families/
+/data/family-packages/
+/data/imports/
+/data/**/*.cram
+/data/**/*.cram.crai
+/data/**/*.bam
+/data/**/*.bam.bai
+/data/**/*.bcf
+/data/**/*.bcf.csi
+/data/**/*.fastq
+/data/**/*.fastq.gz
+/data/**/*.vcf.gz
+/data/**/*.vcf.gz.tbi
+/data/**/*.vcf.gz.csi
+/data/**/*.vcf
+/data/**/*.bed
+/data/**/*.npz
+/data/**/*.tsv
+/data/**/*.tsv.gz

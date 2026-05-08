@@ -1,0 +1,37 @@
+{
+  "family_id": "demo_family",
+  "members": [
+    {
+      "sample_id": "father",
+      "father_id": null,
+      "mother_id": null,
+      "sex": "male",
+      "affected": false,
+      "is_proband": false
+    },
+    {
+      "sample_id": "mother",
+      "father_id": null,
+      "mother_id": null,
+      "sex": "female",
+      "affected": false,
+      "is_proband": false
+    },
+    {
+      "sample_id": "son",
+      "father_id": "father",
+      "mother_id": "mother",
+      "sex": "male",
+      "affected": true,
+      "is_proband": true
+    },
+    {
+      "sample_id": "daughter",
+      "father_id": "father",
+      "mother_id": "mother",
+      "sex": "female",
+      "affected": false,
+      "is_proband": false
+    }
+  ]
+}
