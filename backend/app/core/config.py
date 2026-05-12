@@ -2,14 +2,20 @@ from pathlib import Path
 import json
 from pydantic import Field
 from pydantic import field_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
+
+_DEVELOPMENT_ENVIRONMENTS = {"dev", "development", "local", "test"}
+_INSECURE_SECRET_VALUES = {"secret", "change-me"}
+_INSECURE_PASSWORD_VALUES = {"admin", "change-me"}
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    secret_key: str = "secret"
+    app_env: str = Field(default="production", alias="APP_ENV")
+    secret_key: str = Field(default="change-me", alias="SECRET_KEY")
     algorithm: str = "HS256"
     # Token lifetime set to 6 hours for user sessions
     access_token_expire_minutes: int = 360
@@ -24,9 +30,31 @@ class Settings(BaseSettings):
     clickhouse_database: str = Field(default="coga", alias="CLICKHOUSE_DATABASE")
     clickhouse_user: str = Field(default="default", alias="CLICKHOUSE_USER")
     clickhouse_password: str = Field(default="", alias="CLICKHOUSE_PASSWORD")
-    admin_username: str = "admin"
-    admin_password: str = "admin"
-    admin_email: str = "bjorn.menten@ugent.be"
+    admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
+    admin_password: str = Field(default="change-me", alias="ADMIN_PASSWORD")
+    admin_email: str = Field(default="admin@example.com", alias="ADMIN_EMAIL")
+    login_rate_limit_window_seconds: int = Field(default=900, ge=60, alias="LOGIN_RATE_LIMIT_WINDOW_SECONDS")
+    login_rate_limit_threshold: int = Field(default=5, ge=1, alias="LOGIN_RATE_LIMIT_THRESHOLD")
+    login_rate_limit_base_backoff_seconds: int = Field(
+        default=30,
+        ge=1,
+        alias="LOGIN_RATE_LIMIT_BASE_BACKOFF_SECONDS",
+    )
+    login_rate_limit_max_backoff_seconds: int = Field(
+        default=900,
+        ge=1,
+        alias="LOGIN_RATE_LIMIT_MAX_BACKOFF_SECONDS",
+    )
+    audit_log_mode: str = Field(default="async", alias="AUDIT_LOG_MODE")
+    audit_log_batch_size: int = Field(default=50, ge=1, le=500, alias="AUDIT_LOG_BATCH_SIZE")
+    audit_log_flush_interval_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        le=30.0,
+        alias="AUDIT_LOG_FLUSH_INTERVAL_SECONDS",
+    )
+    audit_log_queue_size: int = Field(default=1000, ge=1, le=100_000, alias="AUDIT_LOG_QUEUE_SIZE")
+    audit_log_query_string_mode: str = Field(default="none", alias="AUDIT_LOG_QUERY_STRING_MODE")
     cors_origins: list[str] = Field(
         default=[
             "http://localhost:3000",
@@ -129,6 +157,61 @@ class Settings(BaseSettings):
                 return json.loads(stripped)
             return [entry.strip() for entry in stripped.split(",") if entry.strip()]
         return value
+
+    @field_validator("app_env", mode="before")
+    @classmethod
+    def normalize_app_env(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower() or "production"
+        return value
+
+    @field_validator("audit_log_mode", mode="before")
+    @classmethod
+    def normalize_audit_log_mode(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower() or "async"
+        return value
+
+    @field_validator("audit_log_query_string_mode", mode="before")
+    @classmethod
+    def normalize_audit_log_query_string_mode(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower() or "none"
+        return value
+
+    @model_validator(mode="after")
+    def validate_security_defaults(self) -> "Settings":
+        if self.audit_log_mode not in {"async", "sync", "off"}:
+            raise ValueError("AUDIT_LOG_MODE must be one of: async, sync, off")
+        if self.audit_log_query_string_mode not in {"none", "keys", "sanitized"}:
+            raise ValueError("AUDIT_LOG_QUERY_STRING_MODE must be one of: none, keys, sanitized")
+        if self.login_rate_limit_base_backoff_seconds > self.login_rate_limit_max_backoff_seconds:
+            raise ValueError(
+                "LOGIN_RATE_LIMIT_BASE_BACKOFF_SECONDS must be less than or equal to LOGIN_RATE_LIMIT_MAX_BACKOFF_SECONDS"
+            )
+        if self.is_development:
+            return self
+
+        insecure_fields: list[str] = []
+        if self.secret_key.strip() in _INSECURE_SECRET_VALUES:
+            insecure_fields.append("SECRET_KEY")
+        if self.postgres_password.strip() in _INSECURE_PASSWORD_VALUES:
+            insecure_fields.append("POSTGRES_PASSWORD")
+        if self.admin_password.strip() in _INSECURE_PASSWORD_VALUES:
+            insecure_fields.append("ADMIN_PASSWORD")
+        if self.admin_username.strip().lower() == "admin" and self.admin_password.strip() in _INSECURE_PASSWORD_VALUES:
+            insecure_fields.append("ADMIN_USERNAME")
+        if insecure_fields:
+            raise ValueError(
+                "Refusing to start outside development/test with insecure default credentials: "
+                + ", ".join(sorted(set(insecure_fields)))
+                + ". Set APP_ENV=development for local-only work or provide real secrets."
+            )
+        return self
+
+    @property
+    def is_development(self) -> bool:
+        return self.app_env in _DEVELOPMENT_ENVIRONMENTS
 
     @property
     def postgres_dsn(self) -> URL:

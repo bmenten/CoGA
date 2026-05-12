@@ -32,6 +32,7 @@ from .services.family_package_import import (
     stop_family_package_import_worker,
 )
 from .services.repeat_expansion_pg import seed_builtin_repeat_catalog
+from .services.audit_log_pg import start_audit_log_worker, stop_audit_log_worker
 
 
 async def init_postgres_admin_user() -> None:
@@ -89,6 +90,7 @@ async def lifespan(app: FastAPI):
     await wait_for_postgres()
     await init_postgres_schema()
     await init_postgres_admin_user()
+    await start_audit_log_worker()
     session_factory = get_postgres_sessionmaker()
     async with session_factory() as session:
         await seed_builtin_repeat_catalog(session)
@@ -110,6 +112,7 @@ async def lifespan(app: FastAPI):
                 family_import_worker_task,
                 family_import_worker_stop,
             )
+        await stop_audit_log_worker()
         await close_clickhouse_client()
         await close_postgres_engine()
 

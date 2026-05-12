@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 import json
@@ -8,8 +10,58 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import AuditLogEventOut, AuditLogPageOut
+
+logger = logging.getLogger(__name__)
+
+_INSERT_AUDIT_LOG_SQL = text(
+    """
+    INSERT INTO audit_log_events (
+        user_id,
+        user_email,
+        user_role,
+        method,
+        route_path,
+        path,
+        query_string,
+        status_code,
+        duration_ms,
+        remote_ip,
+        user_agent,
+        referer,
+        protocol,
+        request_body,
+        request_meta,
+        db_update,
+        error
+    )
+    VALUES (
+        CAST(:user_id AS uuid),
+        :user_email,
+        :user_role,
+        :method,
+        :route_path,
+        :path,
+        :query_string,
+        :status_code,
+        :duration_ms,
+        :remote_ip,
+        :user_agent,
+        :referer,
+        :protocol,
+        CAST(:request_body AS jsonb),
+        CAST(:request_meta AS jsonb),
+        CAST(:db_update AS jsonb),
+        :error
+    )
+    """
+)
+
+_audit_log_queue: asyncio.Queue[AuditLogEventPayload] | None = None
+_audit_log_worker_task: asyncio.Task[None] | None = None
+_audit_log_shutdown_event: asyncio.Event | None = None
 
 
 @dataclass(slots=True)
@@ -50,86 +102,137 @@ def log_model_update(
     return update
 
 
-async def write_audit_log_event(payload: AuditLogEventPayload) -> None:
+def _to_jsonb_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _audit_log_insert_params(payload: AuditLogEventPayload) -> dict[str, Any]:
+    return {
+        "user_id": payload.user_id,
+        "user_email": payload.user_email,
+        "user_role": payload.user_role,
+        "method": payload.method,
+        "route_path": payload.route_path,
+        "path": payload.path,
+        "query_string": payload.query_string,
+        "status_code": payload.status_code,
+        "duration_ms": payload.duration_ms,
+        "remote_ip": payload.remote_ip,
+        "user_agent": payload.user_agent,
+        "referer": payload.referer,
+        "protocol": payload.protocol,
+        "request_body": _to_jsonb_text(payload.request_body),
+        "request_meta": _to_jsonb_text(payload.request_meta or {}),
+        "db_update": _to_jsonb_text(payload.db_update),
+        "error": payload.error,
+    }
+
+
+async def _write_audit_log_batch(payloads: list[AuditLogEventPayload]) -> None:
+    if not payloads:
+        return
     session_factory = get_postgres_sessionmaker()
     async with session_factory() as session:
         try:
-            await _insert_audit_log_event(session, payload)
+            await session.execute(
+                _INSERT_AUDIT_LOG_SQL,
+                [_audit_log_insert_params(payload) for payload in payloads],
+            )
             await session.commit()
         except Exception:
             await session.rollback()
             raise
 
 
-async def _insert_audit_log_event(session: AsyncSession, payload: AuditLogEventPayload) -> None:
-    def _to_jsonb_text(value: Any) -> str | None:
-        if value is None:
-            return None
-        return json.dumps(value, ensure_ascii=True)
+def _drain_audit_log_queue(limit: int) -> list[AuditLogEventPayload]:
+    if _audit_log_queue is None:
+        return []
+    items: list[AuditLogEventPayload] = []
+    while len(items) < limit:
+        try:
+            items.append(_audit_log_queue.get_nowait())
+        except asyncio.QueueEmpty:
+            break
+    return items
 
-    await session.execute(
-        text(
-            """
-            INSERT INTO audit_log_events (
-                user_id,
-                user_email,
-                user_role,
-                method,
-                route_path,
-                path,
-                query_string,
-                status_code,
-                duration_ms,
-                remote_ip,
-                user_agent,
-                referer,
-                protocol,
-                request_body,
-                request_meta,
-                db_update,
-                error
+
+async def _audit_log_worker() -> None:
+    assert _audit_log_queue is not None
+    assert _audit_log_shutdown_event is not None
+
+    while True:
+        if _audit_log_shutdown_event.is_set():
+            batch = _drain_audit_log_queue(settings.audit_log_batch_size)
+            if not batch:
+                return
+            try:
+                await _write_audit_log_batch(batch)
+            except Exception:
+                logger.exception("Failed to flush audit log events during shutdown")
+            continue
+
+        try:
+            first_item = await asyncio.wait_for(
+                _audit_log_queue.get(),
+                timeout=settings.audit_log_flush_interval_seconds,
             )
-            VALUES (
-                CAST(:user_id AS uuid),
-                :user_email,
-                :user_role,
-                :method,
-                :route_path,
-                :path,
-                :query_string,
-                :status_code,
-                :duration_ms,
-                :remote_ip,
-                :user_agent,
-                :referer,
-                :protocol,
-                CAST(:request_body AS jsonb),
-                CAST(:request_meta AS jsonb),
-                CAST(:db_update AS jsonb),
-                :error
-            )
-            """
-        ),
-        {
-            "user_id": payload.user_id,
-            "user_email": payload.user_email,
-            "user_role": payload.user_role,
-            "method": payload.method,
-            "route_path": payload.route_path,
-            "path": payload.path,
-            "query_string": payload.query_string,
-            "status_code": payload.status_code,
-            "duration_ms": payload.duration_ms,
-            "remote_ip": payload.remote_ip,
-            "user_agent": payload.user_agent,
-            "referer": payload.referer,
-            "protocol": payload.protocol,
-            "request_body": _to_jsonb_text(payload.request_body),
-            "request_meta": _to_jsonb_text(payload.request_meta or {}),
-            "db_update": _to_jsonb_text(payload.db_update),
-            "error": payload.error,
-        },
-    )
+        except asyncio.TimeoutError:
+            continue
+
+        batch = [first_item, *_drain_audit_log_queue(settings.audit_log_batch_size - 1)]
+        try:
+            await _write_audit_log_batch(batch)
+        except Exception:
+            logger.exception("Failed to persist batched audit log events")
+
+
+async def start_audit_log_worker() -> None:
+    global _audit_log_queue, _audit_log_worker_task, _audit_log_shutdown_event
+
+    if settings.audit_log_mode != "async":
+        return
+    if _audit_log_worker_task is not None:
+        return
+
+    _audit_log_queue = asyncio.Queue(maxsize=settings.audit_log_queue_size)
+    _audit_log_shutdown_event = asyncio.Event()
+    _audit_log_worker_task = asyncio.create_task(_audit_log_worker())
+
+
+async def stop_audit_log_worker() -> None:
+    global _audit_log_queue, _audit_log_worker_task, _audit_log_shutdown_event
+
+    if _audit_log_worker_task is None or _audit_log_shutdown_event is None:
+        _audit_log_queue = None
+        _audit_log_worker_task = None
+        _audit_log_shutdown_event = None
+        return
+
+    _audit_log_shutdown_event.set()
+    try:
+        await _audit_log_worker_task
+    finally:
+        _audit_log_queue = None
+        _audit_log_worker_task = None
+        _audit_log_shutdown_event = None
+
+
+async def write_audit_log_event(payload: AuditLogEventPayload) -> None:
+    if settings.audit_log_mode == "off":
+        return
+    if settings.audit_log_mode != "async" or _audit_log_queue is None:
+        await _write_audit_log_batch([payload])
+        return
+    try:
+        _audit_log_queue.put_nowait(payload)
+    except asyncio.QueueFull:
+        logger.warning("Dropping audit log event because the queue is full")
+
+
+async def _insert_audit_log_event(session: AsyncSession, payload: AuditLogEventPayload) -> None:
+    await session.execute(_INSERT_AUDIT_LOG_SQL, _audit_log_insert_params(payload))
 
 
 def _audit_log_out_from_mapping(row: dict[str, Any]) -> AuditLogEventOut:

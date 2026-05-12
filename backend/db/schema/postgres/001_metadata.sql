@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS project_users (
     PRIMARY KEY (project_id, user_id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_project_users_user_id ON project_users (user_id);
+
 CREATE TABLE IF NOT EXISTS families (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     family_id TEXT NOT NULL UNIQUE,
@@ -71,6 +73,8 @@ CREATE TABLE IF NOT EXISTS family_projects (
     PRIMARY KEY (family_id, project_id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_family_projects_project_id ON family_projects (project_id);
+
 CREATE TABLE IF NOT EXISTS samples (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sample_id TEXT NOT NULL UNIQUE,
@@ -88,6 +92,8 @@ CREATE TABLE IF NOT EXISTS sample_projects (
     PRIMARY KEY (sample_id, project_id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_sample_projects_project_id ON sample_projects (project_id);
+
 CREATE TABLE IF NOT EXISTS family_members (
     family_id UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
     sample_id UUID NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
@@ -95,6 +101,8 @@ CREATE TABLE IF NOT EXISTS family_members (
     affected BOOLEAN NOT NULL DEFAULT FALSE,
     PRIMARY KEY (family_id, sample_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_family_members_sample_id ON family_members (sample_id);
 
 CREATE TABLE IF NOT EXISTS chromosomes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

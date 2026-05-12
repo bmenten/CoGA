@@ -1899,19 +1899,21 @@ async def _execute_clickhouse(query: str, params: dict[str, Any]) -> list[tuple[
         raise
 
 
-async def _fetch_small_variant_rows(
+def _small_variant_where_clauses(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
-) -> list[SmallVariantRecord]:
-    if not context.assembly_name:
-        return []
-    entries_table = _small_table_name(context.assembly_name, "entries")
-    details_table = _small_table_name(context.assembly_name, "variants/details")
+) -> tuple[list[str], dict[str, Any]]:
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
     if context.project_ids:
         where_clauses.append("e.project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
+    visible_sample_ids = tuple(context.sample_name_to_uuid)
+    if visible_sample_ids:
+        where_clauses.append("arrayExists(sample_id -> sample_id IN %(visible_sample_ids)s, e.calls.sampleId)")
+        params["visible_sample_ids"] = visible_sample_ids
+    else:
+        where_clauses.append("0")
     if filters.chromosome:
         where_clauses.append("e.chrom IN %(chromosomes)s")
         params["chromosomes"] = _chromosome_options(filters.chromosome)
@@ -1926,6 +1928,130 @@ async def _fetch_small_variant_rows(
     if filters.end is not None and not (filters.overlap and filters.start is not None):
         where_clauses.append("e.pos <= %(end)s")
         params["end"] = filters.end
+    return where_clauses, params
+
+
+def _structural_variant_where_clauses(
+    context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters,
+) -> tuple[list[str], dict[str, Any]]:
+    where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
+    params: dict[str, Any] = {"family_guid": context.family_uuid}
+    if context.project_ids:
+        where_clauses.append("e.project_guid IN %(project_ids)s")
+        params["project_ids"] = tuple(context.project_ids)
+    visible_sample_ids = tuple(context.sample_name_to_uuid)
+    if visible_sample_ids:
+        where_clauses.append("arrayExists(sample_id -> sample_id IN %(visible_sample_ids)s, e.calls.sampleId)")
+        params["visible_sample_ids"] = visible_sample_ids
+    else:
+        where_clauses.append("0")
+    if filters.chromosome:
+        where_clauses.append("e.chrom IN %(chromosomes)s")
+        params["chromosomes"] = _chromosome_options(filters.chromosome)
+    if filters.start is not None:
+        if filters.overlap and filters.end is not None:
+            where_clauses.append("(e.start <= %(end)s AND e.end >= %(start)s)")
+            params["start"] = filters.start
+            params["end"] = filters.end
+        else:
+            where_clauses.append("e.start >= %(start)s")
+            params["start"] = filters.start
+    if filters.end is not None and not (filters.overlap and filters.start is not None):
+        where_clauses.append("e.end <= %(end)s")
+        params["end"] = filters.end
+    return where_clauses, params
+
+
+def _page_offset(page: int, page_size: int) -> int:
+    return max(page - 1, 0) * page_size
+
+
+async def _count_small_variant_rows(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+) -> int:
+    if not context.assembly_name:
+        return 0
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    where_clauses, params = _small_variant_where_clauses(context, filters)
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT count()
+        FROM (
+            SELECT e.key, e.variantId
+            FROM {entries_table} AS e
+            WHERE {' AND '.join(where_clauses)}
+            GROUP BY e.key, e.variantId
+        )
+        """,
+        params,
+    )
+    if not rows:
+        return 0
+    return int(rows[0][0] or 0)
+
+
+async def _fetch_structural_variant_summary(
+    context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters,
+) -> tuple[int, dict[str, dict[str, int]]]:
+    if not context.assembly_name:
+        return 0, {}
+    entries_table = _structural_table_name(context.assembly_name, "entries")
+    where_clauses, params = _structural_variant_where_clauses(context, filters)
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT sv_type, source_value, count()
+        FROM (
+            SELECT
+                any(e.svType) AS sv_type,
+                any(e.source) AS source_value
+            FROM {entries_table} AS e
+            WHERE {' AND '.join(where_clauses)}
+            GROUP BY e.key, e.variantId
+        )
+        GROUP BY sv_type, source_value
+        """,
+        params,
+    )
+    summary: dict[str, dict[str, int]] = {}
+    total = 0
+    for sv_type, source, count in rows:
+        count_int = int(count or 0)
+        total += count_int
+        type_key = str(sv_type or "")
+        source_key = str(source or "")
+        summary.setdefault(type_key, {})[source_key] = count_int
+    return total, summary
+
+
+def _append_limit_offset(
+    query: str,
+    params: dict[str, Any],
+    *,
+    limit: int | None,
+    offset: int,
+) -> str:
+    if limit is None:
+        return query
+    params["limit"] = max(int(limit), 0)
+    params["offset"] = max(int(offset), 0)
+    return f"{query}\n        LIMIT %(limit)s OFFSET %(offset)s"
+
+
+async def _fetch_small_variant_rows(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[SmallVariantRecord]:
+    if not context.assembly_name:
+        return []
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    details_table = _small_table_name(context.assembly_name, "variants/details")
+    where_clauses, params = _small_variant_where_clauses(context, filters)
     query = f"""
         SELECT
             any(e.key) AS key,
@@ -1954,6 +2080,7 @@ async def _fetch_small_variant_rows(
         GROUP BY e.key, e.variantId
         ORDER BY chrom, pos, key
     """
+    query = _append_limit_offset(query, params, limit=limit, offset=offset)
     rows = await _execute_clickhouse(query, params)
     allowed_samples = set(context.sample_name_to_uuid)
     records: list[SmallVariantRecord] = []
@@ -2030,30 +2157,15 @@ async def _fetch_small_variant_rows(
 async def _fetch_structural_variant_rows(
     context: FamilyMetadataContext,
     filters: StructuralVariantQueryFilters,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[StructuralVariantRecord]:
     if not context.assembly_name:
         return []
     entries_table = _structural_table_name(context.assembly_name, "entries")
     details_table = _structural_table_name(context.assembly_name, "variants/details")
-    where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
-    params: dict[str, Any] = {"family_guid": context.family_uuid}
-    if context.project_ids:
-        where_clauses.append("e.project_guid IN %(project_ids)s")
-        params["project_ids"] = tuple(context.project_ids)
-    if filters.chromosome:
-        where_clauses.append("e.chrom IN %(chromosomes)s")
-        params["chromosomes"] = _chromosome_options(filters.chromosome)
-    if filters.start is not None:
-        if filters.overlap and filters.end is not None:
-            where_clauses.append("(e.start <= %(end)s AND e.end >= %(start)s)")
-            params["start"] = filters.start
-            params["end"] = filters.end
-        else:
-            where_clauses.append("e.start >= %(start)s")
-            params["start"] = filters.start
-    if filters.end is not None and not (filters.overlap and filters.start is not None):
-        where_clauses.append("e.end <= %(end)s")
-        params["end"] = filters.end
+    where_clauses, params = _structural_variant_where_clauses(context, filters)
     query = f"""
         SELECT
             any(e.key) AS key,
@@ -2081,6 +2193,7 @@ async def _fetch_structural_variant_rows(
         GROUP BY e.key, e.variantId
         ORDER BY chrom, start, key
     """
+    query = _append_limit_offset(query, params, limit=limit, offset=offset)
     rows = await _execute_clickhouse(query, params)
     allowed_samples = set(context.sample_name_to_uuid)
     records: list[StructuralVariantRecord] = []
@@ -2157,6 +2270,102 @@ def _selected_structural_samples(
         if sample_name in context.sample_name_to_uuid
     ]
     return selected or None
+
+
+def _has_filter_values(values: Sequence[Any] | None) -> bool:
+    return any(str(value).strip() for value in values or [])
+
+
+def _can_use_small_native_page(
+    filters: SmallVariantQueryFilters,
+    *,
+    review_classifications: Sequence[str] | None,
+    review_tags: Sequence[str] | None,
+    exclude_review_tags: Sequence[str] | None,
+    has_notes: bool,
+    track_mode: bool,
+) -> bool:
+    return not any(
+        (
+            track_mode,
+            filters.page_size <= 0,
+            filters.inheritance,
+            filters.expanded_carrier_screening,
+            filters.phase_set is not None,
+            filters.variant_type,
+            filters.source,
+            filters.gene,
+            filters.transcript,
+            filters.intervals,
+            filters.exclude_gene,
+            filters.exclude_intervals,
+            filters.rsid,
+            filters.hgvsc,
+            filters.hgvsp,
+            filters.canonical_only,
+            filters.mane_only,
+            filters.lof_only,
+            filters.max_gnomad_af is not None,
+            filters.max_gnomad_exomes_af is not None,
+            filters.max_gnomad_genomes_af is not None,
+            filters.max_gnomad_popmax_af is not None,
+            filters.max_topmed_af is not None,
+            filters.max_gnomad_ac is not None,
+            filters.max_gnomad_hom_count is not None,
+            filters.max_gnomad_hemi_count is not None,
+            filters.min_cadd is not None,
+            filters.min_revel is not None,
+            filters.min_spliceai is not None,
+            filters.sift,
+            filters.polyphen,
+            filters.panel_id,
+            _has_filter_values(filters.impact),
+            _has_filter_values(filters.effect),
+            _has_filter_values(filters.clinvar),
+            _has_filter_values(filters.exclude_clinvar),
+            _has_filter_values(filters.sample_filters),
+            _has_filter_values(review_classifications),
+            _has_filter_values(review_tags),
+            _has_filter_values(exclude_review_tags),
+            has_notes,
+        )
+    )
+
+
+def _can_use_structural_native_page(
+    filters: StructuralVariantQueryFilters,
+    *,
+    track_mode: bool,
+) -> bool:
+    return not any(
+        (
+            track_mode,
+            filters.page_size <= 0,
+            filters.length is not None,
+            filters.min_length is not None,
+            filters.variant_type,
+            filters.source,
+            _has_filter_values(filters.sample_filters),
+            _has_filter_values(filters.selected_samples),
+            filters.remote_chr,
+            filters.remote_start is not None,
+            filters.gene,
+            filters.panel_id,
+            filters.inheritance,
+            filters.phenotype,
+            filters.hpo,
+            filters.moi,
+            filters.gencc_support,
+            _has_filter_values(filters.region_flags),
+            filters.max_control_af is not None,
+            filters.max_population_af is not None,
+            filters.min_pli is not None,
+            _has_filter_values(filters.review_classifications),
+            _has_filter_values(filters.review_tags),
+            _has_filter_values(filters.exclude_review_tags),
+            filters.has_notes,
+        )
+    )
 
 
 def _inheritance_item_sort_key(
@@ -2349,6 +2558,31 @@ async def get_family_small_variants_page(
         sample_filters=sample_filters or [],
         overlap=overlap,
     )
+    if _can_use_small_native_page(
+        filters,
+        review_classifications=review_classifications,
+        review_tags=review_tags,
+        exclude_review_tags=exclude_review_tags,
+        has_notes=has_notes,
+        track_mode=track_mode,
+    ):
+        total = await _count_small_variant_rows(context, filters)
+        if total == 0:
+            return VariantPage(total=0, variants=[])
+        page_records = await _fetch_small_variant_rows(
+            context,
+            filters,
+            limit=page_size,
+            offset=_page_offset(page, page_size),
+        )
+        variants = [_small_variant_out(record) for record in page_records]
+        await _hydrate_small_variant_outs(
+            session,
+            context=context,
+            variants=variants,
+        )
+        return VariantPage(total=total, variants=variants)
+
     include_regions: list[Region] = []
     if filters.panel_id:
         include_regions.extend(await _fetch_panel_regions(session, filters.panel_id))
@@ -2542,6 +2776,37 @@ async def get_family_structural_variants_page(
     selected_samples = _selected_structural_samples(context, filters.selected_samples)
     if selected_samples is None:
         return VariantPage(total=0, variants=[], summary={})
+    if _can_use_structural_native_page(filters, track_mode=track_mode):
+        total, summary = await _fetch_structural_variant_summary(context, filters)
+        if total == 0:
+            return VariantPage(total=0, variants=[], summary={})
+        page_records = await _fetch_structural_variant_rows(
+            context,
+            filters,
+            limit=page_size,
+            offset=_page_offset(page, page_size),
+        )
+        review_map = await get_structural_variant_review_map(
+            session,
+            family_uuid=context.family_uuid,
+            variant_ids=[record.variant_id for record in page_records],
+        )
+        cytoband_map = await _fetch_structural_cytoband_map(
+            session,
+            assembly_id=context.assembly_id,
+            records=page_records,
+        )
+        variants = [
+            _structural_variant_out(
+                record,
+                selected_samples,
+                review_map.get(record.variant_id),
+                cytoband_map.get(record.variant_id),
+            )
+            for record in page_records
+        ]
+        return VariantPage(total=total, variants=variants, summary=summary)
+
     include_regions: list[Region] = []
     if filters.panel_id:
         include_regions.extend(await _fetch_panel_regions(session, filters.panel_id))

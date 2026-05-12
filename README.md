@@ -12,6 +12,7 @@ CoGA, Comprehensive Genomic Analysis, is a unified platform for variant interpre
 ## Quick Start
 
 1. Copy `.env.example` to `.env`.
+   The production-style stack now refuses to start with placeholder secrets. Replace `SECRET_KEY`, `POSTGRES_PASSWORD`, and `ADMIN_PASSWORD` before using `docker compose up`.
 2. Start the production-style local stack:
 
 ```bash
@@ -47,6 +48,7 @@ cd backend
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+export APP_ENV=development
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -62,6 +64,7 @@ npm run dev
 
 Required:
 
+- `APP_ENV`
 - `SECRET_KEY`
 - `POSTGRES_HOST`
 - `POSTGRES_PORT`
@@ -102,6 +105,8 @@ Optional:
 - `AZURE_TENANT_ID`
 - `AZURE_CLIENT_ID`
 - `AZURE_ADMIN_OVERRIDE`
+- `AUDIT_LOG_MODE`
+- `AUDIT_LOG_QUERY_STRING_MODE`
 
 ## Data Loading
 

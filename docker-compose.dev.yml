@@ -2,6 +2,8 @@ services:
   backend:
     build:
       target: dev
+    environment:
+      APP_ENV: development
     volumes:
       - ./backend:/app
       - ./data:/data

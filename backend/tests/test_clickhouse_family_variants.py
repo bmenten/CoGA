@@ -11,6 +11,7 @@ from backend.app.services.clickhouse_family_variants import (
     _normalize_small_variant_inheritance,
     get_family_compound_het_candidates,
     get_family_small_variants_page,
+    get_family_structural_variants_page,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
@@ -71,6 +72,146 @@ def _family_context() -> FamilyMetadataContext:
         assembly_id="assembly-uuid",
         assembly_name="GRCh38",
     )
+
+
+@pytest.mark.asyncio
+async def test_get_family_small_variants_page_uses_clickhouse_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        if "SELECT count()" in query:
+            return [(3,)]
+        return [
+            (
+                2,
+                "v2",
+                "1",
+                101,
+                "A",
+                "G",
+                "clair3",
+                [],
+                [],
+                None,
+                '{"annotations":[{"gene":"GENE2"}]}',
+                ["GENE2"],
+                ["PROBAND"],
+                ["0/1"],
+                [99],
+                [30],
+                [0.5],
+                [[0.5]],
+                [[12, 18]],
+                [None],
+            )
+        ]
+
+    async def fake_get_review_map(*_args, **_kwargs):
+        return {}
+
+    async def fake_get_metric_map(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.get_small_variant_review_map",
+        fake_get_review_map,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
+        fake_get_metric_map,
+    )
+
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=2,
+        page_size=1,
+        chr="1",
+    )
+
+    assert page.total == 3
+    assert [str(variant.id) for variant in page.variants] == ["v2"]
+    assert len(queries) == 2
+    assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[1][0]
+    assert queries[1][1]["limit"] == 1
+    assert queries[1][1]["offset"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_family_structural_variants_page_uses_clickhouse_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        if "GROUP BY sv_type, source_value" in query:
+            return [("DEL", "sniffles", 2), ("DUP", "spectre", 1)]
+        return [
+            (
+                2,
+                "sv2",
+                "1",
+                100,
+                250,
+                "DEL",
+                "sniffles",
+                None,
+                None,
+                None,
+                -150,
+                ["PASS"],
+                '{"annotations":[]}',
+                ["GENE2"],
+                ["PROBAND"],
+                ["0/1"],
+                [42.0],
+                [8],
+                ["PASS"],
+            )
+        ]
+
+    async def fake_get_review_map(*_args, **_kwargs):
+        return {}
+
+    async def fake_fetch_cytoband_map(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.get_structural_variant_review_map",
+        fake_get_review_map,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_structural_cytoband_map",
+        fake_fetch_cytoband_map,
+    )
+
+    page = await get_family_structural_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=2,
+        page_size=1,
+        chr="1",
+    )
+
+    assert page.total == 3
+    assert page.summary == {"DEL": {"sniffles": 2}, "DUP": {"spectre": 1}}
+    assert [str(variant.id) for variant in page.variants] == ["sv2"]
+    assert len(queries) == 2
+    assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[1][0]
+    assert queries[1][1]["limit"] == 1
+    assert queries[1][1]["offset"] == 1
 
 
 @pytest.mark.asyncio
