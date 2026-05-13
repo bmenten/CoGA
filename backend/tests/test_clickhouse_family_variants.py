@@ -380,8 +380,8 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
     assert "ifNull(a.gnomad_af, 0) <= %(detail_max_gnomad_af)s" in query
     assert "inheritance_affected_het_0_gts" in params
     assert params["detail_impact_terms"] == ("moderate",)
-    assert params["detail_effect_terms"] == ("missense_variant",)
-    assert params["detail_clinvar_terms"] == ("pathogenic",)
+    assert params["detail_effect_terms"] == ["missense_variant"]
+    assert params["detail_clinvar_terms"] == ["pathogenic"]
     assert params["limit"] == 2
 
 
@@ -435,7 +435,7 @@ def test_clickhouse_annotation_filters_are_scoped_to_one_annotation() -> None:
     assert "hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)" in query
     assert "detail_max_gnomad_af" in query
     assert " AND " in query
-    assert params["detail_clinvar_terms"] == ("pathogenic",)
+    assert params["detail_clinvar_terms"] == ["pathogenic"]
 
 
 def test_small_annotation_effect_filter_splits_vep_compound_terms() -> None:

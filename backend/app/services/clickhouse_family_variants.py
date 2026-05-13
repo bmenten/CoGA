@@ -2494,7 +2494,7 @@ def _small_annotation_filter_condition(
         )
     )
     if effect_terms:
-        params["detail_effect_terms"] = effect_terms
+        params["detail_effect_terms"] = list(effect_terms)
         impact_effect_conditions.append("hasAny(a.effects, %(detail_effect_terms)s)")
     if filters.min_spliceai is not None:
         params["detail_min_spliceai"] = filters.min_spliceai
@@ -2504,7 +2504,7 @@ def _small_annotation_filter_condition(
 
     clinvar_terms = _status_filter_terms(filters.clinvar)
     if clinvar_terms:
-        params["detail_clinvar_terms"] = clinvar_terms
+        params["detail_clinvar_terms"] = list(clinvar_terms)
         conditions.append("hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)")
 
     if filters.canonical_only:
@@ -2590,7 +2590,7 @@ def _small_annotation_exclude_filter_condition(
     exclude_clinvar_terms = _status_filter_terms(filters.exclude_clinvar)
     if not exclude_clinvar_terms:
         return None
-    params["detail_exclude_clinvar_terms"] = exclude_clinvar_terms
+    params["detail_exclude_clinvar_terms"] = list(exclude_clinvar_terms)
     return "hasAny(a.clinvar_terms, %(detail_exclude_clinvar_terms)s)"
 
 
