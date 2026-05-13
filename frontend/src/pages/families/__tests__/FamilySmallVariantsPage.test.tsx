@@ -336,6 +336,19 @@ describe('FamilySmallVariantsPage', () => {
             total_is_estimated: true,
             unfiltered_total: 1001,
             unfiltered_total_is_estimated: true,
+            small_variant_summary: {
+              total_variants: 1001,
+              snv_count: 900,
+              indel_count: 101,
+              sample_counts: [
+                {
+                  sample_id: 'PROBAND',
+                  non_ref_count: 345,
+                  het_count: 300,
+                  hom_alt_count: 45,
+                },
+              ],
+            },
           },
         });
       }
@@ -355,6 +368,9 @@ describe('FamilySmallVariantsPage', () => {
 
     expect(await screen.findByText('Showing 1000+')).toBeInTheDocument();
     expect(screen.getByText('All variants 1000+')).toBeInTheDocument();
+    expect(screen.getByText('SNVs 900')).toBeInTheDocument();
+    expect(screen.getByText('Indels 101')).toBeInTheDocument();
+    expect(screen.getByText('PROBAND ALT 345 HET 300 HOM 45')).toBeInTheDocument();
   });
 
   it('applies CoGA quick filters without opening each section', async () => {

@@ -36,6 +36,9 @@ vi.mock('../../../components/visualizations/CircosPlot', () => ({
 describe('CircosPlotPage', () => {
   it('loads chromosome ideogram bands for the circos plot', async () => {
     (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { projects: [] } });
+      }
       if (url === '/chromosomes/GRCh38/details') {
         return Promise.resolve({
           data: [
@@ -79,5 +82,60 @@ describe('CircosPlotPage', () => {
         bands: [{ name: 'p36.33', start: 0, end: 2300000, stain: 'gneg' }],
       },
     ]);
+  });
+
+  it('preserves project scope in the structural-variant circos query', async () => {
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { projects: ['p1'] } });
+      }
+      if (url === '/projects') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 'p1',
+              name: 'Project 1',
+              assembly_name: 'GRCh38',
+              assembly_version: '',
+              families: [],
+              samples: [],
+            },
+          ],
+        });
+      }
+      if (url === '/chromosomes/GRCh38/details') {
+        return Promise.resolve({
+          data: [
+            {
+              chr: 'chr1',
+              size: 248956422,
+              bands: [{ name: 'p36.33', start: 0, end: 2300000, stain: 'gneg' }],
+            },
+          ],
+        });
+      }
+      if (url === '/families/F1/structural-variants?project_id=p1&page_size=0') {
+        return Promise.resolve({ data: { variants: [] } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/circos?project_id=p1']}>
+          <Routes>
+            <Route path="/families/:familyId/circos" element={<CircosPlotPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('circos-plot')).toHaveTextContent('1:1'));
+
+    expect((api.get as unknown as Mock).mock.calls.map(([url]) => String(url))).toContain(
+      '/families/F1/structural-variants?project_id=p1&page_size=0',
+    );
   });
 });

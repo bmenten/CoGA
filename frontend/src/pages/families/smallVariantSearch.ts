@@ -105,6 +105,21 @@ export interface SmallVariantPage {
   unfiltered_total?: number | null;
   unfiltered_total_is_estimated?: boolean;
   count_limit?: number | null;
+  small_variant_summary?: SmallVariantSummary | null;
+}
+
+export interface SmallVariantSampleSummary {
+  sample_id: string;
+  non_ref_count: number;
+  het_count: number;
+  hom_alt_count: number;
+}
+
+export interface SmallVariantSummary {
+  total_variants: number;
+  snv_count: number;
+  indel_count: number;
+  sample_counts: SmallVariantSampleSummary[];
 }
 
 export interface SmallVariantGroup {

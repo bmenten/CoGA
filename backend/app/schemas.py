@@ -856,6 +856,20 @@ class SmallVariantGroupOut(BaseModel):
     review: Optional[SmallVariantCompoundHetReviewOut] = None
 
 
+class SmallVariantSampleSummaryOut(BaseModel):
+    sample_id: str
+    non_ref_count: int = 0
+    het_count: int = 0
+    hom_alt_count: int = 0
+
+
+class SmallVariantSummaryOut(BaseModel):
+    total_variants: int = 0
+    snv_count: int = 0
+    indel_count: int = 0
+    sample_counts: List[SmallVariantSampleSummaryOut] = Field(default_factory=list)
+
+
 class VariantPage(BaseModel):
     total: int
     total_is_estimated: bool = False
@@ -865,6 +879,7 @@ class VariantPage(BaseModel):
     variants: List[VariantOut] = Field(default_factory=list)
     variant_groups: List[SmallVariantGroupOut] = Field(default_factory=list)
     summary: Optional[Dict[str, Dict[str, int]]] = None
+    small_variant_summary: Optional[SmallVariantSummaryOut] = None
 
 
 class VariantLengthOut(BaseModel):

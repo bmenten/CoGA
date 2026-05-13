@@ -2,8 +2,10 @@ import { useState, useMemo, type FC } from 'react';
 import { useParams, useLocation, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
+import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import CircosPlot, { Chromosome, Variant, CHROMS } from '../../components/visualizations/CircosPlot';
 import PageState from '../../components/PageState';
+import { useFamilyReference } from '../../lib/reference';
 
 const ASSEMBLY = 'GRCh38';
 
@@ -11,13 +13,42 @@ const CircosPlotPage: FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const preferredProjectId = useMemo(
+    () => new URLSearchParams(location.search).get('project_id') || undefined,
+    [location.search],
+  );
+
+  const { data: family } = useQuery<Pick<ApiFamilyRecord, 'projects'>>({
+    queryKey: ['family', familyId],
+    enabled: Boolean(familyId),
+    queryFn: async () => {
+      const response = await api.get(`/families/${familyId}`);
+      return response.data as Pick<ApiFamilyRecord, 'projects'>;
+    },
+  });
+
+  const { projectId: resolvedProjectId } = useFamilyReference(
+    family?.projects as string[] | undefined,
+    preferredProjectId,
+  );
 
   const queryParams = useMemo(() => {
     const p = new URLSearchParams(location.search);
-    p.delete('project_id');
+    if (resolvedProjectId) {
+      p.set('project_id', resolvedProjectId);
+    }
     p.set('page_size', '0');
     return p;
-  }, [location.search]);
+  }, [location.search, resolvedProjectId]);
+
+  const resolvedSearch = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    params.delete('project_id');
+    if (resolvedProjectId) {
+      params.set('project_id', resolvedProjectId);
+    }
+    return params.toString();
+  }, [location.search, resolvedProjectId]);
 
   const [selected, setSelected] = useState<Record<string, boolean>>(() =>
     CHROMS.reduce(
@@ -74,7 +105,7 @@ const CircosPlotPage: FC = () => {
   }
 
   const handleChromClick = (chr: string) =>
-    navigate(`/families/${familyId}/chromosome/${chr}${location.search}`);
+    navigate(`/families/${familyId}/chromosome/${chr}${resolvedSearch ? `?${resolvedSearch}` : ''}`);
 
   const handleVariantClick = (v: Variant) => {
     if (v.type?.toUpperCase() !== 'BND') return;
@@ -85,6 +116,9 @@ const CircosPlotPage: FC = () => {
     params.append('chrom', chr1);
     if (chr2 !== chr1) {
       params.append('chrom', chr2);
+    }
+    if (resolvedProjectId) {
+      params.set('project_id', resolvedProjectId);
     }
     navigate(`/families/${familyId}/genome?${params.toString()}`);
   };
@@ -139,7 +173,7 @@ const CircosPlotPage: FC = () => {
               </p>
             </div>
             <Link
-              to={`/families/${familyId}/structural-variants${location.search}`}
+              to={`/families/${familyId}/structural-variants${resolvedSearch ? `?${resolvedSearch}` : ''}`}
               className="button-secondary hover:no-underline"
             >
               Back to variants

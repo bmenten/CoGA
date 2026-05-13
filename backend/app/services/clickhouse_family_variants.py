@@ -14,7 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
-from ..schemas import GenotypeOut, SmallVariantGroupOut, SmallVariantReviewOut, VariantOut, VariantPage
+from ..schemas import (
+    GenotypeOut,
+    SmallVariantGroupOut,
+    SmallVariantReviewOut,
+    SmallVariantSampleSummaryOut,
+    SmallVariantSummaryOut,
+    VariantOut,
+    VariantPage,
+)
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import (
@@ -226,6 +234,10 @@ def _small_table_name(assembly_name: str, suffix: str) -> str:
 
 def _small_annotation_table_name(assembly_name: str) -> str:
     return _small_table_name(assembly_name, "variants/annotations")
+
+
+def _small_summary_table_name(assembly_name: str, suffix: str) -> str:
+    return _small_table_name(assembly_name, suffix)
 
 
 def _structural_table_name(assembly_name: str, suffix: str) -> str:
@@ -2887,6 +2899,119 @@ async def _fetch_structural_variant_summary(
     return total, summary
 
 
+async def _fetch_small_variant_summary(
+    context: FamilyMetadataContext,
+) -> SmallVariantSummaryOut | None:
+    if not context.assembly_name:
+        return None
+
+    family_variant_summary: SmallVariantSummaryOut | None = None
+    family_params: dict[str, Any] = {"family_guid": context.family_uuid}
+
+    if len(context.project_ids) == 1:
+        family_params["project_guid"] = context.project_ids[0]
+        family_rows = await _execute_clickhouse(
+            f"""
+            SELECT total_variants, snv_count, indel_count
+            FROM {_small_summary_table_name(context.assembly_name, 'family_variant_summary')}
+            WHERE family_guid = %(family_guid)s
+              AND project_guid = %(project_guid)s
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            family_params,
+        )
+        if family_rows:
+            total_variants, snv_count, indel_count = family_rows[0]
+            family_variant_summary = SmallVariantSummaryOut(
+                total_variants=int(total_variants or 0),
+                snv_count=int(snv_count or 0),
+                indel_count=int(indel_count or 0),
+            )
+
+    if family_variant_summary is None:
+        entries_table = _small_table_name(context.assembly_name, "entries")
+        where_clauses = ["family_guid = %(family_guid)s", "sign = 1"]
+        params: dict[str, Any] = {"family_guid": context.family_uuid}
+        if context.project_ids:
+            where_clauses.append("project_guid IN %(project_ids)s")
+            params["project_ids"] = tuple(context.project_ids)
+        rows = await _execute_clickhouse(
+            f"""
+            SELECT
+                countDistinct(key) AS total_variants,
+                countDistinctIf(key, length(ref) = 1 AND length(alt) = 1) AS snv_count,
+                countDistinctIf(key, NOT (length(ref) = 1 AND length(alt) = 1)) AS indel_count
+            FROM {entries_table}
+            WHERE {' AND '.join(where_clauses)}
+            """,
+            params,
+        )
+        total_variants, snv_count, indel_count = rows[0] if rows else (0, 0, 0)
+        family_variant_summary = SmallVariantSummaryOut(
+            total_variants=int(total_variants or 0),
+            snv_count=int(snv_count or 0),
+            indel_count=int(indel_count or 0),
+        )
+
+    sample_rows: list[tuple[Any, ...]] = []
+    if len(context.project_ids) == 1:
+        sample_rows = await _execute_clickhouse(
+            f"""
+            SELECT sample_id, non_ref_count, het_count, hom_alt_count
+            FROM {_small_summary_table_name(context.assembly_name, 'family_sample_variant_summary')}
+            WHERE family_guid = %(family_guid)s
+            ORDER BY sample_id
+            """,
+            {"family_guid": context.family_uuid},
+        )
+
+    if not sample_rows:
+        entries_table = _small_table_name(context.assembly_name, "entries")
+        sample_where_clauses = ["family_guid = %(family_guid)s", "sign = 1"]
+        sample_params: dict[str, Any] = {"family_guid": context.family_uuid}
+        if context.project_ids:
+            sample_where_clauses.append("project_guid IN %(project_ids)s")
+            sample_params["project_ids"] = tuple(context.project_ids)
+        sample_rows = await _execute_clickhouse(
+            f"""
+            SELECT
+                sample_id,
+                countDistinctIf(key, gt NOT IN ('', '.', './.', '.|.', '0/0', '0|0')) AS non_ref_count,
+                countDistinctIf(key, gt IN ('0/1', '1/0', '0|1', '1|0')) AS het_count,
+                countDistinctIf(key, gt IN ('1/1', '1|1')) AS hom_alt_count
+            FROM {entries_table}
+            ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
+            WHERE {' AND '.join(sample_where_clauses)}
+            GROUP BY sample_id
+            ORDER BY sample_id
+            """,
+            sample_params,
+        )
+
+    sample_counts_by_name: dict[str, SmallVariantSampleSummaryOut] = {}
+    for stored_sample_id, non_ref_count, het_count, hom_alt_count in sample_rows:
+        sample_name = _display_sample_name(context, stored_sample_id)
+        if not sample_name or sample_name not in context.sample_name_to_uuid:
+            continue
+        sample_counts_by_name[sample_name] = SmallVariantSampleSummaryOut(
+            sample_id=sample_name,
+            non_ref_count=int(non_ref_count or 0),
+            het_count=int(het_count or 0),
+            hom_alt_count=int(hom_alt_count or 0),
+        )
+
+    ordered_sample_counts: list[SmallVariantSampleSummaryOut] = []
+    for row in context.sample_rows:
+        sample_name = str(row.get("sample_id") or "").strip()
+        sample_summary = sample_counts_by_name.pop(sample_name, None)
+        if sample_summary is not None:
+            ordered_sample_counts.append(sample_summary)
+    ordered_sample_counts.extend(sorted(sample_counts_by_name.values(), key=lambda item: item.sample_id))
+    family_variant_summary.sample_counts = ordered_sample_counts
+    return family_variant_summary
+
+
 def _append_limit_offset(
     query: str,
     params: dict[str, Any],
@@ -3540,11 +3665,12 @@ async def get_family_small_variants_page(
         sample_filters=sample_filters or [],
         overlap=overlap,
     )
+    small_variant_summary = None if track_mode else await _fetch_small_variant_summary(context)
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
         panel_constraints = await _fetch_panel_constraints(session, filters.panel_id)
         if not panel_constraints.genes and not panel_constraints.regions:
-            return VariantPage(total=0, variants=[])
+            return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
 
     include_review_filter_active = bool(review_classifications or review_tags or has_notes)
     review_variant_ids: set[str] | None = None
@@ -3557,7 +3683,7 @@ async def get_family_small_variants_page(
             has_notes=has_notes,
         )
         if not review_variant_ids:
-            return VariantPage(total=0, variants=[])
+            return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
     excluded_review_variant_ids = (
         await list_matching_small_variant_review_ids(
             session,
@@ -3572,7 +3698,7 @@ async def get_family_small_variants_page(
     if filters.intervals:
         interval_regions = _parse_interval_regions(filters.intervals)
         if not interval_regions:
-            return VariantPage(total=0, variants=[])
+            return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
         include_regions.extend(interval_regions)
     exclude_regions = _parse_interval_regions(filters.exclude_intervals)
     exclude_gene_regions = (
@@ -3614,14 +3740,9 @@ async def get_family_small_variants_page(
             exclude_gene_regions=exclude_gene_regions,
             exclude_gene_terms=exclude_gene_terms,
         )
-        unfiltered_count_task = _count_small_variant_rows_bounded(
-            context,
-            SmallVariantQueryFilters(page=1, page_size=1),
-        )
-        (total, total_is_estimated), (unfiltered_total, unfiltered_total_is_estimated) = await asyncio.gather(
-            count_task,
-            unfiltered_count_task,
-        )
+        total, total_is_estimated = await count_task
+        unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+        unfiltered_total_is_estimated = False
         page_records = fetched_records[:page_size]
         if not page_records:
             return VariantPage(
@@ -3631,6 +3752,7 @@ async def get_family_small_variants_page(
                 unfiltered_total_is_estimated=unfiltered_total_is_estimated,
                 count_limit=_SMALL_COUNT_LIMIT - 1,
                 variants=[],
+                small_variant_summary=small_variant_summary,
             )
         variants = [_small_variant_out(record) for record in page_records]
         await _hydrate_small_variant_outs(
@@ -3645,6 +3767,7 @@ async def get_family_small_variants_page(
             unfiltered_total_is_estimated=unfiltered_total_is_estimated,
             count_limit=_SMALL_COUNT_LIMIT - 1,
             variants=variants,
+            small_variant_summary=small_variant_summary,
         )
 
     if filters.gene:
@@ -3694,10 +3817,8 @@ async def get_family_small_variants_page(
         unfiltered_total = None
         unfiltered_total_is_estimated = False
     else:
-        unfiltered_total, unfiltered_total_is_estimated = await _count_small_variant_rows_bounded(
-            context,
-            SmallVariantQueryFilters(page=1, page_size=1),
-        )
+        unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+        unfiltered_total_is_estimated = False
     if filters.inheritance:
         inheritance_items = _inheritance_result_items(
             inheritance=filters.inheritance,
@@ -3746,6 +3867,7 @@ async def get_family_small_variants_page(
             count_limit=_SMALL_COUNT_LIMIT - 1,
             variants=page_single_variants,
             variant_groups=page_variant_groups,
+            small_variant_summary=small_variant_summary,
         )
     total = len(filtered)
     reported_total = min(total, _SMALL_COUNT_LIMIT)
@@ -3768,6 +3890,7 @@ async def get_family_small_variants_page(
         unfiltered_total_is_estimated=unfiltered_total_is_estimated,
         count_limit=_SMALL_COUNT_LIMIT - 1,
         variants=variants,
+        small_variant_summary=small_variant_summary,
     )
 
 

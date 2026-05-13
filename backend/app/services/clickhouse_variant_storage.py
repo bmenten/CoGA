@@ -52,6 +52,10 @@ def _structural_table_name(assembly_name: str, suffix: str) -> str:
     return f"{settings.clickhouse_database}.`{dataset}/SV/{suffix}`"
 
 
+def _small_genotype_tuple(values: Iterable[str]) -> str:
+    return "(" + ", ".join(repr(value) for value in values) + ")"
+
+
 def _expected_clickhouse_variant_tables(assembly_name: str) -> list[tuple[str, str, str]]:
     dataset = _require_clickhouse_identifier(assembly_name)
     return [
@@ -61,6 +65,8 @@ def _expected_clickhouse_variant_tables(assembly_name: str) -> list[tuple[str, s
         ("small_variants", "table", f"{dataset}/SNV_INDEL/entries"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/project_gt_stats"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/gt_stats"),
+        ("small_variants", "table", f"{dataset}/SNV_INDEL/family_variant_summary"),
+        ("small_variants", "table", f"{dataset}/SNV_INDEL/family_sample_variant_summary"),
         ("small_variants", "materialized_view", f"{dataset}/SNV_INDEL/entries_to_project_gt_stats_mv"),
         (
             "small_variants",
@@ -643,6 +649,34 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         ORDER BY key
         """,
         f"""
+        CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/family_variant_summary`
+        (
+            `family_guid` String,
+            `project_guid` LowCardinality(String),
+            `total_variants` UInt64,
+            `snv_count` UInt64,
+            `indel_count` UInt64,
+            `updated_at` DateTime DEFAULT now()
+        )
+        ENGINE = ReplacingMergeTree(updated_at)
+        PRIMARY KEY (family_guid, project_guid)
+        ORDER BY (family_guid, project_guid)
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/family_sample_variant_summary`
+        (
+            `family_guid` String,
+            `sample_id` String,
+            `non_ref_count` UInt64,
+            `het_count` UInt64,
+            `hom_alt_count` UInt64,
+            `updated_at` DateTime DEFAULT now()
+        )
+        ENGINE = ReplacingMergeTree(updated_at)
+        PRIMARY KEY (family_guid, sample_id)
+        ORDER BY (family_guid, sample_id)
+        """,
+        f"""
         CREATE MATERIALIZED VIEW IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/entries_to_project_gt_stats_mv`
         TO {database}.`{dataset}/SNV_INDEL/project_gt_stats`
         AS
@@ -742,7 +776,14 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
 async def delete_family_small_variants(assembly_name: str, family_uuid: str) -> None:
     await ensure_clickhouse_variant_tables(assembly_name)
     params = {"family_guid": family_uuid}
-    for suffix in ("entries", "variants/annotations", "variants/details", "key_lookup"):
+    for suffix in (
+        "entries",
+        "variants/annotations",
+        "variants/details",
+        "key_lookup",
+        "family_variant_summary",
+        "family_sample_variant_summary",
+    ):
         await _execute(
             f"ALTER TABLE {_small_table_name(assembly_name, suffix)} DELETE WHERE family_guid = %(family_guid)s SETTINGS mutations_sync = 1",
             params,
@@ -898,6 +939,70 @@ async def replace_family_small_variants(
     await delete_family_small_variants(assembly_name, family_uuid)
     if records:
         await insert_small_variant_records(assembly_name, family_uuid, project_ids, records)
+        await refresh_family_small_variant_summaries(assembly_name, family_uuid)
+
+
+async def refresh_family_small_variant_summaries(
+    assembly_name: str,
+    family_uuid: str,
+) -> None:
+    await ensure_clickhouse_variant_tables(assembly_name)
+    params = {"family_guid": family_uuid}
+    for suffix in ("family_variant_summary", "family_sample_variant_summary"):
+        await _execute(
+            f"ALTER TABLE {_small_table_name(assembly_name, suffix)} DELETE WHERE family_guid = %(family_guid)s SETTINGS mutations_sync = 1",
+            params,
+        )
+
+    ref_or_missing_gts = _small_genotype_tuple(sorted(_SMALL_GT_REF | _SMALL_GT_MISSING))
+    het_gts = _small_genotype_tuple(("0/1", "1/0", "0|1", "1|0"))
+    hom_alt_gts = _small_genotype_tuple(("1/1", "1|1"))
+
+    await _execute(
+        f"""
+        INSERT INTO {_small_table_name(assembly_name, 'family_variant_summary')} (
+            family_guid,
+            project_guid,
+            total_variants,
+            snv_count,
+            indel_count
+        )
+        SELECT
+            family_guid,
+            project_guid,
+            countDistinct(key) AS total_variants,
+            countDistinctIf(key, length(ref) = 1 AND length(alt) = 1) AS snv_count,
+            countDistinctIf(key, NOT (length(ref) = 1 AND length(alt) = 1)) AS indel_count
+        FROM {_small_table_name(assembly_name, 'entries')}
+        WHERE family_guid = %(family_guid)s
+          AND sign = 1
+        GROUP BY family_guid, project_guid
+        """,
+        params,
+    )
+    await _execute(
+        f"""
+        INSERT INTO {_small_table_name(assembly_name, 'family_sample_variant_summary')} (
+            family_guid,
+            sample_id,
+            non_ref_count,
+            het_count,
+            hom_alt_count
+        )
+        SELECT
+            family_guid,
+            sample_id,
+            countDistinctIf(key, gt NOT IN {ref_or_missing_gts}) AS non_ref_count,
+            countDistinctIf(key, gt IN {het_gts}) AS het_count,
+            countDistinctIf(key, gt IN {hom_alt_gts}) AS hom_alt_count
+        FROM {_small_table_name(assembly_name, 'entries')}
+        ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
+        WHERE family_guid = %(family_guid)s
+          AND sign = 1
+        GROUP BY family_guid, sample_id
+        """,
+        params,
+    )
 
 
 async def insert_structural_variant_records(

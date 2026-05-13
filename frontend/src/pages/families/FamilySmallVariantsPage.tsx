@@ -42,6 +42,9 @@ const formatVariantTotal = (total: number | undefined, estimated?: boolean): str
   return `${Math.max(safeTotal - 1, 0)}+`;
 };
 
+const formatSummaryCount = (value: number | undefined): string =>
+  Math.max(value ?? 0, 0).toLocaleString();
+
 const buildOptimisticReview = (
   variant: SmallVariant,
   payload: SmallVariantReviewSavePayload,
@@ -201,27 +204,15 @@ const FamilySmallVariantsPage: React.FC = () => {
       return res.data as SmallVariantPage;
     },
   });
-
-  const { data: unfiltered } = useQuery<SmallVariantPage>({
-    queryKey: ['family', familyId, 'small-variants', 'total', projectId || null],
-    enabled: Boolean(variantQueryReady && activeFilterCount > 0 && data && data.unfiltered_total == null),
-    queryFn: async () => {
-      const params = new URLSearchParams({ page: '1', page_size: '1' });
-      if (projectId) {
-        params.set('project_id', projectId);
-      }
-      const res = await api.get(`/families/${familyId}/small-variants?${params.toString()}`);
-      return res.data as SmallVariantPage;
-    },
-  });
+  const smallVariantSummary = data?.small_variant_summary ?? null;
   const allVariantTotal =
     data?.unfiltered_total ??
-    (activeFilterCount > 0 ? (unfiltered?.total ?? data?.total ?? 0) : (data?.total ?? 0));
+    smallVariantSummary?.total_variants ??
+    data?.total ??
+    0;
   const allVariantTotalIsEstimated =
     data?.unfiltered_total_is_estimated ??
-    (activeFilterCount > 0
-      ? (unfiltered?.total_is_estimated ?? data?.total_is_estimated ?? false)
-      : (data?.total_is_estimated ?? false));
+    false;
 
   const savePresetMutation = useMutation({
     mutationFn: async (payload: {
@@ -354,9 +345,28 @@ const FamilySmallVariantsPage: React.FC = () => {
                   <span className="badge-chip">
                     All variants {formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated)}
                   </span>
+                  {smallVariantSummary ? (
+                    <>
+                      <span className="badge-chip">SNVs {formatSummaryCount(smallVariantSummary.snv_count)}</span>
+                      <span className="badge-chip">Indels {formatSummaryCount(smallVariantSummary.indel_count)}</span>
+                    </>
+                  ) : null}
                   <span className="badge-chip">Active filters {activeFilterCount}</span>
                   <span className="badge-chip">Tag library {tags.length}</span>
                 </div>
+                {smallVariantSummary?.sample_counts?.length ? (
+                  <div className="variant-sample-summary">
+                    <p className="analysis-section-title">Per sample</p>
+                    <div className="variant-summary-row">
+                      {smallVariantSummary.sample_counts.map((sampleSummary) => (
+                        <span key={sampleSummary.sample_id} className="badge-chip">
+                          {sampleSummary.sample_id} ALT {formatSummaryCount(sampleSummary.non_ref_count)} HET{' '}
+                          {formatSummaryCount(sampleSummary.het_count)} HOM {formatSummaryCount(sampleSummary.hom_alt_count)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <div className="inline-actions">
                 <Link to={`/families/${familyId}`} className="button-ghost hover:no-underline">
