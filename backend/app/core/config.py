@@ -25,7 +25,6 @@ class Settings(BaseSettings):
     postgres_user: str = Field(default="coga", alias="POSTGRES_USER")
     postgres_password: str = Field(default="change-me", alias="POSTGRES_PASSWORD")
     clickhouse_host: str = Field(default="localhost", alias="CLICKHOUSE_HOST")
-    clickhouse_port: int = Field(default=9000, alias="CLICKHOUSE_PORT")
     clickhouse_http_port: int = Field(default=8123, alias="CLICKHOUSE_HTTP_PORT")
     clickhouse_database: str = Field(default="coga", alias="CLICKHOUSE_DATABASE")
     clickhouse_user: str = Field(default="default", alias="CLICKHOUSE_USER")

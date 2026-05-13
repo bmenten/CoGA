@@ -3,18 +3,23 @@ from __future__ import annotations
 import pytest
 
 from backend.app.services.clickhouse_family_variants import (
+    PanelFilterConstraints,
+    Region,
     SmallVariantCall,
     SmallVariantRecord,
     _apply_small_inheritance_filter,
     _compound_het_partner_map,
     _fetch_small_variant_rows,
+    _flexible_status_match,
+    _small_detail_filter_clauses,
+    _small_record_matches,
     _normalize_small_variant_inheritance,
     get_family_compound_het_candidates,
     get_family_small_variants_page,
     get_family_structural_variants_page,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
-from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+from backend.app.services.family_variant_filters import SmallVariantQueryFilters, parse_genotype_filter
 
 
 def _small_call(sample: str, gt: str) -> SmallVariantCall:
@@ -61,7 +66,12 @@ def _family_context() -> FamilyMetadataContext:
             {"sample_id": "DAD", "role": "father", "affected": False, "sex": "male"},
             {"sample_id": "SIB", "role": "sibling", "affected": False, "sex": "female"},
         ],
-        sample_uuid_to_name={},
+        sample_uuid_to_name={
+            "sample-proband": "PROBAND",
+            "sample-mom": "MOM",
+            "sample-dad": "DAD",
+            "sample-sib": "SIB",
+        },
         sample_name_to_uuid={
             "PROBAND": "sample-proband",
             "MOM": "sample-mom",
@@ -71,6 +81,49 @@ def _family_context() -> FamilyMetadataContext:
         affected_sample_names=["PROBAND"],
         assembly_id="assembly-uuid",
         assembly_name="GRCh38",
+    )
+
+
+def _small_entry_row(
+    sample_ids: list[str] | None = None,
+    *,
+    key: int = 2,
+    variant_id: str = "v2",
+    start: int = 101,
+) -> tuple[object, ...]:
+    return (
+        key,
+        variant_id,
+        "1",
+        start,
+        "A",
+        "G",
+        "clair3",
+        None,
+        [],
+        ["GENE2"],
+        sample_ids or ["PROBAND"],
+        ["0/1"],
+        [99],
+        [30],
+        [0.5],
+        [[0.5]],
+        [[12, 18]],
+        [None],
+    )
+
+
+def _small_detail_row(
+    *,
+    key: int = 2,
+    gene: str = "GENE2",
+) -> tuple[object, ...]:
+    return (
+        key,
+        "clair3",
+        [],
+        None,
+        f'{{"annotations":[{{"gene":"{gene}"}}]}}',
     )
 
 
@@ -84,29 +137,11 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
         queries.append((query, dict(params)))
         if "SELECT count()" in query:
             return [(3,)]
+        if "variants/details" in query:
+            return [_small_detail_row(), _small_detail_row(key=3, gene="GENE3")]
         return [
-            (
-                2,
-                "v2",
-                "1",
-                101,
-                "A",
-                "G",
-                "clair3",
-                [],
-                [],
-                None,
-                '{"annotations":[{"gene":"GENE2"}]}',
-                ["GENE2"],
-                ["PROBAND"],
-                ["0/1"],
-                [99],
-                [30],
-                [0.5],
-                [[0.5]],
-                [[12, 18]],
-                [None],
-            )
+            _small_entry_row(),
+            _small_entry_row(key=3, variant_id="v3", start=102),
         ]
 
     async def fake_get_review_map(*_args, **_kwargs):
@@ -137,11 +172,289 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
     )
 
     assert page.total == 3
+    assert page.total_is_estimated is False
+    assert page.unfiltered_total == 3
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 2
-    assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[1][0]
-    assert queries[1][1]["limit"] == 1
-    assert queries[1][1]["offset"] == 1
+    assert len(queries) == 4
+    assert "hasAny(e.calls.sampleId, %(visible_sample_ids)s)" in queries[0][0]
+    assert "GROUP BY e.key, e.variantId" not in queries[0][0]
+    assert queries[0][1]["visible_sample_ids"] == [
+        "PROBAND",
+        "sample-proband",
+        "MOM",
+        "sample-mom",
+        "DAD",
+        "sample-dad",
+        "SIB",
+        "sample-sib",
+    ]
+    assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0][0]
+    assert queries[0][1]["limit"] == 2
+    assert queries[0][1]["offset"] == 1
+
+
+def test_parse_genotype_filter_expands_group_aliases() -> None:
+    assert parse_genotype_filter("het") == (["0/1", "1/0", "0|1", "1|0"], False)
+    assert parse_genotype_filter("hom") == (["1/1", "1|1"], False)
+    assert parse_genotype_filter("wt") == (["0/0", "0|0"], True)
+
+
+@pytest.mark.asyncio
+async def test_get_family_small_variants_page_filters_simple_sample_gt_in_clickhouse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        if "SELECT count()" in query:
+            return [(1,)]
+        if "variants/details" in query:
+            return [_small_detail_row()]
+        return [_small_entry_row()]
+
+    async def fake_get_review_map(*_args, **_kwargs):
+        return {}
+
+    async def fake_get_metric_map(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.get_small_variant_review_map",
+        fake_get_review_map,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
+        fake_get_metric_map,
+    )
+
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=1,
+        sample_filters=["PROBAND:het:20:10:0.2:4", "MOM:ref"],
+    )
+
+    assert page.total == 1
+    assert page.total_is_estimated is False
+    assert [str(variant.id) for variant in page.variants] == ["v2"]
+    assert len(queries) == 4
+    assert "arrayExists((sample_id, gt, gq, dp, ab, af, ad) -> sample_id IN %(sample_filter_0_samples)s" in queries[0][0]
+    assert "arrayMax(af) >= %(sample_filter_0_min_af)s" in queries[0][0]
+    assert "ad[2] >= %(sample_filter_0_min_ad_alt)s" in queries[0][0]
+    assert "NOT arrayExists(sample_id -> sample_id IN %(sample_filter_1_samples)s" in queries[0][0]
+    assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0][0]
+    assert queries[0][1]["sample_filter_0_samples"] == ("PROBAND", "sample-proband")
+    assert queries[0][1]["sample_filter_0_gts"] == ("0/1", "1/0", "0|1", "1|0")
+    assert queries[0][1]["sample_filter_0_min_gq"] == 20.0
+    assert queries[0][1]["sample_filter_0_min_dp"] == 10
+    assert queries[0][1]["sample_filter_0_min_af"] == 0.2
+    assert queries[0][1]["sample_filter_0_min_ad_alt"] == 4
+    assert queries[0][1]["sample_filter_1_samples"] == ("MOM", "sample-mom")
+    assert queries[0][1]["sample_filter_1_gts"] == ("0/0", "0|0")
+
+
+@pytest.mark.asyncio
+async def test_get_family_small_variants_page_uses_bounded_total_without_counting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[str] = []
+
+    async def fake_execute_clickhouse(query: str, _params: dict[str, object]):
+        queries.append(query)
+        if "SELECT count()" in query:
+            return [(1001,)]
+        if "variants/details" in query:
+            return [_small_detail_row(), _small_detail_row(key=3, gene="GENE3")]
+        return [
+            _small_entry_row(),
+            _small_entry_row(key=3, variant_id="v3", start=102),
+        ]
+
+    async def fake_get_review_map(*_args, **_kwargs):
+        return {}
+
+    async def fake_get_metric_map(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.get_small_variant_review_map",
+        fake_get_review_map,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
+        fake_get_metric_map,
+    )
+
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=1,
+    )
+
+    assert page.total == 1001
+    assert page.total_is_estimated is True
+    assert page.unfiltered_total == 1001
+    assert page.unfiltered_total_is_estimated is True
+    assert [str(variant.id) for variant in page.variants] == ["v2"]
+    assert len(queries) == 4
+    assert "LIMIT %(count_limit)s" in "\n".join(queries)
+    assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0]
+
+
+@pytest.mark.asyncio
+async def test_get_family_small_variants_page_filters_vep_annotations_in_clickhouse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        if "SELECT count()" in query:
+            return [(1,)]
+        if "variants/details" in query:
+            return [
+                _small_detail_row(
+                    key=2,
+                    gene="GENE2",
+                )
+            ]
+        if "FROM coga.`GRCh38/SNV_INDEL/entries`" in query:
+            return [
+                _small_entry_row()
+            ]
+        return []
+
+    async def fake_get_review_map(*_args, **_kwargs):
+        return {}
+
+    async def fake_get_metric_map(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.get_small_variant_review_map",
+        fake_get_review_map,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
+        fake_get_metric_map,
+    )
+
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=1,
+        inheritance="de_novo_dominant",
+        impact=["MODERATE"],
+        effect=["missense_variant"],
+        clinvar=["pathogenic"],
+        max_gnomad_af=0.01,
+    )
+
+    assert page.total == 1
+    assert [str(variant.id) for variant in page.variants] == ["v2"]
+    assert len(queries) == 4
+    query, params = queries[0]
+    assert "INNER JOIN" not in query
+    assert "GRCh38/SNV_INDEL/variants/annotations" in query
+    assert "e.key IN (SELECT a.key" in query
+    assert "GROUP BY e.key, e.variantId" not in query
+    assert "a.impact IN %(detail_impact_terms)s" in query
+    assert "hasAny(a.effects, %(detail_effect_terms)s)" in query
+    assert "hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)" in query
+    assert "ifNull(a.gnomad_af, 0) <= %(detail_max_gnomad_af)s" in query
+    assert "inheritance_affected_het_0_gts" in params
+    assert params["detail_impact_terms"] == ("moderate",)
+    assert params["detail_effect_terms"] == ("missense_variant",)
+    assert params["detail_clinvar_terms"] == ("pathogenic",)
+    assert params["limit"] == 2
+
+
+def test_clinvar_status_filter_is_exact_not_substring() -> None:
+    assert _flexible_status_match("Pathogenic", ["pathogenic"])
+    assert not _flexible_status_match("Likely pathogenic", ["pathogenic"])
+    assert _flexible_status_match("Pathogenic&risk_factor", ["pathogenic"])
+    assert not _flexible_status_match("Conflicting interpretations of pathogenicity", ["pathogenic"])
+
+
+def test_clinvar_filter_does_not_override_other_annotation_filters() -> None:
+    record = _small_variant("v1", "GENE1", calls=[_small_call("PROBAND", "0/1")])
+    record.annotations = [
+        {
+            "gene": "GENE1",
+            "impact": "LOW",
+            "clinvar": "Pathogenic",
+            "gnomad_af": 0.03,
+        }
+    ]
+
+    assert not _small_record_matches(
+        record,
+        SmallVariantQueryFilters(
+            page=1,
+            page_size=100,
+            impact=["HIGH"],
+            clinvar=["Pathogenic"],
+            max_gnomad_af=0.01,
+        ),
+        [],
+        [],
+        [],
+    )
+
+
+def test_clickhouse_annotation_filters_are_scoped_to_one_annotation() -> None:
+    clauses, params = _small_detail_filter_clauses(
+        SmallVariantQueryFilters(
+            page=1,
+            page_size=100,
+            impact=["HIGH"],
+            clinvar=["Pathogenic"],
+            max_gnomad_af=0.01,
+        )
+    )
+    query = "\n".join(clauses)
+
+    assert "JSONExtract" not in query
+    assert "a.impact IN %(detail_impact_terms)s" in query
+    assert "hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)" in query
+    assert "detail_max_gnomad_af" in query
+    assert " AND " in query
+    assert params["detail_clinvar_terms"] == ("pathogenic",)
+
+
+def test_small_annotation_effect_filter_splits_vep_compound_terms() -> None:
+    record = _small_variant("v1", "GENE1", calls=[_small_call("PROBAND", "0/1")])
+    record.annotations = [
+        {
+            "gene": "GENE1",
+            "impact": "MODERATE",
+            "effect": "missense_variant&splice_region_variant",
+        }
+    ]
+
+    assert _small_record_matches(
+        record,
+        SmallVariantQueryFilters(page=1, page_size=100, effect=["missense_variant"]),
+        [],
+        [],
+        [],
+    )
 
 
 @pytest.mark.asyncio
@@ -209,41 +522,42 @@ async def test_get_family_structural_variants_page_uses_clickhouse_pagination(
     assert page.summary == {"DEL": {"sniffles": 2}, "DUP": {"spectre": 1}}
     assert [str(variant.id) for variant in page.variants] == ["sv2"]
     assert len(queries) == 2
+    assert "hasAny(e.calls.sampleId, %(visible_sample_ids)s)" in queries[0][0]
+    assert queries[0][1]["visible_sample_ids"] == [
+        "PROBAND",
+        "sample-proband",
+        "MOM",
+        "sample-mom",
+        "DAD",
+        "sample-dad",
+        "SIB",
+        "sample-sib",
+    ]
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[1][0]
     assert queries[1][1]["limit"] == 1
     assert queries[1][1]["offset"] == 1
 
 
 @pytest.mark.asyncio
-async def test_fetch_small_variant_rows_uses_details_source_column(
+async def test_fetch_small_variant_rows_uses_entry_source_column(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured: dict[str, object] = {}
+    captured_queries: list[str] = []
 
     async def fake_execute_clickhouse(query: str, params: dict[str, object]):
-        captured["query"] = query
-        captured["params"] = params
-        return []
+        _ = params
+        captured_queries.append(query)
+        if "variants/details" in query:
+            return [_small_detail_row()]
+        return [_small_entry_row()]
 
     monkeypatch.setattr(
         "backend.app.services.clickhouse_family_variants._execute_clickhouse",
         fake_execute_clickhouse,
     )
 
-    context = FamilyMetadataContext(
-        family_uuid="family-uuid",
-        family_id="demo_family",
-        project_ids=["project-uuid"],
-        sample_rows=[],
-        sample_uuid_to_name={},
-        sample_name_to_uuid={},
-        affected_sample_names=[],
-        assembly_id="assembly-uuid",
-        assembly_name="GRCh38",
-    )
-
     rows = await _fetch_small_variant_rows(
-        context,
+        _family_context(),
         SmallVariantQueryFilters(
             page=1,
             page_size=1,
@@ -254,9 +568,135 @@ async def test_fetch_small_variant_rows_uses_details_source_column(
         ),
     )
 
-    assert rows == []
-    assert "any(d.source) AS source" in str(captured["query"])
-    assert "any(e.source) AS source" not in str(captured["query"])
+    assert len(rows) == 1
+    assert rows[0].source == "clair3"
+    assert "any(source) AS source" in captured_queries[1]
+    assert "e.source AS source" in captured_queries[0]
+
+
+@pytest.mark.asyncio
+async def test_fetch_small_variant_rows_maps_stored_sample_uuid_to_display_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_execute_clickhouse(_query: str, _params: dict[str, object]):
+        if "variants/details" in _query:
+            return [_small_detail_row()]
+        return [_small_entry_row(["sample-proband"])]
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    rows = await _fetch_small_variant_rows(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1),
+    )
+
+    assert len(rows) == 1
+    assert [call.sample for call in rows[0].calls] == ["PROBAND"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_small_variant_rows_pushes_panel_and_review_filters_to_clickhouse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        if "variants/details" in query:
+            return [_small_detail_row()]
+        return [_small_entry_row()]
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    rows = await _fetch_small_variant_rows(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1),
+        panel_constraints=PanelFilterConstraints(
+            genes=("GENE2",),
+            regions=(Region(chr="1", start=50, end=150),),
+        ),
+        include_variant_ids={"v2"},
+        exclude_variant_ids={"v9"},
+        limit=2,
+    )
+
+    assert len(rows) == 1
+    query, params = queries[0]
+    assert "ANY INNER JOIN" not in query
+    assert "e.variantId IN %(include_variant_ids)s" in query
+    assert "e.variantId NOT IN %(exclude_variant_ids)s" in query
+    assert "panel_gene_terms" in params
+    assert "panel_region_chromosomes_0" in params
+    assert params["include_variant_ids"] == ("v2",)
+    assert params["exclude_variant_ids"] == ("v9",)
+
+
+@pytest.mark.asyncio
+async def test_fetch_small_variant_rows_pushes_simple_inheritance_to_clickhouse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        if "variants/details" in query:
+            return [_small_detail_row()]
+        return [_small_entry_row()]
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    rows = await _fetch_small_variant_rows(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1, inheritance="de_novo_dominant"),
+        limit=2,
+    )
+
+    assert len(rows) == 1
+    query, params = queries[0]
+    assert "inheritance_affected_het_0_gts" in params
+    assert "inheritance_unaffected_alt_0_gts" in params
+    assert "arrayExists((sample_id, gt) ->" in query
+    assert "GROUP BY e.key, e.variantId" not in query
+
+
+@pytest.mark.asyncio
+async def test_fetch_small_variant_rows_prefilters_expanded_carrier_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        if "variants/details" in query:
+            return [_small_detail_row()]
+        return [_small_entry_row(["MOM"])]
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    rows = await _fetch_small_variant_rows(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1, expanded_carrier_screening=True),
+        limit=2,
+    )
+
+    assert len(rows) == 1
+    query, params = queries[0]
+    assert "carrier_screen_partner_alt_0_gts" in params
+    assert "carrier_screen_partner_alt_1_gts" in params
+    assert "length(e.gene_symbols) > 0" in query
+    assert " OR " in query
 
 
 def test_compound_het_partner_map_requires_family_consistent_pairs() -> None:
@@ -430,6 +870,7 @@ def test_de_novo_dominant_and_x_linked_inheritance_filters() -> None:
 async def test_get_family_small_variants_page_applies_compound_het_inheritance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    fetch_kwargs: list[dict[str, object]] = []
     records = [
         _small_variant(
             "v1",
@@ -463,8 +904,15 @@ async def test_get_family_small_variants_page_applies_compound_het_inheritance(
         ),
     ]
 
-    async def fake_fetch_small_variant_rows(*_args, **_kwargs):
-        return records
+    async def fake_fetch_small_variant_rows(_context, filters, **_kwargs):
+        fetch_kwargs.append(dict(_kwargs))
+        return _apply_small_inheritance_filter(
+            records,
+            inheritance=filters.inheritance,
+            affected_samples=["PROBAND"],
+            unaffected_samples=["MOM", "DAD", "SIB"],
+            sample_rows=_family_context().sample_rows,
+        )
 
     async def fake_list_matching_review_ids(*_args, **_kwargs):
         return []
@@ -505,6 +953,7 @@ async def test_get_family_small_variants_page_applies_compound_het_inheritance(
     assert len(page.variant_groups) == 1
     assert page.variant_groups[0].gene == "GENE1"
     assert [str(variant.id) for variant in page.variant_groups[0].variants] == ["v1", "v2"]
+    assert fetch_kwargs[0]["limit"] == 1251
 
 
 @pytest.mark.asyncio
@@ -541,8 +990,9 @@ async def test_get_family_small_variants_page_returns_pair_groups_and_singletons
         ),
     ]
 
-    async def fake_fetch_small_variant_rows(*_args, **_kwargs):
-        return records
+    async def fake_fetch_small_variant_rows(*_args, **kwargs):
+        excluded_ids = set(kwargs.get("exclude_variant_ids") or [])
+        return [record for record in records if record.variant_id not in excluded_ids]
 
     async def fake_list_matching_review_ids(*_args, **_kwargs):
         return []
@@ -622,8 +1072,14 @@ async def test_get_family_small_variants_page_supports_coga_like_inheritance_mod
         ),
     ]
 
-    async def fake_fetch_small_variant_rows(*_args, **_kwargs):
-        return records
+    async def fake_fetch_small_variant_rows(_context, filters, **_kwargs):
+        return _apply_small_inheritance_filter(
+            records,
+            inheritance=filters.inheritance,
+            affected_samples=["PROBAND"],
+            unaffected_samples=["MOM", "DAD", "SIB"],
+            sample_rows=_family_context().sample_rows,
+        )
 
     async def fake_list_matching_review_ids(*_args, **_kwargs):
         return []
@@ -719,8 +1175,9 @@ async def test_get_family_compound_het_candidates_uses_pair_logic(
         ),
     ]
 
-    async def fake_fetch_small_variant_rows(*_args, **_kwargs):
-        return records
+    async def fake_fetch_small_variant_rows(*_args, **kwargs):
+        excluded_ids = set(kwargs.get("exclude_variant_ids") or [])
+        return [record for record in records if record.variant_id not in excluded_ids]
 
     async def fake_get_review_map(*_args, **_kwargs):
         return {}
@@ -762,8 +1219,9 @@ async def test_get_family_small_variants_page_excludes_review_tags(
         _small_variant("v3", "GENE3", calls=[_small_call("PROBAND", "0/1")]),
     ]
 
-    async def fake_fetch_small_variant_rows(*_args, **_kwargs):
-        return records
+    async def fake_fetch_small_variant_rows(*_args, **kwargs):
+        excluded_ids = set(kwargs.get("exclude_variant_ids") or [])
+        return [record for record in records if record.variant_id not in excluded_ids]
 
     async def fake_list_matching_review_ids(*_args, **kwargs):
         if kwargs.get("tags") == ["excluded"]:

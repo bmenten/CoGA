@@ -59,7 +59,7 @@ async def test_get_clickhouse_variant_storage_status_reports_missing_tables_and_
 
     assert status["assembly_name"] == "GRCh38"
     assert status["health"] == "missing"
-    assert status["expected_table_count"] == 12
+    assert status["expected_table_count"] == 11
     assert status["existing_table_count"] == 3
     assert status["small_variant_rows"] == 5000
     assert status["structural_variant_rows"] == 1200
@@ -72,7 +72,7 @@ async def test_get_clickhouse_variant_storage_status_reports_missing_tables_and_
 
 
 @pytest.mark.asyncio
-async def test_optimize_clickhouse_variant_tables_skips_memory_and_materialized_views(
+async def test_optimize_clickhouse_variant_tables_skips_materialized_views(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     executed_queries: list[str] = []
@@ -112,5 +112,4 @@ async def test_optimize_clickhouse_variant_tables_skips_memory_and_materialized_
     assert len(executed_queries) == 9
     assert all("OPTIMIZE TABLE" in query for query in executed_queries)
     assert all("FINAL" in query for query in executed_queries)
-    assert not any("variants_memory" in query for query in executed_queries)
     assert not any("_mv" in query for query in executed_queries)

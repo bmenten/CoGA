@@ -196,4 +196,18 @@ describe('smallVariantSearch preset helpers', () => {
 
     expect(params.getAll('exclude_review_tag')).toEqual(['excluded', 'needs_rna']);
   });
+
+  it('preserves project scope in the query string', () => {
+    const params = buildSmallVariantQueryParams(
+      createEmptySmallFilters(),
+      {
+        S1: defaultSampleFilter(),
+        S2: defaultSampleFilter(),
+      },
+      1,
+      'project-123',
+    );
+
+    expect(params.get('project_id')).toBe('project-123');
+  });
 });

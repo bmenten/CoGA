@@ -80,8 +80,7 @@ The frontend is the only Node package in the repository. Run npm commands from `
 | `POSTGRES_USER` | Postgres user |
 | `POSTGRES_PASSWORD` | Postgres password |
 | `CLICKHOUSE_HOST` | ClickHouse hostname |
-| `CLICKHOUSE_PORT` | ClickHouse native port |
-| `CLICKHOUSE_HTTP_PORT` | ClickHouse HTTP port |
+| `CLICKHOUSE_HTTP_PORT` | ClickHouse HTTP port used by the backend |
 | `CLICKHOUSE_DATABASE` | ClickHouse database |
 | `CLICKHOUSE_USER` | ClickHouse user |
 | `CLICKHOUSE_PASSWORD` | ClickHouse password |

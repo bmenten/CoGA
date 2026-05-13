@@ -1,4 +1,12 @@
-const DIPLOID_GENOTYPE_PATTERN = /absent|\.\/\.|[0-9.][/|][0-9.]/g;
+const DIPLOID_GENOTYPE_PATTERN = /absent|hom_alt|hom_ref|hom|het|ref|wt|\.\/\.|[0-9.][/|][0-9.]/g;
+const GENOTYPE_ALIASES: Record<string, string[]> = {
+  het: ['0/1', '1/0', '0|1', '1|0'],
+  hom: ['1/1', '1|1'],
+  hom_alt: ['1/1', '1|1'],
+  ref: ['0/0', '0|0'],
+  wt: ['0/0', '0|0'],
+  hom_ref: ['0/0', '0|0'],
+};
 
 export const hasNonDefaultGenotypeSelection = (
   selected: string[],
@@ -20,9 +28,9 @@ export const parseSerializedGenotypeSelection = (
   const rawValue = parts[1];
   if (!rawValue) return [];
 
-  const phasedMatches = rawValue.match(DIPLOID_GENOTYPE_PATTERN);
+  const phasedMatches = rawValue.toLowerCase().match(DIPLOID_GENOTYPE_PATTERN);
   if (phasedMatches?.length) {
-    return phasedMatches;
+    return phasedMatches.flatMap((value) => GENOTYPE_ALIASES[value] || [value]);
   }
 
   return rawValue.split('|').filter(Boolean);

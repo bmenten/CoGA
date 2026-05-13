@@ -171,10 +171,10 @@ describe('FamilyDetailPage', () => {
     expect(screen.getByText(/Oncology pilot/i)).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: /structural variants/i })
-    ).toHaveAttribute('href', '/families/F1/structural-variants');
+    ).toHaveAttribute('href', '/families/F1/structural-variants?project_id=p1');
     expect(
       screen.getByRole('link', { name: /small variants/i })
-    ).toHaveAttribute('href', '/families/F1/small-variants');
+    ).toHaveAttribute('href', '/families/F1/small-variants?project_id=p1');
     expect(
       screen.getByPlaceholderText(/BRCA1 or chr17:43044295-43125482/i),
     ).toBeInTheDocument();
@@ -184,24 +184,26 @@ describe('FamilyDetailPage', () => {
     const structuralVariantCuration = screen.getByLabelText(/structural variant review summary/i);
     expect(within(smallVariantCuration).getByText('Small variants')).toBeInTheDocument();
     expect(within(structuralVariantCuration).getByText('Structural variants')).toBeInTheDocument();
-    expect(
-      screen.getByText((_, element) => element?.textContent?.trim() === 'Reviewed 3'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, element) => element?.textContent?.trim() === 'Notes 2'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, element) => element?.textContent?.trim() === 'Review 2'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, element) => element?.textContent?.trim() === 'Send for validation 1'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, element) => element?.textContent?.trim() === 'Reviewed 2'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText((_, element) => element?.textContent?.trim() === 'Needs segmentation review 1'),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText((_, element) => element?.textContent?.trim() === 'Reviewed 3'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText((_, element) => element?.textContent?.trim() === 'Notes 2'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText((_, element) => element?.textContent?.trim() === 'Review 2'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText((_, element) => element?.textContent?.trim() === 'Send for validation 1'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText((_, element) => element?.textContent?.trim() === 'Reviewed 2'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText((_, element) => element?.textContent?.trim() === 'Needs segmentation review 1'),
+      ).toBeInTheDocument();
+    });
   });
 
   it('keeps variant workspace navigation visible when no variant records are loaded', async () => {
@@ -223,12 +225,35 @@ describe('FamilyDetailPage', () => {
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     expect(
       screen.getByRole('link', { name: /structural variants/i })
-    ).toHaveAttribute('href', '/families/F1/structural-variants');
+    ).toHaveAttribute('href', '/families/F1/structural-variants?project_id=p1');
     expect(
       screen.getByRole('link', { name: /small variants/i })
-    ).toHaveAttribute('href', '/families/F1/small-variants');
+    ).toHaveAttribute('href', '/families/F1/small-variants?project_id=p1');
     await waitFor(() =>
       expect(screen.getByText(/No family variant data is loaded yet/i)).toBeInTheDocument(),
     );
+  });
+
+  it('preserves the selected project in variant workspace links', async () => {
+    localStorage.setItem('role', 'viewer');
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1?project_id=p1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    expect(
+      screen.getByRole('link', { name: /structural variants/i })
+    ).toHaveAttribute('href', '/families/F1/structural-variants?project_id=p1');
+    expect(
+      screen.getByRole('link', { name: /small variants/i })
+    ).toHaveAttribute('href', '/families/F1/small-variants?project_id=p1');
   });
 });

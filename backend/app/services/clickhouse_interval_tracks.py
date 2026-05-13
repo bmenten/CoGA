@@ -35,6 +35,8 @@ async def _execute(
     data: Sequence[tuple[Any, ...]] | None = None,
 ) -> Any:
     if data is not None:
+        if not data:
+            return None
         return await execute_clickhouse(query, list(data))
     return await execute_clickhouse(query, params or {})
 

@@ -5,7 +5,15 @@ import re
 from typing import List
 
 
-GENOTYPE_TOKEN_PATTERN = re.compile(r"absent|\.\/\.|[0-9.][/|][0-9.]")
+GENOTYPE_TOKEN_PATTERN = re.compile(r"absent|hom_alt|hom_ref|hom|het|ref|wt|\.\/\.|[0-9.][/|][0-9.]")
+GENOTYPE_ALIASES = {
+    "het": ["0/1", "1/0", "0|1", "1|0"],
+    "hom": ["1/1", "1|1"],
+    "hom_alt": ["1/1", "1|1"],
+    "ref": ["0/0", "0|0"],
+    "wt": ["0/0", "0|0"],
+    "hom_ref": ["0/0", "0|0"],
+}
 
 
 @dataclass(slots=True)
@@ -118,12 +126,15 @@ def parse_genotype_filter(raw_value: str | None) -> tuple[List[str], bool]:
     if not raw_value:
         return [], False
 
-    diploid_matches = GENOTYPE_TOKEN_PATTERN.findall(raw_value)
-    genotype_values = diploid_matches if diploid_matches else raw_value.split("|")
+    matches = GENOTYPE_TOKEN_PATTERN.findall(raw_value.lower())
+    genotype_values = matches if matches else raw_value.split("|")
+    expanded_values: list[str] = []
+    for genotype in genotype_values:
+        expanded_values.extend(GENOTYPE_ALIASES.get(genotype, [genotype]))
     include_absent = "absent" in genotype_values or any(
-        genotype in {"0/0", "0|0"} for genotype in genotype_values
+        genotype in {"0/0", "0|0"} for genotype in expanded_values
     )
-    return [genotype for genotype in genotype_values if genotype != "absent"], include_absent
+    return [genotype for genotype in expanded_values if genotype != "absent"], include_absent
 
 
 def parse_structural_sample_filter(entry: str) -> StructuralSampleFilter | None:

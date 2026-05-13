@@ -858,6 +858,10 @@ class SmallVariantGroupOut(BaseModel):
 
 class VariantPage(BaseModel):
     total: int
+    total_is_estimated: bool = False
+    unfiltered_total: Optional[int] = None
+    unfiltered_total_is_estimated: bool = False
+    count_limit: Optional[int] = None
     variants: List[VariantOut] = Field(default_factory=list)
     variant_groups: List[SmallVariantGroupOut] = Field(default_factory=list)
     summary: Optional[Dict[str, Dict[str, int]]] = None
