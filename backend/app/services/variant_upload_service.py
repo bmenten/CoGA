@@ -28,6 +28,7 @@ from .clickhouse_variant_storage import (
     count_family_small_variants,
     delete_family_small_variants,
     insert_small_variant_records,
+    refresh_family_small_variant_summaries,
     replace_family_structural_variants,
 )
 from .clickhouse_interval_tracks import (
@@ -801,6 +802,10 @@ async def upload_family_small_variant_file(
             raise HTTPException(status_code=400, detail="No valid small-variant records found")
 
         await flush_variant_batch()
+        await refresh_family_small_variant_summaries(
+            context.assembly_name,
+            context.family_uuid,
+        )
 
         if resolved_format == "glimpse2":
             for sample_name, state in hap_prev.items():

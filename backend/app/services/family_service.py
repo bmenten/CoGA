@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import re
 from typing import Any
 
@@ -27,7 +28,6 @@ from .clickhouse_family_variants import (
     _fetch_panel_regions,
     _fetch_small_variant_rows,
     _fetch_structural_variant_rows,
-    _small_record_matches,
     _structural_record_matches,
 )
 from .data_scope import normalize_chromosome
@@ -73,10 +73,11 @@ def _sample_specific_filters(sample_name: str, filters: list[str] | None) -> lis
 
 
 def _small_variant_presence_filters(sample_name: str, filters: list[str] | None) -> list[str]:
+    base_filters = list(filters or [])
     specific_filters = _sample_specific_filters(sample_name, filters)
     if specific_filters:
-        return specific_filters
-    return [f"{sample_name}:{'|'.join(_NON_REF_SMALL_GT_VALUES)}"]
+        return base_filters
+    return [*base_filters, f"{sample_name}:{'|'.join(_NON_REF_SMALL_GT_VALUES)}"]
 
 
 async def _resolve_family_assembly(
@@ -427,11 +428,40 @@ async def get_family_track_availability_for_user(
         sample_filters=sample_filters or [],
         overlap=overlap,
     )
-    structural_records, small_records = await asyncio.gather(
-        _fetch_structural_variant_rows(context, structural_filters),
-        _fetch_small_variant_rows(context, small_filters) if include_small_variants else asyncio.sleep(0, result=[]),
-    )
     include_regions = await _fetch_panel_regions(session, panel_id) if panel_id else []
+
+    async def small_variant_presence_for_sample(sample_name: str) -> str | None:
+        sample_small_filters = replace(
+            small_filters,
+            sample_filters=_small_variant_presence_filters(sample_name, sample_filters),
+        )
+        records = await _fetch_small_variant_rows(
+            context,
+            sample_small_filters,
+            limit=1,
+            include_regions=include_regions,
+        )
+        return sample_name if records else None
+
+    small_presence_task = (
+        asyncio.gather(
+            *[
+                small_variant_presence_for_sample(sample_name)
+                for sample_name in availability
+            ]
+        )
+        if include_small_variants
+        else asyncio.sleep(0, result=[])
+    )
+    structural_records, small_presence_results = await asyncio.gather(
+        _fetch_structural_variant_rows(context, structural_filters),
+        small_presence_task,
+    )
+    small_presence = {
+        sample_name
+        for sample_name in small_presence_results
+        if sample_name
+    }
 
     for sample_name, sample_availability in availability.items():
         sample_availability.coverage = sample_name in coverage_ids
@@ -468,21 +498,7 @@ async def get_family_track_availability_for_user(
         )
 
         if include_small_variants:
-            sample_small_filters = SmallVariantQueryFilters(
-                page=1,
-                page_size=1,
-                chromosome=small_filters.chromosome,
-                start=small_filters.start,
-                end=small_filters.end,
-                phase_set=small_filters.phase_set,
-                panel_id=small_filters.panel_id,
-                sample_filters=_small_variant_presence_filters(sample_name, sample_filters),
-                overlap=small_filters.overlap,
-            )
-            sample_availability.small_variants = any(
-                _small_record_matches(record, sample_small_filters, include_regions, [], [])
-                for record in small_records
-            )
+            sample_availability.small_variants = sample_name in small_presence
 
     return FamilyTrackAvailabilityOut(samples=availability)
 

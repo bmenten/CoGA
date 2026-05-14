@@ -265,6 +265,114 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getAllByRole('button', { name: 'More tags' }).length).toBeGreaterThan(0);
   });
 
+  it('scopes small-variant requests to the linked project when the URL has no project id', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            members: [],
+            projects: ['p1'],
+          },
+        });
+      }
+      if (url === '/projects') {
+        return Promise.resolve({
+          data: [{ _id: 'p1', name: 'Demo project', assembly_id: 'asm1', assembly_name: 'GRCh38' }],
+        });
+      }
+      if (url === '/panels') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/families/F1/small-variant-filter-presets') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/families/F1/small-variant-tags') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.startsWith('/families/F1/small-variants?page=1&page_size=100&project_id=p1')) {
+        return Promise.resolve({ data: { variants: [], total: 7 } });
+      }
+      return Promise.resolve({ data: { variants: [], total: 0 } });
+    });
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith(
+        expect.stringContaining('/families/F1/small-variants?page=1&page_size=100&project_id=p1'),
+      );
+    });
+    expect(await screen.findByText('Showing 7')).toBeInTheDocument();
+  });
+
+  it('formats bounded variant totals as 1000+', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { members: [], projects: [] } });
+      }
+      if (url === '/panels') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/families/F1/small-variant-filter-presets') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/families/F1/small-variant-tags') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.startsWith('/families/F1/small-variants?page=1&page_size=100')) {
+        return Promise.resolve({
+          data: {
+            variants: [],
+            total: 1001,
+            total_is_estimated: true,
+            unfiltered_total: 1001,
+            unfiltered_total_is_estimated: true,
+            small_variant_summary: {
+              total_variants: 1001,
+              snv_count: 900,
+              indel_count: 101,
+              sample_counts: [
+                {
+                  sample_id: 'PROBAND',
+                  non_ref_count: 345,
+                  het_count: 300,
+                  hom_alt_count: 45,
+                },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText('Showing 1000+')).toBeInTheDocument();
+    expect(screen.getByText('All variants 1000+')).toBeInTheDocument();
+    expect(screen.getByText('SNVs 900')).toBeInTheDocument();
+    expect(screen.getByText('Indels 101')).toBeInTheDocument();
+    expect(screen.getByText('PROBAND ALT 345 HET 300 HOM 45')).toBeInTheDocument();
+  });
+
   it('applies CoGA quick filters without opening each section', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {

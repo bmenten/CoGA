@@ -101,6 +101,25 @@ export interface SmallVariantPage {
   variants: SmallVariant[];
   variant_groups?: SmallVariantGroup[];
   total: number;
+  total_is_estimated?: boolean;
+  unfiltered_total?: number | null;
+  unfiltered_total_is_estimated?: boolean;
+  count_limit?: number | null;
+  small_variant_summary?: SmallVariantSummary | null;
+}
+
+export interface SmallVariantSampleSummary {
+  sample_id: string;
+  non_ref_count: number;
+  het_count: number;
+  hom_alt_count: number;
+}
+
+export interface SmallVariantSummary {
+  total_variants: number;
+  snv_count: number;
+  indel_count: number;
+  sample_counts: SmallVariantSampleSummary[];
 }
 
 export interface SmallVariantGroup {
@@ -787,11 +806,16 @@ export const buildSmallVariantQueryParams = (
   currentFilters: SmallFilterState,
   currentSampleFilters: Record<string, SmallVariantSampleFilter>,
   nextPage: number,
+  projectId?: string,
 ) => {
   const params = new URLSearchParams({
     page: String(nextPage),
     page_size: '100',
   });
+
+  if (projectId) {
+    params.set('project_id', projectId);
+  }
 
   if (currentFilters.locus) {
     params.set('locus', currentFilters.locus);
@@ -1095,12 +1119,14 @@ type UseSmallVariantSearchStateArgs = {
   family?: SmallVariantFamily;
   locationSearch: string;
   navigate: NavigateFunction;
+  resolvedProjectId?: string;
 };
 
 export const useSmallVariantSearchState = ({
   family,
   locationSearch,
   navigate,
+  resolvedProjectId,
 }: UseSmallVariantSearchStateArgs) => {
   const emptyFilters = useMemo(() => createEmptySmallFilters(), []);
   const members = useMemo(
@@ -1116,6 +1142,11 @@ export const useSmallVariantSearchState = ({
     SmallVariantSampleFilter
   >>({});
   const [page, setPage] = useState(1);
+  const urlProjectId = useMemo(
+    () => new URLSearchParams(locationSearch).get('project_id') || undefined,
+    [locationSearch],
+  );
+  const queryProjectId = resolvedProjectId || urlProjectId;
 
   useEffect(() => {
     if (!family) return;
@@ -1198,7 +1229,12 @@ export const useSmallVariantSearchState = ({
     setSampleFilters(cloneSampleFilters(nextSampleFilters));
     setPage(nextPage);
     navigate({
-      search: buildSmallVariantQueryParams(nextFilters, nextSampleFilters, nextPage).toString(),
+      search: buildSmallVariantQueryParams(
+        nextFilters,
+        nextSampleFilters,
+        nextPage,
+        queryProjectId,
+      ).toString(),
     });
   };
 
@@ -1298,7 +1334,16 @@ export const useSmallVariantSearchState = ({
     setSampleDraftFilters(cloneSampleFilters(resetSampleFilters));
     setSampleFilters(cloneSampleFilters(resetSampleFilters));
     setPage(1);
-    navigate({ search: '' });
+    navigate({
+      search: queryProjectId
+        ? buildSmallVariantQueryParams(
+            emptyFilters,
+            resetSampleFilters,
+            1,
+            queryProjectId,
+          ).toString()
+        : '',
+    });
   };
 
   const activeFilterCount = useMemo(
@@ -1345,8 +1390,8 @@ export const useSmallVariantSearchState = ({
   };
 
   const requestQueryString = useMemo(
-    () => buildSmallVariantQueryParams(filters, sampleFilters, page).toString(),
-    [filters, sampleFilters, page],
+    () => buildSmallVariantQueryParams(filters, sampleFilters, page, queryProjectId).toString(),
+    [filters, sampleFilters, page, queryProjectId],
   );
 
   const goToPage = (nextPage: number) => {

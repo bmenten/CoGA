@@ -59,12 +59,13 @@ async def test_get_clickhouse_variant_storage_status_reports_missing_tables_and_
 
     assert status["assembly_name"] == "GRCh38"
     assert status["health"] == "missing"
-    assert status["expected_table_count"] == 12
+    assert status["expected_table_count"] == 13
     assert status["existing_table_count"] == 3
     assert status["small_variant_rows"] == 5000
     assert status["structural_variant_rows"] == 1200
     assert status["pending_mutations"] == 2
     assert "GRCh38/SNV_INDEL/key_lookup" in status["missing_tables"]
+    assert "GRCh38/SNV_INDEL/family_variant_summary" in status["missing_tables"]
     assert any(
         table["name"] == "GRCh38/SV/entries" and table["pending_mutations"] == 2
         for table in status["tables"]
@@ -72,7 +73,7 @@ async def test_get_clickhouse_variant_storage_status_reports_missing_tables_and_
 
 
 @pytest.mark.asyncio
-async def test_optimize_clickhouse_variant_tables_skips_memory_and_materialized_views(
+async def test_optimize_clickhouse_variant_tables_skips_materialized_views(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     executed_queries: list[str] = []
@@ -109,8 +110,46 @@ async def test_optimize_clickhouse_variant_tables_skips_memory_and_materialized_
     )
 
     assert status["assembly_name"] == "GRCh38"
-    assert len(executed_queries) == 9
+    assert len(executed_queries) == 11
     assert all("OPTIMIZE TABLE" in query for query in executed_queries)
     assert all("FINAL" in query for query in executed_queries)
-    assert not any("variants_memory" in query for query in executed_queries)
     assert not any("_mv" in query for query in executed_queries)
+
+
+@pytest.mark.asyncio
+async def test_refresh_family_small_variant_summaries_rebuilds_family_and_sample_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, dict[str, object] | None]] = []
+
+    async def fake_ensure(assembly_name: str) -> None:
+        assert assembly_name == "GRCh38"
+
+    async def fake_execute(
+        query: str,
+        params: dict[str, object] | None = None,
+        data=None,
+    ):
+        executed.append((query, params))
+        return []
+
+    monkeypatch.setattr(
+        clickhouse_variant_storage,
+        "ensure_clickhouse_variant_tables",
+        fake_ensure,
+    )
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+
+    await clickhouse_variant_storage.refresh_family_small_variant_summaries(
+        "GRCh38",
+        "family-1",
+    )
+
+    assert len(executed) == 4
+    assert "family_variant_summary" in executed[0][0]
+    assert "DELETE WHERE family_guid = %(family_guid)s" in executed[0][0]
+    assert "family_sample_variant_summary" in executed[1][0]
+    assert "countDistinctIf(key, length(ref) = 1 AND length(alt) = 1)" in executed[2][0]
+    assert "countDistinctIf(key, gt NOT IN ('', '.', './.', '.|.', '0/0', '0|0'))" in executed[3][0]
+    assert "countDistinctIf(key, gt IN ('0/1', '1/0', '0|1', '1|0'))" in executed[3][0]
+    assert all(params == {"family_guid": "family-1"} for _query, params in executed)

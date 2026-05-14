@@ -4,10 +4,13 @@ import json
 import time
 import traceback
 from typing import Any
+from urllib.parse import parse_qsl
+from urllib.parse import urlencode
 
 from fastapi import Request, Response
 
 from ..core.coga_logging import CoGALogger
+from ..core.config import settings
 from ..services.audit_log_pg import (
     AuditLogEventPayload,
     log_model_update,
@@ -23,6 +26,17 @@ _SENSITIVE_PREFIXES = (
     "authorization",
     "api_key",
     "access_key",
+)
+_SENSITIVE_QUERY_KEYS = (
+    "family",
+    "sample",
+    "subject",
+    "participant",
+    "patient",
+    "pedigree",
+    "project",
+    "token",
+    "auth",
 )
 _MAX_REQUEST_BODY_BYTES = 25_000
 
@@ -41,6 +55,48 @@ def _sanitize_for_logging(value: Any) -> Any:
     if isinstance(value, list):
         return [_sanitize_for_logging(item) for item in value]
     return value
+
+
+def _sanitize_query_param(key: str, value: str) -> str:
+    lowered = key.lower()
+    if any(lowered.startswith(prefix) for prefix in _SENSITIVE_PREFIXES):
+        return "***"
+    if any(token in lowered for token in _SENSITIVE_QUERY_KEYS):
+        return "***"
+    if len(value) > 128:
+        return value[:125] + "..."
+    return value
+
+
+def _query_string_for_logging(request: Request) -> str | None:
+    raw_query = request.url.query
+    if not raw_query:
+        return None
+
+    mode = settings.audit_log_query_string_mode
+    if mode == "none":
+        return None
+
+    query_items = parse_qsl(raw_query, keep_blank_values=True)
+    if not query_items:
+        return None
+
+    if mode == "keys":
+        keys = sorted({key for key, _value in query_items if key})
+        return "&".join(keys) or None
+
+    sanitized_items = [
+        (key, _sanitize_query_param(key, value))
+        for key, value in query_items
+    ]
+    return urlencode(sanitized_items) or None
+
+
+def _request_url_for_logging(request: Request) -> str:
+    query_string = _query_string_for_logging(request)
+    if not query_string:
+        return request.url.path
+    return f"{request.url.path}?{query_string}"
 
 
 def _parse_request_body(request: Request, body_bytes: bytes) -> Any | None:
@@ -164,11 +220,11 @@ async def log_request_response(request: Request, call_next) -> Response:
         db_update = _derive_db_update(request, request_body)
         route = request.scope.get("route")
         route_path = getattr(route, "path", None)
-        query_string = request.url.query if request.url.query else None
+        query_string = _query_string_for_logging(request)
 
         http_request_json = {
             "requestMethod": request.method,
-            "requestUrl": str(request.url),
+            "requestUrl": _request_url_for_logging(request),
             "status": status_code,
             "responseSize": response_size,
             "userAgent": request.headers.get("user-agent"),

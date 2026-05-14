@@ -5,7 +5,7 @@ from email.message import EmailMessage
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -31,12 +31,23 @@ from ..services.metadata_service import (
     list_user_accounts,
     update_user_account,
 )
+from ..services.auth_rate_limit_pg import (
+    clear_login_failures,
+    get_login_throttle_state,
+    record_failed_login,
+)
 from ..services.small_variant_review_pg import (
     delete_small_variant_filter_preset_for_owner,
     list_small_variant_filter_presets_for_owner,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _request_remote_ip(request: Request) -> str | None:
+    if request.client is None:
+        return None
+    return request.client.host
 
 
 def notify_admin(email: str) -> None:
@@ -77,16 +88,53 @@ async def signup(
 @router.post("/login", response_model=Token)
 async def login(
     credentials: UserLogin,
+    request: Request,
     session: AsyncSession = Depends(get_postgres_session),
 ):
+    remote_ip = _request_remote_ip(request)
+    throttle_state = await get_login_throttle_state(
+        session,
+        email=credentials.email,
+        remote_ip=remote_ip,
+    )
+    if throttle_state is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Try again later.",
+            headers={"Retry-After": str(throttle_state.retry_after_seconds)},
+        )
+
     user = await get_auth_user_mapping_by_email(session, credentials.email)
     if user is None:
+        await record_failed_login(
+            session,
+            email=credentials.email,
+            remote_ip=remote_ip,
+        )
+        await session.commit()
         raise HTTPException(status_code=400, detail="Incorrect email or password")
     if not verify_password(credentials.password, user["hashed_password"]):
-
+        await record_failed_login(
+            session,
+            email=credentials.email,
+            remote_ip=remote_ip,
+        )
+        await session.commit()
         raise HTTPException(status_code=400, detail="Incorrect email or password")
     if not user["is_active"]:
+        await record_failed_login(
+            session,
+            email=credentials.email,
+            remote_ip=remote_ip,
+        )
+        await session.commit()
         raise HTTPException(status_code=403, detail="User not active")
+    await clear_login_failures(
+        session,
+        email=credentials.email,
+        remote_ip=remote_ip,
+    )
+    await session.commit()
     access_token = create_access_token(data={"sub": user["email"]})
     return {
         "access_token": access_token,

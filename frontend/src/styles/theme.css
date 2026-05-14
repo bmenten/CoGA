@@ -3164,6 +3164,12 @@ tbody tr:hover {
   gap: 0.55rem;
 }
 
+.variant-sample-summary {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.9rem;
+}
+
 .analysis-checkbox {
   display: inline-flex;
   align-items: center;

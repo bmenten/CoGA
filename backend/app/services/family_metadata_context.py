@@ -137,65 +137,23 @@ async def build_family_metadata_context(
     if project_id is not None and project_id not in set(project_ids):
         raise HTTPException(status_code=400, detail="Project is not linked to this family")
 
-    if project_id is None:
-        if user.role == "admin":
-            sample_result = await session.execute(
-                text(
-                    """
-                    SELECT
-                        s.id::text AS sample_uuid,
-                        s.sample_id,
-                        s.sex,
-                        fm.role,
-                        fm.affected
-                    FROM family_members fm
-                    JOIN samples s ON s.id = fm.sample_id
-                    WHERE fm.family_id = CAST(:family_uuid AS uuid)
-                    ORDER BY lower(s.sample_id)
-                    """
-                ),
-                {"family_uuid": family_uuid},
-            )
-        else:
-            sample_result = await session.execute(
-                text(
-                    """
-                    SELECT DISTINCT
-                        s.id::text AS sample_uuid,
-                        s.sample_id,
-                        s.sex,
-                        fm.role,
-                        fm.affected
-                    FROM family_members fm
-                    JOIN samples s ON s.id = fm.sample_id
-                    JOIN sample_projects sp ON sp.sample_id = s.id
-                    WHERE fm.family_id = CAST(:family_uuid AS uuid)
-                      AND sp.project_id IN :project_ids
-                    ORDER BY s.sample_id
-                    """
-                ).bindparams(uuid_list_bindparam("project_ids")),
-                {"family_uuid": family_uuid, "project_ids": uuid_values(project_ids)},
-            )
-    else:
-        sample_result = await session.execute(
-            text(
-                """
-                SELECT DISTINCT
-                    s.id::text AS sample_uuid,
-                    s.sample_id,
-                    s.sex,
-                    fm.role,
-                    fm.affected
-                FROM family_members fm
-                JOIN samples s ON s.id = fm.sample_id
-                JOIN sample_projects sp ON sp.sample_id = s.id
-                WHERE fm.family_id = CAST(:family_uuid AS uuid)
-                  AND sp.project_id = CAST(:project_id AS uuid)
-                ORDER BY s.sample_id
-                """
-            ),
-            {"family_uuid": family_uuid, "project_id": project_id},
-        )
+    sample_result = await session.execute(
+        text(
+            """
+            SELECT
+                s.id::text AS sample_uuid,
+                s.sample_id,
+                s.sex,
+                fm.role,
+                fm.affected
+            FROM family_members fm
+            JOIN samples s ON s.id = fm.sample_id
+            WHERE fm.family_id = CAST(:family_uuid AS uuid)
+            ORDER BY lower(s.sample_id)
+            """
+        ),
+        {"family_uuid": family_uuid},
+    )
     sample_rows = [dict(row) for row in sample_result.mappings().all()]
     sample_uuid_to_name = {row["sample_uuid"]: row["sample_id"] for row in sample_rows}
     sample_name_to_uuid = {row["sample_id"]: row["sample_uuid"] for row in sample_rows}

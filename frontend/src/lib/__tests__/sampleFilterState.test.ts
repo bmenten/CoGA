@@ -34,6 +34,17 @@ describe('sampleFilterState', () => {
     ]);
   });
 
+  it('expands genotype group aliases from genome links', () => {
+    expect(parseSerializedGenotypeSelection('S1:het', universe)).toEqual([
+      '0/1',
+      '1/0',
+      '0|1',
+      '1|0',
+    ]);
+    expect(parseSerializedGenotypeSelection('S1:hom', universe)).toEqual(['1/1', '1|1']);
+    expect(parseSerializedGenotypeSelection('S1:wt', universe)).toEqual(['0/0', '0|0']);
+  });
+
   it('parses only explicit sample filter entries from the URL', () => {
     const params = new URLSearchParams(
       'sample_filter=KID1:0/1|1/1::::&sample_filter=MOM:0/0::::&sample=KID1',

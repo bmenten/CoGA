@@ -1,3 +1,6 @@
+![logo](frontend/src/assets/CoGA_3.png)
+
+
 # CoGA
 
 CoGA, Comprehensive Genomic Analysis, is a unified platform for variant interpretation, genome visualization, and clinically oriented genomic review. It combines a FastAPI backend, a React frontend, `Postgres` for metadata and review state, and `ClickHouse` for high-volume variant storage.
@@ -12,13 +15,14 @@ CoGA, Comprehensive Genomic Analysis, is a unified platform for variant interpre
 ## Quick Start
 
 1. Copy `.env.example` to `.env`.
+  The production-style stack now refuses to start with placeholder secrets. Replace `SECRET_KEY`, `POSTGRES_PASSWORD`, and `ADMIN_PASSWORD` before using `docker compose up`.
 2. Start the production-style local stack:
 
 ```bash
 docker compose up --build -d
 ```
 
-3. Open:
+1. Open:
 
 - Frontend: `http://localhost:3000`
 - Backend docs: `http://localhost:8000/docs`
@@ -47,6 +51,7 @@ cd backend
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+export APP_ENV=development
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -62,6 +67,7 @@ npm run dev
 
 Required:
 
+- `APP_ENV`
 - `SECRET_KEY`
 - `POSTGRES_HOST`
 - `POSTGRES_PORT`
@@ -69,7 +75,6 @@ Required:
 - `POSTGRES_USER`
 - `POSTGRES_PASSWORD`
 - `CLICKHOUSE_HOST`
-- `CLICKHOUSE_PORT`
 - `CLICKHOUSE_HTTP_PORT`
 - `CLICKHOUSE_DATABASE`
 - `CLICKHOUSE_USER`
@@ -102,6 +107,8 @@ Optional:
 - `AZURE_TENANT_ID`
 - `AZURE_CLIENT_ID`
 - `AZURE_ADMIN_OVERRIDE`
+- `AUDIT_LOG_MODE`
+- `AUDIT_LOG_QUERY_STRING_MODE`
 
 ## Data Loading
 
@@ -154,3 +161,4 @@ npm run build
 - Startup seeds the built-in repeat catalog into Postgres and starts the gene-reference refresh worker.
 - Admin users can inspect and repair ClickHouse variant tables from the data-management page or via `/admin/clickhouse/variants`, `/admin/clickhouse/variants/{assembly_name}/ensure`, and `/admin/clickhouse/variants/{assembly_name}/optimize`.
 - The in-app `New features` page reads GitHub releases through `/product/releases`; private repositories require `GITHUB_API_TOKEN` on the backend to keep that page synced.
+

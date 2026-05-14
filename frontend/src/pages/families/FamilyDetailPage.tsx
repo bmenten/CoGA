@@ -111,19 +111,37 @@ const FamilyDetailPage: React.FC = () => {
     },
   });
 
+  const {
+    assemblyName,
+    assemblyVersion,
+    projectId,
+    isLoading: referenceLoading,
+  } = useFamilyReference(data?.projects, preferredProjectId);
+  const variantCountsReady = Boolean(
+    familyId && data && (!(data.projects?.length) || projectId),
+  );
+
   const { data: variantPage } = useQuery<ApiPaginatedTotalResponse>({
-    queryKey: ['family', familyId, 'structural-variants', 'has-data'],
+    queryKey: ['family', familyId, 'structural-variants', 'has-data', projectId || null],
+    enabled: variantCountsReady,
     queryFn: async () => {
       const params = new URLSearchParams({ page: '1', page_size: '1' });
+      if (projectId) {
+        params.set('project_id', projectId);
+      }
       const res = await api.get(`/families/${familyId}/structural-variants?${params.toString()}`);
       return res.data as ApiPaginatedTotalResponse;
     },
   });
 
   const { data: familyVariantPage } = useQuery<ApiPaginatedTotalResponse>({
-    queryKey: ['family', familyId, 'small-variants', 'has-data'],
+    queryKey: ['family', familyId, 'small-variants', 'has-data', projectId || null],
+    enabled: variantCountsReady,
     queryFn: async () => {
       const params = new URLSearchParams({ page: '1', page_size: '1' });
+      if (projectId) {
+        params.set('project_id', projectId);
+      }
       const res = await api.get(`/families/${familyId}/small-variants?${params.toString()}`);
       return res.data as ApiPaginatedTotalResponse;
     },
@@ -131,13 +149,8 @@ const FamilyDetailPage: React.FC = () => {
 
   const hasVariants = (variantPage?.total ?? 0) > 0;
   const hasSmallVariants = (familyVariantPage?.total ?? 0) > 0;
-  const variantCountsLoaded = variantPage !== undefined && familyVariantPage !== undefined;
-  const {
-    assemblyName,
-    assemblyVersion,
-    projectId,
-    isLoading: referenceLoading,
-  } = useFamilyReference(data?.projects, preferredProjectId);
+  const variantCountsLoaded =
+    variantCountsReady && variantPage !== undefined && familyVariantPage !== undefined;
   const { data: projects = [] } = useProjectCatalog();
   const assemblyLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion },
@@ -199,6 +212,7 @@ const FamilyDetailPage: React.FC = () => {
   const structuralReviewSummaryTags = useMemo(() => {
     return getReviewSummaryTags(structuralReviewSummary?.tag_counts, structuralVariantTags);
   }, [structuralReviewSummary?.tag_counts, structuralVariantTags]);
+  const variantPageQuerySuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
 
   useEffect(() => {
     setRoiInput(data?.roi?.query ?? '');
@@ -370,13 +384,13 @@ const FamilyDetailPage: React.FC = () => {
           </div>
           <div className="compact-toolbar family-toolbar">
             <Link
-              to={`/families/${data.family_id}/structural-variants`}
+              to={`/families/${data.family_id}/structural-variants${variantPageQuerySuffix}`}
               className="button-secondary hover:no-underline"
             >
               Structural variants
             </Link>
             <Link
-              to={`/families/${data.family_id}/small-variants`}
+              to={`/families/${data.family_id}/small-variants${variantPageQuerySuffix}`}
               className="button-secondary hover:no-underline"
             >
               Small variants

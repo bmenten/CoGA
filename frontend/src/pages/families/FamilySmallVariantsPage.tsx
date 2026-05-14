@@ -34,6 +34,17 @@ const hasReviewContent = (review: SmallVariantReview | null | undefined): boolea
       review?.compound_het,
   );
 
+const formatVariantTotal = (total: number | undefined, estimated?: boolean): string => {
+  const safeTotal = Math.max(total ?? 0, 0);
+  if (!estimated || safeTotal <= 0) {
+    return String(safeTotal);
+  }
+  return `${Math.max(safeTotal - 1, 0)}+`;
+};
+
+const formatSummaryCount = (value: number | undefined): string =>
+  Math.max(value ?? 0, 0).toLocaleString();
+
 const buildOptimisticReview = (
   variant: SmallVariant,
   payload: SmallVariantReviewSavePayload,
@@ -108,6 +119,24 @@ const FamilySmallVariantsPage: React.FC = () => {
   });
 
   const {
+    speciesName,
+    assemblyName,
+    assemblyVersion,
+    projectId,
+    isLoading: referenceLoading,
+  } = useFamilyReference(
+    family?.projects as string[] | undefined,
+    preferredProjectId,
+  );
+  const variantQueryReady = Boolean(
+    familyId && family && (!(family.projects?.length) || projectId),
+  );
+  const referenceLabel = formatResolvedReferenceLabel(
+    { speciesName, assemblyName, assemblyVersion },
+    family?.projects?.length && referenceLoading ? 'Loading linked reference...' : 'Reference not linked',
+  );
+
+  const {
     activeFilterChips,
     activeFilterCount,
     applyPreset,
@@ -131,26 +160,12 @@ const FamilySmallVariantsPage: React.FC = () => {
     family,
     locationSearch: location.search,
     navigate,
+    resolvedProjectId: projectId,
   });
   const [workspaceFeedback, setWorkspaceFeedback] = useState<{
     tone: 'error' | 'success';
     message: string;
   } | null>(null);
-
-  const {
-    speciesName,
-    assemblyName,
-    assemblyVersion,
-    projectId,
-    isLoading: referenceLoading,
-  } = useFamilyReference(
-    family?.projects as string[] | undefined,
-    preferredProjectId,
-  );
-  const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion },
-    family?.projects?.length && referenceLoading ? 'Loading linked reference...' : 'Reference not linked',
-  );
 
   const { data: panels = [] } = useQuery<GenePanel[]>({
     queryKey: ['panels'],
@@ -172,7 +187,7 @@ const FamilySmallVariantsPage: React.FC = () => {
 
   const { data: tags = [] } = useQuery<SmallVariantTagDefinition[]>({
     queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
-    enabled: Boolean(familyId),
+    enabled: variantQueryReady,
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/small-variant-tags`, {
         params: projectId ? { project_id: projectId } : undefined,
@@ -181,26 +196,23 @@ const FamilySmallVariantsPage: React.FC = () => {
     },
   });
 
-  const { data, isLoading } = useQuery<SmallVariantPage>({
+  const { data, isLoading, isError, error } = useQuery<SmallVariantPage>({
     queryKey: ['family', familyId, 'small-variants', requestQueryString],
-    enabled: Boolean(familyId),
+    enabled: variantQueryReady,
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/small-variants?${requestQueryString}`);
       return res.data as SmallVariantPage;
     },
   });
-
-  const { data: unfiltered } = useQuery<SmallVariantPage>({
-    queryKey: ['family', familyId, 'small-variants', 'total'],
-    enabled: Boolean(familyId && activeFilterCount > 0),
-    queryFn: async () => {
-      const params = new URLSearchParams({ page: '1', page_size: '1' });
-      const res = await api.get(`/families/${familyId}/small-variants?${params.toString()}`);
-      return res.data as SmallVariantPage;
-    },
-  });
+  const smallVariantSummary = data?.small_variant_summary ?? null;
   const allVariantTotal =
-    activeFilterCount > 0 ? (unfiltered?.total ?? data?.total ?? 0) : (data?.total ?? 0);
+    data?.unfiltered_total ??
+    smallVariantSummary?.total_variants ??
+    data?.total ??
+    0;
+  const allVariantTotalIsEstimated =
+    data?.unfiltered_total_is_estimated ??
+    false;
 
   const savePresetMutation = useMutation({
     mutationFn: async (payload: {
@@ -296,12 +308,22 @@ const FamilySmallVariantsPage: React.FC = () => {
   const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / 100));
 
-  if (isLoading) {
+  if (!variantQueryReady || isLoading) {
     return (
       <PageState
         kicker="Small Variants"
         title="Loading small variants"
         message="Collecting filtered small variant calls for this family."
+      />
+    );
+  }
+
+  if (isError) {
+    return (
+      <PageState
+        kicker="Small Variants"
+        title="Unable to load small variants"
+        message={getErrorMessage(error, 'The small-variant query failed before results could be loaded.')}
       />
     );
   }
@@ -317,11 +339,34 @@ const FamilySmallVariantsPage: React.FC = () => {
                 <h1 className="catalog-card-title">Family {familyId}</h1>
                 <p className="catalog-card-copy">{referenceLabel}</p>
                 <div className="variant-summary-row">
-                  <span className="badge-chip">Showing {data?.total ?? 0}</span>
-                  <span className="badge-chip">All variants {allVariantTotal}</span>
+                  <span className="badge-chip">
+                    Showing {formatVariantTotal(data?.total, data?.total_is_estimated)}
+                  </span>
+                  <span className="badge-chip">
+                    All variants {formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated)}
+                  </span>
+                  {smallVariantSummary ? (
+                    <>
+                      <span className="badge-chip">SNVs {formatSummaryCount(smallVariantSummary.snv_count)}</span>
+                      <span className="badge-chip">Indels {formatSummaryCount(smallVariantSummary.indel_count)}</span>
+                    </>
+                  ) : null}
                   <span className="badge-chip">Active filters {activeFilterCount}</span>
                   <span className="badge-chip">Tag library {tags.length}</span>
                 </div>
+                {smallVariantSummary?.sample_counts?.length ? (
+                  <div className="variant-sample-summary">
+                    <p className="analysis-section-title">Per sample</p>
+                    <div className="variant-summary-row">
+                      {smallVariantSummary.sample_counts.map((sampleSummary) => (
+                        <span key={sampleSummary.sample_id} className="badge-chip">
+                          {sampleSummary.sample_id} ALT {formatSummaryCount(sampleSummary.non_ref_count)} HET{' '}
+                          {formatSummaryCount(sampleSummary.het_count)} HOM {formatSummaryCount(sampleSummary.hom_alt_count)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <div className="inline-actions">
                 <Link to={`/families/${familyId}`} className="button-ghost hover:no-underline">

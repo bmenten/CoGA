@@ -1,6 +1,12 @@
 from starlette.requests import Request
 
-from app.middleware.request_logging import _derive_db_update, _sanitize_for_logging
+from app.core.config import settings
+from app.middleware.request_logging import (
+    _derive_db_update,
+    _query_string_for_logging,
+    _request_url_for_logging,
+    _sanitize_for_logging,
+)
 from app.services.audit_log_pg import log_model_update
 
 
@@ -62,3 +68,61 @@ def test_derive_db_update_for_patch_request() -> None:
     assert update["entityId"] == "demo_family"
     assert update["updateType"] == "update"
     assert update["updateFields"] == ["color", "label"]
+
+
+def test_query_string_for_logging_omits_values_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "audit_log_query_string_mode", "none")
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/families/demo_family",
+            "scheme": "http",
+            "query_string": b"family_id=F1&start=1&end=2",
+            "headers": [],
+            "client": ("127.0.0.1", 1234),
+            "server": ("testserver", 80),
+            "http_version": "1.1",
+        }
+    )
+
+    assert _query_string_for_logging(request) is None
+    assert _request_url_for_logging(request) == "/families/demo_family"
+
+
+def test_query_string_for_logging_can_keep_keys_only(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "audit_log_query_string_mode", "keys")
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/families/demo_family",
+            "scheme": "http",
+            "query_string": b"family_id=F1&start=1&end=2",
+            "headers": [],
+            "client": ("127.0.0.1", 1234),
+            "server": ("testserver", 80),
+            "http_version": "1.1",
+        }
+    )
+
+    assert _query_string_for_logging(request) == "end&family_id&start"
+
+
+def test_query_string_for_logging_sanitizes_sensitive_values(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "audit_log_query_string_mode", "sanitized")
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/families/demo_family",
+            "scheme": "http",
+            "query_string": b"family_id=F1&sample=S1&start=1",
+            "headers": [],
+            "client": ("127.0.0.1", 1234),
+            "server": ("testserver", 80),
+            "http_version": "1.1",
+        }
+    )
+
+    assert _query_string_for_logging(request) == "family_id=%2A%2A%2A&sample=%2A%2A%2A&start=1"

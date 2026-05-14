@@ -8,13 +8,21 @@ from typing import Any, Iterable, Sequence
 from uuid import UUID
 
 from fastapi import HTTPException
-from clickhouse_driver.errors import ServerException
+from clickhouse_connect.driver.exceptions import ClickHouseError
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
-from ..schemas import GenotypeOut, SmallVariantGroupOut, SmallVariantReviewOut, VariantOut, VariantPage
+from ..schemas import (
+    GenotypeOut,
+    SmallVariantGroupOut,
+    SmallVariantReviewOut,
+    SmallVariantSampleSummaryOut,
+    SmallVariantSummaryOut,
+    VariantOut,
+    VariantPage,
+)
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import (
@@ -45,6 +53,14 @@ _RECESSIVE_INHERITANCE = "recessive"
 _RECESSIVE_HOMOZYGOUS_INHERITANCE = "recessive_homozygous"
 _DE_NOVO_DOMINANT_INHERITANCE = "de_novo_dominant"
 _X_LINKED_INHERITANCE = "x_linked"
+_PAIR_BASED_SMALL_INHERITANCE = {
+    _COMPOUND_HET_INHERITANCE,
+    _RECESSIVE_INHERITANCE,
+}
+_SMALL_INHERITANCE_MIN_CANDIDATE_ROWS = 1000
+_SMALL_INHERITANCE_MAX_CANDIDATE_ROWS = 5000
+_SMALL_INHERITANCE_PAGE_CANDIDATE_MULTIPLIER = 25
+_SMALL_COUNT_LIMIT = 1001
 _SMALL_INHERITANCE_ALIASES = {
     "compound_heterozygous": _COMPOUND_HET_INHERITANCE,
     "recessive_hom": _RECESSIVE_HOMOZYGOUS_INHERITANCE,
@@ -135,6 +151,12 @@ class Region:
 
 
 @dataclass(slots=True)
+class PanelFilterConstraints:
+    genes: tuple[str, ...] = ()
+    regions: tuple[Region, ...] = ()
+
+
+@dataclass(slots=True)
 class SmallVariantCall:
     sample: str
     gt: str
@@ -210,15 +232,74 @@ def _small_table_name(assembly_name: str, suffix: str) -> str:
     return f"{settings.clickhouse_database}.`{dataset}/SNV_INDEL/{suffix}`"
 
 
+def _small_annotation_table_name(assembly_name: str) -> str:
+    return _small_table_name(assembly_name, "variants/annotations")
+
+
+def _small_summary_table_name(assembly_name: str, suffix: str) -> str:
+    return _small_table_name(assembly_name, suffix)
+
+
 def _structural_table_name(assembly_name: str, suffix: str) -> str:
     dataset = _require_clickhouse_identifier(assembly_name)
     return f"{settings.clickhouse_database}.`{dataset}/SV/{suffix}`"
+
+
+def _append_unique(values: list[str], value: Any) -> None:
+    text_value = str(value or "").strip()
+    if text_value and text_value not in values:
+        values.append(text_value)
+
+
+def _visible_clickhouse_sample_ids(context: FamilyMetadataContext) -> list[str]:
+    sample_ids: list[str] = []
+    for sample_name, sample_uuid in context.sample_name_to_uuid.items():
+        _append_unique(sample_ids, sample_name)
+        _append_unique(sample_ids, sample_uuid)
+    return sample_ids
+
+
+def _display_sample_name(context: FamilyMetadataContext, stored_sample_id: Any) -> str:
+    sample_id = str(stored_sample_id or "").strip()
+    if not sample_id:
+        return ""
+    if sample_id in context.sample_name_to_uuid:
+        return sample_id
+    mapped_name = context.sample_uuid_to_name.get(sample_id)
+    if mapped_name:
+        return mapped_name
+    for sample_name, sample_uuid in context.sample_name_to_uuid.items():
+        if sample_id == sample_uuid:
+            return sample_name
+    return sample_id
+
+
+def _clickhouse_ids_for_sample(context: FamilyMetadataContext, sample_name: str) -> tuple[str, ...]:
+    sample_ids: list[str] = []
+    _append_unique(sample_ids, sample_name)
+    _append_unique(sample_ids, context.sample_name_to_uuid.get(sample_name))
+    return tuple(sample_ids)
 
 
 def _chromosome_options(chromosome: str) -> tuple[str, ...]:
     normalized = normalize_chromosome(chromosome)
     prefixed = f"chr{normalized}"
     return (normalized, prefixed) if prefixed != chromosome else (chromosome, normalized)
+
+
+def _xpos(chrom: str, pos: int) -> int:
+    normalized = normalize_chromosome(chrom).upper()
+    rank_map = {
+        "X": 23,
+        "Y": 24,
+        "M": 25,
+        "MT": 25,
+    }
+    try:
+        rank = int(normalized)
+    except ValueError:
+        rank = rank_map.get(normalized, 99)
+    return (rank * 1_000_000_000) + max(int(pos), 0)
 
 
 def _casefold(value: Any) -> str:
@@ -231,13 +312,36 @@ def _contains_casefold(value: Any, needle: str | None) -> bool:
     return _casefold(needle) in _casefold(value)
 
 
-def _flexible_status_match(value: Any, candidates: Sequence[str]) -> bool:
-    normalized_value = " ".join(_casefold(value).replace("_", " ").split())
-    return any(
-        normalized_value == " ".join(_casefold(candidate).replace("_", " ").split())
-        for candidate in candidates
-        if str(candidate).strip()
+def _normalized_status_term(value: Any) -> str:
+    return " ".join(_casefold(value).replace("_", " ").split())
+
+
+def _status_terms(value: Any) -> set[str]:
+    if isinstance(value, (list, tuple, set)):
+        terms: set[str] = set()
+        for item in value:
+            terms.update(_status_terms(item))
+        return terms
+    return {
+        normalized
+        for part in re.split(r"[,;&|]+", str(value or ""))
+        if (normalized := _normalized_status_term(part))
+    }
+
+
+def _status_filter_terms(values: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            normalized
+            for value in values
+            if (normalized := _normalized_status_term(value))
+        )
     )
+
+
+def _flexible_status_match(value: Any, candidates: Sequence[str]) -> bool:
+    candidate_terms = set(_status_filter_terms(candidates))
+    return bool(candidate_terms and _status_terms(value).intersection(candidate_terms))
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -358,7 +462,27 @@ def _annotation_value(annotation: dict[str, Any], *keys: str) -> Any:
     for key in keys:
         if key in annotation:
             return annotation[key]
+    extra = annotation.get("extra")
+    if isinstance(extra, dict):
+        for key in keys:
+            if key in extra:
+                return extra[key]
     return None
+
+
+def _annotation_terms(value: Any) -> set[str]:
+    if value in (None, "", "."):
+        return set()
+    if isinstance(value, (list, tuple, set)):
+        terms: set[str] = set()
+        for item in value:
+            terms.update(_annotation_terms(item))
+        return terms
+    return {
+        _casefold(term)
+        for term in re.split(r"[,|&;/]+", str(value))
+        if term.strip() and term.strip() != "."
+    }
 
 
 def _annotation_text(annotation: dict[str, Any], *keys: str) -> str | None:
@@ -450,6 +574,19 @@ def _variant_hits_gene_symbols(gene_symbols: Sequence[str], query: str | None) -
     if not terms:
         return True
     return bool({_casefold(symbol) for symbol in gene_symbols}.intersection(terms))
+
+
+def _small_record_hits_gene_terms(record: SmallVariantRecord, terms: Sequence[str]) -> bool:
+    normalized_terms = {_casefold(term) for term in terms if str(term).strip()}
+    if not normalized_terms:
+        return True
+    record_terms = {_casefold(symbol) for symbol in record.gene_symbols}
+    for annotation in record.annotations:
+        for key in ("gene", "gene_id", "geneSymbol", "geneId", "hgnc_symbol", "hgncSymbol"):
+            value = _annotation_text(annotation, key)
+            if value:
+                record_terms.add(_casefold(value))
+    return bool(record_terms.intersection(normalized_terms))
 
 
 def _annotation_population_frequencies(annotation: dict[str, Any]) -> dict[str, float]:
@@ -857,7 +994,7 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
     any_impact_effect = bool(impact_terms or effect_terms or filters.min_spliceai is not None)
     if any_impact_effect:
         impact_match = bool(impact_terms) and _casefold(_annotation_text(annotation, "impact")) in impact_terms
-        effect_match = bool(effect_terms) and _casefold(_annotation_effect(annotation)) in effect_terms
+        effect_match = bool(effect_terms) and bool(effect_terms.intersection(_annotation_terms(_annotation_effect(annotation))))
         splice_match = (
             filters.min_spliceai is not None
             and (_annotation_spliceai_max(annotation) or -1.0) >= filters.min_spliceai
@@ -899,32 +1036,8 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
     return True
 
 
-def _annotation_matches_override(annotation: dict[str, Any], filters: SmallVariantQueryFilters) -> bool:
-    clinvar_terms = [value for value in filters.clinvar if str(value).strip()]
-    if not clinvar_terms:
-        return False
-    if filters.transcript and not _contains_casefold(
-        _annotation_text(annotation, "transcript_id", "transcriptId"),
-        filters.transcript,
-    ):
-        return False
-    if filters.hgvsc and not _contains_casefold(_annotation_text(annotation, "hgvsc"), filters.hgvsc):
-        return False
-    if filters.hgvsp and not _contains_casefold(_annotation_text(annotation, "hgvsp"), filters.hgvsp):
-        return False
-    if not _flexible_status_match(_annotation_clinvar(annotation), clinvar_terms):
-        return False
-    return _nullable_lte(_annotation_float(annotation, "gnomad_af", "gnomadAf"), 0.05)
-
-
-def _matches_small_annotations(record: SmallVariantRecord, filters: SmallVariantQueryFilters) -> bool:
-    annotations = record.annotations or [{}]
-    normal_match = any(_annotation_matches_normal(annotation, filters) for annotation in annotations)
-    if normal_match:
-        return True
-    if filters.clinvar:
-        return any(_annotation_matches_override(annotation, filters) for annotation in annotations)
-    annotation_specific_requested = any(
+def _small_annotation_specific_requested(filters: SmallVariantQueryFilters) -> bool:
+    return any(
         (
             filters.transcript,
             filters.impact,
@@ -950,6 +1063,14 @@ def _matches_small_annotations(record: SmallVariantRecord, filters: SmallVariant
             filters.polyphen,
         )
     )
+
+
+def _matches_small_annotations(record: SmallVariantRecord, filters: SmallVariantQueryFilters) -> bool:
+    annotations = record.annotations or [{}]
+    normal_match = any(_annotation_matches_normal(annotation, filters) for annotation in annotations)
+    if normal_match:
+        return True
+    annotation_specific_requested = _small_annotation_specific_requested(filters)
     return not annotation_specific_requested
 
 
@@ -1090,6 +1211,7 @@ def _small_record_matches(
     include_regions: Sequence[Region],
     exclude_regions: Sequence[Region],
     exclude_gene_regions: Sequence[Region],
+    panel_constraints: PanelFilterConstraints | None = None,
 ) -> bool:
     if filters.chromosome and normalize_chromosome(record.chr) != normalize_chromosome(filters.chromosome):
         return False
@@ -1115,7 +1237,20 @@ def _small_record_matches(
         return False
     if exclude_gene_regions and _variant_overlaps_regions(record.chr, record.start, record.end, exclude_gene_regions):
         return False
-    if filters.gene and not _variant_hits_gene_symbols(record.gene_symbols, filters.gene):
+    if panel_constraints and (panel_constraints.genes or panel_constraints.regions):
+        panel_gene_match = bool(panel_constraints.genes) and _small_record_hits_gene_terms(
+            record,
+            panel_constraints.genes,
+        )
+        panel_region_match = bool(panel_constraints.regions) and _variant_overlaps_regions(
+            record.chr,
+            record.start,
+            record.end,
+            panel_constraints.regions,
+        )
+        if not (panel_gene_match or panel_region_match):
+            return False
+    if filters.gene and not _small_record_hits_gene_terms(record, _split_gene_terms(filters.gene)):
         return False
     if filters.rsid and not (
         _contains_casefold(record.rsid, filters.rsid)
@@ -1664,15 +1799,30 @@ async def _fetch_gene_regions(
     ]
 
 
-async def _fetch_panel_regions(session: AsyncSession, panel_id: str) -> list[Region]:
+async def _fetch_panel_constraints(session: AsyncSession, panel_id: str) -> PanelFilterConstraints:
     try:
         UUID(panel_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid panel id") from exc
-    result = await session.execute(
+    gene_result = await session.execute(
         text(
             """
-            SELECT chr, start, "end"
+            SELECT gene_symbol
+            FROM gene_panel_genes
+            WHERE panel_id = CAST(:panel_id AS uuid)
+            ORDER BY gene_symbol
+            """
+        ),
+        {"panel_id": panel_id},
+    )
+    genes: list[str] = []
+    for row in gene_result.mappings().all():
+        _append_unique(genes, row.get("gene_symbol"))
+
+    region_result = await session.execute(
+        text(
+            """
+            SELECT gene, chr, start, "end"
             FROM gene_panel_regions
             WHERE panel_id = CAST(:panel_id AS uuid)
             ORDER BY gene, chr, start, "end"
@@ -1680,16 +1830,28 @@ async def _fetch_panel_regions(session: AsyncSession, panel_id: str) -> list[Reg
         ),
         {"panel_id": panel_id},
     )
-    rows = [dict(row) for row in result.mappings().all()]
-    if rows:
-        return [Region(chr=row["chr"], start=int(row["start"]), end=int(row["end"])) for row in rows]
+    region_rows = [dict(row) for row in region_result.mappings().all()]
+    regions = [
+        Region(chr=row["chr"], start=int(row["start"]), end=int(row["end"]))
+        for row in region_rows
+    ]
+    for row in region_rows:
+        _append_unique(genes, row.get("gene"))
+    if genes or regions:
+        return PanelFilterConstraints(genes=tuple(genes), regions=tuple(regions))
+
     exists = await session.execute(
         text("SELECT 1 FROM gene_panels WHERE id = CAST(:panel_id AS uuid)"),
         {"panel_id": panel_id},
     )
     if exists.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Panel not found")
-    return []
+    return PanelFilterConstraints()
+
+
+async def _fetch_panel_regions(session: AsyncSession, panel_id: str) -> list[Region]:
+    constraints = await _fetch_panel_constraints(session, panel_id)
+    return list(constraints.regions)
 
 
 async def _fetch_gene_constraint_metric_map(
@@ -1892,26 +2054,293 @@ def _structural_variant_out(
 async def _execute_clickhouse(query: str, params: dict[str, Any]) -> list[tuple[Any, ...]]:
     try:
         return await execute_clickhouse(query, params)
-    except ServerException as exc:
+    except ClickHouseError as exc:
         message = str(exc)
         if "UNKNOWN_TABLE" in message or "doesn't exist" in message:
             return []
         raise
 
 
-async def _fetch_small_variant_rows(
+def _family_affected_unaffected_sample_names(
+    context: FamilyMetadataContext,
+) -> tuple[list[str], list[str]]:
+    affected_sample_names = [
+        sample_name
+        for sample_name in context.affected_sample_names
+        if sample_name in context.sample_name_to_uuid
+    ]
+    affected_sample_set = set(affected_sample_names)
+    unaffected_sample_names = [
+        str(row.get("sample_id") or "").strip()
+        for row in context.sample_rows
+        if str(row.get("sample_id") or "").strip()
+        and str(row.get("sample_id") or "").strip() not in affected_sample_set
+    ]
+    return affected_sample_names, unaffected_sample_names
+
+
+def _small_native_inheritance_supported(inheritance: str | None) -> bool:
+    return inheritance in {
+        None,
+        _DE_NOVO_DOMINANT_INHERITANCE,
+        _RECESSIVE_HOMOZYGOUS_INHERITANCE,
+        _X_LINKED_INHERITANCE,
+    }
+
+
+def _small_sample_gt_exists_condition(
+    context: FamilyMetadataContext,
+    *,
+    sample_name: str,
+    gt_values: Sequence[str],
+    prefix: str,
+    params: dict[str, Any],
+) -> str:
+    sample_param = f"{prefix}_samples"
+    gt_param = f"{prefix}_gts"
+    sample_ids = _clickhouse_ids_for_sample(context, sample_name)
+    params[sample_param] = sample_ids or (sample_name,)
+    params[gt_param] = tuple(gt_values)
+    return (
+        "arrayExists((sample_id, gt) -> "
+        f"sample_id IN %({sample_param})s AND gt IN %({gt_param})s, "
+        "e.calls.sampleId, e.calls.gt)"
+    )
+
+
+def _small_all_samples_have_gts_condition(
+    context: FamilyMetadataContext,
+    *,
+    sample_names: Sequence[str],
+    gt_values: Sequence[str],
+    prefix: str,
+    params: dict[str, Any],
+) -> list[str]:
+    return [
+        _small_sample_gt_exists_condition(
+            context,
+            sample_name=sample_name,
+            gt_values=gt_values,
+            prefix=f"{prefix}_{index}",
+            params=params,
+        )
+        for index, sample_name in enumerate(sample_names)
+    ]
+
+
+def _small_no_samples_have_gts_condition(
+    context: FamilyMetadataContext,
+    *,
+    sample_names: Sequence[str],
+    gt_values: Sequence[str],
+    prefix: str,
+    params: dict[str, Any],
+) -> list[str]:
+    return [
+        "NOT "
+        + _small_sample_gt_exists_condition(
+            context,
+            sample_name=sample_name,
+            gt_values=gt_values,
+            prefix=f"{prefix}_{index}",
+            params=params,
+        )
+        for index, sample_name in enumerate(sample_names)
+    ]
+
+
+def _small_native_inheritance_clauses(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
-) -> list[SmallVariantRecord]:
-    if not context.assembly_name:
-        return []
-    entries_table = _small_table_name(context.assembly_name, "entries")
-    details_table = _small_table_name(context.assembly_name, "variants/details")
+) -> tuple[list[str], dict[str, Any]]:
+    inheritance = filters.inheritance
+    if not inheritance and not filters.expanded_carrier_screening:
+        return [], {}
+
+    params: dict[str, Any] = {}
+    clauses: list[str] = []
+    alt_gt_values = tuple(sorted(_HET_GT_VALUES.union(_HOM_ALT_GT_VALUES)))
+    het_gt_values = tuple(sorted(_HET_GT_VALUES))
+    hom_alt_gt_values = tuple(sorted(_HOM_ALT_GT_VALUES))
+
+    if filters.expanded_carrier_screening:
+        partners = _carrier_partner_names(context.sample_rows)
+        if partners is None:
+            return ["0"], params
+        partner_alt_clauses = _small_all_samples_have_gts_condition(
+            context,
+            sample_names=partners,
+            gt_values=alt_gt_values,
+            prefix="carrier_screen_partner_alt",
+            params=params,
+        )
+        clauses.append(f"({' OR '.join(partner_alt_clauses)})")
+        clauses.append("length(e.gene_symbols) > 0")
+
+    if not inheritance:
+        return clauses, params
+
+    affected_samples, unaffected_samples = _family_affected_unaffected_sample_names(context)
+    if not affected_samples:
+        return ["0"], params
+
+    if inheritance == _DE_NOVO_DOMINANT_INHERITANCE:
+        clauses.extend(
+            _small_all_samples_have_gts_condition(
+                context,
+                sample_names=affected_samples,
+                gt_values=het_gt_values,
+                prefix="inheritance_affected_het",
+                params=params,
+            )
+        )
+        clauses.extend(
+            _small_no_samples_have_gts_condition(
+                context,
+                sample_names=unaffected_samples,
+                gt_values=alt_gt_values,
+                prefix="inheritance_unaffected_alt",
+                params=params,
+            )
+        )
+    elif inheritance == _RECESSIVE_HOMOZYGOUS_INHERITANCE:
+        params["inheritance_x_chromosomes"] = ("X", "chrX", "23", "chr23")
+        clauses.append("e.chrom NOT IN %(inheritance_x_chromosomes)s")
+        clauses.extend(
+            _small_all_samples_have_gts_condition(
+                context,
+                sample_names=affected_samples,
+                gt_values=hom_alt_gt_values,
+                prefix="inheritance_affected_hom_alt",
+                params=params,
+            )
+        )
+        clauses.extend(
+            _small_no_samples_have_gts_condition(
+                context,
+                sample_names=unaffected_samples,
+                gt_values=hom_alt_gt_values,
+                prefix="inheritance_unaffected_hom_alt",
+                params=params,
+            )
+        )
+    elif inheritance == _X_LINKED_INHERITANCE:
+        params["inheritance_x_chromosomes"] = ("X", "chrX", "23", "chr23")
+        clauses.append("e.chrom IN %(inheritance_x_chromosomes)s")
+        clauses.extend(
+            _small_all_samples_have_gts_condition(
+                context,
+                sample_names=affected_samples,
+                gt_values=alt_gt_values,
+                prefix="inheritance_affected_alt",
+                params=params,
+            )
+        )
+        sample_sex = _sample_sex_map(context.sample_rows)
+        male_unaffected = [sample for sample in unaffected_samples if _is_male_sex(sample_sex.get(sample, ""))]
+        other_unaffected = [sample for sample in unaffected_samples if sample not in set(male_unaffected)]
+        clauses.extend(
+            _small_no_samples_have_gts_condition(
+                context,
+                sample_names=male_unaffected,
+                gt_values=alt_gt_values,
+                prefix="inheritance_unaffected_male_alt",
+                params=params,
+            )
+        )
+        clauses.extend(
+            _small_no_samples_have_gts_condition(
+                context,
+                sample_names=other_unaffected,
+                gt_values=hom_alt_gt_values,
+                prefix="inheritance_unaffected_hom_alt",
+                params=params,
+            )
+        )
+    elif inheritance == _COMPOUND_HET_INHERITANCE:
+        clauses.extend(
+            _small_all_samples_have_gts_condition(
+                context,
+                sample_names=affected_samples,
+                gt_values=het_gt_values,
+                prefix="inheritance_affected_het",
+                params=params,
+            )
+        )
+    elif inheritance == _RECESSIVE_INHERITANCE:
+        clauses.extend(
+            _small_all_samples_have_gts_condition(
+                context,
+                sample_names=affected_samples,
+                gt_values=alt_gt_values,
+                prefix="inheritance_affected_alt",
+                params=params,
+            )
+        )
+
+    return clauses, params
+
+
+def _small_variant_where_clauses(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    include_variant_ids: Sequence[str] | None = None,
+    exclude_variant_ids: Sequence[str] = (),
+) -> tuple[list[str], dict[str, Any]]:
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
     if context.project_ids:
         where_clauses.append("e.project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(context.project_ids)
+    visible_sample_ids = _visible_clickhouse_sample_ids(context)
+    if visible_sample_ids:
+        where_clauses.append("hasAny(e.calls.sampleId, %(visible_sample_ids)s)")
+        params["visible_sample_ids"] = visible_sample_ids
+    else:
+        where_clauses.append("0")
+    sample_filter_clauses, sample_filter_params = _small_native_sample_filter_clauses(context, filters)
+    where_clauses.extend(sample_filter_clauses)
+    params.update(sample_filter_params)
+    inheritance_clauses, inheritance_params = _small_native_inheritance_clauses(context, filters)
+    where_clauses.extend(inheritance_clauses)
+    params.update(inheritance_params)
+    if include_variant_ids is not None:
+        normalized_include_ids = tuple(
+            str(variant_id).strip()
+            for variant_id in include_variant_ids
+            if str(variant_id).strip()
+        )
+        if normalized_include_ids:
+            where_clauses.append("e.variantId IN %(include_variant_ids)s")
+            params["include_variant_ids"] = normalized_include_ids
+        else:
+            where_clauses.append("0")
+    normalized_exclude_ids = tuple(
+        str(variant_id).strip()
+        for variant_id in exclude_variant_ids
+        if str(variant_id).strip()
+    )
+    if normalized_exclude_ids:
+        where_clauses.append("e.variantId NOT IN %(exclude_variant_ids)s")
+        params["exclude_variant_ids"] = normalized_exclude_ids
+    if filters.phase_set is not None:
+        where_clauses.append("has(e.calls.ps, %(phase_set)s)")
+        params["phase_set"] = filters.phase_set
+    if filters.variant_type:
+        variant_type = _casefold(filters.variant_type).upper()
+        if variant_type == "SNV":
+            where_clauses.append("length(e.ref) = 1 AND length(e.alt) = 1")
+        elif variant_type == "MNV":
+            where_clauses.append("length(e.ref) = length(e.alt) AND length(e.ref) > 1")
+        elif variant_type == "INDEL":
+            where_clauses.append("NOT (length(e.ref) = 1 AND length(e.alt) = 1)")
+    if filters.source:
+        params["source"] = filters.source
+        where_clauses.append("positionCaseInsensitive(e.source, %(source)s) > 0")
+    if filters.rsid:
+        params["rsid"] = filters.rsid
+        where_clauses.append("positionCaseInsensitive(ifNull(e.rsid, ''), %(rsid)s) > 0")
     if filters.chromosome:
         where_clauses.append("e.chrom IN %(chromosomes)s")
         params["chromosomes"] = _chromosome_options(filters.chromosome)
@@ -1926,36 +2355,849 @@ async def _fetch_small_variant_rows(
     if filters.end is not None and not (filters.overlap and filters.start is not None):
         where_clauses.append("e.pos <= %(end)s")
         params["end"] = filters.end
+    if filters.chromosome:
+        xpos_start = 0 if filters.overlap and filters.end is not None else (filters.start or 0)
+        xpos_end = filters.end if filters.end is not None else 999_999_999
+        where_clauses.append("e.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s")
+        params["xpos_start"] = _xpos(filters.chromosome, xpos_start)
+        params["xpos_end"] = _xpos(filters.chromosome, xpos_end)
+    return where_clauses, params
+
+
+def _text_contains_any(expr: str, *, prefix: str, values: Sequence[str], params: dict[str, Any]) -> str | None:
+    clauses: list[str] = []
+    for index, value in enumerate(values):
+        text_value = str(value or "").strip()
+        if not text_value:
+            continue
+        param = f"{prefix}_{index}"
+        params[param] = text_value
+        clauses.append(f"positionCaseInsensitive({expr}, %({param})s) > 0")
+    return f"({' OR '.join(clauses)})" if clauses else None
+
+
+def _small_gene_filter_condition(
+    gene_values: Sequence[str],
+    *,
+    prefix: str,
+    params: dict[str, Any],
+) -> str | None:
+    normalized_gene_values = [str(value).strip() for value in gene_values if str(value).strip()]
+    if not normalized_gene_values:
+        return None
+    terms_param = f"{prefix}_terms"
+    params[terms_param] = tuple(_casefold(term) for term in normalized_gene_values)
+    entry_gene_condition = f"arrayExists(gene -> lower(gene) IN %({terms_param})s, e.gene_symbols)"
+    return entry_gene_condition
+
+
+def _small_annotation_gene_filter_condition(
+    gene_values: Sequence[str],
+    *,
+    prefix: str,
+    params: dict[str, Any],
+) -> str | None:
+    normalized_gene_values = [str(value).strip() for value in gene_values if str(value).strip()]
+    if not normalized_gene_values:
+        return None
+    terms_param = f"{prefix}_terms"
+    params[terms_param] = tuple(_casefold(term) for term in normalized_gene_values)
+    return (
+        "("
+        f"a.gene_symbol IN %({terms_param})s "
+        f"OR a.gene_id IN %({terms_param})s"
+        ")"
+    )
+
+
+def _small_region_filter_condition(
+    regions: Sequence[Region],
+    *,
+    prefix: str,
+    params: dict[str, Any],
+) -> str | None:
+    region_clauses: list[str] = []
+    for index, region in enumerate(regions):
+        chrom_param = f"{prefix}_chromosomes_{index}"
+        start_param = f"{prefix}_start_{index}"
+        end_param = f"{prefix}_end_{index}"
+        params[chrom_param] = _chromosome_options(region.chr)
+        params[start_param] = region.start
+        params[end_param] = region.end
+        region_clauses.append(
+            "("
+            f"e.chrom IN %({chrom_param})s "
+            f"AND e.pos <= %({end_param})s "
+            f"AND (e.pos + length(e.ref) - 1) >= %({start_param})s"
+            ")"
+        )
+    return f"({' OR '.join(region_clauses)})" if region_clauses else None
+
+
+def _small_panel_filter_condition(
+    panel_constraints: PanelFilterConstraints,
+    *,
+    params: dict[str, Any],
+) -> str | None:
+    conditions: list[str] = []
+    region_condition = _small_region_filter_condition(
+        panel_constraints.regions,
+        prefix="panel_region",
+        params=params,
+    )
+    if region_condition:
+        conditions.append(region_condition)
+    gene_condition = _small_gene_filter_condition(
+        panel_constraints.genes,
+        prefix="panel_gene",
+        params=params,
+    )
+    if gene_condition:
+        conditions.append(gene_condition)
+    return f"({' OR '.join(conditions)})" if conditions else None
+
+
+def _small_annotation_filter_condition(
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+) -> str | None:
+    conditions: list[str] = []
+
+    if filters.transcript:
+        condition = _text_contains_any(
+            "a.transcript_id",
+            prefix="detail_transcript",
+            values=[filters.transcript],
+            params=params,
+        )
+        if condition:
+            conditions.append(condition)
+    if filters.hgvsc:
+        condition = _text_contains_any(
+            "a.hgvsc",
+            prefix="detail_hgvsc",
+            values=[filters.hgvsc],
+            params=params,
+        )
+        if condition:
+            conditions.append(condition)
+    if filters.hgvsp:
+        condition = _text_contains_any(
+            "a.hgvsp",
+            prefix="detail_hgvsp",
+            values=[filters.hgvsp],
+            params=params,
+        )
+        if condition:
+            conditions.append(condition)
+
+    impact_effect_conditions: list[str] = []
+    impact_terms = tuple(_casefold(value) for value in filters.impact if str(value).strip())
+    if impact_terms:
+        params["detail_impact_terms"] = impact_terms
+        impact_effect_conditions.append("a.impact IN %(detail_impact_terms)s")
+    effect_terms = tuple(
+        dict.fromkeys(
+            term
+            for value in filters.effect
+            for term in _annotation_terms(value)
+            if term
+        )
+    )
+    if effect_terms:
+        params["detail_effect_terms"] = list(effect_terms)
+        impact_effect_conditions.append("hasAny(a.effects, %(detail_effect_terms)s)")
+    if filters.min_spliceai is not None:
+        params["detail_min_spliceai"] = filters.min_spliceai
+        impact_effect_conditions.append("ifNull(a.spliceai_max, -1) >= %(detail_min_spliceai)s")
+    if impact_effect_conditions:
+        conditions.append(f"({' OR '.join(impact_effect_conditions)})")
+
+    clinvar_terms = _status_filter_terms(filters.clinvar)
+    if clinvar_terms:
+        params["detail_clinvar_terms"] = list(clinvar_terms)
+        conditions.append("hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)")
+
+    if filters.canonical_only:
+        conditions.append("a.canonical")
+    if filters.mane_only:
+        conditions.append("(a.mane_select OR a.mane_plus_clinical)")
+    if filters.lof_only:
+        conditions.append("a.lof NOT IN ('', '.', 'na', 'n/a')")
+
+    max_float_filters = [
+        ("detail_max_gnomad_af", filters.max_gnomad_af, "gnomad_af"),
+        ("detail_max_gnomad_exomes_af", filters.max_gnomad_exomes_af, "gnomad_exomes_af"),
+        ("detail_max_gnomad_genomes_af", filters.max_gnomad_genomes_af, "gnomad_genomes_af"),
+        ("detail_max_gnomad_popmax_af", filters.max_gnomad_popmax_af, "gnomad_popmax_af"),
+        ("detail_max_topmed_af", filters.max_topmed_af, "topmed_af"),
+    ]
+    for param, maximum, column in max_float_filters:
+        if maximum is None:
+            continue
+        params[param] = maximum
+        conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
+
+    max_int_filters = [
+        ("detail_max_gnomad_ac", filters.max_gnomad_ac, "gnomad_ac"),
+        ("detail_max_gnomad_hom_count", filters.max_gnomad_hom_count, "gnomad_hom_count"),
+        ("detail_max_gnomad_hemi_count", filters.max_gnomad_hemi_count, "gnomad_hemi_count"),
+    ]
+    for param, maximum, column in max_int_filters:
+        if maximum is None:
+            continue
+        params[param] = maximum
+        conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
+
+    in_silico_conditions: list[str] = []
+    if filters.min_cadd is not None:
+        params["detail_min_cadd"] = filters.min_cadd
+        in_silico_conditions.append("ifNull(a.cadd_phred, -1) >= %(detail_min_cadd)s")
+    if filters.min_revel is not None:
+        params["detail_min_revel"] = filters.min_revel
+        in_silico_conditions.append("ifNull(a.revel, -1) >= %(detail_min_revel)s")
+    if filters.sift:
+        sift_condition = _text_contains_any(
+            "a.sift",
+            prefix="detail_sift",
+            values=[filters.sift],
+            params=params,
+        )
+        if sift_condition:
+            in_silico_conditions.append(sift_condition)
+    if filters.polyphen:
+        polyphen_condition = _text_contains_any(
+            "a.polyphen",
+            prefix="detail_polyphen",
+            values=[filters.polyphen],
+            params=params,
+        )
+        if polyphen_condition:
+            in_silico_conditions.append(polyphen_condition)
+    if filters.min_spliceai is not None:
+        in_silico_conditions.append("ifNull(a.spliceai_max, -1) >= %(detail_min_spliceai)s")
+    if in_silico_conditions:
+        conditions.append(f"({' OR '.join(in_silico_conditions)})")
+
+    return f"({' AND '.join(conditions)})" if conditions else None
+
+
+def _small_detail_filter_clauses(filters: SmallVariantQueryFilters) -> tuple[list[str], dict[str, Any]]:
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+
+    annotation_condition = _small_annotation_filter_condition(filters, params=params)
+    if annotation_condition:
+        clauses.append(annotation_condition)
+
+    return clauses, params
+
+
+def _small_annotation_exclude_filter_condition(
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+) -> str | None:
+    exclude_clinvar_terms = _status_filter_terms(filters.exclude_clinvar)
+    if not exclude_clinvar_terms:
+        return None
+    params["detail_exclude_clinvar_terms"] = list(exclude_clinvar_terms)
+    return "hasAny(a.clinvar_terms, %(detail_exclude_clinvar_terms)s)"
+
+
+def _small_annotation_scope_clauses(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+) -> list[str]:
+    clauses = ["a.family_guid = %(family_guid)s", "a.sign = 1"]
+    if context.project_ids:
+        clauses.append("a.project_guid IN %(project_ids)s")
+    if filters.chromosome and "chromosomes" in params:
+        clauses.append("a.chrom IN %(chromosomes)s")
+    if filters.start is not None:
+        if filters.overlap and filters.end is not None:
+            clauses.append("(a.pos <= %(end)s AND (a.pos + length(a.ref) - 1) >= %(start)s)")
+        else:
+            clauses.append("a.pos >= %(start)s")
+    if filters.end is not None and not (filters.overlap and filters.start is not None):
+        clauses.append("a.pos <= %(end)s")
+    return clauses
+
+
+def _small_annotation_key_membership_condition(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+    condition: str,
+    negate: bool = False,
+) -> str:
+    if not context.assembly_name:
+        return "0" if not negate else "1"
+    annotations_table = _small_annotation_table_name(context.assembly_name)
+    scope_clauses = _small_annotation_scope_clauses(context, filters, params=params)
+    operator = "NOT IN" if negate else "IN"
+    return (
+        f"e.key {operator} ("
+        f"SELECT a.key FROM {annotations_table} AS a "
+        f"WHERE {' AND '.join(scope_clauses)} AND ({condition})"
+        ")"
+    )
+
+
+def _small_sample_filter_native_supported(sample_filter: str) -> bool:
+    parsed = parse_small_variant_sample_filter(sample_filter)
+    if parsed is None:
+        return True
+    return True
+
+
+def _small_native_sample_filter_clauses(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+) -> tuple[list[str], dict[str, Any]]:
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    for index, entry in enumerate(filters.sample_filters):
+        parsed = parse_small_variant_sample_filter(entry)
+        if parsed is None:
+            continue
+        if not _small_sample_filter_native_supported(entry):
+            continue
+        sample_param = f"sample_filter_{index}_samples"
+        sample_ids = _clickhouse_ids_for_sample(context, parsed.sample_name)
+        if not sample_ids:
+            continue
+        conditions = [f"sample_id IN %({sample_param})s"]
+        params[sample_param] = sample_ids
+        if parsed.genotype_values:
+            gt_param = f"sample_filter_{index}_gts"
+            conditions.append(f"gt IN %({gt_param})s")
+            params[gt_param] = tuple(parsed.genotype_values)
+        if parsed.minimum_genotype_quality is not None:
+            gq_param = f"sample_filter_{index}_min_gq"
+            conditions.append(f"gq >= %({gq_param})s")
+            params[gq_param] = parsed.minimum_genotype_quality
+        if parsed.minimum_depth is not None:
+            dp_param = f"sample_filter_{index}_min_dp"
+            conditions.append(f"dp >= %({dp_param})s")
+            params[dp_param] = parsed.minimum_depth
+        if parsed.minimum_allele_frequency is not None:
+            af_param = f"sample_filter_{index}_min_af"
+            conditions.append(
+                "("
+                f"(length(af) > 0 AND arrayMax(af) >= %({af_param})s) "
+                f"OR (length(af) = 0 AND ab >= %({af_param})s)"
+                ")"
+            )
+            params[af_param] = parsed.minimum_allele_frequency
+        if parsed.minimum_alt_depth is not None:
+            ad_param = f"sample_filter_{index}_min_ad_alt"
+            conditions.append(f"(length(ad) > 1 AND ad[2] >= %({ad_param})s)")
+            params[ad_param] = parsed.minimum_alt_depth
+        present_clause = (
+            "arrayExists((sample_id, gt, gq, dp, ab, af, ad) -> "
+            f"{' AND '.join(conditions)}, "
+            "e.calls.sampleId, e.calls.gt, e.calls.gq, e.calls.dp, e.calls.ab, e.calls.af, e.calls.ad)"
+        )
+        if parsed.include_absent:
+            clauses.append(
+                "("
+                f"NOT arrayExists(sample_id -> sample_id IN %({sample_param})s, e.calls.sampleId) "
+                f"OR {present_clause}"
+                ")"
+            )
+        else:
+            clauses.append(present_clause)
+    return clauses, params
+
+
+def _small_sample_filters_native_supported(filters: SmallVariantQueryFilters) -> bool:
+    return all(
+        _small_sample_filter_native_supported(entry)
+        for entry in filters.sample_filters
+        if str(entry).strip()
+    )
+
+
+def _structural_variant_where_clauses(
+    context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters,
+) -> tuple[list[str], dict[str, Any]]:
+    where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
+    params: dict[str, Any] = {"family_guid": context.family_uuid}
+    if context.project_ids:
+        where_clauses.append("e.project_guid IN %(project_ids)s")
+        params["project_ids"] = tuple(context.project_ids)
+    visible_sample_ids = _visible_clickhouse_sample_ids(context)
+    if visible_sample_ids:
+        where_clauses.append("hasAny(e.calls.sampleId, %(visible_sample_ids)s)")
+        params["visible_sample_ids"] = visible_sample_ids
+    else:
+        where_clauses.append("0")
+    if filters.chromosome:
+        where_clauses.append("e.chrom IN %(chromosomes)s")
+        params["chromosomes"] = _chromosome_options(filters.chromosome)
+    if filters.start is not None:
+        if filters.overlap and filters.end is not None:
+            where_clauses.append("(e.start <= %(end)s AND e.end >= %(start)s)")
+            params["start"] = filters.start
+            params["end"] = filters.end
+        else:
+            where_clauses.append("e.start >= %(start)s")
+            params["start"] = filters.start
+    if filters.end is not None and not (filters.overlap and filters.start is not None):
+        where_clauses.append("e.end <= %(end)s")
+        params["end"] = filters.end
+    return where_clauses, params
+
+
+def _page_offset(page: int, page_size: int) -> int:
+    return max(page - 1, 0) * page_size
+
+
+async def _count_small_variant_rows(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+) -> int:
+    if not context.assembly_name:
+        return 0
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    where_clauses, params = _small_variant_where_clauses(context, filters)
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT count()
+        FROM (
+            SELECT e.key, e.variantId
+            FROM {entries_table} AS e
+            WHERE {' AND '.join(where_clauses)}
+            GROUP BY e.key, e.variantId
+        )
+        """,
+        params,
+    )
+    if not rows:
+        return 0
+    return int(rows[0][0] or 0)
+
+
+async def _count_small_variant_rows_bounded(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    count_limit: int = _SMALL_COUNT_LIMIT,
+    panel_constraints: PanelFilterConstraints | None = None,
+    include_variant_ids: Sequence[str] | None = None,
+    exclude_variant_ids: Sequence[str] = (),
+    include_regions: Sequence[Region] = (),
+    exclude_regions: Sequence[Region] = (),
+    exclude_gene_regions: Sequence[Region] = (),
+    exclude_gene_terms: Sequence[str] = (),
+) -> tuple[int, bool]:
+    if not context.assembly_name:
+        return 0, False
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    where_clauses, params, _use_detail_join = _small_query_filter_parts(
+        context,
+        filters,
+        panel_constraints=panel_constraints,
+        include_variant_ids=include_variant_ids,
+        exclude_variant_ids=exclude_variant_ids,
+        include_regions=include_regions,
+        exclude_regions=exclude_regions,
+        exclude_gene_regions=exclude_gene_regions,
+        exclude_gene_terms=exclude_gene_terms,
+    )
+    params["count_limit"] = max(int(count_limit), 1)
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT count()
+        FROM (
+            SELECT e.key
+            FROM {entries_table} AS e
+            WHERE {' AND '.join(where_clauses)}
+            GROUP BY e.key
+            LIMIT %(count_limit)s
+        )
+        """,
+        params,
+    )
+    count = int(rows[0][0] or 0) if rows else 0
+    return count, count >= params["count_limit"]
+
+
+async def _fetch_small_variant_detail_map(
+    assembly_name: str,
+    variant_keys: Sequence[int],
+) -> dict[int, dict[str, Any]]:
+    keys = tuple(dict.fromkeys(key for key in variant_keys if key is not None))
+    if not keys:
+        return {}
+    details_table = _small_table_name(assembly_name, "variants/details")
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT
+            key,
+            any(source) AS source,
+            any(filters) AS filters,
+            any(rsid) AS rsid,
+            any(annotationsJson) AS annotations_json
+        FROM {details_table}
+        WHERE key IN %(variant_keys)s
+        GROUP BY key
+        """,
+        {"variant_keys": keys},
+    )
+    details: dict[int, dict[str, Any]] = {}
+    for key, source, filters, rsid, annotations_json in rows:
+        parsed_key = _coerce_int(key)
+        if parsed_key is None:
+            continue
+        details[parsed_key] = {
+            "source": source,
+            "filters": filters,
+            "rsid": rsid,
+            "annotations_json": annotations_json,
+        }
+    return details
+
+
+async def _fetch_structural_variant_summary(
+    context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters,
+) -> tuple[int, dict[str, dict[str, int]]]:
+    if not context.assembly_name:
+        return 0, {}
+    entries_table = _structural_table_name(context.assembly_name, "entries")
+    where_clauses, params = _structural_variant_where_clauses(context, filters)
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT sv_type, source_value, count()
+        FROM (
+            SELECT
+                any(e.svType) AS sv_type,
+                any(e.source) AS source_value
+            FROM {entries_table} AS e
+            WHERE {' AND '.join(where_clauses)}
+            GROUP BY e.key, e.variantId
+        )
+        GROUP BY sv_type, source_value
+        """,
+        params,
+    )
+    summary: dict[str, dict[str, int]] = {}
+    total = 0
+    for sv_type, source, count in rows:
+        count_int = int(count or 0)
+        total += count_int
+        type_key = str(sv_type or "")
+        source_key = str(source or "")
+        summary.setdefault(type_key, {})[source_key] = count_int
+    return total, summary
+
+
+async def _fetch_small_variant_summary(
+    context: FamilyMetadataContext,
+) -> SmallVariantSummaryOut | None:
+    if not context.assembly_name:
+        return None
+
+    family_variant_summary: SmallVariantSummaryOut | None = None
+    family_params: dict[str, Any] = {"family_guid": context.family_uuid}
+
+    if len(context.project_ids) == 1:
+        family_params["project_guid"] = context.project_ids[0]
+        family_rows = await _execute_clickhouse(
+            f"""
+            SELECT total_variants, snv_count, indel_count
+            FROM {_small_summary_table_name(context.assembly_name, 'family_variant_summary')}
+            WHERE family_guid = %(family_guid)s
+              AND project_guid = %(project_guid)s
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            family_params,
+        )
+        if family_rows:
+            total_variants, snv_count, indel_count = family_rows[0]
+            family_variant_summary = SmallVariantSummaryOut(
+                total_variants=int(total_variants or 0),
+                snv_count=int(snv_count or 0),
+                indel_count=int(indel_count or 0),
+            )
+
+    if family_variant_summary is None:
+        entries_table = _small_table_name(context.assembly_name, "entries")
+        where_clauses = ["family_guid = %(family_guid)s", "sign = 1"]
+        params: dict[str, Any] = {"family_guid": context.family_uuid}
+        if context.project_ids:
+            where_clauses.append("project_guid IN %(project_ids)s")
+            params["project_ids"] = tuple(context.project_ids)
+        rows = await _execute_clickhouse(
+            f"""
+            SELECT
+                countDistinct(key) AS total_variants,
+                countDistinctIf(key, length(ref) = 1 AND length(alt) = 1) AS snv_count,
+                countDistinctIf(key, NOT (length(ref) = 1 AND length(alt) = 1)) AS indel_count
+            FROM {entries_table}
+            WHERE {' AND '.join(where_clauses)}
+            """,
+            params,
+        )
+        total_variants, snv_count, indel_count = rows[0] if rows else (0, 0, 0)
+        family_variant_summary = SmallVariantSummaryOut(
+            total_variants=int(total_variants or 0),
+            snv_count=int(snv_count or 0),
+            indel_count=int(indel_count or 0),
+        )
+
+    sample_rows: list[tuple[Any, ...]] = []
+    if len(context.project_ids) == 1:
+        sample_rows = await _execute_clickhouse(
+            f"""
+            SELECT sample_id, non_ref_count, het_count, hom_alt_count
+            FROM {_small_summary_table_name(context.assembly_name, 'family_sample_variant_summary')}
+            WHERE family_guid = %(family_guid)s
+            ORDER BY sample_id
+            """,
+            {"family_guid": context.family_uuid},
+        )
+
+    if not sample_rows:
+        entries_table = _small_table_name(context.assembly_name, "entries")
+        sample_where_clauses = ["family_guid = %(family_guid)s", "sign = 1"]
+        sample_params: dict[str, Any] = {"family_guid": context.family_uuid}
+        if context.project_ids:
+            sample_where_clauses.append("project_guid IN %(project_ids)s")
+            sample_params["project_ids"] = tuple(context.project_ids)
+        sample_rows = await _execute_clickhouse(
+            f"""
+            SELECT
+                sample_id,
+                countDistinctIf(key, gt NOT IN ('', '.', './.', '.|.', '0/0', '0|0')) AS non_ref_count,
+                countDistinctIf(key, gt IN ('0/1', '1/0', '0|1', '1|0')) AS het_count,
+                countDistinctIf(key, gt IN ('1/1', '1|1')) AS hom_alt_count
+            FROM {entries_table}
+            ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
+            WHERE {' AND '.join(sample_where_clauses)}
+            GROUP BY sample_id
+            ORDER BY sample_id
+            """,
+            sample_params,
+        )
+
+    sample_counts_by_name: dict[str, SmallVariantSampleSummaryOut] = {}
+    for stored_sample_id, non_ref_count, het_count, hom_alt_count in sample_rows:
+        sample_name = _display_sample_name(context, stored_sample_id)
+        if not sample_name or sample_name not in context.sample_name_to_uuid:
+            continue
+        sample_counts_by_name[sample_name] = SmallVariantSampleSummaryOut(
+            sample_id=sample_name,
+            non_ref_count=int(non_ref_count or 0),
+            het_count=int(het_count or 0),
+            hom_alt_count=int(hom_alt_count or 0),
+        )
+
+    ordered_sample_counts: list[SmallVariantSampleSummaryOut] = []
+    for row in context.sample_rows:
+        sample_name = str(row.get("sample_id") or "").strip()
+        sample_summary = sample_counts_by_name.pop(sample_name, None)
+        if sample_summary is not None:
+            ordered_sample_counts.append(sample_summary)
+    ordered_sample_counts.extend(sorted(sample_counts_by_name.values(), key=lambda item: item.sample_id))
+    family_variant_summary.sample_counts = ordered_sample_counts
+    return family_variant_summary
+
+
+def _append_limit_offset(
+    query: str,
+    params: dict[str, Any],
+    *,
+    limit: int | None,
+    offset: int,
+) -> str:
+    if limit is None:
+        return query
+    params["limit"] = max(int(limit), 0)
+    params["offset"] = max(int(offset), 0)
+    return f"{query}\n        LIMIT %(limit)s OFFSET %(offset)s"
+
+
+def _small_query_filter_parts(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    panel_constraints: PanelFilterConstraints | None = None,
+    include_variant_ids: Sequence[str] | None = None,
+    exclude_variant_ids: Sequence[str] = (),
+    include_regions: Sequence[Region] = (),
+    exclude_regions: Sequence[Region] = (),
+    exclude_gene_regions: Sequence[Region] = (),
+    exclude_gene_terms: Sequence[str] = (),
+) -> tuple[list[str], dict[str, Any], bool]:
+    where_clauses, params = _small_variant_where_clauses(
+        context,
+        filters,
+        include_variant_ids=include_variant_ids,
+        exclude_variant_ids=exclude_variant_ids,
+    )
+
+    gene_condition = _small_gene_filter_condition(
+        _split_gene_terms(filters.gene),
+        prefix="entry_gene",
+        params=params,
+    )
+    annotation_gene_condition = _small_annotation_gene_filter_condition(
+        _split_gene_terms(filters.gene),
+        prefix="entry_gene",
+        params=params,
+    )
+    if gene_condition and annotation_gene_condition:
+        annotation_gene_membership = _small_annotation_key_membership_condition(
+            context,
+            filters,
+            params=params,
+            condition=annotation_gene_condition,
+        )
+        where_clauses.append(f"({gene_condition} OR {annotation_gene_membership})")
+    elif gene_condition:
+        where_clauses.append(gene_condition)
+
+    detail_where_clauses, detail_params = _small_detail_filter_clauses(filters)
+    params.update(detail_params)
+    for detail_where_clause in detail_where_clauses:
+        where_clauses.append(
+            _small_annotation_key_membership_condition(
+                context,
+                filters,
+                params=params,
+                condition=detail_where_clause,
+            )
+        )
+
+    exclude_annotation_condition = _small_annotation_exclude_filter_condition(filters, params=params)
+    if exclude_annotation_condition:
+        where_clauses.append(
+            _small_annotation_key_membership_condition(
+                context,
+                filters,
+                params=params,
+                condition=exclude_annotation_condition,
+                negate=True,
+            )
+        )
+
+    panel_constraints = panel_constraints or PanelFilterConstraints()
+    panel_condition = _small_panel_filter_condition(panel_constraints, params=params)
+    if panel_condition:
+        where_clauses.append(panel_condition)
+
+    include_region_condition = _small_region_filter_condition(
+        include_regions,
+        prefix="include_region",
+        params=params,
+    )
+    if include_region_condition:
+        where_clauses.append(include_region_condition)
+
+    excluded_regions = [*exclude_regions, *exclude_gene_regions]
+    exclude_region_condition = _small_region_filter_condition(
+        excluded_regions,
+        prefix="exclude_region",
+        params=params,
+    )
+    if exclude_region_condition:
+        where_clauses.append(f"NOT {exclude_region_condition}")
+
+    exclude_gene_condition = _small_gene_filter_condition(
+        exclude_gene_terms,
+        prefix="entry_exclude_gene",
+        params=params,
+    )
+    exclude_annotation_gene_condition = _small_annotation_gene_filter_condition(
+        exclude_gene_terms,
+        prefix="entry_exclude_gene",
+        params=params,
+    )
+    if exclude_gene_condition and exclude_annotation_gene_condition:
+        exclude_annotation_membership = _small_annotation_key_membership_condition(
+            context,
+            filters,
+            params=params,
+            condition=exclude_annotation_gene_condition,
+        )
+        where_clauses.append(f"NOT ({exclude_gene_condition} OR {exclude_annotation_membership})")
+    elif exclude_gene_condition:
+        where_clauses.append(f"NOT {exclude_gene_condition}")
+
+    return where_clauses, params, False
+
+
+async def _fetch_small_variant_rows(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+    panel_constraints: PanelFilterConstraints | None = None,
+    include_variant_ids: Sequence[str] | None = None,
+    exclude_variant_ids: Sequence[str] = (),
+    include_regions: Sequence[Region] = (),
+    exclude_regions: Sequence[Region] = (),
+    exclude_gene_regions: Sequence[Region] = (),
+    exclude_gene_terms: Sequence[str] = (),
+) -> list[SmallVariantRecord]:
+    if not context.assembly_name:
+        return []
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    where_clauses, params, _use_detail_join = _small_query_filter_parts(
+        context,
+        filters,
+        panel_constraints=panel_constraints,
+        include_variant_ids=include_variant_ids,
+        exclude_variant_ids=exclude_variant_ids,
+        include_regions=include_regions,
+        exclude_regions=exclude_regions,
+        exclude_gene_regions=exclude_gene_regions,
+        exclude_gene_terms=exclude_gene_terms,
+    )
     query = f"""
         SELECT
-            any(e.key) AS key,
-            any(e.variantId) AS variant_id,
-            any(e.chrom) AS chrom,
-            any(e.pos) AS pos,
-            any(e.ref) AS ref,
-            any(e.alt) AS alt,
-            any(d.source) AS source,
-            any(e.filters) AS entry_filters,
-            any(d.filters) AS detail_filters,
-            any(d.rsid) AS rsid,
-            any(d.annotationsJson) AS annotations_json,
-            any(e.gene_symbols) AS gene_symbols,
-            any(e.calls.sampleId) AS sample_ids,
-            any(e.calls.gt) AS sample_gts,
-            any(e.calls.gq) AS sample_gqs,
-            any(e.calls.dp) AS sample_dps,
-            any(e.calls.ab) AS sample_abs,
-            any(e.calls.af) AS sample_afs,
-            any(e.calls.ad) AS sample_ads,
-            any(e.calls.ps) AS sample_phase_sets
+            e.key AS key,
+            e.variantId AS variant_id,
+            e.chrom AS chrom,
+            e.pos AS pos,
+            e.ref AS ref,
+            e.alt AS alt,
+            e.source AS source,
+            e.rsid AS rsid,
+            e.filters AS entry_filters,
+            e.gene_symbols AS gene_symbols,
+            e.calls.sampleId AS sample_ids,
+            e.calls.gt AS sample_gts,
+            e.calls.gq AS sample_gqs,
+            e.calls.dp AS sample_dps,
+            e.calls.ab AS sample_abs,
+            e.calls.af AS sample_afs,
+            e.calls.ad AS sample_ads,
+            e.calls.ps AS sample_phase_sets
         FROM {entries_table} AS e
-        LEFT JOIN {details_table} AS d ON d.key = e.key
         WHERE {' AND '.join(where_clauses)}
-        GROUP BY e.key, e.variantId
-        ORDER BY chrom, pos, key
+        ORDER BY e.xpos, e.key
     """
+    query = _append_limit_offset(query, params, limit=limit, offset=offset)
     rows = await _execute_clickhouse(query, params)
-    allowed_samples = set(context.sample_name_to_uuid)
+    detail_map = await _fetch_small_variant_detail_map(
+        context.assembly_name,
+        [
+            parsed_key
+            for row in rows
+            if (parsed_key := _coerce_int(row[0])) is not None
+        ],
+    )
     records: list[SmallVariantRecord] = []
     for row in rows:
         (
@@ -1966,10 +3208,8 @@ async def _fetch_small_variant_rows(
             ref,
             alt,
             source,
-            entry_filters,
-            detail_filters,
             rsid,
-            annotations_json,
+            entry_filters,
             gene_symbols,
             sample_ids,
             sample_gts,
@@ -1980,11 +3220,17 @@ async def _fetch_small_variant_rows(
             sample_ads,
             sample_phase_sets,
         ) = row
+        parsed_variant_key = _coerce_int(variant_key)
+        detail = detail_map.get(parsed_variant_key or -1, {})
+        detail_filters = detail.get("filters")
+        annotations_json = detail.get("annotations_json")
+        source = source if source not in (None, "") else detail.get("source")
+        rsid = rsid if rsid not in (None, "") else detail.get("rsid")
         calls: list[SmallVariantCall] = []
         sample_id_list = _listify(sample_ids)
         for index, sample_id in enumerate(sample_id_list):
-            sample_name = str(sample_id or "").strip()
-            if not sample_name or sample_name not in allowed_samples:
+            sample_name = _display_sample_name(context, sample_id)
+            if not sample_name or sample_name not in context.sample_name_to_uuid:
                 continue
             af_values = _float_list(_indexed(sample_afs, index))
             ab_value = _coerce_float(_indexed(sample_abs, index))
@@ -2007,7 +3253,7 @@ async def _fetch_small_variant_rows(
         ref_text = str(ref or "")
         records.append(
             SmallVariantRecord(
-                variant_key=_coerce_int(variant_key),
+                variant_key=parsed_variant_key,
                 variant_id=str(variant_id),
                 chr=normalize_chromosome(str(chrom)),
                 start=start,
@@ -2030,30 +3276,15 @@ async def _fetch_small_variant_rows(
 async def _fetch_structural_variant_rows(
     context: FamilyMetadataContext,
     filters: StructuralVariantQueryFilters,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[StructuralVariantRecord]:
     if not context.assembly_name:
         return []
     entries_table = _structural_table_name(context.assembly_name, "entries")
     details_table = _structural_table_name(context.assembly_name, "variants/details")
-    where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
-    params: dict[str, Any] = {"family_guid": context.family_uuid}
-    if context.project_ids:
-        where_clauses.append("e.project_guid IN %(project_ids)s")
-        params["project_ids"] = tuple(context.project_ids)
-    if filters.chromosome:
-        where_clauses.append("e.chrom IN %(chromosomes)s")
-        params["chromosomes"] = _chromosome_options(filters.chromosome)
-    if filters.start is not None:
-        if filters.overlap and filters.end is not None:
-            where_clauses.append("(e.start <= %(end)s AND e.end >= %(start)s)")
-            params["start"] = filters.start
-            params["end"] = filters.end
-        else:
-            where_clauses.append("e.start >= %(start)s")
-            params["start"] = filters.start
-    if filters.end is not None and not (filters.overlap and filters.start is not None):
-        where_clauses.append("e.end <= %(end)s")
-        params["end"] = filters.end
+    where_clauses, params = _structural_variant_where_clauses(context, filters)
     query = f"""
         SELECT
             any(e.key) AS key,
@@ -2081,8 +3312,8 @@ async def _fetch_structural_variant_rows(
         GROUP BY e.key, e.variantId
         ORDER BY chrom, start, key
     """
+    query = _append_limit_offset(query, params, limit=limit, offset=offset)
     rows = await _execute_clickhouse(query, params)
-    allowed_samples = set(context.sample_name_to_uuid)
     records: list[StructuralVariantRecord] = []
     for row in rows:
         (
@@ -2109,8 +3340,8 @@ async def _fetch_structural_variant_rows(
         calls: list[StructuralVariantCall] = []
         sample_id_list = _listify(sample_ids)
         for index, sample_id in enumerate(sample_id_list):
-            sample_name = str(sample_id or "").strip()
-            if not sample_name or sample_name not in allowed_samples:
+            sample_name = _display_sample_name(context, sample_id)
+            if not sample_name or sample_name not in context.sample_name_to_uuid:
                 continue
             calls.append(
                 StructuralVariantCall(
@@ -2157,6 +3388,91 @@ def _selected_structural_samples(
         if sample_name in context.sample_name_to_uuid
     ]
     return selected or None
+
+
+def _has_filter_values(values: Sequence[Any] | None) -> bool:
+    return any(str(value).strip() for value in values or [])
+
+
+def _can_use_small_native_page(
+    filters: SmallVariantQueryFilters,
+    *,
+    review_classifications: Sequence[str] | None,
+    review_tags: Sequence[str] | None,
+    exclude_review_tags: Sequence[str] | None,
+    has_notes: bool,
+    track_mode: bool,
+) -> bool:
+    return not any(
+        (
+            track_mode,
+            filters.page_size <= 0,
+            not _small_native_inheritance_supported(filters.inheritance),
+            filters.expanded_carrier_screening,
+            not _small_sample_filters_native_supported(filters),
+        )
+    )
+
+
+def _can_use_structural_native_page(
+    filters: StructuralVariantQueryFilters,
+    *,
+    track_mode: bool,
+) -> bool:
+    return not any(
+        (
+            track_mode,
+            filters.page_size <= 0,
+            filters.length is not None,
+            filters.min_length is not None,
+            filters.variant_type,
+            filters.source,
+            _has_filter_values(filters.sample_filters),
+            _has_filter_values(filters.selected_samples),
+            filters.remote_chr,
+            filters.remote_start is not None,
+            filters.gene,
+            filters.panel_id,
+            filters.inheritance,
+            filters.phenotype,
+            filters.hpo,
+            filters.moi,
+            filters.gencc_support,
+            _has_filter_values(filters.region_flags),
+            filters.max_control_af is not None,
+            filters.max_population_af is not None,
+            filters.min_pli is not None,
+            _has_filter_values(filters.review_classifications),
+            _has_filter_values(filters.review_tags),
+            _has_filter_values(filters.exclude_review_tags),
+            filters.has_notes,
+        )
+    )
+
+
+def _bounded_page_total(
+    *,
+    page: int,
+    page_size: int,
+    fetched_count: int,
+) -> tuple[int, bool]:
+    page_count = min(fetched_count, page_size)
+    has_more = fetched_count > page_size
+    total = _page_offset(page, page_size) + page_count
+    if has_more:
+        total += 1
+    return total, has_more
+
+
+def _small_pair_inheritance_candidate_limit(filters: SmallVariantQueryFilters) -> int | None:
+    if filters.inheritance not in _PAIR_BASED_SMALL_INHERITANCE and not filters.expanded_carrier_screening:
+        return None
+    requested_rows = max(filters.page, 1) * max(filters.page_size, 1) * _SMALL_INHERITANCE_PAGE_CANDIDATE_MULTIPLIER
+    candidate_rows = min(
+        max(requested_rows, _SMALL_INHERITANCE_MIN_CANDIDATE_ROWS),
+        _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS,
+    )
+    return candidate_rows + 1
 
 
 def _inheritance_item_sort_key(
@@ -2349,41 +3665,25 @@ async def get_family_small_variants_page(
         sample_filters=sample_filters or [],
         overlap=overlap,
     )
-    include_regions: list[Region] = []
+    small_variant_summary = None if track_mode else await _fetch_small_variant_summary(context)
+    panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
-        include_regions.extend(await _fetch_panel_regions(session, filters.panel_id))
-        if not include_regions:
-            return VariantPage(total=0, variants=[])
-    if filters.gene:
-        gene_regions = await _fetch_gene_regions(
-            session,
-            gene_query=filters.gene,
-            assembly_id=context.assembly_id,
-        )
-        if not gene_regions:
-            return VariantPage(total=0, variants=[])
-        include_regions.extend(gene_regions)
-    if filters.intervals:
-        interval_regions = _parse_interval_regions(filters.intervals)
-        if not interval_regions:
-            return VariantPage(total=0, variants=[])
-        include_regions.extend(interval_regions)
-    exclude_regions = _parse_interval_regions(filters.exclude_intervals)
-    exclude_gene_regions = (
-        await _fetch_gene_regions(session, gene_query=filters.exclude_gene, assembly_id=context.assembly_id)
-        if filters.exclude_gene
-        else []
-    )
-    review_variant_ids = await list_matching_small_variant_review_ids(
-        session,
-        family_uuid=context.family_uuid,
-        classifications=review_classifications,
-        tags=review_tags,
-        has_notes=has_notes,
-    )
+        panel_constraints = await _fetch_panel_constraints(session, filters.panel_id)
+        if not panel_constraints.genes and not panel_constraints.regions:
+            return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
+
     include_review_filter_active = bool(review_classifications or review_tags or has_notes)
-    if include_review_filter_active and not review_variant_ids:
-        return VariantPage(total=0, variants=[])
+    review_variant_ids: set[str] | None = None
+    if include_review_filter_active:
+        review_variant_ids = await list_matching_small_variant_review_ids(
+            session,
+            family_uuid=context.family_uuid,
+            classifications=review_classifications,
+            tags=review_tags,
+            has_notes=has_notes,
+        )
+        if not review_variant_ids:
+            return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
     excluded_review_variant_ids = (
         await list_matching_small_variant_review_ids(
             session,
@@ -2393,28 +3693,132 @@ async def get_family_small_variants_page(
         if exclude_review_tags
         else set()
     )
-    records = await _fetch_small_variant_rows(context, filters)
+
+    include_regions: list[Region] = []
+    if filters.intervals:
+        interval_regions = _parse_interval_regions(filters.intervals)
+        if not interval_regions:
+            return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
+        include_regions.extend(interval_regions)
+    exclude_regions = _parse_interval_regions(filters.exclude_intervals)
+    exclude_gene_regions = (
+        await _fetch_gene_regions(session, gene_query=filters.exclude_gene, assembly_id=context.assembly_id)
+        if filters.exclude_gene
+        else []
+    )
+    exclude_gene_terms = _split_gene_terms(filters.exclude_gene)
+
+    if _can_use_small_native_page(
+        filters,
+        review_classifications=review_classifications,
+        review_tags=review_tags,
+        exclude_review_tags=exclude_review_tags,
+        has_notes=has_notes,
+        track_mode=track_mode,
+    ):
+        fetched_records = await _fetch_small_variant_rows(
+            context,
+            filters,
+            limit=page_size + 1,
+            offset=_page_offset(page, page_size),
+            panel_constraints=panel_constraints,
+            include_variant_ids=review_variant_ids if include_review_filter_active else None,
+            exclude_variant_ids=excluded_review_variant_ids,
+            include_regions=include_regions,
+            exclude_regions=exclude_regions,
+            exclude_gene_regions=exclude_gene_regions,
+            exclude_gene_terms=exclude_gene_terms,
+        )
+        count_task = _count_small_variant_rows_bounded(
+            context,
+            filters,
+            panel_constraints=panel_constraints,
+            include_variant_ids=review_variant_ids if include_review_filter_active else None,
+            exclude_variant_ids=excluded_review_variant_ids,
+            include_regions=include_regions,
+            exclude_regions=exclude_regions,
+            exclude_gene_regions=exclude_gene_regions,
+            exclude_gene_terms=exclude_gene_terms,
+        )
+        total, total_is_estimated = await count_task
+        unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+        unfiltered_total_is_estimated = False
+        page_records = fetched_records[:page_size]
+        if not page_records:
+            return VariantPage(
+                total=0 if track_mode else total,
+                total_is_estimated=total_is_estimated,
+                unfiltered_total=unfiltered_total,
+                unfiltered_total_is_estimated=unfiltered_total_is_estimated,
+                count_limit=_SMALL_COUNT_LIMIT - 1,
+                variants=[],
+                small_variant_summary=small_variant_summary,
+            )
+        variants = [_small_variant_out(record) for record in page_records]
+        await _hydrate_small_variant_outs(
+            session,
+            context=context,
+            variants=variants,
+        )
+        return VariantPage(
+            total=total,
+            total_is_estimated=total_is_estimated,
+            unfiltered_total=unfiltered_total,
+            unfiltered_total_is_estimated=unfiltered_total_is_estimated,
+            count_limit=_SMALL_COUNT_LIMIT - 1,
+            variants=variants,
+            small_variant_summary=small_variant_summary,
+        )
+
+    if filters.gene:
+        gene_regions = await _fetch_gene_regions(
+            session,
+            gene_query=filters.gene,
+            assembly_id=context.assembly_id,
+        )
+        include_regions.extend(gene_regions)
+    inheritance_candidate_limit = _small_pair_inheritance_candidate_limit(filters)
+    records = await _fetch_small_variant_rows(
+        context,
+        filters,
+        panel_constraints=panel_constraints,
+        include_variant_ids=review_variant_ids if include_review_filter_active else None,
+        exclude_variant_ids=excluded_review_variant_ids,
+        limit=inheritance_candidate_limit,
+        include_regions=include_regions,
+        exclude_regions=exclude_regions,
+        exclude_gene_regions=exclude_gene_regions,
+        exclude_gene_terms=exclude_gene_terms,
+    )
+    inheritance_candidates_capped = (
+        inheritance_candidate_limit is not None
+        and len(records) >= inheritance_candidate_limit
+    )
+    if inheritance_candidates_capped:
+        records = records[: inheritance_candidate_limit - 1]
     filtered = [
         record
         for record in records
         if record.variant_id not in excluded_review_variant_ids
-        and ((not include_review_filter_active) or record.variant_id in review_variant_ids)
-        and _small_record_matches(record, filters, include_regions, exclude_regions, exclude_gene_regions)
+        and ((not include_review_filter_active) or record.variant_id in (review_variant_ids or set()))
+        and _small_record_matches(
+            record,
+            filters,
+            include_regions,
+            exclude_regions,
+            exclude_gene_regions,
+            panel_constraints=panel_constraints,
+        )
     ]
-    affected_sample_names = [
-        sample_name
-        for sample_name in context.affected_sample_names
-        if sample_name in context.sample_name_to_uuid
-    ]
-    affected_sample_set = set(affected_sample_names)
-    unaffected_sample_names = [
-        str(row.get("sample_id") or "").strip()
-        for row in context.sample_rows
-        if str(row.get("sample_id") or "").strip()
-        and str(row.get("sample_id") or "").strip() not in affected_sample_set
-    ]
+    affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
     if filters.expanded_carrier_screening:
         filtered = _filter_expanded_carrier_screening(filtered, context.sample_rows)
+    if track_mode:
+        unfiltered_total = None
+        unfiltered_total_is_estimated = False
+    else:
+        unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+        unfiltered_total_is_estimated = False
     if filters.inheritance:
         inheritance_items = _inheritance_result_items(
             inheritance=filters.inheritance,
@@ -2424,6 +3828,8 @@ async def get_family_small_variants_page(
             sample_rows=context.sample_rows,
         )
         total = len(inheritance_items)
+        reported_total = min(total, _SMALL_COUNT_LIMIT)
+        total_is_estimated = inheritance_candidates_capped or total >= _SMALL_COUNT_LIMIT
         skip = max(page - 1, 0) * page_size if page_size else 0
         page_items = inheritance_items[skip: skip + page_size] if page_size else inheritance_items[skip:]
         page_variant_groups: list[SmallVariantGroupOut] = []
@@ -2454,11 +3860,18 @@ async def get_family_small_variants_page(
             if len(group.variants) >= 2:
                 group.review = _group_review_for_pair(group.variants[0], group.variants[1])
         return VariantPage(
-            total=0 if track_mode else total,
+            total=0 if track_mode else reported_total,
+            total_is_estimated=total_is_estimated,
+            unfiltered_total=unfiltered_total,
+            unfiltered_total_is_estimated=unfiltered_total_is_estimated,
+            count_limit=_SMALL_COUNT_LIMIT - 1,
             variants=page_single_variants,
             variant_groups=page_variant_groups,
+            small_variant_summary=small_variant_summary,
         )
     total = len(filtered)
+    reported_total = min(total, _SMALL_COUNT_LIMIT)
+    total_is_estimated = inheritance_candidates_capped or total >= _SMALL_COUNT_LIMIT
     if track_mode:
         page_records = _sample_small_track_records(filtered, page_size)
     else:
@@ -2470,7 +3883,15 @@ async def get_family_small_variants_page(
         context=context,
         variants=variants,
     )
-    return VariantPage(total=0 if track_mode else total, variants=variants)
+    return VariantPage(
+        total=0 if track_mode else reported_total,
+        total_is_estimated=total_is_estimated,
+        unfiltered_total=unfiltered_total,
+        unfiltered_total_is_estimated=unfiltered_total_is_estimated,
+        count_limit=_SMALL_COUNT_LIMIT - 1,
+        variants=variants,
+        small_variant_summary=small_variant_summary,
+    )
 
 
 async def get_family_structural_variants_page(
@@ -2542,6 +3963,37 @@ async def get_family_structural_variants_page(
     selected_samples = _selected_structural_samples(context, filters.selected_samples)
     if selected_samples is None:
         return VariantPage(total=0, variants=[], summary={})
+    if _can_use_structural_native_page(filters, track_mode=track_mode):
+        total, summary = await _fetch_structural_variant_summary(context, filters)
+        if total == 0:
+            return VariantPage(total=0, variants=[], summary={})
+        page_records = await _fetch_structural_variant_rows(
+            context,
+            filters,
+            limit=page_size,
+            offset=_page_offset(page, page_size),
+        )
+        review_map = await get_structural_variant_review_map(
+            session,
+            family_uuid=context.family_uuid,
+            variant_ids=[record.variant_id for record in page_records],
+        )
+        cytoband_map = await _fetch_structural_cytoband_map(
+            session,
+            assembly_id=context.assembly_id,
+            records=page_records,
+        )
+        variants = [
+            _structural_variant_out(
+                record,
+                selected_samples,
+                review_map.get(record.variant_id),
+                cytoband_map.get(record.variant_id),
+            )
+            for record in page_records
+        ]
+        return VariantPage(total=total, variants=variants, summary=summary)
+
     include_regions: list[Region] = []
     if filters.panel_id:
         include_regions.extend(await _fetch_panel_regions(session, filters.panel_id))

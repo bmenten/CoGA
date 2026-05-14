@@ -1,6 +1,8 @@
+import os
 from pathlib import Path
 import sys
 
+os.environ.setdefault("APP_ENV", "test")
 
 ROOT_DIR = Path(__file__).resolve().parent
 
