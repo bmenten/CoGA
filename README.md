@@ -1,4 +1,4 @@
-logo
+![Logo](frontend/src/assets/CoGA_3.png)
 
 # CoGA
 
