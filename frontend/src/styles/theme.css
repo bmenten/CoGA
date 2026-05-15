@@ -1480,7 +1480,7 @@ tbody tr:hover {
 }
 
 .family-members-card .analysis-table td {
-  font-size: 0.92rem;
+  font-size: 0.72rem;
 }
 
 @media (min-width: 980px) {
@@ -3036,8 +3036,8 @@ tbody tr:hover {
   border-radius: 999px;
   background: rgba(166, 26, 46, 0.06);
   color: var(--color-heading);
-  padding: 0.4rem 0.75rem;
-  font-size: 0.75rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.60rem;
   font-weight: 600;
   letter-spacing: 0.01em;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
@@ -3167,12 +3167,12 @@ tbody tr:hover {
 .variant-sample-summary {
   display: grid;
   gap: 0.7rem;
-  margin-top: 0.9rem;
+  margin-top: 0.25rem;
 }
 
 .variant-sample-summary-table {
   width: auto;
-  font-size: 0.75rem;
+  font-size: 0.6rem;
   letter-spacing: 0.01em;
 }
 
@@ -3183,11 +3183,11 @@ tbody tr:hover {
 }
 
 .variant-sample-summary-table thead th {
-  font-size: 0.68rem;
+  font-size: 0.5rem;
 }
 
 .variant-sample-summary .analysis-section-title {
-  font-size: 0.82rem;
+  font-size: 0.4rem;
   margin-bottom: 0.25rem;
 }
 
@@ -4794,7 +4794,7 @@ tbody tr:hover {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.92rem;
+  font-size: 0.72rem;
 }
 
 .data-table-shell thead tr,

@@ -344,9 +344,9 @@ const FamilySmallVariantsPage: React.FC = () => {
                         <thead>
                           <tr>
                             <th>Sample</th>
-                            <th>ALT</th>
-                            <th>HET</th>
-                            <th>HOM</th>
+                            <th>Variants</th>
+                            <th>Het</th>
+                            <th>Hom</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -365,9 +365,9 @@ const FamilySmallVariantsPage: React.FC = () => {
                       <span className="badge-chip">
                         Showing {formatVariantTotal(data?.total, data?.total_is_estimated)}
                       </span>
+                      <span className="badge-chip">Active filters {activeFilterCount}</span>
+                      <span className="badge-chip">Tag library {tags.length}</span>
                     </div>
-                    <span className="badge-chip">Active filters {activeFilterCount}</span>
-                    <span className="badge-chip">Tag library {tags.length}</span>
                   </div>
                 ) : null}
               </div>
