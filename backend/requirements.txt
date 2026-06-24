@@ -15,7 +15,7 @@ pydantic-settings>=2.14.2
 python-jose[cryptography]
 passlib[bcrypt]==1.7.4
 # pin bcrypt to avoid incompatibilities with passlib
-bcrypt==3.2.0
+bcrypt==5.0.0
 python-multipart
 python-dotenv
 httpx
