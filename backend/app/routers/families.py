@@ -53,6 +53,13 @@ from ..schemas import (
     SampleIntegrityFetalSexCheckOut,
     SampleIntegrityMendelianCheckOut,
     SampleIntegrityPaternityCheckOut,
+    AnnotationManifestOut,
+    AnnotationManifestUpdate,
+    ClassificationDriftOut,
+    ClinicalAuditOut,
+    ReportSignoutDetail,
+    ReportSignoutListOut,
+    ReportSignoutRequest,
     SampleIntegrityQcOut,
     SampleIntegrityRelatednessCheckOut,
     SampleIntegritySexCheckOut,
@@ -111,6 +118,17 @@ from ..services.monarch_semsim import (
 from ..services.metadata_service import CurrentUser
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
 from ..services.sample_integrity_service import get_family_sample_integrity_qc
+from ..services.annotation_manifest_service import (
+    get_family_annotation_manifest,
+    set_family_annotation_manifest,
+)
+from ..services.classification_drift_service import evaluate_classification_drift
+from ..services.clinical_audit_service import list_clinical_audit
+from ..services.report_signout_service import (
+    get_report_signout,
+    list_report_signouts,
+    sign_out_report,
+)
 from ..services.nipt_service import (
     NiptClassifiedVariant,
     get_family_nipt_coverage,
@@ -118,6 +136,7 @@ from ..services.nipt_service import (
     run_family_nipt_analysis,
 )
 from ..services.bed_service import precompute_family_lineage_safe
+from ..services.clickhouse_family_variants import precompute_family_ranking_safe
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.raw_import_files_pg import record_upload_file_obj
 from ..services.paraphase_pg import get_family_paraphase_table_response
@@ -306,6 +325,7 @@ async def update_family_members_batch(
         # precomputed genome-overview lineage in the background (the hash guard keeps
         # the overview safe-but-grey until the new precompute lands).
         background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
         return result
     except DBAPIError as exc:
         await _raise_metadata_schema_error_if_needed(session, exc)
@@ -362,6 +382,7 @@ async def update_family_member(
         # Role / affected status feed the haplotype lineage colours — refresh the
         # precomputed genome-overview lineage in the background.
         background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
         return result
     except DBAPIError as exc:
         await _raise_metadata_schema_error_if_needed(session, exc)
@@ -388,6 +409,7 @@ async def delete_family_member(
         # Removing a member changes the pedigree — refresh the precomputed
         # genome-overview lineage in the background.
         background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
         return result
     except DBAPIError as exc:
         await _raise_metadata_schema_error_if_needed(session, exc)
@@ -542,6 +564,7 @@ async def create_family_member_hpo(
     family_id: str,
     sample_id: str,
     annotation: HpoAnnotationCreate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> HpoAnnotationOut:
@@ -550,12 +573,15 @@ async def create_family_member_hpo(
         family_identifier=family_id,
         user=user,
     )
-    return await create_individual_hpo_annotation(
+    result = await create_individual_hpo_annotation(
         session,
         family_uuid=context.family_uuid,
         sample_id=sample_id,
         payload=annotation,
     )
+    # Phenotypes changed: warm the prioritised-ranking cache so the next open is fast.
+    background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
+    return result
 
 
 @router.put("/{family_id}/hpo/{annotation_id}", response_model=HpoAnnotationOut)
@@ -563,6 +589,7 @@ async def update_family_hpo(
     family_id: str,
     annotation_id: str,
     annotation: HpoAnnotationUpdate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> HpoAnnotationOut:
@@ -571,18 +598,21 @@ async def update_family_hpo(
         family_identifier=family_id,
         user=user,
     )
-    return await update_individual_hpo_annotation(
+    result = await update_individual_hpo_annotation(
         session,
         family_uuid=context.family_uuid,
         annotation_id=annotation_id,
         payload=annotation,
     )
+    background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
+    return result
 
 
 @router.delete("/{family_id}/hpo/{annotation_id}", status_code=204)
 async def delete_family_hpo(
     family_id: str,
     annotation_id: str,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> Response:
@@ -596,6 +626,7 @@ async def delete_family_hpo(
         family_uuid=context.family_uuid,
         annotation_id=annotation_id,
     )
+    background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
     return Response(status_code=204)
 
 
@@ -668,6 +699,7 @@ async def get_family_structural_variants(
     overlap: bool = False,
     prioritize: bool = False,
     track_mode: bool = False,
+    count_only: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> VariantPage:
@@ -711,6 +743,7 @@ async def get_family_structural_variants(
         overlap=overlap,
         prioritize=prioritize,
         track_mode=track_mode,
+        count_only=count_only,
     )
     if track_mode:
         # The genome SV track reads only chr/start/end/type/source + per-sample
@@ -830,9 +863,11 @@ async def get_family_small_variants(
     page_size: int = 100,
     project_id: str | None = None,
     overlap: bool = False,
+    require_sv_second_hit: bool = False,
     prioritize: bool = False,
     track_mode: bool = False,
     track_result_limit: int | None = None,
+    count_only: bool = False,
     filters: Dict[str, Any] = Depends(_family_small_variant_filters),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -849,9 +884,11 @@ async def get_family_small_variants(
         page=page,
         page_size=page_size,
         overlap=overlap,
+        require_sv_second_hit=require_sv_second_hit,
         prioritize=prioritize,
         track_mode=track_mode,
         track_result_limit=track_result_limit,
+        count_only=count_only,
         **filters,
     )
 
@@ -1066,6 +1103,114 @@ async def get_family_nipt_coverage_summary(
             )
             for region in summary.low_coverage_regions
         ],
+    )
+
+
+@router.get("/{family_id}/annotation-manifest", response_model=AnnotationManifestOut)
+async def get_family_annotation_manifest_endpoint(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> AnnotationManifestOut:
+    return AnnotationManifestOut.model_validate(
+        await get_family_annotation_manifest(
+            session, family_id=family_id, user=user, project_id=project_id
+        )
+    )
+
+
+@router.put("/{family_id}/annotation-manifest", response_model=AnnotationManifestOut)
+async def set_family_annotation_manifest_endpoint(
+    family_id: str,
+    payload: AnnotationManifestUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> AnnotationManifestOut:
+    return AnnotationManifestOut.model_validate(
+        await set_family_annotation_manifest(
+            session,
+            family_id=family_id,
+            user=user,
+            modules=payload.modules,
+            source=payload.source or "manual",
+        )
+    )
+
+
+@router.get("/{family_id}/classification-drift", response_model=ClassificationDriftOut)
+async def get_family_classification_drift_endpoint(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ClassificationDriftOut:
+    return ClassificationDriftOut.model_validate(
+        await evaluate_classification_drift(
+            session, family_id=family_id, user=user, project_id=project_id
+        )
+    )
+
+
+@router.get("/{family_id}/clinical-audit", response_model=ClinicalAuditOut)
+async def get_family_clinical_audit_endpoint(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ClinicalAuditOut:
+    return ClinicalAuditOut.model_validate(
+        await list_clinical_audit(
+            session, family_id=family_id, user=user, project_id=project_id
+        )
+    )
+
+
+@router.post("/{family_id}/report/sign-out", response_model=ReportSignoutDetail)
+async def sign_out_family_report_endpoint(
+    family_id: str,
+    payload: ReportSignoutRequest | None = None,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportSignoutDetail:
+    return ReportSignoutDetail.model_validate(
+        await sign_out_report(
+            session,
+            family_id=family_id,
+            user=user,
+            acknowledge_drift=bool(payload and payload.acknowledge_drift),
+            project_id=project_id,
+        )
+    )
+
+
+@router.get("/{family_id}/report/sign-outs", response_model=ReportSignoutListOut)
+async def list_family_report_signouts_endpoint(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportSignoutListOut:
+    return ReportSignoutListOut.model_validate(
+        await list_report_signouts(
+            session, family_id=family_id, user=user, project_id=project_id
+        )
+    )
+
+
+@router.get("/{family_id}/report/sign-outs/{version}", response_model=ReportSignoutDetail)
+async def get_family_report_signout_endpoint(
+    family_id: str,
+    version: int,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportSignoutDetail:
+    return ReportSignoutDetail.model_validate(
+        await get_report_signout(
+            session, family_id=family_id, version=version, user=user, project_id=project_id
+        )
     )
 
 

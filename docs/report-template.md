@@ -5,9 +5,12 @@ family's small-variant workspace. The report turns curated variant data, ACMG/AM
 criteria, gene context and family phenotype into readable prose that follows
 common guidelines for reporting (candidate causal) variants.
 
-> **Draft, not a sign-out.** The report is decision support assembled from data
-> already in CoGA. A qualified clinical scientist must review and confirm it
-> before any clinical use.
+> **Decision support.** The report is assembled from data already in CoGA. A
+> qualified clinical scientist must review and confirm it before any clinical use.
+> The report carries its full provenance (annotation/reference versions, evidence
+> drift, an immutable audit trail) and can be **signed out** into a frozen,
+> content-hashed snapshot — see [Traceability & sign-out](#traceability--sign-out)
+> and `docs/clinical-traceability.md`.
 
 ---
 
@@ -53,6 +56,29 @@ For every reported variant the template drafts:
 
 The prose helpers live in `frontend/src/pages/families/reportNarrative.ts` and are
 unit-tested in isolation so the wording can evolve safely.
+
+## Traceability & sign-out
+
+The report is also the provenance and sign-out surface for the case (see
+`docs/clinical-traceability.md` for the full design). Four things travel with it:
+
+1. **Provenance footer** — a generation timestamp and the annotation/reference
+   **module versions** that produced the data (assembly, VEP, ClinVar, gnomAD,
+   dbNSFP, SpliceAI, GenCC, PanelApp, Monarch, HPO).
+   `GET /families/{id}/annotation-manifest`.
+2. **Evidence-drift banner** — an amber warning listing any classification whose
+   backing annotation changed since it was made (`ClinVar X → Y`), so stale
+   interpretations don't silently persist. `GET /families/{id}/classification-drift`.
+3. **Classification audit trail** — an immutable, append-only record of who
+   classified, tagged or annotated each variant, when, and what changed
+   (before → after). `GET /families/{id}/clinical-audit`.
+4. **Sign-out** — **Sign out report** freezes the manifest, the reported variant
+   list, each classification and its evidence snapshot, and the drift state into a
+   **versioned, SHA-256 content-hashed** snapshot (`report_signouts`, append-only).
+   Sign-out is **gated on drift** (a `409` unless the drift is acknowledged) and is
+   recorded in the audit trail; amendments create a new version. The report shows a
+   green frozen sign-out record (version · who · when · content hash).
+   `POST /families/{id}/report/sign-out`.
 
 ## Printing / export
 

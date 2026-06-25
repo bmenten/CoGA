@@ -21,6 +21,7 @@ import {
   type TableSortKey,
 } from './smallVariantResultUtils';
 import VariantScoreCell from './VariantScoreCell';
+import SvSecondHitBadge from './SvSecondHitBadge';
 
 interface SmallVariantTableProps {
   variants: SmallVariant[];
@@ -123,7 +124,7 @@ export default function SmallVariantTable({
           <col className="small-variant-col-review" />
           <col className="small-variant-col-genotypes" />
           <col className="small-variant-col-action" />
-          <col className="small-variant-col-action" />
+          <col className="small-variant-col-view" />
         </colgroup>
         <thead>
           <tr>
@@ -156,7 +157,7 @@ export default function SmallVariantTable({
             <th>Review</th>
             <th>Genotypes</th>
             <th>IGV</th>
-            <th>View</th>
+            <th className="small-variant-view-cell">View</th>
           </tr>
         </thead>
         <tbody>
@@ -221,6 +222,12 @@ export default function SmallVariantTable({
                   ) : (
                     variant.gene || '—'
                   )}
+                  {variant.sv_second_hit ? (
+                    <>
+                      {' '}
+                      <SvSecondHitBadge hit={variant.sv_second_hit} />
+                    </>
+                  ) : null}
                 </td>
                 <td className="table-mono variant-allele-cell">
                   <AlleleCell value={variant.ref} />
@@ -379,7 +386,7 @@ export default function SmallVariantTable({
                     IGV
                   </Link>
                 </td>
-                <td>
+                <td className="small-variant-view-cell">
                   <Link
                     to={viewHref}
                     className="table-link"

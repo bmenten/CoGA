@@ -546,6 +546,26 @@ def _coverage_from_rows(rows: Sequence[dict[str, Any]]) -> MitoDNACoverageOut:
     )
 
 
+async def _has_mt_coverage(context: FamilyMetadataContext) -> bool:
+    """Cheap presence check: is any MT/chrM coverage interval recorded?
+
+    Used by the count-only path so the family dashboard can decide whether to show
+    the mtDNA workspace without streaming the full coverage track (up to tens of
+    thousands of interval rows). `LIMIT 1` lets ClickHouse stop at the first hit.
+    """
+    if not context.assembly_name or not context.sample_uuid_to_name:
+        return False
+    rows = await fetch_interval_track_rows(
+        context.assembly_name,
+        family_uuid=context.family_uuid,
+        sample_uuids=list(context.sample_uuid_to_name),
+        track_type="coverage",
+        chromosomes=["MT", "M", "chrMT", "chrM"],
+        limit=1,
+    )
+    return bool(rows)
+
+
 async def _coverage_by_sample(context: FamilyMetadataContext) -> dict[str, MitoDNACoverageOut]:
     if not context.assembly_name or not context.sample_uuid_to_name:
         return {}
@@ -762,8 +782,20 @@ async def get_family_mitochondrial_analysis_response(
     context: FamilyMetadataContext,
     count_only: bool = False,
 ) -> FamilyMitoDNAAnalysisOut:
-    member_by_sample = _member_meta(context)
     records = await _fetch_mt_records(context)
+    if count_only:
+        # Presence check only: don't stream the full coverage track or build the
+        # per-sample / per-variant payloads. Coverage is "present" when a sample
+        # carries variant-call depth or any MT coverage interval exists — the same
+        # two sources `_sample_outs` merges, but probed with a cheap `LIMIT 1`.
+        has_coverage = bool(_sample_variant_depth_coverage(records)) or await _has_mt_coverage(context)
+        return FamilyMitoDNAAnalysisOut(
+            variant_count=len(records),
+            has_coverage=has_coverage,
+            heteroplasmy_threshold=HETEROPLASMY_THRESHOLD,
+            homoplasmy_threshold=HOMOPLASMY_THRESHOLD,
+        )
+    member_by_sample = _member_meta(context)
     coverage_map = await _coverage_by_sample(context)
     samples = _sample_outs(context, records=records, coverage_map=coverage_map)
     # Coverage can derive from a coverage track or from variant-call depth, so it
@@ -772,15 +804,6 @@ async def get_family_mitochondrial_analysis_response(
         sample.coverage.source is not None or sample.coverage.mean_depth is not None
         for sample in samples
     )
-    if count_only:
-        # Presence check only: skip building per-variant rows (and the nested
-        # per-sample call payload they carry) and serializing the full table.
-        return FamilyMitoDNAAnalysisOut(
-            variant_count=len(records),
-            has_coverage=has_coverage,
-            heteroplasmy_threshold=HETEROPLASMY_THRESHOLD,
-            homoplasmy_threshold=HOMOPLASMY_THRESHOLD,
-        )
     variant_rows = [
         _variant_out(record, member_by_sample=member_by_sample, samples=samples)
         for record in records

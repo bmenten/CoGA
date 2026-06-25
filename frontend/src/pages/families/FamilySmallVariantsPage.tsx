@@ -6,6 +6,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import Pedigree from '../../components/visualizations/Pedigree';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
+import LoadingBar from '../../components/LoadingBar';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 import {
@@ -76,6 +77,20 @@ const FamilySmallVariantsPage: React.FC = () => {
     family?.projects?.length && referenceLoading ? 'Loading linked reference...' : 'Reference not linked',
   );
 
+  const { data: panels = [], isLoading: panelsLoading } = useQuery<GenePanel[]>({
+    queryKey: ['panels'],
+    enabled: Boolean(familyId),
+    queryFn: async () => {
+      const res = await api.get('/panels');
+      return res.data as GenePanel[];
+    },
+  });
+  // The generated Mendeliome panel scopes the default small-variant search.
+  const mendeliomePanelId = useMemo(
+    () => panels.find((panel) => panel.source === 'mendeliome')?._id,
+    [panels],
+  );
+
   const {
     activeFilterChips,
     activeFilterCount,
@@ -101,6 +116,8 @@ const FamilySmallVariantsPage: React.FC = () => {
     locationSearch: location.search,
     navigate,
     resolvedProjectId: projectId,
+    mendeliomePanelId,
+    panelsLoaded: !panelsLoading,
   });
   const [workspaceFeedback, setWorkspaceFeedback] = useState<{
     tone: 'error' | 'success';
@@ -108,15 +125,6 @@ const FamilySmallVariantsPage: React.FC = () => {
   } | null>(null);
   // Collapse the whole filter panel to give the variant cards more room.
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
-
-  const { data: panels = [] } = useQuery<GenePanel[]>({
-    queryKey: ['panels'],
-    enabled: Boolean(familyId),
-    queryFn: async () => {
-      const res = await api.get('/panels');
-      return res.data as GenePanel[];
-    },
-  });
 
   const { data: presets = [] } = useQuery<SmallVariantFilterPreset[]>({
     queryKey: ['family', familyId, 'small-variant-filter-presets'],
@@ -256,6 +264,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   if (!variantQueryReady || (isLoading && !data)) {
     return (
       <PageState
+        loading
         kicker="Small Variants"
         title="Loading small variants"
         message="Collecting filtered small variant calls for this family."
@@ -309,7 +318,7 @@ const FamilySmallVariantsPage: React.FC = () => {
                       </div>
                     ) : null}
                     <div className="variant-summary-row">
-                      <span className="badge-chip">
+                      <span className="badge-chip badge-chip--emphasis">
                         Showing {formatVariantTotal(data?.total, data?.total_is_estimated)}
                       </span>
                       <span className="badge-chip">
@@ -395,6 +404,7 @@ const FamilySmallVariantsPage: React.FC = () => {
       </section>
 
       <div className="variant-results-region">
+        {isFetching ? <LoadingBar label="Loading variants" /> : null}
         {isFetching ? (
           <>
             <div className="variant-results-overlay" aria-hidden="true" />

@@ -82,6 +82,8 @@ def _clickhouse_query_settings() -> dict[str, Any]:
     """
     query_settings: dict[str, Any] = {
         "max_execution_time": settings.clickhouse_max_execution_time,
+        # Headroom for large gene-panel filters (Mendeliome) inlined into the query.
+        "max_query_size": settings.clickhouse_max_query_size,
     }
     spill_bytes = settings.clickhouse_external_spill_bytes
     if spill_bytes > 0:

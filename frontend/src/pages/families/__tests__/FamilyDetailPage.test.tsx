@@ -345,7 +345,7 @@ describe('FamilyDetailPage', () => {
     expect(screen.queryByRole('button', { name: /save roi/i })).not.toBeInTheDocument();
   });
 
-  it('shows every variant button greyed-out (disabled) when no variant data is loaded', async () => {
+  it('omits every variant workspace when no variant data is loaded', async () => {
     mockApiState.smallVariantTotal = 0;
     mockApiState.structuralVariantTotal = 0;
     localStorage.setItem('role', 'viewer');
@@ -364,7 +364,7 @@ describe('FamilyDetailPage', () => {
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
     expect(screen.getByText(/No variant data is loaded for this family yet/i)).toBeInTheDocument();
-    // Every data type stays visible, rendered as a disabled button rather than a link.
+    // Workspaces with no underlying data are omitted entirely — neither a link nor a button.
     for (const name of [
       /small variants/i,
       /structural variants/i,
@@ -374,11 +374,11 @@ describe('FamilyDetailPage', () => {
       /variant summary/i,
     ]) {
       expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name })).toBeDisabled();
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
   });
 
-  it('activates only the variant buttons backed by data and greys out the rest', async () => {
+  it('shows only the variant workspaces backed by data and omits the rest', async () => {
     mockApiState.smallVariantTotal = 2;
     mockApiState.structuralVariantTotal = 0;
     localStorage.setItem('role', 'viewer');
@@ -396,18 +396,22 @@ describe('FamilyDetailPage', () => {
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
-    // Small variants present -> small-variants + variant-summary buttons are active links.
+    // Small variants present -> small-variants + variant-summary links are shown.
     expect(screen.getByRole('link', { name: /small variants/i })).toHaveAttribute(
       'href',
       '/families/F1/small-variants?project_id=p1',
     );
     expect(screen.getByRole('link', { name: /variant summary/i })).toBeInTheDocument();
-    // No structural / repeat / paraphase / mtDNA data -> shown but disabled, not links.
-    expect(screen.queryByRole('link', { name: /structural variants/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /structural variants/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /repeat expansions/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /paraphase/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /mtDNA analysis/i })).toBeDisabled();
+    // No structural / repeat / paraphase / mtDNA data -> omitted entirely (no link, no button).
+    for (const name of [
+      /structural variants/i,
+      /repeat expansions/i,
+      /paraphase/i,
+      /mtDNA analysis/i,
+    ]) {
+      expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
   });
 
   it('shows HPO phenotype annotations in the family members overview', async () => {

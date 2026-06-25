@@ -265,26 +265,21 @@ interface FamilyDetailPageProps {
 }
 
 /**
- * A variant-workspace navigation control. Renders as a real link when its data
- * type is available, and as a disabled (greyed-out) button when not, so every
- * data type stays visible and the user can see at a glance what this family has.
+ * A variant-workspace navigation control. Renders a link only when its data type
+ * is available; when there is no underlying data the control is omitted entirely
+ * so the family page surfaces only the workspaces this family actually has.
  */
 const VariantWorkspaceLink: React.FC<{
   active: boolean;
   to: string;
   className: string;
-  disabledTitle: string;
   children: React.ReactNode;
-}> = ({ active, to, className, disabledTitle, children }) =>
+}> = ({ active, to, className, children }) =>
   active ? (
     <Link to={to} className={`${className} hover:no-underline`}>
       {children}
     </Link>
-  ) : (
-    <button type="button" className={className} disabled title={disabledTitle}>
-      {children}
-    </button>
-  );
+  ) : null;
 
 const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   editable = false,
@@ -382,15 +377,23 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     familyId && data && (!(data.projects?.length) || projectId),
   );
 
+  // Presence-only fetches: count_only returns a lightweight presence flag instead
+  // of the full small/structural/repeat/Paraphase/mtDNA payloads. For small and
+  // structural variants this skips the bounded row count + summary aggregation
+  // (which scan the whole family) — the dashboard only needs total > 0.
+  const buildPresenceParams = () => {
+    const params = new URLSearchParams({ count_only: 'true' });
+    if (projectId) {
+      params.set('project_id', projectId);
+    }
+    return `?${params.toString()}`;
+  };
+
   const { data: variantPage } = useQuery<ApiPaginatedTotalResponse>({
     queryKey: ['family', familyId, 'structural-variants', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
-      const params = new URLSearchParams({ page: '1', page_size: '1' });
-      if (projectId) {
-        params.set('project_id', projectId);
-      }
-      const res = await api.get(`/families/${familyId}/structural-variants?${params.toString()}`);
+      const res = await api.get(`/families/${familyId}/structural-variants${buildPresenceParams()}`);
       return res.data as ApiPaginatedTotalResponse;
     },
   });
@@ -399,24 +402,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'small-variants', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
-      const params = new URLSearchParams({ page: '1', page_size: '1' });
-      if (projectId) {
-        params.set('project_id', projectId);
-      }
-      const res = await api.get(`/families/${familyId}/small-variants?${params.toString()}`);
+      const res = await api.get(`/families/${familyId}/small-variants${buildPresenceParams()}`);
       return res.data as ApiPaginatedTotalResponse;
     },
   });
-
-  // Presence-only fetches: count_only returns lightweight counts instead of the
-  // full repeat/Paraphase/mtDNA table payloads (which can be tens-hundreds of KB).
-  const buildPresenceParams = () => {
-    const params = new URLSearchParams({ count_only: 'true' });
-    if (projectId) {
-      params.set('project_id', projectId);
-    }
-    return `?${params.toString()}`;
-  };
 
   const { data: repeatTable } = useQuery<{ loci_count?: number }>({
     queryKey: ['family', familyId, 'repeat-expansions', 'has-data', projectId || null],
@@ -1341,76 +1330,76 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               <p className="family-workspace-card-subtitle">Filter, review and curate variant calls</p>
             </div>
           </div>
-          {variantCountsLoaded ? (
-            <div className="family-variant-links">
+          {/*
+            Each workspace renders as soon as its own presence check resolves, so
+            the page no longer blocks on the slowest count query. Workspaces with
+            no underlying data are simply omitted (see VariantWorkspaceLink).
+          */}
+          <div className="family-variant-links">
+            {hasSmallVariants && (
               <div className="family-variant-row">
-                <VariantWorkspaceLink
-                  active={hasSmallVariants}
+                <Link
                   to={`/families/${data.family_id}/small-variants${variantPageQuerySuffix}`}
-                  className="form-button family-variant-link"
-                  disabledTitle="No small variant data is loaded for this family."
+                  className="form-button family-variant-link hover:no-underline"
                 >
                   Small variants
-                </VariantWorkspaceLink>
-                {hasSmallVariants && (
-                  <div className="family-variant-curation" aria-label="Small variant curation">
-                    <span className="family-review-summary-label">Curation</span>
-                    <span className="table-chip family-review-summary-chip">
-                      Reviewed <strong>{reviewSummary?.reviewed_variant_count ?? 0}</strong>
+                </Link>
+                <div className="family-variant-curation" aria-label="Small variant curation">
+                  <span className="family-review-summary-label">Curation</span>
+                  <span className="table-chip family-review-summary-chip">
+                    Reviewed <strong>{reviewSummary?.reviewed_variant_count ?? 0}</strong>
+                  </span>
+                  <span className="table-chip family-review-summary-chip family-review-summary-chip--notes">
+                    Notes <strong>{reviewSummary?.note_count ?? 0}</strong>
+                  </span>
+                  {reviewSummaryTags.map((tag) => (
+                    <span
+                      key={tag.key}
+                      className="table-chip table-chip--tag family-review-summary-chip"
+                      style={getReviewTagStyle(tag.key, smallVariantReviewTagMap)}
+                      title={`${tag.count} small variants tagged ${tag.label}`}
+                    >
+                      {tag.label} <strong>{tag.count}</strong>
                     </span>
-                    <span className="table-chip family-review-summary-chip family-review-summary-chip--notes">
-                      Notes <strong>{reviewSummary?.note_count ?? 0}</strong>
-                    </span>
-                    {reviewSummaryTags.map((tag) => (
-                      <span
-                        key={tag.key}
-                        className="table-chip table-chip--tag family-review-summary-chip"
-                        style={getReviewTagStyle(tag.key, smallVariantReviewTagMap)}
-                        title={`${tag.count} small variants tagged ${tag.label}`}
-                      >
-                        {tag.label} <strong>{tag.count}</strong>
-                      </span>
-                    ))}
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
+            )}
+            {hasVariants && (
               <div className="family-variant-row">
-                <VariantWorkspaceLink
-                  active={hasVariants}
+                <Link
                   to={`/families/${data.family_id}/structural-variants${variantPageQuerySuffix}`}
-                  className="form-button family-variant-link"
-                  disabledTitle="No structural variant data is loaded for this family."
+                  className="form-button family-variant-link hover:no-underline"
                 >
                   Structural variants
-                </VariantWorkspaceLink>
-                {hasVariants && (
-                  <div className="family-variant-curation" aria-label="Structural variant curation">
-                    <span className="family-review-summary-label">Curation</span>
-                    <span className="table-chip family-review-summary-chip">
-                      Reviewed <strong>{structuralReviewSummary?.reviewed_variant_count ?? 0}</strong>
+                </Link>
+                <div className="family-variant-curation" aria-label="Structural variant curation">
+                  <span className="family-review-summary-label">Curation</span>
+                  <span className="table-chip family-review-summary-chip">
+                    Reviewed <strong>{structuralReviewSummary?.reviewed_variant_count ?? 0}</strong>
+                  </span>
+                  <span className="table-chip family-review-summary-chip family-review-summary-chip--notes">
+                    Notes <strong>{structuralReviewSummary?.note_count ?? 0}</strong>
+                  </span>
+                  {structuralReviewSummaryTags.map((tag) => (
+                    <span
+                      key={tag.key}
+                      className="table-chip table-chip--tag family-review-summary-chip"
+                      style={getReviewTagStyle(tag.key, structuralVariantReviewTagMap)}
+                      title={`${tag.count} structural variants tagged ${tag.label}`}
+                    >
+                      {tag.label} <strong>{tag.count}</strong>
                     </span>
-                    <span className="table-chip family-review-summary-chip family-review-summary-chip--notes">
-                      Notes <strong>{structuralReviewSummary?.note_count ?? 0}</strong>
-                    </span>
-                    {structuralReviewSummaryTags.map((tag) => (
-                      <span
-                        key={tag.key}
-                        className="table-chip table-chip--tag family-review-summary-chip"
-                        style={getReviewTagStyle(tag.key, structuralVariantReviewTagMap)}
-                        title={`${tag.count} structural variants tagged ${tag.label}`}
-                      >
-                        {tag.label} <strong>{tag.count}</strong>
-                      </span>
-                    ))}
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
+            )}
+            {(hasAnyVariantData || isMonogenicNipt) && (
               <div className="compact-toolbar family-toolbar family-variant-secondary">
                 <VariantWorkspaceLink
                   active={hasSmallVariants || hasVariants}
                   to={`/families/${data.family_id}/report${variantPageQuerySuffix}`}
                   className="button-secondary"
-                  disabledTitle="Load small or structural variant data to generate a report."
                 >
                   Report
                 </VariantWorkspaceLink>
@@ -1418,7 +1407,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   active={hasSmallVariants}
                   to={`/families/${data.family_id}/qc`}
                   className="button-secondary"
-                  disabledTitle="Load small-variant genotypes to run sample-integrity QC."
                 >
                   Sample QC
                 </VariantWorkspaceLink>
@@ -1426,7 +1414,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   active={hasVariantSummary}
                   to={`/families/${data.family_id}/variant-summary`}
                   className="button-secondary"
-                  disabledTitle="No variant data is loaded to summarize."
                 >
                   Variant summary
                 </VariantWorkspaceLink>
@@ -1434,7 +1421,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   active={hasRepeatExpansions}
                   to={`/families/${data.family_id}/repeat-expansions`}
                   className="button-secondary"
-                  disabledTitle="No repeat expansion data is loaded for this family."
                 >
                   Repeat expansions
                 </VariantWorkspaceLink>
@@ -1442,7 +1428,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   active={hasParaphase}
                   to={`/families/${data.family_id}/paraphase`}
                   className="button-secondary"
-                  disabledTitle="No Paraphase data is loaded for this family."
                 >
                   Paraphase
                 </VariantWorkspaceLink>
@@ -1450,7 +1435,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   active={hasMitoDna}
                   to={`/families/${data.family_id}/mitochondrial-dna${variantPageQuerySuffix}`}
                   className="button-secondary"
-                  disabledTitle="No mtDNA data is loaded for this family."
                 >
                   mtDNA analysis
                 </VariantWorkspaceLink>
@@ -1459,17 +1443,17 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     active
                     to={`/families/${data.family_id}/nipt`}
                     className="button-secondary"
-                    disabledTitle="Monogenic NIPT analysis."
                   >
                     Monogenic NIPT
                   </VariantWorkspaceLink>
                 )}
               </div>
-            </div>
-          ) : (
+            )}
+          </div>
+          {!variantCountsLoaded && (
             <p className="dashboard-link-note">Checking available family data…</p>
           )}
-          {variantCountsLoaded && !hasAnyVariantData && (
+          {variantCountsLoaded && !hasAnyVariantData && !isMonogenicNipt && (
             <p className="dashboard-link-note">
               No variant data is loaded for this family yet — each type activates
               automatically once its data is imported.

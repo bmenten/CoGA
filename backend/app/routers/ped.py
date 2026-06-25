@@ -5,6 +5,7 @@ from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import ManualPedFamilyCreate, PedUploadResult
 from ..services.bed_service import precompute_family_lineage_safe
+from ..services.clickhouse_family_variants import precompute_family_ranking_safe
 from ..services.metadata_service import CurrentUser
 from ..services.ped_service import create_manual_family_data, upload_ped_data
 
@@ -21,6 +22,7 @@ def _schedule_lineage_refresh(
     for fam in result.families:
         if fam.family_id:
             background_tasks.add_task(precompute_family_lineage_safe, fam.family_id, user)
+            background_tasks.add_task(precompute_family_ranking_safe, fam.family_id, user)
 
 
 @router.post("/upload", response_model=PedUploadResult)

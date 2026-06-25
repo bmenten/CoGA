@@ -11,6 +11,10 @@ from ..schemas import (
     GenePanelOut,
     GenePanelCreate,
     GenePanelCreateResponse,
+    GenePanelUpdate,
+    GenePanelVersionDetail,
+    GenePanelVersionListOut,
+    MendeliomeRegenerateResponse,
     PanelAppImportRequest,
     PanelAppImportResponse,
     PanelAppPanelSearchResponse,
@@ -20,8 +24,12 @@ from ..services.panel_metadata_service import (
     create_panel_data,
     delete_panel_data,
     get_panel_or_404,
+    get_panel_version,
     import_panelapp_panel_data,
+    list_panel_versions,
     list_panels_data,
+    regenerate_mendeliome,
+    update_panel_data,
 )
 from ..services.panelapp_service import search_panelapp_panels
 
@@ -56,6 +64,34 @@ async def import_panelapp_panel(
     return await import_panelapp_panel_data(session, request, user)
 
 
+@router.post("/mendeliome/regenerate", response_model=MendeliomeRegenerateResponse)
+async def regenerate_mendeliome_panel(
+    force: bool = Query(False, description="Create a new version even if the gene set is unchanged."),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> MendeliomeRegenerateResponse:
+    return await regenerate_mendeliome(session, user, force=force)
+
+
+@router.get("/{panel_id}/versions", response_model=GenePanelVersionListOut)
+async def list_panel_version_history(
+    panel_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> GenePanelVersionListOut:
+    return await list_panel_versions(session, panel_id)
+
+
+@router.get("/{panel_id}/versions/{version}", response_model=GenePanelVersionDetail)
+async def get_panel_version_detail(
+    panel_id: str,
+    version: int,
+    session: AsyncSession = Depends(get_postgres_session),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> GenePanelVersionDetail:
+    return await get_panel_version(session, panel_id, version)
+
+
 @router.get("/{panel_id}", response_model=GenePanelOut)
 async def get_panel(
     panel_id: str,
@@ -72,6 +108,16 @@ async def create_panel(
     user: CurrentUser = Depends(get_current_user),
 ) -> GenePanelCreateResponse:
     return await create_panel_data(session, panel, user)
+
+
+@router.put("/{panel_id}", response_model=GenePanelCreateResponse)
+async def update_panel(
+    panel_id: str,
+    payload: GenePanelUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> GenePanelCreateResponse:
+    return await update_panel_data(session, panel_id, payload, user)
 
 
 @router.delete("/{panel_id}", status_code=204)

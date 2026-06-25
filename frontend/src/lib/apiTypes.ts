@@ -334,6 +334,72 @@ export interface ApiSampleIntegrityCategoryQc {
 
 export type SampleQcApplication = 'wgs' | 'pgt' | 'nipt' | 'couple' | 'single' | 'unknown';
 
+export interface ApiAnnotationModule {
+  key: string;
+  label: string;
+  version: string | null;
+  detail: string | null;
+  layer: string; // 'pipeline' | 'reference'
+}
+
+export interface ApiAnnotationManifest {
+  family_id: string;
+  assembly: string | null;
+  source: string | null;
+  recorded_at: string | null;
+  recorded_by: string | null;
+  modules: ApiAnnotationModule[];
+}
+
+export interface ApiClassificationDriftItem {
+  variant_id: string;
+  acmg_class: string | null;
+  classified_by: string | null;
+  classified_at: string | null;
+  status: string; // 'drifted' | 'variant_missing'
+  annotation_version_from: string | null;
+  annotation_version_to: string | null;
+  clinvar_from: string | null;
+  clinvar_to: string | null;
+}
+
+export interface ApiClassificationDrift {
+  family_id: string;
+  checked: number;
+  drifted_count: number;
+  drifted: ApiClassificationDriftItem[];
+}
+
+export interface ApiClinicalAuditEvent {
+  id: string;
+  created_at: string;
+  variant_id: string | null;
+  actor: string;
+  action: string;
+  summary: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+}
+
+export interface ApiClinicalAudit {
+  family_id: string;
+  events: ApiClinicalAuditEvent[];
+}
+
+export interface ApiReportSignout {
+  version: number;
+  signed_out_by: string;
+  signed_out_at: string;
+  content_hash: string;
+  snapshot?: Record<string, unknown> | null;
+}
+
+export interface ApiReportSignoutList {
+  family_id: string;
+  latest: ApiReportSignout | null;
+  signouts: ApiReportSignout[];
+}
+
 export interface ApiSampleIntegrityQc {
   family_id: string;
   overall_status: QcStatus;
@@ -746,6 +812,7 @@ export interface GeneLocation {
 export interface GenePanel {
   _id: string;
   name: string;
+  version?: number;
   genes: string[];
   gene_count?: number;
   regions: GeneLocation[];
@@ -758,4 +825,31 @@ export interface GenePanel {
   external_version?: string | null;
   external_url?: string | null;
   source_updated_at?: string | null;
+  source_metadata?: Record<string, unknown>;
+}
+
+export interface GenePanelVersionSummary {
+  version: number;
+  name: string;
+  source?: string | null;
+  external_version?: string | null;
+  gene_count: number;
+  created_by_email?: string | null;
+  created_at: string;
+}
+
+export interface GenePanelVersionList {
+  panel_id: string;
+  current_version: number;
+  versions: GenePanelVersionSummary[];
+}
+
+export interface MendeliomeRegenerateResponse {
+  panel: GenePanel;
+  message: string;
+  changed: boolean;
+  version: number;
+  monarch_release?: string | null;
+  gene_count: number;
+  missing_genes: string[];
 }

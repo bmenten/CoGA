@@ -17,6 +17,19 @@ import SmallVariantTable from './SmallVariantTable';
 
 type ResultViewMode = 'auto' | 'table' | 'cards';
 
+// Compact "x ago" for the prioritised-ranking cache indicator.
+const formatRelativeTime = (iso: string): string => {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} d ago`;
+};
+
 type SmallVariantResultsProps = {
   assemblyName?: string;
   assemblyVersion?: string;
@@ -169,6 +182,13 @@ export default function SmallVariantResults({
             incomplete — the top variant may not be shown. Narrow the filters (tighter
             frequency/impact, a gene panel, or an inheritance mode) to rank the full set.
           </div>
+        ) : null}
+
+        {data?.ranking_cached ? (
+          <p className="ranking-cache-note" title="The ranking refreshes automatically when phenotypes, the pedigree, the gene panel, or annotations change.">
+            <span aria-hidden>⚡</span> Prioritised ranking served from cache
+            {data.ranking_computed_at ? ` · computed ${formatRelativeTime(data.ranking_computed_at)}` : ''}.
+          </p>
         ) : null}
 
         {!hasResults ? (

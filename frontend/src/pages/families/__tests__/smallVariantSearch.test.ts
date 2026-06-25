@@ -1,3 +1,4 @@
+import { renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
   ALL_GT_GROUPS,
@@ -6,6 +7,7 @@ import {
   buildPresetPayload,
   createEmptySmallFilters,
   resolveSampleFiltersFromPreset,
+  useSmallVariantSearchState,
   type FamilyMember,
   type SmallVariantFilterPreset,
   type SmallVariantSampleFilter,
@@ -46,6 +48,7 @@ describe('smallVariantSearch preset helpers', () => {
         intervals: '',
         inheritance: '',
         prioritize: '',
+        require_sv_second_hit: '',
         expanded_carrier_screening: '',
         ps: '',
         type: '',
@@ -213,5 +216,66 @@ describe('smallVariantSearch preset helpers', () => {
     );
 
     expect(params.get('project_id')).toBe('project-123');
+  });
+});
+
+describe('useSmallVariantSearchState default (fresh open)', () => {
+  const family = {
+    members: [
+      { sample_id: 'S1', role: 'proband', affected: true, sex: 'female' },
+      { sample_id: 'S2', role: 'father', affected: false, sex: 'male' },
+    ],
+    relationships: [],
+    projects: [],
+  } as never;
+
+  it('defaults to the phenotype-priority preset scoped to the Mendeliome panel', async () => {
+    const { result } = renderHook(() =>
+      useSmallVariantSearchState({
+        family,
+        locationSearch: '',
+        navigate: () => {},
+        mendeliomePanelId: 'mendel-1',
+        panelsLoaded: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.filters.panel_id).toBe('mendel-1'));
+    // The Phenotype-priority (Exomiser-style) preset is applied.
+    expect(result.current.filters.prioritize).toBe('true');
+    expect(result.current.filters.impact).toContain('HIGH');
+    expect(result.current.filters.exclude_clinvar).toContain('Benign');
+  });
+
+  it('does not override a deep-linked search', async () => {
+    const { result } = renderHook(() =>
+      useSmallVariantSearchState({
+        family,
+        locationSearch: '?gene=BRCA1',
+        navigate: () => {},
+        mendeliomePanelId: 'mendel-1',
+        panelsLoaded: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.filters.gene).toBe('BRCA1'));
+    // The Mendeliome default is not force-applied over an explicit query.
+    expect(result.current.filters.panel_id).toBe('');
+  });
+
+  it('waits for the panels query before applying the default', async () => {
+    const { result, rerender } = renderHook(
+      ({ loaded, id }: { loaded: boolean; id?: string }) =>
+        useSmallVariantSearchState({
+          family,
+          locationSearch: '',
+          navigate: () => {},
+          mendeliomePanelId: id,
+          panelsLoaded: loaded,
+        }),
+      { initialProps: { loaded: false, id: undefined } as { loaded: boolean; id?: string } },
+    );
+    // Not yet applied while panels are still loading.
+    expect(result.current.filters.panel_id).toBe('');
+    rerender({ loaded: true, id: 'mendel-1' });
+    await waitFor(() => expect(result.current.filters.panel_id).toBe('mendel-1'));
   });
 });

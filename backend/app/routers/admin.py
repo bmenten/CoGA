@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Dict, List
 
@@ -73,6 +74,7 @@ from ..services.clinical_cnv_kb_jobs import (
     queue_clinical_cnv_kb_rebuild,
 )
 from ..services.ped_service import build_pedigree_text
+from ..services.panel_metadata_service import regenerate_mendeliome
 from ..services.monarch_ingest import (
     monarch_status,
     refresh_monarch,
@@ -105,6 +107,8 @@ from ..services.small_variant_review_pg import (
     list_small_variant_tag_definitions,
     update_small_variant_tag_definition,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -668,7 +672,6 @@ async def refresh_monarch_associations(
     source files are small (a few MB gzipped) so the full refresh completes in
     seconds, unlike the per-gene gene-reference sync.
     """
-    del user
     try:
         summary = await refresh_monarch(session)
     except httpx.HTTPError as exc:
@@ -676,6 +679,12 @@ async def refresh_monarch_associations(
             status_code=502,
             detail=f"Failed to download Monarch data: {exc}",
         ) from exc
+    # A new Monarch release means a new Mendeliome: re-version the generated panel
+    # (a no-op if the gene set is unchanged). Best-effort — never fail the refresh.
+    try:
+        await regenerate_mendeliome(session, user)
+    except Exception:  # noqa: BLE001
+        logger.warning("Mendeliome regeneration after Monarch refresh failed", exc_info=True)
     return MonarchRefreshSummaryOut(**summary)
 
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
@@ -81,6 +81,7 @@ export type StructuralVariantReviewSavePayload = SmallVariantReviewSavePayload;
 export interface StructuralGenePanel {
   _id: string;
   name: string;
+  source?: string;
 }
 
 export type StructuralSummary = Record<string, Record<string, number>>;
@@ -162,7 +163,7 @@ export type ActiveStructuralFilterChip =
       field: Exclude<keyof StructuralSampleFilter, 'gt'>;
     };
 
-export type StructuralPreset = 'dominant' | 'recessive' | 'any_affected';
+export type StructuralPreset = 'dominant' | 'recessive' | 'any_affected' | 'mendeliome';
 
 export const CARD_VIEW_THRESHOLD = 20;
 export const STRUCTURAL_HOM_GT_GROUP = ['1/1', '1|1'];
@@ -306,7 +307,8 @@ const buildPresetSampleFilters = (
         } else {
           gt = [...STRUCTURAL_REF_GT_GROUP, ...STRUCTURAL_HET_GT_GROUP];
         }
-      } else if (preset === 'any_affected') {
+      } else if (preset === 'any_affected' || preset === 'mendeliome') {
+        // Affected individuals carry the SV (het or hom); others are unconstrained.
         gt = member.affected
           ? [...STRUCTURAL_HET_GT_GROUP, ...STRUCTURAL_HOM_GT_GROUP]
           : [...STRUCTURAL_ALL_GT_GROUPS];
@@ -314,8 +316,9 @@ const buildPresetSampleFilters = (
 
       // SV calls don't carry a usable QUAL, so presets don't set a QUAL cut.
       qual = '';
-      // Require solid read support for the call in affected individuals (proband ≥ 4).
-      read_support = member.affected ? '4' : '';
+      // Require solid read support for the call in affected individuals (proband ≥ 4) —
+      // except the Mendeliome standard view, which is the carrier + panel + rarity set only.
+      read_support = member.affected && preset !== 'mendeliome' ? '4' : '';
       filter = '';
       return [member.sample_id, { gt, qual, read_support, filter }];
     }),
@@ -523,18 +526,30 @@ type UseStructuralVariantSearchStateArgs = {
   family?: StructuralVariantFamily;
   locationSearch: string;
   navigate: NavigateFunction;
+  // The Mendeliome panel id, used by the standard default + the Mendeliome preset.
+  mendeliomePanelId?: string;
+  // Whether the panels query has settled, so the default can include the panel.
+  panelsLoaded?: boolean;
 };
 
 export const useStructuralVariantSearchState = ({
   family,
   locationSearch,
   navigate,
+  mendeliomePanelId,
+  panelsLoaded = true,
 }: UseStructuralVariantSearchStateArgs) => {
   const emptyFilters = useMemo(() => createEmptyStructuralFilters(), []);
   const orderedMembers = useMemo(
     () => sortFamilyMembersProbandFirst(family?.members || []),
     [family?.members],
   );
+  // Apply the standard Mendeliome default once per family (keyed by the member set).
+  const familyKey = useMemo(
+    () => orderedMembers.map((member) => member.sample_id).join('|'),
+    [orderedMembers],
+  );
+  const defaultInitKeyRef = useRef<string | null>(null);
 
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState(emptyFilters);
@@ -549,6 +564,34 @@ export const useStructuralVariantSearchState = ({
     if (!family) return;
 
     const params = new URLSearchParams(locationSearch);
+    const hasExplicitSearch = Array.from(params.keys()).some(
+      (key) => key !== 'project_id' && key !== 'page',
+    );
+
+    // No deep-linked search: default to the standard Mendeliome SV view — the Mendeliome
+    // panel, population AF < 1%, and affected individuals as carriers. Wait for the panels
+    // query to settle so the panel is included; apply once per family.
+    if (!hasExplicitSearch) {
+      if (!panelsLoaded || defaultInitKeyRef.current === familyKey) return;
+      defaultInitKeyRef.current = familyKey;
+      const defaultFilters: StructuralFilterState = {
+        ...emptyFilters,
+        max_population_af: '0.01',
+        panel_id: mendeliomePanelId ?? '',
+      };
+      const defaultSampleFilters = orderedMembers.length
+        ? buildPresetSampleFilters('mendeliome', orderedMembers)
+        : buildDefaultSampleFilters(family.members);
+      setFilters(defaultFilters);
+      setDraftFilters(defaultFilters);
+      setSampleFilters(cloneSampleFilters(defaultSampleFilters));
+      setSampleDraftFilters(cloneSampleFilters(defaultSampleFilters));
+      setPage(1);
+      return;
+    }
+    // An explicit search counts as initialised, so Clear/Reset won't re-default.
+    defaultInitKeyRef.current = familyKey;
+
     const initialFilters = { ...emptyFilters };
     (Object.keys(initialFilters) as (keyof StructuralFilterState)[]).forEach((key) => {
       const paramKey = key === 'minLength' ? 'min_length' : key;
@@ -592,7 +635,15 @@ export const useStructuralVariantSearchState = ({
     setSampleDraftFilters(cloneSampleFilters(initialSampleFilters));
     setSampleFilters(cloneSampleFilters(initialSampleFilters));
     setPage(parsedPage);
-  }, [emptyFilters, family, locationSearch]);
+  }, [
+    emptyFilters,
+    family,
+    locationSearch,
+    orderedMembers,
+    familyKey,
+    mendeliomePanelId,
+    panelsLoaded,
+  ]);
 
   const applySearchState = (
     nextFilters: StructuralFilterState,
@@ -669,8 +720,13 @@ export const useStructuralVariantSearchState = ({
   const applyPreset = (preset: StructuralPreset) => {
     if (!orderedMembers.length) return;
     setSampleDraftFilters(buildPresetSampleFilters(preset, orderedMembers));
-    // Inheritance presets are always paired with a rare population-frequency cut (<1%).
-    setDraftFilters((prev) => ({ ...prev, max_population_af: '0.01' }));
+    // Inheritance presets are always paired with a rare population-frequency cut (<1%);
+    // the Mendeliome preset additionally scopes the search to the Mendeliome panel.
+    setDraftFilters((prev) => ({
+      ...prev,
+      max_population_af: '0.01',
+      ...(preset === 'mendeliome' ? { panel_id: mendeliomePanelId ?? '' } : {}),
+    }));
   };
 
   const applySavedPreset = (preset: StructuralVariantFilterPreset) => {

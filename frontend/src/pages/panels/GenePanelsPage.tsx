@@ -78,9 +78,26 @@ const GenePanelsPage: React.FC = () => {
   };
   const formatSource = (panel: GenePanel) => {
     if (panel.source === 'panelapp') return 'PanelApp';
+    if (panel.source === 'mendeliome') return 'Mendeliome';
     return 'Local';
   };
   const confidenceLevels = confidencePreset.split(',');
+
+  const [mendeliomeBusy, setMendeliomeBusy] = useState(false);
+  const mendeliome = panels?.find((p) => p.source === 'mendeliome');
+  const regenerateMendeliome = async () => {
+    setMendeliomeBusy(true);
+    setStatus('');
+    try {
+      const res = await api.post('/panels/mendeliome/regenerate');
+      setStatus(res.data?.message || 'Mendeliome updated');
+      await refetch();
+    } catch (err: any) {
+      setStatus(apiErrorMessage(err, 'Error generating the Mendeliome'));
+    } finally {
+      setMendeliomeBusy(false);
+    }
+  };
 
   const handleDelete = async (id: string) => {
     try {
@@ -323,6 +340,34 @@ const GenePanelsPage: React.FC = () => {
             )}
           </section>
           </div>
+          <section className="surface-card field-grid">
+            <h3 className="section-title">Mendeliome (generated from Monarch)</h3>
+            <p className="section-copy">
+              All genes with a Mendelian disease association in the Monarch knowledge graph
+              (aggregating OMIM, Orphanet and ClinGen). Updating creates a new version stamped
+              with the current Monarch release; the previous version is archived, never deleted.
+              {mendeliome ? (
+                <>
+                  {' '}
+                  Current: <strong>v{mendeliome.version ?? 1}</strong>
+                  {mendeliome.external_version ? ` · Monarch ${mendeliome.external_version}` : ''} ·{' '}
+                  {mendeliome.gene_count ?? mendeliome.genes.length} genes.
+                </>
+              ) : null}
+            </p>
+            <button
+              type="button"
+              className="form-button"
+              onClick={regenerateMendeliome}
+              disabled={mendeliomeBusy}
+            >
+              {mendeliomeBusy
+                ? 'Working…'
+                : mendeliome
+                  ? `Update Mendeliome (v${mendeliome.version ?? 1})`
+                  : 'Generate Mendeliome'}
+            </button>
+          </section>
           {status && <p className="form-status">{status}</p>}
         </>
       )}
@@ -380,8 +425,13 @@ const GenePanelsPage: React.FC = () => {
                 </td>
                 <td>{geneCount}</td>
                 <td>{formatSize(p.regions)}</td>
-                <td>{formatSource(p)}</td>
-                <td>{p.external_version || '—'}</td>
+                <td>
+                  {formatSource(p)}
+                  {p.external_version ? (
+                    <div className="table-subtle">{p.external_version}</div>
+                  ) : null}
+                </td>
+                <td>v{p.version ?? 1}</td>
                 <td>{formatDateTime(p.created_at)}</td>
                 <td>{p.created_by_email || p.created_by}</td>
                 <td className="project-catalog-note-cell">{p.description || '—'}</td>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
@@ -155,6 +155,7 @@ export interface SmallVariant {
   review?: SmallVariantReview | null;
   internal_cohort?: SmallVariantInternalCohort | null;
   priority?: SmallVariantPriority | null;
+  sv_second_hit?: SvSecondHit | null;
   // mtDNA-specific ACMG context, attached by the mitochondrial page adapter for
   // MT variants so the modal can run the mt-specific evaluator.
   mito?: AcmgMitoContext | null;
@@ -171,6 +172,16 @@ export interface NiptClassification {
   observed_vaf?: number | null;
   confidence: number;
   flags: string[];
+}
+
+export interface SvSecondHit {
+  sv_count: number;
+  sv_types: string[];
+  affected_zygosity?: string | null;
+  has_deletion: boolean;
+  phase?: string;
+  phase_evidence?: string | null;
+  deletion_unmasked?: boolean;
 }
 
 export interface SmallVariantPriorityMatch {
@@ -207,6 +218,8 @@ export interface SmallVariantPage {
   unfiltered_total_is_estimated?: boolean;
   count_limit?: number | null;
   ranking_truncated?: boolean;
+  ranking_cached?: boolean;
+  ranking_computed_at?: string | null;
   small_variant_summary?: SmallVariantSummary | null;
 }
 
@@ -292,6 +305,7 @@ export interface PedRow {
 export interface GenePanel {
   _id: string;
   name: string;
+  source?: string;
 }
 
 export type SmallVariantSampleFilter = {
@@ -311,6 +325,7 @@ export type SmallFilterState = {
   inheritance: string;
   expanded_carrier_screening: string;
   prioritize: string;
+  require_sv_second_hit: string;
   ps: string;
   type: string;
   source: string;
@@ -547,6 +562,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   inheritance: 'Inheritance',
   expanded_carrier_screening: 'Expanded carrier screening',
   prioritize: 'Phenotype prioritization',
+  require_sv_second_hit: 'Also hit by an SV',
   ps: 'Phase set',
   type: 'Variant type',
   source: 'Callset',
@@ -689,7 +705,7 @@ const normalizeStoredFilterValue = (
     if (value === true || value === 'true') return 'true';
     return '';
   }
-  if (key === 'prioritize') {
+  if (key === 'prioritize' || key === 'require_sv_second_hit') {
     if (value === true || value === 'true') return 'true';
     return '';
   }
@@ -705,6 +721,7 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   inheritance: '',
   expanded_carrier_screening: '',
   prioritize: '',
+  require_sv_second_hit: '',
   ps: '',
   type: '',
   source: '',
@@ -1110,6 +1127,9 @@ export const buildSmallVariantQueryParams = (
   );
   // Standard on: only an explicit "false" turns phenotype prioritization off.
   params.set('prioritize', currentFilters.prioritize === 'true' ? 'true' : 'false');
+  if (currentFilters.require_sv_second_hit === 'true') {
+    params.set('require_sv_second_hit', 'true');
+  }
   parseCommaSeparatedValues(currentFilters.exclude_review_tags).forEach((value) => {
     params.append('exclude_review_tag', value);
   });
@@ -1298,7 +1318,8 @@ export const serializePresetFilters = (filters: SmallFilterState): Record<string
         if (
           key === 'has_notes' ||
           key === 'expanded_carrier_screening' ||
-          key === 'prioritize'
+          key === 'prioritize' ||
+          key === 'require_sv_second_hit'
         ) {
           return [key, value === 'true'];
         }
@@ -1396,6 +1417,10 @@ type UseSmallVariantSearchStateArgs = {
   locationSearch: string;
   navigate: NavigateFunction;
   resolvedProjectId?: string;
+  // The Mendeliome panel id, used to scope the default (fresh-open) search.
+  mendeliomePanelId?: string;
+  // Whether the panels query has settled, so the default can include the panel.
+  panelsLoaded?: boolean;
 };
 
 export const useSmallVariantSearchState = ({
@@ -1403,6 +1428,8 @@ export const useSmallVariantSearchState = ({
   locationSearch,
   navigate,
   resolvedProjectId,
+  mendeliomePanelId,
+  panelsLoaded = true,
 }: UseSmallVariantSearchStateArgs) => {
   const emptyFilters = useMemo(() => createEmptySmallFilters(), []);
   const members = useMemo(
@@ -1425,10 +1452,45 @@ export const useSmallVariantSearchState = ({
   );
   const queryProjectId = resolvedProjectId || urlProjectId;
 
+  // Apply the fresh-open default (Phenotype-priority preset + Mendeliome panel) once
+  // per family — keyed by the member set, since the family object has no stable id.
+  const familyKey = useMemo(() => members.map((member) => member.sample_id).join('|'), [members]);
+  const defaultInitKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!family) return;
 
     const params = new URLSearchParams(locationSearch);
+    const hasExplicitSearch = Array.from(params.keys()).some(
+      (key) => key !== 'project_id' && key !== 'page',
+    );
+
+    // No deep-linked search: default the page to the Phenotype-priority preset scoped
+    // to the Mendeliome panel. Wait for the panels query to settle so the panel is
+    // included, and apply only once per family (so a later Clear stays cleared).
+    if (!hasExplicitSearch) {
+      if (!panelsLoaded || defaultInitKeyRef.current === familyKey) return;
+      defaultInitKeyRef.current = familyKey;
+      const presetState = members.length
+        ? buildPresetState('phenotype_priority', members)
+        : {
+            filters: createEmptySmallFilters(),
+            sampleFilters: buildDefaultSampleFilters(family.members),
+          };
+      const defaultFilters: SmallFilterState = {
+        ...presetState.filters,
+        panel_id: mendeliomePanelId ?? '',
+      };
+      setFilters(defaultFilters);
+      setDraftFilters(defaultFilters);
+      setSampleFilters(cloneSampleFilters(presetState.sampleFilters));
+      setSampleDraftFilters(cloneSampleFilters(presetState.sampleFilters));
+      setPage(1);
+      return;
+    }
+    // An explicit search counts as initialised, so Clear/Reset won't re-default.
+    defaultInitKeyRef.current = familyKey;
+
     const initialFilters = { ...emptyFilters };
     (Object.keys(initialFilters) as (keyof SmallFilterState)[]).forEach((key) => {
       if (
@@ -1506,7 +1568,15 @@ export const useSmallVariantSearchState = ({
     setSampleFilters(cloneSampleFilters(initialSampleFilters));
     setSampleDraftFilters(cloneSampleFilters(initialSampleFilters));
     setPage(parsedPage);
-  }, [emptyFilters, family, locationSearch]);
+  }, [
+    emptyFilters,
+    family,
+    locationSearch,
+    members,
+    familyKey,
+    mendeliomePanelId,
+    panelsLoaded,
+  ]);
 
   const applySearchState = (
     nextFilters: SmallFilterState,

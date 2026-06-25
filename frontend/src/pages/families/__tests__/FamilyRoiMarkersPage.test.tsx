@@ -259,4 +259,56 @@ describe('FamilyRoiMarkersPage', () => {
     fireEvent.mouseMove(bandCell('EMBRYO', 1, 1_000_500) as HTMLElement, { clientX: 25, clientY: 25 });
     expect((document.querySelector('.viz-tooltip') as HTMLElement).textContent).toContain('Mendelian error');
   });
+
+  it('shades block-mismatch markers orange and homozygous markers light grey', async () => {
+    // laneColor reads CSS variables; jsdom needs them set so the two founder shades differ.
+    const root = document.documentElement;
+    root.style.setProperty('--color-haplotype-father-dark', '#13386b');
+    root.style.setProperty('--color-haplotype-father-light', '#6f9ad6');
+    root.style.setProperty('--color-haplotype-mother-dark', '#14532d');
+    root.style.setProperty('--color-haplotype-mother-light', '#6fae7f');
+    root.style.setProperty('--color-haplotype-unknown', '#9ca3af');
+
+    const phasedData = {
+      samples: [
+        // FATHER 1|1 is homozygous and uninformative (null lanes).
+        { sample: 'FATHER', markers: [{ pos: 1_000_500, hap1: null, hap2: null }], reference: true, qc: null },
+        { sample: 'MOTHER', markers: [{ pos: 1_000_500, hap1: 0, hap2: 1 }], reference: true, qc: null },
+        // EMBRYO hap1 marker = founder homolog 1, but its block (below) says 0 → disagreement.
+        { sample: 'EMBRYO', markers: [{ pos: 1_000_500, hap1: 1, hap2: null }], reference: false, qc: null },
+      ],
+      sites: [{ pos: 1_000_500, ref: 'G', alt: 'A', gts: ['1|1', '0|1', '1|0'] }],
+      truncated: false,
+    };
+    const haploData = {
+      samples: [
+        { sample: 'FATHER', segments: hapSeg('0', '1', 'paternal', 'paternal') },
+        { sample: 'MOTHER', segments: hapSeg('0', '1', 'maternal', 'maternal') },
+        { sample: 'EMBRYO', segments: hapSeg('0', '0', 'paternal', 'maternal') },
+      ],
+    };
+    (api.get as Mock).mockImplementation((url: string) => {
+      if (url === '/families/co1') return Promise.resolve({ data: family });
+      if (url.endsWith('/phased-markers')) return Promise.resolve({ data: phasedData });
+      if (url.endsWith('/haplotypes')) return Promise.resolve({ data: haploData });
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/ROI marker review/)).toBeTruthy());
+
+    // Homozygous FATHER (1|1) → faint grey on both lanes.
+    expect(bandCell('FATHER', 1, 1_000_500)?.className).toContain('roi-markers-band--homozygous');
+    expect(bandCell('FATHER', 2, 1_000_500)?.className).toContain('roi-markers-band--homozygous');
+    // EMBRYO hap1 disagrees with its block → orange (and not the grey).
+    const embryoHap1 = bandCell('EMBRYO', 1, 1_000_500);
+    expect(embryoHap1?.className).toContain('roi-markers-band--block-mismatch');
+    expect(embryoHap1?.className).not.toContain('roi-markers-band--homozygous');
+
+    root.style.removeProperty('--color-haplotype-father-dark');
+    root.style.removeProperty('--color-haplotype-father-light');
+    root.style.removeProperty('--color-haplotype-mother-dark');
+    root.style.removeProperty('--color-haplotype-mother-light');
+    root.style.removeProperty('--color-haplotype-unknown');
+  });
 });

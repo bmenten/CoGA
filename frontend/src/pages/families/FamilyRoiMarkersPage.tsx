@@ -62,6 +62,21 @@ const laneColor = (seg: HapSegment | null, lane: Lane): string => {
   return grey; // untransmitted / unknown / donor
 };
 
+// Does a raw marker agree with its cleaned haplotype block on this lane? They agree
+// when the founder colour the marker would draw equals the block's. A disagreement
+// (returns false) flags a phasing switch / artifact / unannotated recombination;
+// null = nothing to compare (no block, or the lane is uninformative here).
+const laneMatchesBlock = (
+  seg: HapSegment | null,
+  laneValue: number | null,
+  lane: Lane,
+): boolean | null => {
+  if (!seg || laneValue === null) return null;
+  const rawSeg: HapSegment =
+    lane === 'hap1' ? { ...seg, hap1: String(laneValue) } : { ...seg, hap2: String(laneValue) };
+  return laneColor(rawSeg, lane) === laneColor(seg, lane);
+};
+
 // IGV-style nucleotide colours for the allele letters (match the haplotype track tooltip).
 const NUCLEOTIDE_COLORS: Record<string, string> = {
   A: '#2e9e4f',
@@ -353,6 +368,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
     const base = cell.dataset.base ?? '';
     const informative = cell.dataset.informative === '1';
     const mendelError = cell.dataset.mendel === '1';
+    const blockMismatch = cell.dataset.blockMismatch === '1';
     const site = siteByPos.get(pos);
     const role = roleBySample.get(sample);
     const flank = !inRoi(pos);
@@ -392,6 +408,12 @@ const FamilyRoiMarkersPage: React.FC = () => {
               wrong pedigree, or genotyping noise).
             </div>
           )}
+          {blockMismatch && !mendelError && (
+            <div className="roi-markers-tip-row roi-markers-tip-mendel">
+              ⚠ Disagrees with the haplotype block — a phasing switch, artifact, or unannotated
+              recombination here.
+            </div>
+          )}
         </div>
       ),
     });
@@ -412,7 +434,10 @@ const FamilyRoiMarkersPage: React.FC = () => {
           (blue = paternal, green = maternal, grey = untransmitted/donor), matching the chromosome view. The
           ROI is bracketed by an orange line between members and any flanking markers are dimmed; each member
           shows its two homolog rows — the allele is nucleotide-coloured where the lane is informative and
-          light grey where it is not. Use it to re-check the ROI for errors, artefacts and recombination.
+          light grey where it is not. A cell is shaded <strong>darker orange</strong> for an impossible
+          transmission (a Mendelian error) and <strong>lighter orange</strong> when the marker merely
+          disagrees with the haplotype block, and a very light grey when the genotype is homozygous
+          (uninformative for phasing). Use it to re-check the ROI for errors, artefacts and recombination.
         </p>
         <HaplotypeLegend inheritanceModel={inheritanceModel} />
       </div>
@@ -524,18 +549,30 @@ const FamilyRoiMarkersPage: React.FC = () => {
                     const laneValue = markerLanes.get(sample)?.get(site.pos)?.[lane] ?? null;
                     const informative = laneValue !== null;
                     const mendelError = mendelErrorPosBySample.get(sample)?.has(site.pos) ?? false;
+                    // Raw marker disagrees with the cleaned haplotype block here.
+                    const blockMismatch = laneMatchesBlock(seg, laneValue, lane) === false;
+                    // Both homologs carry the same allele → uninformative for phasing.
+                    const homozygous = /^\d+$/.test(a) && a === b;
+                    // Orange emphasises a suspect marker (impossible transmission or a
+                    // block disagreement); homozygous (uninformative) sites are a faint grey.
+                    const flagClass = mendelError
+                      ? ' roi-markers-band--mendel'
+                      : blockMismatch
+                        ? ' roi-markers-band--block-mismatch'
+                        : homozygous
+                          ? ' roi-markers-band--homozygous'
+                          : '';
                     return (
                       <td
                         key={site.pos}
-                        className={`roi-markers-band${inRoi(site.pos) ? '' : ' roi-markers-band--flank'}${
-                          mendelError ? ' roi-markers-band--mendel' : ''
-                        }`}
+                        className={`roi-markers-band${inRoi(site.pos) ? '' : ' roi-markers-band--flank'}${flagClass}`}
                         data-pos={site.pos}
                         data-sample={sample}
                         data-lane={laneIdx + 1}
                         data-base={base}
                         data-informative={informative ? '1' : '0'}
                         data-mendel={mendelError ? '1' : '0'}
+                        data-block-mismatch={blockMismatch ? '1' : '0'}
                       >
                         <span
                           className={`roi-markers-allele${informative ? '' : ' roi-markers-allele--muted'}`}

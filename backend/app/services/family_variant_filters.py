@@ -116,6 +116,11 @@ class SmallVariantQueryFilters:
     panel_id: str | None = None
     sample_filters: List[str] = field(default_factory=list)
     overlap: bool = False
+    # Restrict to variants whose gene is also hit by a structural variant (the cross-type
+    # "second hit"). ``sv_hit_genes`` is resolved server-side from the family's SV→gene index
+    # (not a request field) and intersected with the other gene/panel constraints.
+    require_sv_second_hit: bool = False
+    sv_hit_genes: List[str] = field(default_factory=list)
 
 
 def split_filter_entry(entry: str, expected_parts: int) -> List[str]:

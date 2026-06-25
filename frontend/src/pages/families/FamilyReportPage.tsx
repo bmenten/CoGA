@@ -1,9 +1,15 @@
 import React, { useMemo } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
+import type {
+  ApiAnnotationManifest,
+  ApiClassificationDrift,
+  ApiClinicalAudit,
+  ApiReportSignoutList,
+} from '../../lib/apiTypes';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { formatLocus } from './smallVariantResultUtils';
 import {
@@ -220,6 +226,73 @@ const FamilyReportPage: React.FC = () => {
     },
   });
 
+  // Provenance footer: which annotation/reference modules + versions backed the report.
+  const { data: manifest } = useQuery<ApiAnnotationManifest>({
+    queryKey: ['family', familyId, 'annotation-manifest'],
+    enabled: Boolean(familyId),
+    queryFn: async () =>
+      (await api.get(`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
+  });
+  // The moment the report was produced (becomes the frozen sign-out time in Phase 3).
+  const generatedAt = useMemo(() => new Date(), []);
+
+  // Evidence drift: classifications whose backing annotation changed since they
+  // were made — a sign-out guardrail against stale interpretations.
+  const { data: drift } = useQuery<ApiClassificationDrift>({
+    queryKey: ['family', familyId, 'classification-drift'],
+    enabled: Boolean(familyId),
+    queryFn: async () =>
+      (await api.get(`/families/${familyId}/classification-drift`)).data as ApiClassificationDrift,
+  });
+
+  // Immutable clinical audit trail (who classified / tagged / annotated what, when).
+  const { data: audit } = useQuery<ApiClinicalAudit>({
+    queryKey: ['family', familyId, 'clinical-audit'],
+    enabled: Boolean(familyId),
+    queryFn: async () =>
+      (await api.get(`/families/${familyId}/clinical-audit`)).data as ApiClinicalAudit,
+  });
+
+  // Case sign-out: the frozen, versioned, content-hashed report record.
+  const queryClient = useQueryClient();
+  const { data: signouts } = useQuery<ApiReportSignoutList>({
+    queryKey: ['family', familyId, 'report-signouts'],
+    enabled: Boolean(familyId),
+    queryFn: async () =>
+      (await api.get(`/families/${familyId}/report/sign-outs`)).data as ApiReportSignoutList,
+  });
+
+  const signOut = useMutation({
+    mutationFn: async (acknowledgeDrift: boolean) =>
+      (
+        await api.post(`/families/${familyId}/report/sign-out`, {
+          acknowledge_drift: acknowledgeDrift,
+        })
+      ).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['family', familyId, 'report-signouts'] });
+      queryClient.invalidateQueries({ queryKey: ['family', familyId, 'clinical-audit'] });
+    },
+  });
+
+  const handleSignOut = async () => {
+    try {
+      await signOut.mutateAsync(false);
+    } catch (error) {
+      const response = (error as { response?: { status?: number; data?: { detail?: string } } })
+        .response;
+      if (response?.status === 409) {
+        const detail =
+          response.data?.detail || 'Evidence has changed since some classifications were made.';
+        if (window.confirm(`${detail}\n\nSign out anyway?`)) {
+          await signOut.mutateAsync(true);
+        }
+      } else {
+        throw error;
+      }
+    }
+  };
+
   const presentHpoTerms = useMemo(() => {
     const byId = new Map<string, string>();
     hpoAnnotations
@@ -272,8 +345,33 @@ const FamilyReportPage: React.FC = () => {
           <button type="button" className="form-button" onClick={() => window.print()}>
             Print report
           </button>
+          <button
+            type="button"
+            className="form-button"
+            onClick={handleSignOut}
+            disabled={signOut.isPending}
+          >
+            {signOut.isPending
+              ? 'Signing out…'
+              : signouts?.latest
+                ? 'Amend sign-out'
+                : 'Sign out report'}
+          </button>
         </div>
       </header>
+
+      {signouts?.latest ? (
+        <section className="surface-card report-signout">
+          <p className="report-signout-line">
+            ✓ Signed out — version {signouts.latest.version} by{' '}
+            <strong>{signouts.latest.signed_out_by}</strong> on{' '}
+            {signouts.latest.signed_out_at.replace('T', ' ').slice(0, 16)} UTC
+          </p>
+          <p className="report-signout-hash">
+            <span className="report-footer-label">Content hash</span> {signouts.latest.content_hash}
+          </p>
+        </section>
+      ) : null}
 
       <section className="surface-card report-intro">
         <p className="report-paragraph">
@@ -290,6 +388,35 @@ const FamilyReportPage: React.FC = () => {
           scientist before clinical use.
         </p>
       </section>
+
+      {drift && drift.drifted_count > 0 ? (
+        <section className="surface-card report-drift" role="alert">
+          <p className="report-drift-title">
+            ⚠ {drift.drifted_count} classification{drift.drifted_count === 1 ? '' : 's'}{' '}
+            {drift.drifted_count === 1 ? 'has' : 'have'} evidence changes since being made
+          </p>
+          <p className="report-paragraph report-drift-lead">
+            The annotation backing the following classification
+            {drift.drifted_count === 1 ? '' : 's'} has changed since it was recorded. Re-review
+            before sign-out.
+          </p>
+          <ul className="report-drift-list">
+            {drift.drifted.map((item) => (
+              <li key={item.variant_id}>
+                <strong>{item.variant_id}</strong>
+                {item.status === 'variant_missing'
+                  ? ' — no longer present in the dataset'
+                  : item.clinvar_from !== item.clinvar_to
+                    ? ` — ClinVar ${item.clinvar_from || 'n/a'} → ${item.clinvar_to || 'n/a'}`
+                    : ' — annotation set changed'}
+                {item.classified_by ? (
+                  <span className="report-drift-meta"> (classified by {item.classified_by})</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {variants.length === 0 && structuralVariants.length === 0 ? (
         <section className="surface-card report-empty">
@@ -554,6 +681,47 @@ const FamilyReportPage: React.FC = () => {
         })}
         </>
       )}
+
+      {audit?.events?.length ? (
+        <section className="surface-card report-audit">
+          <h2 className="report-audit-heading">Classification audit trail</h2>
+          <p className="report-paragraph report-audit-lead">
+            An immutable record of who classified, tagged or annotated each variant.
+          </p>
+          <ul className="report-audit-list">
+            {audit.events.map((event) => (
+              <li key={event.id} className="report-audit-item">
+                <span className="report-audit-time">
+                  {event.created_at.replace('T', ' ').slice(0, 16)} UTC
+                </span>
+                <span className="report-audit-summary">
+                  {event.variant_id ? <strong>{event.variant_id}</strong> : null}{' '}
+                  {event.summary || event.action}
+                </span>
+                <span className="report-audit-actor">{event.actor}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <footer className="surface-card report-footer">
+        <p className="report-footer-timestamp">
+          Report generated {generatedAt.toISOString().replace('T', ' ').slice(0, 16)} UTC
+        </p>
+        <p className="report-footer-versions">
+          <span className="report-footer-label">Modules &amp; versions:</span>{' '}
+          {manifest?.modules?.some((module) => module.version)
+            ? manifest.modules
+                .filter((module) => module.version)
+                .map(
+                  (module) =>
+                    `${module.label} ${module.version}${module.detail ? ` (${module.detail})` : ''}`,
+                )
+                .join(' · ')
+            : 'not recorded for this family'}
+        </p>
+      </footer>
     </div>
   );
 };

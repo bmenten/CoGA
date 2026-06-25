@@ -625,6 +625,9 @@ def _structural_variant_entry_rows(
         sample_quals = [_structural_call_qual(call) for call in record.calls]
         sample_read_supports = [_structural_call_read_support(call) for call in record.calls]
         sample_filters = [call.filter for call in record.calls]
+        sample_phase_sets = [
+            None if call.phase_set is None else int(call.phase_set) for call in record.calls
+        ]
         for project_id in normalized_project_ids:
             entry_rows.append(
                 (
@@ -644,6 +647,7 @@ def _structural_variant_entry_rows(
                     sample_quals,
                     sample_read_supports,
                     sample_filters,
+                    sample_phase_sets,
                     1,
                 )
             )
@@ -1023,11 +1027,16 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `calls.qual` Array(Nullable(Float32)),
             `calls.readSupport` Array(Nullable(UInt32)),
             `calls.filter` Array(Nullable(String)),
+            `calls.ps` Array(Nullable(UInt64)),
             `sign` Int8
         )
         ENGINE = CollapsingMergeTree(sign)
         PARTITION BY project_guid
         ORDER BY (project_guid, family_guid, svType, chrom, start, key)
+        """,
+        f"""
+        ALTER TABLE {database}.`{dataset}/SV/entries`
+        ADD COLUMN IF NOT EXISTS `calls.ps` Array(Nullable(UInt64)) AFTER `calls.filter`
         """,
     ]
     async with _ensure_variant_tables_lock:
@@ -1397,6 +1406,7 @@ async def insert_structural_variant_records(
                 `calls.qual`,
                 `calls.readSupport`,
                 `calls.filter`,
+                `calls.ps`,
                 sign
             ) VALUES
             """,

@@ -5,6 +5,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
 from uuid import UUID
 
@@ -24,6 +25,7 @@ from ..schemas import (
     SmallVariantSummaryOut,
     SmallVariantTranscriptOut,
     VariantInternalCohortOut,
+    SvSecondHitOut,
     VariantOut,
     VariantPage,
     VariantPriorityOut,
@@ -42,6 +44,20 @@ from .small_variant_review_pg import (
     list_matching_small_variant_review_ids,
 )
 from .monarch_phenotype_score import score_genes_for_hpo
+from .sv_gene_index_service import (
+    get_sv_hit_genes,
+    get_sv_second_hits,
+    is_index_built,
+    store_sv_gene_index,
+    summarize_second_hit,
+)
+from .variant_ranking_cache import (
+    canonical_filters,
+    compute_ranking_hashes,
+    find_superset_candidates,
+    get_cached_ranking,
+    store_ranking,
+)
 from .variant_prioritization import (
     MODE_COMPOUND_HET,
     MODE_DE_NOVO,
@@ -245,6 +261,8 @@ class StructuralVariantCall:
     qual: float | None
     read_support: int | None
     filter: str | None
+    # Phase set (PS) for read-based cis/trans against a phased SNV; None when unphased.
+    phase_set: int | None = None
 
 
 @dataclass(slots=True)
@@ -1421,6 +1439,8 @@ def _structural_record_matches(
     filters: StructuralVariantQueryFilters,
     include_regions: Sequence[Region],
     selected_samples: Sequence[str],
+    *,
+    panel_gene_terms: set[str] | None = None,
 ) -> bool:
     if filters.chromosome and normalize_chromosome(record.chr) != normalize_chromosome(filters.chromosome):
         return False
@@ -1452,6 +1472,11 @@ def _structural_record_matches(
         return False
     if include_regions and not _variant_overlaps_regions(record.chr, record.start, record.end, include_regions):
         return False
+    # Large gene panels (the Mendeliome) are matched by gene symbol rather than expanded
+    # to thousands of regions — a per-SV overlap over those would dominate the request.
+    if panel_gene_terms is not None:
+        if {gene.lower() for gene in (record.gene_symbols or [])}.isdisjoint(panel_gene_terms):
+            return False
     if filters.gene and not _variant_hits_gene_symbols(record.gene_symbols, filters.gene):
         return False
     if selected_samples and not any(call.sample in set(selected_samples) for call in record.calls):
@@ -2114,6 +2139,9 @@ def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
         ps=next((call.ps for call in record.calls if call.ps is not None), None),
         gene=_annotation_gene(annotation) or (record.gene_symbols[0] if record.gene_symbols else None),
         gene_id=_annotation_gene_id(annotation),
+        # Every gene the variant overlaps (not just the primary annotation's gene) — lets the
+        # SV second-hit overlay match the same genes the require_sv_second_hit filter uses.
+        gene_symbols=list(record.gene_symbols),
         impact=_annotation_text(annotation, "impact"),
         effect=_annotation_effect(annotation),
         clinvar=_annotation_clinvar(annotation),
@@ -2272,6 +2300,125 @@ async def fetch_recurrent_small_variant_ids(
     return [(str(variant_id), int(carriers or 0)) for variant_id, carriers in rows]
 
 
+async def _scan_family_sv_gene_map(
+    context: FamilyMetadataContext,
+) -> tuple[dict[str, list[dict[str, Any]]], int]:
+    """Scan the family's structural variants and group them by overlapped gene."""
+    if not context.assembly_name:
+        return {}, 0
+    entries_table = _structural_table_name(context.assembly_name, "entries")
+    rows = await execute_clickhouse(
+        f"""
+        SELECT e.variantId, e.svType, e.chrom, e.start, e.end, e.gene_symbols,
+               e.calls.sampleId, e.calls.gt, e.calls.ps
+        FROM {entries_table} AS e
+        WHERE e.family_guid = %(family_guid)s AND e.sign = 1 AND length(e.gene_symbols) > 0
+        """,
+        {"family_guid": context.family_uuid},
+    )
+    gene_map: dict[str, list[dict[str, Any]]] = {}
+    sv_ids: set[str] = set()
+    for variant_id, sv_type, chrom, start, end, genes, sample_ids, gts, phase_sets in rows:
+        sv_ids.add(str(variant_id))
+        gt_map = {
+            str(sample): str(gt)
+            for sample, gt in zip(sample_ids or [], gts or [])
+            if sample not in (None, "")
+        }
+        ps_map = {
+            str(sample): int(ps)
+            for sample, ps in zip(sample_ids or [], phase_sets or [])
+            if sample not in (None, "") and ps is not None
+        }
+        sv = {
+            "sv_id": str(variant_id),
+            "sv_type": str(sv_type or ""),
+            "chr": str(chrom or ""),
+            "start": int(start) if start is not None else None,
+            "end": int(end) if end is not None else None,
+            "gt": gt_map,
+            "ps": ps_map,
+        }
+        for gene in genes or []:
+            symbol = str(gene).strip()
+            if symbol:
+                gene_map.setdefault(symbol.upper(), []).append(sv)
+    return gene_map, len(sv_ids)
+
+
+async def _ensure_family_sv_gene_index(
+    session: AsyncSession, context: FamilyMetadataContext
+) -> None:
+    """Build the family's SV→gene index once (lazily); cleared on SV re-import."""
+    if await is_index_built(session, context.family_uuid):
+        return
+    # Ensure the SV entries table is current (notably the calls.ps phase-set column added for
+    # read-based phasing) before the scan selects it. Local import avoids a circular dependency.
+    if context.assembly_name:
+        from .clickhouse_variant_storage import ensure_clickhouse_variant_tables
+
+        await ensure_clickhouse_variant_tables(context.assembly_name)
+    gene_map, sv_total = await _scan_family_sv_gene_map(context)
+    await store_sv_gene_index(
+        session, family_uuid=context.family_uuid, gene_map=gene_map, sv_total=sv_total
+    )
+
+
+def _variant_gene_keys(variant: VariantOut) -> list[str]:
+    """Upper-cased genes a variant hits, primary gene first (for SV second-hit matching)."""
+    keys: list[str] = []
+    if variant.gene:
+        keys.append(variant.gene.upper())
+    for symbol in variant.gene_symbols or []:
+        upper = str(symbol).upper()
+        if upper and upper not in keys:
+            keys.append(upper)
+    return keys
+
+
+async def _attach_sv_second_hits(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    variants: Sequence[VariantOut],
+) -> None:
+    """Flag small variants whose gene is also hit by a structural variant (best-effort)."""
+    try:
+        await _ensure_family_sv_gene_index(session, context)
+        genes: set[str] = set()
+        for variant in variants:
+            genes.update(_variant_gene_keys(variant))
+        second_hits = await get_sv_second_hits(
+            session, family_uuid=context.family_uuid, gene_symbols=genes
+        )
+        if not second_hits:
+            return
+        affected, unaffected = _family_affected_unaffected_sample_names(context)
+        for variant in variants:
+            hit = next(
+                (second_hits[gene] for gene in _variant_gene_keys(variant) if gene in second_hits),
+                None,
+            )
+            if hit:
+                snv_gt = {gt.sample: gt.gt for gt in (variant.genotypes or []) if gt.sample}
+                snv_ps = {
+                    gt.sample: int(gt.ps)
+                    for gt in (variant.genotypes or [])
+                    if gt.sample and gt.ps is not None
+                }
+                variant.sv_second_hit = SvSecondHitOut.model_validate(
+                    summarize_second_hit(
+                        hit["svs"],
+                        list(affected),
+                        unaffected_samples=list(unaffected),
+                        snv_gt_by_sample=snv_gt,
+                        snv_ps_by_sample=snv_ps,
+                    )
+                )
+    except Exception:  # noqa: BLE001 - the second-hit overlay must never break the page
+        logger.warning("SV second-hit overlay failed for family %s", context.family_id, exc_info=True)
+
+
 async def _hydrate_small_variant_outs(
     session: AsyncSession,
     *,
@@ -2280,6 +2427,7 @@ async def _hydrate_small_variant_outs(
 ) -> None:
     if not variants:
         return
+    await _attach_sv_second_hits(session, context=context, variants=variants)
 
     review_map = await get_small_variant_review_map(
         session,
@@ -2786,6 +2934,13 @@ def _small_region_filter_condition(
     )
 
 
+# Above this many panel regions, inlining the (chrom, start, end) arrays and running a
+# per-variant arrayExists over them is both slow and big enough to risk the ClickHouse
+# query-size limit. Large panels are gene panels (e.g. the ~5,300-gene Mendeliome), so the
+# compact gene-symbol + gene-index matching below covers them — skip the region expansion.
+_PANEL_REGION_INLINE_LIMIT = 1000
+
+
 def _small_panel_filter_condition(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -2794,10 +2949,18 @@ def _small_panel_filter_condition(
     params: dict[str, Any],
 ) -> str | None:
     conditions: list[str] = []
-    region_condition = _small_region_filter_condition(
-        panel_constraints.regions,
-        prefix="panel_region",
-        params=params,
+    skip_regions = (
+        bool(panel_constraints.genes)
+        and len(panel_constraints.regions) > _PANEL_REGION_INLINE_LIMIT
+    )
+    region_condition = (
+        None
+        if skip_regions
+        else _small_region_filter_condition(
+            panel_constraints.regions,
+            prefix="panel_region",
+            params=params,
+        )
     )
     if region_condition:
         conditions.append(region_condition)
@@ -3274,6 +3437,48 @@ async def _fetch_small_variant_detail_map(
     return details
 
 
+async def _family_has_small_variants(context: FamilyMetadataContext) -> bool:
+    """Cheap presence probe for the family dashboard.
+
+    Filters on the indexed ``family_guid`` (and ``project_guid``) column with
+    ``LIMIT 1`` — the canonical per-family key, the same one
+    ``family_variant_summary`` is keyed by. The paginated query instead filters
+    by ``hasAny(calls.sampleId, …)`` membership, which can't use that index and
+    scans the table; for a yes/no presence check that scan is wasted. This answers
+    "does this family have small-variant data?" in a few ms.
+    """
+    if not context.assembly_name:
+        return False
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    where_clauses = ["family_guid = %(family_guid)s", "sign = 1"]
+    params: dict[str, Any] = {"family_guid": context.family_uuid}
+    if context.project_ids:
+        where_clauses.append("project_guid IN %(project_ids)s")
+        params["project_ids"] = tuple(context.project_ids)
+    rows = await _execute_clickhouse(
+        f"SELECT 1 FROM {entries_table} WHERE {' AND '.join(where_clauses)} LIMIT 1",
+        params,
+    )
+    return bool(rows)
+
+
+async def _family_has_structural_variants(context: FamilyMetadataContext) -> bool:
+    """Cheap structural-variant presence probe (see :func:`_family_has_small_variants`)."""
+    if not context.assembly_name:
+        return False
+    entries_table = _structural_table_name(context.assembly_name, "entries")
+    where_clauses = ["family_guid = %(family_guid)s", "sign = 1"]
+    params: dict[str, Any] = {"family_guid": context.family_uuid}
+    if context.project_ids:
+        where_clauses.append("project_guid IN %(project_ids)s")
+        params["project_ids"] = tuple(context.project_ids)
+    rows = await _execute_clickhouse(
+        f"SELECT 1 FROM {entries_table} WHERE {' AND '.join(where_clauses)} LIMIT 1",
+        params,
+    )
+    return bool(rows)
+
+
 async def _fetch_structural_variant_summary(
     context: FamilyMetadataContext,
     filters: StructuralVariantQueryFilters,
@@ -3502,6 +3707,17 @@ def _small_query_filter_parts(
     panel_condition = _small_panel_filter_condition(context, filters, panel_constraints, params=params)
     if panel_condition:
         where_clauses.append(panel_condition)
+
+    # "Second hit": restrict to genes also hit by a structural variant (intersected with any
+    # panel/gene constraint above). sv_hit_genes is resolved from the family's SV→gene index.
+    if filters.require_sv_second_hit:
+        sv_hit_condition = (
+            _small_gene_filter_condition(filters.sv_hit_genes, prefix="sv_hit_gene", params=params)
+            if filters.sv_hit_genes
+            else None
+        )
+        # No SV-hit genes (or none resolved) ⇒ nothing can qualify.
+        where_clauses.append(sv_hit_condition or "0")
 
     include_region_condition = _small_region_filter_condition(
         include_regions,
@@ -4149,6 +4365,180 @@ def _segregation_modes_by_variant(
     return modes
 
 
+async def _serve_ranking_from_cache(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    cached: dict[str, Any],
+    page: int,
+    page_size: int,
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage | None:
+    """Rebuild a prioritised page from a cached ranking.
+
+    The cache holds the ranked (variant id + score breakdown) order; the page's variant
+    records and review state are fetched fresh so annotations and review status are never
+    served stale. Returns None on any reconstruction problem so the caller falls back to a
+    live compute.
+    """
+    ranking = cached.get("ranking") or []
+    if isinstance(ranking, str):
+        try:
+            ranking = json.loads(ranking)
+        except json.JSONDecodeError:
+            return None
+    total = int(cached.get("total") or 0)
+    total_is_estimated = bool(cached.get("total_is_estimated"))
+    ranking_truncated = bool(cached.get("ranking_truncated"))
+    reported_total = min(total, _SMALL_COUNT_LIMIT)
+    unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+
+    skip = max(page - 1, 0) * page_size if page_size else 0
+    page_entries = ranking[skip : skip + page_size] if page_size else ranking[skip:]
+    page_ids = [str(entry["variant_id"]) for entry in page_entries if entry.get("variant_id")]
+
+    page_variants: list[VariantOut] = []
+    if page_ids:
+        fetch_filters = SmallVariantQueryFilters(page=1, page_size=len(page_ids) + 5)
+        records = await _fetch_small_variant_rows(
+            context,
+            fetch_filters,
+            include_variant_ids=page_ids,
+            limit=len(page_ids) + 5,
+        )
+        by_id: dict[str, VariantOut] = {}
+        for record in records:
+            out = _small_variant_out(record)
+            by_id[str(out.id)] = out
+        for entry in page_entries:
+            variant_out = by_id.get(str(entry.get("variant_id")))
+            if variant_out is None:
+                continue
+            priority = entry.get("priority")
+            if priority:
+                try:
+                    variant_out.priority = VariantPriorityOut.model_validate(priority)
+                except Exception:  # noqa: BLE001 — a bad cached blob should fall back to live
+                    return None
+            page_variants.append(variant_out)
+        await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
+
+    return VariantPage(
+        total=reported_total,
+        total_is_estimated=total_is_estimated,
+        unfiltered_total=unfiltered_total,
+        unfiltered_total_is_estimated=False,
+        count_limit=_SMALL_COUNT_LIMIT - 1,
+        ranking_truncated=ranking_truncated,
+        ranking_cached=True,
+        ranking_computed_at=cached.get("computed_at"),
+        variants=page_variants,
+        small_variant_summary=small_variant_summary,
+    )
+
+
+async def _serve_subpanel_from_superset(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    base_hash: str,
+    panel_constraints: PanelFilterConstraints,
+    page: int,
+    page_size: int,
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage | None:
+    """Serve a gene panel from a broader cached ranking with the same panel-agnostic
+    inputs.
+
+    The per-variant scores don't depend on the panel, so a narrower panel's ranking is the
+    superset's ranking restricted to the panel's variants — in the same order. Membership
+    is re-validated against ClickHouse with the *exact* panel filter, so the result equals
+    a direct compute (no missed variants). Only complete (non-truncated) supersets whose
+    genes cover the request are used; otherwise returns None for a live compute.
+    """
+    request_genes = {gene.lower() for gene in (panel_constraints.genes or []) if gene}
+    if not request_genes:
+        return None  # no gene panel to narrow from a gene-panel superset
+
+    candidates = await find_superset_candidates(
+        session, family_uuid=context.family_uuid, base_hash=base_hash
+    )
+    for candidate in candidates:
+        candidate_panel_id = candidate.get("panel_id")
+        if candidate_panel_id:
+            candidate_constraints = await _fetch_panel_constraints(
+                session, candidate_panel_id, assembly_id=context.assembly_id
+            )
+            candidate_genes = {gene.lower() for gene in (candidate_constraints.genes or []) if gene}
+            if not request_genes.issubset(candidate_genes):
+                continue  # this superset doesn't cover all the requested genes
+
+        ranking = candidate.get("ranking") or []
+        if isinstance(ranking, str):
+            try:
+                ranking = json.loads(ranking)
+            except json.JSONDecodeError:
+                continue
+        superset_ids = [str(entry["variant_id"]) for entry in ranking if entry.get("variant_id")]
+        if not superset_ids:
+            continue
+
+        # Re-validate which of the superset's variants are in the requested panel, using
+        # the exact panel filter (SQL + the same Python check the live path applies).
+        fetch_filters = SmallVariantQueryFilters(page=1, page_size=len(superset_ids) + 5)
+        records = await _fetch_small_variant_rows(
+            context,
+            fetch_filters,
+            include_variant_ids=superset_ids,
+            panel_constraints=panel_constraints,
+            limit=len(superset_ids) + 5,
+        )
+        by_id: dict[str, Any] = {}
+        for record in records:
+            if _small_record_matches(
+                record, fetch_filters, [], [], [], panel_constraints=panel_constraints
+            ):
+                by_id[str(record.variant_id)] = record
+
+        subset_ranking = [
+            entry for entry in ranking if str(entry.get("variant_id")) in by_id
+        ]
+        total = len(subset_ranking)
+        reported_total = min(total, _SMALL_COUNT_LIMIT)
+        skip = max(page - 1, 0) * page_size if page_size else 0
+        page_entries = subset_ranking[skip : skip + page_size] if page_size else subset_ranking[skip:]
+
+        page_variants: list[VariantOut] = []
+        for entry in page_entries:
+            record = by_id.get(str(entry.get("variant_id")))
+            if record is None:
+                continue
+            variant_out = _small_variant_out(record)
+            priority = entry.get("priority")
+            if priority:
+                try:
+                    variant_out.priority = VariantPriorityOut.model_validate(priority)
+                except Exception:  # noqa: BLE001 - fall back to live compute on a bad blob
+                    return None
+            page_variants.append(variant_out)
+        await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
+
+        unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+        return VariantPage(
+            total=reported_total,
+            total_is_estimated=False,
+            unfiltered_total=unfiltered_total,
+            unfiltered_total_is_estimated=False,
+            count_limit=_SMALL_COUNT_LIMIT - 1,
+            ranking_truncated=False,
+            ranking_cached=True,
+            ranking_computed_at=candidate.get("computed_at"),
+            variants=page_variants,
+            small_variant_summary=small_variant_summary,
+        )
+    return None
+
+
 async def _prioritized_small_variants_page(
     session: AsyncSession,
     *,
@@ -4173,6 +4563,47 @@ async def _prioritized_small_variants_page(
                 session, gene_query=filters.gene, assembly_id=context.assembly_id
             ),
         ]
+
+    # The phenotype-prioritised ranking is expensive (~10s); serve a cached ranking
+    # when the inputs (filters + HPO + pedigree + panel + Monarch release) are unchanged.
+    patient_terms, term_labels = await _affected_present_hpo(session, context)
+    inputs_hash, base_hash = await compute_ranking_hashes(
+        session,
+        context=context,
+        filters=filters,
+        patient_terms=patient_terms,
+        review_variant_ids=review_variant_ids if include_review_filter_active else None,
+        excluded_review_variant_ids=excluded_review_variant_ids,
+        include_review_filter_active=include_review_filter_active,
+    )
+    cached = await get_cached_ranking(
+        session, family_uuid=context.family_uuid, inputs_hash=inputs_hash
+    )
+    if cached is not None:
+        served = await _serve_ranking_from_cache(
+            session,
+            context=context,
+            cached=cached,
+            page=page,
+            page_size=page_size,
+            small_variant_summary=small_variant_summary,
+        )
+        if served is not None:
+            return served
+
+    # No exact hit: a narrower panel can be served from a broader cached ranking with the
+    # same panel-agnostic inputs (scores are panel-independent), re-validating membership.
+    served = await _serve_subpanel_from_superset(
+        session,
+        context=context,
+        base_hash=base_hash,
+        panel_constraints=panel_constraints,
+        page=page,
+        page_size=page_size,
+        small_variant_summary=small_variant_summary,
+    )
+    if served is not None:
+        return served
 
     records = await _fetch_small_variant_rows(
         context,
@@ -4207,6 +4638,22 @@ async def _prioritized_small_variants_page(
         )
     ]
     if not filtered:
+        await store_ranking(
+            session,
+            family_uuid=context.family_uuid,
+            inputs_hash=inputs_hash,
+            base_hash=base_hash,
+            panel_id=filters.panel_id,
+            total=0,
+            total_is_estimated=capped,
+            ranking_truncated=capped,
+            ranking=[],
+            provenance={
+                "hpo_count": len(patient_terms),
+                "panel_id": filters.panel_id,
+                "filters": canonical_filters(filters),
+            },
+        )
         return VariantPage(
             total=0,
             total_is_estimated=capped,
@@ -4218,7 +4665,6 @@ async def _prioritized_small_variants_page(
     modes_by_variant = _segregation_modes_by_variant(filtered, context=context)
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
     segregation_evaluated = bool(affected_names)
-    patient_terms, term_labels = await _affected_present_hpo(session, context)
 
     variants = [_small_variant_out(record) for record in filtered]
     gene_symbols = {variant.gene for variant in variants if variant.gene}
@@ -4317,6 +4763,33 @@ async def _prioritized_small_variants_page(
         total_is_estimated = ranked_total >= _SMALL_COUNT_LIMIT
 
     reported_total = min(total, _SMALL_COUNT_LIMIT)
+
+    # Cache the full ranked order (variant id + score breakdown) so the next open of an
+    # unchanged view is served without re-scoring. The page records + review state are
+    # re-fetched fresh on a cache hit.
+    await store_ranking(
+        session,
+        family_uuid=context.family_uuid,
+        inputs_hash=inputs_hash,
+        base_hash=base_hash,
+        panel_id=filters.panel_id,
+        total=reported_total,
+        total_is_estimated=total_is_estimated,
+        ranking_truncated=capped,
+        ranking=[
+            {
+                "variant_id": str(variant.id),
+                "priority": variant.priority.model_dump(mode="json") if variant.priority else None,
+            }
+            for variant in variants
+        ],
+        provenance={
+                "hpo_count": len(patient_terms),
+                "panel_id": filters.panel_id,
+                "filters": canonical_filters(filters),
+            },
+    )
+
     skip = max(page - 1, 0) * page_size if page_size else 0
     page_variants = variants[skip : skip + page_size] if page_size else variants[skip:]
     await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
@@ -4329,9 +4802,84 @@ async def _prioritized_small_variants_page(
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
         ranking_truncated=capped,
+        ranking_cached=False,
+        ranking_computed_at=datetime.now(timezone.utc),
         variants=page_variants,
         small_variant_summary=small_variant_summary,
     )
+
+
+async def precompute_family_ranking_safe(
+    family_identifier: str, user: Any, *, project_id: str | None = None
+) -> None:
+    """Best-effort background warm of the prioritised-ranking cache after an HPO or
+    pedigree edit.
+
+    Replays the family's most recent prioritised query with the now-current inputs, so
+    the next open of that view is served from cache instead of recomputing (~10s). Opens
+    its own session (the triggering request is long gone); logs and swallows every error.
+    Does nothing until a family has opened the prioritised view at least once (there is no
+    query to replay yet), so it never guesses filters.
+    """
+    from ..core.postgres import get_postgres_engine, get_postgres_sessionmaker
+    from .family_metadata_context import build_family_metadata_context
+
+    try:
+        get_postgres_engine()
+        async with get_postgres_sessionmaker()() as session:
+            context = await build_family_metadata_context(
+                session, family_identifier=family_identifier, user=user, project_id=project_id
+            )
+            row = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT provenance
+                        FROM family_variant_ranking_cache
+                        WHERE family_id = CAST(:family_uuid AS uuid)
+                        ORDER BY computed_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"family_uuid": context.family_uuid},
+                )
+            ).mappings().first()
+            provenance = dict(row)["provenance"] if row else None
+            stored_filters = provenance.get("filters") if isinstance(provenance, dict) else None
+            if not stored_filters:
+                return  # nothing to replay yet — leave the first open as a (lazy) miss
+
+            filters = SmallVariantQueryFilters(**{**stored_filters, "page": 1, "page_size": 100})
+            panel_constraints = (
+                await _fetch_panel_constraints(
+                    session, filters.panel_id, assembly_id=context.assembly_id
+                )
+                if filters.panel_id
+                else PanelFilterConstraints()
+            )
+            # Replay the no-review default view (the high-value cached case). Computing it
+            # stores the ranking under the now-current inputs hash.
+            await _prioritized_small_variants_page(
+                session,
+                context=context,
+                filters=filters,
+                page=1,
+                page_size=100,
+                panel_constraints=panel_constraints,
+                review_variant_ids=None,
+                excluded_review_variant_ids=set(),
+                include_review_filter_active=False,
+                include_regions=[],
+                exclude_regions=[],
+                exclude_gene_regions=[],
+                exclude_gene_terms=[],
+                small_variant_summary=None,
+            )
+            logger.info("Warmed prioritised-ranking cache for family %s", family_identifier)
+    except Exception:  # pragma: no cover - background best-effort
+        logger.exception(
+            "Background ranking-cache warm failed for family %s", family_identifier
+        )
 
 
 async def get_family_small_variants_page(
@@ -4384,9 +4932,11 @@ async def get_family_small_variants_page(
     exclude_review_tags: list[str] | None = None,
     has_notes: bool = False,
     overlap: bool = False,
+    require_sv_second_hit: bool = False,
     prioritize: bool = False,
     track_mode: bool = False,
     track_result_limit: int | None = None,
+    count_only: bool = False,
 ) -> VariantPage:
     normalized_inheritance = _normalize_small_variant_inheritance(inheritance)
     filters = SmallVariantQueryFilters(
@@ -4432,7 +4982,21 @@ async def get_family_small_variants_page(
         panel_id=panel_id,
         sample_filters=sample_filters or [],
         overlap=overlap,
+        require_sv_second_hit=require_sv_second_hit,
     )
+    if count_only:
+        # Presence check only (family dashboard): probe the indexed family_guid
+        # column with LIMIT 1 instead of the bounded filtered count + unfiltered
+        # summary scan below. The dashboard only needs total > 0 to decide whether
+        # to surface the small-variants workspace, so report a presence-bounded
+        # total (0 or 1) and no rows.
+        exists = await _family_has_small_variants(context)
+        return VariantPage(total=1 if exists else 0, variants=[])
+    if filters.require_sv_second_hit:
+        # Resolve the family's SV-hit gene set once; every query path below reads it off
+        # ``filters`` to intersect results with genes that also carry a structural variant.
+        await _ensure_family_sv_gene_index(session, context)
+        filters.sv_hit_genes = await get_sv_hit_genes(session, family_uuid=context.family_uuid)
     small_variant_summary = None if track_mode else await _fetch_small_variant_summary(context)
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
@@ -4856,12 +5420,19 @@ async def _prioritized_structural_variants_page(
     the best overlapped-gene HPO phenotype match, sort by combined score, then paginate.
     """
     include_regions: list[Region] = []
+    panel_gene_terms: set[str] | None = None
     if filters.panel_id:
-        include_regions.extend(
-            await _fetch_panel_regions(session, filters.panel_id, assembly_id=context.assembly_id)
+        panel_constraints = await _fetch_panel_constraints(
+            session, filters.panel_id, assembly_id=context.assembly_id
         )
-        if not include_regions:
+        if not panel_constraints.genes and not panel_constraints.regions:
             return VariantPage(total=0, variants=[], summary={})
+        if panel_constraints.genes and len(panel_constraints.regions) > _PANEL_REGION_INLINE_LIMIT:
+            panel_gene_terms = {gene.lower() for gene in panel_constraints.genes if gene}
+        else:
+            include_regions.extend(panel_constraints.regions)
+            if not include_regions:
+                return VariantPage(total=0, variants=[], summary={})
     if filters.gene:
         gene_regions = await _fetch_gene_regions(
             session, gene_query=filters.gene, assembly_id=context.assembly_id
@@ -4903,7 +5474,9 @@ async def _prioritized_structural_variants_page(
         for record in records
         if record.variant_id not in excluded_review_variant_ids
         and ((not include_review_filter_active) or record.variant_id in review_variant_ids)
-        and _structural_record_matches(record, filters, include_regions, selected_samples)
+        and _structural_record_matches(
+            record, filters, include_regions, selected_samples, panel_gene_terms=panel_gene_terms
+        )
     ]
     if not filtered:
         return VariantPage(total=0, variants=[], summary={})
@@ -5051,6 +5624,7 @@ async def get_family_structural_variants_page(
     overlap: bool = False,
     prioritize: bool = False,
     track_mode: bool = False,
+    count_only: bool = False,
 ) -> VariantPage:
     filters = StructuralVariantQueryFilters(
         page=page,
@@ -5086,6 +5660,13 @@ async def get_family_structural_variants_page(
     selected_samples = _selected_structural_samples(context, filters.selected_samples)
     if selected_samples is None:
         return VariantPage(total=0, variants=[], summary={})
+    if count_only:
+        # Presence check only (family dashboard): probe the indexed family_guid
+        # column with LIMIT 1 instead of the structural summary GROUP BY scan.
+        # The dashboard only needs total > 0 to decide whether to surface the
+        # structural-variants workspace.
+        exists = await _family_has_structural_variants(context)
+        return VariantPage(total=1 if exists else 0, variants=[], summary={})
     if prioritize and not track_mode:
         return await _prioritized_structural_variants_page(
             session,
@@ -5127,16 +5708,21 @@ async def get_family_structural_variants_page(
         return VariantPage(total=total, variants=variants, summary=summary)
 
     include_regions: list[Region] = []
+    panel_gene_terms: set[str] | None = None
     if filters.panel_id:
-        include_regions.extend(
-            await _fetch_panel_regions(
-                session,
-                filters.panel_id,
-                assembly_id=context.assembly_id,
-            )
+        panel_constraints = await _fetch_panel_constraints(
+            session, filters.panel_id, assembly_id=context.assembly_id
         )
-        if not include_regions:
+        if not panel_constraints.genes and not panel_constraints.regions:
             return VariantPage(total=0, variants=[], summary={})
+        if panel_constraints.genes and len(panel_constraints.regions) > _PANEL_REGION_INLINE_LIMIT:
+            # Big gene panel: match SVs by gene symbol (fast) instead of overlapping each
+            # against thousands of regions.
+            panel_gene_terms = {gene.lower() for gene in panel_constraints.genes if gene}
+        else:
+            include_regions.extend(panel_constraints.regions)
+            if not include_regions:
+                return VariantPage(total=0, variants=[], summary={})
     if filters.gene:
         gene_regions = await _fetch_gene_regions(
             session,
@@ -5178,7 +5764,9 @@ async def get_family_structural_variants_page(
         for record in records
         if record.variant_id not in excluded_review_variant_ids
         and ((not include_review_filter_active) or record.variant_id in review_variant_ids)
-        and _structural_record_matches(record, filters, include_regions, selected_samples)
+        and _structural_record_matches(
+            record, filters, include_regions, selected_samples, panel_gene_terms=panel_gene_terms
+        )
     ]
     summary: dict[str, dict[str, int]] = {}
     for record in filtered:

@@ -19,6 +19,8 @@ Use it alongside the in-app user guide at `/docs` when the application is runnin
   - Access control / RBAC, audit logging (append-only), encryption, and the S3/deployment PHI-scoping checklist, plus the CI gates.
 - [Roadmap](ROADMAP.md)
   - Current backlog and direction notes.
+- [Clinical Traceability, Sign-out & Audit (plan)](clinical-traceability.md)
+  - Proposed design for clinical-grade end-to-end traceability: the annotation/reference version manifest + report footer, per-classification evidence snapshots, annotation-version drift surfacing, an immutable clinical audit trail, and case sign-out with a frozen, versioned report snapshot. Grounded in the current code, with a phased delivery plan.
 
 ## Also Useful
 

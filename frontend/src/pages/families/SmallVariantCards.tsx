@@ -25,6 +25,7 @@ import {
   getReviewTagStyle,
   sortReviewTagKeys,
 } from './smallVariantResultUtils';
+import SvSecondHitBadge from './SvSecondHitBadge';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import NiptClassificationBlock from './NiptClassificationBlock';
 
@@ -487,6 +488,7 @@ export default function SmallVariantCards({
                   </span>
                 )}
                 <span className="variant-card-locus">{formatLocus(variant)}</span>
+                {variant.sv_second_hit ? <SvSecondHitBadge hit={variant.sv_second_hit} /> : null}
                 <span className="variant-card-subtitle">
                   {variant.hgvsp || variant.hgvsc || consequenceLabel}
                 </span>

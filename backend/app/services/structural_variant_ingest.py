@@ -28,6 +28,9 @@ class ParsedStructuralVariant:
     remote_chr: str | None = None
     remote_start: int | None = None
     remote_end: int | None = None
+    # Phase set (PS) from the sample FORMAT — present only for phased (e.g. long-read) SV
+    # calls; lets the SNV+SV second-hit analysis read cis/trans directly. None when unphased.
+    phase_set: int | None = None
 
 
 def parse_info(info_field: str) -> Dict[str, str]:
@@ -44,6 +47,16 @@ def parse_format(format_field: str, sample_field: str) -> Dict[str, str]:
     keys = format_field.split(":")
     values = sample_field.split(":")
     return {key: value for key, value in zip(keys, values)}
+
+
+def parse_phase_set(value: str | None) -> int | None:
+    """The PS FORMAT value as an int, or None when absent/missing ('.', '')."""
+    if value in (None, "", "."):
+        return None
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def parse_bnd_alt(alt: str) -> tuple[Optional[str], Optional[int]]:
@@ -156,6 +169,7 @@ def _iter_sniffles_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVar
             remote_chr=remote_chr,
             remote_start=remote_start,
             remote_end=remote_end,
+            phase_set=parse_phase_set(fmt_vals.get("PS")),
         )
 
 
@@ -185,6 +199,7 @@ def _iter_spectre_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVari
             qual=float(qual) if qual not in {"", "."} else None,
             filter=filt or None,
             svlen=parse_svlen(info.get("SVLEN")),
+            phase_set=parse_phase_set(fmt_vals.get("PS")),
         )
 
 

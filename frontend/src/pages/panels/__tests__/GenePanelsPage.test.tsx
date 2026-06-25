@@ -165,4 +165,28 @@ describe('GenePanelsPage', () => {
       assembly: 'GRCh38',
     });
   });
+
+  it('lets an admin generate the Mendeliome from Monarch', async () => {
+    localStorage.setItem('role', 'admin');
+    (api.get as any).mockResolvedValue({ data: [] }); // no panels yet
+    (api.post as any).mockResolvedValueOnce({
+      data: { message: 'Mendeliome created with 5298 genes (Monarch 2026-06-08).' },
+    });
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <GenePanelsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const generate = await screen.findByRole('button', { name: /Generate Mendeliome/i });
+    await userEvent.click(generate);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Mendeliome created with 5298 genes/)).toBeInTheDocument(),
+    );
+    expect(api.post).toHaveBeenCalledWith('/panels/mendeliome/regenerate');
+  });
 });

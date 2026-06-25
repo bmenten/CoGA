@@ -1,12 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { isAdmin } from '../../lib/auth';
 import PageState from '../../components/PageState';
-import type { GeneLocation, GenePanel } from '../../lib/apiTypes';
+import type {
+  GeneLocation,
+  GenePanel,
+  GenePanelVersionList,
+} from '../../lib/apiTypes';
 
 const GenePanelDetailPage: React.FC = () => {
   const { panelId } = useParams();
+  const queryClient = useQueryClient();
+  const userIsAdmin = isAdmin();
   const { data: panel } = useQuery<GenePanel>({
     queryKey: ['panel', panelId],
     queryFn: async () => {
@@ -14,6 +21,18 @@ const GenePanelDetailPage: React.FC = () => {
       return res.data as GenePanel;
     },
   });
+
+  const { data: versionList } = useQuery<GenePanelVersionList>({
+    queryKey: ['panel', panelId, 'versions'],
+    enabled: Boolean(panelId),
+    queryFn: async () =>
+      (await api.get(`/panels/${panelId}/versions`)).data as GenePanelVersionList,
+  });
+
+  const [editing, setEditing] = useState(false);
+  const [editGenes, setEditGenes] = useState('');
+  const [editStatus, setEditStatus] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const [sortKey, setSortKey] = useState<keyof GeneLocation>('gene');
   const [sortAsc, setSortAsc] = useState(true);
@@ -30,6 +49,37 @@ const GenePanelDetailPage: React.FC = () => {
     }
     return parsed.toLocaleString();
   };
+  const startEdit = () => {
+    setEditGenes((panel?.genes ?? []).join(', '));
+    setEditStatus('');
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    setSaving(true);
+    setEditStatus('');
+    try {
+      const res = await api.put(`/panels/${panelId}`, {
+        genes: editGenes
+          .split(/[\s,]+/)
+          .map((g) => g.trim())
+          .filter(Boolean),
+      });
+      setEditStatus(res.data?.message || 'Panel updated');
+      setEditing(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['panel', panelId] }),
+        queryClient.invalidateQueries({ queryKey: ['panel', panelId, 'versions'] }),
+        queryClient.invalidateQueries({ queryKey: ['panels'] }),
+      ]);
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      setEditStatus(typeof detail === 'string' ? detail : 'Error updating panel');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSort = (key: keyof GeneLocation) => {
     if (sortKey === key) {
       setSortAsc(!sortAsc);
@@ -76,7 +126,13 @@ const GenePanelDetailPage: React.FC = () => {
       />
     );
   }
-  const sourceLabel = panel.source === 'panelapp' ? 'PanelApp' : 'Local';
+  const sourceLabel =
+    panel.source === 'panelapp'
+      ? 'PanelApp'
+      : panel.source === 'mendeliome'
+        ? 'Mendeliome'
+        : 'Local';
+  const isLocal = !panel.source || panel.source === 'local';
 
   return (
     <div className="page-shell space-y-6">
@@ -84,7 +140,9 @@ const GenePanelDetailPage: React.FC = () => {
         <div className="page-header">
           <div className="space-y-2">
             <p className="page-kicker">Panel Detail</p>
-            <h2 className="catalog-card-title">{panel.name}</h2>
+            <h2 className="catalog-card-title">
+              {panel.name} <span className="panel-version-chip">v{panel.version ?? 1}</span>
+            </h2>
             <p className="catalog-card-copy">
               Filter and sort the genomic regions in this panel.
             </p>
@@ -104,9 +162,88 @@ const GenePanelDetailPage: React.FC = () => {
                 Open source panel
               </a>
             )}
+            {userIsAdmin && isLocal && !editing && (
+              <button type="button" className="form-button" onClick={startEdit}>
+                Edit genes (new version)
+              </button>
+            )}
+            {userIsAdmin && !isLocal && (
+              <p className="catalog-card-copy table-subtle">
+                This panel is generated/imported — update it from the panel catalog
+                (regenerate / re-import), not by editing genes here.
+              </p>
+            )}
+            {editStatus && <p className="form-status">{editStatus}</p>}
           </div>
         </div>
       </section>
+
+      {userIsAdmin && isLocal && editing && (
+        <section className="surface-card field-grid">
+          <h3 className="section-title">Edit genes</h3>
+          <p className="section-copy">
+            Add or remove genes (comma or space separated). Saving creates a new version; the
+            current v{panel.version ?? 1} is archived.
+          </p>
+          <textarea
+            value={editGenes}
+            onChange={(e) => setEditGenes(e.target.value)}
+            rows={6}
+            aria-label="Panel genes"
+          />
+          <div className="analysis-toolbar">
+            <button type="button" className="form-button" onClick={saveEdit} disabled={saving}>
+              {saving ? 'Saving…' : 'Save new version'}
+            </button>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => setEditing(false)}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          </div>
+        </section>
+      )}
+
+      {versionList?.versions?.length ? (
+        <section className="surface-card space-y-3">
+          <h3 className="section-title">Version history</h3>
+          <p className="section-copy">
+            Every version is archived with a timestamp and never deleted.
+          </p>
+          <div className="data-table-shell overflow-x-auto">
+            <table className="analysis-table">
+              <thead>
+                <tr>
+                  <th>Version</th>
+                  <th># Genes</th>
+                  <th>Source release</th>
+                  <th>Created</th>
+                  <th>By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {versionList.versions.map((v) => (
+                  <tr key={v.version}>
+                    <td>
+                      v{v.version}
+                      {v.version === versionList.current_version ? (
+                        <span className="table-subtle"> (current)</span>
+                      ) : null}
+                    </td>
+                    <td>{v.gene_count}</td>
+                    <td>{v.external_version || '—'}</td>
+                    <td>{formatDateTime(v.created_at)}</td>
+                    <td>{v.created_by_email || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
       <div className="surface-card">
         <div className="data-table-shell overflow-x-auto">
           <table className="analysis-table table-sticky">

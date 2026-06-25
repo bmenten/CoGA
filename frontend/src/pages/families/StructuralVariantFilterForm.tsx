@@ -47,6 +47,7 @@ type StructuralVariantFilterFormProps = Pick<
 };
 
 const PRESETS: { value: StructuralPreset; label: string }[] = [
+  { value: 'mendeliome', label: 'Mendeliome' },
   { value: 'dominant', label: 'Dominant' },
   { value: 'recessive', label: 'Recessive-like' },
   { value: 'any_affected', label: 'Any affected' },

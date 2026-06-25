@@ -664,6 +664,17 @@ tbody tr:hover {
   padding-bottom: 2.4rem;
 }
 
+/* Loading variant: the flyer bar pins to the card's top edge; a spinner sits above
+   the title so the wait is obviously animated. */
+.page-state--loading {
+  position: relative;
+  overflow: hidden;
+}
+.page-state-spinner {
+  display: block;
+  margin: 0 auto 0.25rem;
+}
+
 .page-state-title {
   font-size: clamp(2rem, 4vw, 3rem);
   line-height: 0.96;
@@ -1252,6 +1263,19 @@ tbody tr:hover {
   flex: 1 1 18rem;
   max-width: 24rem;
   margin-left: auto;
+}
+
+.panel-version-chip {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #475569);
+  background: var(--color-surface-muted, #f1f5f9);
+  border: 1px solid var(--color-border, #e2e8f0);
 }
 
 .admin-modal {
@@ -3842,6 +3866,16 @@ tbody tr:hover {
   color: #92400e;
 }
 
+/* Subtle provenance note for a prioritised ranking served from cache. */
+.ranking-cache-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .variant-saved-layout {
   display: grid;
   gap: 0.75rem;
@@ -4286,6 +4320,15 @@ tbody tr:hover {
   width: 3%;
 }
 
+.small-variant-col-view {
+  width: 4.5%;
+}
+
+/* Keep the "View" action label on a single line. */
+.small-variant-view-cell {
+  white-space: nowrap;
+}
+
 .small-variant-table .variant-allele-cell {
   white-space: normal;
 }
@@ -4537,6 +4580,77 @@ tbody tr:hover {
   font-family: var(--font-mono);
   font-size: 0.8rem;
   color: var(--color-text-muted);
+}
+
+/* "Gene also hit by an SV" cross-type second-hit flag (see docs/snv-sv-compound-het.md). */
+.sv-second-hit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+  color: var(--color-warning-strong, #92580a);
+  background: var(--color-warning-surface, #fdf1d8);
+  border: 1px solid var(--color-warning-border, #e8c989);
+  cursor: help;
+}
+
+.sv-second-hit-badge:hover,
+.sv-second-hit-badge:focus-visible {
+  filter: brightness(0.97);
+  outline: none;
+}
+
+.sv-second-hit-badge--del {
+  color: var(--color-danger, #c61f2d);
+  background: var(--color-danger-surface, #fdeced);
+  border-color: var(--color-danger-border, #efb6bb);
+}
+
+/* A deletion in trans with a het SNV (effectively biallelic) — strongest emphasis. */
+.sv-second-hit-badge--unmasked {
+  box-shadow: 0 0 0 1px var(--color-danger, #c61f2d);
+  font-weight: 700;
+}
+
+.sv-second-hit-phase {
+  margin-left: 0.25rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* Read-based phase (direct, from a shared phase set) — stronger than inferred segregation. */
+.sv-second-hit-phase--read {
+  background: var(--color-accent, #2563eb);
+  color: #fff;
+}
+
+/* Fixed hover/focus tooltip — escapes the variant table's scroll clip and renders even
+   when the pointer is over the badge's inline SVG (which swallows the native title). */
+.sv-second-hit-tooltip {
+  position: fixed;
+  z-index: 70;
+  width: 260px;
+  max-width: calc(100vw - 1rem);
+  padding: 0.45rem 0.6rem;
+  border-radius: 7px;
+  background: var(--color-text, #141517);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+  box-shadow: 0 12px 30px rgba(8, 10, 12, 0.35);
+  pointer-events: none;
 }
 
 .variant-card-subtitle {
@@ -8567,10 +8681,19 @@ button.table-link:hover {
 .roi-markers-band--flank {
   opacity: 0.85;
 }
-/* A Mendelian error (genotype not inheritable from the parents) is emphasised
-   with a light-orange cell so it stands out from the white sequence. */
+/* Suspect markers get an orange cell, in two distinct shades:
+   a Mendelian error (genotype not inheritable from the parents) is the darker
+   orange; a raw marker that merely disagrees with its cleaned haplotype block is
+   the lighter orange. */
 .roi-markers-band--mendel {
+  background: #fdba74;
+}
+.roi-markers-band--block-mismatch {
   background: #ffe8cc;
+}
+/* Homozygous markers are uninformative for phasing — a very light grey. */
+.roi-markers-band--homozygous {
+  background: #f4f5f7;
 }
 /* The two bands of a member touch; members are separated by a spacer row. */
 .roi-markers-bandrow .roi-markers-namecol {
@@ -8943,6 +9066,16 @@ a.button-danger:hover {
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--color-text-muted);
+}
+
+/* The filtered-count chip ("Showing N") — the headline number, so make it stand out from the
+   muted context chips beside it. */
+.badge-chip--emphasis {
+  background: var(--color-accent, #2563eb);
+  border-color: var(--color-accent, #2563eb);
+  color: #fff;
+  font-size: 0.58rem;
+  padding: 0.26rem 0.62rem;
 }
 
 .badge-chip--signature {
@@ -9760,6 +9893,10 @@ a.button-danger:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.family-catalog-added-heading {
+  text-align: right;
+}
+
 .family-catalog-samples-column {
   width: 6rem;
 }
@@ -10164,6 +10301,52 @@ a.button-danger:hover {
 
 .variant-results-region {
   position: relative;
+}
+
+/* Indeterminate "flyer" loading bar — a segment that slides across while a variant
+   search is in flight. Pinned to the top of the results region. */
+.loading-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+}
+.loading-bar-track {
+  display: block;
+  position: relative;
+  height: 3px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-surface-muted, #eef2f7);
+}
+.loading-bar-flyer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-accent, #2563eb),
+    transparent
+  );
+  animation: loading-bar-flyer 1.1s ease-in-out infinite;
+}
+@keyframes loading-bar-flyer {
+  0% {
+    left: -35%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar-flyer {
+    animation-duration: 2.4s;
+  }
 }
 
 .variant-results-overlay {
@@ -11487,6 +11670,13 @@ a.button-danger:hover {
   margin-right: auto;
 }
 
+/* The relatedness matrix is content-width and centred via the auto margins above. The shared
+   `.data-table-shell table { width: 100% }` rule is more specific and would otherwise stretch
+   it full-width (defeating the centring), so narrow it back here. */
+.data-table-shell .qc-matrix {
+  width: auto;
+}
+
 .qc-matrix th {
   padding: 0.3rem 0.5rem;
   font-weight: 600;
@@ -11590,6 +11780,113 @@ a.button-danger:hover {
   font-size: 0.76rem;
   font-style: italic;
   color: var(--color-text-muted, #64748b);
+}
+
+/* Evidence-drift callout: classifications whose backing annotation changed. */
+.report-drift {
+  border-left: 4px solid #f59e0b;
+  background: #fffbeb;
+  display: grid;
+  gap: 0.4rem;
+}
+.report-drift-title {
+  margin: 0;
+  font-weight: 700;
+  color: #92400e;
+}
+.report-drift-lead {
+  margin: 0;
+}
+.report-drift-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.86rem;
+  color: #78350f;
+}
+.report-drift-meta {
+  color: var(--color-text-muted, #64748b);
+}
+
+/* Case sign-out: the frozen, versioned, content-hashed report record. */
+.report-signout {
+  border-left: 4px solid #16a34a;
+  background: #f0fdf4;
+  display: grid;
+  gap: 0.25rem;
+}
+.report-signout-line {
+  margin: 0;
+  font-weight: 600;
+  color: #166534;
+}
+.report-signout-hash {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--color-text-muted, #64748b);
+  word-break: break-all;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Immutable clinical audit trail: who classified / tagged / annotated what, when. */
+.report-audit {
+  display: grid;
+  gap: 0.5rem;
+}
+.report-audit-heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.report-audit-lead {
+  margin: 0;
+  font-size: 0.86rem;
+}
+.report-audit-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+.report-audit-item {
+  display: grid;
+  grid-template-columns: 11rem 1fr auto;
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 0.82rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+}
+.report-audit-time {
+  color: var(--color-text-muted, #64748b);
+  font-variant-numeric: tabular-nums;
+}
+.report-audit-actor {
+  color: var(--color-text-muted, #64748b);
+  white-space: nowrap;
+}
+
+/* Provenance footer: generation timestamp + the annotation/reference versions. */
+.report-footer {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.74rem;
+  color: var(--color-text-muted, #64748b);
+}
+.report-footer-timestamp {
+  margin: 0;
+  font-weight: 600;
+}
+.report-footer-versions {
+  margin: 0;
+  line-height: 1.5;
+}
+.report-footer-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.68rem;
 }
 
 .report-variant-head {

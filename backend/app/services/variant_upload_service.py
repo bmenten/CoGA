@@ -1406,6 +1406,7 @@ def _structural_record_call(
         qual=record.qual,
         read_support=_first_present_int(record.info, "SUPPORT", "RE", "READS"),
         filter=None if record.filter in (None, "", ".") else str(record.filter),
+        phase_set=record.phase_set,
     )
 
 

@@ -472,6 +472,61 @@ async def test_get_family_small_variants_page_uses_bounded_total_without_countin
 
 
 @pytest.mark.asyncio
+async def test_get_family_small_variants_page_count_only_probes_presence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[str] = []
+
+    async def fake_execute_clickhouse(query: str, _params: dict[str, object]):
+        queries.append(query)
+        return [(1,)]
+
+    async def fail_count(*_args, **_kwargs):
+        raise AssertionError("count_only must not run the bounded count")
+
+    async def fail_summary(_context):
+        raise AssertionError("count_only must not fetch the unfiltered summary")
+
+    async def fail_rows(*_args, **_kwargs):
+        raise AssertionError("count_only must not fetch full variant rows")
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._count_small_variant_rows_bounded",
+        fail_count,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_small_variant_summary",
+        fail_summary,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_small_variant_rows",
+        fail_rows,
+    )
+
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=1,
+        count_only=True,
+    )
+
+    # Presence-bounded total (>0) with no row payload, resolved by a single cheap
+    # family_guid existence probe — no bounded count(), summary, or row fetch.
+    assert page.total == 1
+    assert page.variants == []
+    assert len(queries) == 1
+    assert "family_guid = %(family_guid)s" in queries[0]
+    assert "LIMIT 1" in queries[0]
+    assert "count()" not in queries[0]
+    assert "hasAny" not in queries[0]
+
+
+@pytest.mark.asyncio
 async def test_get_family_small_variants_track_mode_stops_before_heavy_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -772,6 +827,53 @@ async def test_get_family_structural_variants_page_uses_clickhouse_pagination(
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[1][0]
     assert queries[1][1]["limit"] == 1
     assert queries[1][1]["offset"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_family_structural_variants_page_count_only_probes_presence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[str] = []
+
+    async def fake_execute_clickhouse(query: str, _params: dict[str, object]):
+        queries.append(query)
+        return [(1,)]
+
+    async def fail_summary(*_args, **_kwargs):
+        raise AssertionError("count_only must not run the structural summary")
+
+    async def fail_rows(*_args, **_kwargs):
+        raise AssertionError("count_only must not fetch full variant rows")
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_structural_variant_summary",
+        fail_summary,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_structural_variant_rows",
+        fail_rows,
+    )
+
+    page = await get_family_structural_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=1,
+        count_only=True,
+    )
+
+    assert page.total == 1
+    assert page.variants == []
+    assert page.summary == {}
+    # Presence probe only — resolved by a single cheap family_guid existence query.
+    assert len(queries) == 1
+    assert "family_guid = %(family_guid)s" in queries[0]
+    assert "LIMIT 1" in queries[0]
+    assert "GROUP BY" not in queries[0]
 
 
 def _structural_del_row(idx: int) -> tuple:
@@ -1814,3 +1916,57 @@ async def test_small_variant_track_mode_samples_across_filtered_region(
 
     assert page.total == 0
     assert [str(variant.id) for variant in page.variants] == ["v0", "v2", "v4", "v6", "v9"]
+
+
+def test_small_panel_filter_skips_region_inlining_for_large_gene_panels():
+    """A large gene panel (e.g. the Mendeliome) must not inline thousands of region
+    triples into the query — gene-symbol + gene-index matching covers it."""
+    from backend.app.services.clickhouse_family_variants import (
+        _PANEL_REGION_INLINE_LIMIT,
+        PanelFilterConstraints,
+        Region,
+        _small_panel_filter_condition,
+    )
+
+    context = _family_context()
+    filters = SmallVariantQueryFilters(page=1, page_size=100)
+    regions = tuple(
+        Region(chr="chr1", start=i * 100, end=i * 100 + 50)
+        for i in range(_PANEL_REGION_INLINE_LIMIT + 5)
+    )
+    params: dict = {}
+    condition = _small_panel_filter_condition(
+        context,
+        filters,
+        PanelFilterConstraints(genes=("BRCA1", "TP53"), regions=regions),
+        params=params,
+    )
+    assert condition is not None
+    # No region arrays were inlined (the expensive, query-bloating part).
+    assert not any(key.startswith("panel_region") for key in params)
+    # Gene matching is still present.
+    assert any(key.startswith("panel_gene") for key in params)
+
+
+def test_small_panel_filter_keeps_regions_for_normal_panels():
+    from backend.app.services.clickhouse_family_variants import (
+        PanelFilterConstraints,
+        Region,
+        _small_panel_filter_condition,
+    )
+
+    context = _family_context()
+    filters = SmallVariantQueryFilters(page=1, page_size=100)
+    params: dict = {}
+    condition = _small_panel_filter_condition(
+        context,
+        filters,
+        PanelFilterConstraints(
+            genes=("BRCA1",),
+            regions=(Region(chr="chr17", start=43044295, end=43125483),),
+        ),
+        params=params,
+    )
+    assert condition is not None
+    # A normal-sized panel still inlines its regions.
+    assert any(key.startswith("panel_region") for key in params)

@@ -52,6 +52,13 @@ class Settings(BaseSettings):
         ge=0,
         alias="CLICKHOUSE_EXTERNAL_SPILL_BYTES",
     )
+    # Large gene panels (e.g. the ~5,300-gene Mendeliome) expand into the query text
+    # as gene/region arrays; the ClickHouse default of 256 KiB overflows, so raise it.
+    clickhouse_max_query_size: int = Field(
+        default=16 * 1024 * 1024,
+        ge=262144,
+        alias="CLICKHOUSE_MAX_QUERY_SIZE",
+    )
     admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
     admin_password: str = Field(default="change-me", alias="ADMIN_PASSWORD")
     admin_email: str = Field(default="admin@example.com", alias="ADMIN_EMAIL")

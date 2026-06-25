@@ -347,6 +347,102 @@ class SampleIntegrityCategoryQcOut(BaseModel):
     message: str
 
 
+class AnnotationModuleOut(BaseModel):
+    """One annotation/reference module and the version that backed the data."""
+
+    key: str
+    label: str
+    version: Optional[str] = None
+    detail: Optional[str] = None
+    layer: str  # "pipeline" (per-family upstream) | "reference" (platform-loaded)
+
+
+class AnnotationManifestOut(BaseModel):
+    """The annotation/reference version manifest for a family (report provenance)."""
+
+    family_id: str
+    assembly: Optional[str] = None
+    source: Optional[str] = None  # "manifest" | "vcf_header" | "manual"
+    recorded_at: Optional[datetime] = None
+    recorded_by: Optional[str] = None
+    modules: List[AnnotationModuleOut] = Field(default_factory=list)
+
+
+class AnnotationManifestUpdate(BaseModel):
+    """Record/override a family's upstream annotation module versions."""
+
+    modules: Dict[str, Any] = Field(default_factory=dict)
+    source: Optional[str] = "manual"
+
+
+class ClassificationDriftItem(BaseModel):
+    """A classification whose backing annotation changed since it was made."""
+
+    variant_id: str
+    acmg_class: Optional[str] = None
+    classified_by: Optional[str] = None
+    classified_at: Optional[datetime] = None
+    status: str  # "drifted" | "variant_missing"
+    annotation_version_from: Optional[str] = None
+    annotation_version_to: Optional[str] = None
+    clinvar_from: Optional[str] = None
+    clinvar_to: Optional[str] = None
+
+
+class ClassificationDriftOut(BaseModel):
+    """Evidence-drift summary for a family's ACMG classifications."""
+
+    family_id: str
+    checked: int
+    drifted_count: int
+    drifted: List[ClassificationDriftItem] = Field(default_factory=list)
+
+
+class ClinicalAuditEventOut(BaseModel):
+    """One immutable clinical action (who did what, when, before -> after)."""
+
+    id: str
+    created_at: datetime
+    variant_id: Optional[str] = None
+    actor: str
+    action: str
+    summary: Optional[str] = None
+    before: Optional[Dict[str, Any]] = None
+    after: Optional[Dict[str, Any]] = None
+
+
+class ClinicalAuditOut(BaseModel):
+    """A family's clinical audit timeline (most recent first)."""
+
+    family_id: str
+    events: List[ClinicalAuditEventOut] = Field(default_factory=list)
+
+
+class ReportSignoutRequest(BaseModel):
+    """Sign out the current report. Drift must be explicitly acknowledged."""
+
+    acknowledge_drift: bool = False
+
+
+class ReportSignoutSummary(BaseModel):
+    version: int
+    signed_out_by: str
+    signed_out_at: datetime
+    content_hash: str
+
+
+class ReportSignoutDetail(ReportSignoutSummary):
+    """A frozen, content-hashed report snapshot."""
+
+    snapshot: Optional[Dict[str, Any]] = None
+
+
+class ReportSignoutListOut(BaseModel):
+    family_id: str
+    latest: Optional[ReportSignoutSummary] = None
+    signouts: List[ReportSignoutSummary] = Field(default_factory=list)
+
+
 class SampleIntegrityQcOut(BaseModel):
     """Per-family sample-integrity QC, adapted to the application.
 
@@ -1522,6 +1618,7 @@ class DgvTrackOut(BaseModel):
 
 class GenePanelOut(ApiDocumentModel):
     name: str
+    version: int = 1
     genes: List[str] = Field(default_factory=list)
     gene_count: int = 0
     regions: List[GeneLocation] = Field(default_factory=list)
@@ -1543,9 +1640,49 @@ class GenePanelCreate(BaseModel):
     description: Optional[str] = None
 
 
+class GenePanelUpdate(BaseModel):
+    """Edit a manually-curated panel's genes (the full desired set) → a new version."""
+
+    genes: List[str] = Field(default_factory=list)
+    description: Optional[str] = None
+
+
 class GenePanelCreateResponse(BaseModel):
     panel: GenePanelOut
     message: str
+    missing_genes: List[str] = Field(default_factory=list)
+
+
+class GenePanelVersionSummary(BaseModel):
+    version: int
+    name: str
+    source: Optional[str] = None
+    external_version: Optional[str] = None
+    gene_count: int = 0
+    created_by_email: Optional[str] = None
+    created_at: datetime
+
+
+class GenePanelVersionDetail(GenePanelVersionSummary):
+    description: Optional[str] = None
+    genes: List[str] = Field(default_factory=list)
+    regions: List[GeneLocation] = Field(default_factory=list)
+    source_metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GenePanelVersionListOut(BaseModel):
+    panel_id: str
+    current_version: int
+    versions: List[GenePanelVersionSummary] = Field(default_factory=list)
+
+
+class MendeliomeRegenerateResponse(BaseModel):
+    panel: GenePanelOut
+    message: str
+    changed: bool
+    version: int
+    monarch_release: Optional[str] = None
+    gene_count: int = 0
     missing_genes: List[str] = Field(default_factory=list)
 
 
@@ -1769,6 +1906,26 @@ class VariantInternalCohortOut(BaseModel):
     families: int = 0
 
 
+class SvSecondHitOut(BaseModel):
+    """The gene of this small variant is also hit by a structural variant — the cross-type
+    "second hit" that can complete a recessive (compound-het) genotype."""
+
+    sv_count: int
+    sv_types: List[str] = Field(default_factory=list)
+    # Zygosity of the overlapping SV in affected individuals ("het" / "hom" / "mixed").
+    affected_zygosity: Optional[str] = None
+    # A deletion (or CNV) can remove the second copy and unmask a heterozygous SNV.
+    has_deletion: bool = False
+    # Phase of the SNV vs the SV: "trans" (compound-het candidate), "cis" (same allele),
+    # or "unknown".
+    phase: str = "unknown"
+    # How the phase was determined: "read" (shared phase set on long-read data) or
+    # "segregation" (trio/affected-unaffected); None when phase is unknown.
+    phase_evidence: Optional[str] = None
+    # A deletion in trans with a heterozygous SNV — effectively biallelic.
+    deletion_unmasked: bool = False
+
+
 class VariantPriorityOut(BaseModel):
     combined_score: float
     variant_score: float
@@ -1843,6 +2000,7 @@ class VariantOut(ApiDocumentModel):
     review: Optional[SmallVariantReviewOut] = None
     internal_cohort: Optional[VariantInternalCohortOut] = None
     priority: Optional[VariantPriorityOut] = None
+    sv_second_hit: Optional[SvSecondHitOut] = None
 
 
 class SmallVariantGroupOut(BaseModel):
@@ -1877,6 +2035,10 @@ class VariantPage(BaseModel):
     # True when a prioritized request had more candidates than the ranking window, so
     # the ranking is incomplete and the user should narrow their filters.
     ranking_truncated: bool = False
+    # Provenance of a prioritized ranking: whether it was served from the cache and when
+    # the ranking was computed (so the UI can show a "from cache · N min ago" indicator).
+    ranking_cached: bool = False
+    ranking_computed_at: Optional[datetime] = None
     variants: List[VariantOut] = Field(default_factory=list)
     variant_groups: List[SmallVariantGroupOut] = Field(default_factory=list)
     summary: Optional[Dict[str, Dict[str, int]]] = None

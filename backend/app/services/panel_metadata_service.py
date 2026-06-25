@@ -15,6 +15,11 @@ from ..schemas import (
     GenePanelCreate,
     GenePanelCreateResponse,
     GenePanelOut,
+    GenePanelUpdate,
+    GenePanelVersionDetail,
+    GenePanelVersionListOut,
+    GenePanelVersionSummary,
+    MendeliomeRegenerateResponse,
     PanelAppImportRequest,
     PanelAppImportResponse,
 )
@@ -64,6 +69,7 @@ def _panel_out_from_rows(
     return GenePanelOut(
         _id=panel_row["id"],
         name=panel_row["name"],
+        version=int(panel_row.get("version") or 1),
         genes=genes,
         gene_count=len(genes),
         regions=[
@@ -99,6 +105,7 @@ async def _fetch_panel_rows(
                 SELECT
                     gp.id::text AS id,
                     gp.name,
+                    gp.version,
                     gp.created_by::text AS created_by,
                     gp.created_at,
                     gp.description,
@@ -124,6 +131,7 @@ async def _fetch_panel_rows(
             SELECT
                 gp.id::text AS id,
                 gp.name,
+                gp.version,
                 gp.created_by::text AS created_by,
                 gp.created_at,
                 gp.description,
@@ -347,6 +355,55 @@ async def _replace_panel_members(
         )
 
 
+async def _snapshot_panel_version(
+    session: AsyncSession,
+    *,
+    panel_id: str,
+    version: int,
+    name: str,
+    description: str | None,
+    source: str | None,
+    external_version: str | None,
+    genes: list[str],
+    regions: list[GeneLocation],
+    source_metadata: dict[str, Any] | None,
+    user: CurrentUser,
+) -> None:
+    """Archive an immutable snapshot of a panel version (never overwritten)."""
+    await session.execute(
+        text(
+            """
+            INSERT INTO gene_panel_versions
+                (panel_id, version, name, description, source, external_version,
+                 gene_count, genes, regions, source_metadata, created_by, created_by_email)
+            VALUES
+                (CAST(:panel_id AS uuid), :version, :name, :description, :source,
+                 :external_version, :gene_count, CAST(:genes AS jsonb), CAST(:regions AS jsonb),
+                 CAST(:source_metadata AS jsonb), CAST(:created_by AS uuid), :created_by_email)
+            """
+        ),
+        {
+            "panel_id": panel_id,
+            "version": version,
+            "name": name,
+            "description": description,
+            "source": source,
+            "external_version": external_version,
+            "gene_count": len(genes),
+            "genes": json.dumps(genes),
+            "regions": json.dumps(
+                [
+                    {"gene": region.gene, "chr": region.chr, "start": region.start, "end": region.end}
+                    for region in regions
+                ]
+            ),
+            "source_metadata": json.dumps(source_metadata or {}),
+            "created_by": getattr(user, "id", None),
+            "created_by_email": getattr(user, "email", None),
+        },
+    )
+
+
 async def create_panel_data(
     session: AsyncSession,
     panel: GenePanelCreate,
@@ -394,6 +451,19 @@ async def create_panel_data(
     panel_id = panel_row["id"]
 
     await _replace_panel_members(session, panel_id=panel_id, genes=deduped_symbols, regions=regions)
+    await _snapshot_panel_version(
+        session,
+        panel_id=panel_id,
+        version=1,
+        name=panel.name,
+        description=description,
+        source="local",
+        external_version=None,
+        genes=deduped_symbols,
+        regions=regions,
+        source_metadata={},
+        user=user,
+    )
 
     await session.commit()
     panel_out = _panel_out_from_rows(
@@ -417,6 +487,95 @@ async def create_panel_data(
         message=message,
         missing_genes=missing_genes,
     )
+
+
+async def update_panel_data(
+    session: AsyncSession,
+    panel_id: str,
+    payload: GenePanelUpdate,
+    user: CurrentUser,
+) -> GenePanelCreateResponse:
+    """Edit a manually-curated panel's gene set (add/remove) as a new version.
+
+    The full desired gene list is supplied; the prior version stays archived. Only
+    locally-curated panels are editable this way — generated/imported panels
+    (Mendeliome, PanelApp) are updated by regenerating or re-importing.
+    """
+    _ensure_admin(user)
+    _require_panel_uuid(panel_id)
+    existing = (
+        await session.execute(
+            text(
+                """
+                SELECT id::text AS id, name, version,
+                       COALESCE(source, 'local') AS source, description
+                FROM gene_panels WHERE id = CAST(:panel_id AS uuid)
+                """
+            ),
+            {"panel_id": panel_id},
+        )
+    ).mappings().first()
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    if existing["source"] != "local":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The '{existing['source']}' panel '{existing['name']}' is generated/imported; "
+                "update it by regenerating or re-importing rather than editing genes."
+            ),
+        )
+
+    normalized = list(
+        dict.fromkeys(symbol.strip() for symbol in payload.genes if symbol and symbol.strip())
+    )
+    regions, missing_genes = await _resolve_gene_regions(session, normalized)
+    description = (
+        payload.description.strip()
+        if payload.description and payload.description.strip()
+        else existing["description"]
+    )
+
+    current_genes = set((await _fetch_panel_genes(session, [panel_id])).get(panel_id, []))
+    if current_genes == set(normalized) and description == existing["description"]:
+        panel_out = await get_panel_or_404(session, panel_id)
+        return GenePanelCreateResponse(
+            panel=panel_out,
+            message=f"No changes — panel already at version {int(existing['version'])}.",
+            missing_genes=missing_genes,
+        )
+
+    version = int(existing["version"]) + 1
+    await session.execute(
+        text(
+            """
+            UPDATE gene_panels
+            SET version = :version, description = :description
+            WHERE id = CAST(:panel_id AS uuid)
+            """
+        ),
+        {"version": version, "description": description, "panel_id": panel_id},
+    )
+    await _replace_panel_members(session, panel_id=panel_id, genes=normalized, regions=regions)
+    await _snapshot_panel_version(
+        session,
+        panel_id=panel_id,
+        version=version,
+        name=existing["name"],
+        description=description,
+        source="local",
+        external_version=None,
+        genes=normalized,
+        regions=regions,
+        source_metadata={},
+        user=user,
+    )
+    await session.commit()
+    panel_out = await get_panel_or_404(session, panel_id)
+    message = f"Panel updated to version {version}: {len(regions)} of {len(normalized)} genes"
+    if missing_genes:
+        message += f"; unresolved: {', '.join(missing_genes)}"
+    return GenePanelCreateResponse(panel=panel_out, message=message, missing_genes=missing_genes)
 
 
 async def import_panelapp_panel_data(
@@ -625,3 +784,310 @@ async def delete_panel_data(
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Panel not found")
     await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Gene-panel version history
+# ---------------------------------------------------------------------------
+
+def _jsonb_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def _jsonb_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+async def list_panel_versions(session: AsyncSession, panel_id: str) -> GenePanelVersionListOut:
+    _require_panel_uuid(panel_id)
+    current = (
+        await session.execute(
+            text("SELECT version FROM gene_panels WHERE id = CAST(:panel_id AS uuid)"),
+            {"panel_id": panel_id},
+        )
+    ).scalar()
+    if current is None:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT version, name, source, external_version, gene_count,
+                       created_by_email, created_at
+                FROM gene_panel_versions
+                WHERE panel_id = CAST(:panel_id AS uuid)
+                ORDER BY version DESC
+                """
+            ),
+            {"panel_id": panel_id},
+        )
+    ).mappings().all()
+    return GenePanelVersionListOut(
+        panel_id=panel_id,
+        current_version=int(current),
+        versions=[GenePanelVersionSummary(**dict(row)) for row in rows],
+    )
+
+
+async def get_panel_version(
+    session: AsyncSession, panel_id: str, version: int
+) -> GenePanelVersionDetail:
+    _require_panel_uuid(panel_id)
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT version, name, description, source, external_version, gene_count,
+                       genes, regions, source_metadata, created_by_email, created_at
+                FROM gene_panel_versions
+                WHERE panel_id = CAST(:panel_id AS uuid) AND version = :version
+                """
+            ),
+            {"panel_id": panel_id, "version": version},
+        )
+    ).mappings().first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Panel version not found")
+    data = dict(row)
+    return GenePanelVersionDetail(
+        version=data["version"],
+        name=data["name"],
+        description=data.get("description"),
+        source=data.get("source"),
+        external_version=data.get("external_version"),
+        gene_count=data["gene_count"],
+        created_by_email=data.get("created_by_email"),
+        created_at=data["created_at"],
+        genes=[str(symbol) for symbol in _jsonb_list(data.get("genes"))],
+        regions=[GeneLocation(**region) for region in _jsonb_list(data.get("regions"))],
+        source_metadata=_jsonb_dict(data.get("source_metadata")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Mendeliome — all genes with a Mendelian disease association in Monarch
+# ---------------------------------------------------------------------------
+
+MENDELIOME_NAME = "Mendeliome"
+MENDELIOME_SOURCE = "mendeliome"
+# Disease associations: 'causes' (causal) + 'gene_associated_with_condition'
+# (disease-associated). Risk modifiers ('contributes_to', 'increased_likelihood')
+# are intentionally excluded.
+_MENDELIOME_PREDICATES = ("causes", "gene_associated_with_condition")
+
+
+async def _select_mendeliome_genes(session: AsyncSession) -> tuple[list[str], str | None]:
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT DISTINCT gene_symbol
+                FROM monarch_gene_disease
+                WHERE predicate = ANY(:predicates)
+                  AND coalesce(gene_symbol, '') <> ''
+                ORDER BY gene_symbol
+                """
+            ),
+            {"predicates": list(_MENDELIOME_PREDICATES)},
+        )
+    ).mappings().all()
+    genes = [str(row["gene_symbol"]).strip() for row in rows if str(row["gene_symbol"]).strip()]
+    release = (
+        await session.execute(text("SELECT max(release_version) FROM monarch_gene_disease"))
+    ).scalar()
+    return genes, (str(release) if release else None)
+
+
+async def _mendeliome_panel(session: AsyncSession) -> dict[str, Any] | None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT id::text AS id, version
+                FROM gene_panels
+                WHERE source = :source
+                ORDER BY created_at
+                LIMIT 1
+                """
+            ),
+            {"source": MENDELIOME_SOURCE},
+        )
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+async def regenerate_mendeliome(
+    session: AsyncSession, user: CurrentUser, *, force: bool = False
+) -> MendeliomeRegenerateResponse:
+    """Build (or re-version) the Mendeliome panel from the loaded Monarch release.
+
+    A new archived version is created only when the gene set actually changes; an
+    unchanged refresh just re-stamps the panel with the latest Monarch release.
+    """
+    _ensure_admin(user)
+    genes, release = await _select_mendeliome_genes(session)
+    if not genes:
+        raise HTTPException(
+            status_code=409,
+            detail="Monarch gene–disease data is not loaded; cannot build the Mendeliome.",
+        )
+    deduped = list(dict.fromkeys(genes))
+    regions, missing_genes = await _resolve_gene_regions(session, deduped)
+    now = datetime.now(timezone.utc)
+    description = (
+        "All genes with a Mendelian disease association in the Monarch knowledge graph "
+        "(predicates: causes, gene_associated_with_condition; aggregating OMIM, Orphanet "
+        f"and ClinGen). Generated from Monarch release {release or 'unknown'}."
+    )
+    source_metadata = {
+        "generated": True,
+        "monarch_release": release,
+        "predicates": list(_MENDELIOME_PREDICATES),
+        "gene_count": len(deduped),
+        "resolved_count": len(regions),
+        "missing_count": len(missing_genes),
+    }
+
+    existing = await _mendeliome_panel(session)
+    if existing is None:
+        created = await session.execute(
+            text(
+                """
+                INSERT INTO gene_panels
+                    (name, description, source, external_id, external_version,
+                     source_updated_at, source_metadata, version, created_by, created_at)
+                VALUES
+                    (:name, :description, :source, :external_id, :external_version,
+                     :source_updated_at, CAST(:source_metadata AS jsonb), 1,
+                     CAST(:created_by AS uuid), :created_at)
+                RETURNING id::text AS id
+                """
+            ),
+            {
+                "name": MENDELIOME_NAME,
+                "description": description,
+                "source": MENDELIOME_SOURCE,
+                "external_id": MENDELIOME_SOURCE,
+                "external_version": release,
+                "source_updated_at": now,
+                "source_metadata": json.dumps(source_metadata),
+                "created_by": user.id,
+                "created_at": now,
+            },
+        )
+        panel_id = created.mappings().one()["id"]
+        version = 1
+        changed = True
+        await _replace_panel_members(session, panel_id=panel_id, genes=deduped, regions=regions)
+        await _snapshot_panel_version(
+            session,
+            panel_id=panel_id,
+            version=version,
+            name=MENDELIOME_NAME,
+            description=description,
+            source=MENDELIOME_SOURCE,
+            external_version=release,
+            genes=deduped,
+            regions=regions,
+            source_metadata=source_metadata,
+            user=user,
+        )
+        message = f"Mendeliome created with {len(deduped)} genes (Monarch {release or 'unknown'})."
+    else:
+        panel_id = existing["id"]
+        current_version = int(existing["version"])
+        current_genes = set((await _fetch_panel_genes(session, [panel_id])).get(panel_id, []))
+        if not force and current_genes == set(deduped):
+            await session.execute(
+                text(
+                    """
+                    UPDATE gene_panels
+                    SET external_version = :release,
+                        source_updated_at = :now,
+                        source_metadata = CAST(:source_metadata AS jsonb)
+                    WHERE id = CAST(:panel_id AS uuid)
+                    """
+                ),
+                {
+                    "release": release,
+                    "now": now,
+                    "source_metadata": json.dumps(source_metadata),
+                    "panel_id": panel_id,
+                },
+            )
+            version = current_version
+            changed = False
+            message = (
+                f"Mendeliome already current — no gene changes for Monarch "
+                f"{release or 'unknown'} (version {version})."
+            )
+        else:
+            version = current_version + 1
+            await session.execute(
+                text(
+                    """
+                    UPDATE gene_panels
+                    SET version = :version,
+                        description = :description,
+                        external_version = :release,
+                        source_updated_at = :now,
+                        source_metadata = CAST(:source_metadata AS jsonb)
+                    WHERE id = CAST(:panel_id AS uuid)
+                    """
+                ),
+                {
+                    "version": version,
+                    "description": description,
+                    "release": release,
+                    "now": now,
+                    "source_metadata": json.dumps(source_metadata),
+                    "panel_id": panel_id,
+                },
+            )
+            await _replace_panel_members(session, panel_id=panel_id, genes=deduped, regions=regions)
+            await _snapshot_panel_version(
+                session,
+                panel_id=panel_id,
+                version=version,
+                name=MENDELIOME_NAME,
+                description=description,
+                source=MENDELIOME_SOURCE,
+                external_version=release,
+                genes=deduped,
+                regions=regions,
+                source_metadata=source_metadata,
+                user=user,
+            )
+            changed = True
+            message = (
+                f"Mendeliome updated to version {version}: {len(deduped)} genes "
+                f"(Monarch {release or 'unknown'})."
+            )
+
+    await session.commit()
+    panel_out = await get_panel_or_404(session, panel_id)
+    return MendeliomeRegenerateResponse(
+        panel=panel_out,
+        message=message,
+        changed=changed,
+        version=version,
+        monarch_release=release,
+        gene_count=len(deduped),
+        missing_genes=missing_genes,
+    )

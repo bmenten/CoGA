@@ -8,6 +8,7 @@ import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
+  post: vi.fn(),
 }));
 
 vi.mock('../../../lib/api', () => ({
@@ -101,6 +102,21 @@ const mockApi = () => {
         ],
       });
     }
+    if (url === '/families/F1/annotation-manifest') {
+      return Promise.resolve({
+        data: {
+          family_id: 'F1',
+          assembly: 'GRCh38',
+          source: 'manual',
+          recorded_at: null,
+          recorded_by: null,
+          modules: [
+            { key: 'assembly', label: 'Reference assembly', version: 'GRCh38', detail: '2013-12-01', layer: 'reference' },
+            { key: 'clinvar', label: 'ClinVar', version: '2026-05', detail: null, layer: 'pipeline' },
+          ],
+        },
+      });
+    }
     return Promise.resolve({ data: {} });
   });
 };
@@ -139,6 +155,11 @@ describe('FamilyReportPage', () => {
 
     // Analyst note surfaced.
     expect(screen.getByText(/Strong candidate for the reported phenotype\./)).toBeInTheDocument();
+
+    // Provenance footer: a generation timestamp + the annotation/reference versions.
+    expect(await screen.findByText(/Report generated .* UTC/)).toBeInTheDocument();
+    expect(screen.getByText(/ClinVar 2026-05/)).toBeInTheDocument();
+    expect(screen.getByText(/Reference assembly GRCh38 \(2013-12-01\)/)).toBeInTheDocument();
   });
 
   it('shows an empty state when no variants are tagged for reporting', async () => {
@@ -154,5 +175,119 @@ describe('FamilyReportPage', () => {
     renderPage();
 
     expect(await screen.findByText(/No variants are currently tagged for reporting/)).toBeInTheDocument();
+  });
+
+  it('warns when a classification’s evidence has drifted since it was made', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/classification-drift') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            checked: 2,
+            drifted_count: 1,
+            drifted: [
+              {
+                variant_id: '1-100-A-G',
+                acmg_class: 'acmg_class_4',
+                classified_by: 'alice',
+                classified_at: null,
+                status: 'drifted',
+                annotation_version_from: 'v1',
+                annotation_version_to: 'v2',
+                clinvar_from: 'Uncertain significance',
+                clinvar_to: 'Pathogenic',
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toBeInTheDocument();
+    expect(screen.getByText('1-100-A-G')).toBeInTheDocument();
+    expect(
+      screen.getByText(/ClinVar Uncertain significance → Pathogenic/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/classified by alice/)).toBeInTheDocument();
+  });
+
+  it('renders the immutable clinical audit trail', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/clinical-audit') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            events: [
+              {
+                id: 'e1',
+                created_at: '2026-06-25T09:04:00Z',
+                variant_id: '1-100-A-G',
+                actor: 'alice',
+                action: 'classification',
+                summary: 'Classification unclassified → VUS (class 3)',
+                before: null,
+                after: null,
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    expect(await screen.findByText('Classification audit trail')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Classification unclassified → VUS \(class 3\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByText('alice')).toBeInTheDocument();
+    expect(screen.getByText(/2026-06-25 09:04 UTC/)).toBeInTheDocument();
+  });
+
+  it('shows the frozen sign-out record when the case is signed out', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            latest: {
+              version: 2,
+              signed_out_by: 'bjorn',
+              signed_out_at: '2026-06-25T10:00:00Z',
+              content_hash: 'abc123def456',
+            },
+            signouts: [],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    expect(await screen.findByText(/Signed out — version 2 by/)).toBeInTheDocument();
+    expect(screen.getByText(/abc123def456/)).toBeInTheDocument();
+    // Once signed out, the action becomes an amendment.
+    expect(screen.getByRole('button', { name: /Amend sign-out/ })).toBeInTheDocument();
   });
 });

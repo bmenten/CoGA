@@ -220,15 +220,13 @@ async def test_family_mitochondrial_analysis_count_only_skips_variant_payload(
     async def fake_fetch_mt_records(_context):
         return [_mt_record()]
 
-    async def fake_coverage_by_sample(_context):
-        return {
-            "PROBAND": mitochondrial_analysis.MitoDNACoverageOut(
-                mean_depth=418.5, source="coverage", regions=4
-            )
-        }
+    async def fake_has_mt_coverage(_context):
+        return False
 
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
-    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
+    # No coverage track here: presence is established from variant-call read depth,
+    # so the count-only path must not need the full coverage scan at all.
+    monkeypatch.setattr(mitochondrial_analysis, "_has_mt_coverage", fake_has_mt_coverage)
 
     response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
         None,  # type: ignore[arg-type]
@@ -251,13 +249,11 @@ async def test_family_mitochondrial_analysis_count_only_coverage_without_variant
     async def fake_fetch_mt_records(_context):
         return []  # no chrM variants
 
-    async def fake_coverage_by_sample(_context):
-        return {
-            "PROBAND": mitochondrial_analysis.MitoDNACoverageOut(mean_depth=400.0, source="coverage")
-        }
+    async def fake_has_mt_coverage(_context):
+        return True  # a coverage track exists even though no variants were called
 
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
-    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
+    monkeypatch.setattr(mitochondrial_analysis, "_has_mt_coverage", fake_has_mt_coverage)
 
     response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
         None,  # type: ignore[arg-type]

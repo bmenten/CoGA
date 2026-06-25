@@ -22,6 +22,10 @@ class SmallVariantFamilyRecord:
     gene_symbols: list[str]
     sample_calls: dict[str, str]
     annotations: list[dict[str, Any]]
+    # The annotation set identity — changes whenever any annotation changes, so it
+    # is the drift key for "evidence changed since classification".
+    annotation_version: str | None = None
+    annotation_set_hash: str | None = None
 
 
 def _decode_json_payload(raw_value: Any) -> Any:
@@ -71,7 +75,16 @@ def _collect_gene_ids(annotations: list[dict[str, Any]]) -> set[str]:
 def _rows_to_variant_record(rows: list[tuple[Any, ...]]) -> SmallVariantFamilyRecord | None:
     if not rows:
         return None
-    variant_key, variant_id, gene_symbols, sample_ids, sample_gts, annotations_json = rows[0]
+    (
+        variant_key,
+        variant_id,
+        gene_symbols,
+        sample_ids,
+        sample_gts,
+        annotations_json,
+        annotation_version,
+        annotation_set_hash,
+    ) = rows[0]
     sample_calls = {
         str(sample_id): str(gt)
         for sample_id, gt in zip(sample_ids or [], sample_gts or [])
@@ -89,6 +102,8 @@ def _rows_to_variant_record(rows: list[tuple[Any, ...]]) -> SmallVariantFamilyRe
         gene_symbols=normalized_gene_symbols,
         sample_calls=sample_calls,
         annotations=annotations,
+        annotation_version=str(annotation_version) if annotation_version not in (None, "") else None,
+        annotation_set_hash=str(annotation_set_hash) if annotation_set_hash not in (None, "") else None,
     )
 
 
@@ -107,7 +122,9 @@ async def get_small_variant_family_record(
             e.gene_symbols,
             e.calls.sampleId,
             e.calls.gt,
-            d.annotationsJson
+            d.annotationsJson,
+            e.annotation_version,
+            e.annotationSetHash
         FROM {entries_table} AS e
         LEFT JOIN {details_table} AS d
           ON d.key = e.key

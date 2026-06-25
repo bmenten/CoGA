@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import ReferenceDocPage from '../ReferenceDocPage';
+import { referenceDocs } from '../referenceDocs';
 
 const renderAt = (path: string) =>
   render(
@@ -30,4 +31,15 @@ describe('ReferenceDocPage', () => {
     renderAt('/docs/reference/does-not-exist');
     expect(screen.getByText(/Reference document not found/i)).toBeInTheDocument();
   });
+
+  // Every registered reference doc renders without error and exposes its title heading.
+  it.each(referenceDocs.map((doc) => [doc.slug, doc.title] as const))(
+    'renders the "%s" reference doc with an h1 ending in "— reference"',
+    (slug) => {
+      renderAt(`/docs/reference/${slug}`);
+      const heading = document.querySelector('h1');
+      expect(heading).toBeTruthy();
+      expect(heading?.textContent || '').toMatch(/— reference$/);
+    },
+  );
 });

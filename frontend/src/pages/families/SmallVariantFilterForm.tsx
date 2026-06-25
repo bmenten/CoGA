@@ -199,6 +199,7 @@ const SmallVariantFilterForm = ({
   const [saveOpen, setSaveOpen] = useState(false);
   const [openSections, setOpenSections] = useState({
     phenotype: false,
+    svSecondHit: false,
     inheritance: false,
     categories: false,
     pathogenicity: false,
@@ -943,6 +944,54 @@ const SmallVariantFilterForm = ({
               <p className="table-subtle">
                 Rank candidate variants by how well each gene matches the affected
                 individuals’ HPO phenotypes (Monarch / Exomiser-style).
+              </p>
+            </div>
+          </details>
+          ) : null}
+          {familyAware ? (
+          <details
+            className="variant-filter-dropdown"
+            open={openSections.svSecondHit}
+            onToggle={handleSectionToggle('svSecondHit')}
+          >
+            <summary className="variant-filter-dropdown-summary">
+              <span className="variant-filter-dropdown-summary-copy">
+                <span className="variant-filter-dropdown-title">Structural second hit</span>
+                <span className="variant-filter-dropdown-meta">
+                  {summarizeSection(
+                    draftFilters.require_sv_second_hit === 'true' ? 1 : 0,
+                    'Off',
+                  )}
+                </span>
+              </span>
+              <span
+                className="variant-filter-dropdown-summary-controls"
+                onMouseDown={stopSummaryInteraction}
+                onClick={stopSummaryInteraction}
+              >
+                <label className="analysis-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={draftFilters.require_sv_second_hit === 'true'}
+                    onChange={(event) =>
+                      setDraftFilterValue(
+                        'require_sv_second_hit',
+                        event.target.checked ? 'true' : '',
+                      )
+                    }
+                  />
+                  <span>Also hit by an SV</span>
+                </label>
+              </span>
+              <span className="variant-filter-dropdown-caret" aria-hidden="true">
+                ▾
+              </span>
+            </summary>
+            <div className="variant-filter-dropdown-content">
+              <p className="table-subtle">
+                Restrict to variants whose gene is also hit by a structural variant — the
+                cross-type “second hit” (e.g. an SNV plus an overlapping deletion). Matches are
+                tagged with the SV type and a trans/cis phase badge.
               </p>
             </div>
           </details>
