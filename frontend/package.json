@@ -29,7 +29,7 @@
     "react-router-dom": "^7.18.0",
     "remark-gfm": "^4.0.1",
     "typescript": "^6.0.3",
-    "vite": "^7.3.6"
+    "vite": "^8.1.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
