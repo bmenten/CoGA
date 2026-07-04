@@ -116,6 +116,7 @@ const renderWorkspace = (onJumpToRegion = vi.fn()) => {
           onResetRange={vi.fn()}
           onPan={vi.fn()}
           onZoom={vi.fn()}
+          onZoomAt={vi.fn()}
           onRegionSelect={vi.fn()}
           onRoiZoom={vi.fn()}
           onJumpToRegion={onJumpToRegion}
@@ -186,6 +187,7 @@ describe('ChromosomeViewWorkspace', () => {
             onResetRange={vi.fn()}
             onPan={vi.fn()}
             onZoom={vi.fn()}
+            onZoomAt={vi.fn()}
             onRegionSelect={vi.fn()}
             onRoiZoom={vi.fn()}
             onJumpToRegion={vi.fn()}

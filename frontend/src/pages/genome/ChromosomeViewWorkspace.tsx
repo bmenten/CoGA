@@ -23,6 +23,7 @@ import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import ViewerMemberSection from './ViewerMemberSection';
 import ViewerTrackBlock from './ViewerTrackBlock';
+import ViewerInteractionSurface from './ViewerInteractionSurface';
 import type { ChromosomeTrackVisibility } from './ChromosomeViewSidebar';
 import {
   CHROMS,
@@ -93,6 +94,7 @@ interface ChromosomeViewWorkspaceProps {
   onResetRange: () => void;
   onPan: (direction: -1 | 1) => void;
   onZoom: (factor: number) => void;
+  onZoomAt: (factor: number, focus: number) => void;
   onRegionSelect: (start: number, end: number) => void;
   onRoiZoom: () => void;
   onJumpToRegion: (chrom: string, region: { start: number; end: number }) => void;
@@ -195,6 +197,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   onResetRange,
   onPan,
   onZoom,
+  onZoomAt,
   onRegionSelect,
   onRoiZoom,
   onJumpToRegion,
@@ -221,6 +224,9 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   const [jumpQuery, setJumpQuery] = useState('');
   const [jumpError, setJumpError] = useState<string | null>(null);
   const [jumpLoading, setJumpLoading] = useState(false);
+  // What a plain click-drag over the tracks does. Wheel always zooms; this only
+  // switches the drag gesture between grabbing (pan) and rubber-band (zoom).
+  const [interactionMode, setInteractionMode] = useState<'pan' | 'zoom'>('pan');
   const trimmedJumpQuery = jumpQuery.trim();
   const parsedJumpRegion = useMemo(() => parseJumpRegion(trimmedJumpQuery), [trimmedJumpQuery]);
   const isLocationJump = parsedJumpRegion !== null;
@@ -230,7 +236,9 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
         chromSize: chromInfoSize,
         regionStart: region.start,
         regionEnd: region.end,
+        mode: interactionMode,
         onChange: onRegionSelect,
+        onZoomAt,
       }
     : undefined;
   const hasCarrierSegregation = familyMembers.some((member) => member.carrier_status === 'carrier');
@@ -425,6 +433,26 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
               →
             </button>
           </div>
+          <div className="analysis-control-group" role="group" aria-label="Drag mode">
+            <button
+              type="button"
+              className={`analysis-pill-button${interactionMode === 'pan' ? ' analysis-pill-button--active' : ''}`}
+              onClick={() => setInteractionMode('pan')}
+              aria-pressed={interactionMode === 'pan'}
+              title="Drag any track to pan left/right"
+            >
+              Pan
+            </button>
+            <button
+              type="button"
+              className={`analysis-pill-button${interactionMode === 'zoom' ? ' analysis-pill-button--active' : ''}`}
+              onClick={() => setInteractionMode('zoom')}
+              aria-pressed={interactionMode === 'zoom'}
+              title="Drag across the tracks to select a region to zoom into"
+            >
+              Zoom
+            </button>
+          </div>
           <span className="analysis-pill analysis-pill--muted">
             Window {formatBp(Math.max(region.end - region.start, 0))}
           </span>
@@ -438,7 +466,9 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
               ROI {visibleRoi.label} · {formatRoiCoordinates(visibleRoi)}
             </button>
           )}
-          <span className="analysis-pill analysis-pill--muted">Drag track to zoom</span>
+          <span className="analysis-pill analysis-pill--muted">
+            Scroll to zoom · drag to {interactionMode === 'pan' ? 'pan' : 'select region'}
+          </span>
         </div>
         {jumpError && <p className="status-note status-note--error mt-4">{jumpError}</p>}
       </section>
@@ -467,6 +497,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
           </div>
         </section>
 
+        <ViewerInteractionSurface className="space-y-6">
         <section className="viz-shell">
           {membersWithData.map((member) => (
             <ViewerMemberSection key={`${familyDisplayId}-${member.sample_id}`} member={member}>
@@ -790,6 +821,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
             </ViewerTrackBlock>
           </div>
         </section>
+        </ViewerInteractionSurface>
       </section>
     </main>
   );

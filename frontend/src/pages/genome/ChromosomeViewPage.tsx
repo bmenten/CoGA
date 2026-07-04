@@ -388,6 +388,17 @@ const ChromosomeViewPage: React.FC = () => {
     setClampedRegion(center - targetSpan / 2, center + targetSpan / 2);
   };
 
+  // Zoom keeping the genomic position under the cursor fixed. focus is a 0..1
+  // fraction of the visible window (0 = left edge, 1 = right edge).
+  const handleZoomAt = (factor: number, focus: number) => {
+    if (!chromInfo?.size || region.end <= region.start) return;
+    const span = Math.max(region.end - region.start, 1);
+    const targetSpan = Math.max(Math.round(span * factor), 1);
+    const focusBp = region.start + focus * span;
+    const nextStart = focusBp - focus * targetSpan;
+    setClampedRegion(nextStart, nextStart + targetSpan);
+  };
+
   const visibleRoi = useMemo(() => {
     if (!data?.roi) return null;
     if (data.roi.assembly_id && assemblyId && data.roi.assembly_id !== assemblyId) {
@@ -548,6 +559,7 @@ const ChromosomeViewPage: React.FC = () => {
         }}
         onPan={handlePan}
         onZoom={handleZoom}
+        onZoomAt={handleZoomAt}
         onRegionSelect={(start, end) => {
           const nextRegion = { start, end };
           setRegion(nextRegion);

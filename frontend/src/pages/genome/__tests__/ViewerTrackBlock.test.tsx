@@ -1,27 +1,28 @@
 import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import ViewerTrackBlock from '../ViewerTrackBlock';
+import ViewerInteractionSurface from '../ViewerInteractionSurface';
 
 const dispatchMouseEvent = (
   element: HTMLElement,
   type: 'mouseDown' | 'mouseMove' | 'mouseUp',
-  offsetX: number,
-  options?: { shiftKey?: boolean; button?: number },
+  clientX: number,
+  options?: { button?: number },
 ) => {
   const event = createEvent[type](element, {
     bubbles: true,
     button: options?.button ?? 0,
-    shiftKey: options?.shiftKey ?? false,
   });
   // The block measures x from the frame's bounding box + clientX (jsdom reports a
   // zero-origin rect, so clientX maps directly to the in-frame x). We deliberately
-  // do NOT set offsetX — the fix must not depend on it.
-  Object.defineProperty(event, 'clientX', { value: offsetX });
+  // do NOT set offsetX — the fix must not depend on it. mousemove/mouseup are
+  // handled by window-level listeners, so bubbling from the target is required.
+  Object.defineProperty(event, 'clientX', { value: clientX });
   fireEvent(element, event);
 };
 
 describe('ViewerTrackBlock', () => {
-  it('zooms the viewport when dragging across a track block', () => {
+  it('zooms the viewport when dragging across a track block (default/zoom mode)', () => {
     const onChange = vi.fn();
 
     render(
@@ -58,6 +59,7 @@ describe('ViewerTrackBlock', () => {
           chromSize: 1000,
           regionStart: 100,
           regionEnd: 300,
+          mode: 'zoom',
           onChange,
         }}
       >
@@ -77,8 +79,63 @@ describe('ViewerTrackBlock', () => {
     expect(onChange).toHaveBeenCalledWith(150, 250);
   });
 
-  it('ignores shift-drag panning and wheel input', () => {
+  it('pans the window when dragging in pan mode', () => {
     const onChange = vi.fn();
+
+    render(
+      <ViewerTrackBlock
+        label="Coverage"
+        width={200}
+        viewportInteraction={{
+          chromSize: 1000,
+          regionStart: 100,
+          regionEnd: 300,
+          mode: 'pan',
+          onChange,
+        }}
+      >
+        <div style={{ height: 20 }} />
+      </ViewerTrackBlock>,
+    );
+
+    const track = screen.getByRole('application', { name: /coverage viewport/i });
+    // Drag content 50px to the right → window shifts 50px * (200bp / 200px) = 50bp earlier.
+    dispatchMouseEvent(track, 'mouseDown', 100);
+    dispatchMouseEvent(track, 'mouseMove', 150);
+    dispatchMouseEvent(track, 'mouseUp', 150);
+
+    expect(onChange).toHaveBeenCalledWith(50, 250);
+  });
+
+  it('treats a near-stationary pan drag as a click (no region change)', () => {
+    const onChange = vi.fn();
+
+    render(
+      <ViewerTrackBlock
+        label="Coverage"
+        width={200}
+        viewportInteraction={{
+          chromSize: 1000,
+          regionStart: 100,
+          regionEnd: 300,
+          mode: 'pan',
+          onChange,
+        }}
+      >
+        <div style={{ height: 20 }} />
+      </ViewerTrackBlock>,
+    );
+
+    const track = screen.getByRole('application', { name: /coverage viewport/i });
+    dispatchMouseEvent(track, 'mouseDown', 100);
+    dispatchMouseEvent(track, 'mouseUp', 101);
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('zooms toward the cursor on wheel input', () => {
+    const onChange = vi.fn();
+    const onZoomAt = vi.fn();
 
     render(
       <ViewerTrackBlock
@@ -89,6 +146,7 @@ describe('ViewerTrackBlock', () => {
           regionStart: 200,
           regionEnd: 400,
           onChange,
+          onZoomAt,
         }}
       >
         <div style={{ height: 20 }} />
@@ -96,20 +154,96 @@ describe('ViewerTrackBlock', () => {
     );
 
     const track = screen.getByRole('application', { name: /svs viewport/i });
-    dispatchMouseEvent(track, 'mouseDown', 100, { shiftKey: true });
-    dispatchMouseEvent(track, 'mouseMove', 150, { shiftKey: true });
-    dispatchMouseEvent(track, 'mouseUp', 150, { shiftKey: true });
 
-    expect(onChange).toHaveBeenCalledWith(300, 350);
-    onChange.mockClear();
+    const zoomIn = createEvent.wheel(track, { bubbles: true, clientX: 100, deltaY: -100 });
+    fireEvent(track, zoomIn);
+    // deltaY < 0 → zoom in (factor < 1), centered at 100/200 = 0.5.
+    expect(onZoomAt).toHaveBeenLastCalledWith(1 / 1.2, 0.5);
 
-    const wheelEvent = createEvent.wheel(track, {
-      bubbles: true,
-      clientX: 100,
-      deltaY: -100,
-    });
-    fireEvent(track, wheelEvent);
+    const zoomOut = createEvent.wheel(track, { bubbles: true, clientX: 50, deltaY: 100 });
+    fireEvent(track, zoomOut);
+    // deltaY > 0 → zoom out (factor > 1), centered at 50/200 = 0.25.
+    expect(onZoomAt).toHaveBeenLastCalledWith(1.2, 0.25);
 
+    // Wheel never commits a region directly; it always routes through onZoomAt.
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('drives the shared guide and selection band across the surface', () => {
+    const onChange = vi.fn();
+
+    const { container } = render(
+      <ViewerInteractionSurface>
+        <ViewerTrackBlock
+          label="Coverage"
+          width={200}
+          viewportInteraction={{
+            chromSize: 1000,
+            regionStart: 100,
+            regionEnd: 300,
+            mode: 'zoom',
+            onChange,
+          }}
+        >
+          <div style={{ height: 20 }} />
+        </ViewerTrackBlock>
+      </ViewerInteractionSurface>,
+    );
+
+    const surface = container.querySelector('.viewer-interaction-surface') as HTMLElement;
+    const track = screen.getByRole('application', { name: /coverage viewport/i });
+
+    // Hovering publishes a guide fraction to the shared surface.
+    dispatchMouseEvent(track, 'mouseMove', 120);
+    expect(surface.hasAttribute('data-guide')).toBe(true);
+    expect(surface.style.getPropertyValue('--viewer-guide-x')).toBe('0.6');
+
+    // Dragging (zoom mode) hides the guide and shows the selection band.
+    dispatchMouseEvent(track, 'mouseDown', 40);
+    dispatchMouseEvent(track, 'mouseMove', 140);
+    expect(surface.hasAttribute('data-guide')).toBe(false);
+    expect(surface.hasAttribute('data-selecting')).toBe(true);
+    expect(surface.style.getPropertyValue('--viewer-sel-start')).toBe('0.2');
+    expect(Number(surface.style.getPropertyValue('--viewer-sel-width'))).toBeCloseTo(0.5);
+
+    // Releasing clears the band and commits the zoom.
+    dispatchMouseEvent(track, 'mouseUp', 140);
+    expect(surface.hasAttribute('data-selecting')).toBe(false);
+    expect(onChange).toHaveBeenCalledWith(140, 240);
+  });
+
+  it('previews a pan offset on the shared surface while dragging in pan mode', () => {
+    const onChange = vi.fn();
+
+    const { container } = render(
+      <ViewerInteractionSurface>
+        <ViewerTrackBlock
+          label="Coverage"
+          width={200}
+          viewportInteraction={{
+            chromSize: 1000,
+            regionStart: 100,
+            regionEnd: 300,
+            mode: 'pan',
+            onChange,
+          }}
+        >
+          <div style={{ height: 20 }} />
+        </ViewerTrackBlock>
+      </ViewerInteractionSurface>,
+    );
+
+    const surface = container.querySelector('.viewer-interaction-surface') as HTMLElement;
+    const track = screen.getByRole('application', { name: /coverage viewport/i });
+
+    dispatchMouseEvent(track, 'mouseDown', 100);
+    dispatchMouseEvent(track, 'mouseMove', 130);
+    expect(surface.hasAttribute('data-panning')).toBe(true);
+    expect(surface.style.getPropertyValue('--viewer-pan-dx')).toBe('30px');
+
+    dispatchMouseEvent(track, 'mouseUp', 130);
+    expect(surface.hasAttribute('data-panning')).toBe(false);
+    expect(surface.style.getPropertyValue('--viewer-pan-dx')).toBe('0px');
+    expect(onChange).toHaveBeenCalledWith(70, 270);
   });
 });

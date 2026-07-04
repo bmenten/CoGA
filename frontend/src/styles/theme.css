@@ -8744,24 +8744,76 @@ button.table-link:hover {
   font-weight: 600;
 }
 
+/* Shared interaction state for every windowed track. The guide/selection/pan
+   values are written to these custom properties on one ancestor so the cursor
+   line, rubber-band and pan preview render across all tracks at once without
+   re-rendering (or re-fetching) the track components. */
+.viewer-interaction-surface {
+  --viewer-guide-x: 0;
+  --viewer-sel-start: 0;
+  --viewer-sel-width: 0;
+  --viewer-pan-dx: 0px;
+}
+
 .viewer-track-interactive {
   position: relative;
   overflow: hidden;
 }
 
-.viewer-track-interactive--idle,
+.viewer-track-interactive--pan {
+  cursor: grab;
+}
+
 .viewer-track-interactive--zoom {
   cursor: crosshair;
 }
 
-.viewer-track-selection {
+/* While a drag is live, the whole surface adopts the gesture's cursor. */
+.viewer-interaction-surface[data-panning] .viewer-track-interactive {
+  cursor: grabbing;
+}
+
+.viewer-interaction-surface[data-selecting] .viewer-track-interactive {
+  cursor: crosshair;
+}
+
+/* Track content + ROI marker; slides together during a pan preview, then snaps
+   back to 0 as the committed region re-renders. */
+.viewer-track-shift {
+  position: relative;
+  width: 100%;
+  transform: translateX(var(--viewer-pan-dx, 0px));
+}
+
+.viewer-track-guide,
+.viewer-track-band {
   position: absolute;
   top: 0;
   bottom: 0;
   z-index: 5;
+  display: none;
+  pointer-events: none;
+}
+
+.viewer-track-guide {
+  width: 0;
+  left: calc(var(--viewer-guide-x, 0) * 100%);
+  border-left: 1px solid rgba(30, 41, 59, 0.42);
+}
+
+.viewer-track-band {
+  left: calc(var(--viewer-sel-start, 0) * 100%);
+  width: calc(var(--viewer-sel-width, 0) * 100%);
   border: 1px dashed rgba(164, 26, 38, 0.6);
   background: rgba(164, 26, 38, 0.12);
-  pointer-events: none;
+}
+
+.viewer-interaction-surface[data-guide] .viewer-track-guide {
+  display: block;
+}
+
+.viewer-interaction-surface[data-selecting] .viewer-track-band {
+  display: block;
 }
 
 .chromosome-view-main .viz-panel {
