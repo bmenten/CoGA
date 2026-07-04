@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 
 const { useQueryMock } = vi.hoisted(() => ({ useQueryMock: vi.fn() }));
 
-vi.mock('@tanstack/react-query', () => ({ useQuery: useQueryMock }));
+vi.mock('@tanstack/react-query', () => ({ useQuery: useQueryMock, keepPreviousData: (previous: unknown) => previous }));
 vi.mock('../../lib/api', () => ({ default: { get: vi.fn() } }));
 
 import DgvTrack from '../visualizations/DgvTrack';

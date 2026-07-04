@@ -1,5 +1,5 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
@@ -112,6 +112,9 @@ const DgvTrack: React.FC<Props> = ({
       return res.data as DgvTrackData;
     },
     enabled: regionEnd > regionStart,
+    placeholderData: keepPreviousData,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 
   if (!data) return <svg width={width} height={height} />;

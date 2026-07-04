@@ -8,6 +8,7 @@ const { apiGetMock, useQueryMock } = vi.hoisted(() => ({
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: useQueryMock,
+  keepPreviousData: (previous: unknown) => previous,
 }));
 
 vi.mock('../../lib/api', () => ({

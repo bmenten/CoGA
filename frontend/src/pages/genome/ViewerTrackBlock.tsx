@@ -88,16 +88,30 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
   const dragRef = useRef<DragSession | null>(null);
   const moveHandlerRef = useRef<((event: MouseEvent) => void) | null>(null);
   const upHandlerRef = useRef<((event: MouseEvent) => void) | null>(null);
+  // Cached frame left-edge; refreshed on scroll/resize so hover/drag math avoids
+  // a getBoundingClientRect (a forced layout read) on every mouse event.
+  const frameLeftRef = useRef<number | null>(null);
+  // Wheel zoom is coalesced to one commit per animation frame: rapid trackpad
+  // ticks accumulate multiplicatively instead of each firing a region change
+  // (and a full track refetch).
+  const wheelAccumRef = useRef<{ factor: number; focus: number } | null>(null);
+  const wheelRafRef = useRef<number | null>(null);
 
   // x within the track frame, derived from the frame's own bounding box rather
   // than event.offsetX. offsetX is relative to whichever child element the event
   // lands on (an SVG <rect>, a canvas, a tooltip hitbox, …), so interaction only
   // worked on tracks whose content was a single element at the frame's origin.
   // Measuring against the frame makes zoom/pan work uniformly on every track.
-  const frameMetrics = (clientX: number): { x: number; fraction: number } => {
+  const readFrameLeft = (): number => {
+    if (frameLeftRef.current !== null) return frameLeftRef.current;
     const rect = frameRef.current?.getBoundingClientRect();
     const left = rect ? rect.left : 0;
-    const x = Math.max(0, Math.min(clientX - left, width));
+    frameLeftRef.current = left;
+    return left;
+  };
+
+  const frameMetrics = (clientX: number): { x: number; fraction: number } => {
+    const x = Math.max(0, Math.min(clientX - readFrameLeft(), width));
     return { x, fraction: width > 0 ? x / width : 0 };
   };
 
@@ -115,7 +129,11 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!viewportInteraction || event.button !== 0) return;
+    // A missed mouseup (released off-window, OS dialog stealing focus) could leave
+    // a stale drag session with orphaned window listeners; tear it down first.
+    if (dragRef.current) endDrag();
     event.preventDefault();
+    frameLeftRef.current = null; // measure the frame fresh for this gesture
     const { x, fraction } = frameMetrics(event.clientX);
     const session: DragSession = {
       mode,
@@ -203,7 +221,19 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     event.preventDefault();
     const { fraction } = frameMetrics(event.clientX);
     const factor = event.deltaY < 0 ? WHEEL_ZOOM_FACTOR : 1 / WHEEL_ZOOM_FACTOR;
-    viewportInteraction.onZoomAt(factor, fraction);
+    // Accumulate this notch and flush one combined zoom on the next frame, so a
+    // fast wheel burst becomes a single region commit (zoom composes since the
+    // factors multiply) instead of one refetch-triggering commit per event.
+    const pending = wheelAccumRef.current;
+    wheelAccumRef.current = { factor: (pending?.factor ?? 1) * factor, focus: fraction };
+    if (wheelRafRef.current === null) {
+      wheelRafRef.current = requestAnimationFrame(() => {
+        wheelRafRef.current = null;
+        const acc = wheelAccumRef.current;
+        wheelAccumRef.current = null;
+        if (acc) viewportInteraction.onZoomAt?.(acc.factor, acc.focus);
+      });
+    }
   };
 
   useEffect(() => {
@@ -214,8 +244,29 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     return () => el.removeEventListener('wheel', handler);
   }, [interactive]);
 
-  // Tidy up any in-flight drag listeners if the block unmounts mid-gesture.
-  useEffect(() => endDrag, []);
+  // Invalidate the cached frame position when the layout could have shifted, so
+  // hover/drag coordinates stay correct without measuring on every mouse event.
+  useEffect(() => {
+    if (!interactive) return undefined;
+    const invalidate = () => {
+      frameLeftRef.current = null;
+    };
+    window.addEventListener('scroll', invalidate, true);
+    window.addEventListener('resize', invalidate);
+    return () => {
+      window.removeEventListener('scroll', invalidate, true);
+      window.removeEventListener('resize', invalidate);
+    };
+  }, [interactive]);
+
+  // Tidy up any in-flight drag listeners / pending wheel frame on unmount.
+  useEffect(
+    () => () => {
+      endDrag();
+      if (wheelRafRef.current !== null) cancelAnimationFrame(wheelRafRef.current);
+    },
+    [],
+  );
 
   const interactiveClassName = interactive
     ? `viewer-track-interactive viewer-track-interactive--${mode}`

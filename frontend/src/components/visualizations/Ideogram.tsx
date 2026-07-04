@@ -139,6 +139,8 @@ const Ideogram: React.FC<Props> = ({
       const res = await api.get(`/chromosomes/${assembly}/${chrom}`);
       return res.data as Chromosome;
     },
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
   const chromLength = data?.size ?? 1;
   const axisHeight = showAxis ? AXIS_HEIGHT : 0;

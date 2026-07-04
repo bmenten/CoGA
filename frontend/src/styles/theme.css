@@ -8785,6 +8785,12 @@ button.table-link:hover {
   transform: translateX(var(--viewer-pan-dx, 0px));
 }
 
+/* Promote the panned content to its own layer only while a pan is live, so the
+   translate updates stay compositor-only instead of repainting the track. */
+.viewer-interaction-surface[data-panning] .viewer-track-shift {
+  will-change: transform;
+}
+
 .viewer-track-guide,
 .viewer-track-band {
   position: absolute;

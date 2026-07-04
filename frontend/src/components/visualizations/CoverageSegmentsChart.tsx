@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   defaultCoverageRange,
   getCoverageLowerThreshold,
@@ -165,6 +165,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   const { data: trackData = null, isLoading } = useQuery<CoverageTrackData>({
     queryKey: ['genome-coverage', coverageUrlKey, segmentUrlKey, chromKey],
     enabled: stableCoverageUrls.length > 0,
+    placeholderData: keepPreviousData,
     staleTime: Infinity,
     gcTime: Infinity,
     queryFn: async ({ signal }) => {

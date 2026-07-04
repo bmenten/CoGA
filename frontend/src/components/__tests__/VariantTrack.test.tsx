@@ -7,6 +7,7 @@ const { useQueryMock } = vi.hoisted(() => ({
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: useQueryMock,
+  keepPreviousData: (previous: unknown) => previous,
 }));
 
 import VariantTrack from '../visualizations/VariantTrack';

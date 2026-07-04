@@ -1,5 +1,5 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
@@ -44,6 +44,9 @@ const CnvTrack: React.FC<Props> = ({
       return res.data as Cnv[];
     },
     enabled: regionEnd > regionStart,
+    placeholderData: keepPreviousData,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 
   if (!data) return <svg width={width} height={height} />;

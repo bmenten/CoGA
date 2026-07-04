@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { select } from "d3-selection";
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
@@ -52,6 +52,9 @@ const GeneTrack: React.FC<Props> = ({
       return res.data as Gene[];
     },
     enabled: regionEnd > regionStart,
+    placeholderData: keepPreviousData,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 
   const { data: panels } = useQuery<GenePanel[]>({

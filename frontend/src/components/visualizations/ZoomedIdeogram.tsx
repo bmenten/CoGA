@@ -51,6 +51,8 @@ const ZoomedIdeogram: React.FC<Props> = ({
       const res = await api.get(`/chromosomes/${assembly}/${chrom}`);
       return res.data as Chromosome;
     },
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
   const [bandTooltip, setBandTooltip] = React.useState<{
     x: number;

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import { drawHaplotypeRiskOverlay } from '../../lib/haplotypeCanvas';
@@ -234,6 +234,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       return res.data as HaplotypeResponse;
     },
     enabled: hasRegion,
+    placeholderData: keepPreviousData,
     staleTime: Infinity,
     gcTime: Infinity,
   });
@@ -249,6 +250,9 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       return res.data as PhasedMarkerResponse;
     },
     enabled: hasRegion && showMarkers,
+    placeholderData: keepPreviousData,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 
   const effectiveInheritanceModel = inheritanceModel || (disorder === 'recessive' ? 'AR' : 'AD');

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type {
   ApiChromosomeTrackAvailability,
@@ -291,6 +291,7 @@ const ChromosomeViewPage: React.FC = () => {
       return response.data as ApiTrackAvailabilityResponse<ApiChromosomeTrackAvailability>;
     },
     enabled: !!familyId && !!data && region.end > region.start,
+    placeholderData: keepPreviousData,
   });
 
   const availability = useMemo(

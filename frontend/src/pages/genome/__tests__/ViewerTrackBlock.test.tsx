@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import ViewerTrackBlock from '../ViewerTrackBlock';
 import ViewerInteractionSurface from '../ViewerInteractionSurface';
@@ -133,7 +133,7 @@ describe('ViewerTrackBlock', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('zooms toward the cursor on wheel input', () => {
+  it('zooms toward the cursor on wheel input (coalesced to a frame)', async () => {
     const onChange = vi.fn();
     const onZoomAt = vi.fn();
 
@@ -155,18 +155,50 @@ describe('ViewerTrackBlock', () => {
 
     const track = screen.getByRole('application', { name: /svs viewport/i });
 
+    // The commit is deferred to requestAnimationFrame, so assert via waitFor.
     const zoomIn = createEvent.wheel(track, { bubbles: true, clientX: 100, deltaY: -100 });
     fireEvent(track, zoomIn);
     // deltaY < 0 → zoom in (factor < 1), centered at 100/200 = 0.5.
-    expect(onZoomAt).toHaveBeenLastCalledWith(1 / 1.2, 0.5);
+    await waitFor(() => expect(onZoomAt).toHaveBeenLastCalledWith(1 / 1.2, 0.5));
 
     const zoomOut = createEvent.wheel(track, { bubbles: true, clientX: 50, deltaY: 100 });
     fireEvent(track, zoomOut);
     // deltaY > 0 → zoom out (factor > 1), centered at 50/200 = 0.25.
-    expect(onZoomAt).toHaveBeenLastCalledWith(1.2, 0.25);
+    await waitFor(() => expect(onZoomAt).toHaveBeenLastCalledWith(1.2, 0.25));
 
     // Wheel never commits a region directly; it always routes through onZoomAt.
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('coalesces a burst of wheel ticks in one frame into a single multiplicative commit', async () => {
+    const onZoomAt = vi.fn();
+
+    render(
+      <ViewerTrackBlock
+        label="SVs"
+        width={200}
+        viewportInteraction={{
+          chromSize: 1000,
+          regionStart: 200,
+          regionEnd: 400,
+          onChange: vi.fn(),
+          onZoomAt,
+        }}
+      >
+        <div style={{ height: 20 }} />
+      </ViewerTrackBlock>,
+    );
+
+    const track = screen.getByRole('application', { name: /svs viewport/i });
+    // Three zoom-in notches fired synchronously (same frame) → one commit whose
+    // factor is the product, focus taken from the last event.
+    for (const clientX of [100, 100, 100]) {
+      fireEvent(track, createEvent.wheel(track, { bubbles: true, clientX, deltaY: -100 }));
+    }
+    await waitFor(() => expect(onZoomAt).toHaveBeenCalledTimes(1));
+    const [factor, focus] = onZoomAt.mock.calls[0];
+    expect(factor).toBeCloseTo((1 / 1.2) ** 3);
+    expect(focus).toBe(0.5);
   });
 
   it('drives the shared guide and selection band across the surface', () => {
