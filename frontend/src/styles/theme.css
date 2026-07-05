@@ -8752,7 +8752,8 @@ button.table-link:hover {
   --viewer-guide-x: 0;
   --viewer-sel-start: 0;
   --viewer-sel-width: 0;
-  --viewer-pan-dx: 0px;
+  --viewer-shift-tx: 0px;
+  --viewer-shift-sx: 1;
 }
 
 .viewer-track-interactive {
@@ -8782,12 +8783,13 @@ button.table-link:hover {
 .viewer-track-shift {
   position: relative;
   width: 100%;
-  transform: translateX(var(--viewer-pan-dx, 0px));
+  transform: translateX(var(--viewer-shift-tx, 0px)) scaleX(var(--viewer-shift-sx, 1));
+  transform-origin: 0 0;
 }
 
-/* Promote the panned content to its own layer only while a pan is live, so the
-   translate updates stay compositor-only instead of repainting the track. */
-.viewer-interaction-surface[data-panning] .viewer-track-shift {
+/* Promote the shifted content to its own layer only while a pan/zoom preview is
+   live, so the transform updates stay compositor-only instead of repainting. */
+.viewer-interaction-surface[data-shifting] .viewer-track-shift {
   will-change: transform;
 }
 

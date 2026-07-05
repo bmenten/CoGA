@@ -33,6 +33,9 @@ interface ViewerTrackBlockProps {
 
 // One wheel notch. < 1 zooms in (shrinks the window), its inverse zooms out.
 const WHEEL_ZOOM_FACTOR = 1 / 1.2;
+// How long the wheel must be idle before the accumulated zoom is committed (and
+// the tracks refetch). Until then the zoom is shown as an instant CSS transform.
+const WHEEL_COMMIT_DELAY = 140;
 // Minimum drag travel (px) before a gesture counts as a zoom-select / pan rather
 // than a click.
 const ZOOM_DRAG_THRESHOLD = 5;
@@ -91,11 +94,12 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
   // Cached frame left-edge; refreshed on scroll/resize so hover/drag math avoids
   // a getBoundingClientRect (a forced layout read) on every mouse event.
   const frameLeftRef = useRef<number | null>(null);
-  // Wheel zoom is coalesced to one commit per animation frame: rapid trackpad
-  // ticks accumulate multiplicatively instead of each firing a region change
-  // (and a full track refetch).
-  const wheelAccumRef = useRef<{ factor: number; focus: number } | null>(null);
-  const wheelRafRef = useRef<number | null>(null);
+  // Wheel zoom accumulates multiplicatively and shows an instant CSS-transform
+  // preview; the single region commit (and the track refetch) is debounced until
+  // the wheel settles, so a fast scroll no longer fires a refetch per notch.
+  const wheelAccumRef = useRef<number>(1);
+  const wheelFocusRef = useRef<number>(0.5);
+  const wheelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // x within the track frame, derived from the frame's own bounding box rather
   // than event.offsetX. offsetX is relative to whichever child element the event
@@ -132,6 +136,8 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     // A missed mouseup (released off-window, OS dialog stealing focus) could leave
     // a stale drag session with orphaned window listeners; tear it down first.
     if (dragRef.current) endDrag();
+    // Commit any pending wheel zoom before starting a drag so the two don't fight.
+    commitWheelRef.current();
     event.preventDefault();
     frameLeftRef.current = null; // measure the frame fresh for this gesture
     const { x, fraction } = frameMetrics(event.clientX);
@@ -152,7 +158,7 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     if (session.mode === 'zoom') {
       surface?.setSelection(fraction, fraction);
     } else {
-      surface?.setPan(0);
+      surface?.setShift(0);
     }
 
     const onMove = (moveEvent: MouseEvent) => {
@@ -162,7 +168,7 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
       if (active.mode === 'zoom') {
         surface?.setSelection(active.startFraction, metrics.fraction);
       } else {
-        surface?.setPan(metrics.x - active.startX);
+        surface?.setShift(metrics.x - active.startX);
       }
     };
 
@@ -170,7 +176,7 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
       const active = dragRef.current;
       endDrag();
       surface?.setSelection(null);
-      surface?.setPan(null);
+      surface?.setShift(null);
       if (!active) return;
 
       const { x: endX } = frameMetrics(upEvent.clientX);
@@ -215,25 +221,37 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
   // Native, non-passive wheel listener so preventDefault can stop the page from
   // scrolling while the cursor zooms. Reads the latest handler through a ref so
   // the listener stays attached across region changes.
+  // Commit the accumulated wheel zoom once as a real region change; the tracks
+  // refetch here (once), not per notch. Kept in a ref so the debounce timer and
+  // the drag handler always call the latest closure.
+  const commitWheelRef = useRef<() => void>(() => {});
+  commitWheelRef.current = () => {
+    if (wheelTimerRef.current !== null) {
+      clearTimeout(wheelTimerRef.current);
+      wheelTimerRef.current = null;
+    }
+    const factor = wheelAccumRef.current;
+    wheelAccumRef.current = 1;
+    if (factor === 1) return;
+    surface?.setShift(null);
+    viewportInteraction?.onZoomAt?.(factor, wheelFocusRef.current);
+  };
+
   const wheelHandlerRef = useRef<(event: WheelEvent) => void>(() => {});
   wheelHandlerRef.current = (event: WheelEvent) => {
     if (!viewportInteraction?.onZoomAt || event.deltaY === 0) return;
     event.preventDefault();
     const { fraction } = frameMetrics(event.clientX);
     const factor = event.deltaY < 0 ? WHEEL_ZOOM_FACTOR : 1 / WHEEL_ZOOM_FACTOR;
-    // Accumulate this notch and flush one combined zoom on the next frame, so a
-    // fast wheel burst becomes a single region commit (zoom composes since the
-    // factors multiply) instead of one refetch-triggering commit per event.
-    const pending = wheelAccumRef.current;
-    wheelAccumRef.current = { factor: (pending?.factor ?? 1) * factor, focus: fraction };
-    if (wheelRafRef.current === null) {
-      wheelRafRef.current = requestAnimationFrame(() => {
-        wheelRafRef.current = null;
-        const acc = wheelAccumRef.current;
-        wheelAccumRef.current = null;
-        if (acc) viewportInteraction.onZoomAt?.(acc.factor, acc.focus);
-      });
-    }
+    wheelAccumRef.current *= factor;
+    wheelFocusRef.current = fraction;
+    // Instant, compositor-only preview: scale the current render around the
+    // cursor. The actual region commit (and refetch) is deferred until the wheel
+    // settles, collapsing a burst of notches into one fetch.
+    const scaleX = 1 / wheelAccumRef.current;
+    surface?.setShift(fraction * width * (1 - scaleX), scaleX);
+    if (wheelTimerRef.current !== null) clearTimeout(wheelTimerRef.current);
+    wheelTimerRef.current = setTimeout(() => commitWheelRef.current(), WHEEL_COMMIT_DELAY);
   };
 
   useEffect(() => {
@@ -259,11 +277,11 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     };
   }, [interactive]);
 
-  // Tidy up any in-flight drag listeners / pending wheel frame on unmount.
+  // Tidy up any in-flight drag listeners / pending wheel commit on unmount.
   useEffect(
     () => () => {
       endDrag();
-      if (wheelRafRef.current !== null) cancelAnimationFrame(wheelRafRef.current);
+      if (wheelTimerRef.current !== null) clearTimeout(wheelTimerRef.current);
     },
     [],
   );

@@ -11,9 +11,10 @@ interface ViewerInteractionSurfaceApi {
   setGuide: (fraction: number | null) => void;
   // Drag-to-zoom selection band, as 0..1 fractions. Pass null to clear.
   setSelection: (start: number | null, end?: number) => void;
-  // Live pan preview, as a pixel offset applied to every track's content.
+  // Live pan/zoom preview applied to every track's content as a CSS transform:
+  // translateX (px) plus an optional horizontal scale (for wheel-zoom preview).
   // null clears the preview (content snaps back before the region commits).
-  setPan: (deltaX: number | null) => void;
+  setShift: (translateX: number | null, scaleX?: number) => void;
 }
 
 const ViewerInteractionSurfaceContext = createContext<ViewerInteractionSurfaceApi | null>(null);
@@ -54,16 +55,18 @@ const ViewerInteractionSurface: React.FC<ViewerInteractionSurfaceProps> = ({ cla
         el.style.setProperty('--viewer-sel-width', String(b - a));
         el.setAttribute('data-selecting', '');
       },
-      setPan(deltaX) {
+      setShift(translateX, scaleX = 1) {
         const el = surfaceRef.current;
         if (!el) return;
-        if (deltaX === null || Number.isNaN(deltaX)) {
-          el.style.setProperty('--viewer-pan-dx', '0px');
-          el.removeAttribute('data-panning');
+        if (translateX === null || Number.isNaN(translateX)) {
+          el.style.setProperty('--viewer-shift-tx', '0px');
+          el.style.setProperty('--viewer-shift-sx', '1');
+          el.removeAttribute('data-shifting');
           return;
         }
-        el.style.setProperty('--viewer-pan-dx', `${deltaX}px`);
-        el.setAttribute('data-panning', '');
+        el.style.setProperty('--viewer-shift-tx', `${translateX}px`);
+        el.style.setProperty('--viewer-shift-sx', String(scaleX));
+        el.setAttribute('data-shifting', '');
       },
     }),
     [],

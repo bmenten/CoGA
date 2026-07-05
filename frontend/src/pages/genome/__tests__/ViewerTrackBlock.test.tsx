@@ -270,12 +270,12 @@ describe('ViewerTrackBlock', () => {
 
     dispatchMouseEvent(track, 'mouseDown', 100);
     dispatchMouseEvent(track, 'mouseMove', 130);
-    expect(surface.hasAttribute('data-panning')).toBe(true);
-    expect(surface.style.getPropertyValue('--viewer-pan-dx')).toBe('30px');
+    expect(surface.hasAttribute('data-shifting')).toBe(true);
+    expect(surface.style.getPropertyValue('--viewer-shift-tx')).toBe('30px');
 
     dispatchMouseEvent(track, 'mouseUp', 130);
-    expect(surface.hasAttribute('data-panning')).toBe(false);
-    expect(surface.style.getPropertyValue('--viewer-pan-dx')).toBe('0px');
+    expect(surface.hasAttribute('data-shifting')).toBe(false);
+    expect(surface.style.getPropertyValue('--viewer-shift-tx')).toBe('0px');
     expect(onChange).toHaveBeenCalledWith(70, 270);
   });
 });
