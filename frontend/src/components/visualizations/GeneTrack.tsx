@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import { select } from "d3-selection";
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
@@ -43,7 +44,7 @@ const GeneTrack: React.FC<Props> = ({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
 
-  const { data: genes } = useQuery<Gene[]>({
+  const { data: rawGenes } = useQuery<Gene[]>({
     queryKey: ["genes", assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(`/genes/${assembly}/${chrom}`, {
@@ -55,6 +56,7 @@ const GeneTrack: React.FC<Props> = ({
     staleTime: Infinity,
     gcTime: Infinity,
   });
+  const genes = useSameSpanFallbackData(rawGenes, (regionEnd ?? 0) - (regionStart ?? 0));
 
   const { data: panels } = useQuery<GenePanel[]>({
     queryKey: ["gene-panels"],

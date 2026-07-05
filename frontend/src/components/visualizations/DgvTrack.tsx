@@ -1,5 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
@@ -103,7 +104,7 @@ const DgvTrack: React.FC<Props> = ({
     node: React.ReactNode;
   } | null>(null);
 
-  const { data } = useQuery<DgvTrackData>({
+  const { data: rawData } = useQuery<DgvTrackData>({
     queryKey: ['dgv', assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(`/dgv/${assembly}/${chrom}`, {
@@ -115,6 +116,7 @@ const DgvTrack: React.FC<Props> = ({
     staleTime: Infinity,
     gcTime: Infinity,
   });
+  const data = useSameSpanFallbackData(rawData, (regionEnd ?? 0) - (regionStart ?? 0));
 
   if (!data) return <svg width={width} height={height} />;
 

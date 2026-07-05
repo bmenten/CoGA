@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import { drawHaplotypeRiskOverlay } from '../../lib/haplotypeCanvas';
@@ -225,7 +226,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
 
   const hasRegion = regionEnd > regionStart;
 
-  const { data: haplotypeData, isLoading } = useQuery<HaplotypeResponse>({
+  const { data: rawHaplotypeData, isLoading: haplotypeLoading } = useQuery<HaplotypeResponse>({
     queryKey: ['haplotypes', familyId, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/haplotypes`, {
@@ -240,7 +241,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
 
   // Raw per-marker phasing (computed server-side, returned per member). Only
   // fetched when we are overlaying markers.
-  const { data: phasedData } = useQuery<PhasedMarkerResponse>({
+  const { data: rawPhasedData } = useQuery<PhasedMarkerResponse>({
     queryKey: ['phased-markers', familyId, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/phased-markers`, {
@@ -252,6 +253,11 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     staleTime: Infinity,
     gcTime: Infinity,
   });
+
+  // Keep the previous window painted across a pan (same span); dropped on zoom.
+  const haplotypeData = useSameSpanFallbackData(rawHaplotypeData, (regionEnd ?? 0) - (regionStart ?? 0));
+  const phasedData = useSameSpanFallbackData(rawPhasedData, (regionEnd ?? 0) - (regionStart ?? 0));
+  const isLoading = haplotypeLoading && haplotypeData === null;
 
   const effectiveInheritanceModel = inheritanceModel || (disorder === 'recessive' ? 'AR' : 'AD');
   const currentMember: HaplotypeMemberLike = useMemo(

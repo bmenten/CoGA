@@ -1,5 +1,6 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
 
@@ -26,7 +27,7 @@ const BlacklistTrack: React.FC<Props> = ({
   regionStart,
   regionEnd,
 }) => {
-  const { data } = useQuery<Region[]>({
+  const { data: rawData } = useQuery<Region[]>({
     queryKey: ["blacklist", assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(`/blacklist/${assembly}/${chrom}`, {
@@ -38,6 +39,7 @@ const BlacklistTrack: React.FC<Props> = ({
     staleTime: Infinity,
     gcTime: Infinity,
   });
+  const data = useSameSpanFallbackData(rawData, (regionEnd ?? 0) - (regionStart ?? 0));
 
   if (!data) return <svg width={width} height={height} />;
 

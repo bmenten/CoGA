@@ -1,5 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import api from '../../lib/api';
 import type { ApiVariantPage } from '../../lib/apiTypes';
 import { formatGt, hasAltAllele } from '../../lib/genotypes';
@@ -86,7 +87,7 @@ const VariantTrack: React.FC<Props> = ({
     [],
   );
   const pageSize = React.useMemo(() => getTrackVariantLimit(width), [width]);
-  const { data, isLoading } = useQuery<ApiVariantPage<Variant>>({
+  const { data: rawData, isLoading } = useQuery<ApiVariantPage<Variant>>({
     queryKey: [
       'variants',
       familyId,
@@ -113,6 +114,7 @@ const VariantTrack: React.FC<Props> = ({
     },
     enabled: regionEnd > regionStart,
   });
+  const data = useSameSpanFallbackData(rawData, (regionEnd ?? 0) - (regionStart ?? 0));
 
   const variants = React.useMemo(
     () =>

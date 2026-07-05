@@ -9,6 +9,7 @@ import {
 import { cssVar } from '../../lib/colors';
 import { storage } from '../../lib/storage';
 import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
+import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizLoadingOverlay from './VizLoadingOverlay';
 
 const DEFAULT_CHROMS = [
@@ -197,14 +198,17 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       return { bins, segments };
     },
   });
-  const loading = isLoading && stableCoverageUrls.length > 0;
+  // Keep the previous window painted across a pan (same span) so the track glides
+  // instead of blanking; on a zoom the stale data is dropped (see the hook).
+  const displayData = useSameSpanFallbackData(trackData, (regionEnd ?? 0) - (regionStart ?? 0));
+  const loading = isLoading && stableCoverageUrls.length > 0 && displayData === null;
   // null while loading (don't blank the chart), false when there are no URLs or the
   // payloads are empty, true when either track has data.
   const hasData =
     stableCoverageUrls.length === 0
       ? false
-      : trackData
-        ? trackData.bins.length > 0 || trackData.segments.length > 0
+      : displayData
+        ? displayData.bins.length > 0 || displayData.segments.length > 0
         : loading
           ? null
           : false;
@@ -218,12 +222,12 @@ const CoverageSegmentsChart: React.FC<Props> = ({
 
     ctx.clearRect(0, 0, width, height);
 
-    if (!trackData || (trackData.bins.length === 0 && trackData.segments.length === 0)) {
+    if (!displayData || (displayData.bins.length === 0 && displayData.segments.length === 0)) {
       layoutRef.current = { offsets: {}, lengths: {}, total: 0 };
       return;
     }
 
-    const { bins, segments } = trackData;
+    const { bins, segments } = displayData;
     let chromLengths: Record<string, number>;
     let offsets: Record<string, number>;
     let totalLength: number;
@@ -416,7 +420,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
     regionEnd,
     regionStart,
     stableChroms,
-    trackData,
+    displayData,
     width,
   ]);
 

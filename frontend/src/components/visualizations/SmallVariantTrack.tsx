@@ -1,5 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import * as d3 from 'd3';
 import api from '../../lib/api';
 import type { ApiVariantPage } from '../../lib/apiTypes';
@@ -217,7 +218,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     }
     return nextFilters;
   }, [filters, sampleId]);
-  const { data, isLoading } = useQuery<ApiVariantPage<Variant>>({
+  const { data: rawData, isLoading } = useQuery<ApiVariantPage<Variant>>({
     queryKey: [
       'small-variants-track',
       familyId,
@@ -246,6 +247,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     },
     enabled: canRequestSmallVariants,
   });
+  const data = useSameSpanFallbackData(rawData, (regionEnd ?? 0) - (regionStart ?? 0));
   const { data: tagDefinitions = [] } = useQuery<TagDefinition[]>({
     queryKey: ['small-variant-track-tags', familyId],
     queryFn: async () => {

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import { cssVar } from '../../lib/colors';
 import { storage } from '../../lib/storage';
 import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
@@ -186,12 +187,14 @@ const ApcadChart: React.FC<Props> = ({
       return { bins, segments };
     },
   });
+  // Keep the previous window painted across a pan (same span); dropped on zoom.
+  const displayData = useSameSpanFallbackData(trackData, (regionEnd ?? 0) - (regionStart ?? 0));
   const hasUrls = stableApcadUrls.length > 0 || stablePcfUrls.length > 0;
-  const loading = isLoading && hasUrls;
+  const loading = isLoading && hasUrls && displayData === null;
   const hasData = !hasUrls
     ? false
-    : trackData
-      ? trackData.bins.length > 0 || trackData.segments.length > 0
+    : displayData
+      ? displayData.bins.length > 0 || displayData.segments.length > 0
       : loading
         ? null
         : false;
@@ -207,12 +210,12 @@ const ApcadChart: React.FC<Props> = ({
     segmentHitboxesRef.current = [];
     setHoverSegment(null);
 
-    if (!trackData || (trackData.bins.length === 0 && trackData.segments.length === 0)) {
+    if (!displayData || (displayData.bins.length === 0 && displayData.segments.length === 0)) {
       layoutRef.current = { offsets: {}, lengths: {}, total: 0 };
       return;
     }
 
-    const { bins, segments } = trackData;
+    const { bins, segments } = displayData;
     let chromLengths: Record<string, number>;
     let offsets: Record<string, number>;
     let totalLength: number;
@@ -374,7 +377,7 @@ const ApcadChart: React.FC<Props> = ({
     regionEnd,
     regionStart,
     stableChroms,
-    trackData,
+    displayData,
     width,
   ]);
 
