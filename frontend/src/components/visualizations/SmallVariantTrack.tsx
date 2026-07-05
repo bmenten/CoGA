@@ -1,5 +1,5 @@
 import React from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import * as d3 from 'd3';
 import api from '../../lib/api';
 import type { ApiVariantPage } from '../../lib/apiTypes';
@@ -245,7 +245,6 @@ const SmallVariantTrack: React.FC<Props> = ({
       return res.data as ApiVariantPage<Variant>;
     },
     enabled: canRequestSmallVariants,
-    placeholderData: keepPreviousData,
   });
   const { data: tagDefinitions = [] } = useQuery<TagDefinition[]>({
     queryKey: ['small-variant-track-tags', familyId],

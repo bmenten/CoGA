@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { cssVar } from '../../lib/colors';
 import { storage } from '../../lib/storage';
 import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
@@ -148,7 +148,6 @@ const ApcadChart: React.FC<Props> = ({
   const { data: trackData = null, isLoading } = useQuery<ApcadTrackData>({
     queryKey: ['genome-apcad', apcadUrlKey, pcfUrlKey, chromKey],
     enabled: stableApcadUrls.length > 0 || stablePcfUrls.length > 0,
-    placeholderData: keepPreviousData,
     staleTime: Infinity,
     gcTime: Infinity,
     queryFn: async ({ signal }) => {

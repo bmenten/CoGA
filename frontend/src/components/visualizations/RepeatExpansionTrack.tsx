@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
@@ -62,7 +62,6 @@ const RepeatExpansionTrack: React.FC<Props> = ({
       return response.data as ApiRepeatExpansionTrackResponse;
     },
     enabled: overviewMode || regionEnd > regionStart,
-    placeholderData: keepPreviousData,
     staleTime: Infinity,
     gcTime: Infinity,
   });

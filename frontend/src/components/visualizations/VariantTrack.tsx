@@ -1,5 +1,5 @@
 import React from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type { ApiVariantPage } from '../../lib/apiTypes';
 import { formatGt, hasAltAllele } from '../../lib/genotypes';
@@ -112,7 +112,6 @@ const VariantTrack: React.FC<Props> = ({
       return res.data as ApiVariantPage<Variant>;
     },
     enabled: regionEnd > regionStart,
-    placeholderData: keepPreviousData,
   });
 
   const variants = React.useMemo(
