@@ -60,13 +60,17 @@ async def test_get_clickhouse_variant_storage_status_reports_missing_tables_and_
 
     assert status["assembly_name"] == "GRCh38"
     assert status["health"] == "missing"
-    assert status["expected_table_count"] == 14
+    assert status["expected_table_count"] == 10
     assert status["existing_table_count"] == 3
     assert status["small_variant_rows"] == 5000
     assert status["structural_variant_rows"] == 1200
     assert status["pending_mutations"] == 2
     assert "GRCh38/SNV_INDEL/variants/annotation_index" in status["missing_tables"]
     assert "GRCh38/SNV_INDEL/family_variant_summary" in status["missing_tables"]
+    # The retired project_gt_stats/gt_stats cascade is no longer expected, so it is
+    # not reported as missing.
+    assert "GRCh38/SNV_INDEL/gt_stats" not in status["missing_tables"]
+    assert "GRCh38/SNV_INDEL/project_gt_stats" not in status["missing_tables"]
     assert any(
         table["name"] == "GRCh38/SV/entries" and table["pending_mutations"] == 2
         for table in status["tables"]
@@ -152,10 +156,12 @@ async def test_optimize_clickhouse_variant_tables_skips_materialized_views(
     )
 
     assert status["assembly_name"] == "GRCh38"
-    assert len(executed_queries) == 12
+    assert len(executed_queries) == 10
     assert all("OPTIMIZE TABLE" in query for query in executed_queries)
     assert all("FINAL" in query for query in executed_queries)
     assert not any("_mv" in query for query in executed_queries)
+    # The retired project_gt_stats/gt_stats aggregates are no longer optimized.
+    assert not any("gt_stats" in query for query in executed_queries)
 
 
 @pytest.mark.asyncio
@@ -548,3 +554,81 @@ async def test_count_family_small_variants_scopes_to_source(
     query, params = executed[0]
     assert "source = %(source)s" in query
     assert params["source"] == "clair3"
+
+
+# --- durable removal of the never-read project_gt_stats/gt_stats cascade --------
+
+
+@pytest.mark.asyncio
+async def test_drop_legacy_gt_stats_aggregates_drops_views_then_tables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: list[str] = []
+
+    async def fake_execute(query: str, params=None, data=None):
+        recorded.append(" ".join(query.split()))
+        return None
+
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+
+    await clickhouse_variant_storage._drop_legacy_gt_stats_aggregates("coga", "GRCh38")
+
+    # Views are dropped before their target tables so inserts into `entries` stop
+    # fanning out before the SummingMergeTree targets disappear.
+    assert recorded == [
+        "DROP TABLE IF EXISTS coga.`GRCh38/SNV_INDEL/entries_to_project_gt_stats_mv` SYNC",
+        "DROP TABLE IF EXISTS coga.`GRCh38/SNV_INDEL/project_gt_stats_to_gt_stats_mv` SYNC",
+        "DROP TABLE IF EXISTS coga.`GRCh38/SNV_INDEL/gt_stats` SYNC",
+        "DROP TABLE IF EXISTS coga.`GRCh38/SNV_INDEL/project_gt_stats` SYNC",
+    ]
+
+
+def test_expected_variant_tables_exclude_gt_stats_cascade() -> None:
+    names = {
+        name
+        for _vt, _kind, name in clickhouse_variant_storage._expected_clickhouse_variant_tables(
+            "GRCh38"
+        )
+    }
+    for dead in (
+        "GRCh38/SNV_INDEL/gt_stats",
+        "GRCh38/SNV_INDEL/project_gt_stats",
+        "GRCh38/SNV_INDEL/entries_to_project_gt_stats_mv",
+        "GRCh38/SNV_INDEL/project_gt_stats_to_gt_stats_mv",
+    ):
+        assert dead not in names
+
+
+@pytest.mark.asyncio
+async def test_ensure_variant_tables_drops_cascade_and_never_recreates_gt_stats(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: list[str] = []
+
+    async def fake_execute(query: str, params=None, data=None):
+        q = " ".join(query.split())
+        recorded.append(q)
+        # Legacy family-summary probe: report it already has project_guid so that
+        # migration is a no-op and does not add noise to the recorded statements.
+        if "countIf(name = 'project_guid')" in q:
+            return [(1,)]
+        return None
+
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+    # Bypass the process-lifetime "already ensured" cache so the body runs.
+    monkeypatch.setattr(clickhouse_variant_storage, "_ensured_variant_table_assemblies", set())
+
+    await clickhouse_variant_storage.ensure_clickhouse_variant_tables("GRCh38")
+
+    # The dead cascade is dropped...
+    assert any(
+        q == "DROP TABLE IF EXISTS coga.`GRCh38/SNV_INDEL/entries_to_project_gt_stats_mv` SYNC"
+        for q in recorded
+    )
+    assert any(q == "DROP TABLE IF EXISTS coga.`GRCh38/SNV_INDEL/gt_stats` SYNC" for q in recorded)
+    # ...and never recreated by the CREATE pass that follows.
+    assert not any(q.startswith("CREATE TABLE") and "/gt_stats`" in q for q in recorded)
+    assert not any(q.startswith("CREATE TABLE") and "/project_gt_stats`" in q for q in recorded)
+    assert not any("CREATE MATERIALIZED VIEW" in q for q in recorded)
+    # Sanity: the live tables we keep are still created.
+    assert any(q.startswith("CREATE TABLE") and "/SNV_INDEL/entries`" in q for q in recorded)

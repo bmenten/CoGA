@@ -8,11 +8,13 @@ cohort.
 
 Design notes
 ------------
-* **Source of truth = ``entries``.** The pre-aggregated ``project_gt_stats`` /
-  ``gt_stats`` materialized views exist but are never read elsewhere and their
-  MV ignores the CollapsingMergeTree ``sign`` column, so re-imports/deletes
-  would inflate them. We therefore aggregate carrier counts directly from
-  ``entries`` with ``sign = 1``. Counting distinct ``sampleId`` also dedupes
+* **Source of truth = ``entries``.** A pre-aggregated ``project_gt_stats`` /
+  ``gt_stats`` materialized-view cascade used to exist but was never read here,
+  and its MVs ignored the CollapsingMergeTree ``sign`` column so re-imports/
+  deletes inflated them; it has since been removed (see
+  ``clickhouse_variant_storage._drop_legacy_gt_stats_aggregates``). We aggregate
+  carrier counts directly from ``entries`` with ``sign = 1``. Counting distinct
+  ``sampleId`` also dedupes
   any sample that appears under multiple accessible projects, and lets us
   return the distinct family count in the same query.
 * **Permissions.** Every query is scoped to the project GUIDs the user can

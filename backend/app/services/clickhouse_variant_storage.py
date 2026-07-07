@@ -69,16 +69,8 @@ def _expected_clickhouse_variant_tables(assembly_name: str) -> list[tuple[str, s
         ("small_variants", "table", f"{dataset}/SNV_INDEL/variants/annotation_index"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/variants/gene_index"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/entries"),
-        ("small_variants", "table", f"{dataset}/SNV_INDEL/project_gt_stats"),
-        ("small_variants", "table", f"{dataset}/SNV_INDEL/gt_stats"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/family_variant_summary"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/family_sample_variant_summary"),
-        ("small_variants", "materialized_view", f"{dataset}/SNV_INDEL/entries_to_project_gt_stats_mv"),
-        (
-            "small_variants",
-            "materialized_view",
-            f"{dataset}/SNV_INDEL/project_gt_stats_to_gt_stats_mv",
-        ),
         ("structural_variants", "table", f"{dataset}/SV/variants/details"),
         ("structural_variants", "table", f"{dataset}/SV/key_lookup"),
         ("structural_variants", "table", f"{dataset}/SV/entries"),
@@ -892,32 +884,12 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         ALTER TABLE {database}.`{dataset}/SNV_INDEL/entries`
         ADD COLUMN IF NOT EXISTS `qual` Nullable(Float32) AFTER filters
         """,
-        f"""
-        CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/project_gt_stats`
-        (
-            `project_guid` LowCardinality(String),
-            `key` UInt64,
-            `sample_type` LowCardinality(String),
-            `ref_samples` UInt64,
-            `het_samples` UInt64,
-            `hom_samples` UInt64
-        )
-        ENGINE = SummingMergeTree
-        PARTITION BY project_guid
-        ORDER BY (project_guid, key, sample_type)
-        """,
-        f"""
-        CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/gt_stats`
-        (
-            `key` UInt64,
-            `ac_wes` UInt64,
-            `ac_wgs` UInt64,
-            `hom_wes` UInt64,
-            `hom_wgs` UInt64
-        )
-        ENGINE = SummingMergeTree
-        ORDER BY key
-        """,
+        # NOTE: the `project_gt_stats` / `gt_stats` SummingMergeTree tables and the
+        # two materialized views that fed them (entries -> project_gt_stats ->
+        # gt_stats) used to be created here. Nothing ever read them (the Small
+        # Variant Explorer aggregates from `entries` directly), and their MVs
+        # ignored the CollapsingMergeTree `sign` so re-imports inflated them. They
+        # are dropped from existing databases by _drop_legacy_gt_stats_aggregates().
         f"""
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/family_variant_summary`
         (
@@ -946,34 +918,6 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         ENGINE = ReplacingMergeTree(updated_at)
         PRIMARY KEY (family_guid, project_guid, sample_id)
         ORDER BY (family_guid, project_guid, sample_id)
-        """,
-        f"""
-        CREATE MATERIALIZED VIEW IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/entries_to_project_gt_stats_mv`
-        TO {database}.`{dataset}/SNV_INDEL/project_gt_stats`
-        AS
-        SELECT
-            project_guid,
-            key,
-            sample_type,
-            countIf(gt IN {tuple(sorted(_SMALL_GT_REF))}) AS ref_samples,
-            countIf(gt NOT IN {tuple(sorted(_SMALL_GT_REF | _SMALL_GT_MISSING))} AND gt NOT IN ('1/1', '1|1')) AS het_samples,
-            countIf(gt IN ('1/1', '1|1')) AS hom_samples
-        FROM {database}.`{dataset}/SNV_INDEL/entries`
-        ARRAY JOIN `calls.sampleId` AS sampleId, `calls.gt` AS gt
-        GROUP BY project_guid, key, sample_type
-        """,
-        f"""
-        CREATE MATERIALIZED VIEW IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/project_gt_stats_to_gt_stats_mv`
-        TO {database}.`{dataset}/SNV_INDEL/gt_stats`
-        AS
-        SELECT
-            key,
-            sumIf((het_samples * 1) + (hom_samples * 2), sample_type = 'WES') AS ac_wes,
-            sumIf((het_samples * 1) + (hom_samples * 2), sample_type = 'WGS') AS ac_wgs,
-            sumIf(hom_samples, sample_type = 'WES') AS hom_wes,
-            sumIf(hom_samples, sample_type = 'WGS') AS hom_wgs
-        FROM {database}.`{dataset}/SNV_INDEL/project_gt_stats`
-        GROUP BY key
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SV/variants/details`
@@ -1045,6 +989,7 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         if dataset in _ensured_variant_table_assemblies:
             return
         await _migrate_legacy_family_sample_variant_summary(database, dataset)
+        await _drop_legacy_gt_stats_aggregates(database, dataset)
         for statement in statements:
             await _execute(statement)
         _ensured_variant_table_assemblies.add(dataset)
@@ -1076,6 +1021,36 @@ async def _migrate_legacy_family_sample_variant_summary(database: str, dataset: 
         return
     # No-op when the table does not exist yet; drops the legacy table when present.
     await _execute(f"DROP TABLE IF EXISTS {database}.`{table}` SYNC")
+
+
+async def _drop_legacy_gt_stats_aggregates(database: str, dataset: str) -> None:
+    """Drop the never-read ``project_gt_stats`` / ``gt_stats`` aggregate cascade.
+
+    Two ``SummingMergeTree`` tables and the two materialized views feeding them
+    (``entries`` -> ``project_gt_stats`` -> ``gt_stats``) pre-aggregated cohort
+    genotype counts, but nothing read them: the Small Variant Explorer aggregates
+    from ``entries`` directly (see ``variant_explorer_service``), and the MVs
+    ignored the ``entries`` CollapsingMergeTree ``sign`` column so re-imports and
+    deletes silently inflated them. They only added per-insert work and a
+    startup-fragility footgun -- the cascade's many tiny SummingMergeTree parts
+    piled up, and a single unclean shutdown truncated enough of them to trip
+    ``max_suspicious_broken_parts`` and block the table (and any ``system.tables``
+    scan of the database) from attaching on the next boot.
+
+    Drop the two views first so inserts into ``entries`` stop fanning out, then the
+    target tables. ``IF EXISTS`` makes this a no-op on databases that never had
+    them (fresh installs) or that were already migrated.
+    """
+    for suffix in (
+        # Views first: stop the insert-time fan-out before the targets disappear.
+        "entries_to_project_gt_stats_mv",
+        "project_gt_stats_to_gt_stats_mv",
+        "gt_stats",
+        "project_gt_stats",
+    ):
+        await _execute(
+            f"DROP TABLE IF EXISTS {database}.`{dataset}/SNV_INDEL/{suffix}` SYNC"
+        )
 
 
 async def delete_family_small_variants(
