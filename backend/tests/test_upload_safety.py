@@ -115,3 +115,43 @@ def test_read_path_detects_gzip_by_magic_not_extension(tmp_path, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         read_path_text_bounded(path, kind="Package VCF")
     assert exc.value.status_code == 413
+
+
+# ---------------------------------------------------------------------------
+# Concatenated gzip members (bgzip/BGZF). Real `.vcf.gz` from bcftools/bgzip is a
+# series of gzip members; a single decompressobj stops after the first and drops
+# the rest, silently truncating large VCFs to (typically) just the header.
+# ---------------------------------------------------------------------------
+
+
+def _concat_gzip_members(*chunks: bytes) -> bytes:
+    """Concatenated independent gzip members -- the BGZF layout at the member level."""
+    return b"".join(gzip.compress(chunk) for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_multi_member_gzip_upload_is_fully_decompressed():
+    parts = [b"##fileformat=VCFv4.2\n", b"chr1\t1\t.\tA\tT\n", b"chr2\t2\t.\tC\tG\n"]
+    out = await decode_upload_text(_upload(_concat_gzip_members(*parts)), kind="SV")
+    assert out == b"".join(parts).decode()
+
+
+def test_read_path_multi_member_gzip_is_fully_decompressed(tmp_path):
+    parts = [b"##fileformat=VCFv4.2\n", b"chr1\t1\t.\tA\tT\n", b"chr2\t2\t.\tC\tG\n"]
+    path = tmp_path / "sv.vcf.gz"
+    path.write_bytes(_concat_gzip_members(*parts))
+    assert read_path_text_bounded(path, kind="Package VCF") == b"".join(parts).decode()
+
+
+def test_read_path_multi_member_gzip_bomb_rejected(tmp_path, monkeypatch):
+    # The cumulative decompressed size across members must stay bounded so a bomb
+    # split over many members is rejected just like a single-member one.
+    monkeypatch.setattr(settings, "max_upload_bytes", 100 * 1024 * 1024)
+    monkeypatch.setattr(settings, "max_decompressed_upload_bytes", 4 * 1024 * 1024)
+    member = gzip.compress(b"\x00" * (1 * 1024 * 1024))  # 1 MiB decompressed per member
+    path = tmp_path / "bomb.vcf.gz"
+    path.write_bytes(member * 16)  # ~16 MiB across members, tiny on disk
+    assert path.stat().st_size < 1 * 1024 * 1024
+    with pytest.raises(HTTPException) as exc:
+        read_path_text_bounded(path, kind="Package VCF")
+    assert exc.value.status_code == 413

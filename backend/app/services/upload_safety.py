@@ -45,21 +45,37 @@ async def _read_upload_bounded(file: UploadFile, max_bytes: int, *, kind: str) -
 
 def _gunzip_bounded(data: bytes, max_bytes: int, *, kind: str) -> bytes:
     # wbits=31 selects gzip framing. decompress(..., max_length) caps output per call
-    # and parks the rest in unconsumed_tail, so a bomb is stopped at the cap instead
-    # of inflating fully before the size is known.
-    decompressor = zlib.decompressobj(wbits=31)
+    # and parks unconsumed input in unconsumed_tail, so a bomb is stopped at the cap
+    # instead of inflating fully before the size is known.
+    #
+    # gzip permits concatenated members, and bgzip/BGZF `.vcf.gz` -- the standard
+    # container for genomic VCFs -- is exactly that: many gzip members (blocks of at
+    # most 64 KiB) back to back. A single decompressobj stops at the first member's
+    # trailer and leaves every following member in `unused_data`, so decompressing
+    # only once silently truncates the file to its first block. Loop across members,
+    # starting a fresh decompressor on each `unused_data` remainder, while keeping the
+    # cumulative output bounded so a multi-member bomb is still rejected.
     out = bytearray()
     pending = data
     try:
         while pending:
-            out += decompressor.decompress(pending, _DECOMP_STEP)
-            if len(out) > max_bytes:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"{kind} upload expands beyond the maximum allowed size",
-                )
-            pending = decompressor.unconsumed_tail
-        out += decompressor.flush()
+            decompressor = zlib.decompressobj(wbits=31)
+            while True:
+                out += decompressor.decompress(pending, _DECOMP_STEP)
+                if len(out) > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"{kind} upload expands beyond the maximum allowed size",
+                    )
+                if decompressor.unconsumed_tail:
+                    # Output cap hit mid-member; keep draining the same member.
+                    pending = decompressor.unconsumed_tail
+                    continue
+                break
+            out += decompressor.flush()
+            # unused_data holds any following concatenated members (BGZF blocks);
+            # empty once the final member is consumed, which ends the outer loop.
+            pending = decompressor.unused_data if decompressor.eof else b""
     except zlib.error as exc:
         raise HTTPException(
             status_code=400, detail=f"{kind} file is not valid gzip"
