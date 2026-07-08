@@ -43,6 +43,24 @@ handleiding op de nieuwe commit moet worden bijgewerkt.
 
 ---
 
+## Webversie (voor het review board)
+
+Naast deze Markdown-bestanden is er een **self-contained webpagina** met alle hoofdstukken op één
+navigeerbare pagina — zijbalk-inhoudstabel met scrollspy, licht/donker-thema en print-/PDF-export:
+[`coga-handleiding.html`](coga-handleiding.html). Open dit bestand rechtstreeks in een browser; er
+zijn geen externe afhankelijkheden nodig.
+
+De webpagina wordt gegenereerd uit **exact deze Markdown-bestanden** met [`build_site.py`](build_site.py):
+
+```bash
+pip install markdown
+python docs/handleiding/build_site.py   # (her)schrijft coga-handleiding.html
+```
+
+Werk je een hoofdstuk bij, draai dan dit script opnieuw zodat de Markdown en de webpagina overeenkomen.
+
+---
+
 ## Inhoudstabel
 
 | # | Hoofdstuk | Waarover het gaat |
