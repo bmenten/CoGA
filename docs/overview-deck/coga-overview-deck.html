@@ -1,0 +1,627 @@
+<title>CoGA — Comprehensive Genomic Analysis · Overview Deck</title>
+<style>
+  :root{
+    --crimson:#D0103A; --crimson-deep:#A80E30;
+    --violet:#4E3E82;  --violet-deep:#3C2F66;
+    --teal:#008A93;    --teal-deep:#00666D; --teal-bright:#12A7B0;
+    --ink:#1E2A38; --charcoal:#33414F;
+    --amber:#B4741A;
+    --ground:#E7ECEF; --paper:#FCFDFE; --field:#EAF4F5; --field-line:#CFE6E8;
+    --hair:#D9E1E7; --ink-soft:#5B6B78; --ink-faint:#8A98A3; --muted-bg:#F1F4F6;
+    --shadow:0 1px 2px rgba(30,42,56,.06), 0 14px 38px -20px rgba(30,42,56,.38);
+    --shadow-card:0 1px 1px rgba(30,42,56,.05), 0 6px 16px -12px rgba(30,42,56,.30);
+    --mono:"SF Mono","JetBrains Mono",ui-monospace,"Cascadia Code",Menlo,monospace;
+    --sans:"SF Pro Display","Helvetica Neue","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --crimson:#F0567F; --crimson-deep:#F0567F; --violet:#9B8AD6; --violet-deep:#9B8AD6;
+      --teal:#2BBAC4; --teal-deep:#2BBAC4; --teal-bright:#4FD4DE; --ink:#E9F0F3; --charcoal:#C4D0DA;
+      --amber:#E0A64B;
+      --ground:#0C1218; --paper:#141E28; --field:#16323A; --field-line:#265761;
+      --hair:#25333F; --ink-soft:#9DB0BC; --ink-faint:#6D808E; --muted-bg:#1B2732;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 20px 44px -22px rgba(0,0,0,.72);
+      --shadow-card:0 1px 1px rgba(0,0,0,.35), 0 10px 24px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    --crimson:#F0567F; --crimson-deep:#F0567F; --violet:#9B8AD6; --violet-deep:#9B8AD6;
+    --teal:#2BBAC4; --teal-deep:#2BBAC4; --teal-bright:#4FD4DE; --ink:#E9F0F3; --charcoal:#C4D0DA;
+    --amber:#E0A64B; --ground:#0C1218; --paper:#141E28; --field:#16323A; --field-line:#265761;
+    --hair:#25333F; --ink-soft:#9DB0BC; --ink-faint:#6D808E; --muted-bg:#1B2732;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 20px 44px -22px rgba(0,0,0,.72);
+    --shadow-card:0 1px 1px rgba(0,0,0,.35), 0 10px 24px -14px rgba(0,0,0,.6);
+  }
+  :root[data-theme="light"]{
+    --crimson:#D0103A; --crimson-deep:#A80E30; --violet:#4E3E82; --violet-deep:#3C2F66;
+    --teal:#008A93; --teal-deep:#00666D; --teal-bright:#12A7B0; --ink:#1E2A38; --charcoal:#33414F;
+    --amber:#B4741A; --ground:#E7ECEF; --paper:#FCFDFE; --field:#EAF4F5; --field-line:#CFE6E8;
+    --hair:#D9E1E7; --ink-soft:#5B6B78; --ink-faint:#8A98A3; --muted-bg:#F1F4F6;
+    --shadow:0 1px 2px rgba(30,42,56,.06), 0 14px 38px -20px rgba(30,42,56,.38);
+    --shadow-card:0 1px 1px rgba(30,42,56,.05), 0 6px 16px -12px rgba(30,42,56,.30);
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--ground); color:var(--ink); font-family:var(--sans); -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility}
+
+  .deck{max-width:1340px; margin:0 auto; padding:34px 18px 90px; display:flex; flex-direction:column; gap:34px}
+  .deck-intro{padding:6px 4px 0; color:var(--ink-soft)}
+  .deck-intro h2{margin:0 0 6px; font-size:14px; letter-spacing:.16em; text-transform:uppercase; color:var(--teal-deep)}
+  .deck-intro p{margin:0; font-size:13.5px; max-width:74ch; line-height:1.6}
+  .deck-intro code{font-family:var(--mono); font-size:.86em; background:var(--field); padding:1px 5px; border-radius:5px; color:var(--teal-deep)}
+
+  /* slide frame */
+  .slide{position:relative; width:100%; aspect-ratio:16/9; container-type:inline-size; background:var(--paper); border:1px solid var(--hair); border-radius:14px; box-shadow:var(--shadow); overflow:hidden; color:var(--ink)}
+  .slide-inner{position:absolute; inset:0; padding:4.4cqw 4.8cqw 3.2cqw; display:flex; flex-direction:column; z-index:1}
+
+  .shead{display:flex; align-items:flex-start; justify-content:space-between; gap:2cqw; flex:none}
+  .shead-l{display:flex; flex-direction:column; gap:.55cqw; min-width:0}
+  .eyebrow{display:flex; align-items:center; gap:1cqw; font-size:1.05cqw; letter-spacing:.24em; text-transform:uppercase; color:var(--ink-faint)}
+  .stitle{margin:0; font-size:2.75cqw; font-weight:800; letter-spacing:-.014em; line-height:1.03; text-wrap:balance; color:var(--ink)}
+  .ssub{margin:.35cqw 0 0; font-size:1.24cqw; font-weight:450; color:var(--ink-soft); line-height:1.34; max-width:74ch}
+  .pageno{font-family:var(--mono); font-size:1cqw; color:var(--ink-faint); letter-spacing:.04em; white-space:nowrap; padding-top:.4cqw}
+
+  .wm{font-weight:800; letter-spacing:-.01em; line-height:1; display:inline-flex; text-transform:none}
+  .wm .c{color:var(--crimson)} .wm .o{color:var(--ink)} .wm .g{color:var(--violet)} .wm .a{color:var(--teal)}
+
+  .trirule{height:.36cqw; border-radius:2px; margin-top:1cqw; flex:none;
+    background:linear-gradient(90deg,var(--crimson) 0%,var(--crimson) 24%,var(--violet) 40%,var(--violet) 60%,var(--teal) 78%,var(--teal) 100%)}
+
+  .sbody{flex:1; min-height:0; display:flex; margin-top:1.9cqw}
+  .sfoot{margin-top:1.3cqw; display:flex; align-items:center; gap:.9cqw; font-size:.94cqw; color:var(--ink-faint); line-height:1.28; flex:none}
+  .sfoot .dot{width:.5cqw; height:.5cqw; border-radius:50%; background:var(--teal); flex:none}
+  .sfoot b{color:var(--ink-soft); font-weight:700}
+  .sfoot code{font-family:var(--mono); font-size:.92em; color:var(--teal-deep)}
+
+  /* nodes */
+  .node{background:var(--paper); border:1px solid var(--hair); border-radius:.85cqw; padding:.95cqw 1.05cqw; box-shadow:var(--shadow-card); display:flex; flex-direction:column; gap:.28cqw}
+  .node .nt{font-size:1.18cqw; font-weight:700; letter-spacing:-.01em; line-height:1.08}
+  .node .nd{font-size:.94cqw; color:var(--ink-soft); line-height:1.24}
+  .node.dim{background:var(--muted-bg); border-style:dashed; box-shadow:none}
+  .node.dim .nt{color:var(--ink-soft)}
+  .node.hub{border:.2cqw solid var(--teal); box-shadow:0 0 0 .35cqw color-mix(in srgb,var(--teal) 13%,transparent), var(--shadow-card)}
+  .node.st{background:var(--teal-deep); border-color:var(--teal-deep)} .node.st .nt{color:#fff} .node.st .nd{color:#CFE9EB}
+  .node.sv{background:var(--violet); border-color:var(--violet)} .node.sv .nt{color:#fff} .node.sv .nd{color:#E7E1F2}
+  .node.sc{background:var(--crimson); border-color:var(--crimson)} .node.sc .nt{color:#fff} .node.sc .nd{color:#FBE0E6}
+
+  .field{position:absolute; border-radius:46% / 50%; background:radial-gradient(closest-side, color-mix(in srgb,var(--field) 90%,transparent), color-mix(in srgb,var(--field) 22%,transparent)); border:1px dashed var(--field-line); z-index:0}
+
+  /* chips */
+  .chips{display:flex; flex-wrap:wrap; gap:.5cqw}
+  .chip{font-size:.92cqw; font-weight:600; color:var(--ink); background:var(--paper); border:1px solid var(--hair); border-radius:.55cqw; padding:.38cqw .62cqw; display:inline-flex; align-items:center; gap:.42cqw; line-height:1.15; box-shadow:var(--shadow-card)}
+  .chip .k{font-family:var(--mono); font-weight:700; font-size:.86em; color:var(--teal-deep)}
+  .chip.flat{box-shadow:none; background:var(--field); border-color:var(--field-line)}
+
+  .mono{font-family:var(--mono)}
+  .lbl{font-size:.92cqw; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-faint); font-weight:700}
+
+  /* connectors */
+  .arrow{align-self:center; flex:none; width:2.4cqw; height:.22cqw; background:var(--teal-deep); position:relative; border-radius:2px; opacity:.9}
+  .arrow::after{content:""; position:absolute; right:-.15cqw; top:50%; transform:translateY(-50%); border-left:.62cqw solid var(--teal-deep); border-top:.42cqw solid transparent; border-bottom:.42cqw solid transparent}
+  .arrow.sm{width:1.5cqw}
+  .arrow.down{width:.22cqw; height:2cqw}
+  .arrow.down::after{right:auto; left:50%; top:auto; bottom:-.15cqw; transform:translateX(-50%); border-left:.42cqw solid transparent; border-right:.42cqw solid transparent; border-top:.62cqw solid var(--teal-deep); border-bottom:0}
+
+  .boundary{align-self:stretch; flex:none; width:0; border-left:.28cqw dashed var(--crimson); position:relative; margin:0 .4cqw}
+  .boundary span{position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-90deg); transform-origin:center; white-space:nowrap; font-size:.92cqw; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:var(--crimson); background:var(--paper); padding:.5cqw .2cqw}
+
+  .stack{display:flex; flex-direction:column; gap:.7cqw}
+  .stage-lbl{font-size:.9cqw; letter-spacing:.14em; text-transform:uppercase; font-weight:800; color:var(--ink-faint); margin-bottom:.15cqw}
+
+  /* pills (semantic status) */
+  .pill{font-size:.9cqw; font-weight:700; padding:.28cqw .6cqw; border-radius:2cqw; display:inline-flex; align-items:center; gap:.4cqw; letter-spacing:.02em}
+  .pill::before{content:""; width:.5cqw; height:.5cqw; border-radius:50%; background:currentColor}
+  .pill.prog{color:var(--amber); background:color-mix(in srgb,var(--amber) 14%,transparent)}
+  .pill.plan{color:var(--ink-soft); background:color-mix(in srgb,var(--ink-soft) 13%,transparent)}
+  .pill.ongo{color:var(--teal-deep); background:color-mix(in srgb,var(--teal) 14%,transparent)}
+
+  /* db cylinder icon */
+  .cyl{width:1.15cqw; height:1.35cqw; flex:none; color:var(--teal-deep)}
+
+  @media (max-width:600px){ .deck{padding:16px 8px 60px; gap:18px} .stitle{font-size:3.4cqw} }
+
+  @media print{
+    @page{size:13.333in 7.5in; margin:0}
+    body{background:#fff}
+    .deck{max-width:none; margin:0; padding:0; gap:0; display:block}
+    .deck-intro{display:none}
+    .slide{width:13.333in; height:7.5in; aspect-ratio:auto; border:none; border-radius:0; box-shadow:none; break-after:page; page-break-after:always}
+  }
+</style>
+
+<div class="deck">
+  <div class="deck-intro">
+    <h2>CoGA overview deck</h2>
+    <p>Seven presentation-ready 16:9 slides in the CoGA visual identity — a public-facing counterpart to the AUGMET deck. Each frame maps 1:1 to a PowerPoint slide. Export via your browser's <b>Print → Save as PDF</b> (landscape, one slide per page), or use the PNGs rendered alongside this file. The deck follows the system theme (toggle to preview dark). Every slide carries CoGA's regulatory scope because it is an <code>in-house IVD under IVDR Art&nbsp;5(5)</code>. Content is drawn from the codebase manual and verified against source.</p>
+  </div>
+
+  <!-- ============================================================ TITLE -->
+  <section class="slide" id="s0">
+    <div class="field" style="width:52cqw; height:52cqw; right:-14cqw; top:-9cqw"></div>
+    <div class="slide-inner" style="padding:0">
+      <div style="position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; padding:6cqw 6cqw 15cqw">
+        <div class="eyebrow" style="margin-bottom:2cqw">Comprehensive Genomic Analysis &nbsp;·&nbsp; Platform overview</div>
+        <div class="wm" style="font-size:11cqw; margin-bottom:.4cqw"><span class="c">C</span><span class="o">o</span><span class="g">G</span><span class="a">A</span></div>
+        <div style="font-size:2.05cqw; font-weight:600; color:var(--ink); letter-spacing:.02em; margin-bottom:2.4cqw">
+          <span style="color:var(--crimson); font-weight:800">C</span>omprehensive
+          <span style="color:var(--violet); font-weight:800">G</span>enomic
+          <span style="color:var(--teal); font-weight:800">A</span>nalysis
+        </div>
+        <p style="margin:0 0 2.8cqw; font-size:1.9cqw; line-height:1.4; max-width:52cqw; color:var(--ink-soft); font-weight:450">
+          A unified platform for <b style="color:var(--ink); font-weight:700">germline variant interpretation</b>,
+          genome visualisation, and <b style="color:var(--ink); font-weight:700">signed clinical reporting</b> —
+          from an annotated VCF to a version-pinned, traceable report.
+        </p>
+        <div class="chips" style="gap:.7cqw; margin-bottom:2.6cqw">
+          <span class="chip flat"><span class="k" style="color:var(--crimson)">C</span> Rare-disease &amp; inherited</span>
+          <span class="chip flat"><span class="k" style="color:var(--violet)">G</span> Reproductive genomics</span>
+          <span class="chip flat"><span class="k" style="color:var(--teal-deep)">A</span> Interpretation, QC &amp; sign-out</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:1cqw; font-size:1.12cqw; color:var(--ink-faint)">
+          <span class="mono" style="color:var(--teal-deep); font-weight:700; letter-spacing:.02em">In-house IVD · IVDR Art 5(5)</span>
+          <span style="width:.4cqw; height:.4cqw; border-radius:50%; background:var(--ink-faint)"></span>
+          <span>CMGG · ISO 15189</span>
+          <span style="width:.4cqw; height:.4cqw; border-radius:50%; background:var(--ink-faint)"></span>
+          <span>FastAPI · React · Postgres · ClickHouse</span>
+        </div>
+      </div>
+      <!-- DNA backbone motif -->
+      <svg viewBox="0 0 1200 150" preserveAspectRatio="none" style="position:absolute; left:0; right:0; bottom:0; width:100%; height:10.5cqw; opacity:.85" aria-hidden="true">
+        <defs>
+          <linearGradient id="dna" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="var(--crimson)"/><stop offset="42%" stop-color="var(--violet)"/><stop offset="100%" stop-color="var(--teal)"/>
+          </linearGradient>
+        </defs>
+        <path d="M0,95 C75,55 150,55 225,95 S375,135 450,95 S600,55 675,95 S825,135 900,95 S1050,55 1125,95 S1200,110 1260,95" fill="none" stroke="url(#dna)" stroke-width="4"/>
+        <g stroke="url(#dna)" stroke-width="3" stroke-linecap="round">
+          <line x1="90" y1="70" x2="90" y2="120"/><line x1="120" y1="66" x2="120" y2="124"/><line x1="150" y1="70" x2="150" y2="120"/>
+          <line x1="340" y1="70" x2="340" y2="120"/><line x1="370" y1="66" x2="370" y2="124"/><line x1="400" y1="70" x2="400" y2="120"/>
+          <line x1="590" y1="70" x2="590" y2="120"/><line x1="620" y1="66" x2="620" y2="124"/><line x1="650" y1="70" x2="650" y2="120"/>
+          <line x1="840" y1="70" x2="840" y2="120"/><line x1="870" y1="66" x2="870" y2="124"/><line x1="900" y1="70" x2="900" y2="120"/>
+          <line x1="1050" y1="70" x2="1050" y2="120"/><line x1="1080" y1="66" x2="1080" y2="124"/><line x1="1110" y1="70" x2="1110" y2="120"/>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ============================================================ 1 · INGESTION -->
+  <section class="slide" id="s1">
+    <div class="field" style="width:64cqw; height:70cqw; right:-8cqw; bottom:-24cqw"></div>
+    <div class="slide-inner">
+      <div class="shead">
+        <div class="shead-l">
+          <div class="eyebrow"><span class="wm" style="font-size:1.4cqw"><span class="c">C</span><span class="o">o</span><span class="g">G</span><span class="a">A</span></span> Ingestion</div>
+          <h1 class="stitle">Instrument-agnostic ingestion</h1>
+          <p class="ssub">Whatever the upstream sequencer, CoGA ingests the same annotated-VCF-plus-tracks family package — so the regulated device begins only at the validated digital input.</p>
+        </div>
+        <div class="pageno">01 / 07</div>
+      </div>
+      <div class="trirule"></div>
+
+      <div class="sbody" style="gap:0; align-items:stretch">
+        <!-- Upstream (out of scope) -->
+        <div class="stack" style="width:23cqw; justify-content:center">
+          <div class="stage-lbl">Upstream · out of scope</div>
+          <div class="node dim"><div class="nt">Any sequencer</div><div class="nd">instrument-agnostic; separately validated</div></div>
+          <div class="node dim" style="gap:.5cqw">
+            <div class="nt" style="font-size:1.02cqw">Secondary analysis</div>
+            <div class="chips">
+              <span class="chip flat">Alignment + calling <span class="k">DeepVariant · GATK · Clair3</span></span>
+              <span class="chip flat">SV · Sniffles2 · Spectre</span>
+              <span class="chip flat">Repeats · TRGT</span>
+              <span class="chip flat">Imputation/phasing · GLIMPSE2</span>
+              <span class="chip flat">Paraphase</span>
+              <span class="chip flat">Annotation · VEP · snpEff · bcftools</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="boundary"><span>Device boundary · annotated VCF</span></div>
+
+        <!-- CoGA zone -->
+        <div style="flex:1; display:flex; align-items:stretch; gap:1.1cqw; position:relative; z-index:1">
+          <!-- package -->
+          <div class="stack" style="width:20cqw; justify-content:center">
+            <div class="stage-lbl">Family package</div>
+            <div class="node" style="border-color:var(--field-line); gap:.5cqw">
+              <div class="nt" style="font-size:1.02cqw; display:flex; align-items:center; gap:.5cqw">
+                <svg width="14" height="12" viewBox="0 0 14 12" fill="none" style="flex:none"><path d="M1 3.2C1 2.5 1.5 2 2.2 2H5l1.3 1.3H11.8C12.5 3.3 13 3.8 13 4.5V9.5C13 10.2 12.5 10.7 11.8 10.7H2.2C1.5 10.7 1 10.2 1 9.5V3.2Z" fill="var(--teal-deep)" opacity=".85"/></svg>
+                folder package · disk / S3 / GCS
+              </div>
+              <div class="chips">
+                <span class="chip"><span class="k">yaml</span> manifest + family.ped</span>
+                <span class="chip"><span class="k">vcf</span> Annotated SNV</span>
+                <span class="chip"><span class="k">vcf</span> SV · NeedlR</span>
+                <span class="chip"><span class="k">vcf</span> TRGT repeats</span>
+                <span class="chip"><span class="k">cnv</span> WisecondorX · QDNAseq</span>
+                <span class="chip"><span class="k">trk</span> APCAD + PCF</span>
+                <span class="chip"><span class="k">hap</span> GLIMPSE2</span>
+                <span class="chip"><span class="k">json</span> Paraphase</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="arrow"></div>
+
+          <!-- import -->
+          <div class="stack" style="width:15cqw; justify-content:center">
+            <div class="stage-lbl">CoGA import</div>
+            <div class="node teal"><div class="nt">Manifest discovery</div><div class="nd">scan FAMILY_IMPORT_ROOTS</div></div>
+            <div class="node teal"><div class="nt">Dry-run validation</div><div class="nd">PED · dataset · index checks</div></div>
+            <div class="node teal"><div class="nt">Provenance capture</div><div class="nd">SHA-256 + VCF-header versions</div></div>
+            <div class="node teal"><div class="nt">Background import</div><div class="nd">Postgres + ClickHouse, fail-clean</div></div>
+          </div>
+
+          <div class="arrow"></div>
+
+          <!-- workspace/report -->
+          <div class="stack" style="width:15cqw; justify-content:center">
+            <div class="stage-lbl">Interpret &amp; sign out</div>
+            <div class="node hub"><div class="nt">Family workspace</div><div class="nd">SNV/SV/CNV · repeats · Paraphase · NIPT · PGT</div></div>
+            <div class="arrow down" style="align-self:center"></div>
+            <div class="node st"><div class="nt">Signed clinical report</div><div class="nd">version-pinned · content-hashed</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sfoot"><span class="dot"></span><span><b>Device boundary:</b> everything left of the annotated VCF (assay → sequencing → calling → annotation) is separately validated and out of scope. Upstream tool/DB versions are read from the VCF headers and frozen per family. CoGA names no instrument — it consumes the same package regardless of platform.</span></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 2 · ARCHITECTURE -->
+  <section class="slide" id="s2">
+    <div class="field" style="width:56cqw; height:44cqw; left:22cqw; top:16cqw"></div>
+    <div class="slide-inner">
+      <div class="shead">
+        <div class="shead-l">
+          <div class="eyebrow"><span class="wm" style="font-size:1.4cqw"><span class="c">C</span><span class="o">o</span><span class="g">G</span><span class="a">A</span></span> Architecture</div>
+          <h1 class="stitle">One case, end to end</h1>
+          <p class="ssub">An imported case package on one side, two purpose-built databases in the middle, external knowledge feeding in — and a tamper-evident signed report on the other.</p>
+        </div>
+        <div class="pageno">02 / 07</div>
+      </div>
+      <div class="trirule"></div>
+
+      <div class="sbody" style="flex-direction:column; gap:1.2cqw">
+        <!-- top: intake -->
+        <div style="display:flex; align-items:center; gap:1cqw; justify-content:center">
+          <div class="node" style="width:20cqw"><div class="nt" style="font-size:1.05cqw">Case / family package</div><div class="nd">annotated VCF · pedigree · samples · interval tracks</div></div>
+          <div class="arrow sm"></div>
+          <div class="node st" style="width:19cqw"><div class="nt" style="font-size:1.05cqw">Import pipeline (worker)</div><div class="nd">splits metadata → Postgres · payloads → ClickHouse · records provenance</div></div>
+        </div>
+
+        <!-- middle row: frontend | datastores | external -->
+        <div style="display:flex; align-items:stretch; gap:1.2cqw; flex:1; min-height:0">
+          <!-- frontend + backend -->
+          <div class="stack" style="width:30cqw; gap:.75cqw">
+            <div class="node hub" style="gap:.5cqw">
+              <div class="nt" style="font-size:1.05cqw">React / Vite frontend</div>
+              <div class="chips"><span class="chip flat">Family workspace</span><span class="chip flat">Filters &amp; dashboards</span><span class="chip flat">Explorers</span><span class="chip flat">Embedded IGV</span></div>
+            </div>
+            <div style="display:flex; align-items:center; gap:.6cqw; justify-content:center; color:var(--ink-faint); font-size:.9cqw; font-family:var(--mono)">
+              <span style="flex:1; height:1px; background:var(--hair)"></span>HTTP /api · JWT · project-scoped RBAC<span style="flex:1; height:1px; background:var(--hair)"></span>
+            </div>
+            <div class="node" style="border-color:color-mix(in srgb,var(--teal) 35%,var(--hair)); gap:.5cqw">
+              <div class="nt" style="font-size:1.05cqw">FastAPI backend · thin routers → services</div>
+              <div class="chips">
+                <span class="chip">Auth &amp; access control</span>
+                <span class="chip">Variant queries + Global Explorer</span>
+                <span class="chip">Metadata &amp; reference</span>
+                <span class="chip">Review &amp; curation · ACMG</span>
+                <span class="chip">Traceability &amp; sign-out</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- datastores -->
+          <div class="stack" style="width:26cqw; gap:.8cqw; justify-content:center">
+            <div class="stage-lbl" style="text-align:center">Purpose-built datastores</div>
+            <div class="node" style="border:.16cqw solid var(--violet)">
+              <div class="nt" style="font-size:1.08cqw; color:var(--violet); display:flex; align-items:center; gap:.5cqw"><svg class="cyl" viewBox="0 0 12 14" style="color:var(--violet)"><ellipse cx="6" cy="2.4" rx="5" ry="2" fill="currentColor" opacity=".9"/><path d="M1 2.4v9c0 1.1 2.2 2 5 2s5-.9 5-2v-9" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>Postgres — metadata &amp; state</div>
+              <div class="nd">users · projects · families/samples · review state · repeats · Paraphase · NIPT · gene cache · panels · HPO · version manifest · <b style="color:var(--violet)">append-only hash-chained audit + sign-out</b></div>
+            </div>
+            <div class="node" style="border:.16cqw solid var(--teal)">
+              <div class="nt" style="font-size:1.08cqw; color:var(--teal-deep); display:flex; align-items:center; gap:.5cqw"><svg class="cyl" viewBox="0 0 12 14"><ellipse cx="6" cy="2.4" rx="5" ry="2" fill="currentColor" opacity=".9"/><path d="M1 2.4v9c0 1.1 2.2 2 5 2s5-.9 5-2v-9" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>ClickHouse — variant payloads</div>
+              <div class="nd">small variants · structural variants · per-assembly interval tracks · cross-project genotype aggregates</div>
+            </div>
+          </div>
+
+          <!-- external + output -->
+          <div class="stack" style="width:20cqw; gap:.8cqw; justify-content:center">
+            <div class="stage-lbl">External knowledge · read-only</div>
+            <div class="node dim" style="border-style:solid; background:var(--paper)"><div class="nt" style="font-size:1.02cqw">HPO / Monarch</div><div class="nd">phenotype ontology + gene–disease associations</div></div>
+            <div class="node dim" style="border-style:solid; background:var(--paper)"><div class="nt" style="font-size:1.02cqw">Gene &amp; annotation refs</div><div class="nd">gene refresh · clinical-CNV KB · DGV · seg-dups</div></div>
+          </div>
+        </div>
+
+        <!-- output row -->
+        <div style="display:flex; align-items:center; gap:1cqw; justify-content:center">
+          <span class="lbl" style="font-size:.9cqw">Device exit</span>
+          <div class="arrow sm"></div>
+          <div class="node sc" style="width:19cqw"><div class="nt" style="font-size:1.02cqw">Signed clinical report</div><div class="nd">canonical, version-pinned sign-out snapshot</div></div>
+          <div class="arrow sm"></div>
+          <div class="node" style="width:19cqw; border-color:color-mix(in srgb,var(--crimson) 30%,var(--hair))"><div class="nt" style="font-size:1.02cqw">Clinical audit + integrity anchors</div><div class="nd">append-only · hash-chained · externally sealed</div></div>
+        </div>
+      </div>
+
+      <div class="sfoot"><span class="dot"></span><span><b>In-house IVD · IVDR Art 5(5)</b> — Postgres is authoritative for metadata &amp; state, ClickHouse for variant payloads. External services are read-only reference refreshes; all data in the platform is synthetic in non-clinical use.</span></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 3 · REPORTING -->
+  <section class="slide" id="s3">
+    <div class="slide-inner">
+      <div class="shead">
+        <div class="shead-l">
+          <div class="eyebrow"><span class="wm" style="font-size:1.4cqw"><span class="c">C</span><span class="o">o</span><span class="g">G</span><span class="a">A</span></span> Reporting &amp; traceability</div>
+          <h1 class="stitle">From reviewed variants to a signed, traceable report</h1>
+          <p class="ssub">Every reported result is locked to the exact software, annotation and reference versions that produced it — then sealed in a tamper-evident audit trail.</p>
+        </div>
+        <div class="pageno">03 / 07</div>
+      </div>
+      <div class="trirule"></div>
+
+      <div class="sbody" style="gap:1cqw; align-items:stretch">
+        <!-- Review -->
+        <div class="stack" style="width:19cqw; justify-content:center">
+          <div class="stage-lbl">1 · Review</div>
+          <div class="node"><div class="nt">ACMG/AMP classification</div><div class="nd">semi-automatic 5-class score, recomputed server-side; every criterion overridable</div></div>
+          <div class="node"><div class="nt">Tags &amp; notes</div><div class="nd">the <span class="mono">report</span> tag selects variants; who/when + analyst note</div></div>
+          <div class="node"><div class="nt">Evidence snapshot</div><div class="nd">frozen at each save: annotation-set-hash · ClinVar · timestamp</div></div>
+        </div>
+
+        <div class="arrow"></div>
+
+        <!-- Gating -->
+        <div class="stack" style="width:17cqw; justify-content:center">
+          <div class="stage-lbl" style="color:var(--crimson)">2 · Gating</div>
+          <div class="node" style="border:.16cqw solid var(--crimson)"><div class="nt" style="color:var(--crimson)">Classification-drift</div><div class="nd">frozen vs current annotation-set-hash — <span class="mono">409</span> unless acknowledged</div></div>
+          <div class="node" style="border:.16cqw solid var(--crimson)"><div class="nt" style="color:var(--crimson)">Sample-QC acknowledgement</div><div class="nd">sex · relatedness · Mendelian · NIPT + swap checks — blocks unless acknowledged with a reason</div></div>
+        </div>
+
+        <div class="arrow"></div>
+
+        <!-- Sign-out -->
+        <div class="stack" style="width:20cqw; justify-content:center">
+          <div class="stage-lbl">3 · Sign-out</div>
+          <div class="node st"><div class="nt">Frozen versioned snapshot</div><div class="nd">SHA-256 content-hashed, append-only; amendments create a new version — prior versions never mutate</div></div>
+          <div class="node" style="border-color:color-mix(in srgb,var(--teal) 35%,var(--hair)); gap:.4cqw">
+            <div class="nt" style="font-size:1.02cqw">Bound to three version axes</div>
+            <div class="chips">
+              <span class="chip"><span class="k">sw</span> build + git_sha</span>
+              <span class="chip"><span class="k">ann</span> manifest + set-hash</span>
+              <span class="chip"><span class="k">ref</span> assembly</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="arrow"></div>
+
+        <!-- Outputs -->
+        <div class="stack" style="width:19cqw; justify-content:center; gap:.9cqw">
+          <div class="stage-lbl">4 · Outputs</div>
+          <div class="node"><div class="nt">Signed report</div><div class="nd">variant sections · gene &amp; HPO context · provenance footer (VEP · ClinVar · gnomAD · HPO …) · PDF export</div></div>
+          <div class="node" style="border-color:color-mix(in srgb,var(--violet) 40%,var(--hair)); gap:.4cqw">
+            <div class="nt" style="color:var(--violet)">Hash-chained audit</div>
+            <div class="nd">append-only before/after log; each entry's <span class="mono">row_hash</span> links to the prior — edits/reordering become detectable</div>
+            <div class="chips" style="margin-top:.15cqw"><span class="chip" style="border-color:color-mix(in srgb,var(--violet) 35%,var(--hair))"><span class="k" style="color:var(--violet)">seal</span> Ed25519 integrity anchors</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sfoot"><span class="dot"></span><span><b>In-house IVD · IVDR Art 5(5).</b> The chain is tamper-<i>evident</i> against a database-only adversary between retained anchors, not tamper-proof. ACMG/AMP output is decision support — confirmed by a qualified clinical scientist before clinical use.</span></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 4 · CAPABILITY TREE -->
+  <section class="slide" id="s4">
+    <div class="slide-inner">
+      <div class="shead">
+        <div class="shead-l">
+          <div class="eyebrow"><span class="wm" style="font-size:1.4cqw"><span class="c">C</span><span class="o">o</span><span class="g">G</span><span class="a">A</span></span> Capabilities</div>
+          <h1 class="stitle">What CoGA does</h1>
+          <p class="ssub">A germline variant-interpretation platform for rare-disease and reproductive genomics — no somatic-oncology, HLA or transplant menus.</p>
+        </div>
+        <div class="pageno">04 / 07</div>
+      </div>
+      <div class="trirule"></div>
+
+      <div class="sbody" style="flex-direction:column; gap:0">
+        <!-- root -->
+        <div style="display:flex; justify-content:center; flex:none">
+          <div class="node st" style="padding:.7cqw 1.4cqw; flex-direction:row; align-items:center; gap:.7cqw">
+            <span class="wm" style="font-size:1.5cqw"><span style="color:#F0567F">C</span><span style="color:#fff">o</span><span style="color:#B9A9E8">G</span><span style="color:#7FE0E6">A</span></span>
+            <span style="color:#CFE9EB; font-size:1cqw; font-weight:600">Comprehensive Genomic Analysis</span>
+          </div>
+        </div>
+        <div style="height:1.1cqw; width:.14cqw; background:var(--hair); margin:0 auto; flex:none"></div>
+
+        <!-- columns -->
+        <div style="display:flex; gap:1cqw; flex:1; min-height:0; align-items:stretch">
+          <!-- col teal -->
+          <div class="stack" style="flex:1; gap:.5cqw; border-top:.3cqw solid var(--teal); padding-top:.7cqw">
+            <div class="lbl" style="color:var(--teal-deep); font-size:.85cqw">Rare-disease &amp; inherited</div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal)"><div class="nt" style="font-size:.98cqw">Small variants (SNV/indel)</div><div class="nd">trio inheritance filtering</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal)"><div class="nt" style="font-size:.98cqw">Structural variants</div><div class="nd">DEL/DUP/INV/INS/BND</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal)"><div class="nt" style="font-size:.98cqw">Clinical CNVs</div><div class="nd">vs curated clinical-CNV base</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal)"><div class="nt" style="font-size:.98cqw">Combined variant summary</div><div class="nd">cross-modality overview</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal)"><div class="nt" style="font-size:.98cqw">Repeat expansions (TRGT)</div><div class="nd">normal / intermediate / pathogenic</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal)"><div class="nt" style="font-size:.98cqw">Paraphase</div><div class="nd">segmental-duplication genes</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal)"><div class="nt" style="font-size:.98cqw">Mitochondrial (mtDNA)</div><div class="nd">full mtDNA + nuclear panel</div></div>
+          </div>
+          <!-- col violet -->
+          <div class="stack" style="flex:1; gap:.5cqw; border-top:.3cqw solid var(--violet); padding-top:.7cqw">
+            <div class="lbl" style="color:var(--violet); font-size:.85cqw">Reproductive genomics</div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--violet)"><div class="nt" style="font-size:.98cqw">Monogenic NIPT (cfDNA)</div><div class="nd">fetal genotype from plasma VAF</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--violet)"><div class="nt" style="font-size:.98cqw">Fetal-fraction estimation</div><div class="nd">category sites + external cross-check</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--violet)"><div class="nt" style="font-size:.98cqw">PGT haplotype segregation</div><div class="nd">grandparental IBD haplotypes</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--violet)"><div class="nt" style="font-size:.98cqw">Embryo classification</div><div class="nd">affected / carrier / unaffected</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--violet)"><div class="nt" style="font-size:.98cqw">Single-parent (donor) families</div><div class="nd">one known parent + donor</div></div>
+          </div>
+          <!-- col crimson -->
+          <div class="stack" style="flex:1; gap:.5cqw; border-top:.3cqw solid var(--crimson); padding-top:.7cqw">
+            <div class="lbl" style="color:var(--crimson); font-size:.85cqw">Interpretation &amp; QC</div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--crimson)"><div class="nt" style="font-size:.98cqw">ACMG/AMP classifier</div><div class="nd">SNV + CNV + mtDNA, overridable</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--crimson)"><div class="nt" style="font-size:.98cqw">HPO / Monarch prioritisation</div><div class="nd">phenotype-driven ranking</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--crimson)"><div class="nt" style="font-size:.98cqw">Sample QC</div><div class="nd">relatedness · sex · Mendelian · lineage</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--crimson)"><div class="nt" style="font-size:.98cqw">Case sign-out &amp; traceability</div><div class="nd">frozen report · hash-chained audit</div></div>
+          </div>
+          <!-- col ink -->
+          <div class="stack" style="flex:1; gap:.5cqw; border-top:.3cqw solid var(--charcoal); padding-top:.7cqw">
+            <div class="lbl" style="color:var(--charcoal); font-size:.85cqw">Visualisation</div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--charcoal)"><div class="nt" style="font-size:.98cqw">Whole-genome overview</div><div class="nd">coverage · SV · haplotype · repeats</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--charcoal)"><div class="nt" style="font-size:.98cqw">Per-chromosome view</div><div class="nd">detail tracks + ideogram</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--charcoal)"><div class="nt" style="font-size:.98cqw">Circos plot</div><div class="nd">genome-wide SVs as arcs</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--charcoal)"><div class="nt" style="font-size:.98cqw">Coverage &amp; APCAD tracks</div><div class="nd">depth log-ratio + BAF phasing</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--charcoal)"><div class="nt" style="font-size:.98cqw">Pedigree diagram</div><div class="nd">per-sample QC-verdict colouring</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--charcoal)"><div class="nt" style="font-size:.98cqw">Haplotype-lineage tracks</div><div class="nd">IBD colouring + phased markers</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--charcoal)"><div class="nt" style="font-size:.98cqw">Embedded IGV browser</div><div class="nd">read-level CRAM/BAM inspection</div></div>
+          </div>
+          <!-- col teal-bright -->
+          <div class="stack" style="flex:1; gap:.5cqw; border-top:.3cqw solid var(--teal-bright); padding-top:.7cqw">
+            <div class="lbl" style="color:var(--teal-bright); font-size:.85cqw">Cross-cohort discovery</div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal-bright)"><div class="nt" style="font-size:.98cqw">Gene Explorer</div><div class="nd">MANE/RefSeq badges · constraint</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal-bright)"><div class="nt" style="font-size:.98cqw">Global Variant Explorer</div><div class="nd">cross-project carrier counts</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal-bright)"><div class="nt" style="font-size:.98cqw">Clinical CNV Explorer</div><div class="nd">curated CNV knowledge base</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal-bright)"><div class="nt" style="font-size:.98cqw">HPO term browser</div><div class="nd">phenotype-ontology lookup</div></div>
+            <div class="node" style="padding:.55cqw .7cqw; gap:.12cqw; border-left:.25cqw solid var(--teal-bright)"><div class="nt" style="font-size:.98cqw">Gene-panel catalog</div><div class="nd">versioned · PanelApp import</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sfoot"><span class="dot"></span><span>Per-data-type family views surface only when that data is present. Scope is germline rare-disease + reproductive genomics — operated as an in-house IVD under IVDR Art 5(5).</span></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 5 · KNOWLEDGE SOURCES -->
+  <section class="slide" id="s5">
+    <div class="slide-inner">
+      <div class="shead">
+        <div class="shead-l">
+          <div class="eyebrow"><span class="wm" style="font-size:1.4cqw"><span class="c">C</span><span class="o">o</span><span class="g">G</span><span class="a">A</span></span> Knowledge sources</div>
+          <h1 class="stitle">Integrated knowledge for clinical interpretation</h1>
+          <p class="ssub">The ontologies, population and clinical-variant databases, transcript references and genomic-context tracks CoGA brings together behind every call.</p>
+        </div>
+        <div class="pageno">05 / 07</div>
+      </div>
+      <div class="trirule"></div>
+
+      <div class="sbody">
+        <div style="column-count:3; column-gap:1.1cqw; width:100%">
+          <!-- Phenotype & disease -->
+          <div class="node" style="break-inside:avoid; margin-bottom:1.1cqw; padding:.85cqw 1cqw; gap:.45cqw; border-top:.28cqw solid var(--crimson)">
+            <div class="lbl" style="color:var(--crimson); font-size:.85cqw">Phenotype &amp; disease</div>
+            <div class="src"><b>HPO</b> · phenotype ontology + closure</div>
+            <div class="src"><b>Monarch Initiative</b> · gene–disease–phenotype graph</div>
+            <div class="src"><b>OMIM</b> · Mendelian gene–disease</div>
+            <div class="src"><b>Orphanet</b> · rare-disease associations</div>
+            <div class="src"><b>ClinGen</b> · validity · dosage · ACMG calibration</div>
+            <div class="src"><b>GenCC</b> · multi-submitter validity</div>
+            <div class="src"><b>PanelApp</b> · curated disease gene panels</div>
+          </div>
+          <!-- Population & constraint -->
+          <div class="node" style="break-inside:avoid; margin-bottom:1.1cqw; padding:.85cqw 1cqw; gap:.45cqw; border-top:.28cqw solid var(--violet)">
+            <div class="lbl" style="color:var(--violet); font-size:.85cqw">Population &amp; constraint</div>
+            <div class="src"><b>gnomAD</b> · allele frequency + constraint (pLI · LOEUF · missense-Z)</div>
+            <div class="src"><b>dbNSFP</b> · bulk gene annotation &amp; constraint</div>
+          </div>
+          <!-- Clinical variant knowledge -->
+          <div class="node" style="break-inside:avoid; margin-bottom:1.1cqw; padding:.85cqw 1cqw; gap:.45cqw; border-top:.28cqw solid var(--teal)">
+            <div class="lbl" style="color:var(--teal-deep); font-size:.85cqw">Clinical variant knowledge</div>
+            <div class="src"><b>ClinVar</b> · curated clinical assertions</div>
+            <div class="src"><b>In-silico predictors</b> · CADD · REVEL · SpliceAI · AlphaMissense</div>
+            <div class="src"><b>ACMG/AMP guidelines</b> · Richards 2015 · Tavtigian/ClinGen points · Riggs CNV · mtDNA</div>
+          </div>
+          <!-- Transcripts & reference -->
+          <div class="node" style="break-inside:avoid; margin-bottom:1.1cqw; padding:.85cqw 1cqw; gap:.45cqw; border-top:.28cqw solid var(--teal-bright)">
+            <div class="lbl" style="color:var(--teal-bright); font-size:.85cqw">Transcripts &amp; reference</div>
+            <div class="src"><b>MANE</b> Select / Plus Clinical · reference transcripts</div>
+            <div class="src"><b>RefSeq / NCBI Gene</b> · accessions + summaries</div>
+            <div class="src"><b>Ensembl</b> · ids · biotype · canonical</div>
+            <div class="src"><b>HGNC</b> · official gene nomenclature</div>
+            <div class="src"><b>GENCODE</b> · transcript annotation set</div>
+            <div class="src"><b>Reference genomes</b> · GRCh38 · T2T-CHM13 · GRCh37</div>
+            <div class="src"><b>UCSC</b> · gene tables + cytobands</div>
+          </div>
+          <!-- Genomic context tracks -->
+          <div class="node" style="break-inside:avoid; margin-bottom:0; padding:.85cqw 1cqw; gap:.45cqw; border-top:.28cqw solid var(--charcoal)">
+            <div class="lbl" style="color:var(--charcoal); font-size:.85cqw">Genomic context tracks</div>
+            <div class="src"><b>DGV</b> · common structural/CNV context</div>
+            <div class="src"><b>Segmental duplications / LCRs</b> · FP-prone loci</div>
+            <div class="src"><b>Blacklist / exclusion regions</b> · artifact zones</div>
+            <div class="src"><b>Clinical CNV knowledgebase</b> · known clinical CNVs</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sfoot"><span class="dot"></span><span>Sources shown are documented as integrated in CoGA. The exact per-family annotation set is pinned to specific releases in the annotation/reference-version manifest captured at import.</span></div>
+    </div>
+    <style>
+      #s5 .src{font-size:.92cqw; color:var(--ink-soft); line-height:1.28; padding-left:.7cqw; position:relative}
+      #s5 .src::before{content:""; position:absolute; left:0; top:.5cqw; width:.28cqw; height:.28cqw; border-radius:50%; background:var(--ink-faint)}
+      #s5 .src b{color:var(--ink); font-weight:700}
+    </style>
+  </section>
+
+  <!-- ============================================================ 6 · ROADMAP -->
+  <section class="slide" id="s6">
+    <div class="field" style="width:44cqw; height:44cqw; right:-12cqw; top:-14cqw"></div>
+    <div class="slide-inner">
+      <div class="shead">
+        <div class="shead-l">
+          <div class="eyebrow"><span class="wm" style="font-size:1.4cqw"><span class="c">C</span><span class="o">o</span><span class="g">G</span><span class="a">A</span></span> Roadmap</div>
+          <h1 class="stitle">Where CoGA is heading</h1>
+          <p class="ssub">Direction is weighed for its regulatory consequence, not engineering merit alone — validation and traceability lead, product breadth follows.</p>
+        </div>
+        <div class="pageno">06 / 07</div>
+      </div>
+      <div class="trirule"></div>
+
+      <div class="sbody" style="flex-direction:column; gap:0; justify-content:center">
+        <!-- spine -->
+        <div style="position:relative; display:flex; gap:1.2cqw; align-items:stretch">
+          <div style="position:absolute; left:2cqw; right:2cqw; top:2.2cqw; height:.3cqw; border-radius:2px; background:linear-gradient(90deg,var(--crimson),var(--violet) 50%,var(--teal)); opacity:.55; z-index:0"></div>
+
+          <!-- 01 -->
+          <div class="stack" style="flex:1; gap:.6cqw; position:relative; z-index:1">
+            <div style="display:flex; align-items:center; gap:.6cqw">
+              <div style="width:4.4cqw; height:4.4cqw; border-radius:50%; background:var(--crimson); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1.7cqw; box-shadow:var(--shadow-card); flex:none">01</div>
+            </div>
+            <span class="pill prog" style="align-self:flex-start">In progress</span>
+            <div class="node" style="gap:.4cqw"><div class="nt" style="font-size:1.15cqw; color:var(--crimson)">Clinical performance evaluation</div><div class="nd">TF-10 → TF-11 — the largest regulatory step; sensitivity/specificity against comparators, gated on clinical-lead thresholds &amp; N.</div></div>
+          </div>
+
+          <!-- 02 -->
+          <div class="stack" style="flex:1; gap:.6cqw; position:relative; z-index:1">
+            <div style="display:flex; align-items:center; gap:.6cqw">
+              <div style="width:4.4cqw; height:4.4cqw; border-radius:50%; background:var(--violet); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1.7cqw; box-shadow:var(--shadow-card); flex:none">02</div>
+            </div>
+            <span class="pill prog" style="align-self:flex-start">In progress</span>
+            <div class="node" style="gap:.4cqw"><div class="nt" style="font-size:1.15cqw; color:var(--violet)">Traceability &amp; change-control</div><div class="nd">Finish version-identity → sign-out binding, reference-DB / SOUP provenance capture, and signed release records.</div></div>
+          </div>
+
+          <!-- 03 -->
+          <div class="stack" style="flex:1; gap:.6cqw; position:relative; z-index:1">
+            <div style="display:flex; align-items:center; gap:.6cqw">
+              <div style="width:4.4cqw; height:4.4cqw; border-radius:50%; background:var(--teal-deep); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1.7cqw; box-shadow:var(--shadow-card); flex:none">03</div>
+            </div>
+            <span class="pill plan" style="align-self:flex-start">Planned</span>
+            <div class="node" style="gap:.4cqw"><div class="nt" style="font-size:1.15cqw; color:var(--teal-deep)">Operational maturity</div><div class="nd">Backups + tested restore, a <span class="mono">/metrics</span> substrate, a versioned migration ledger, and a stuck-import reaper.</div></div>
+          </div>
+
+          <!-- 04 -->
+          <div class="stack" style="flex:1; gap:.6cqw; position:relative; z-index:1">
+            <div style="display:flex; align-items:center; gap:.6cqw">
+              <div style="width:4.4cqw; height:4.4cqw; border-radius:50%; background:var(--teal-bright); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1.7cqw; box-shadow:var(--shadow-card); flex:none">04</div>
+            </div>
+            <span class="pill ongo" style="align-self:flex-start">Ongoing</span>
+            <div class="node" style="gap:.4cqw"><div class="nt" style="font-size:1.15cqw; color:var(--teal-bright)">Discovery &amp; product breadth</div><div class="nd">Explorer aggregation views (gene / transcript / cohort AF), review &amp; sign-out refinement, MANE tag ingestion, import observability.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sfoot"><span class="dot"></span><span><b>Regulatory framing:</b> in-house IVD under IVDR Art 5(5) (CMGG, ISO 15189). Engineering work is weighed for GSPR / ISO 14971 / IEC 62304 / ISO 27001 / GDPR consequence. See the technical file &amp; improvement workplan.</span></div>
+    </div>
+  </section>
+
+</div>
