@@ -1,6 +1,6 @@
 # 14. Variant Explorer
 
-In dit hoofdstuk leert u hoe CoGA een *variant-centrische* zoekfunctie aanbiedt die kleine varianten (SNV's en indels) samenvat over **alle projecten waartoe een gebruiker toegang heeft**, in plaats van binnen één familie. U ziet welke schermen de reviewer te zien krijgt, hoe een zoekopdracht wordt vertaald naar geaggregeerde ClickHouse-queries, hoe dragertellingen (heterozygoot/homozygoot/aantal families) worden berekend, en — het allerbelangrijkste voor een auditor — hoe strikt wordt afgedwongen dat resultaten nooit buiten de projectgrenzen van de gebruiker lekken.
+Dit hoofdstuk behandelt hoe CoGA een *variant-centrische* zoekfunctie aanbiedt die Small Variants (SNV's/indels) samenvat over **alle projecten waartoe een gebruiker toegang heeft**, in plaats van binnen één familie. Aan bod komen welke schermen de reviewer te zien krijgt, hoe een zoekopdracht wordt vertaald naar geaggregeerde ClickHouse-queries, hoe dragertellingen (heterozygoot/homozygoot/aantal families) worden berekend, en — het allerbelangrijkste voor een auditor — hoe strikt wordt afgedwongen dat resultaten nooit buiten de projectgrenzen van de gebruiker lekken.
 
 Ter verduidelijking van enkele termen die telkens terugkomen:
 - **SNV** (single-nucleotide variant) = puntmutatie; **indel** = kleine insertie/deletie.

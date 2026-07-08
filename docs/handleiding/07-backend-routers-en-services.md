@@ -1,6 +1,6 @@
 # 7. Backend: routers & services in detail
 
-In dit hoofdstuk leert u hoe de API-laag van CoGA is opgebouwd. U ziet het vaste patroon **router → service → opslag**, hoe FastAPI afhankelijkheden (sessies, ingelogde gebruiker) automatisch aan elke endpoint doorgeeft, welke rol de Pydantic-schemas spelen, en — het belangrijkst voor een auditor — welke **veiligheids-invarianten overal gelden**: elke databankvraag is geparametriseerd, elke `ORDER BY` komt uit een vaste allowlist, en elke `LIMIT`/`OFFSET` wordt naar een geheel getal geforceerd. Dit hoofdstuk is de "kaart" die de losse feature-hoofdstukken (8 t/m 15) met elkaar verbindt: het legt uit wat ze gemeen hebben, zodat die hoofdstukken zich op hun eigen inhoud kunnen richten.
+Dit hoofdstuk beschrijft hoe de API-laag van CoGA is opgebouwd: het vaste patroon **router → service → opslag**, hoe FastAPI afhankelijkheden (sessies, ingelogde gebruiker) automatisch aan elke endpoint doorgeeft, welke rol de Pydantic-schemas spelen, en — het belangrijkst voor een auditor — welke **veiligheids-invarianten overal gelden**: elke databankvraag is geparametriseerd, elke `ORDER BY` komt uit een vaste allowlist, en elke `LIMIT`/`OFFSET` wordt naar een geheel getal geforceerd. Dit hoofdstuk is de "kaart" die de losse feature-hoofdstukken (8 t/m 15) met elkaar verbindt: het legt uit wat ze gemeen hebben, zodat die hoofdstukken zich op hun eigen inhoud kunnen richten.
 
 Een paar begrippen die vaak terugkomen, kort uitgelegd:
 - **Router**: een verzameling HTTP-endpoints (URL's zoals `GET /api/families/...`). In FastAPI is dat een `APIRouter`-object.
@@ -21,7 +21,7 @@ CoGA hanteert een strikte scheiding in drie lagen:
 
 ### Eén voorbeeld end-to-end
 
-Neem de endpoint die één pagina kleine varianten van een familie ophaalt.
+Neem de endpoint die één pagina Small Variants van een familie ophaalt.
 
 **Stap 1 — router.** In `backend/app/routers/families_small_variants.py` staat de functie `get_family_small_variants`, gekoppeld aan `GET /api/families/{family_id}/small-variants`. Sterk ingekort ziet die er zo uit:
 
@@ -124,7 +124,7 @@ Naast bovenstaande gelden in `backend/app/core/clickhouse.py` nog enkele bescher
 
 ## Overzicht: alle routers
 
-Alle routers worden verzameld in `backend/app/routers/__init__.py` (de lijst `all_routers`) en in `backend/app/main.py` onder het pad-voorvoegsel `/api` gemonteerd. De `families`-router bindt daarnaast nog **vijf sub-routers** in (kleine varianten, structurele varianten, NIPT, rapporten, tracks) onder hetzelfde `/families`-pad; die sub-routers hebben daarom zelf géén eigen voorvoegsel.
+Alle routers worden verzameld in `backend/app/routers/__init__.py` (de lijst `all_routers`) en in `backend/app/main.py` onder het pad-voorvoegsel `/api` gemonteerd. De `families`-router bindt daarnaast nog **vijf sub-routers** in (Small Variants, structurele varianten, NIPT, rapporten, tracks) onder hetzelfde `/families`-pad; die sub-routers hebben daarom zelf géén eigen voorvoegsel.
 
 | Router (bestand) | Pad onder `/api` | Doel |
 |---|---|---|
@@ -132,7 +132,7 @@ Alle routers worden verzameld in `backend/app/routers/__init__.py` (de lijst `al
 | `auth.py` | `/auth` | Login, token-uitgifte (`/auth/token`), self-service accountacties. Zie [hoofdstuk 5](05-login-authenticatie.md). |
 | `ped.py` | `/ped` | Pedigree (stamboom) uploaden/uitlezen. |
 | `families.py` | `/families` | Familie-metadata, leden, structuurversies, HPO-annotaties, Monarch-fenotypescores, region-of-interest. Kern-router; bindt de sub-routers hieronder in. |
-| `families_small_variants.py` | `/families` (sub) | Kleine varianten: paginering, export (CSV), compound-het, filter-presets, tags, review/ACMG. Zie [hoofdstuk 8](08-filterpaginas-en-api.md). |
+| `families_small_variants.py` | `/families` (sub) | Small Variants: paginering, export (CSV), compound-het, filter-presets, tags, review/ACMG. Zie [hoofdstuk 8](08-filterpaginas-en-api.md). |
 | `families_structural_variants.py` | `/families` (sub) | Structurele varianten van een familie. |
 | `families_nipt.py` | `/families` (sub) | NIPT-resultaten per familie (samenvatting, varianten, coverage). |
 | `families_reports.py` | `/families` (sub) | Annotatie-manifest, classification-drift, klinische audit, rapporten en sign-out. Zie [hoofdstuk 11](11-rapport-en-traceerbaarheid.md). |

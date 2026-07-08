@@ -1,6 +1,6 @@
 # 1. Algemene architectuur & structuur
 
-In dit hoofdstuk krijg je de "kaart" van het hele CoGA-platform. Je leert uit welke drie lagen het systeem bestaat (frontend, backend en twee databanken), waarom die scheiding er is, en hoe een enkel verzoek van een muisklik in de browser tot aan de data en weer terug loopt. Verder wandelen we door de mappenstructuur, laten we zien hoe frontend en backend tegelijk *gescheiden* én *verbonden* zijn (via de axios-client en JWT), waar de centrale configuratie leeft en hoe de applicatie opstart. Tot slot vind je de gebruikte technologieën met hun versies. Met deze basis begrijp je de rest van de handleiding veel gemakkelijker.
+Dit hoofdstuk beschrijft de "kaart" van het hele CoGA-platform: uit welke drie lagen het systeem bestaat (frontend, backend en twee databanken), waarom die scheiding er is, en hoe een enkel verzoek van een muisklik in de browser tot aan de data en weer terug loopt. Verder komt de mappenstructuur aan bod, wordt getoond hoe frontend en backend tegelijk *gescheiden* én *verbonden* zijn (via de axios-client en JWT), waar de centrale configuratie leeft en hoe de applicatie opstart. Tot slot worden de gebruikte technologieën met hun versies opgesomd. Deze basis vormt de context voor de rest van de handleiding.
 
 ## Wat is CoGA in één alinea
 
@@ -21,7 +21,7 @@ CoGA is opgebouwd uit drie duidelijk gescheiden lagen. Elke laag heeft één ver
 Een centraal ontwerpprincipe van CoGA is de **gesplitste opslag** ("split storage model"). Er zijn twee soorten data met heel andere eigenschappen:
 
 - **Postgres** is een klassieke relationele databank. Ze is *gezaghebbend* (de bron van waarheid) voor metadata en toestand: gebruikers, projecttoegang, families, samples, pedigree-structuur, review-toestand, panels, gene-cache, de repeat-catalogus, interval-track-metadata en het auditspoor. Dit zijn relatief kleine, sterk gestructureerde en vaak-gewijzigde gegevens.
-- **ClickHouse** is een kolomgeoriënteerde databank die gebouwd is voor enorme hoeveelheden data en snelle analytische query's. Ze bewaart de eigenlijke variant-payloads: kleine varianten (SNV/indel), structurele varianten, familie/sample-genotypes, cross-project-aggregaten en high-volume interval-tracks (dekking, WisecondorX-segmenten, APCAD, haplotypes). Een enkele familie kan miljoenen variantrijen bevatten.
+- **ClickHouse** is een kolomgeoriënteerde databank die gebouwd is voor enorme hoeveelheden data en snelle analytische query's. Ze bewaart de eigenlijke variant-payloads: Small Variants (SNV's/indels), structurele varianten, familie/sample-genotypes, cross-project-aggregaten en high-volume interval-tracks (dekking, WisecondorX-segmenten, APCAD, haplotypes). Een enkele familie kan miljoenen variantrijen bevatten.
 
 De verantwoordelijkheden van elke databank staan opgesomd in `docs/storage-architecture.md` (sectie "Split storage model"). De gezaghebbendheids-regel is expliciet vastgelegd in `docs/application-scheme.md`, sectie "Storage Boundary": *"Postgres is authoritative for metadata and state. ClickHouse is authoritative for variant payloads."* Bij het beantwoorden van een verzoek worden ClickHouse-variantrijen op verzoek "teruggekoppeld" (gejoind) aan de Postgres-metadata — bijvoorbeeld om een tag of ACMG-classificatie op een variant te tonen.
 
@@ -29,7 +29,7 @@ De verantwoordelijkheden van elke databank staan opgesomd in `docs/storage-archi
 
 ## De levensloop van een verzoek: van klik tot data en terug
 
-Het beste mentale model is een "estafette" waarbij elke laag het stokje doorgeeft. Neem als voorbeeld een gebruiker die de kleine varianten van een familie opvraagt.
+Het beste mentale model is een "estafette" waarbij elke laag het stokje doorgeeft. Neem als voorbeeld een gebruiker die de Small Variants van een familie opvraagt.
 
 1. **De klik in de browser.** De gebruiker navigeert in de React-frontend naar een familiepagina. React-componenten roepen de gedeelde API-client aan.
    **Waar in de code:** de pagina's in `frontend/src/pages/` (bv. `FamilySmallVariantsPage` in `frontend/src/pages/families/FamilySmallVariantsPage.tsx`), die data ophalen via de client in `frontend/src/lib/api.ts`.
@@ -197,7 +197,7 @@ De client-side routing gebruikt `react-router-dom` met `BrowserRouter` en genest
 
 - Alles zit binnen `Layout` (de gedeelde schil).
 - Publieke routes: `/login`, `/signup`.
-- Onder `RequireAuth`: het dashboard, de familiewerkruimte (`/families/:familyId` en alle subviews zoals kleine varianten, structurele varianten, rapport en QC), de familybuilder, de explorers (`/genes`, de Global Small Variant Explorer, de Clinical CNV Explorer), panels, HPO en docs.
+- Onder `RequireAuth`: het dashboard, de familiewerkruimte (`/families/:familyId` en alle subviews zoals Small Variants, structurele varianten, rapport en QC), de familybuilder, de explorers (`/genes`, de Global Small Variant Explorer, de Clinical CNV Explorer), panels, HPO en docs.
 - Onder `RequireAdmin` (geneste bewaker): alle `/admin/...`-routes, `/package-import` en `/projects`.
 
 **Waar in de code:** `frontend/src/index.tsx` (de `<Routes>`-boom met `<RequireAuth />` en `<RequireAdmin />`), en `frontend/src/components/Layout.tsx` (de schil met `<Outlet />`). De bewakers zelf worden behandeld in [hoofdstuk 2](02-beveiliging-rollen-rechten.md).

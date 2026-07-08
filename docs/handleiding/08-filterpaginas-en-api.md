@@ -1,6 +1,6 @@
 # 8. Filterpagina's ↔ API
 
-In dit hoofdstuk leer je hoe CoGA, nádat een package correct is geïmporteerd (zie [hoofdstuk 6](06-import-pipeline.md)), de juiste varianten voor een familie *filtert* en *toont*. Ik volg de hele keten: van de filtervelden die de analist in de browser invult, via de opbouw van de API-aanvraag, de backend-filterservice die er een veilige ClickHouse-query van maakt, de verrijking met metadata en review-status uit Postgres, tot de weergave in tabel en kaarten. In **deel A** behandel ik de twee grootste en meest representatieve datatypes: de *small variants* (SNV/indel — puntmutaties en kleine inserties/deleties) en de *structural variants* (SV — grote deleties, duplicaties, enz.). **Deel B** van dit hoofdstuk behandelt dezelfde keten voor de overige modaliteiten (mitochondriaal, Paraphase, TRGT/tandem repeats, NIPT en PGT) en sluit af met de gezamenlijke bestandentabel voor het hele hoofdstuk.
+Dit hoofdstuk beschrijft hoe CoGA, nádat een package correct is geïmporteerd (zie [hoofdstuk 6](06-import-pipeline.md)), de juiste varianten voor een familie *filtert* en *toont*. De hele keten wordt gevolgd: van de filtervelden die de analist in de browser invult, via de opbouw van de API-aanvraag, de backend-filterservice die er een veilige ClickHouse-query van maakt, de verrijking met metadata en review-status uit Postgres, tot de weergave in tabel en kaarten. In **deel A** komen de twee grootste en meest representatieve datatypes aan bod: de *Small Variants* (SNV/indel — puntmutaties en kleine inserties/deleties) en de *structural variants* (SV — grote deleties, duplicaties, enz.). **Deel B** van dit hoofdstuk behandelt dezelfde keten voor de overige modaliteiten (mitochondriaal, Paraphase, TRGT/tandem repeats, NIPT en PGT) en sluit af met de gezamenlijke bestandentabel voor het hele hoofdstuk.
 
 Enkele begrippen die telkens terugkomen. Een **endpoint** is een URL waarop de backend luistert (bv. `GET /families/FAM01/small-variants`). Een **queryparameter** is een `?sleutel=waarde`-paar in die URL; zo geeft de frontend de filterkeuzes door. **ClickHouse** is de kolomgeoriënteerde database waarin de vele variantrijen staan; **Postgres** bevat de metadata (families, samples, panels) én de handmatige review-toestand (classificaties, tags, notities). Een **geparametriseerde query** is een query waarin gebruikerswaarden niet in de SQL-tekst worden geplakt maar apart als parameters worden meegegeven — dat is de kern van de bescherming tegen SQL-injectie (het injecteren van kwaadaardige SQL via een invoerveld).
 
@@ -128,6 +128,28 @@ Het antwoord (een `VariantPage` met `variants`, eventueel `variant_groups` voor 
 
 **Waar in de code:** `frontend/src/pages/families/SmallVariantResults.tsx`, `SmallVariantTable.tsx`, `ResultsPagination.tsx`. De review-mutaties (tag togglen, review opslaan) lopen via `FamilySmallVariantsPage.tsx` en spreken de `PUT /{family_id}/small-variants/{variant_id}/review`-endpoints aan (zie [hoofdstuk 10](10-tagging-en-acmg-classificatie.md)).
 
+### Compound-heterozygote paren
+
+Bij een autosomaal-recessieve aandoening is één losse heterozygote variant meestal niet ziekteveroorzakend: een dragervariant op één allel wordt gecompenseerd door het gezonde tweede allel. Twee *verschillende* heterozygote varianten in hetzelfde gen kunnen samen wél oorzakelijk zijn — mits ze **in trans** liggen, dat wil zeggen één op elk allel. Dan is het gen biallelisch geraakt (beide kopieën defect) en zijn de twee varianten samen kandidaat-oorzakelijk. Liggen beide op hetzelfde allel (**in cis**), dan is het tweede allel nog intact en is de combinatie meestal een toevalstreffer. Het onderscheid trans/cis is dus beslissend, en CoGA velt daarom per paar een expliciet oordeel.
+
+Omdat zo'n bevinding alleen betekenis heeft als de twee "hits" *samen* worden beoordeeld, groepeert CoGA kandidaat-varianten als **paar** in plaats van ze als losse rijen te tonen. In de resultatenlijst verschijnen ze bovenaan als pair-cards met het label "Compound het pair", elk met de fase-status (in trans / in cis / onbekend) van de twee partnervarianten. Zo beoordeelt de analist beide varianten in het gen als één geheel.
+
+De backend leidt het paar af via segregatie in de familie. Een paar wordt gevormd wanneer beide varianten heterozygoot zijn in **álle** aangedane familieleden en **niet beide** aanwezig zijn in enig niet-aangedaan lid — die combinatie impliceert dat de twee varianten van verschillende ouders komen en dus in trans liggen. Waar fasering beschikbaar is (een gedeelde phase set) verfijnt die het trans/cis-oordeel rechtstreeks. De paarvorming zit in `_records_form_compound_het_pair` en `_compound_het_pairs`; het aparte endpoint dat de kandidaat-paren oplevert is `get_family_small_variant_compound_het_candidates`.
+
+Een bijzondere vorm is de **cross-type "second hit"**: een heterozygote Small Variant gecombineerd met een overlappende structurele variant (bijvoorbeeld een deletie) in hetzelfde gen. De deletie verwijdert de tweede genkopie en "unmaskt" daarmee de heterozygote SNV op het overgebleven allel — functioneel opnieuw biallelisch. De filter `require_sv_second_hit` beperkt de resultaten tot genen waar zo'n SV-tweede-hit bestaat; de trans/cis-logica hiervan staat beschreven in `docs/snv-sv-compound-het.md`.
+
+**Waar in de code:** frontend `frontend/src/pages/families/SmallVariantPairCards.tsx` (de pair-cards) en `frontend/src/pages/families/smallVariantSearch.ts` (`group_type: 'compound_het'`), met de fase-status-labels in `frontend/src/pages/families/smallVariantResultUtils.ts` (`formatCompoundHetPhaseStatus`). Backend: `_records_form_compound_het_pair` / `_compound_het_pairs` in `backend/app/services/clickhouse_variant_queries.py` (toegepast vanuit `get_family_compound_het_candidates` in `clickhouse_family_variants.py`), het endpoint `get_family_small_variant_compound_het_candidates` in `backend/app/routers/families_small_variants.py`, en de SV-tweede-hit-index in `backend/app/services/sv_gene_index_service.py`.
+
+### Expanded Carrier Screening (ECS)
+
+Expanded Carrier Screening is een *reproductieve* toepassing: geen zoektocht naar de oorzaak bij een patiënt, maar een draagerschapsscreening voor een **koppel** dat een kinderwens heeft. De vraag is niet "welke variant maakt deze persoon ziek", maar "lopen deze twee partners samen risico op een aangedaan kind". Voor autosomaal-recessieve aandoeningen is dat risico er wanneer **beide** partners drager zijn van een (heterozygote) kwalificerende variant in **hetzelfde** gen. CoGA toont daarom enkel de genen waar beide partners zo'n variant dragen; alle overige varianten zijn voor deze vraag irrelevant.
+
+Praktisch verloopt dit via een filter-preset "Expanded carrier screening" op de Small-Variants-filterpagina. De preset is alleen beschikbaar wanneer de frontend een koppel kan afleiden: `resolveCarrierScreeningCoupleMembers` identificeert de twee partners binnen de familie, en bij inschakelen zet het formulier de parameter `expanded_carrier_screening=true`. De backend retourneert vervolgens alleen genen waar beide partners aan de dragercriteria voldoen.
+
+**Waar in de code:** frontend `frontend/src/pages/families/smallVariantSearch.ts` (`resolveCarrierScreeningCoupleMembers` en de queryparameter) en `frontend/src/pages/families/SmallVariantFilterForm.tsx` (de preset-tegel). Backend: de endpoint-parameter `expanded_carrier_screening` in `backend/app/routers/families_small_variants.py`, het filterveld in `backend/app/services/family_variant_filters.py`, en de eigenlijke logica `_filter_expanded_carrier_screening` (met de koppel-partners via `_carrier_partner_names`) in `backend/app/services/clickhouse_variant_queries.py`, toegepast vanuit `clickhouse_family_variants.py`.
+
+Het verschil met compound-het is subtiel maar belangrijk. Beide draaien om "twee hits in één gen", maar met een ander subject en doel: bij **compound-het** zitten de twee hits bij *één* individu (biallelisch → ziekte in die patiënt), terwijl het bij **ECS** gaat om één drager-variant bij *elk* van twee partners in hetzelfde gen (een reproductief risico voor het toekomstige nageslacht, niet voor de partners zelf).
+
 ## Structural variants
 
 De structurele-variantpagina volgt exact hetzelfde stramien, met eigen bestanden en enkele wezenlijke verschillen door de aard van SV's (ze hebben een start én een end, een type als DEL/DUP/INV, en géén per-transcript annotatie-indexen zoals SNV's).
@@ -173,13 +195,13 @@ Mitochondriaal DNA (mtDNA, het kleine circulaire genoom van 16.569 basen in de m
 
 ### Van filter naar weergave
 
-De mtDNA-varianten leven in dezelfde ClickHouse-variantopslag als de gewone kleine varianten; de service haalt ze op met een filter op chromosoom `MT` via de gedeelde leeshelper `_fetch_small_variant_rows`. Er is dus geen aparte tabel, maar wel een aparte interpretatielaag:
+De mtDNA-varianten leven in dezelfde ClickHouse-variantopslag als de gewone Small Variants; de service haalt ze op met een filter op chromosoom `MT` via de gedeelde leeshelper `_fetch_small_variant_rows`. Er is dus geen aparte tabel, maar wel een aparte interpretatielaag:
 
 - **Heteroplasmie/VAF-classificatie** — de functie `_zygosity` in `mitochondrial_analysis.py` bepaalt per call `homoplasmic` (VAF ≥ 95%, constante `HOMOPLASMY_THRESHOLD`), `heteroplasmic` (VAF ≥ 2%, `HETEROPLASMY_THRESHOLD`), `low_level` of `reference`. De VAF komt uit het VCF-veld `AF` of, bij ontbreken, uit de verhouding alt-reads/leesdiepte (`_allele_fraction`).
 - **Locus-annotatie** — elke positie wordt via de vaste tabel `MT_LOCI` (in het servicebestand) aan een mitochondrieel gen/regio gekoppeld (`tRNA`, `rRNA`, `protein coding`, `control region`), plus een klinische betekenis (`_clinical_significance`) en een MITOMAP-zoeklink. MITOMAP is de referentiedatabank voor mitochondriële varianten.
 - **Maternale-lijn-controle** — `_maternal_transmission` classificeert of een variant maternaal wordt gedeeld (`maternal_shared`), alleen bij de moeder zit (`maternal_only`), alleen bij de vader (`father_only`, verdacht want mtDNA erft niet paternaal over), enzovoort. De UI biedt hiervoor de filterknop "Maternal review".
 
-De frontend voegt daar client-side filters aan toe (zoektekst, gnomAD-frequentiedrempel, synonieme varianten verbergen, scope "Clinical / Heteroplasmic / Homoplasmic / Maternal review"). Het combineert mtDNA met het **nucleaire mito-genpanel** doordat een mtDNA-variant naar een `SmallVariant`-vorm wordt vertaald (`toSmallVariantForAcmg`) en dezelfde ACMG-classificatiemodal en dezelfde review-endpoint gebruikt als de kleine varianten — zie hoofdstuk [10 — Tagging & ACMG](10-tagging-en-acmg-classificatie.md). De heteroplasmie- en maternale-transmissiecontext wordt daarbij als `mito`-context meegegeven aan de ACMG-evaluator.
+De frontend voegt daar client-side filters aan toe (zoektekst, gnomAD-frequentiedrempel, synonieme varianten verbergen, scope "Clinical / Heteroplasmic / Homoplasmic / Maternal review"). Het combineert mtDNA met het **nucleaire mito-genpanel** doordat een mtDNA-variant naar een `SmallVariant`-vorm wordt vertaald (`toSmallVariantForAcmg`) en dezelfde ACMG-classificatiemodal en dezelfde review-endpoint gebruikt als de Small Variants — zie hoofdstuk [10 — Tagging & ACMG](10-tagging-en-acmg-classificatie.md). De heteroplasmie- en maternale-transmissiecontext wordt daarbij als `mito`-context meegegeven aan de ACMG-evaluator.
 
 **Waar in de code:** review-koppeling via `_attach_reviews` (mtDNA-service) en `get_small_variant_review_map`; VAF-drempels als constanten bovenaan `mitochondrial_analysis.py`.
 
@@ -301,14 +323,14 @@ De artefactlijst staat in de Postgres-tabel `nipt_artifact_variants`, gescoped p
 Endpoints in `backend/app/routers/families_nipt.py`:
 
 - `GET /{family_id}/nipt/summary` — FF, categorie-tellingen, filter-tellingen.
-- `GET /{family_id}/nipt/variants` — geclassificeerde varianten. Hergebruikt de volledige kleine-variant-filterset (`_build_nipt_query_filters` → `SmallVariantQueryFilters`) plus NIPT-specifieke filters `category`, `min_confidence` en een overervingspreset `inheritance` (`de_novo`/`paternal_dominant`/`maternal_dominant`/`recessive_at_risk`). De recessieve preset (`_recessive_at_risk_variants`) groepeert de kandidaten per gen: een gen is at-risk wanneer beide ouders er een dragervariant hebben.
+- `GET /{family_id}/nipt/variants` — geclassificeerde varianten. Hergebruikt de volledige Small-Variant-filterset (`_build_nipt_query_filters` → `SmallVariantQueryFilters`) plus NIPT-specifieke filters `category`, `min_confidence` en een overervingspreset `inheritance` (`de_novo`/`paternal_dominant`/`maternal_dominant`/`recessive_at_risk`). De recessieve preset (`_recessive_at_risk_variants`) groepeert de kandidaten per gen: een gen is at-risk wanneer beide ouders er een dragervariant hebben.
 - `GET /{family_id}/nipt/coverage` — on-target dekking per doelregio (gen/panel/ROI) en overall mediaan, met een QC-vlag voor genen die onvoldoende geïnterrogeerd zijn.
 
 **Waar in de code:** dekkingskern in `backend/app/services/nipt_coverage.py` (lengte-gewogen mediaan, `evaluate_low_coverage`); doelregio-resolutie in `nipt_service.py` (`_resolve_nipt_target_regions`).
 
 ### Weergave
 
-De hoofdpagina toont een FF-gauge (met CI en het aantal cat-7-sites), de filtertrechter, de categorie-tellingen en de on-target-dekkings-QC, met daaronder de hergebruikte kleine-variant-resultatenlijst waarin per variant een NIPT-classificatieblok verschijnt. Het **rapport** groepeert de kandidaten per afgeleide overerving en draagt een verplichte disclaimer dat NIPT-classificaties beslissingsondersteuning uit cfDNA zijn die met een invasieve diagnostische test bevestigd moeten worden.
+De hoofdpagina toont een FF-gauge (met CI en het aantal cat-7-sites), de filtertrechter, de categorie-tellingen en de on-target-dekkings-QC, met daaronder de hergebruikte Small-Variant-resultatenlijst waarin per variant een NIPT-classificatieblok verschijnt. Het **rapport** groepeert de kandidaten per afgeleide overerving en draagt een verplichte disclaimer dat NIPT-classificaties beslissingsondersteuning uit cfDNA zijn die met een invasieve diagnostische test bevestigd moeten worden.
 
 **Waar in de code:** `frontend/src/pages/families/FamilyNiptPage.tsx`, `frontend/src/pages/families/FamilyNiptReportPage.tsx`, en het classificatieblok `frontend/src/pages/families/NiptClassificationBlock.tsx`. Merk op dat de pagina zich afschermt: is de familie niet als `monogenic_nipt` getagd, dan verschijnt een "Not a monogenic NIPT family"-toestand.
 
@@ -376,8 +398,8 @@ Onderstaande tabel dekt heel hoofdstuk 8 (deel A én B).
 
 | Bestand | Rol |
 | --- | --- |
-| `backend/app/routers/families_small_variants.py` | Endpoints voor kleine varianten (small variants) — deel A |
-| `backend/app/services/clickhouse_family_variants.py` | Gedeelde ClickHouse-leeslaag voor kleine varianten (`_fetch_small_variant_rows`), hergebruikt door mtDNA en NIPT — deel A |
+| `backend/app/routers/families_small_variants.py` | Endpoints voor Small Variants — deel A |
+| `backend/app/services/clickhouse_family_variants.py` | Gedeelde ClickHouse-leeslaag voor Small Variants (`_fetch_small_variant_rows`), hergebruikt door mtDNA en NIPT — deel A |
 | `backend/app/services/family_variant_filters.py` | `SmallVariantQueryFilters`: de gedeelde filterset — deel A |
 | `backend/app/routers/families_structural_variants.py` | Endpoints voor structurele varianten (SV) — deel A |
 | `backend/app/routers/families_tracks.py` | Endpoints voor mtDNA, Paraphase, repeats, haplotypes en phased-markers |

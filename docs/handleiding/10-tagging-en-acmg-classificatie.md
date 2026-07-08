@@ -1,6 +1,6 @@
 # 10. Variant-tagging & semi-automatische ACMG-classificatie
 
-In dit hoofdstuk leert u hoe een analist in CoGA varianten *labelt* (taggen) en *classificeert*, en hoe de tool daarbij assisteert met een **semi-automatische ACMG/AMP-classificator**. De kern is dat CoGA geen "auto-classifier" is: de software evalueert elk classificatiecriterium **vooraf** uit de beschikbare variant-, trio- en gendata, positioneert het op een puntenschaal, maar laat *elk* criterium overrijden door de reviewer. De uiteindelijke klasse en het puntentotaal worden altijd **op de server herberekend**, de gebruikte bewijsstukken worden **bevroren** (evidence-snapshot), en als het onderliggende bewijs later verandert wordt dat als *classification drift* gedetecteerd — wat de rapportvrijgave blokkeert (zie hoofdstuk 11). We behandelen zowel kleine varianten (SNV/indel) als kopie-aantalvarianten (CNV), en zowel de frontend-evaluatielogica als de backend-scoring en -persistentie.
+Dit hoofdstuk beschrijft hoe een analist in CoGA varianten *labelt* (taggen) en *classificeert*, en hoe de tool daarbij assisteert met een **semi-automatische ACMG/AMP-classificator**. De kern is dat CoGA geen "auto-classifier" is: de software evalueert elk classificatiecriterium **vooraf** uit de beschikbare variant-, trio- en gendata, positioneert het op een puntenschaal, maar laat *elk* criterium overrijden door de reviewer. De uiteindelijke klasse en het puntentotaal worden altijd **op de server herberekend**, de gebruikte bewijsstukken worden **bevroren** (evidence-snapshot), en als het onderliggende bewijs later verandert wordt dat als *classification drift* gedetecteerd — wat de rapportvrijgave blokkeert (zie hoofdstuk 11). We behandelen zowel Small Variants (SNV/indel) als kopie-aantalvarianten (CNV), en zowel de frontend-evaluatielogica als de backend-scoring en -persistentie.
 
 Enkele begrippen die vaak terugkomen:
 - **ACMG/AMP-criteria**: een gestandaardiseerde set bewijsregels (Richards et al., 2015) met codes als `PVS1`, `PM2`, `BA1`. Een `P`-prefix duidt op pathogeen bewijs, een `B`-prefix op benigne bewijs.
@@ -28,7 +28,7 @@ Deze scheiding is klinisch essentieel: bij recessieve aandoeningen is een ouder 
 
 ### Wat wordt vastgelegd
 
-Bij het reviewen van een kleine variant legt CoGA per variant, per familie, minstens drie dingen vast:
+Bij het reviewen van een Small Variant legt CoGA per variant, per familie, minstens drie dingen vast:
 
 | Element | Betekenis |
 | --- | --- |
@@ -242,7 +242,7 @@ Dit is de kern van klinische traceerbaarheid. Op het moment van classificeren vr
 
 ### De onveranderlijke klinische audittrail
 
-Naast het snapshot schrijft elke *kleine-variant*-review-wijziging een before→after-record in de **append-only** `clinical_audit_events`-tabel, in dezelfde transactie als de wijziging: *wie* welke variant classificeerde/taggde, *wanneer*, en *wat* veranderde (klasse, criteria-codes, tags, notitie). Dit is de klinische *actie*-log, los van de HTTP-*toegangs*-log `audit_log_pg`. De records worden bovendien in een **hash-chain** aan elkaar gebonden (per familie), zodat wissen, herordenen of bewerken van een record detecteerbaar is.
+Naast het snapshot schrijft elke *Small-Variant*-review-wijziging een before→after-record in de **append-only** `clinical_audit_events`-tabel, in dezelfde transactie als de wijziging: *wie* welke variant classificeerde/taggde, *wanneer*, en *wat* veranderde (klasse, criteria-codes, tags, notitie). Dit is de klinische *actie*-log, los van de HTTP-*toegangs*-log `audit_log_pg`. De records worden bovendien in een **hash-chain** aan elkaar gebonden (per familie), zodat wissen, herordenen of bewerken van een record detecteerbaar is.
 
 **Waar in de code:** `record_review_changes` (aangeroepen als `_audit()` in `upsert_small_variant_review`, vóór de `commit`), met `diff_review_changes` en `record_clinical_event` in `backend/app/services/clinical_audit_service.py`; de hashketen zit in `chain_row_hash` / `verify_chain` uit `backend/app/services/hash_chain.py`.
 
@@ -296,7 +296,7 @@ De UI voor tag-definities zit onder Administratie. Een admin kiest een project-c
 | `backend/app/services/acmg_points.py` | Server-herberekening SNV-punten/klasse/VUS-tier (parity met frontend). |
 | `backend/app/services/cnv_acmg_points.py` | Server-herberekening CNV-punten met bereikklemming. |
 | `backend/app/services/small_variant_review_acmg.py` | ACMG-payload valideren, evidence-snapshot bouwen. |
-| `backend/app/services/small_variant_review_pg.py` | Upsert van kleine-variantreviews (tags, notitie, ACMG, audit). |
+| `backend/app/services/small_variant_review_pg.py` | Upsert van Small-Variant-reviews (tags, notitie, ACMG, audit). |
 | `backend/app/services/small_variant_review_repository.py` | Ruwe SQL voor `small_variant_reviews` (incl. ACMG-kolommen). |
 | `backend/app/services/small_variant_review_tags.py` | Tag-definities: systeemtags, custom tags, scope, admin-checks. |
 | `backend/app/services/small_variant_review_presets.py` | Filter-presets (family/global, eigenaar-gebonden). |

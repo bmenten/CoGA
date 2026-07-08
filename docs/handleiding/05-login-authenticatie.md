@@ -1,6 +1,6 @@
 # 5. Login & authenticatie
 
-In dit hoofdstuk leer je precies hoe een gebruiker toegang krijgt tot CoGA: hoe het inlogformulier zijn gegevens naar de backend stuurt, hoe wachtwoorden veilig worden bewaard, hoe een JWT-token (een ondertekend "toegangsbewijs", zie hieronder) wordt uitgegeven en bij elke volgende aanvraag gecontroleerd, hoe de sessie in de browser leeft, en hoe brute-force-aanvallen (het systematisch uitproberen van wachtwoorden) worden afgeremd. We behandelen ook de optionele Azure AD single-sign-on (SSO) en sluiten af met wat een ingelogde gebruiker mag doen. Voor het volledige rechtenmodel verwijzen we naar [hoofdstuk 2 — Gebruikersrollen, machtigingen & afscherming](02-beveiliging-rollen-rechten.md).
+Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA: hoe het inlogformulier zijn gegevens naar de backend stuurt, hoe wachtwoorden veilig worden bewaard, hoe een JWT-token (een ondertekend "toegangsbewijs", zie hieronder) wordt uitgegeven en bij elke volgende aanvraag gecontroleerd, hoe de sessie in de browser leeft, en hoe brute-force-aanvallen (het systematisch uitproberen van wachtwoorden) worden afgeremd. Ook de optionele Azure AD single-sign-on (SSO) komt aan bod, en het hoofdstuk sluit af met wat een ingelogde gebruiker mag doen. Voor het volledige rechtenmodel verwijzen we naar [hoofdstuk 2 — Gebruikersrollen, machtigingen & afscherming](02-beveiliging-rollen-rechten.md).
 
 ## Begrippen die in dit hoofdstuk terugkomen
 

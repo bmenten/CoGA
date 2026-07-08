@@ -1,6 +1,6 @@
 # 9. Visualisaties (chromosome, genome, circos, IGV)
 
-In dit hoofdstuk leert u hoe CoGA genomische data visueel toont. We volgen de vier grote weergaven — het **whole-genome-overzicht**, de **per-chromosoom-weergave**, de **Circos-plot** en de ingebedde **IGV-browser** — plus de onderliggende *tracks* (horizontale gegevensbalken: coverage, APCAD, varianten, CNV's, genen, DGV, blacklist, segdups, repeats, haplotypes), het *ideogram* (de gestreepte chromosoomtekening) en de *pedigree* (stamboom). Per visualisatie maken we telkens drie dingen expliciet: **welk API-endpoint** de data levert, **hoe** er getekend en gesampled wordt (canvas, SVG of D3), en **hoe de juiste regio** wordt getoond. We sluiten af met de toegangscontrole die ook op deze visualisatie-endpoints geldt.
+In dit hoofdstuk wordt beschreven hoe CoGA genomische data visueel toont. We volgen de vier grote weergaven — het **whole-genome-overzicht**, de **per-chromosoom-weergave**, de **Circos-plot** en de ingebedde **IGV-browser** — plus de onderliggende *tracks* (horizontale gegevensbalken: coverage, APCAD, varianten, CNV's, genen, DGV, blacklist, segdups, repeats, haplotypes), het *ideogram* (de gestreepte chromosoomtekening) en de *pedigree* (stamboom). Per visualisatie maken we telkens drie dingen expliciet: **welk API-endpoint** de data levert, **hoe** er getekend en gesampled wordt (canvas, SVG of D3), en **hoe de juiste regio** wordt getoond. We sluiten af met de toegangscontrole die ook op deze visualisatie-endpoints geldt.
 
 Een paar begrippen vooraf, kort uitgelegd:
 
@@ -66,9 +66,9 @@ APCAD is een **BAF-scatter** (B-allele-frequentie): twee homozygote banden (rond
 
 - **Waar in de code:** `frontend/src/components/visualizations/ApcadChart.tsx`; server-side selectie in `fetch_apcad_downsampled` (`clickhouse_interval_tracks.py`), aangeroepen via de bed-service. Het puntenbudget komt uit `getApcadPointLimit(width)` in `frontend/src/lib/trackSampling.ts`.
 
-### Kleine varianten (SmallVariantTrack)
+### Small Variants (SmallVariantTrack)
 
-Deze track plaatst één gekleurde stip per kleine variant (SNV/indel) van het getoonde sample.
+Deze track plaatst één gekleurde stip per Small Variant (SNV/indel) van het getoonde sample.
 
 **Data.** `GET /families/{familyId}/small-variants` met `track_mode=true` en `track_result_limit=10000`. Boven die grens toont de track "Too many variants to display. Zoom in or apply filters." De kleur wordt bepaald in deze volgorde: tag-kleur (indien getagd) → anders een ClinVar-override (benign/pathogeen) → anders een functionele-impact-kleur. Wanneer het getoonde sample een kind is met beschikbare ouders, splitst de track in drie rijen op **ouderlijke oorsprong** (paternaal boven / onbepaald midden / maternaal onder); de functie `variantOrigin` leidt die af uit Mendeliaanse overerving of, bij één ontbrekende ouder, uit de gefaseerde haplotypevolgorde.
 
@@ -110,7 +110,7 @@ Deze tracks zijn niet sample-gebonden maar tonen referentie-annotatie (genen en 
 
 Het bestand `frontend/src/lib/trackSampling.ts` bevat de constanten en formules die bepalen **hoeveel** punten/segmenten een track maximaal toont, geschaald op de trackbreedte:
 
-- `SMALL_VARIANT_TRACK_RESULT_LIMIT = 10000` — boven dit aantal toont de kleine-variant-track "te veel; zoom in".
+- `SMALL_VARIANT_TRACK_RESULT_LIMIT = 10000` — boven dit aantal toont de Small-Variant-track "te veel; zoom in".
 - `getTrackVariantLimit`, `getTrackBinLimit`, `getTrackSegmentLimit`, `getApcadPointLimit` — leveren een limiet die ≈ evenredig is met de breedte (met een onder- en bovengrens).
 - `getAdaptiveTrackWindow` — kiest een binbreedte zodat er ongeveer één bin per twee pixels is.
 
@@ -176,7 +176,7 @@ Visualisaties tonen patiëntgevoelige signalen, dus dezelfde afscherming als de 
 | `frontend/src/components/visualizations/Ideogram.tsx` / `ZoomedIdeogram.tsx` | Cytoband-tekening (heel chromosoom / uitvergroot venster) |
 | `frontend/src/components/visualizations/CircosPlot.tsx` | D3-Circos: chromosoomring + radiale SV-verbindingen |
 | `frontend/src/components/visualizations/CoverageSegmentsChart.tsx` / `ApcadChart.tsx` | Canvas-scatter voor coverage en BAF/APCAD |
-| `frontend/src/components/visualizations/SvTrack.tsx` / `VariantTrack.tsx` / `SmallVariantTrack.tsx` | Structurele varianten (canvas) en kleine varianten (D3 + quadtree) |
+| `frontend/src/components/visualizations/SvTrack.tsx` / `VariantTrack.tsx` / `SmallVariantTrack.tsx` | Structurele varianten (canvas) en Small Variants (D3 + quadtree) |
 | `frontend/src/components/visualizations/GeneTrack.tsx`, `CnvTrack.tsx`, `DgvTrack.tsx`, `BlacklistTrack.tsx`, `SegmentalDuplicationTrack.tsx`, `RepeatExpansionTrack.tsx`, `GenomeRepeatExpansionTrack.tsx` | Referentie- en repeat-tracks |
 | `frontend/src/components/visualizations/Pedigree.tsx` | Stamboomlayout en -tekening uit leden/relaties |
 | `frontend/src/components/IgvViewer.tsx` / `frontend/src/lib/igvLoader.ts` / `frontend/src/pages/families/FamilyIgvPage.tsx` | Ingebedde IGV-browser (lui geladen, manifest-gestuurd) |

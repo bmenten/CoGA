@@ -1,6 +1,6 @@
 # 6. Package import — manifest, controles en traceerbaarheid
 
-In dit hoofdstuk leer je hoe CoGA een volledig familiepakket met genoomdata in één gecontroleerde handeling inleest. We volgen de weg van een map op schijf of in een cloud-bucket, via een *manifest* (een inhoudsopgave-bestand), langs een reeks veiligheids- en integriteitscontroles, tot de uiteindelijke wegschrijving in Postgres en ClickHouse. Je ziet welke controles vooraf gebeuren (de *dry-run*), hoe elk bronbestand herleidbaar wordt vastgelegd, en hoe een importtaak wordt bijgehouden en teruggerold als er iets misgaat. De rode draad is dat een auditor achteraf exact moet kunnen reconstrueren *welk bestand, met welke versies van welke tools, in welke tabel* terechtkwam — een IVDR-traceerbaarheidsvereiste.
+Dit hoofdstuk beschrijft hoe CoGA een volledig familiepakket met genoomdata in één gecontroleerde handeling inleest. Het volgt de weg van een map op schijf of in een cloud-bucket, via een *manifest* (een inhoudsopgave-bestand), langs een reeks veiligheids- en integriteitscontroles, tot de uiteindelijke wegschrijving in Postgres en ClickHouse. Aan bod komen welke controles vooraf gebeuren (de *dry-run*), hoe elk bronbestand herleidbaar wordt vastgelegd, en hoe een importtaak wordt bijgehouden en teruggerold als er iets misgaat. De rode draad is dat een auditor achteraf exact moet kunnen reconstrueren *welk bestand, met welke versies van welke tools, in welke tabel* terechtkwam — een IVDR-traceerbaarheidsvereiste.
 
 Een paar begrippen die in dit hoofdstuk steeds terugkomen:
 
@@ -51,7 +51,7 @@ De ondersteunde datasets zijn vastgelegd in de constante `SUPPORTED_DATASETS` (i
 
 | Manifest-sleutel | Inhoud | Voorbeeldpad |
 | --- | --- | --- |
-| `snv` | Kleine varianten (SNV/INDEL), VCF + optionele annotatie-TSV | `snv/{family_id}.annotated.vcf.gz` |
+| `snv` | Small Variants (SNV/indels), VCF + optionele annotatie-TSV | `snv/{family_id}.annotated.vcf.gz` |
 | `sv_needlr` | Structurele varianten (NeedlR) | `needlr/{family_id}.sv.annotated.vcf.gz` |
 | `repeats_trgt` | Repeat-expansies (TRGT) | `repeats/{family_id}.trgt.vcf.gz` |
 | `wisecondorx` | CNV coverage-bins en segmenten (per sample) | `wisecondorx/{sample_id}/bins.bed` |
