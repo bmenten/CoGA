@@ -988,7 +988,7 @@ async def get_family(
 </table></div>
 </section><section id="hs-3" class="chapter">
 <h1>3. Databankstructuren (Postgres &amp; ClickHouse)</h1>
-<p>In dit hoofdstuk leer je hoe CoGA zijn gegevens over twee databanken verdeelt: <strong>Postgres</strong> voor metadata, toegangsrechten, review-toestand en de klinische "papiersporen" (traceerbaarheid), en <strong>ClickHouse</strong> voor de enorme aantallen variant- en trackrijen. Je krijgt een volledige, per-bestand geverifieerde inventaris van alle Postgres-schemabestanden (<code>001</code> t/m <code>042</code>), een beschrijving van het ClickHouse-schema en de variant-tabellen, en je ziet exact via welke sleutels een ClickHouse-variantrij bij het beantwoorden van een verzoek weer aan de Postgres-metadata wordt gekoppeld. Tot slot leggen we uit hoe de schema's worden toegepast en beheerd, en welke veiligheids- en traceerbaarheidsgaranties in de databanklaag zelf zijn ingebakken.</p>
+<p>In dit hoofdstuk leer je hoe CoGA zijn gegevens over twee databanken verdeelt: <strong>Postgres</strong> voor metadata, toegangsrechten, review-toestand en de klinische "papiersporen" (traceerbaarheid), en <strong>ClickHouse</strong> voor de enorme aantallen variant- en trackrijen. Je krijgt een volledige, per-bestand geverifieerde inventaris van de vijf domein-gegroepeerde Postgres-baseline-bestanden (<code>01_access</code> t/m <code>05_grants</code>), een beschrijving van het ClickHouse-schema en de variant-tabellen, en je ziet exact via welke sleutels een ClickHouse-variantrij bij het beantwoorden van een verzoek weer aan de Postgres-metadata wordt gekoppeld. Tot slot leggen we uit hoe de schema's worden toegepast en beheerd, en welke veiligheids- en traceerbaarheidsgaranties in de databanklaag zelf zijn ingebakken.</p>
 <p>Enkele begrippen die verderop terugkomen: een <em>DSN</em> is de verbindingsstring naar een databank; <em>DDL</em> (Data Definition Language) zijn de SQL-commando's die tabellen aanmaken of wijzigen (<code>CREATE TABLE</code>, <code>ALTER TABLE</code>); een <em>foreign key</em> (FK, "vreemde sleutel") is een verwijzing van een rij naar een rij in een andere tabel; en <em>idempotent</em> betekent dat een bewerking veilig meermaals kan draaien met exact hetzelfde eindresultaat.</p>
 <h2>Waarom twee databanken?</h2>
 <p>CoGA gebruikt bewust een <strong>gesplitst opslagmodel</strong>. De motivatie staat in <code>docs/storage-architecture.md</code> en <code>docs/database.md</code>.</p>
@@ -1005,240 +1005,51 @@ async def get_family(
 <li>Upload-endpoints schrijven metadata naar <strong>Postgres</strong> en de zware variant/track-payloads naar <strong>ClickHouse</strong>.</li>
 </ol>
 <p>Een belangrijke identifier-afspraak (<code>docs/database.md</code>, "Identifier Rules"): metadata-rijen gebruiken <strong>UUID</strong>-sleutels; de variant-ID's die de API naar buiten toont zijn stabiele <em>strings</em> die losstaan van de opslag; en de mensvriendelijke identifiers blijven <code>family_id</code> en <code>sample_id</code>.</p>
-<h2>De genummerde Postgres-schemabestanden (001–042)</h2>
-<p>Het schema is <em>niet</em> een enkel groot bestand, maar een reeks genummerde <code>.sql</code>-bestanden in <code>backend/db/schema/postgres/</code>. Ze worden in gesorteerde (numerieke/alfabetische) volgorde toegepast (zie "Hoe de schema's worden beheerd" verderop). Elk bestand is ofwel een <code>CREATE TABLE</code>-bestand (nieuwe tabellen) ofwel een <code>ALTER TABLE</code>-bestand (kolommen/constraints toevoegen aan bestaande tabellen) - dat laatste is de manier waarop het schema historisch is gegroeid zonder ooit een bestaand bestand destructief te herschrijven.</p>
+<h2>De vijf Postgres-baseline-bestanden (01–05)</h2>
+<p>Het schema is <em>niet</em> een enkel groot bestand, maar een reeks genummerde <code>.sql</code>-bestanden in <code>backend/db/schema/postgres/</code>. Ze worden in gesorteerde (numerieke/alfabetische) volgorde toegepast (zie "Hoe de schema's worden beheerd" verderop).</p>
+<p>Historisch was dit een lange reeks incrementele migratiebestanden (<code>001_metadata.sql</code> t/m <code>042_gene_search_indexes.sql</code>): sommige <code>CREATE TABLE</code>-bestanden (nieuwe tabellen), andere <code>ALTER TABLE</code>-bestanden die kolommen/constraints toevoegden aan bestaande tabellen. Die 43 bestanden zijn intussen <strong>geconsolideerd tot vijf domein-gegroepeerde baseline-bestanden</strong>. Elke tabel wordt nu nog maar één keer aangemaakt, meteen in zijn eindvorm: de latere <code>ALTER ... ADD COLUMN</code>-stappen zijn ingevouwen in de betreffende <code>CREATE TABLE</code>. De consolidatie is bewezen <strong>schema-identiek</strong> met de oude reeks via een pg_dump/catalogus-fingerprint (identiek aantal kolommen, constraints, indexen, triggers, functies en grants) plus identieke seed-data. Er is dus <strong>geen gedragswijziging</strong> - enkel de bestandsindeling verandert. De loader past nog steeds <em>alle</em> bestanden idempotent toe bij elke boot; er is nog altijd geen migratie-grootboek (zie "Hoe de schema's worden beheerd").</p>
 <p class="waar"><strong>Waar in de code:</strong> de lijst met bestanden wordt opgebouwd door <code>_schema_files()</code> in <code>backend/app/core/postgres.py</code> (<code>schema_dir.glob("*.sql")</code> + <code>sorted(...)</code>).</p>
-<p>De volgende tabel koppelt <strong>elk</strong> bestand aan de tabellen die het aanmaakt/wijzigt en aan het doel. (Merk op: er zijn twee bestanden met nummer <code>026</code>.)</p>
+<p>De volgende tabel koppelt <strong>elk</strong> baseline-bestand aan de tabellen die het aanmaakt en aan het doel.</p>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Bestand</th>
-<th>Tabellen (aangemaakt / gewijzigd)</th>
+<th>Tabellen (aangemaakt)</th>
 <th>Doel</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>001_metadata.sql</code></td>
-<td><code>users</code>, <code>species</code>, <code>assemblies</code>, <code>projects</code>, <code>project_users</code>, <code>families</code>, <code>family_projects</code>, <code>samples</code>, <code>sample_projects</code>, <code>family_members</code>, <code>family_relationships</code>, <code>family_structure_versions</code>, <code>chromosomes</code>, <code>genes</code>, <code>blacklist</code>, <code>clinical_cnvs</code>, <code>repeat_loci</code>, <code>gene_info</code>, <code>gene_info_refresh_jobs</code>, <code>small_variant_reviews</code>, <code>small_variant_filter_presets</code>, <code>small_variant_tag_definitions</code>, <code>small_variant_tag_definition_project_links</code>, <code>gene_panels</code>, <code>gene_panel_genes</code>, <code>gene_panel_regions</code></td>
-<td>Het kernschema: gebruikers/toegang, projecten, families/samples/pedigree, referentiedata, review- en tag-toestand, panels. Activeert ook de <code>pgcrypto</code>-extensie (voor <code>gen_random_uuid()</code>).</td>
+<td><code>01_access.sql</code></td>
+<td><code>species</code>, <code>assemblies</code>, <code>chromosomes</code>, <code>users</code>, <code>projects</code>, <code>project_users</code>, <code>auth_login_attempts</code></td>
+<td>Genoom-foundation (soorten/assemblies/chromosomen) + identiteit/autorisatie (gebruikers, projecten, gebruiker↔project-koppeling, brute-force-lockout). Activeert ook de <code>pgcrypto</code>-extensie (voor <code>gen_random_uuid()</code>).</td>
 </tr>
 <tr>
-<td><code>002_repeat_expansions.sql</code></td>
-<td><code>repeat_expansions</code></td>
-<td>Per-sample repeat-expansie-calls (TRGT): motief, allel-lengtes, pathogeniciteitsstatus.</td>
+<td><code>02_reference.sql</code></td>
+<td><code>genes</code>, <code>gene_info</code>, <code>gene_info_refresh_jobs</code>, <code>blacklist</code>, <code>clinical_cnvs</code>, <code>clinical_cnv_kb_jobs</code>, <code>dgv_variants</code>, <code>segmental_duplications</code>, <code>gene_panels</code>, <code>gene_panel_genes</code>, <code>gene_panel_regions</code>, <code>gene_panel_versions</code>, <code>hpo_term</code>, <code>hpo_synonym</code>, <code>hpo_edge</code>, <code>hpo_closure</code>, <code>monarch_gene_disease</code>, <code>monarch_disease_phenotype</code>, <code>repeat_loci</code>, <code>reference_dataset_imports</code></td>
+<td>Referentie-/annotatiedata: genen en gen-profielen, blacklist, klinische CNV-kennisbank, DGV, segmentale duplicaties, de panelinfrastructuur (+versies), de HPO-ontologie, de Monarch-associaties, de repeat-catalogus en de per-(assembly,dataset) import-tracking.</td>
 </tr>
 <tr>
-<td><code>003_interval_tracks.sql</code></td>
-<td><code>sample_interval_track_sources</code></td>
-<td>Bron-metadata per interval-track (coverage/apcad/segments/haplotype); de eigenlijke rijen staan in ClickHouse.</td>
+<td><code>03_assay.sql</code></td>
+<td><code>family_statuses</code>, <code>families</code>, <code>samples</code>, <code>family_members</code>, <code>family_projects</code>, <code>sample_projects</code>, <code>family_relationships</code>, <code>family_structure_versions</code>, <code>family_import_jobs</code>, <code>individual_hpo</code>, <code>repeat_expansions</code>, <code>sample_paraphase_results</code>, <code>nipt_artifact_variants</code>, <code>sample_interval_track_sources</code>, <code>small_variant_reviews</code>, <code>small_variant_filter_presets</code>, <code>small_variant_tag_definitions</code>, <code>small_variant_tag_definition_project_links</code>, <code>structural_variant_reviews</code>, <code>structural_variant_filter_presets</code>, <code>family_sv_gene_index</code>, <code>family_sv_gene_index_status</code>, <code>family_variant_ranking_cache</code></td>
+<td>Families/samples + pedigree, per-sample assaydata (repeat-expansies, Paraphase, NIPT-artefacten, interval-track-bronnen, HPO per individu) en de review-/curatie-toestand: small- en SV-reviews (incl. ACMG/CNV-classificatie), filter-presets, tag-definities, de workflow-status-catalogus, en de caches/indexen.</td>
 </tr>
 <tr>
-<td><code>004_audit_logs.sql</code></td>
-<td><code>audit_log_events</code></td>
-<td>HTTP-toegangs-audittrail (wie deed welk verzoek, status, duur, IP).</td>
+<td><code>04_traceability.sql</code></td>
+<td><code>audit_log_events</code>, <code>ui_events</code>, <code>raw_import_files</code>, <code>family_annotation_manifest</code>, <code>clinical_audit_events</code>, <code>report_signouts</code>, <code>integrity_anchors</code> (+ immutabiliteit-triggerfuncties/triggers)</td>
+<td>Import-provenance (ruwe bronbestanden, annotatiemanifest) + het append-only, hash-geketende klinische audittrail, de geversioneerde sign-outs en de externe integriteits-anchors, met de bijbehorende append-only-triggers op databankniveau.</td>
 </tr>
 <tr>
-<td><code>005_gene_panel_description.sql</code></td>
-<td><code>gene_panels</code> (+<code>description</code>)</td>
-<td>Voegt een beschrijvingskolom toe aan panels.</td>
-</tr>
-<tr>
-<td><code>006_project_scoped_variant_tags.sql</code></td>
-<td><code>small_variant_tag_definitions</code> (+<code>scope</code>,<code>project_id</code>), <code>small_variant_tag_definition_project_links</code></td>
-<td>Maakt variant-tags project-scoped (naast global).</td>
-</tr>
-<tr>
-<td><code>007_family_import_jobs.sql</code></td>
-<td><code>family_import_jobs</code></td>
-<td>Achtergrond-jobtracking voor package-imports (status, validatiefouten, logs).</td>
-</tr>
-<tr>
-<td><code>008_paraphase_results.sql</code></td>
-<td><code>sample_paraphase_results</code></td>
-<td>Paraphase copy-number/fasering-resultaten per sample+gen.</td>
-</tr>
-<tr>
-<td><code>009_structural_variant_reviews.sql</code></td>
-<td><code>structural_variant_reviews</code>, <code>structural_variant_filter_presets</code></td>
-<td>Review-toestand en filter-presets voor structurele varianten.</td>
-</tr>
-<tr>
-<td><code>010_auth_login_attempts.sql</code></td>
-<td><code>auth_login_attempts</code></td>
-<td>Teller/lockout-toestand voor mislukte logins (brute-force-bescherming).</td>
-</tr>
-<tr>
-<td><code>011_pgt_family_roles.sql</code></td>
-<td><code>family_members</code> (role-<code>CHECK</code>)</td>
-<td>Breidt toegestane pedigree-rollen uit met <code>embryo</code> en <code>relative</code> (PGT).</td>
-</tr>
-<tr>
-<td><code>012_segmental_duplications.sql</code></td>
-<td><code>segmental_duplications</code></td>
-<td>Referentietrack van segmentale duplicaties/LCR's per assembly.</td>
-</tr>
-<tr>
-<td><code>013_gene_panel_sources.sql</code></td>
-<td><code>gene_panels</code> (+<code>source</code>,<code>external_*</code>,<code>source_metadata</code>)</td>
-<td>Herkomst van externe panels (bv. PanelApp).</td>
-</tr>
-<tr>
-<td><code>014_family_structure_relationships.sql</code></td>
-<td><code>family_members</code> (carrier/clinical-kolommen), <code>family_relationships</code>, <code>family_structure_versions</code></td>
-<td>Rijkere pedigree: carrier-/klinische status, expliciete relaties, geversioneerde structuur-snapshots.</td>
-</tr>
-<tr>
-<td><code>015_hpo.sql</code></td>
-<td><code>hpo_term</code>, <code>hpo_synonym</code>, <code>hpo_edge</code>, <code>hpo_closure</code>, <code>individual_hpo</code></td>
-<td>HPO-ontologie (termen, synoniemen, is_a-graaf, voorbereken-closure) + fenotypes per individu.</td>
-</tr>
-<tr>
-<td><code>016_superuser_role.sql</code></td>
-<td><code>users</code> (role-<code>CHECK</code>)</td>
-<td>Voegt de <code>superuser</code>-rol toe aan de toegestane rollen.</td>
-</tr>
-<tr>
-<td><code>017_raw_import_files.sql</code></td>
-<td><code>raw_import_files</code></td>
-<td>Provenance van elk ruw bronbestand van een import (pad, grootte, SHA-256).</td>
-</tr>
-<tr>
-<td><code>018_clinical_cnv_details.sql</code></td>
-<td><code>clinical_cnvs</code> (+<code>omim_id</code>,<code>decipher_id</code>,<code>description</code>)</td>
-<td>Gecureerde syndroom-detailvelden voor klinische CNV's.</td>
-</tr>
-<tr>
-<td><code>019_clinical_cnv_kb_jobs.sql</code></td>
-<td><code>clinical_cnv_kb_jobs</code></td>
-<td>Jobtracking voor het herbouwen van de klinische-CNV-kennisbank.</td>
-</tr>
-<tr>
-<td><code>020_clinical_cnv_enrichment.sql</code></td>
-<td><code>clinical_cnvs</code> (+<code>cytoband</code>,<code>source_id</code>,<code>omim_title</code>,<code>orpha_id</code>,<code>orpha_name</code>)</td>
-<td>Extra gecureerde detailkolommen voor klinische CNV's.</td>
-</tr>
-<tr>
-<td><code>021_reference_dataset_imports.sql</code></td>
-<td><code>reference_dataset_imports</code></td>
-<td>Per-(assembly, dataset) import-tracking (wanneer/door wie/hoeveel rijen).</td>
-</tr>
-<tr>
-<td><code>022_dgv_variants.sql</code></td>
-<td><code>dgv_variants</code></td>
-<td>Database of Genomic Variants (DGV) SV-intervallen per assembly.</td>
-</tr>
-<tr>
-<td><code>023_ui_events.sql</code></td>
-<td><code>ui_events</code></td>
-<td>Client-side UI-interacties (clicks, navigatie) die de backend anders niet ziet.</td>
-</tr>
-<tr>
-<td><code>024_family_metadata.sql</code></td>
-<td><code>family_statuses</code> (+ seed), <code>families</code> (+<code>status_id</code>,<code>assigned_to_id</code>,<code>reviewed_by_id</code>)</td>
-<td>Workflow-status-catalogus en per-familie status/toewijzing/reviewer.</td>
-</tr>
-<tr>
-<td><code>025_acmg_classification.sql</code></td>
-<td><code>small_variant_reviews</code> (+<code>acmg</code>,<code>acmg_point_total</code>,<code>acmg_class</code>)</td>
-<td>Semi-automatische ACMG/AMP-classificatie voor small variants.</td>
-</tr>
-<tr>
-<td><code>026_monarch_associations.sql</code></td>
-<td><code>monarch_gene_disease</code></td>
-<td>Monarch gen→ziekte-associaties (HGNC/MONDO), assembly-onafhankelijk.</td>
-</tr>
-<tr>
-<td><code>026_structural_acmg_classification.sql</code></td>
-<td><code>structural_variant_reviews</code> (+<code>cnv_acmg</code>,<code>cnv_point_total</code>,<code>cnv_class</code>)</td>
-<td>Semi-automatische ClinGen CNV-classificatie voor SV's.</td>
-</tr>
-<tr>
-<td><code>027_monarch_disease_phenotype.sql</code></td>
-<td><code>monarch_disease_phenotype</code></td>
-<td>Monarch ziekte→fenotype (HPO)-associaties voor verwacht-vs-waargenomen.</td>
-</tr>
-<tr>
-<td><code>028_nipt_artifacts.sql</code></td>
-<td><code>nipt_artifact_variants</code></td>
-<td>Recurrente-artefactenlijst (panel-of-normals) voor monogene NIPT.</td>
-</tr>
-<tr>
-<td><code>029_audit_log_immutable.sql</code></td>
-<td>trigger + functie op <code>audit_log_events</code></td>
-<td>Maakt het toegangs-audittrail <em>append-only</em> op databankniveau.</td>
-</tr>
-<tr>
-<td><code>030_family_annotation_manifest.sql</code></td>
-<td><code>family_annotation_manifest</code>, <code>reference_dataset_imports</code> (+<code>source_version</code>,<code>source_release_date</code>,<code>source_url</code>)</td>
-<td>Traceerbaarheid fase 0: welke annotatiemodules/-versies produceerden de input per familie.</td>
-</tr>
-<tr>
-<td><code>031_classification_evidence_snapshot.sql</code></td>
-<td><code>small_variant_reviews</code> (+<code>acmg_evidence_snapshot</code>)</td>
-<td>Traceerbaarheid fase 1: bevriest het bewijs waarop een classificatie berustte (drift-detectie).</td>
-</tr>
-<tr>
-<td><code>032_clinical_audit_events.sql</code></td>
-<td><code>clinical_audit_events</code> (+ trigger/functie)</td>
-<td>Traceerbaarheid fase 2: onwrikbaar log van klinische beslissingen (voor→na).</td>
-</tr>
-<tr>
-<td><code>033_report_signouts.sql</code></td>
-<td><code>report_signouts</code> (+ trigger/functie)</td>
-<td>Traceerbaarheid fase 3: geversioneerde, content-gehashte case-sign-out.</td>
-</tr>
-<tr>
-<td><code>034_gene_panel_versions.sql</code></td>
-<td><code>gene_panel_versions</code>, <code>gene_panels</code> (+<code>version</code>)</td>
-<td>Onveranderlijke versie-snapshots van elk genpaneel (bv. Mendeliome).</td>
-</tr>
-<tr>
-<td><code>035_family_variant_ranking_cache.sql</code></td>
-<td><code>family_variant_ranking_cache</code></td>
-<td>Cache van de fenotype-geprioriteerde small-variant-ranking per familie.</td>
-</tr>
-<tr>
-<td><code>036_ranking_cache_superset.sql</code></td>
-<td><code>family_variant_ranking_cache</code> (+<code>base_hash</code>,<code>panel_id</code>)</td>
-<td>Maakt de ranking-cache paneel-agnostisch (smaller paneel uit brede cache).</td>
-</tr>
-<tr>
-<td><code>037_family_sv_gene_index.sql</code></td>
-<td><code>family_sv_gene_index</code>, <code>family_sv_gene_index_status</code></td>
-<td>Per-familie index van genen die door een SV geraakt worden (SNV+SV compound het).</td>
-</tr>
-<tr>
-<td><code>038_clinical_audit_hash_chain.sql</code></td>
-<td><code>clinical_audit_events</code> (+<code>row_hash</code>,<code>prev_hash</code>)</td>
-<td>Per-familie tamper-evidence hash-ketting op het klinische audittrail.</td>
-</tr>
-<tr>
-<td><code>039_report_signouts_hash_chain.sql</code></td>
-<td><code>report_signouts</code> (+<code>row_hash</code>,<code>prev_hash</code>)</td>
-<td>Per-familie hash-ketting over ondertekende rapportversies.</td>
-</tr>
-<tr>
-<td><code>040_app_runtime_role_privileges.sql</code></td>
+<td><code>05_grants.sql</code></td>
 <td>rol <code>coga_app</code> (GRANT/REVOKE)</td>
-<td>DB-privilegescheiding: beperkte runtime-rol die audit/sign-out-rijen niet mag wijzigen/verwijderen.</td>
-</tr>
-<tr>
-<td><code>041_integrity_anchors.sql</code></td>
-<td><code>integrity_anchors</code> (+ trigger, GRANT/REVOKE)</td>
-<td>Extern-ondertekende chain-head-anchor die her-ketting/truncatie detecteerbaar maakt.</td>
-</tr>
-<tr>
-<td><code>042_gene_search_indexes.sql</code></td>
-<td>indexen op <code>genes</code> en <code>gene_info</code></td>
-<td>Prestatie-indexen voor gen-autocomplete, paneel/regio-resolve en gen-lookup.</td>
+<td>DB-privilegescheiding: maakt de beperkte runtime-rol <code>coga_app</code> aan en <code>REVOKE</code>t <code>UPDATE, DELETE, TRUNCATE</code> op de append-only tabellen (voorheen <code>040</code>).</td>
 </tr>
 </tbody>
 </table></div>
 <h3>Vier logische groepen</h3>
 <p>Al deze tabellen vallen uiteen in vier functionele groepen. Deze indeling helpt een reviewer om snel te zien "waar hoort iets thuis".</p>
-<p><strong>(a) Toegang &amp; projecten.</strong> <code>users</code> (met een <code>role</code>-<code>CHECK</code> die uitsluitend <code>admin</code>/<code>superuser</code>/<code>viewer</code> toestaat, uitgebreid in <code>016</code>), <code>projects</code>, <code>project_users</code> (koppeltabel gebruiker↔project), <code>families</code>, <code>family_projects</code>, <code>samples</code>, <code>sample_projects</code>, <code>family_members</code> (pedigree-rol + aangedaan/carrier-status; de toegestane rollen worden in <code>011</code> uitgebreid), <code>family_relationships</code> en <code>family_structure_versions</code>. Deze groep bepaalt <em>wie wat mag zien</em> en vormt de scope waarbinnen alle variantqueries draaien. <strong>Waar in de code:</strong> <code>001_metadata.sql</code> + <code>014_family_structure_relationships.sql</code>.</p>
-<p><strong>(b) Referentiedata.</strong> Alles wat niet aan een patient hangt maar aan een genoom/kennisbank: <code>species</code>, <code>assemblies</code>, <code>chromosomes</code> (met cytobanden in de <code>bands</code>-kolom), <code>genes</code>, <code>gene_info</code> (verrijkt gen-profiel, per assembly), <code>repeat_loci</code> (repeat-catalogus), <code>blacklist</code>, <code>clinical_cnvs</code> (+ detailkolommen uit <code>018</code>/<code>020</code>), <code>dgv_variants</code>, <code>segmental_duplications</code>, de HPO-tabellen (<code>hpo_term</code>/<code>hpo_synonym</code>/<code>hpo_edge</code>/<code>hpo_closure</code>), de Monarch-tabellen (<code>monarch_gene_disease</code>, <code>monarch_disease_phenotype</code>) en de panelinfrastructuur (<code>gene_panels</code>, <code>gene_panel_genes</code>, <code>gene_panel_regions</code>, <code>gene_panel_versions</code>). Kenmerkend: bijna alle assembly-gebonden referentiedata heeft een FK <code>assembly_id → assemblies(id)</code> met <code>ON DELETE CASCADE</code>. De Monarch-tabellen zijn juist bewust <em>assembly-onafhankelijk</em> (gekoppeld op HGNC/MONDO).</p>
+<p><strong>(a) Toegang &amp; projecten.</strong> <code>users</code> (met een <code>role</code>-<code>CHECK</code> die uitsluitend <code>admin</code>/<code>superuser</code>/<code>viewer</code> toestaat), <code>projects</code>, <code>project_users</code> (koppeltabel gebruiker↔project), <code>families</code>, <code>family_projects</code>, <code>samples</code>, <code>sample_projects</code>, <code>family_members</code> (pedigree-rol + aangedaan/carrier-status; de toegestane rollen omvatten ook <code>embryo</code> en <code>relative</code> voor PGT), <code>family_relationships</code> en <code>family_structure_versions</code>. Deze groep bepaalt <em>wie wat mag zien</em> en vormt de scope waarbinnen alle variantqueries draaien. <strong>Waar in de code:</strong> <code>01_access.sql</code> (gebruikers/projecten) + <code>03_assay.sql</code> (families/samples/pedigree).</p>
+<p><strong>(b) Referentiedata.</strong> Alles wat niet aan een patient hangt maar aan een genoom/kennisbank: <code>species</code>, <code>assemblies</code>, <code>chromosomes</code> (met cytobanden in de <code>bands</code>-kolom), <code>genes</code>, <code>gene_info</code> (verrijkt gen-profiel, per assembly), <code>repeat_loci</code> (repeat-catalogus), <code>blacklist</code>, <code>clinical_cnvs</code> (incl. gecureerde syndroom-detailkolommen), <code>dgv_variants</code>, <code>segmental_duplications</code>, de HPO-tabellen (<code>hpo_term</code>/<code>hpo_synonym</code>/<code>hpo_edge</code>/<code>hpo_closure</code>), de Monarch-tabellen (<code>monarch_gene_disease</code>, <code>monarch_disease_phenotype</code>) en de panelinfrastructuur (<code>gene_panels</code>, <code>gene_panel_genes</code>, <code>gene_panel_regions</code>, <code>gene_panel_versions</code>). Kenmerkend: bijna alle assembly-gebonden referentiedata heeft een FK <code>assembly_id → assemblies(id)</code> met <code>ON DELETE CASCADE</code>. De Monarch-tabellen zijn juist bewust <em>assembly-onafhankelijk</em> (gekoppeld op HGNC/MONDO).</p>
 <p><strong>(c) Assay- &amp; applicatiedata.</strong> De feitelijke uitkomsten en werk-toestand: <code>small_variant_reviews</code> en <code>structural_variant_reviews</code> (classificatie, tags, notities, ACMG/CNV-classificatie), de filter-presets, <code>repeat_expansions</code>, <code>sample_paraphase_results</code>, <code>nipt_artifact_variants</code>, <code>individual_hpo</code> (fenotypes per individu), <code>sample_interval_track_sources</code>, en de caches/indexen <code>family_variant_ranking_cache</code>, <code>family_sv_gene_index(_status)</code>. Ook de jobtabellen (<code>family_import_jobs</code>, <code>gene_info_refresh_jobs</code>, <code>clinical_cnv_kb_jobs</code>, <code>reference_dataset_imports</code>) horen hier.</p>
 <p><strong>(d) Traceability &amp; klinisch.</strong> De IVDR-kritische papiersporen: <code>family_annotation_manifest</code> (welke annotatieversies), het bevroren bewijs (<code>small_variant_reviews.acmg_evidence_snapshot</code>), de <em>hash-ketted append-only</em> audit- en sign-out-tabellen <code>audit_log_events</code>, <code>clinical_audit_events</code>, <code>report_signouts</code>, de <code>integrity_anchors</code>, en <code>ui_events</code>. Deze groep bespreken we hieronder apart, want daar zit de meeste veiligheidslogica.</p>
 <h2>Het ClickHouse-schema</h2>
@@ -1343,18 +1154,18 @@ async def get_family(
 <p><strong>Postgres.</strong> <code>init_postgres_schema()</code> in <code>backend/app/core/postgres.py</code> leest de bestanden in gesorteerde volgorde, splitst elk bestand in losse statements met <code>_split_sql_script()</code> (dat expliciet <code>--</code>-commentaar en <code>$$ ... $$</code>- / <code>$tag$ ... $tag$</code>-dollar-quotes respecteert, zodat een puntkomma binnen een PL/pgSQL-triggerbody het statement niet afkapt) en voert ze uit binnen <strong>één transactie</strong> (<code>engine.begin()</code>). Deze functie wordt langs twee paden aangeroepen:
 - <strong>Standaard (huidige deployment):</strong> de app self-migreert bij startup als table-owner (<code>POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=true</code>).
 - <strong>Owner-privileged out-of-band:</strong> <code>python -m backend.app.db_migrate</code> draait <code>run_schema_migrations()</code> als aparte deploy-stap, zodat de app zelf later als de beperkte rol <code>coga_app</code> kan booten zonder op DDL te crashen. Beide paden roepen dezelfde <code>init_postgres_schema()</code> (en <code>init_postgres_admin_user()</code>) aan - één bron van waarheid. <strong>Waar in de code:</strong> <code>backend/app/db_migrate.py</code>.</p>
-<p>Omdat elk bestand <em>elke boot</em> opnieuw draait, is een destructieve <code>UPDATE</code> in een schemabestand levensgevaarlijk: hij zou bij elke herstart data resetten. Bestand <code>006</code> bevat hierover een expliciete waarschuwing (een verwijderde backfill-<code>UPDATE</code> die project-scoped tags telkens terug naar global zette) - een geverifieerd voorbeeld van deze valkuil.</p>
+<p>Omdat elk bestand <em>elke boot</em> opnieuw draait, is een destructieve <code>UPDATE</code> in een schemabestand levensgevaarlijk: hij zou bij elke herstart data resetten. Een geverifieerd voorbeeld van deze valkuil is de project-scoping van variant-tags in <code>03_assay.sql</code>: een backfill-<code>UPDATE</code> die de kolommen <code>scope</code>/<code>project_id</code> op <code>small_variant_tag_definitions</code> telkens terug naar global zou zetten, is daarom bewust achterwege gelaten (de kolommen worden enkel via idempotente <code>CREATE TABLE</code> in hun eindvorm aangemaakt).</p>
 <p><strong>ClickHouse.</strong> <code>init_clickhouse_schema()</code> in <code>backend/app/core/clickhouse.py</code> doet hetzelfde voor de ClickHouse-bestanden, maar met een render-stap: <code>_render_sql()</code> vervangt de hardgecodeerde <code>coga</code>-databasenaam (zowel <code>CREATE DATABASE ... coga</code> als de <code>coga.\``-tabelprefix) door de geconfigureerde</code>settings.clickhouse_database<code>. De per-assembly variant-tabellen worden echter niet hier, maar lazy bij ingestie/eerste gebruik aangemaakt via</code>ensure_clickhouse_variant_tables()`.</p>
 <p>De opstartvolgorde (uit <code>docs/database.md</code>, "Startup Behavior") is: wacht op Postgres → pas Postgres-schema toe → zorg dat de admin-gebruiker bestaat → seed de repeat-catalogus → zorg dat Homo sapiens GRCh38 bestaat en importeer ontbrekende cytobanden/genen → seed ingebouwde hg38-referentietracks → wacht op ClickHouse → pas ClickHouse-schema toe → start de gen-refresh-worker.</p>
 <h2>Veiligheid &amp; traceerbaarheid in de databanklaag</h2>
 <p>Veel van CoGA's IVDR-garanties zijn niet slechts applicatielogica maar <em>op databankniveau afgedwongen</em>, wat betekent dat zelfs een bug of een misbruikte API-call ze niet kan omzeilen.</p>
 <ul>
-<li><strong>Append-only audittrails via triggers.</strong> <code>audit_log_events</code> (<code>029</code>), <code>clinical_audit_events</code> (<code>032</code>), <code>report_signouts</code> (<code>033</code>) en <code>integrity_anchors</code> (<code>041</code>) hebben elk een <code>BEFORE UPDATE OR DELETE</code>-trigger die <code>DELETE</code> volledig blokkeert en <code>UPDATE</code> weigert - met één zorgvuldig afgebakende uitzondering: de <code>ON DELETE SET NULL</code>-cascade die identiteits-FK's (bv. <code>user_id</code>/<code>actor_id</code>/<code>family_id</code>) nult wanneer een account of familie wordt verwijderd. De denormaliseerde identiteitskolommen (bv. <code>user_email</code>/<code>actor</code>/<code>family_identifier</code>) bewaren wie het was ook na accountverwijdering.</li>
-<li><strong>Hash-ketting (tamper-evidence).</strong> <code>038</code>/<code>039</code> voegen <code>row_hash</code>/<code>prev_hash</code> toe aan <code>clinical_audit_events</code> en <code>report_signouts</code>: elke rij bindt zijn inhoud aan de vorige rij <em>per familie</em>. Verwijderen, herordenen of bewerken van een rij wordt zo detecteerbaar. <code>report_signouts</code> draagt bovendien een content-hash van de canonieke snapshot.</li>
-<li><strong>Externe anchor.</strong> <code>041</code> legt periodiek elke ketting-<em>head</em> vast en ondertekent die (met een sleutel die de databankrol niet bezit) - zodat zelfs een owner die een trigger uitzet en een keten <em>herberekent</em> (self-consistent maakt) of <em>trunceert</em> alsnog betrapt wordt door een externe verifier. De eerlijke vertrouwensgrens staat beschreven in het bestandshoofd van <code>041_integrity_anchors.sql</code> en in <code>backend/app/services/integrity_anchor_service.py</code>.</li>
-<li><strong>Privilegescheiding.</strong> <code>040</code> maakt de runtime-rol <code>coga_app</code> aan (voorlopig <code>NOLOGIN</code>, in fallback-modus - de app connecteert nog als owner) en <code>REVOKE</code>t <code>UPDATE, DELETE, TRUNCATE</code> op de append-only tabellen. Een runtime-aanvaller kan daardoor geen bestaande audit-/sign-out-rij herschrijven of verwijderen (wel nog <em>toevoegen</em>, want <code>INSERT</code> blijft nodig). Schema-DDL blijft voorbehouden aan de owner - vandaar het aparte <code>db_migrate.py</code>-pad.</li>
-<li><strong>Toegangscontrole in het schema.</strong> De <code>role</code>-<code>CHECK</code> op <code>users</code> (<code>001</code>/<code>016</code>) beperkt rollen tot <code>admin</code>/<code>superuser</code>/<code>viewer</code>; FK's met <code>ON DELETE CASCADE</code> zorgen dat het verwijderen van een project/familie/sample geen wees-rijen achterlaat; en <code>auth_login_attempts</code> (<code>010</code>) draagt de brute-force-lockout-toestand.</li>
-<li><strong>Provenance.</strong> <code>raw_import_files</code> (<code>017</code>, met <code>sha256</code>), <code>family_annotation_manifest</code> (<code>030</code>) en <code>reference_dataset_imports</code> (<code>021</code>/<code>030</code>) leggen vast <em>welke</em> bronbestanden en <em>welke</em> annotatie-/referentieversies een familie hebben geproduceerd - de basis voor de rapporttraceerbaarheid (zie <a href="#hs-11">hoofdstuk 11</a>).</li>
+<li><strong>Append-only audittrails via triggers.</strong> <code>audit_log_events</code>, <code>clinical_audit_events</code>, <code>report_signouts</code> en <code>integrity_anchors</code> (alle in <code>04_traceability.sql</code>) hebben elk een <code>BEFORE UPDATE OR DELETE</code>-trigger die <code>DELETE</code> volledig blokkeert en <code>UPDATE</code> weigert - met één zorgvuldig afgebakende uitzondering: de <code>ON DELETE SET NULL</code>-cascade die identiteits-FK's (bv. <code>user_id</code>/<code>actor_id</code>/<code>family_id</code>) nult wanneer een account of familie wordt verwijderd. De denormaliseerde identiteitskolommen (bv. <code>user_email</code>/<code>actor</code>/<code>family_identifier</code>) bewaren wie het was ook na accountverwijdering.</li>
+<li><strong>Hash-ketting (tamper-evidence).</strong> <code>clinical_audit_events</code> en <code>report_signouts</code> (<code>04_traceability.sql</code>) dragen <code>row_hash</code>/<code>prev_hash</code>: elke rij bindt zijn inhoud aan de vorige rij <em>per familie</em>. Verwijderen, herordenen of bewerken van een rij wordt zo detecteerbaar. <code>report_signouts</code> draagt bovendien een content-hash van de canonieke snapshot.</li>
+<li><strong>Externe anchor.</strong> <code>integrity_anchors</code> (<code>04_traceability.sql</code>) legt periodiek elke ketting-<em>head</em> vast en ondertekent die (met een sleutel die de databankrol niet bezit) - zodat zelfs een owner die een trigger uitzet en een keten <em>herberekent</em> (self-consistent maakt) of <em>trunceert</em> alsnog betrapt wordt door een externe verifier. De eerlijke vertrouwensgrens staat beschreven in het bestandshoofd van <code>04_traceability.sql</code> (<code>integrity_anchors</code>-sectie) en in <code>backend/app/services/integrity_anchor_service.py</code>.</li>
+<li><strong>Privilegescheiding.</strong> <code>05_grants.sql</code> maakt de runtime-rol <code>coga_app</code> aan (voorlopig <code>NOLOGIN</code>, in fallback-modus - de app connecteert nog als owner) en <code>REVOKE</code>t <code>UPDATE, DELETE, TRUNCATE</code> op de append-only tabellen. Een runtime-aanvaller kan daardoor geen bestaande audit-/sign-out-rij herschrijven of verwijderen (wel nog <em>toevoegen</em>, want <code>INSERT</code> blijft nodig). Schema-DDL blijft voorbehouden aan de owner - vandaar het aparte <code>db_migrate.py</code>-pad.</li>
+<li><strong>Toegangscontrole in het schema.</strong> De <code>role</code>-<code>CHECK</code> op <code>users</code> (<code>01_access.sql</code>) beperkt rollen tot <code>admin</code>/<code>superuser</code>/<code>viewer</code>; FK's met <code>ON DELETE CASCADE</code> zorgen dat het verwijderen van een project/familie/sample geen wees-rijen achterlaat; en <code>auth_login_attempts</code> (<code>01_access.sql</code>) draagt de brute-force-lockout-toestand.</li>
+<li><strong>Provenance.</strong> <code>raw_import_files</code> (<code>04_traceability.sql</code>, met <code>sha256</code>), <code>family_annotation_manifest</code> (<code>04_traceability.sql</code>) en <code>reference_dataset_imports</code> (<code>02_reference.sql</code>) leggen vast <em>welke</em> bronbestanden en <em>welke</em> annotatie-/referentieversies een familie hebben geproduceerd - de basis voor de rapporttraceerbaarheid (zie <a href="#hs-11">hoofdstuk 11</a>).</li>
 </ul>
 <p>Voor de rollen en rechten zelf, zie <a href="#hs-2">hoofdstuk 2</a>; voor de importpipeline die deze tabellen vult, zie <a href="#hs-6">hoofdstuk 6</a>; voor de traceerbaarheids- en sign-out-flow in detail, zie <a href="#hs-11">hoofdstuk 11</a>.</p>
 <h2>Belangrijkste bestanden</h2>
@@ -1375,8 +1186,8 @@ async def get_family(
 <td>Motivatie en runtime-taakverdeling Postgres vs ClickHouse.</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/001_metadata.sql</code> … <code>042_gene_search_indexes.sql</code></td>
-<td>De genummerde, idempotente Postgres-schemabestanden (kern-metadata t/m traceerbaarheid en indexen).</td>
+<td><code>backend/db/schema/postgres/01_access.sql</code> … <code>05_grants.sql</code></td>
+<td>De vijf domein-gegroepeerde, idempotente Postgres-baseline-bestanden (toegang, referentiedata, assay, traceerbaarheid, grants) - de eindvorm-consolidatie van de vroegere <code>001</code>–<code>042</code>-reeks.</td>
 </tr>
 <tr>
 <td><code>backend/db/schema/clickhouse/001_coga_variant_storage.sql</code></td>
