@@ -237,6 +237,87 @@ async def _collect(base: Path) -> dict:
         "flag": await import_incomplete_flag(fid),
     }
 
+    # --- Postgres snapshot/restore of the loop-modified tables (#365 postgres) ---
+    # Create a real family, seed a loop-modified table + a samples.metadata marker, snapshot,
+    # then mutate both (delete/insert a different row; change the marker) and restore — the
+    # mutation must be gone and the original state (row + marker) back, proving the
+    # DELETE + jsonb_populate_recordset reinsert and the samples.metadata UPDATE round-trip.
+    from backend.app.services.postgres_family_snapshot import (
+        restore_family_postgres_state,
+        snapshot_family_postgres_state,
+    )
+
+    fid = f"FAM_PGSNAP_{uuid4().hex[:8]}"
+    await run_import(_write_pkg(base / fid, family_id=fid, snv_body=_GOOD_VCF), conflict_mode="cancel")
+    fu = await family_uuid(fid)
+    async with sm() as s:
+        sid = (
+            await s.execute(
+                text("SELECT id::text FROM samples WHERE family_id = CAST(:f AS uuid) LIMIT 1"), {"f": fu}
+            )
+        ).scalar_one()
+        await s.execute(
+            text(
+                "INSERT INTO sample_interval_track_sources "
+                "(sample_id, family_id, track_type, source, filename, row_count) "
+                "VALUES (CAST(:sid AS uuid), CAST(:fid AS uuid), 'coverage', 'orig', 'orig.bed', 7)"
+            ),
+            {"sid": sid, "fid": fu},
+        )
+        await s.execute(
+            text(
+                "UPDATE samples SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), "
+                "'{pg_snap_marker}', '\"original\"'::jsonb) WHERE id = CAST(:sid AS uuid)"
+            ),
+            {"sid": sid},
+        )
+        await s.commit()
+
+    async with sm() as s:
+        pg_snap = await snapshot_family_postgres_state(s, fu)
+
+    async with sm() as s:  # mutate as a failed overwrite would
+        await s.execute(
+            text("DELETE FROM sample_interval_track_sources WHERE family_id = CAST(:fid AS uuid)"), {"fid": fu}
+        )
+        await s.execute(
+            text(
+                "INSERT INTO sample_interval_track_sources "
+                "(sample_id, family_id, track_type, source, filename, row_count) "
+                "VALUES (CAST(:sid AS uuid), CAST(:fid AS uuid), 'segments', 'mutated', 'new.bed', 99)"
+            ),
+            {"sid": sid, "fid": fu},
+        )
+        await s.execute(
+            text(
+                "UPDATE samples SET metadata = jsonb_set(metadata, '{pg_snap_marker}', '\"mutated\"'::jsonb) "
+                "WHERE id = CAST(:sid AS uuid)"
+            ),
+            {"sid": sid},
+        )
+        await s.commit()
+
+    async with sm() as s:
+        await restore_family_postgres_state(s, pg_snap)
+
+    async with sm() as s:
+        rows = (
+            await s.execute(
+                text(
+                    "SELECT source, filename, row_count FROM sample_interval_track_sources "
+                    "WHERE family_id = CAST(:fid AS uuid) ORDER BY source"
+                ),
+                {"fid": fu},
+            )
+        ).all()
+        marker = (
+            await s.execute(
+                text("SELECT metadata ->> 'pg_snap_marker' FROM samples WHERE id = CAST(:sid AS uuid)"),
+                {"sid": sid},
+            )
+        ).scalar_one()
+    out["pg_restore"] = {"sources": [list(r) for r in rows], "marker": marker}
+
     # --- job lifecycle: queue -> claim -> run -> terminal status (mirrors the worker) ---
     async def lifecycle(root: Path) -> dict:
         async with sm() as s:
@@ -352,6 +433,14 @@ def test_restore_failure_falls_back_to_incomplete_flag(results):
     # (the conservative fallback) rather than silently left in a half-overwritten state.
     assert r["completed"] is False, r
     assert r["flag"] is not None, r
+
+
+def test_postgres_snapshot_restore_reverts_loop_tables(results):
+    r = results["pg_restore"]
+    # The mutated 'segments/mutated' row is gone and the original 'coverage/orig' row is
+    # back verbatim (row_count 7), and samples.metadata reverted from 'mutated' to 'original'.
+    assert r["sources"] == [["orig", "orig.bed", 7]], r
+    assert r["marker"] == "original", r
 
 
 # ------------------------------------------------------------------------- job lifecycle

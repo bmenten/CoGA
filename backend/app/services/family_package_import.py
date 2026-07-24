@@ -29,6 +29,10 @@ from .clickhouse_family_snapshot import (
     restore_family_clickhouse_state,
     snapshot_family_clickhouse_state,
 )
+from .postgres_family_snapshot import (
+    restore_family_postgres_state,
+    snapshot_family_postgres_state,
+)
 
 # Re-exported so existing import paths and orig.<name> attribute reads keep resolving.
 from .family_package_common import _run_with_periodic_progress, ManifestDataset, ManifestPhenotypes, PackageManifest, PedMember, ParsedPed, FamilyPackageBundle, PackageExecutionResult, ProgressCallback, DatasetProgressCallback, SUPPORTED_DATASETS, APCAD_PCF_TRACK_TYPE, APCAD_PCF_SOURCE, _HEADER_NORMALIZER, _issue, _resolve_package_path, _display_path, _vcf_index_candidates, _is_uncompressed_vcf, _json_list, _json_dict, _issue_list, _dataset_summary_list, _model_list_json, _metadata_dict, _missing_scalar, _coerce_int, _coerce_finite_float, _normalize_header_key, _read_package_text, _open_package_text, _is_vcf_file, _jsonb_safe, _split_gene_symbols, _parse_vcf_info, _parse_format, _first_info_value  # noqa: F401
@@ -194,20 +198,28 @@ async def _execute_family_package_import_local(
         await progress(validation, datasets, logs, family_context.family_id)
 
     # Overwrite of a PRE-EXISTING family is delete-then-insert, so a mid-import failure
-    # can destroy the family's prior ClickHouse variant/interval rows. Snapshot them
-    # first so a failed overwrite is atomically rolled back to the pre-import state
-    # (issue #365) instead of only being flagged import-incomplete. Only overwrite
-    # is destructive — update mode is skip-if-exists, so nothing prior is lost there
-    # and the flag path below is sufficient. Best-effort: if the snapshot can't be
-    # taken we degrade to the flag rather than failing the import.
+    # can destroy the family's prior data. Snapshot it first so a failed overwrite is
+    # atomically rolled back to the pre-import state (issue #365) instead of only being
+    # flagged import-incomplete. Two stores are captured: the ClickHouse variant/interval
+    # rows, and the Postgres rows the dataset loop writes (repeats / paraphase / interval
+    # sources / HPO / annotation manifest) — the importers commit those per-dataset, so a
+    # later failure would otherwise leave them out of sync with the restored variants.
+    # Only overwrite is destructive — update mode is skip-if-exists, so nothing prior is
+    # lost and the flag path below suffices. Best-effort: if a snapshot can't be taken we
+    # degrade to the flag rather than failing the import.
     clickhouse_snapshot = None
-    if not family_created and conflict_mode == "overwrite" and family_context.assembly_name:
+    postgres_snapshot = None
+    if not family_created and conflict_mode == "overwrite":
         try:
-            clickhouse_snapshot = await snapshot_family_clickhouse_state(
-                family_context.assembly_name, family_context.family_uuid
+            postgres_snapshot = await snapshot_family_postgres_state(
+                session, family_context.family_uuid
             )
+            if family_context.assembly_name:
+                clickhouse_snapshot = await snapshot_family_clickhouse_state(
+                    family_context.assembly_name, family_context.family_uuid
+                )
             logs.append(
-                "Snapshotted the family's existing variant data for atomic restore on failure."
+                "Snapshotted the family's existing data for atomic restore on failure."
             )
         except Exception:  # noqa: BLE001 - degrade to the incomplete flag on snapshot failure
             logger.warning(
@@ -217,6 +229,7 @@ async def _execute_family_package_import_local(
                 exc_info=True,
             )
             clickhouse_snapshot = None
+            postgres_snapshot = None
 
     for summary in _enabled_dataset_summaries(validation):
         index = next(
@@ -287,13 +300,15 @@ async def _execute_family_package_import_local(
         logs.append(
             "No dataset imported successfully; rolled back the newly-created family shell."
         )
-    elif failed_datasets and clickhouse_snapshot is not None:
+    elif failed_datasets and (clickhouse_snapshot is not None or postgres_snapshot is not None):
         try:
-            await restore_family_clickhouse_state(clickhouse_snapshot)
+            if clickhouse_snapshot is not None:
+                await restore_family_clickhouse_state(clickhouse_snapshot)
+            if postgres_snapshot is not None:
+                await restore_family_postgres_state(session, postgres_snapshot)
             restored = True
             logs.append(
-                "Import failed; atomically restored the family's variant data to its "
-                "pre-import state."
+                "Import failed; atomically restored the family's data to its pre-import state."
             )
         except Exception:  # noqa: BLE001 - restore failed; fall back to the flag
             logger.warning(
@@ -302,6 +317,10 @@ async def _execute_family_package_import_local(
                 family_context.family_id,
                 exc_info=True,
             )
+            # A mid-restore Postgres error leaves the session in a failed transaction;
+            # clear it so the flag write below can run.
+            with suppress(Exception):
+                await session.rollback()
             await _flag_family_import_incomplete(
                 session,
                 family_context,
