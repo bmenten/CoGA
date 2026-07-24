@@ -49,6 +49,15 @@ _MALFORMED_VCF = (
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
     "1\tNOT_A_NUMBER\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n"
 )
+# Two variants — used to prove an atomic restore: after a failed overwrite the family's
+# small-variant count must return to the pre-import value (1), not the overwrite's (2).
+_TWO_VARIANT_VCF = (
+    "##fileformat=VCFv4.2\n"
+    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
+    "1\t100\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n"
+    "1\t200\t.\tC\tT\t60\tPASS\t.\tGT\t0/1\n"
+)
 
 
 def _write_pkg(
@@ -101,6 +110,15 @@ async def _collect(base: Path) -> dict:
         async with sm() as s:
             return (
                 await s.execute(text("SELECT id::text FROM families WHERE family_id = :f"), {"f": fid})
+            ).scalar_one_or_none()
+
+    async def import_incomplete_flag(fid: str):
+        async with sm() as s:
+            return (
+                await s.execute(
+                    text("SELECT metadata -> 'import_incomplete' FROM families WHERE family_id = :f"),
+                    {"f": fid},
+                )
             ).scalar_one_or_none()
 
     async def run_import(root: Path, *, conflict_mode: str = "cancel"):
@@ -159,6 +177,64 @@ async def _collect(base: Path) -> dict:
         "completed2": res2.completed,
         "count1": count1,
         "count2": count2,
+    }
+
+    # --- failed OVERWRITE of a PRE-EXISTING family: atomic ClickHouse restore (#365) ---
+    # Import 1 variant cleanly, then overwrite with a 2-variant package whose dataset
+    # import raises *after* it has already replaced the family's small variants. Without
+    # the snapshot/restore the family would be left with the overwrite's 2 variants + an
+    # import_incomplete flag; with it the family is rolled back to its pre-import 1.
+    fid = f"FAM_RESTORE_{uuid4().hex[:8]}"
+    root_v1 = _write_pkg(base / fid, family_id=fid, snv_body=_GOOD_VCF)
+    await run_import(root_v1, conflict_mode="cancel")
+    fu = await family_uuid(fid)
+    count_before = await count_family_small_variants(_harness.ASSEMBLY, fu, project_ids=[project_id]) if fu else 0
+    root_v2 = _write_pkg(base / f"{fid}_v2", family_id=fid, snv_body=_TWO_VARIANT_VCF)
+
+    real_import_dataset = package_import._import_dataset
+
+    async def _import_then_fail(*args, **kwargs):
+        # Let the dataset actually import (overwriting the family's ClickHouse rows),
+        # then raise to simulate a mid-import failure of a later step.
+        await real_import_dataset(*args, **kwargs)
+        raise RuntimeError("injected failure after dataset import")
+
+    package_import._import_dataset = _import_then_fail
+    try:
+        res_restore = await run_import(root_v2, conflict_mode="overwrite")
+    finally:
+        package_import._import_dataset = real_import_dataset
+    count_after = await count_family_small_variants(_harness.ASSEMBLY, fu, project_ids=[project_id]) if fu else 0
+    out["restore"] = {
+        "completed": res_restore.completed,
+        "error": res_restore.error,
+        "count_before": count_before,
+        "count_after": count_after,
+        "flag": await import_incomplete_flag(fid),
+    }
+
+    # --- restore itself fails -> fall back to the import_incomplete flag ---
+    fid = f"FAM_RESTOREFB_{uuid4().hex[:8]}"
+    root_v1 = _write_pkg(base / fid, family_id=fid, snv_body=_GOOD_VCF)
+    await run_import(root_v1, conflict_mode="cancel")
+    fu = await family_uuid(fid)
+    root_v2 = _write_pkg(base / f"{fid}_v2", family_id=fid, snv_body=_TWO_VARIANT_VCF)
+
+    real_restore = package_import.restore_family_clickhouse_state
+
+    async def _failing_restore(*args, **kwargs):
+        raise RuntimeError("injected restore failure")
+
+    package_import._import_dataset = _import_then_fail
+    package_import.restore_family_clickhouse_state = _failing_restore
+    try:
+        res_fallback = await run_import(root_v2, conflict_mode="overwrite")
+    finally:
+        package_import._import_dataset = real_import_dataset
+        package_import.restore_family_clickhouse_state = real_restore
+    out["restore_fallback"] = {
+        "completed": res_fallback.completed,
+        "flag": await import_incomplete_flag(fid),
     }
 
     # --- job lifecycle: queue -> claim -> run -> terminal status (mirrors the worker) ---
@@ -253,6 +329,29 @@ def test_reimport_overwrite_does_not_duplicate(results):
     assert r["completed1"] is True and r["completed2"] is True, r
     assert r["count1"] == 1, r
     assert r["count2"] == r["count1"], r
+
+
+# ----------------------------------------------------------- import atomicity (#365)
+
+
+def test_failed_overwrite_restores_pre_import_state(results):
+    r = results["restore"]
+    # The overwrite failed, so the job still reports failure...
+    assert r["completed"] is False, r
+    assert r["error"], r
+    # ...but the family's variant data was atomically rolled back to the pre-import
+    # value (1), NOT left at the overwrite's 2, and no incompleteness flag remains.
+    assert r["count_before"] == 1, r
+    assert r["count_after"] == r["count_before"], r
+    assert r["flag"] is None, r
+
+
+def test_restore_failure_falls_back_to_incomplete_flag(results):
+    r = results["restore_fallback"]
+    # When the snapshot restore itself fails, the family is flagged import-incomplete
+    # (the conservative fallback) rather than silently left in a half-overwritten state.
+    assert r["completed"] is False, r
+    assert r["flag"] is not None, r
 
 
 # ------------------------------------------------------------------------- job lifecycle

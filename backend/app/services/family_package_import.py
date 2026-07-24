@@ -24,6 +24,11 @@ from .family_metadata_context import (
 from .metadata_service import CurrentUser, get_current_user_by_email
 from . import ped_service
 from .bed_service import precompute_family_haplotype_lineage
+from .clickhouse_family_snapshot import (
+    discard_family_clickhouse_snapshot,
+    restore_family_clickhouse_state,
+    snapshot_family_clickhouse_state,
+)
 
 # Re-exported so existing import paths and orig.<name> attribute reads keep resolving.
 from .family_package_common import _run_with_periodic_progress, ManifestDataset, ManifestPhenotypes, PackageManifest, PedMember, ParsedPed, FamilyPackageBundle, PackageExecutionResult, ProgressCallback, DatasetProgressCallback, SUPPORTED_DATASETS, APCAD_PCF_TRACK_TYPE, APCAD_PCF_SOURCE, _HEADER_NORMALIZER, _issue, _resolve_package_path, _display_path, _vcf_index_candidates, _is_uncompressed_vcf, _json_list, _json_dict, _issue_list, _dataset_summary_list, _model_list_json, _metadata_dict, _missing_scalar, _coerce_int, _coerce_finite_float, _normalize_header_key, _read_package_text, _open_package_text, _is_vcf_file, _jsonb_safe, _split_gene_symbols, _parse_vcf_info, _parse_format, _first_info_value  # noqa: F401
@@ -188,6 +193,31 @@ async def _execute_family_package_import_local(
     if progress is not None:
         await progress(validation, datasets, logs, family_context.family_id)
 
+    # Overwrite of a PRE-EXISTING family is delete-then-insert, so a mid-import failure
+    # can destroy the family's prior ClickHouse variant/interval rows. Snapshot them
+    # first so a failed overwrite is atomically rolled back to the pre-import state
+    # (issue #365) instead of only being flagged import-incomplete. Only overwrite
+    # is destructive — update mode is skip-if-exists, so nothing prior is lost there
+    # and the flag path below is sufficient. Best-effort: if the snapshot can't be
+    # taken we degrade to the flag rather than failing the import.
+    clickhouse_snapshot = None
+    if not family_created and conflict_mode == "overwrite" and family_context.assembly_name:
+        try:
+            clickhouse_snapshot = await snapshot_family_clickhouse_state(
+                family_context.assembly_name, family_context.family_uuid
+            )
+            logs.append(
+                "Snapshotted the family's existing variant data for atomic restore on failure."
+            )
+        except Exception:  # noqa: BLE001 - degrade to the incomplete flag on snapshot failure
+            logger.warning(
+                "Failed to snapshot family %s before overwrite; a failed import will fall "
+                "back to the import-incomplete flag",
+                family_context.family_id,
+                exc_info=True,
+            )
+            clickhouse_snapshot = None
+
     for summary in _enabled_dataset_summaries(validation):
         index = next(
             (idx for idx, item in enumerate(datasets) if item.dataset_type == summary.dataset_type),
@@ -235,15 +265,20 @@ async def _execute_family_package_import_local(
     # Fail-clean. A failed import must not leave a silently-partial family behind:
     #   * NEW family, and NOTHING imported -> compensate by deleting the freshly-created
     #     shell (+ its ClickHouse variant & interval rows) so nothing partial survives.
+    #   * Failed OVERWRITE of a PRE-EXISTING family (we took a snapshot above) ->
+    #     atomically restore the family's ClickHouse variant/interval rows to their
+    #     pre-import state, so a destructive delete-then-insert can't leave prior data
+    #     mangled. If the restore itself fails, fall back to the incomplete flag.
     #   * Any OTHER failure that left the family in place — a partial success (some
-    #     datasets imported, some failed) or a failed update/overwrite of a PRE-EXISTING
-    #     family — is NOT torn down (successfully-imported datasets are deliberately
-    #     preserved, and we don't snapshot/restore existing data). Instead the family
-    #     metadata is flagged import-incomplete so the partial state is explicit and
-    #     auditable rather than silently queryable as if complete.
+    #     datasets imported, some failed) or a failed update (skip-if-exists, no
+    #     snapshot) of a PRE-EXISTING family — is NOT torn down (successfully-imported
+    #     datasets are deliberately preserved). Instead the family metadata is flagged
+    #     import-incomplete so the partial state is explicit and auditable rather than
+    #     silently queryable as if complete.
     #   * In every failed case `error` is set -> the job row ends status='failed'
     #     (never a silent "completed").
     compensated = False
+    restored = False
     if failed_datasets and not imported_datasets and family_created:
         await session.rollback()
         await _delete_family_shell(session, family_context)
@@ -252,6 +287,31 @@ async def _execute_family_package_import_local(
         logs.append(
             "No dataset imported successfully; rolled back the newly-created family shell."
         )
+    elif failed_datasets and clickhouse_snapshot is not None:
+        try:
+            await restore_family_clickhouse_state(clickhouse_snapshot)
+            restored = True
+            logs.append(
+                "Import failed; atomically restored the family's variant data to its "
+                "pre-import state."
+            )
+        except Exception:  # noqa: BLE001 - restore failed; fall back to the flag
+            logger.warning(
+                "Failed to restore family %s after a failed overwrite; flagging "
+                "import-incomplete",
+                family_context.family_id,
+                exc_info=True,
+            )
+            await _flag_family_import_incomplete(
+                session,
+                family_context,
+                failed_datasets=failed_datasets,
+                imported_datasets=imported_datasets,
+            )
+            logs.append(
+                "Import failed and the snapshot restore also failed; flagged the family "
+                "metadata as import-incomplete."
+            )
     elif failed_datasets:
         await _flag_family_import_incomplete(
             session,
@@ -264,6 +324,11 @@ async def _execute_family_package_import_local(
             "the family metadata as import-incomplete. Successfully-imported datasets are "
             "kept; re-run the import to complete it."
         )
+
+    # The snapshot has served its purpose (success kept the new data; failure restored
+    # the old) -> drop the backup tables. Best-effort so cleanup never fails the import.
+    if clickhouse_snapshot is not None:
+        await discard_family_clickhouse_snapshot(clickhouse_snapshot)
 
     if failed_datasets:
         error = "Family package import failed for dataset(s): " + ", ".join(
@@ -280,8 +345,10 @@ async def _execute_family_package_import_local(
 
     # (Re)importing variant data changes the prioritised ranking, but the cache's input
     # hash doesn't cover variant content — drop any cached ranking so it recomputes.
-    # Skip when the family shell was just compensated away (nothing to recache).
-    if not compensated and not dry_run and session is not None:
+    # Skip when the family shell was just compensated away (nothing to recache), or when
+    # a failed overwrite was restored to its pre-import state (variant content unchanged,
+    # so any existing cache still matches).
+    if not compensated and not restored and not dry_run and session is not None:
         from .variant_ranking_cache import clear_family_ranking_cache
         from .sv_gene_index_service import clear_family_sv_gene_index
 
