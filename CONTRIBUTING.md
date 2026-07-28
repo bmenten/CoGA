@@ -128,6 +128,10 @@ Recorded here rather than left to be discovered:
   kept verbatim because it is a required check and renaming it would leave the requirement
   permanently pending.
 
+## Releasing
+
+Cutting a release follows [`RELEASING.md`](RELEASING.md). Contributors do not cut releases, but it is worth reading before proposing a change that affects versioning, the build, or the deployment.
+
 ## Code of conduct
 
 Participation is governed by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) (Contributor Covenant

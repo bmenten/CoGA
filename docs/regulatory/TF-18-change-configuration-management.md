@@ -89,6 +89,13 @@ Two gaps in that enforcement remain open, and bound what the gates evidence:
   first beta release, as stated in [`CONTRIBUTING.md`](../../CONTRIBUTING.md). Until then, this
   document must not be read as evidence that every merge was independently approved.
 
+## 6a. Release procedure
+The abstract flow above is executed by the concrete, step-by-step procedure in
+[`RELEASING.md`](../../RELEASING.md), which produces a filled
+[release record](../release-record-template.md) per release — version, tag, commit SHA, both
+image digests, SBOM hashes, CI run URLs, deviations and approval. That record is the artefact
+that ties a signed clinical report back to a specific build.
+
 ## 7. Records
 Change requests, impact/significance assessments, review and CI evidence, re-validation
 results, release records, and configuration baselines are retained per the CMGG QMS and
