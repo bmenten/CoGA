@@ -198,3 +198,14 @@ npm run build
 - Startup ensures Homo sapiens GRCh38 is present, imports missing GRCh38 cytobands/genes from UCSC when available, seeds built-in hg38 tracks, queues the first dbNSFP-backed human gene-reference sync when the local dbNSFP gene file is present, and starts the gene-reference refresh worker.
 - Admin users can inspect and repair ClickHouse variant tables from the data-management page or via `/admin/clickhouse/variants`, `/admin/clickhouse/variants/{assembly_name}/ensure`, and `/admin/clickhouse/variants/{assembly_name}/optimize`.
 - The in-app `New features` page reads GitHub releases through `/product/releases`; private repositories require `GITHUB_API_TOKEN` on the backend to keep that page synced.
+
+## Licence
+
+Licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+The [NOTICE](NOTICE) file carries a regulatory statement that matters if you intend to
+reuse this: CoGA is operated as an **in-house IVD under IVDR Article 5(5)** at CMGG and is
+**not a CE-marked device**. Its validation covers CMGG's own laboratory and workflow, and
+does not transfer with the source — anyone deploying it for diagnostic use elsewhere is
+responsible for their own conformity assessment. Security reports go through
+[SECURITY.md](SECURITY.md).
