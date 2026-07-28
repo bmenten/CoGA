@@ -1,4 +1,4 @@
-# CoGA — Volledige codebase-handleiding (voor het review board)
+# CoGA — Volledige codebase-handleiding
 
 Deze handleiding legt de **volledige codebase van CoGA** (*Comprehensive Genomic Analysis*) uit,
 hoofdstuk per hoofdstuk, in het Nederlands. Ze is geschreven voor een **review board / auditoren**
