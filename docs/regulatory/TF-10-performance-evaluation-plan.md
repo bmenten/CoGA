@@ -53,11 +53,22 @@ analyst following the intended workflow, and CoGA's outcome is compared to the c
 
 | Application | Validation set | N | Comparator ("truth") |
 | --- | --- | --- | --- |
-| Expanded carrier screening (BeGECS, long-read) | **BeGECS couples** | **50 couples** | Validated/accredited BeGECS carrier-screening result |
-| PGT (shallow WGS) | **PGT embryos** | **100 embryos** | Validated PGT result (‹SNP-array / current PGT-M/-A/-SR method›) and/or confirmatory testing |
+| Expanded carrier screening (BeGECS, long-read) | **BeGECS couples** | **50 couples** | **Current gold standard: WES analysis + FraX + SMA + DMD deletion (MLPA) + CYP21A2 analysis** |
+| PGT (shallow WGS) | **PGT embryos** | **100 embryos** | **Current GENType / HOPLA method**, and/or confirmatory testing |
 | Rare-disorder diagnostics (long-read) | **WGS trios** | **30 trios** | Validated diagnostic NGS result / established clinical conclusion |
 | Monogenic NIPT | **Monogenic NIPT samples** | **30 samples** | Validated comparator (‹invasive confirmatory genotype / established NIPT result / known fetal genotype›) |
 | Mitochondrial disease (ONT adaptive sampling) | **mtDNA + nuclear mito-gene cases** | **🔲 N (define)** | Validated comparator (‹established mtDNA assay + nuclear mito-gene NGS result; orthogonal heteroplasmy quantitation›) |
+
+**Acceptance — carrier screening (C1).** CoGA's **sensitivity and specificity must be at least
+equal to the current gold-standard method**. 🔲 To make that criterion testable *before* the study
+runs, the current method's numeric sensitivity/specificity — documented in the CMGG
+**kwaliteitshandboek (KHB)** — must be cited here with its **document ID and version**. A purely
+comparative criterion with no stated baseline cannot be failed, which H11.1-F11 does not permit.
+
+**Analytical baseline (C6).** A run against **GIAB** reference material is included, to establish
+analytical performance independently of the clinical comparators above. Record the GIAB sample(s)
+and truth-set version used; that baseline is captured on the commit the validation blesses, and is
+not reconstructable afterwards.
 
 > **🔲 INPUT NEEDED (per application):** name the exact comparator method, define
 > the unit of analysis and the "truth" source, and set the **acceptance criteria** (the

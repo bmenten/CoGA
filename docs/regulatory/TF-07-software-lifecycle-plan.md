@@ -67,19 +67,35 @@ validation per method [TF-10](TF-10-performance-evaluation-plan.md)) → **opera
 
 Per H11.1-OP5 (CMGG roles):
 
-| Role (H11.1-OP5) | Responsibility |
-| --- | --- |
-| **bio-IT SPOC** | Single point of contact; triages project requests with the IT coördinator (and Sequencing Core); intake governance. |
-| **CMGG IT coördinator** | Project prioritization/planning; co-approves minor/major releases into production. |
-| **Projectverantwoordelijke** (project lead) | Owns design quality, implementation, the bio-IT ingangsvalidatie (incl. risk analysis), and release. |
-| **Developer(s)** | Implementation, unit/integration tests, SOUP monitoring; works via the project lead for cross-team input. |
-| **Independent reviewer** | Code review of every PR / 4-eye approval (a second (bio-)IT team member) before merge. |
-| **Business contactpersoon** ("Klinisch coördinator") | Clinical requirements and coordinates the **clinical validation per method** ([TF-10](TF-10-performance-evaluation-plan.md)); co-approves major releases. |
-| **Kwaliteitscel / labokwaliteitsverantwoordelijke** | QMS compliance, document control (KHB), and sign-off on in-production-taking. |
-| **UZ Gent DPO** | Consulted when personal data is processed ([TF-14](TF-14-dpia.md)). |
-| **Lab director / Head of CMGG** | Release authorization, residual-risk acceptance. |
+| Role (H11.1-OP5) | Holder | Responsibility |
+| --- | --- | --- |
+| **bio-IT SPOC** | ‹CMGG bio-IT group — see KHB organigram› | Single point of contact; triages project requests with the IT coördinator (and Sequencing Core); intake governance. |
+| **CMGG IT coördinator** | **Tom Sante** | Project prioritization/planning; co-approves minor/major releases into production. |
+| **Projectverantwoordelijke** (project lead) | **Björn Menten** | Owns design quality, implementation, the bio-IT ingangsvalidatie (incl. risk analysis), and release. |
+| **Developer(s)** | **Björn Menten** | Implementation, unit/integration tests, SOUP monitoring; works via the project lead for cross-team input. |
+| **Independent reviewer** | **Tom Sante** (CMGG bio-IT) | Code review / 4-eye approval before merge — a second (bio-)IT team member, and necessarily **not** the author of the change. |
+| **Business contactpersoon** ("Klinisch coördinator") | ‹per application — see KHB› | Clinical requirements and coordinates the **clinical validation per method** ([TF-10](TF-10-performance-evaluation-plan.md)); co-approves major releases. |
+| **Kwaliteitscel / labokwaliteitsverantwoordelijke** | **Greta Vandercruyssen** | QMS compliance, document control (KHB), and sign-off on in-production-taking. |
+| **UZ Gent DPO** | ‹to be named at DPO consultation› | Consulted when personal data is processed ([TF-14](TF-14-dpia.md)). |
+| **Head of department** | **Fransiska Malfait** | Departmental accountability for the in-house device. |
+| **Lab director / Head of CMGG** | **Björn Menten** | Release authorization, residual-risk acceptance. |
 
-> **🔲 INPUT NEEDED:** name the individual holders of each role for CoGA.
+The role holders are drawn from the CMGG bio-IT group; the authoritative register is the CMGG
+**kwaliteitshandboek (KHB)** and organigram, of which this table is a project-specific extract.
+
+> **Segregation of duties — recorded, not resolved.** The **developer, project lead and lab
+> director are the same person** (Björn Menten), so implementation and release authorization are
+> not independent. Two controls compensate and must therefore hold:
+> 1. **Independent review is performed by the IT coördinator** (Tom Sante), who is not the author.
+>    This is the 4-eye control of [TF-18 §4](TF-18-change-configuration-management.md); its
+>    enforcement status is tracked in [TF-18 §6](TF-18-change-configuration-management.md).
+> 2. **The H11.1-F12.2 validation report carries three distinct signatures** —
+>    eindverantwoordelijke (Björn Menten), IT-team coördinator (Tom Sante) and
+>    kwaliteitsbeheerder (Greta Vandercruyssen) — so no single person both produces and approves
+>    the validation.
+>
+> This concentration should be reviewed by the kwaliteitscel and either accepted as a documented
+> residual or resolved by appointing a separate release authorizer.
 
 ## 4. Development environment & tooling
 
