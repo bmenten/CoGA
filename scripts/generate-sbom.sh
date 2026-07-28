@@ -14,7 +14,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="linux/amd64"
 PYTHON_IMAGE="python:3.10"
-NODE_IMAGE="node:20"
+NODE_IMAGE="node:22"
 CYCLONEDX_PY_VERSION="7.3.0"            # pip: cyclonedx-bom
 CYCLONEDX_NPM_VERSION="5.0.0"           # npm: @cyclonedx/cyclonedx-npm
 
