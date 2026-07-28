@@ -61,6 +61,7 @@ Each suite drives the real stack and asserts against `EXPECTED.yaml`. Skipped un
 | Clinical review → ACMG recompute, immutable audit chain, signed report | [test_e2e_review_audit.py](../../backend/tests/e2e/test_e2e_review_audit.py) |
 | Failure/degradation handling + job lifecycle (fail-clean) | [test_e2e_failure_modes.py](../../backend/tests/e2e/test_e2e_failure_modes.py) |
 | Realistic demo bundles through their real ingestion paths | [test_e2e_demo_smoke.py](../../backend/tests/e2e/test_e2e_demo_smoke.py) |
+| Haplotype / lineage stage against the real stack (PGT segregation) | [test_e2e_haplotypes.py](../../backend/tests/e2e/test_e2e_haplotypes.py) |
 
 A consolidated catalogue of these is in [docs/testing.md](../testing.md) ("End-to-end (golden pipeline)").
 
@@ -86,9 +87,9 @@ Any deviation is a verification finding handled per [TF-09 §5](TF-09-verificati
   `RUN_INTEGRATION=1 python -m pytest backend/tests/e2e`.
 - **CI:** the **`e2e`** job in `.github/workflows/ci.yml` provisions `postgres:16` +
   `clickhouse/clickhouse-server:25.3`, runs the suite on every PR and on push to `main`, and (like
-  `smoke`) runs outside the coverage-measured job. **🔲 ACTION:** add `e2e` to the **required status
-  checks** in branch protection alongside `backend`, `smoke`, `frontend` (see
-  [TF-09 §1](TF-09-verification-validation.md)).
+  `smoke`) runs outside the coverage-measured job. It is a **required status check** on `main`
+  with strict (up-to-date-before-merge) enforcement, so a failing golden-trio run blocks the
+  merge (see [TF-09 §1](TF-09-verification-validation.md)).
 
 ## 5. Reproducibility
 
@@ -117,8 +118,8 @@ This document feeds the **EFFECTIVE UITVOERING** axis of the bio-IT ingangsvalid
 - **Browser/UI coverage is shallow** — the browser verification ([TF-09d](TF-09d-browser-e2e-verification.md):
   Playwright `frontend/e2e/`, CI job `e2e-playwright`) drives Chromium through login → family
   workspace → genome-overview render → in-browser sign-out, but it asserts wiring + that the viz
-  draws (SVG/canvas), not chart correctness or deep review flows; it is **advisory** (not yet a
-  required check). Summative usability remains [TF-12](TF-12-usability.md).
+  draws (SVG/canvas), not chart correctness or deep review flows. It is a **required check**, but
+  **shallow by design**. Summative usability remains [TF-12](TF-12-usability.md).
 - **Tamper-evident, not tamper-proof** — the in-DB chain detects edits/reordering by a privileged
   bypass but not a determined owner who re-chains; that residual is the external signed integrity
   anchor (see [clinical-traceability.md](../clinical-traceability.md)).

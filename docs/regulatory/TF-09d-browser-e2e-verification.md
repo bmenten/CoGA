@@ -40,10 +40,8 @@ right screen appears and the visualisation draws, not chart-pixel correctness.
 | Driven through | Python pipeline + HTTP API | Real Chromium → React UI → API |
 | Layer verified | Ingestion, storage, query/API, review/audit, sign-out | Login, navigation, view render, in-browser sign-out |
 | Assertion style | Per-stage expected-vs-`EXPECTED.yaml` | Screen/route reached + element/visualisation visible |
-| CI job | `e2e` (**required** ‡) | `e2e-playwright` (**advisory**, §7) |
+| CI job | `e2e` (**required**) | `e2e-playwright` (**required**, §7) |
 | Summative usability? | No | **No** — that remains [TF-12](TF-12-usability.md) |
-
-‡ Promotion of `e2e` to a required check is the open action in [TF-09 §1](TF-09-verification-validation.md).
 
 The device boundary under test is the one defined in [TF-02](TF-02-device-description.md):
 **annotated VCF (+ tracks) → signed clinical report**, here observed through the operator's screen.
@@ -191,10 +189,10 @@ Any deviation is a verification finding handled per [TF-09 §5](TF-09-verificati
   data seeded).
 - **CI:** the **`e2e-playwright`** job in `.github/workflows/ci.yml` provisions `postgres:16` +
   `clickhouse/clickhouse-server:25.3`, seeds the golden trio + e2e user, installs Chromium, runs the
-  journeys on every PR and push to `main`, and uploads the report (§5). It is currently **advisory
-  (not a required status check)** because browser e2e is the **flakiest** gate. **🔲 ACTION:** once
-  stability is demonstrated, evaluate promoting `e2e-playwright` to a **required** check alongside
-  `backend`, `smoke`, `e2e`, `frontend` (branch-protection setting — see
+  journeys on every PR and push to `main`, and uploads the report (§5). It is a **required status
+  check** on `main` with strict enforcement — a failing browser journey blocks the merge. Browser
+  e2e is inherently the **flakiest** gate, so the promotion this section previously proposed was
+  made only once stability had been demonstrated (see
   [TF-09 §1](TF-09-verification-validation.md)).
 
 ## 8. Mapping to the CMGG report form (H11.1-F12.2)
@@ -219,7 +217,8 @@ Feeds the bio-IT ingangsvalidatie ([TF-09 §7](TF-09-verification-validation.md)
 
 ## 10. Limitations / out of scope
 
-- **Advisory gate** — not yet a required check (§7); does not by itself block release.
+- **Shallow by design** — a required, blocking check (§7), but it asserts that a journey completes
+  and the view renders, not that the rendered content is clinically correct.
 - **Shallow by design** — verifies that the right screen appears and the visualisation draws, **not**
   chart correctness or exhaustive review flows.
 - **Chromium only** — cross-browser/responsive coverage is not in scope here.

@@ -73,10 +73,21 @@ the normal §4 (patch/minor/major) flow**.
 - Deployment to the clinical environment is controlled; the running version is verifiable in-app.
 - Rollback: the prior tagged release is retained; signed reports are reproducible from their frozen snapshots regardless of the deployed version.
 
-## 6. Branch protection (enforcement gap)
-**🔲 ACTION:** enforce the CI gates (`backend`, `smoke`, `frontend`) as **required status
-checks** on `main` so no change merges without passing them (also flagged in TF-09 and
-[security-posture.md §5](../security-posture.md)). Until enforced, the gates are advisory.
+## 6. Branch protection
+The CI gates are enforced: `main` carries **ten required status checks** with **strict**
+(up-to-date-before-merge) enforcement, so no change merges without passing them
+([TF-09 §1](TF-09-verification-validation.md), [security-posture.md §5](../security-posture.md)
+control S-6).
+
+Two gaps in that enforcement remain open, and bound what the gates evidence:
+
+- **🔲 `enforce_admins` is disabled** — a repository administrator can bypass the required
+  checks. Any bypass is visible in the merge record, but it is not prevented.
+- **🔲 No approving review is mechanically required** (branch protection carries no
+  `required_pull_request_reviews`, and there is no `CODEOWNERS`). The **4-eye approval of §4 is
+  therefore a process commitment, not an enforced control**; enforcement is scheduled with the
+  first beta release, as stated in [`CONTRIBUTING.md`](../../CONTRIBUTING.md). Until then, this
+  document must not be read as evidence that every merge was independently approved.
 
 ## 7. Records
 Change requests, impact/significance assessments, review and CI evidence, re-validation

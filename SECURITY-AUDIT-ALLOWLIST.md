@@ -82,9 +82,14 @@ of the existing backlog happens in the Security tab, not via suppression here.
 
 ---
 
-## 4. Branch-protection action required (not code)
+## 4. Branch protection (enforced)
 
-For these gates to actually block merges, add **`deps`**, **`secret-scan`**, and the
-**`codeql`** checks to the required status checks for `main` in branch protection — the
-same step needed for the existing `backend`/`frontend`/`smoke` checks. Until then the
-gates are advisory.
+These gates block merges today. **`deps (pip-audit + npm audit)`**,
+**`secret-scan (gitleaks)`**, **`codeql (python)`** and **`codeql (javascript-typescript)`**
+are four of the **ten required status checks** on `main`, alongside
+`backend`/`frontend`/`smoke`/`e2e`/`e2e-playwright`/`catalogue`, with **strict**
+(up-to-date-before-merge) enforcement.
+
+Residual, tracked in [TF-18 §6](docs/regulatory/TF-18-change-configuration-management.md):
+`enforce_admins` is disabled (an administrator can bypass), and no approving review is
+mechanically required.

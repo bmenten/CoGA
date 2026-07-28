@@ -86,7 +86,7 @@ Per H11.1-OP5 (CMGG roles):
 - **Environment separation (H11.1-OP5):** development never happens directly on a production system — it uses a dedicated dev environment, or the test environment where none exists.
 - **Registration & identifier:** CoGA is registered in the CMGGMC **ICT module** with a software number **`Sxxxx`**; semantic versioning `x.y.z` (see [TF-18](TF-18-change-configuration-management.md)); only **major** versions are recorded in the CMGGMC ICT "Software" section.
 - Languages/runtimes: Python 3.10 (backend), Node 22 / TypeScript 6 (frontend).
-- Source control: Git/GitHub; feature branches; pull/merge requests with code review via a project-specific checklist (DevOps); **branch protection with required status checks** (to be enforced — see TF-09 §CI).
+- Source control: Git/GitHub; feature branches; pull/merge requests with code review via a project-specific checklist (DevOps); **branch protection with ten required status checks**, strict (up-to-date-before-merge), enforced on `main` — see [TF-09 §1](TF-09-verification-validation.md). An approving review is **not** mechanically required (no `required_pull_request_reviews`), so the 4-eye rule is a process commitment pending enforcement at the first beta release ([TF-18 §6](TF-18-change-configuration-management.md)).
 - Build/packaging: Docker / Docker Compose; pinned `backend/requirements.txt`, `frontend/package-lock.json`.
 - CI: GitHub Actions (`.github/workflows/ci.yml`) — backend pytest, real-startup smoke, frontend tsc+eslint+vitest.
 - Tool validation: development tools (linters, test runners, CI) are not part of the device; their adequacy is evidenced by the gates they enforce. Compilers/build tools are configuration-controlled via pinned versions.

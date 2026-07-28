@@ -33,14 +33,29 @@
 | Static analysis | TypeScript `tsc`, ESLint | frontend | CI `frontend` job |
 | Integration | Real-startup smoke against Postgres 16 + ClickHouse 25.3 (schema init, admin seed, health probe) | `backend/tests/integration` | CI `smoke` job |
 | End-to-end (system) | Golden-dataset pipeline run (ingest → query/API → review/audit/sign-out) + realistic demo bundles, checked vs documented expected results — see **[TF-09c](TF-09c-e2e-pipeline-verification.md)** | `backend/tests/e2e` | CI `e2e` job |
-| Browser / GUI end-to-end | Real Chromium driving the deployed UI (login → family workspace → genome render → in-browser sign-out) against a live backend + datastores; incl. a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job (advisory) |
+| Browser / GUI end-to-end | Real Chromium driving the deployed UI (login → family workspace → genome render → in-browser sign-out) against a live backend + datastores; incl. a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job (required status check) |
 | System / clinical | Concordance vs validated assays | [TF-10](TF-10-performance-evaluation-plan.md) | Performance report TF-11 |
 | Regression | Full suite re-run on every PR & push to main | CI | Required checks |
 
-**CI enforcement:** the gates in `.github/workflows/ci.yml` run on every PR and on push to
-`main`. **🔲 ACTION:** mark `backend`, `smoke`, `e2e`, and `frontend` as **required status checks**
-in branch protection (a GitHub setting, not in the workflow file) so they must pass before
-merge — without this, the gates are advisory. (Noted as open in [security-posture.md §5](../security-posture.md).)
+**CI enforcement:** the gates run on every PR and on push to `main`, and **ten of them are
+required status checks** in branch protection, with **strict** (up-to-date-before-merge)
+enforcement — so a change cannot merge until they pass: `backend (pytest)`,
+`frontend (tsc + eslint + vitest)`, `smoke (real startup against Postgres + ClickHouse)`,
+`e2e (golden-trio pipeline against Postgres + ClickHouse)`, `e2e-playwright (browser journeys)`,
+`catalogue (test overview in sync)`, `deps (pip-audit + npm audit)`, `secret-scan (gitleaks)`,
+`codeql (python)` and `codeql (javascript-typescript)`. (Recorded as closed — control S-6 — in
+[security-posture.md §5](../security-posture.md).)
+
+Two limits of that enforcement are stated here so they are not overread:
+
+- **`enforce_admins` is disabled**, so a repository administrator can bypass the checks. Every
+  bypass is visible in the merge record.
+- **No approving review is mechanically required** (branch protection carries no
+  `required_pull_request_reviews`). The 4-eye rule of
+  [TF-18 §4](TF-18-change-configuration-management.md) is therefore a **process commitment, not
+  an enforced control**; enforcement is scheduled with the first beta release. The claim these
+  gates support is *"CI gates are blocking"*, **not** *"every merge was independently reviewed"*.
+- The `sbom (CycloneDX)` job runs on every build but is **not** among the required checks.
 
 **Test level ↔ version level (H11.1-OP5 §4.4.6).** The depth of testing required for a change
 is tied to its semantic-version level ([TF-18](TF-18-change-configuration-management.md)):
@@ -58,7 +73,7 @@ thorough testing across all levels plus clinical opvolgvalidatie.
 
 The SRS is maintained as the controlled companion document
 **[TF-09a — Software Requirements Specification](TF-09a-software-requirements-specification.md)**:
-71 requirements with stable IDs across 13 areas (functional per application, performance,
+73 requirements with stable IDs across 13 areas (functional per application, performance,
 interface/input, risk-control, security, usability, reporting), each with a 62304 safety class
 and a link to its TF-06 hazard. It is derived from the per-feature design docs and the
 implementation/test inventory, and revised under change control (TF-18).
@@ -81,7 +96,7 @@ audit trail aids reconstruction of any affected case.
 
 ## 6. Release verification checklist (per clinical release)
 
-- [ ] All CI gates green (backend, smoke, e2e, frontend) on the release commit.
+- [ ] All ten required CI gates green on the release commit (§1).
 - [ ] RTM updated; no requirement without a passing verifying test.
 - [ ] Risk file (TF-06) reviewed for new/affected hazards; controls verified.
 - [ ] SOUP register / SBOM (TF-08/TF-13) reconciled; no unaddressed high-severity vuln.
