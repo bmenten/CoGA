@@ -31,9 +31,24 @@ the relevant general safety and performance requirements of Annex I.
 | --- | --- |
 | Name | Center for Medical Genetics Ghent (CMGG) |
 | Legal entity | Ghent University Hospital (UZ Gent) |
-| Address | ‹street, postcode, Ghent, Belgium› |
-| Accreditation | EN ISO 15189, ‹BELAC accreditation number›, scope per https://www.cmgg.be/nl/over-ons/accreditatie |
-| Responsible contact | ‹name, role, email› |
+| Address | Corneel Heymanslaan 10, 9000 Gent, Belgium *(as written in the BELAC scope annex)* |
+| Accreditation | EN ISO 15189:2022 — BELAC accreditation **351-MED**, **certificate version 8**, validity **2025-07-03 → 2026-09-10**; scope annex **BELAC 351-MED V. 19/1**. Source: [351-MED certificate + scope annex (BELAC)](https://ng3.economie.fgov.be/NI/belac/medilabs/scope_pdf/351-MED.pdf), retrieved 2026-07-28; a dated copy of the cited version is archived in the CMGG QMS. |
+| Responsible contact | Björn Menten — Lab director / project lead, <bjorn.menten@ugent.be> |
+
+> **🔲 RA DECISION REQUIRED — the declaring institution and the accreditation holder are not
+> the same legal person.** Verified against the BELAC source on 2026-07-28: certificate 351-MED
+> is issued to **Universiteit Gent**, Sint-Pietersnieuwstraat 25, 9000 Gent, enterprise number
+> **0248.015.142**. *Universitair ziekenhuis Gent — Centrum Medische Genetica Gent (CMGG)*,
+> Corneel Heymanslaan 10, appears in the scope annex as an **activity site**, not as the
+> certificate holder.
+>
+> IVDR Article 5(5)(c) requires the **health institution** making this declaration to comply
+> with EN ISO 15189 (or applicable national provisions). CMGG RA must therefore confirm **which
+> legal person declares** — and that the accreditation relied on covers it. This is not a
+> wording preference; it determines whether the declaration is valid.
+>
+> **Also time-critical:** the cited certificate **expires 2026-09-10**. Renewal will change the
+> version and validity window quoted above, and the citation must be updated with it.
 
 ### 2. Device identification
 
@@ -42,7 +57,7 @@ the relevant general safety and performance requirements of Annex I.
 | Device name | CoGA — Comprehensive Genomic Analysis |
 | Device type | Software (standalone in-house IVD / MDSW) |
 | Version covered by this declaration | ‹X.Y.Z (git ‹hash›)› |
-| Risk class (informative) | ‹e.g. Class C per Annex VIII — to confirm with RA; declaration validity is not contingent on a class for in-house devices, but it is stated for transparency› |
+| Risk class (informative) | **Class C** per IVDR Annex VIII. Declaration validity is not contingent on a class for in-house devices; stated for transparency. Matches the IEC 62304 software safety class ([TF-07](TF-07-software-lifecycle-plan.md), [TF-09a](TF-09a-software-requirements-specification.md)). |
 | Intended purpose | Decision-support software for filtering, visualization and interpretation of genomic data from validated NGS workflows, across five clinical applications: monogenic NIPT screening, expanded carrier screening (long-read), preimplantation genetic testing (PGT), rare-disorder diagnostics (long-read), and combined mtDNA + nuclear mitochondrial-disease testing (ONT long-read adaptive sampling). Full statement: [TF-01](TF-01-intended-purpose.md). |
 | Intended users / setting | Trained clinical laboratory professionals within CMGG, ISO 15189-accredited laboratory. |
 
