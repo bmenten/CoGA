@@ -43,8 +43,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Audit frontend production dependencies (high+)
         # BLOCKING on the deployed (production) tree only: any new high/critical fails.
-        working-directory: frontend
-        run: npm audit --omit=dev --audit-level=high
+        # Runs through the gate script rather than `npm audit --omit=dev --audit-level=high`
+        # directly, because npm audit is all-or-nothing: it cannot exempt a single unfixable
+        # advisory, so one finding with no non-breaking fix would force the whole gate off.
+        # The script keeps it blocking and narrows the exemption to named advisories, each
+        # justified and review-dated in SECURITY-AUDIT-ALLOWLIST.md; it also fails on an
+        # expired or stale allowlist entry so a suppression cannot become permanent.
+        run: node scripts/audit-frontend-prod.mjs
       - name: Report dev-tree advisories (non-blocking)
         # The remaining advisories are build/test-only (vitest/eslint toolchain), not in
         # the shipped artifact. Surfaced as a warning; flip to blocking after the

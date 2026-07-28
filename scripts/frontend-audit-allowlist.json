@@ -1,0 +1,27 @@
+{
+  "$comment": [
+    "Machine-readable companion to SECURITY-AUDIT-ALLOWLIST.md section 1. Every entry here MUST have a",
+    "matching, justified subsection in that register — the register is the reviewed evidence (TF-13),",
+    "this file is only what the CI gate reads. Consumed by scripts/audit-frontend-prod.mjs.",
+    "",
+    "Policy (see the register): suppress only what genuinely cannot be fixed, scope the justification to",
+    "why the device is not exposed, name an owner, and record a flip/review date. Anything with an",
+    "available non-breaking fix is fixed, not suppressed.",
+    "",
+    "reviewBy is enforced: once it passes, the gate fails until the entry is re-justified or removed.",
+    "A suppression must never quietly become permanent."
+  ],
+  "allow": [
+    {
+      "ghsa": "GHSA-qwww-vcr4-c8h2",
+      "package": "react-router",
+      "summary": "RSC Mode CSRF bypass allows action execution before 400 response",
+      "reason": "Not exposed: the vulnerable path is react-router's RSC / framework server mode. CoGA ships a Vite SPA that mounts a plain <BrowserRouter> in frontend/src/index.tsx and has no @react-router/dev, no react-router.config, and no RSC server entry, so no request ever reaches the affected handler.",
+      "noFixAvailable": "Patched only in react-router 8.3.0 (major). `npm audit fix --force` resolves downward to 7.11.0, also a breaking change. No non-breaking fix exists for the 7.x line.",
+      "flipAction": "Remove this entry as part of the react-router v7 -> v8 migration.",
+      "owner": "CMGG software lead",
+      "addedOn": "2026-07-28",
+      "reviewBy": "2026-10-28"
+    }
+  ]
+}
