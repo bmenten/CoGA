@@ -96,7 +96,7 @@ is required before it can reach clinical use. The authority is
 
 | Level | Means | Required |
 | --- | --- | --- |
-| **Patch `x.y.Z`** | Backward-compatible, **no functional or clinical impact** on output — bugfix with no output change, refactor, logging, dependency patch, security update. | System test + a unit test for the fix; a `CHANGELOG.md` note. No validation report. |
+| **Patch `x.y.Z`** | Backward-compatible, **no functional or clinical impact** on output — bugfix with no output change, refactor, logging, dependency patch, security update. | System test + a unit test for the fix; a [`CHANGELOG.md`](CHANGELOG.md) note. No validation report. |
 | **Minor `x.Y.z`** | New backward-compatible functionality, **no change to clinical meaning**. | Patch steps **+ technical opvolgvalidatie** (H11.1-F13) against the previous validated version on a fixed dataset; review the risk analysis ([TF-06](docs/regulatory/TF-06-risk-management-plan.md)). |
 | **Major `X.y.z`** | Backward-incompatible, or **potential impact on clinical output, interpretation or intended use** — caller/cut-off changes, annotation or reference-version changes, filter/decision-rule changes. | Minor steps **+ clinical opvolgvalidatie** (H11.1-F2), CMGGMC ICT update, and TF-01/02/03/04/05 review. |
 
@@ -115,15 +115,15 @@ than self-merging.
 
 > **Note on enforcement:** branch protection currently requires the ten status checks but does
 > **not** mechanically require an approving review, so the 4-eye rule is today a process
-> commitment rather than an enforced one. Treat it as binding regardless. (Closing that gap is
-> a branch-protection change for the repository owner.)
+> commitment rather than an enforced one. Treat it as binding regardless. Enforcement is
+> scheduled to be turned on with the **first beta release**.
 
 ## Known gaps
 
 Recorded here rather than left to be discovered:
 
-- **There is no `CHANGELOG.md`**, although TF-18 requires a changelog note at every level. Until
-  one exists, put the equivalent detail in the commit body and PR description.
+- **4-eye review is not yet mechanically enforced** (above) — enforcement lands with the first
+  beta release.
 - The `catalogue` status check also guards the handleiding page despite its name; the name is
   kept verbatim because it is a required check and renaming it would leave the requirement
   permanently pending.

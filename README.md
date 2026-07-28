@@ -217,3 +217,5 @@ change carries a classification and approval step under
 [TF-18](docs/regulatory/TF-18-change-configuration-management.md), so a pull request cannot
 be merged on technical merit alone. Participation is governed by
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md).
