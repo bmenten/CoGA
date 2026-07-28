@@ -1,5 +1,5 @@
 import React from 'react';
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router';
 import { isAuthenticated } from '../lib/auth';
 
 const RequireAuth: React.FC = () => {

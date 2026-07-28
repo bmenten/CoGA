@@ -167,7 +167,7 @@ De platformversie staat in `VERSION`: **`0.1.0`**. (Let op: dit is de productver
 | TypeScript | ^6.0 | Getypeerde JavaScript |
 | Vite | ^8.1 | Build-tool en dev-server |
 | Tailwind CSS | ^4.3 | Styling |
-| react-router-dom | ^7.18 | Client-side routing (`BrowserRouter`/`Routes`/`Route` in `index.tsx`) |
+| react-router | ^8.3 | Client-side routing (`BrowserRouter`/`Routes`/`Route` in `index.tsx`) |
 | @tanstack/react-query | ^5.101 | Server-state en caching |
 | axios | ^1.18 | HTTP-client naar `/api` |
 | d3 | ^7.9 | Datavisualisaties |
@@ -193,7 +193,7 @@ De platformversie staat in `VERSION`: **`0.1.0`**. (Let op: dit is de productver
 
 ## De frontend-router in het kort
 
-De client-side routing gebruikt `react-router-dom` met `BrowserRouter` en geneste `Routes`/`Route`-declaraties (geen `createBrowserRouter`). Alle pagina's zijn *lazy-geladen* (pas ingeladen wanneer nodig, wat de eerste laadtijd verkort). De boom is opgebouwd rond bewakers:
+De client-side routing gebruikt `react-router` met `BrowserRouter` en geneste `Routes`/`Route`-declaraties (geen `createBrowserRouter`). Alle pagina's zijn *lazy-geladen* (pas ingeladen wanneer nodig, wat de eerste laadtijd verkort). De boom is opgebouwd rond bewakers:
 
 - Alles zit binnen `Layout` (de gedeelde schil).
 - Publieke routes: `/login`, `/signup`.

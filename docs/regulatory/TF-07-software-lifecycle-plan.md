@@ -85,7 +85,7 @@ Per H11.1-OP5 (CMGG roles):
 
 - **Environment separation (H11.1-OP5):** development never happens directly on a production system — it uses a dedicated dev environment, or the test environment where none exists.
 - **Registration & identifier:** CoGA is registered in the CMGGMC **ICT module** with a software number **`Sxxxx`**; semantic versioning `x.y.z` (see [TF-18](TF-18-change-configuration-management.md)); only **major** versions are recorded in the CMGGMC ICT "Software" section.
-- Languages/runtimes: Python 3.10 (backend), Node 20 / TypeScript 6 (frontend).
+- Languages/runtimes: Python 3.10 (backend), Node 22 / TypeScript 6 (frontend).
 - Source control: Git/GitHub; feature branches; pull/merge requests with code review via a project-specific checklist (DevOps); **branch protection with required status checks** (to be enforced — see TF-09 §CI).
 - Build/packaging: Docker / Docker Compose; pinned `backend/requirements.txt`, `frontend/package-lock.json`.
 - CI: GitHub Actions (`.github/workflows/ci.yml`) — backend pytest, real-startup smoke, frontend tsc+eslint+vitest.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import type { NavigateFunction } from 'react-router-dom';
+import type { NavigateFunction } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import { compareChromosomes } from '../../lib/chromosomes';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';

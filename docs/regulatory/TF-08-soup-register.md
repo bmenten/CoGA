@@ -55,18 +55,18 @@ at drafting; reconcile at each release.
 > `requests`, `boto3`, …). For a Class C device, pin all runtime dependencies to exact
 > versions (or a lockfile) so a clinical build is fully reproducible (TF-18).
 
-### A.2 Frontend (Node 20 / TypeScript 6)
+### A.2 Frontend (Node 22 / TypeScript 6)
 
 | SOUP item | Version | Function | Risk |
 | --- | --- | --- | --- |
 | react / react-dom | ^19.2 | UI runtime | H |
-| react-router-dom | ^7.18 | Routing | M |
+| react-router | ^8.3 | Routing | M |
 | @tanstack/react-query | ^5.101 | Server-state fetching/caching | H |
 | axios | ^1.18 | HTTP client (JWT) | H (security) |
 | d3 / @types/d3 | ^7.9 | Visualizations | M |
 | igv | ^3.8 | Embedded genome browser | M |
 | react-markdown / remark-gfm | ^10 / ^4 | In-app docs rendering | L |
-| vite | ^7.0 | Build/dev server | M (build) |
+| vite | ^8.1 | Build/dev server | M (build) |
 | express | ^5.2 | Static serving (prod) | M |
 | typescript | ^6.0 | Type system (build-time) | M |
 

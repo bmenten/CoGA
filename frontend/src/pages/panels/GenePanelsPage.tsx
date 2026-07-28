@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
 import type { GeneLocation, GenePanel } from '../../lib/apiTypes';

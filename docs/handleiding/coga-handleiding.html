@@ -180,7 +180,7 @@ p.waar strong{color:var(--accent-ink)}
 <main>
   <article class="reading">
     <section id="top" class="intro">
-<h1>CoGA — Volledige codebase-handleiding (voor het review board)</h1>
+<h1>CoGA — Volledige codebase-handleiding</h1>
 <p>Deze handleiding legt de <strong>volledige codebase van CoGA</strong> (<em>Comprehensive Genomic Analysis</em>) uit,
 hoofdstuk per hoofdstuk, in het Nederlands. Ze is geschreven voor een <strong>review board / auditoren</strong>
 en is bewust toegankelijk gehouden voor lezers met <strong>beperkte Python- of TypeScript-ervaring</strong>:
@@ -586,8 +586,8 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 <td>Styling</td>
 </tr>
 <tr>
-<td>react-router-dom</td>
-<td>^7.18</td>
+<td>react-router</td>
+<td>^8.3</td>
 <td>Client-side routing (<code>BrowserRouter</code>/<code>Routes</code>/<code>Route</code> in <code>index.tsx</code>)</td>
 </tr>
 <tr>
@@ -681,7 +681,7 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </table></div>
 <p class="waar"><strong>Waar in de code:</strong> <code>VERSION</code>, <code>frontend/package.json</code> en <code>backend/requirements.txt</code>.</p>
 <h2>De frontend-router in het kort</h2>
-<p>De client-side routing gebruikt <code>react-router-dom</code> met <code>BrowserRouter</code> en geneste <code>Routes</code>/<code>Route</code>-declaraties (geen <code>createBrowserRouter</code>). Alle pagina's zijn <em>lazy-geladen</em> (pas ingeladen wanneer nodig, wat de eerste laadtijd verkort). De boom is opgebouwd rond bewakers:</p>
+<p>De client-side routing gebruikt <code>react-router</code> met <code>BrowserRouter</code> en geneste <code>Routes</code>/<code>Route</code>-declaraties (geen <code>createBrowserRouter</code>). Alle pagina's zijn <em>lazy-geladen</em> (pas ingeladen wanneer nodig, wat de eerste laadtijd verkort). De boom is opgebouwd rond bewakers:</p>
 <ul>
 <li>Alles zit binnen <code>Layout</code> (de gedeelde schil).</li>
 <li>Publieke routes: <code>/login</code>, <code>/signup</code>.</li>

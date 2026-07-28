@@ -1,5 +1,5 @@
 import { useState, useMemo, type FC } from 'react';
-import { useParams, useLocation, Link, useNavigate } from 'react-router-dom';
+import { useParams, useLocation, Link, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';

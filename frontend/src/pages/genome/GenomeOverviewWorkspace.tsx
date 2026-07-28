@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';

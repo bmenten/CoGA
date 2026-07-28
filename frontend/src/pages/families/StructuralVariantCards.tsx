@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { formatGt } from '../../lib/genotypes';
 import {
   buildReviewTagTooltip,

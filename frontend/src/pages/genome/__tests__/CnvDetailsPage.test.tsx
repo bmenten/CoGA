@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { useQueryMock } = vi.hoisted(() => ({ useQueryMock: vi.fn() }));

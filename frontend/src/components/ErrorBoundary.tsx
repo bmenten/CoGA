@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import PageState from './PageState';
 
 type Props = { children: React.ReactNode };

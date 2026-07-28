@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState } from 'react';
-import { Link, Outlet, useNavigate } from 'react-router-dom';
+import { Link, Outlet, useNavigate } from 'react-router';
 import Breadcrumbs from './Breadcrumbs';
 import ErrorBoundary from './ErrorBoundary';
 import PageState from './PageState';

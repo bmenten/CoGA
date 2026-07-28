@@ -1,7 +1,7 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
+import { useLocation } from 'react-router';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import GenomeOverviewPage from '../GenomeOverviewPage';
 import api from '../../../lib/api';

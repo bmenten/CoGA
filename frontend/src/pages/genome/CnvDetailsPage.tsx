@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router';
 import api from '../../lib/api';
 import type { ApiChromosome, ApiClinicalCnv } from '../../lib/apiTypes';
 import PageState from '../../components/PageState';
