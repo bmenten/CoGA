@@ -1,0 +1,41 @@
+CoGA — Comprehensive Genomic Analysis
+Copyright 2026 Center for Medical Genetics Ghent, Ghent University Hospital
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
+
+---
+
+REGULATORY NOTICE
+
+The following is informational. It states facts about how this software is
+operated and certified; it does not add to, restrict, or otherwise modify the
+terms of the Apache License, Version 2.0, under which this software is licensed.
+
+CoGA is operated by the Center for Medical Genetics Ghent (CMGG, ISO 15189) as
+an IN-HOUSE IN VITRO DIAGNOSTIC under Article 5(5) of Regulation (EU) 2017/746
+(IVDR). Its device boundary is: annotated VCF in, signed clinical report out.
+
+It is NOT a CE-marked in vitro diagnostic medical device, and it is not placed
+on the market. Its validation, risk management and performance evaluation cover
+CMGG's own laboratory, workflow, reference data and personnel only, as recorded
+in the technical file under docs/regulatory/.
+
+That validation does not transfer with the source code. Any party deploying this
+software, modified or unmodified, for diagnostic use in their own setting is
+responsible for their own regulatory conformity, validation and quality
+management under the applicable law of their jurisdiction. Health-institution
+exemptions comparable to IVDR Article 5(5) carry their own conditions, which must
+be assessed locally.
+
+All data included in this repository is SYNTHETIC. It contains no patient data.
+
+To report a security vulnerability, see SECURITY.md.
