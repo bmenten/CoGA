@@ -46,7 +46,9 @@ empty, so the production gate now blocks on **any** high/critical with no exempt
 | --- | --- |
 | Exposure | **Build/test-only** — none are in the deployed runtime artifact (`npm audit --omit=dev` is clean). |
 | Mechanism | Non-blocking `npm audit --audit-level=high` step that surfaces them as a CI `::warning::`. |
-| Flip action | Convert that step to **blocking** once the `eslint 8→9` / `vitest` toolchain upgrade lands (next dependency-maintenance sprint). |
+| Fixed where possible | `brace-expansion` **GHSA-3jxr-9vmj-r5cp** was resolved by a non-breaking `npm audit fix` (1.1.15 → 1.1.16), closing the Dependabot alert. Per the policy above it is fixed, not suppressed. |
+| Known blocker | `brace-expansion` **GHSA-mh99-v99m-4gvg** remains: it needs `> 5.0.7`, but the vulnerable copy is pulled in by `eslint-plugin-react@7.37.5 → minimatch@3.1.5`, which requires `brace-expansion@^1`. An `overrides` pin to `^5.0.8` was tested — it does zero the audit, but `npm run lint` then dies in `new Minimatch(...)`, so it is not shippable. Same upstream blocker as the `eslint 9→10` bump (`eslint-plugin-react` has no eslint-10 support). |
+| Flip action | Convert that step to **blocking** once `eslint-plugin-react` ships eslint-10 support (or is swapped for `@eslint-react/eslint-plugin`) and the `vitest` toolchain upgrade lands, which removes the `minimatch@3` chain with it. |
 
 ---
 
