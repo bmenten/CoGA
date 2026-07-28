@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import api from '../../lib/api';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 

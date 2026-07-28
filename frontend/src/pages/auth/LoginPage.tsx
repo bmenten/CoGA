@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Navigate, useNavigate, Link, useLocation } from 'react-router-dom';
+import { Navigate, useNavigate, Link, useLocation } from 'react-router';
 import api from '../../lib/api';
 import { isAuthenticated, persistSession } from '../../lib/auth';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';

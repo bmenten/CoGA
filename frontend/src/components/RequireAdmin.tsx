@@ -1,5 +1,5 @@
 import React from 'react';
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router';
 import { isAdmin, isAuthenticated } from '../lib/auth';
 
 const RequireAdmin: React.FC = () => {

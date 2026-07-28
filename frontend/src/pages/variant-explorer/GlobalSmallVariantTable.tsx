@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 import type { SmallVariantTagDefinition } from '../families/smallVariantSearch';
 import type { CarrierModalMode, GlobalVariantRow } from './types';

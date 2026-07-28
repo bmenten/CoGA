@@ -108,6 +108,8 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `Frontend production dependency audit passed — ` +
-    `${findings.size} high/critical finding(s), all allowlisted and in review date.`,
+  findings.size === 0
+    ? 'Frontend production dependency audit passed — no high/critical findings, no active suppressions.'
+    : `Frontend production dependency audit passed — ${findings.size} high/critical finding(s), ` +
+      'all allowlisted and in review date.',
 );

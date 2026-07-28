@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type { ApiFamilyRecord, ApiGenomeTrackAvailability, ApiTrackAvailabilityResponse } from '../../lib/apiTypes';
