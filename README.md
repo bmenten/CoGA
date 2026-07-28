@@ -209,3 +209,11 @@ reuse this: CoGA is operated as an **in-house IVD under IVDR Article 5(5)** at C
 does not transfer with the source — anyone deploying it for diagnostic use elsewhere is
 responsible for their own conformity assessment. Security reports go through
 [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Note that CoGA is a regulated in-house IVD: every
+change carries a classification and approval step under
+[TF-18](docs/regulatory/TF-18-change-configuration-management.md), so a pull request cannot
+be merged on technical merit alone. Participation is governed by
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
