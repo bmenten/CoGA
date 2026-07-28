@@ -1,13 +1,26 @@
 name: Build, push, and deploy (GCP)
 
 on:
+  # Publishing a GitHub Release is the single trigger for a release build: it is the
+  # deliberate, recorded act, and it is the only tag-borne event that reaches `deploy`.
+  # `push: tags` is deliberately NOT a trigger — it fired a second, complete build of the
+  # same commit that raced the release run to push identical image tags, and could never
+  # deploy (see the `deploy` condition below), so it produced only duplicate work and a
+  # nondeterministic winner. Creating a release from a new tag now runs this once.
   release:
     types: [published]
   push:
     branches: [main, master]
-    tags: ['*']
   pull_request:
     branches: [main, master]
+
+# Never let two runs for the same ref overlap. Both the release path and the main path end
+# in `terraform apply -auto-approve` against one shared state file, so concurrent runs race
+# on the state lock and can apply out of order. Queue rather than cancel: aborting a run
+# mid-apply is worse than making the next one wait.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   REGISTRY_PROJECT_ID: ${{ secrets.GCP_REGISTRY_PROJECT_ID }}
@@ -51,6 +64,21 @@ jobs:
       gcp_configured: ${{ steps.gate.outputs.gcp_configured }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check the release version identifies this build
+        # Runs BEFORE any metadata is computed or any image is stamped, so a release whose
+        # tag and VERSION disagree fails loudly instead of shipping a mislabelled image.
+        # On a tag the tag must be exactly `v<VERSION>`; otherwise VERSION is only checked
+        # for well-formedness. See TF-18 section 2 — the stamped version is what appears in
+        # /api/version and in the signed clinical report footer.
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$REF_TYPE" = "tag" ]; then
+            ./scripts/check-release-version.sh "$REF_NAME"
+          else
+            ./scripts/check-release-version.sh
+          fi
       - name: Compute build metadata
         id: meta
         # Untrusted context (a branch/tag name is attacker-controllable) is passed via
@@ -153,6 +181,13 @@ jobs:
     # an inert placeholder (no behaviour change). Covers the current dev target and any
     # future prod target — `terraform apply -auto-approve` must never run unattended.
     environment: gcp-deploy
+    # Serialize every apply against this environment, across refs. The workflow-level
+    # concurrency above is keyed on the ref, so a release run and a main-push run sit in
+    # different groups and would otherwise reach `terraform apply` at the same time against
+    # the same state file. The state is per-environment, so the lock must be too.
+    concurrency:
+      group: terraform-apply-gcp-deploy
+      cancel-in-progress: false
     permissions:
       id-token: write
       contents: read
