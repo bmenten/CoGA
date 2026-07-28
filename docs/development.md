@@ -1,5 +1,21 @@
 # Development
 
+## Node version
+
+Use **Node 22** — the same major CI pins (`node-version: "22"` in `ci.yml` and
+`security.yml`, `node:22-alpine` in `frontend/Dockerfile`). With `nvm`:
+
+```bash
+nvm use          # reads .nvmrc
+nvm install 22   # if you don't have a 22.x yet
+```
+
+The hard floor is **22.22.0**, declared as `engines.node` in `frontend/package.json`:
+`react-router` 8 requires it, and `npm` warns below it. Note that `.nvmrc` alone will not
+catch this — it pins the major, so `nvm use` happily selects an older 22.x (e.g. 22.17.0)
+if that is the newest 22 you have installed. If npm warns about the engine, run
+`nvm install 22` to pick up the current 22.x.
+
 ## Services
 
 Local Docker services:
