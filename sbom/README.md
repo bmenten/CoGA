@@ -13,7 +13,7 @@ Format: **CycloneDX 1.6 (JSON)**.
 ## How they are produced & retained
 
 - **On demand:** `./scripts/generate-sbom.sh` (runs the pinned generators in
-  `python:3.10` / `node:20` containers and writes both files here).
+  `python:3.10` / `node:22` containers and writes both files here).
 - **In CI:** the `sbom` job in `.github/workflows/ci.yml` regenerates both on
   every build and uploads them as **retained build artifacts**, so a verifiable
   SBOM exists for each commit/release.
