@@ -28,10 +28,22 @@ Owner: ‹CMGG software lead› · Review cadence: each release, and on every De
 
 `vite` (high) and `yaml` (moderate) advisories were resolved in this change by a
 non-major lockfile bump (`vite ^7.0.6 → ^7.3.6`, `yaml` pinned `^2.8.3` via
-`overrides`). `npm audit --omit=dev` reports **0 vulnerabilities**; the gate blocks any
-new production high/critical.
+`overrides`). Both remain fixed rather than suppressed; the gate blocks any new
+production high/critical other than the single dated entry in **1c** below.
 
-### 1c. Frontend dev/build tree — report-only (dated flip)
+### 1c. Frontend production tree — `react-router` RSC-mode CSRF bypass (**suppressed, dated**)
+
+| Field | Value |
+| --- | --- |
+| Advisory | **GHSA-qwww-vcr4-c8h2** (high) — _React Router: RSC Mode CSRF Bypass Allows Action Execution Before 400 Response_. Affects `react-router` `>= 7.12.0, < 8.3.0`; reaches us transitively through `react-router-dom@7.18.1`. Published 2026-07-24, surfaced on this repository 2026-07-28. |
+| Exposure | **None — the vulnerable path is not reachable.** The advisory is specific to react-router's **RSC / framework server mode**, where a server action can execute before the CSRF check returns its 400. CoGA ships a **Vite SPA**: routing is a plain `<BrowserRouter>` mounted in `frontend/src/index.tsx`, with no `@react-router/dev`, no `react-router.config.*`, no RSC server entry and no server actions. There is no request path into the affected handler, and the deployed artifact is static assets behind the FastAPI backend. |
+| Why not fixed | **No non-breaking fix exists.** The patch lands only in `react-router` **8.3.0**, a major upgrade of the router; `npm audit fix --force` instead resolves _downward_ to `react-router-dom@7.11.0`, also a breaking change. Per the policy above, a fix requiring a major migration is suppressed with justification rather than rushed into a release. |
+| Mechanism | Named entry in [`scripts/frontend-audit-allowlist.json`](scripts/frontend-audit-allowlist.json), enforced by [`scripts/audit-frontend-prod.mjs`](scripts/audit-frontend-prod.mjs). The gate stays **blocking** for every other high/critical production advisory, and fails if this entry outlives its review date or stops matching a real finding. |
+| Flip action | Migrate `react-router` **v7 → v8** (≥ 8.3.0) and delete the entry from both this register and the allowlist file. |
+| Owner | ‹CMGG software lead› |
+| Added / review by | **2026-07-28** / **2026-10-28** |
+
+### 1d. Frontend dev/build tree — report-only (dated flip)
 
 | Advisories | `glob`, `minimatch`, `picomatch`, `ws`, `ajv`, `brace-expansion` (via the `vitest`/`eslint` toolchain) |
 | --- | --- |
