@@ -338,9 +338,23 @@ jobs:
           retention-days: 90
 
   catalogue:
+    # Guards the generated/derived docs that nothing else would catch drifting. Despite
+    # the job name (kept verbatim — it is a required status check in branch protection,
+    # and renaming it would leave the requirement permanently pending), this covers two
+    # invariants: the test catalogue, and the handleiding page.
     name: catalogue (test overview in sync)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check docs/testing.md lists every test file
         run: ./scripts/check-test-catalogue.sh
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.10"
+      - name: Install the handleiding generator's dependency
+        run: pip install markdown
+      - name: Check the handleiding page matches its Markdown
+        # The HTML is generated but committed (it is what the review board opens), so a
+        # chapter edit can land without a rebuild — as in #387, where the page kept a
+        # stale heading. build_site.py is deterministic, so any diff here is real drift.
+        run: ./scripts/check-handleiding-sync.sh
