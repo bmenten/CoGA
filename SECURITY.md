@@ -25,11 +25,13 @@ and is what we will ask for.
 Helpful to include: affected version or commit, component (backend API, frontend, import
 pipeline, report sign-out), reproduction steps, and the impact you believe it has.
 
-**🔲 INPUT NEEDED** — institutional escalation contact (‹UZ Gent IT security›) and the
-acknowledgement/response targets to be stated here. These must be agreed with CMGG and
-aligned with the vigilance process in [TF-17](docs/regulatory/TF-17-vigilance-capa.md)
-before this section can commit to timelines; see TF-13 §6 *Disclosure/coordination*, which
-tracks the same open item.
+If you would rather not use GitHub, or the issue needs institutional escalation, contact
+the project owner directly: **Björn Menten — <bjorn.menten@ugent.be>**.
+
+We aim to acknowledge a report within **five working days**. Formal response and remediation
+targets are being aligned with the CMGG vigilance process
+([TF-17](docs/regulatory/TF-17-vigilance-capa.md)) and will be stated here with the first
+beta release.
 
 ### This is not the route for clinical incidents
 
