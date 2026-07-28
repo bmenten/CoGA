@@ -70,7 +70,8 @@ generate the SBOM automatically from the lockfiles (`backend/requirements*.txt`,
 - **Monitoring:** Dependabot (in use) + CVE feeds for layer-A SOUP, especially security-critical items (`python-jose`, `passlib`/`bcrypt`, `axios`, FastAPI/Starlette, drivers).
 - **Triage:** assess each advisory for exploitability in CoGA's deployment and impact on safety/PHI; severity-rank.
 - **Remediation:** patch under change control (TF-18) with CI + review; emergency path for actively-exploited criticals.
-- **Disclosure/coordination:** **🔲 INPUT NEEDED** — define how externally-reported vulnerabilities are received and handled with UZ Gent IT security; align with vigilance (TF-17).
+- **Receiving reports:** a public [`SECURITY.md`](../../SECURITY.md) states the intake route — GitHub **private vulnerability reporting** (enabled on the repository), which keeps a report confidential to the maintainers until an advisory is published. It also fixes scope (the device boundary vs. the UZ Gent/CMGG-operated environment), forbids attaching real patient data to a report, and directs suspected patient-safety incidents to the vigilance route (TF-17) rather than a GitHub advisory.
+- **Disclosure/coordination:** **🔲 INPUT NEEDED** — the remaining gap is the *institutional* half: the named UZ Gent IT security escalation contact and the agreed acknowledgement/response targets, to be filled into `SECURITY.md` (which currently marks both) and aligned with vigilance (TF-17).
 
 ## 7. Minimum IT/security requirements for operation (IVDR §16.4 → IFU)
 CoGA is operated only within the UZ Gent/CMGG managed environment with: TLS termination at
