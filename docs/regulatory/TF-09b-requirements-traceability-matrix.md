@@ -143,10 +143,10 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 
 ## 2. Coverage summary
 
-- **Requirements:** 74 across 14 areas (incl. the combined mtDNA + nuclear mitochondrial app, REQ-MITO). Backend test suite: ~73 files / ~420+ tests; frontend vitest: ~49 test files.
+- **Requirements:** **73 across 13 areas** (incl. the combined mtDNA + nuclear mitochondrial app, REQ-MITO) — counted from the `REQ-*` identifiers in [TF-09a](TF-09a-software-requirements-specification.md). Test suites at this revision: **backend 138 test files, 953 passing / 68 skipped**; **frontend 98 test files, 417 tests**.
 - **Directly verified (✅):** the large majority of Class C backend logic — NIPT FF/classification, haplotype lineage + phased-marker QC, ACMG/CNV scoring, trio/de-novo/compound-het, repeat/Paraphase/mtDNA, the full traceability stack (manifest/evidence/drift/audit/sign-out/immutability), and access control.
 - **Partial/pending (◐):** items whose **clinical** performance is established in TF-10 rather than a unit test (carrier panel scoping, >10 Mb SV), or verified by integration rather than unit test (render-from-snapshot, content-hash reproducibility).
-- **Gaps (⚠):** see §3 — the remaining actions before clinical go-live are now **exclusively clinical** (couple-level carrier, aneuploidy/SV detection limits, and the combined mtDNA+nuclear assay concordance), established by the TF-10 study. All unit-testable gaps are closed.
+- **Gaps (⚠):** see §3. Most remaining actions are **clinical** — couple-level carrier, SV detection limit, and the combined mtDNA+nuclear assay concordance — and are established by the TF-10 study. **One unit-testable gap remains open:** REQ-PGT-008 (aneuploidy) has no dedicated detection test.
 
 ## 3. Verification gaps & actions (CAPA backlog)
 
@@ -162,8 +162,9 @@ sub-components (REQ-UI-001 `NiptClassificationBlock`, REQ-UI-003 `AcmgScaleBar`/
 REQ-CLASS-006 `CnvAcmgClassificationModal`) now have vitest coverage; and REQ-PERF-003
 (degraded-input fail-safe) is now verified across NIPT, ACMG, CNV and haplotype.
 
-The remaining gaps are **exclusively clinical detection-limit/concordance claims established by
-the TF-10 study, not unit tests** — all unit-testable gaps are now closed:
+Most remaining gaps are **clinical detection-limit/concordance claims established by the TF-10
+study rather than by unit tests**. The exception is **REQ-PGT-008**, which still needs a
+detection unit test and is the one unit-testable gap outstanding:
 
 | Req | Gap | Action |
 | --- | --- | --- |

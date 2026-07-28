@@ -62,7 +62,7 @@
 | D4 | Approval to **pin all backend runtime dependencies** to exact versions | — |
 | D5 | Production Postgres & ClickHouse versions; pin container base-image digests | — |
 | D6 | Confirm SRS will be produced as a controlled document / requirements register | — |
-| D7 | Enforce CI gates as **required status checks** on `main`? (owner + date) | — |
+| D7 | Enforce CI gates as **required status checks** on `main`? (owner + date) | ✅ **Done** — ten required checks, strict enforcement. Still open: enable `enforce_admins`, and require an approving review (4-eye). |
 
 ## E. Security, usability & data protection → TF-12, TF-13, TF-14
 | # | Question | Answer |

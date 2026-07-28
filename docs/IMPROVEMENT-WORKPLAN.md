@@ -187,7 +187,7 @@ The core of the plan. Grouped by workstream; details in §5–§8.
 | **P1-13** | **F5** — Backups + **tested restore** for Postgres + ClickHouse to off-host storage; close the open TF deployment item. | Architecture | M–L |
 | **P1-14** | **T2** — Reference-DB / SOUP version capture (VCF-header parse + pipeline manifest) + input-VCF hash, frozen into sign-out; or precisely re-scope the TF-08 claim. | Traceability/IVDR | M–L |
 | **P1-15** | **F3/F4 (release)** — Git tags + `CHANGELOG.md` + first signed release record → assign `Sxxxx` + bio-IT ingangsvalidatie (H11.1-F12.2). | IVDR/Testing | M |
-| **P1-16** | **F4 (testing)** — Enforce branch protection / required checks on `main` (`enforce_admins`), set up genuine independent review (CODEOWNERS for `docs/regulatory/` + clinical modules). | Testing/IVDR | S |
+| **P1-16** | **F4 (testing)** — ✅ required checks on `main` are enforced (ten, strict). **Still open:** enable `enforce_admins` (an admin can currently bypass), and set up genuine independent review — no `required_pull_request_reviews` and no CODEOWNERS for `docs/regulatory/` + clinical modules. | Testing/IVDR | S |
 
 ### Phase 2 — Scaling, resilience & maintainability (1–2 months)
 

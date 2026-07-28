@@ -6,8 +6,12 @@ logging, encryption, and the deployment path, plus the hardening landed
 alongside it and the items that remain (mostly deployment/infrastructure, which
 the application code cannot enforce on its own).
 
-Legend: ✅ enforced in code · 🟡 partial / config-dependent · ⛔ not yet done
-(deployment responsibility).
+Legend: ✅ enforced in code · 🟡 partial / config-dependent, **or codified in Terraform
+but not yet applied to a live project** · ⛔ not yet done (deployment responsibility).
+
+> Most §3–§4 items sit in that middle state. The GCP target under [`terraform/`](../terraform/)
+> is written and reviewable but has **never been applied**, so it carries no deployed
+> evidence — do not read 🟡 as "in force".
 
 ## 1. Authentication & RBAC
 
@@ -91,10 +95,12 @@ no cross-tenant boundary to protect.
   overhead and is **refused outside development**.
 
 **Remaining (deployment):**
-- ⛔ **Byte-level S3 downloads are not backend-audited.** The backend logs
-  *issuance* of a presigned URL but the browser fetches bytes from S3 directly.
-  Enable **S3 server access logging / CloudTrail data events** to capture the
-  actual object reads.
+- ⛔ **Byte-level object downloads are not backend-audited.** The backend logs
+  *issuance* of a signed URL but the browser fetches bytes from the object store
+  directly. The remedy is codified as a project-wide **GCS Data Access audit config**
+  (`storage.googleapis.com`, DATA_READ + DATA_WRITE) — but only in the central-infra
+  template (§4), so this gap is genuinely open. It also cannot bite yet:
+  `storage_backend` defaults to `local`, so no GCS object reads exist to audit.
 - 🟡 Request bodies log clinical payloads (only secret-like keys are masked).
   Consider PHI-field masking if bodies are retained long-term.
 
@@ -106,35 +112,55 @@ no cross-tenant boundary to protect.
 - 🟡 **In transit to datastores (TLS — S-2).** The app now supports TLS to both
   stores: set `POSTGRES_SSLMODE` (e.g. `require`/`verify-full`, passed to asyncpg)
   and `CLICKHOUSE_SECURE=true` (HTTPS; use `CLICKHOUSE_HTTP_PORT=8443`,
-  `CLICKHOUSE_VERIFY=true`). Defaults stay plain for local/dev. **Operational
-  action:** terminate TLS on the datastores and set these in production.
-- ⛔ **At rest (databases).** `docker-compose.yml` runs Postgres/ClickHouse on
-  plain Docker volumes with no encryption. For production PHI: use encrypted
-  storage (cloud-managed Postgres/ClickHouse with encryption at rest, or
-  full-disk/LUKS-encrypted volumes).
-- ⛔ **S3 at rest.** The app only *reads* from S3 (no application-side `PutObject`),
-  so SSE is a bucket-level responsibility: set a **default bucket encryption**
-  policy (SSE-KMS preferred) and a bucket policy that **denies unencrypted
-  uploads and non-TLS access** (`aws:SecureTransport=false`).
+  `CLICKHOUSE_VERIFY=true`). Defaults stay plain for local/dev. **Codified, not yet
+  applied:** the Terraform target terminates TLS on both datastores and sets these
+  values — Cloud SQL runs `ssl_mode = ENCRYPTED_ONLY`, and the ClickHouse VM serves
+  HTTPS on 8443 with material fetched from Secret Manager at boot.
+- 🟡 **At rest (databases).** `docker-compose.yml` (dev/local) still runs
+  Postgres/ClickHouse on plain Docker volumes with no encryption. The production
+  path is codified but **not yet applied**: Cloud SQL and both the ClickHouse data
+  and boot disks are encrypted with a **customer-managed key (CMEK)**, supplied by a
+  required variable with no Google-managed fallback (`terraform/database.tf`).
+- 🟡 **Object store at rest.** The app only *reads* PHI objects (there is no
+  application-side upload path), so encryption is a bucket-level responsibility. The
+  Terraform buckets already set **CMEK default encryption**, uniform bucket-level
+  access, and `public_access_prevention = enforced` (`terraform/storage.tf`) —
+  codified, not yet applied.
 
-## 4. S3 / deployment path & PHI scoping
+## 4. Object storage / deployment path & PHI scoping
 
-There is **no Terraform/IaC in the repository** yet. When the deployment is
-codified, keep PHI scoped with these guardrails:
+The deployment **is** codified as infrastructure-as-code: [`terraform/`](../terraform/)
+holds the GCP target (Cloud Run, Cloud SQL, a ClickHouse VM, GCS, Cloud Armor). It has
+**never been applied** — no GCP project is configured and the `deploy` job skips on every
+run — so everything below is *written and reviewable, without deployed evidence*.
 
-- **Bucket:** private, `BlockPublicAccess` on all four flags; default SSE-KMS;
-  versioning + lifecycle; bucket policy enforcing TLS and encryption.
-- **IAM least privilege:** the app role needs only `s3:GetObject`
-  (+ `s3:ListBucket`) on the PHI prefix — it does not upload. Scope by prefix; do
-  not grant `s3:*`.
-- **Network:** prefer a VPC endpoint for S3; keep databases on private subnets.
+- **Buckets (implemented, `storage.tf`).** Two buckets — PHI (family CRAM/BAM +
+  packages) and refdata — both with uniform bucket-level access,
+  `public_access_prevention = enforced`, `force_destroy = false`, and **CMEK** default
+  encryption.
+- **IAM least privilege (implemented, `storage.tf`).** The backend runtime service
+  account holds `roles/storage.objectViewer` on the PHI bucket only — read-only, and a
+  resource-level grant rather than a project-wide one. The app has no upload path.
+  **Residual:** the grant is bucket-wide, not prefix-scoped.
+- **Network (implemented, `network.tf`/`database.tf`/`cloudrun.tf`).** Custom VPC with
+  **Private Google Access** (the GCP analogue of a VPC endpoint); Cloud SQL has
+  `ipv4_enabled = false` over private-service-access peering; the ClickHouse VM has no
+  external IP and no SSH ingress; both Cloud Run services are ingress-restricted to the
+  internal load balancer, so neither is reachable on its `run.app` URL.
 - **Presigned URLs** (`S3_PRESIGN_EXPIRY_SECONDS`, default 1h) are bearer tokens —
   anyone with the link can fetch within the TTL. Keep the TTL short; rely on the
   per-object scope and the access checks that precede issuance.
-- **Secrets:** move DB/ClickHouse passwords out of compose `environment:` into
-  Docker secrets or a managed secret store for production; rotate `SECRET_KEY`.
-- **Observability:** enable CloudTrail (data events on the PHI bucket) and S3
-  access logging — this is also what closes the byte-level audit gap in §2.
+- **Secrets (implemented, `secrets.tf`/`cloudrun.tf`).** Five region-pinned Secret
+  Manager containers; values are added out-of-band so plaintext never passes through
+  Terraform variables, and Cloud Run injects them **by reference**, never as literals.
+  **Residual:** no rotation automation — rotating `SECRET_KEY` is still a manual act.
+- **Observability (defined elsewhere, ⛔ not in force).** The GCP equivalent of
+  CloudTrail data events is a project-wide **GCS Data Access audit config**
+  (`storage.googleapis.com`, DATA_READ + DATA_WRITE). It needs project-IAM-admin
+  rights, so it lives in the central-infra template
+  `terraform/main-repo-reference/coga-prerequisites.tf.example` — another repository,
+  still an `.example`. This is what would close the byte-level audit gap in §2, and it
+  remains open.
 
 ## 5. CI enforcement of the gates
 
@@ -165,8 +191,11 @@ tokens, and a refuse-to-start guard against default secrets. The supply-chain an
 code-scanning gates are required in CI — **S-5 (audit durability), S-6 (required
 checks) and S-7 (dependency pinning) are closed**.
 
-The remaining open items are deployment-level and live in the infrastructure
-layer, not the application: encryption at rest + TLS for the datastores
-(**S-1/S-2**), secrets management (**S-3**), CloudTrail/S3 access logging for
-byte-level download audit (**S-4**), and S3 bucket policy / least-privilege IAM /
-network posture (**S-8**). See §3–§4 here and [TF-13 §3](regulatory/TF-13-cybersecurity.md).
+The remaining open items are deployment-level and live in the infrastructure layer, not
+the application. Four of the five are now **codified in [`terraform/`](../terraform/) but
+never applied to a live project**, so what remains for them is the first apply plus
+captured evidence: encryption at rest and TLS for the datastores (**S-1/S-2**), secrets
+management (**S-3**), and bucket policy / least-privilege IAM / network posture
+(**S-8**). **S-4** (byte-level download audit) is the exception and is genuinely open —
+its audit config lives only in the central-infra template, and PHI is not served from
+GCS yet. See §3–§4 here and [TF-13 §3](regulatory/TF-13-cybersecurity.md).
