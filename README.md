@@ -219,3 +219,5 @@ be merged on technical merit alone. Participation is governed by
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+Releases follow [RELEASING.md](RELEASING.md).

@@ -96,6 +96,8 @@ audit trail aids reconstruction of any affected case.
 
 ## 6. Release verification checklist (per clinical release)
 
+The mechanics of executing a release — tagging, building, capturing evidence and filing the record — are in [`RELEASING.md`](../../RELEASING.md). This checklist is the clinical gate that must pass before those mechanics are run for a clinical release.
+
 - [ ] All ten required CI gates green on the release commit (§1).
 - [ ] RTM updated; no requirement without a passing verifying test.
 - [ ] Risk file (TF-06) reviewed for new/affected hazards; controls verified.
