@@ -49,6 +49,15 @@ _MALFORMED_VCF = (
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
     "1\tNOT_A_NUMBER\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n"
 )
+# Two variants — used to prove an atomic restore: after a failed overwrite the family's
+# small-variant count must return to the pre-import value (1), not the overwrite's (2).
+_TWO_VARIANT_VCF = (
+    "##fileformat=VCFv4.2\n"
+    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
+    "1\t100\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n"
+    "1\t200\t.\tC\tT\t60\tPASS\t.\tGT\t0/1\n"
+)
 
 
 def _write_pkg(
@@ -101,6 +110,15 @@ async def _collect(base: Path) -> dict:
         async with sm() as s:
             return (
                 await s.execute(text("SELECT id::text FROM families WHERE family_id = :f"), {"f": fid})
+            ).scalar_one_or_none()
+
+    async def import_incomplete_flag(fid: str):
+        async with sm() as s:
+            return (
+                await s.execute(
+                    text("SELECT metadata -> 'import_incomplete' FROM families WHERE family_id = :f"),
+                    {"f": fid},
+                )
             ).scalar_one_or_none()
 
     async def run_import(root: Path, *, conflict_mode: str = "cancel"):
@@ -160,6 +178,145 @@ async def _collect(base: Path) -> dict:
         "count1": count1,
         "count2": count2,
     }
+
+    # --- failed OVERWRITE of a PRE-EXISTING family: atomic ClickHouse restore (#365) ---
+    # Import 1 variant cleanly, then overwrite with a 2-variant package whose dataset
+    # import raises *after* it has already replaced the family's small variants. Without
+    # the snapshot/restore the family would be left with the overwrite's 2 variants + an
+    # import_incomplete flag; with it the family is rolled back to its pre-import 1.
+    fid = f"FAM_RESTORE_{uuid4().hex[:8]}"
+    root_v1 = _write_pkg(base / fid, family_id=fid, snv_body=_GOOD_VCF)
+    await run_import(root_v1, conflict_mode="cancel")
+    fu = await family_uuid(fid)
+    count_before = await count_family_small_variants(_harness.ASSEMBLY, fu, project_ids=[project_id]) if fu else 0
+    root_v2 = _write_pkg(base / f"{fid}_v2", family_id=fid, snv_body=_TWO_VARIANT_VCF)
+
+    real_import_dataset = package_import._import_dataset
+
+    async def _import_then_fail(*args, **kwargs):
+        # Let the dataset actually import (overwriting the family's ClickHouse rows),
+        # then raise to simulate a mid-import failure of a later step.
+        await real_import_dataset(*args, **kwargs)
+        raise RuntimeError("injected failure after dataset import")
+
+    package_import._import_dataset = _import_then_fail
+    try:
+        res_restore = await run_import(root_v2, conflict_mode="overwrite")
+    finally:
+        package_import._import_dataset = real_import_dataset
+    count_after = await count_family_small_variants(_harness.ASSEMBLY, fu, project_ids=[project_id]) if fu else 0
+    out["restore"] = {
+        "completed": res_restore.completed,
+        "error": res_restore.error,
+        "count_before": count_before,
+        "count_after": count_after,
+        "flag": await import_incomplete_flag(fid),
+    }
+
+    # --- restore itself fails -> fall back to the import_incomplete flag ---
+    fid = f"FAM_RESTOREFB_{uuid4().hex[:8]}"
+    root_v1 = _write_pkg(base / fid, family_id=fid, snv_body=_GOOD_VCF)
+    await run_import(root_v1, conflict_mode="cancel")
+    fu = await family_uuid(fid)
+    root_v2 = _write_pkg(base / f"{fid}_v2", family_id=fid, snv_body=_TWO_VARIANT_VCF)
+
+    real_restore = package_import.restore_family_clickhouse_state
+
+    async def _failing_restore(*args, **kwargs):
+        raise RuntimeError("injected restore failure")
+
+    package_import._import_dataset = _import_then_fail
+    package_import.restore_family_clickhouse_state = _failing_restore
+    try:
+        res_fallback = await run_import(root_v2, conflict_mode="overwrite")
+    finally:
+        package_import._import_dataset = real_import_dataset
+        package_import.restore_family_clickhouse_state = real_restore
+    out["restore_fallback"] = {
+        "completed": res_fallback.completed,
+        "flag": await import_incomplete_flag(fid),
+    }
+
+    # --- Postgres snapshot/restore of the loop-modified tables (#365 postgres) ---
+    # Create a real family, seed a loop-modified table + a samples.metadata marker, snapshot,
+    # then mutate both (delete/insert a different row; change the marker) and restore — the
+    # mutation must be gone and the original state (row + marker) back, proving the
+    # DELETE + jsonb_populate_recordset reinsert and the samples.metadata UPDATE round-trip.
+    from backend.app.services.postgres_family_snapshot import (
+        restore_family_postgres_state,
+        snapshot_family_postgres_state,
+    )
+
+    fid = f"FAM_PGSNAP_{uuid4().hex[:8]}"
+    await run_import(_write_pkg(base / fid, family_id=fid, snv_body=_GOOD_VCF), conflict_mode="cancel")
+    fu = await family_uuid(fid)
+    async with sm() as s:
+        sid = (
+            await s.execute(
+                text("SELECT id::text FROM samples WHERE family_id = CAST(:f AS uuid) LIMIT 1"), {"f": fu}
+            )
+        ).scalar_one()
+        await s.execute(
+            text(
+                "INSERT INTO sample_interval_track_sources "
+                "(sample_id, family_id, track_type, source, filename, row_count) "
+                "VALUES (CAST(:sid AS uuid), CAST(:fid AS uuid), 'coverage', 'orig', 'orig.bed', 7)"
+            ),
+            {"sid": sid, "fid": fu},
+        )
+        await s.execute(
+            text(
+                "UPDATE samples SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), "
+                "'{pg_snap_marker}', '\"original\"'::jsonb) WHERE id = CAST(:sid AS uuid)"
+            ),
+            {"sid": sid},
+        )
+        await s.commit()
+
+    async with sm() as s:
+        pg_snap = await snapshot_family_postgres_state(s, fu)
+
+    async with sm() as s:  # mutate as a failed overwrite would
+        await s.execute(
+            text("DELETE FROM sample_interval_track_sources WHERE family_id = CAST(:fid AS uuid)"), {"fid": fu}
+        )
+        await s.execute(
+            text(
+                "INSERT INTO sample_interval_track_sources "
+                "(sample_id, family_id, track_type, source, filename, row_count) "
+                "VALUES (CAST(:sid AS uuid), CAST(:fid AS uuid), 'segments', 'mutated', 'new.bed', 99)"
+            ),
+            {"sid": sid, "fid": fu},
+        )
+        await s.execute(
+            text(
+                "UPDATE samples SET metadata = jsonb_set(metadata, '{pg_snap_marker}', '\"mutated\"'::jsonb) "
+                "WHERE id = CAST(:sid AS uuid)"
+            ),
+            {"sid": sid},
+        )
+        await s.commit()
+
+    async with sm() as s:
+        await restore_family_postgres_state(s, pg_snap)
+
+    async with sm() as s:
+        rows = (
+            await s.execute(
+                text(
+                    "SELECT source, filename, row_count FROM sample_interval_track_sources "
+                    "WHERE family_id = CAST(:fid AS uuid) ORDER BY source"
+                ),
+                {"fid": fu},
+            )
+        ).all()
+        marker = (
+            await s.execute(
+                text("SELECT metadata ->> 'pg_snap_marker' FROM samples WHERE id = CAST(:sid AS uuid)"),
+                {"sid": sid},
+            )
+        ).scalar_one()
+    out["pg_restore"] = {"sources": [list(r) for r in rows], "marker": marker}
 
     # --- job lifecycle: queue -> claim -> run -> terminal status (mirrors the worker) ---
     async def lifecycle(root: Path) -> dict:
@@ -253,6 +410,37 @@ def test_reimport_overwrite_does_not_duplicate(results):
     assert r["completed1"] is True and r["completed2"] is True, r
     assert r["count1"] == 1, r
     assert r["count2"] == r["count1"], r
+
+
+# ----------------------------------------------------------- import atomicity (#365)
+
+
+def test_failed_overwrite_restores_pre_import_state(results):
+    r = results["restore"]
+    # The overwrite failed, so the job still reports failure...
+    assert r["completed"] is False, r
+    assert r["error"], r
+    # ...but the family's variant data was atomically rolled back to the pre-import
+    # value (1), NOT left at the overwrite's 2, and no incompleteness flag remains.
+    assert r["count_before"] == 1, r
+    assert r["count_after"] == r["count_before"], r
+    assert r["flag"] is None, r
+
+
+def test_restore_failure_falls_back_to_incomplete_flag(results):
+    r = results["restore_fallback"]
+    # When the snapshot restore itself fails, the family is flagged import-incomplete
+    # (the conservative fallback) rather than silently left in a half-overwritten state.
+    assert r["completed"] is False, r
+    assert r["flag"] is not None, r
+
+
+def test_postgres_snapshot_restore_reverts_loop_tables(results):
+    r = results["pg_restore"]
+    # The mutated 'segments/mutated' row is gone and the original 'coverage/orig' row is
+    # back verbatim (row_count 7), and samples.metadata reverted from 'mutated' to 'original'.
+    assert r["sources"] == [["orig", "orig.bed", 7]], r
+    assert r["marker"] == "original", r
 
 
 # ------------------------------------------------------------------------- job lifecycle
