@@ -10,14 +10,20 @@ const { apiGetMock, createBrowserMock, searchMock, loadIgvMock } = vi.hoisted(()
   loadIgvMock: vi.fn(),
 }));
 
-vi.mock('../../lib/api', () => ({
-  default: {
-    get: apiGetMock,
-    defaults: {
-      baseURL: 'http://api.test',
+vi.mock('../../lib/api', async () => {
+  // Spread the real module so the shared URL helpers stay real; only the axios
+  // instance is replaced, and its baseURL is what the assertions below pin.
+  const actual = await vi.importActual<typeof import('../../lib/api')>('../../lib/api');
+  return {
+    ...actual,
+    default: {
+      get: apiGetMock,
+      defaults: {
+        baseURL: 'http://api.test',
+      },
     },
-  },
-}));
+  };
+});
 
 vi.mock('../../lib/igvLoader', () => ({
   loadIgv: loadIgvMock,
