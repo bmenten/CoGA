@@ -5,9 +5,13 @@ import SampleQcCell from '../SampleQcCell';
 import api from '../../../lib/api';
 import type { ApiFamilyRecord } from '../../../lib/apiTypes';
 
-vi.mock('../../../lib/api', () => ({
-  default: { get: vi.fn() },
-}));
+vi.mock('../../../lib/api', async () => {
+  const actual = await vi.importActual<typeof import('../../../lib/api')>('../../../lib/api');
+  return {
+    ...actual,
+    default: { get: vi.fn(), defaults: { baseURL: '/api' } },
+  };
+});
 
 const mockedGet = vi.mocked(api.get);
 
@@ -61,11 +65,31 @@ describe('SampleQcCell', () => {
     await waitFor(() =>
       expect(mockedGet).toHaveBeenCalledWith('/families/pacbio/qc-report/HG002/link'),
     );
-    // The report is untrusted pipeline HTML: it opens detached from this document.
+    // The API base must be prefixed: opened bare, the browser resolves the path
+    // against the SPA origin and the client router renders "page not found".
+    // The report is untrusted pipeline HTML, so it opens detached from this document.
     expect(window.open).toHaveBeenCalledWith(
-      '/families/pacbio/qc-report/HG002?token=abc',
+      '/api/families/pacbio/qc-report/HG002?token=abc',
       '_blank',
       'noopener,noreferrer',
+    );
+  });
+
+  it('uses an absolute presigned link unchanged (object-storage mode)', async () => {
+    mockedGet.mockResolvedValue({
+      data: { url: 'https://bucket.s3.amazonaws.com/families/pacbio/qc.html?sig=abc' },
+    });
+    const user = userEvent.setup();
+    render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
+
+    await user.click(screen.getByRole('button', { name: /QC report/i }));
+
+    await waitFor(() =>
+      expect(window.open).toHaveBeenCalledWith(
+        'https://bucket.s3.amazonaws.com/families/pacbio/qc.html?sig=abc',
+        '_blank',
+        'noopener,noreferrer',
+      ),
     );
   });
 

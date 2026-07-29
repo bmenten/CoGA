@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import api from '../../lib/api';
+import api, { resolveApiUrl } from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatSequencingQcSummary, sequencingQcForMember } from './familyDetailHelpers';
@@ -43,7 +43,9 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
         setError('No QC report is available');
         return;
       }
-      window.open(url, '_blank', 'noopener,noreferrer');
+      // The link is backend-relative in local mode; without the API base the browser
+      // resolves it against the SPA origin and the client router shows "page not found".
+      window.open(resolveApiUrl(url), '_blank', 'noopener,noreferrer');
     } catch (err) {
       setError(getErrorMessage(err, 'Could not open the QC report'));
     } finally {

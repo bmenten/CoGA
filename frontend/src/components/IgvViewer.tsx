@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Browser as IgvBrowser, CreateOpt as IgvCreateOpt } from 'igv';
-import api from '../lib/api';
+import api, { isAbsoluteUrl, resolveApiUrl } from '../lib/api';
 import PageState from './PageState';
 import { getErrorMessage } from '../lib/errorMessage';
 import { loadIgv } from '../lib/igvLoader';
@@ -130,15 +130,13 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
         // In S3 mode the manifest returns absolute presigned URLs (auth is baked
         // into the URL); IGV must fetch those directly without our bearer header.
         // In local mode the URLs are backend-relative and need the API base + auth.
-        const isAbsolute = (value: string) => /^https?:\/\//i.test(value);
-        const resolveUrl = (value: string) => (isAbsolute(value) ? value : `${base}${value}`);
         const tracks = (manifestResponse.data as AlignmentManifestEntry[]).map((entry) => ({
           name: entry.sample_id,
           type: 'alignment',
           format: entry.format,
-          url: resolveUrl(entry.url),
-          indexURL: resolveUrl(entry.index_url),
-          ...(isAbsolute(entry.url) ? {} : { headers }),
+          url: resolveApiUrl(entry.url, base),
+          indexURL: resolveApiUrl(entry.index_url, base),
+          ...(isAbsoluteUrl(entry.url) ? {} : { headers }),
         }));
         type GenomeArg = string | Record<string, unknown>;
         const igv = await loadIgv();
