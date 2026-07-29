@@ -81,7 +81,28 @@ FAM001/
   paraphase/  SAMPLE1.paraphase.json
 ```
 
-The `standard_v1` naming scheme knows several fallback names per layer (for example a `{family_id}`-prefixed VCF or a generic `family.*` name), so packages from slightly different pipelines still resolve.
+Long-read packages (nf-core/lrsvar) are laid out per sample and are detected by the same scheme:
+
+```text
+pacbio/
+  manifest.yaml
+  pacbio.ped
+  bams/       HG002.cram (+ .crai)                          alignments
+  snv/        HG002/annotation/HG002_annot.vcf.gz (+ .tbi)  VEP-annotated
+  sv/         HG002/annotation/HG002_sv_phased.needLR.4.0.vcf.gz
+  cnv/        HG002/annotation/HG002_annot.vcf.gz + HG002.*.copynum.bedgraph
+  mito/       HG002/HG002.vcf.gz + annotation/HG002/HG002_snv_annot.txt
+  repeats/    HG002/HG002_tr.vcf.gz (+ .csi)
+  paraphase/  HG002/HG002.paraphase.json
+  qc/         nanoplot/HG002/*NanoPlot-report.html + *NanoStats.txt, depth/HG002/*.mosdepth.summary.txt
+  pipeline_info/  software_versions.yaml, params_*.json
+```
+
+The `standard_v1` naming scheme knows several fallback names per layer (for example a `{family_id}`-prefixed VCF or a generic `family.*` name), so packages from slightly different pipelines still resolve. Patterns may also contain a `*` — the SV annotator writes its release into the filename (`…needLR.4.0.vcf.gz`) — and the written manifest always records the concrete path the wildcard matched.
+
+Because long-read callers name a VCF's sample column after their own input file (`Sample0`, `HG002_sort`) rather than the sample, a per-sample dataset entry binds a single-column VCF to the sample it was declared for, and known tool suffixes are stripped otherwise. A column that matches no family sample fails the import instead of being dropped silently.
+
+Once imported, each sample's sequencing QC (mean depth, read-length N50, read quality) appears in the **Family members** table on the family page, with a link that opens the pipeline's QC report in a separate tab.
 
 ### Manifest, dry-run, import
 

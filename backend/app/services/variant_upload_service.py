@@ -11,7 +11,7 @@ import math
 import os
 import sqlite3
 import tempfile
-from typing import Any, Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Literal, Sequence
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
@@ -42,6 +42,7 @@ from .clickhouse_interval_tracks import (
     upsert_interval_track_source,
 )
 from .data_scope import normalize_chromosome
+from .family_package_common import _normalize_header_key
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .haplotype_lineage_service import build_pedigree, identify_core
 from .family_variant_filters import StructuralVariantQueryFilters
@@ -76,7 +77,15 @@ _PROVENANCE_SKIP_PREFIXES = (
 )
 _PROVENANCE_HEADER_CAP = 200
 
-SmallVariantFormat = Literal["auto", "clair3", "glimpse2"]
+# The value doubles as the ClickHouse ``source`` tag, which scopes deletes and
+# re-imports. "clair3" is the historical label for *the family's primary, directly
+# called nuclear callset* whatever produced it (DeepVariant on the long-read
+# pipeline) -- the actual caller and its version are recorded per family in the
+# annotation manifest from the VCF header, which is the traceable record. "mito" is a
+# separate source so re-importing the nuclear callset never deletes the chrM calls
+# (they come from a different file and a different caller run).
+SmallVariantFormat = Literal["auto", "clair3", "glimpse2", "mito"]
+ResolvedSmallVariantFormat = Literal["clair3", "glimpse2", "mito"]
 StructuralVariantFormat = Literal["auto", "manual", "sniffles", "spectre"]
 SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS = 50
 SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN = 500_000
@@ -381,6 +390,116 @@ def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
     return lookup
 
 
+# mutserve's mtDNA annotation columns, mapped onto the annotation keys the mtDNA
+# workspace reads. Everything not listed here is still carried through verbatim (the
+# annotation is stored as JSON), so haplogroup/selection/NuMT context is not lost.
+# Keys are matched after _normalize_header_key, which drops separators and case.
+_MUTSERVE_ANNOTATION_FIELDS = {
+    _normalize_header_key(column): key
+    for column, key in {
+        "VariantLevel": "variant_level",
+        "Coverage": "coverage",
+        "MeanBaseQuality": "mean_base_quality",
+        "Mutation": "mutation",
+        "Substitution": "substitution",
+        "Maplocus": "gene",
+        "Category": "category",
+        "Phylotree17_haplogroups": "haplogroup",
+        "Phylotree17_clades": "haplogroup_clades",
+        "HaploGrep2_weight": "haplogroup_weight",
+        "AminoAcid": "amino_acid",
+        "NewAminoAcid": "new_amino_acid",
+        "AminoAcid_pos_protein": "amino_acid_position",
+        "MutPred_Score": "mutpred_score",
+        "mtDNA_Selection_Score": "mtdna_selection_score",
+        "OXPHOS_complex": "oxphos_complex",
+        "Helix_vaf_hom": "helix_af",
+        "Helix_vaf_het": "helix_af_het",
+        "Helix_count_hom": "helix_count_hom",
+        "Helix_count_het": "helix_count_het",
+        "NuMTs_dayama": "numts",
+        "LowComplexityRegion": "low_complexity_region",
+    }.items()
+}
+
+# The mutserve TSV's ID column holds the caller's internal sample label (literally
+# "sample"), never a variant identifier. It must never be read as an rsid.
+_MUTSERVE_IGNORED_COLUMNS = frozenset({"id", "filter"})
+
+
+def _mutserve_annotation_row(row: dict[str, str]) -> dict[str, Any]:
+    annotation: dict[str, Any] = {}
+    for column, raw_value in row.items():
+        key = _normalize_header_key(column)
+        if key in _MUTSERVE_IGNORED_COLUMNS:
+            continue
+        value = (raw_value or "").strip()
+        if value in {"", "."}:
+            continue
+        annotation[_MUTSERVE_ANNOTATION_FIELDS.get(key, key)] = value
+    return annotation
+
+
+def parse_mutserve_annotation_lines(lines: Any) -> VepAnnotationLookup:
+    """Index a mutserve mtDNA annotation TSV by ``chrM`` variant id.
+
+    This is a sibling of the VEP-TSV parser rather than a reuse of it: mutserve writes
+    a bare (un-``#``-prefixed) header, has no ``Uploaded_variation``/``Location``
+    columns to key on, and its ``ID`` column holds the caller's sample label, which the
+    VEP parser's ``rsid`` alias list would otherwise store as every variant's rsid. The
+    join key here is built from ``Pos``/``Ref``/``Variant`` against the chrM contig.
+    """
+    lookup = _sqlite_annotation_lookup()
+    header: list[str] | None = None
+    row_count = 0
+    for raw_line in lines:
+        line = raw_line.rstrip("\n\r")
+        if not line or line.startswith("##"):
+            continue
+        values = line.split("\t")
+        if header is None:
+            header = [value.lstrip("#").strip() for value in values]
+            continue
+        row = {key: value for key, value in zip(header, values)}
+        normalized = {_normalize_header_key(key): value for key, value in row.items()}
+        position = _coerce_int(normalized.get("pos"))
+        ref = (normalized.get("ref") or "").strip()
+        alt = (normalized.get("variant") or normalized.get("alt") or "").strip()
+        if position is None or not ref or not alt:
+            continue
+        annotation = _mutserve_annotation_row(row)
+        if not annotation:
+            continue
+        row_count += 1
+        _store_vep_annotation(
+            lookup,
+            key_type="variant_id",
+            key_value=build_small_variant_id("M", position, ref, alt),
+            annotation=annotation,
+        )
+    lookup.row_count = row_count
+    if lookup.conn is not None:
+        lookup.conn.commit()
+    return lookup
+
+
+def parse_mutserve_annotation_path(path) -> VepAnnotationLookup | None:
+    """Parse a mutserve annotation TSV from disk, or None when it holds no rows.
+
+    A header-only file is the normal outcome for a run with nothing to annotate (the
+    mitochondrial SV annotation in this pipeline is routinely empty), so it returns
+    None rather than an empty lookup that would suppress the VCF's own annotations.
+    """
+    if path is None or not path.is_file():
+        return None
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        lookup = parse_mutserve_annotation_lines(handle)
+    if lookup.row_count == 0:
+        lookup.close()
+        return None
+    return lookup
+
+
 def _parse_vep_tsv_annotation_upload(file: UploadFile) -> VepAnnotationLookup:
     return _parse_vep_tsv_annotation_lines(
         _iter_upload_text_lines(file, kind="VEP TSV annotation"),
@@ -461,7 +580,7 @@ def _has_phasing_source_hint(header_lines: list[str], filename: str | None = Non
 def _detect_small_variant_format(
     text: str,
     format_hint: SmallVariantFormat,
-) -> Literal["clair3", "glimpse2"]:
+) -> ResolvedSmallVariantFormat:
     if format_hint != "auto":
         return format_hint
     header_lines: list[str] = []
@@ -487,7 +606,7 @@ def _detect_small_variant_format(
 def _detect_small_variant_format_from_upload(
     file: UploadFile,
     format_hint: SmallVariantFormat,
-) -> Literal["clair3", "glimpse2"]:
+) -> ResolvedSmallVariantFormat:
     if format_hint != "auto":
         return format_hint
     header_lines: list[str] = []
@@ -1040,14 +1159,35 @@ async def upload_family_small_variant_file(
     format_hint: SmallVariantFormat,
     annotation_file: UploadFile | None = None,
     progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    sample_aliases: dict[str, str] | None = None,
+    exclude_filters: Sequence[str] | None = None,
+    vep_annotations: VepAnnotationLookup | None = None,
 ) -> dict[str, Any]:
+    """Load a family's small-variant VCF into ClickHouse.
+
+    ``sample_aliases`` maps a VCF ``#CHROM`` sample column onto a family sample id, for
+    callers that name the column after the input file rather than the sample (the
+    long-read CNV caller writes ``Sample0``, TRGT writes ``<sample>_sort``). Without it
+    such a column is rejected as "not found in family".
+
+    ``exclude_filters`` drops records carrying any of the named FILTER values before
+    they are stored. The long-read DeepVariant callset marks reference blocks and
+    no-call sites with ``RefCall``/``NoCall``; those are half of a 10.7M-record
+    whole-genome VCF and carry no variant to review.
+
+    ``vep_annotations`` supplies an already-parsed annotation lookup, for callers whose
+    annotation file is not a VEP TSV (the mitochondrial callset is annotated by
+    mutserve). It is mutually exclusive with ``annotation_file``, which parses one.
+    """
     if not context.assembly_name:
         raise HTTPException(
             status_code=400,
             detail="Could not resolve a single assembly for this family",
         )
 
-    vep_annotations: VepAnnotationLookup | None = None
+    alias_map = {str(key): str(value) for key, value in (sample_aliases or {}).items()}
+    excluded_filters = {str(value).strip() for value in (exclude_filters or []) if str(value).strip()}
+    skipped_filtered = 0
     if annotation_file is not None:
         vep_annotations = await asyncio.to_thread(
             _parse_vep_tsv_annotation_upload,
@@ -1166,7 +1306,10 @@ async def upload_family_small_variant_file(
                 provenance_header_lines.append(line.rstrip())
             if line.startswith("#CHROM"):
                 header = line.strip().split("\t")
-                sample_names = header[9:]
+                # Rewrite each VCF sample column to its family sample id up front, so
+                # every downstream lookup (calls, haplotype state, parent roles) works
+                # in family-sample-id space and never has to know about the alias.
+                sample_names = [alias_map.get(name, name) for name in header[9:]]
                 unique_names = list(dict.fromkeys(sample_names))
                 for name in unique_names:
                     if name not in sample_contexts:
@@ -1184,6 +1327,16 @@ async def upload_family_small_variant_file(
                 continue
 
             chrom, pos, _vid, ref, alt, qual, filt, info_field, fmt = fields[:9]
+            # Drop caller-declared non-variant records (DeepVariant RefCall/NoCall)
+            # before any parsing work: they are half of a whole-genome long-read VCF
+            # and carry nothing to review. A record is excluded only when every one of
+            # its FILTER values is excluded, so a genuine variant that also picked up
+            # an excluded flag is kept.
+            if excluded_filters and filt not in {"", "."}:
+                record_filters = [value for value in filt.split(";") if value]
+                if record_filters and all(value in excluded_filters for value in record_filters):
+                    skipped_filtered += 1
+                    continue
             sample_fields = fields[9:]
             # A data row whose sample-column count doesn't match the #CHROM header is
             # malformed: a bare zip() would silently truncate to the shorter side and
@@ -1218,8 +1371,11 @@ async def upload_family_small_variant_file(
                     sample=sample_name,
                     gt=gt_val,
                     gq=_first_present_float(fmt_vals, "GQ"),
-                    dp=_first_present_int(fmt_vals, "DP"),
-                    af=_parse_float_list(fmt_vals.get("AF")),
+                    dp=_first_present_int(fmt_vals, "DP", "MED_DP", "MIN_DP"),
+                    # DeepVariant writes the per-allele alt fraction as VAF, not AF.
+                    # On chrM that fraction *is* the heteroplasmy level the mtDNA
+                    # workspace reads out of calls.af, so it must not be dropped.
+                    af=_parse_float_list(fmt_vals.get("AF") or fmt_vals.get("VAF")),
                     ad=_parse_int_list(fmt_vals.get("AD")),
                     ps=_first_present_int(fmt_vals, "PS"),
                 )
@@ -1400,7 +1556,13 @@ async def upload_family_small_variant_file(
                 await flush_variant_batch()
 
         if inserted == 0:
-            raise HTTPException(status_code=400, detail="No valid small-variant records found")
+            detail = "No valid small-variant records found"
+            if skipped_filtered:
+                detail = (
+                    f"No small-variant records remained after excluding FILTER "
+                    f"{sorted(excluded_filters)} ({skipped_filtered} record(s) dropped)"
+                )
+            raise HTTPException(status_code=400, detail=detail)
 
         await flush_variant_batch()
         await refresh_family_small_variant_summaries(
@@ -1470,6 +1632,8 @@ async def upload_family_small_variant_file(
         result = {
             "inserted": inserted,
             "skipped_malformed": skipped_malformed,
+            "skipped_filtered": skipped_filtered,
+            "excluded_filters": sorted(excluded_filters),
             "haplotypes_inserted": len(haplotype_rows),
             "source_format": resolved_format,
             "annotation_rows": vep_annotations.row_count if vep_annotations else 0,

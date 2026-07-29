@@ -263,9 +263,16 @@ async def merge_vcf_header_provenance(
     modules: Mapping[str, Any],
     modality: str | None = None,
     recorded_by: str = "import (vcf_header)",
+    source: str = "vcf_header",
 ) -> None:
-    """Best-effort: fold VCF-header-harvested module versions into the family's
-    annotation manifest under ``source='vcf_header'``.
+    """Best-effort: fold harvested module versions into the family's annotation
+    manifest under ``source`` (``'vcf_header'`` by default).
+
+    ``source`` records *where* the versions came from. Most arrive from a VCF header;
+    the long-read pipeline instead ships a run manifest (``software_versions.yaml``),
+    which is recorded as ``'manifest'`` so the provenance is not mislabelled as
+    parsed-from-a-header. ``'manual'`` remains reserved for admin-curated entries and
+    is never written here.
 
     * **Never overwrites a ``manual`` manifest** — an admin's curated provenance
       wins over anything parsed from a header.
@@ -277,6 +284,9 @@ async def merge_vcf_header_provenance(
     """
     if not modules:
         return
+    # 'manual' is written only by the admin-curation path; accepting it here would let
+    # an import masquerade as curated provenance and then be immune to later refreshes.
+    recorded_source = source if source != "manual" else "vcf_header"
     try:
         async with session.begin_nested():
             existing = await _family_manifest_row(session, family_uuid)
@@ -292,10 +302,10 @@ async def merge_vcf_header_provenance(
                     VALUES
                         (CAST(:family_uuid AS uuid),
                          CASE WHEN :assembly_id IS NULL THEN NULL ELSE CAST(:assembly_id AS uuid) END,
-                         CAST(:modules AS jsonb), 'vcf_header', :recorded_by, now())
+                         CAST(:modules AS jsonb), :source, :recorded_by, now())
                     ON CONFLICT (family_id) DO UPDATE SET
                         modules = EXCLUDED.modules,
-                        source = 'vcf_header',
+                        source = EXCLUDED.source,
                         recorded_by = EXCLUDED.recorded_by,
                         recorded_at = now(),
                         assembly_id = COALESCE(EXCLUDED.assembly_id, family_annotation_manifest.assembly_id)
@@ -306,10 +316,11 @@ async def merge_vcf_header_provenance(
                     "assembly_id": assembly_id,
                     "modules": json.dumps(merged),
                     "recorded_by": recorded_by,
+                    "source": recorded_source,
                 },
             )
     except Exception:  # noqa: BLE001 — provenance capture must never break ingestion
-        logger.warning("vcf_header provenance capture failed for family %s", family_uuid, exc_info=True)
+        logger.warning("%s provenance capture failed for family %s", recorded_source, family_uuid, exc_info=True)
 
 
 async def set_family_annotation_manifest(

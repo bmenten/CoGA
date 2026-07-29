@@ -143,6 +143,10 @@ class StructuralVariantCall:
     filter: str | None
     # Phase set (PS) for read-based cis/trans against a phased SNV; None when unphased.
     phase_set: int | None = None
+    # Copy number (FORMAT/CN) for depth-based CNV callers. GT alone cannot distinguish
+    # a 3-copy from a 6-copy duplication, and the ClinGen CNV dosage scoring needs the
+    # actual copy number. None for callers that do not report one.
+    copy_number: int | None = None
 
 
 @dataclass(slots=True)

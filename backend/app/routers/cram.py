@@ -17,20 +17,87 @@ router = APIRouter(prefix="/cram", tags=["cram"])
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 
 
+# Where a family's aligned reads may sit, most-specific first. The original
+# convention is a flat `<data>/<family>/<sample>.cram`; an imported family package
+# keeps its pipeline layout instead (`<data>/families/<family>/bams/<sample>.cram`),
+# so both are probed rather than requiring the files to be copied or symlinked after
+# import. Every candidate stays under DATA_DIR — see _within_data_dir.
+_ALIGNMENT_LAYOUTS: tuple[tuple[str, ...], ...] = (
+    ("{family_id}",),
+    ("families", "{family_id}", "bams"),
+    ("families", "{family_id}", "alignments"),
+    ("families", "{family_id}"),
+    ("{family_id}", "bams"),
+)
+
+
+def _within_data_dir(path: Path) -> bool:
+    """Reject a candidate that resolves outside the data directory.
+
+    ``family_id``/``sample_id`` reach here from the URL. The served endpoints check
+    them against the family's members first, but the containment check keeps a crafted
+    id from escaping even if a future caller skips that step.
+    """
+    try:
+        path.resolve().relative_to(DATA_DIR.resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def _alignment_candidate_paths(
+    family_id: str, sample_id: str, ext: str, suffix: str = ""
+) -> list[Path]:
+    file_name = f"{sample_id}.{ext}{suffix}"
+    candidates: list[Path] = []
+    for layout in _ALIGNMENT_LAYOUTS:
+        path = DATA_DIR.joinpath(*[part.format(family_id=family_id) for part in layout], file_name)
+        if _within_data_dir(path):
+            candidates.append(path)
+    return candidates
+
+
 def _alignment_path(
     family_id: str, sample_id: str, ext: str, suffix: str = ""
 ) -> Path:
-    return DATA_DIR / family_id / f"{sample_id}.{ext}{suffix}"
+    """The alignment file, or the conventional location when none of the layouts hold
+    it (so callers report a consistent path in their 404)."""
+    candidates = _alignment_candidate_paths(family_id, sample_id, ext, suffix)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else DATA_DIR / family_id / f"{sample_id}.{ext}{suffix}"
+
+
+def _alignment_candidate_keys(
+    family_id: str, sample_id: str, ext: str, suffix: str = ""
+) -> list[str]:
+    file_name = f"{sample_id}.{ext}{suffix}"
+    return [
+        object_key(family_id, file_name),
+        object_key(family_id, "bams", file_name),
+        object_key(family_id, "alignments", file_name),
+    ]
 
 
 def _alignment_key(family_id: str, sample_id: str, ext: str, suffix: str = "") -> str:
-    return object_key(family_id, f"{sample_id}.{ext}{suffix}")
+    candidates = _alignment_candidate_keys(family_id, sample_id, ext, suffix)
+    for candidate in candidates:
+        if object_exists(candidate):
+            return candidate
+    return candidates[0]
 
 
 def _alignment_exists(family_id: str, sample_id: str, ext: str, suffix: str = "") -> bool:
     if storage_is_remote():
-        return object_exists(_alignment_key(family_id, sample_id, ext, suffix))
-    return _alignment_path(family_id, sample_id, ext, suffix).exists()
+        return any(
+            object_exists(candidate)
+            for candidate in _alignment_candidate_keys(family_id, sample_id, ext, suffix)
+        )
+    return any(
+        candidate.exists()
+        for candidate in _alignment_candidate_paths(family_id, sample_id, ext, suffix)
+    )
 
 
 def _serve_alignment(

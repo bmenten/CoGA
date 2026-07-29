@@ -70,6 +70,7 @@ import {
   sampleKey,
 } from './familyDetailHelpers';
 import VariantWorkspaceLink from './VariantWorkspaceLink';
+import SampleQcCell from './SampleQcCell';
 
 interface FamilyDetailPageProps {
   editable?: boolean;
@@ -350,6 +351,20 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const pedRows = useMemo(() => parsePedigree(data?.pedigree), [data?.pedigree]);
   const orderedMembers = useMemo(
     () => sortFamilyMembersProbandFirst(data?.members || []),
+    [data?.members],
+  );
+  // In edit mode the table renders drafts, which carry no sample_metadata. Keep the
+  // API members addressable by sample so per-sample metadata (sequencing QC) is
+  // available in both modes.
+  const apiMemberBySampleId = useMemo(
+    () =>
+      (data?.members || []).reduce<Record<string, ApiFamilyRecord['members'][number]>>(
+        (acc, member) => {
+          acc[sampleKey(member.sample_id)] = member;
+          return acc;
+        },
+        {},
+      ),
     [data?.members],
   );
   // Derived embryo segregation at the ROI (carrier/affected/unaffected), shown per
@@ -1429,14 +1444,15 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
         <div className="data-table-shell overflow-x-auto">
           <table className="analysis-table family-members-table">
             <colgroup>
-              <col style={{ width: canEditFamilyDetails ? '13%' : '16%' }} />
-              <col style={{ width: canEditFamilyDetails ? '9%' : '11%' }} />
+              <col style={{ width: canEditFamilyDetails ? '12%' : '14%' }} />
+              <col style={{ width: canEditFamilyDetails ? '8%' : '10%' }} />
               {canEditFamilyDetails && <col style={{ width: '7%' }} />}
-              <col style={{ width: canEditFamilyDetails ? '11%' : '13%' }} />
-              <col style={{ width: canEditFamilyDetails ? '11%' : '13%' }} />
-              <col style={{ width: canEditFamilyDetails ? '11%' : '13%' }} />
-              <col style={{ width: '16%' }} />
-              <col style={{ width: canEditFamilyDetails ? '14%' : '18%' }} />
+              <col style={{ width: canEditFamilyDetails ? '10%' : '12%' }} />
+              <col style={{ width: canEditFamilyDetails ? '10%' : '12%' }} />
+              <col style={{ width: canEditFamilyDetails ? '10%' : '12%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: canEditFamilyDetails ? '13%' : '16%' }} />
+              <col style={{ width: canEditFamilyDetails ? '8%' : '10%' }} />
               {canEditFamilyDetails && <col style={{ width: '8%' }} />}
             </colgroup>
             <thead>
@@ -1449,6 +1465,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 <th>Partner</th>
                 <th>Status</th>
                 <th>HPO terms</th>
+                <th>Sequencing QC</th>
                 {canEditFamilyDetails && <th>Actions</th>}
               </tr>
             </thead>
@@ -1714,6 +1731,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       ) : (
                         <span className="dashboard-link-note">-</span>
                       )}
+                    </td>
+                    <td>
+                      <SampleQcCell familyId={data.family_id} member={apiMemberBySampleId[sampleKey(member.sample_id)]} />
                     </td>
                     {canEditFamilyDetails && (
                       <td>

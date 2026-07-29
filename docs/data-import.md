@@ -243,6 +243,83 @@ FAM001/
     SAMPLE1.paraphase.json
 ```
 
+Long-read packages produced by the Nextflow pipeline (nf-core/lrsvar) use a per-sample
+layout instead, which the same `standard_v1` scheme also detects:
+
+```text
+pacbio/
+  manifest.yaml
+  pacbio.ped
+  bams/
+    HG002.cram
+    HG002.cram.crai
+  snv/
+    HG002/
+      annotation/
+        HG002_annot.vcf.gz          # VEP-annotated (CSQ in INFO)
+        HG002_annot.vcf.gz.tbi
+  sv/
+    HG002/
+      annotation/
+        HG002_sv_phased.needLR.4.0.vcf.gz    # tool version in the filename
+        HG002_sv_phased.needLR.4.0.vcf.gz.tbi
+  cnv/
+    HG002/
+      HG002.Sample0.copynum.bedgraph
+      annotation/
+        HG002_annot.vcf.gz
+        HG002_annot.vcf.gz.tbi
+  mito/
+    HG002/
+      HG002.vcf.gz
+      HG002_sv.vcf.gz
+    annotation/
+      HG002/
+        HG002_snv_annot.txt         # mutserve TSV
+        HG002_sv_annot.txt
+  repeats/
+    HG002/
+      HG002_tr.vcf.gz
+      HG002_tr.vcf.gz.csi
+  paraphase/
+    HG002/
+      HG002.paraphase.json
+  qc/
+    nanoplot/
+      HG002/
+        HG002NanoPlot-report.html
+        HG002NanoStats.txt
+    depth/
+      HG002/
+        HG002.mosdepth.summary.txt
+        HG002.regions.bed.gz
+  pipeline_info/
+    params_2026-07-28_11-18-09.json
+    software_versions.yaml
+```
+
+Two properties of that layout need explaining:
+
+- **Versioned filenames.** The annotation release is part of the SV filename
+  (`…needLR.4.0.vcf.gz`), so discovery patterns may contain a `*` wildcard. Globs are
+  resolved by the scanner only — the written `manifest.yaml` always holds the concrete
+  path a glob matched, and validation and import continue to treat manifest values as
+  literal paths. Matches are ordered with embedded numbers compared numerically
+  (`needLR.10.0` sorts after `needLR.4.0`) and every match is re-checked for containment
+  inside the package root.
+- **Sample columns named after files, not samples.** The CNV caller writes `Sample0` and
+  TRGT writes `<sample>_sort` into the VCF `#CHROM` line. A per-sample manifest entry
+  binds a single-column VCF to the sample it was declared for; otherwise known tool
+  suffixes are stripped and a `<sample_id>_…` prefix is matched. A column that resolves
+  to nothing fails the import rather than being dropped silently. Declare
+  `vcf_sample: <column>` on the entry to override the resolution explicitly.
+
+**Single-sample families.** The pipeline emits *per-sample* annotated SNV callsets and
+only an unannotated GLnexus joint VCF, so `snv/{sample_id}/annotation/…` is accepted as
+the family callset only when the family has exactly one sample. A multi-sample long-read
+package needs an annotated joint callset; without one its SNV dataset is reported as not
+detected rather than one member's genotypes being imported as the family's.
+
 The built-in `standard_v1` naming scheme checks these paths:
 
 - SNV: `snv/{family_id}.annotated.vcf.gz` plus `.tbi`, `snv/{family_id}/{family_id}_phased.vcf.gz` plus `.tbi`/`.csi`, with `snv/family.annotated.vcf.gz` fallback. Optional VEP TSV annotation files are detected at `snv/annotation/{family_id}_annot.tsv.gz`, `snv/annotation/{family_id}.annot.tsv.gz`, `snv/{family_id}_annot.tsv.gz`, or `snv/{family_id}.annot.tsv.gz`.
@@ -253,7 +330,37 @@ The built-in `standard_v1` naming scheme checks these paths:
 - APCAD: family VCFs at `APCAD/{family_id}.apcad.vcf[.gz]`, `APCAD/{family_id}_embryo_filtered_imp_parent.vcf.gz`, or per-sample `APCAD/{sample_id}.apcad.vcf`, with BED and `.apcad.tsv` fallbacks; lower-case `apcad` is also detected
 - PCF APCAD segments: per-sample files at `PCF/{sample_id}_pcf_mat_data.csv` and `PCF/{sample_id}_pcf_pat_data.csv`; lower-case `pcf` and dotted fallback names `PCF/{sample_id}.pcf.mat_data.csv` / `PCF/{sample_id}.pcf.pat_data.csv` are also detected. The verified CSV header is `"sampleID","CHROM","arm","start.pos","end.pos","n.probes","mean"`.
 - Haplotypes: family GLIMPSE2 VCFs at `GLIMPSE2/{family_id}.vcf[.gz]`, `GLIMPSE2/{family_id}_phased_final.vcf.gz`, or `GLIMPSE2/family.vcf[.gz]`; legacy per-sample `haplotypes/{sample_id}.glimpse2.bcf` plus `.csi` is still registered as provenance
-- Paraphase: `paraphase/{sample_id}.paraphase.json`, with nested `{sample_id}/{sample_id}.paraphase.json` and `{sample_id}.json` fallbacks
+- Paraphase: `paraphase/{sample_id}.paraphase.json`, with nested `{sample_id}/{sample_id}.paraphase.json`, `{sample_id}.json`, and `paraphase/{sample_id}*/{sample_id}.paraphase.json` (suffixed directory) fallbacks
+- CNV (HiFiCNV): per-sample `cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz` plus `.tbi`, with optional `cnv/{sample_id}/{sample_id}*.copynum.bedgraph`, `{sample_id}*.depth.bw` and the VEP `_summary.html`
+- Mitochondrial: per-sample `mito/{sample_id}/{sample_id}.vcf.gz` plus `.tbi`, the mutserve annotation TSV at `mito/annotation/{sample_id}/{sample_id}_snv_annot.txt` (note `annotation/` sits *above* the sample directory here), and optional `mito/{sample_id}/{sample_id}_sv.vcf.gz` + `mito/annotation/{sample_id}/{sample_id}_sv_annot.txt`
+- Alignments: `bams/{sample_id}.cram` plus `.crai` (or `.bam`/`.bam.bai`), with `alignments/` and package-root fallbacks
+- QC: `qc/multiqc/{sample_id}/multiqc_report.html` or `qc/nanoplot/{sample_id}/{sample_id}NanoPlot-report.html` (no separator before `NanoPlot`), plus `{sample_id}NanoStats.txt` and `qc/depth/{sample_id}/{sample_id}.mosdepth.summary.txt`, `.regions.bed.gz`, `.mosdepth.global.dist.txt`. Every role is optional; a sample with at least one artefact is detected.
+- Pipeline info: `pipeline_info/software_versions.yaml`, `pipeline_info/params_*.json`, and optional `execution_trace_*.txt` / `execution_report_*.html`. Family-level, not per sample.
+
+Where each dataset lands:
+
+| Dataset | Storage | Source tag | Surfaced in |
+| --- | --- | --- | --- |
+| `cnv` | ClickHouse structural variants; copy-number bedgraph as a coverage interval track | `hificnv` | SV workspace, CNV ACMG scoring, coverage tracks |
+| `mito` | ClickHouse small variants (chrM) | `mito` | mtDNA analysis workspace |
+| `qc` | `samples.metadata["sequencing_qc"]` | — | Family detail members table (metrics + QC report link) |
+| `alignments` | `samples.metadata["alignment"]` | — | IGV / genome browser via `/cram/...` |
+| `pipeline_info` | `family_annotation_manifest` (tool versions, `source='manifest'`) and `families.metadata["pipeline"]` (run parameters) | — | Annotation provenance / report traceability |
+
+Each source tag scopes its own delete and re-import, so a family can hold NeedlR SVs,
+HiFiCNV calls and chrM variants at once and re-importing one never removes another.
+
+Optional `snv` dataset settings:
+
+- `source_format` — pins the callset's source tag instead of letting it be auto-detected
+  (`clair3` for a directly-called nuclear callset, `glimpse2` for imputed genotypes).
+  Long-read manifests should set it explicitly: the detector reads the first data record,
+  and a header mentioning phasing plus a phased first record would classify the primary
+  callset as imputed and hide it from every diagnostic view.
+- `exclude_filters` — FILTER values whose records are dropped at ingest. A whole-genome
+  DeepVariant callset marks reference blocks `RefCall` and zero-depth sites `NoCall`;
+  those are half the records and carry no variant to review. A record is dropped only when
+  *all* of its FILTER values are excluded.
 
 PED phenotype codes follow the GATK PED convention: `0` or `-9` means missing,
 `1` means unaffected, and `2` means affected. CoGA stores phenotype as canonical
@@ -478,6 +585,86 @@ datasets:
     per_sample:
       SAMPLE1:
         json: paraphase/SAMPLE1.paraphase.json
+
+  coverage:
+    enabled: true
+    per_sample:
+      SAMPLE1:
+        bed: coverage/SAMPLE1.coverage.bed
+```
+
+Long-read manifest example (single-sample nf-core/lrsvar package):
+
+```yaml
+schema_version: 1
+family_id: pacbio
+ped: pacbio.ped
+
+samples:
+  HG002: {}
+
+datasets:
+  snv:
+    enabled: true
+    family_vcf: snv/HG002/annotation/HG002_annot.vcf.gz
+    index: snv/HG002/annotation/HG002_annot.vcf.gz.tbi
+    source_format: clair3
+    exclude_filters: [RefCall, NoCall]
+
+  sv_needlr:
+    enabled: true
+    family_vcf: sv/HG002/annotation/HG002_sv_phased.needLR.4.0.vcf.gz
+    index: sv/HG002/annotation/HG002_sv_phased.needLR.4.0.vcf.gz.tbi
+
+  repeats_trgt:
+    enabled: true
+    per_sample:
+      HG002:
+        file: repeats/HG002/HG002_tr.vcf.gz
+        index: repeats/HG002/HG002_tr.vcf.gz.csi
+
+  paraphase:
+    enabled: true
+    per_sample:
+      HG002:
+        json: paraphase/HG002/HG002.paraphase.json
+
+  cnv:
+    enabled: true
+    per_sample:
+      HG002:
+        vcf: cnv/HG002/annotation/HG002_annot.vcf.gz
+        index: cnv/HG002/annotation/HG002_annot.vcf.gz.tbi
+        copy_number_bedgraph: cnv/HG002/HG002.Sample0.copynum.bedgraph
+
+  mito:
+    enabled: true
+    per_sample:
+      HG002:
+        vcf: mito/HG002/HG002.vcf.gz
+        index: mito/HG002/HG002.vcf.gz.tbi
+        annotation_tsv: mito/annotation/HG002/HG002_snv_annot.txt
+        sv_vcf: mito/HG002/HG002_sv.vcf.gz
+
+  alignments:
+    enabled: true
+    per_sample:
+      HG002:
+        file: bams/HG002.cram
+        index: bams/HG002.cram.crai
+
+  qc:
+    enabled: true
+    per_sample:
+      HG002:
+        report: qc/nanoplot/HG002/HG002NanoPlot-report.html
+        read_stats: qc/nanoplot/HG002/HG002NanoStats.txt
+        depth_summary: qc/depth/HG002/HG002.mosdepth.summary.txt
+
+  pipeline_info:
+    enabled: true
+    params: pipeline_info/params_2026-07-28_11-18-09.json
+    versions: pipeline_info/software_versions.yaml
 ```
 
 Validation rules:
@@ -493,7 +680,12 @@ Validation rules:
 - referenced files must exist
 - VCF/BCF datasets must include an index path or have a sibling `.tbi`, `.csi`, or `.idx`; uncompressed `repeats_trgt` `.vcf` files are accepted without an index
 - unsupported dataset keys are validation errors
-- omitted supported datasets are warnings because they are optional
+- omitted **core** datasets (`snv`, `sv_needlr`) are warnings; the assay-specific ones
+  (`apcad`, `pcf`, `cnv`, `mito`, `qc`, …) are absent by design in most packages and are
+  reported as skipped without a warning
+- a VCF sample column that resolves to no family sample fails the import; declare
+  `vcf_sample` on the dataset entry when the caller renamed it in a way the suffix/prefix
+  rules do not cover
 
 First-version import behavior is conservative. The importer always validates and registers package
 provenance on the family/sample metadata. It deeply imports datasets where storage exists:
@@ -501,8 +693,11 @@ family SNV VCFs, WisecondorX `_bins.bed` as `coverage`, WisecondorX `_segments.b
 QDNAseq CSV bins as `coverage`, QDNAseq segment CSVs as `segments`, Needlr family SV VCFs as
 ClickHouse structural variants with source `needlr`, family or sample APCAD VCF/TSV/BED files as
 APCAD interval tracks, sample-scoped TRGT VCFs, family TRGT VCFs into the repeat expansion table,
-family GLIMPSE2 VCFs as small variants plus haplotype blocks, and sample-scoped Paraphase JSON into
-`sample_paraphase_results`. Valid HPO phenotype rows are upserted into `individual_hpo`; invalid
+family GLIMPSE2 VCFs as small variants plus haplotype blocks, sample-scoped Paraphase JSON into
+`sample_paraphase_results`, HiFiCNV VCFs as ClickHouse structural variants with source `hificnv`
+plus their copy-number bedgraph as a `coverage` interval track, chrM VCFs as small variants with
+source `mito` (annotated from the mutserve TSV), NanoPlot/mosdepth QC and the aligned-read location
+onto `samples.metadata`, and the Nextflow run record into the family's annotation manifest. Valid HPO phenotype rows are upserted into `individual_hpo`; invalid
 phenotype rows are recorded in the `phenotypes` package summary without blocking genomic dataset
 imports. Direct per-sample GLIMPSE2 BCF haplotypes are still registered as provenance until a
 dedicated BCF importer is added. Imported Paraphase results are

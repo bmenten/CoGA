@@ -58,7 +58,23 @@ def build_structural_variant_id(
     remote_chr: str | None = None,
     remote_start: int | None = None,
     remote_end: int | None = None,
+    source: str | None = None,
+    discriminator: str | None = None,
 ) -> str:
+    """Stable id for a structural variant within a family.
+
+    ``source`` and ``discriminator`` are optional suffixes that keep distinct calls
+    apart when coordinates and type alone are not unique. Both default to absent so
+    every id built before they existed (the whole NeedlR callset) is byte-identical --
+    the id is the ReplacingMergeTree sort key, so changing it for existing sources
+    would orphan already-stored rows.
+
+    * ``source`` separates callers that legitimately call the same event: a depth-based
+      CNV DEL and an alignment-based SV DEL at the same coordinates are two independent
+      pieces of evidence, not one row to overwrite.
+    * ``discriminator`` separates same-coordinate, same-type calls from one caller --
+      insertions in particular share a breakpoint and differ only in inserted sequence.
+    """
     parts = [
         normalize_chromosome(chrom),
         str(int(start)),
@@ -68,7 +84,12 @@ def build_structural_variant_id(
         "" if remote_start is None else str(int(remote_start)),
         "" if remote_end is None else str(int(remote_end)),
     ]
-    return "-".join(parts)
+    variant_id = "-".join(parts)
+    if source:
+        variant_id = f"{variant_id}-{source}"
+    if discriminator:
+        variant_id = f"{variant_id}-{discriminator}"
+    return variant_id
 
 
 def small_variant_key(assembly_name: str, variant_id: str) -> int:

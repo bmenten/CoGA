@@ -132,6 +132,11 @@
 | REQ-DATA-004 | Record uploaded-file metadata and verify file integrity (checksum). | B | H4 |
 | REQ-DATA-005 | Discover and validate family packages (manifest/PED), normalize samples, and preserve analysis-type tags. | C | H4, H12 |
 | REQ-DATA-006 | Provision/maintain ClickHouse variant tables and surface mutation/health status. | B | H9 |
+| REQ-DATA-007 | Resolve a VCF sample column to the family sample it belongs to (declared override, tool suffix, or a per-sample dataset binding), and fail the import when it resolves to none. | C | H4 |
+| REQ-DATA-008 | Ingest depth-based CNV calls (copy number and overlapping genes) as reviewable structural variants, kept separate from alignment-based SV calls. | C | H1 |
+| REQ-DATA-009 | Ingest mitochondrial (chrM) calls with their heteroplasmy level and mtDNA-specific annotation, stored separately from the nuclear callset. | C | H1 |
+| REQ-DATA-010 | Capture the analysis pipeline's tool versions and run parameters per family for report traceability. | B | H4 |
+| REQ-DATA-011 | Record per-sample sequencing QC (read metrics, depth) and the location of the pipeline's QC report and aligned reads. | B | H4 |
 
 ### 3.9 Sample QC (REQ-QC)
 

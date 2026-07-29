@@ -36,13 +36,37 @@ SUPPORTED_DATASETS = (
     "haplotypes",
     "paraphase",
     "coverage",
+    # Long-read (nf-core/lrsvar) outputs. All per-sample: the pipeline writes
+    # <dataset>/<sample_id>/[annotation/]<sample_id>_<suffix>.
+    "cnv",
+    "mito",
+    "alignments",
+    "qc",
+    "pipeline_info",
 )
+
+
+# Datasets a package is expected to carry. Anything outside this set is genuinely
+# optional and its absence is not worth a warning -- without the split, every
+# package emits an "optional dataset missing" warning for each of the dataset types
+# it was never going to contain (assay-specific ones like PGT's apcad/pcf, or the
+# long-read ones below), which buries the warnings that matter.
+CORE_DATASETS = ("snv", "sv_needlr")
 
 
 APCAD_PCF_TRACK_TYPE = "apcad_pcf"
 
 
 APCAD_PCF_SOURCE = "pcf"
+
+
+# ClickHouse ``source`` tags for the long-read callsets. Each one scopes its own
+# delete/re-import, so a family can hold NeedlR SVs, HiFiCNV CNV calls and chrM
+# variants side by side and re-importing one never removes another.
+CNV_SOURCE = "hificnv"
+
+
+MITO_SOURCE = "mito"
 
 
 class ManifestDataset(BaseModel):
@@ -179,6 +203,109 @@ def _issue(
         sample_id=sample_id,
         path=str(path) if path is not None else None,
     )
+
+
+# Suffixes long-read tools append to the sample name when they write a VCF's sample
+# column after the input file rather than the sample: TRGT names it after the sorted
+# BAM (``HG002_sort``), longphase after its own output prefix (``HG002_sv_phased``).
+_VCF_SAMPLE_SUFFIXES = (
+    "_sort",
+    "_sorted",
+    "_sv_phased",
+    "_snv_phased",
+    "_phased",
+    "_sv",
+    "_snv",
+    ".sort",
+    ".sorted",
+    ".sv",
+)
+
+
+def resolve_vcf_sample_id(
+    header_sample: str,
+    family_sample_ids: set[str] | dict[str, Any],
+    *,
+    declared: str | None = None,
+) -> str | None:
+    """Family sample id a VCF ``#CHROM`` sample column belongs to, or None.
+
+    Resolution order, most explicit first:
+
+    1. ``declared`` -- a manifest ``vcf_sample``/``sample_name`` override, which always
+       wins so an operator can fix a mapping the heuristics get wrong.
+    2. an exact match on a family sample id.
+    3. the column with a known tool suffix stripped (``HG002_sort`` -> ``HG002``).
+    4. a family sample id the column is prefixed with (``HG002_sv_phased`` -> ``HG002``),
+       longest id first so ``S1`` never shadows ``S10``.
+
+    Returns None when nothing matches; callers report that as a validation error
+    rather than importing rows under a sample that is not in the family.
+    """
+    sample_ids = set(family_sample_ids)
+    if declared and declared in sample_ids:
+        return declared
+    name = header_sample.strip()
+    if not name:
+        return None
+    if name in sample_ids:
+        return name
+    lowered = name.lower()
+    for suffix in _VCF_SAMPLE_SUFFIXES:
+        if lowered.endswith(suffix) and name[: -len(suffix)] in sample_ids:
+            return name[: -len(suffix)]
+    for sample_id in sorted(sample_ids, key=len, reverse=True):
+        if name.startswith(f"{sample_id}_") or name.startswith(f"{sample_id}."):
+            return sample_id
+    return None
+
+
+def vcf_sample_alias_map(
+    header_samples: list[str],
+    family_sample_ids: set[str] | dict[str, Any],
+    *,
+    declared: str | None = None,
+    target_sample_id: str | None = None,
+) -> tuple[dict[str, str], list[str]]:
+    """``({vcf column: family sample id}, [unresolved columns])``.
+
+    ``target_sample_id`` is the sample a *per-sample* manifest entry declares this file
+    for. A single-column VCF under such an entry belongs to that sample by
+    construction, whatever the caller happened to name the column, so it is bound
+    directly -- this is what makes the CNV caller's ``Sample0`` resolve.
+    """
+    aliases: dict[str, str] = {}
+    unresolved: list[str] = []
+    if target_sample_id is not None and len(header_samples) == 1:
+        return {header_samples[0]: target_sample_id}, []
+    for header_sample in header_samples:
+        resolved = resolve_vcf_sample_id(header_sample, family_sample_ids, declared=declared)
+        if resolved is None:
+            unresolved.append(header_sample)
+            continue
+        if resolved != header_sample:
+            aliases[header_sample] = resolved
+    return aliases, unresolved
+
+
+def read_vcf_sample_columns(path: Path) -> list[str]:
+    """Sample columns from a VCF's ``#CHROM`` line, reading only as far as that line.
+
+    Used by validation to check sample names without materialising a multi-GB VCF.
+    Returns ``[]`` for a headerless or sample-less file (the annotated NeedlR VCF has
+    only the eight fixed columns).
+    """
+    with (
+        gzip.open(path, "rt", encoding="utf-8", errors="replace")
+        if path.name.endswith(".gz")
+        else path.open("r", encoding="utf-8", errors="replace")
+    ) as handle:
+        for line in handle:
+            if line.startswith("#CHROM"):
+                return line.rstrip("\n\r").split("\t")[9:]
+            if not line.startswith("#"):
+                break
+    return []
 
 
 def _resolve_package_path(root: Path, value: str | None) -> Path | None:

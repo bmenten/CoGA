@@ -47,13 +47,13 @@ Een geldig pakket is een map met een `manifest.yaml` (of `.yml`/`.json`) en/of e
 
 **Waar in de code:** `backend/app/services/family_package_discovery.py` (`discover_family_package_manifest`, `NAMING_SCHEMES`) en de gedocumenteerde layout in `docs/data-import.md`.
 
-De ondersteunde datasets zijn vastgelegd in de constante `SUPPORTED_DATASETS` (in `family_package_common.py`) — tien datasettypen — met per type een verwacht zoekpad (`{family_id}`/`{sample_id}` zijn plaatshouders):
+De ondersteunde datasets zijn vastgelegd in de constante `SUPPORTED_DATASETS` (in `family_package_common.py`) — vijftien datasettypen — met per type een verwacht zoekpad (`{family_id}`/`{sample_id}` zijn plaatshouders):
 
 | Manifest-sleutel | Inhoud | Voorbeeldpad |
 | --- | --- | --- |
 | `snv` | Small Variants (SNV/indels), VCF + optionele annotatie-TSV | `snv/{family_id}.annotated.vcf.gz` |
 | `sv_needlr` | Structurele varianten (NeedlR) | `needlr/{family_id}.sv.annotated.vcf.gz` |
-| `repeats_trgt` | Repeat-expansies (TRGT) | `repeats/{family_id}.trgt.vcf.gz` |
+| `repeats_trgt` | Repeat-expansies (TRGT), per familie of per sample | `repeats/{sample_id}/{sample_id}_tr.vcf.gz` |
 | `wisecondorx` | CNV coverage-bins en segmenten (per sample) | `wisecondorx/{sample_id}/bins.bed` |
 | `qdnaseq` | CNV coverage-bins en segmenten (per sample) | `QDNAseq/{sample_id}/bins.csv` |
 | `coverage` | Algemene coverage-BED per sample (alleen via manifest, geen vast zoekpad) | — |
@@ -61,6 +61,16 @@ De ondersteunde datasets zijn vastgelegd in de constante `SUPPORTED_DATASETS` (i
 | `pcf` | PCF-segmenten, maternaal/paternaal (embryo) | `PCF/{sample_id}_pcf_mat_data.csv` |
 | `haplotypes` | GLIMPSE2-gefaseerde varianten | `GLIMPSE2/{family_id}_phased_final.vcf.gz` |
 | `paraphase` | Paraphase-resultaten (JSON) | `paraphase/{sample_id}.paraphase.json` |
+| `cnv` | CNV-calls uit een dieptecaller (HiFiCNV), VCF + copynumber-bedgraph | `cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz` |
+| `mito` | Mitochondriale varianten (chrM) + mutserve-annotatie | `mito/{sample_id}/{sample_id}.vcf.gz` |
+| `alignments` | Uitgelijnde reads voor de genoombrowser | `bams/{sample_id}.cram` |
+| `qc` | Sequencing-QC: NanoPlot/MultiQC-rapport, NanoStats, mosdepth | `qc/nanoplot/{sample_id}/{sample_id}NanoStats.txt` |
+| `pipeline_info` | Nextflow-runregistratie (toolversies, parameters) | `pipeline_info/software_versions.yaml` |
+
+De laatste vijf komen uit de long-read-pipeline (nf-core/lrsvar), die per sample
+wegschrijft en de toolversie in de bestandsnaam zet. Zoekpaden mogen daarom een `*`
+bevatten; de scanner lost die op tot een concreet pad binnen de pakketmap en schrijft
+nooit een patroon in het manifest.
 
 ### Hoe families en samples worden afgeleid
 
@@ -141,6 +151,11 @@ De import registreert eerst de familie-metadata en de provenance, en importeert 
 | interval-track bron-metadata | `upsert_interval_track_source` | `sample_interval_track_sources` | Postgres |
 | `repeats_trgt` VCF | `ingest_family_trgt_text` / `ingest_trgt_text` | `repeat_expansions` | Postgres |
 | `paraphase` JSON | `_replace_sample_paraphase_rows` | `sample_paraphase_results` | Postgres |
+| `cnv` VCF (+ bedgraph) | `_iter_cnv_structural_records` → `replace_family_structural_variants` (`hificnv`) / `_import_copy_number_track` | structural variants + `coverage`-interval-track | ClickHouse |
+| `mito` chrM-VCF (+ mutserve-TSV) | `upload_family_small_variant_file` (`mito`) | small variants (chrM) | ClickHouse |
+| `qc` NanoStats/mosdepth/rapport | `record_sample_qc_metadata` | `samples.metadata["sequencing_qc"]` | Postgres |
+| `alignments` CRAM/BAM | `record_sample_alignment_metadata` | `samples.metadata["alignment"]` | Postgres |
+| `pipeline_info` versies/parameters | `extract_pipeline_versions` → `merge_vcf_header_provenance`; `record_family_pipeline_metadata` | `family_annotation_manifest`, `families.metadata["pipeline"]` | Postgres |
 | `phenotypes` (HPO) | `import_family_hpo_annotations` | `individual_hpo` | Postgres |
 | familiestructuur (PED/manifest) | `_ensure_family_from_ped` | `families`, `samples`, `family_members`, `family_projects`, `sample_projects` | Postgres |
 | elk ruw bronbestand | `record_raw_import_file` | `raw_import_files` | Postgres |

@@ -21,7 +21,7 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, _vcf_index_candidates  # noqa: F401
+from .family_package_common import CORE_DATASETS, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, _vcf_index_candidates  # noqa: F401
 from .family_package_manifest import _manifest_pgt_metadata, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict  # noqa: F401
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, staged_package_source  # noqa: F401
 
@@ -37,13 +37,19 @@ def _add_missing_optional_dataset_warnings(
     for dataset_type in SUPPORTED_DATASETS:
         if dataset_type in present_datasets:
             continue
-        warnings.append(
-            _issue(
-                "optional_dataset_missing",
-                f"Optional dataset '{dataset_type}' is not present in the manifest",
-                dataset=dataset_type,
+        # Every supported dataset still gets a "skipped" summary row so the import
+        # report shows the full dataset table, but only the datasets a package is
+        # actually expected to carry raise a warning. Assay-specific ones (PGT's
+        # apcad/pcf, the long-read cnv/mito/qc/…) are absent by design in most
+        # packages, and warning on each of them buries the real warnings.
+        if dataset_type in CORE_DATASETS:
+            warnings.append(
+                _issue(
+                    "optional_dataset_missing",
+                    f"Optional dataset '{dataset_type}' is not present in the manifest",
+                    dataset=dataset_type,
+                )
             )
-        )
         summaries.append(
             FamilyImportDatasetSummary(
                 dataset_type=dataset_type,
@@ -684,6 +690,145 @@ def _validate_paraphase_dataset(
     )
 
 
+# Per-sample roles each long-read dataset expects. The first entry of each tuple is
+# required; the rest are optional companions (index, annotation, auxiliary output)
+# that are validated only when the manifest declares them.
+_PER_SAMPLE_DATASET_ROLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    # dataset_type: (required roles, optional roles)
+    "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "summary_html")),
+    "mito": (("vcf",), ("index", "annotation_tsv", "sv_vcf", "sv_index", "sv_annotation_tsv")),
+    "alignments": (("file",), ("index",)),
+    "qc": ((), ("report", "read_stats", "depth_summary", "depth_regions", "depth_global_dist")),
+    # repeats_trgt is family-level by default; the long-read pipeline writes it per
+    # sample (repeats/<sample>/<sample>_tr.vcf.gz), so both shapes are accepted.
+    "repeats_trgt": (("file",), ("index",)),
+}
+
+
+def _validate_per_sample_file_dataset(
+    *,
+    root: Path,
+    dataset_type: str,
+    dataset: ManifestDataset,
+    ped_sample_ids: set[str],
+    errors: list[FamilyImportValidationIssue],
+) -> FamilyImportDatasetSummary:
+    """Validate a dataset declared as ``per_sample: {<sample_id>: {<role>: <path>}}``.
+
+    Shared by the long-read datasets (cnv, mito, alignments, qc), which the pipeline
+    all writes per sample. Required roles must resolve to an existing file; optional
+    roles are only checked when declared, so a package that ran without (say) mosdepth
+    still validates.
+    """
+    required_roles, optional_roles = _PER_SAMPLE_DATASET_ROLES[dataset_type]
+    files: list[str] = []
+    samples: list[str] = []
+    before = len(errors)
+    if not dataset.per_sample:
+        errors.append(
+            _issue(
+                "dataset_per_sample_missing",
+                f"Dataset '{dataset_type}' must define per_sample entries",
+                dataset=dataset_type,
+            )
+        )
+    for sample_id, raw_entry in dataset.per_sample.items():
+        samples.append(sample_id)
+        _validate_per_sample_id(
+            dataset_type=dataset_type,
+            sample_id=sample_id,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+        entry = _sample_entry_mapping(
+            dataset_type=dataset_type,
+            sample_id=sample_id,
+            entry=raw_entry,
+            errors=errors,
+        )
+        for role in required_roles:
+            _require_file(
+                root=root,
+                dataset_type=dataset_type,
+                value=entry.get(role),
+                field_name=role,
+                errors=errors,
+                files=files,
+                sample_id=sample_id,
+            )
+        for role in optional_roles:
+            if entry.get(role):
+                _require_file(
+                    root=root,
+                    dataset_type=dataset_type,
+                    value=entry.get(role),
+                    field_name=role,
+                    errors=errors,
+                    files=files,
+                    sample_id=sample_id,
+                )
+        if dataset_type == "qc" and not any(entry.get(role) for role in optional_roles):
+            errors.append(
+                _issue(
+                    "dataset_missing_path",
+                    f"QC dataset for sample '{sample_id}' declares no QC artefact",
+                    dataset=dataset_type,
+                    sample_id=sample_id,
+                )
+            )
+    return FamilyImportDatasetSummary(
+        dataset_type=dataset_type,
+        enabled=True,
+        status="error" if len(errors) > before else "valid",
+        files=list(dict.fromkeys(files)),
+        samples=samples,
+    )
+
+
+def _validate_pipeline_info_dataset(
+    *,
+    root: Path,
+    dataset: ManifestDataset,
+    errors: list[FamilyImportValidationIssue],
+) -> FamilyImportDatasetSummary:
+    """Validate the family-level ``pipeline_info`` block (Nextflow run record).
+
+    Both artefacts are optional individually, but declaring the dataset with neither
+    is a manifest mistake worth reporting rather than a silent no-op.
+    """
+    files: list[str] = []
+    before = len(errors)
+    extra = dataset.model_extra or {}
+    declared = {
+        role: extra.get(role)
+        for role in ("params", "versions", "execution_trace", "execution_report")
+    }
+    if not any(declared.values()):
+        errors.append(
+            _issue(
+                "dataset_missing_path",
+                "Dataset 'pipeline_info' declares neither params nor versions",
+                dataset="pipeline_info",
+            )
+        )
+    for role, value in declared.items():
+        if value:
+            _require_file(
+                root=root,
+                dataset_type="pipeline_info",
+                value=value,
+                field_name=role,
+                errors=errors,
+                files=files,
+            )
+    return FamilyImportDatasetSummary(
+        dataset_type="pipeline_info",
+        enabled=True,
+        status="error" if len(errors) > before else "valid",
+        files=list(dict.fromkeys(files)),
+    )
+
+
 def _validate_dataset(
     *,
     root: Path,
@@ -700,12 +845,32 @@ def _validate_dataset(
             message="Dataset disabled in manifest",
         )
     if dataset_type in {"snv", "sv_needlr", "repeats_trgt"}:
+        # TRGT is family-level when a joint VCF exists and per-sample otherwise (the
+        # long-read pipeline only writes repeats/<sample>/<sample>_tr.vcf.gz).
+        if dataset_type == "repeats_trgt" and not dataset.family_vcf and dataset.per_sample:
+            return _validate_per_sample_file_dataset(
+                root=root,
+                dataset_type=dataset_type,
+                dataset=dataset,
+                ped_sample_ids=ped_sample_ids,
+                errors=errors,
+            )
         return _validate_family_vcf_dataset(
             root=root,
             dataset_type=dataset_type,
             dataset=dataset,
             errors=errors,
         )
+    if dataset_type in _PER_SAMPLE_DATASET_ROLES:
+        return _validate_per_sample_file_dataset(
+            root=root,
+            dataset_type=dataset_type,
+            dataset=dataset,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+    if dataset_type == "pipeline_info":
+        return _validate_pipeline_info_dataset(root=root, dataset=dataset, errors=errors)
     if dataset_type == "wisecondorx":
         return _validate_wisecondorx_dataset(
             root=root,
@@ -755,7 +920,22 @@ def _validate_dataset(
             ped_sample_ids=ped_sample_ids,
             errors=errors,
         )
-    return FamilyImportDatasetSummary(dataset_type=dataset_type, enabled=True, status="error")
+    # A dataset listed in SUPPORTED_DATASETS but with no validator branch: report it
+    # as an error instead of returning status="error" with nothing in `errors`, which
+    # would leave the package "valid" while its dataset row says otherwise.
+    errors.append(
+        _issue(
+            "dataset_validator_missing",
+            f"Dataset '{dataset_type}' is supported but has no validator",
+            dataset=dataset_type,
+        )
+    )
+    return FamilyImportDatasetSummary(
+        dataset_type=dataset_type,
+        enabled=True,
+        status="error",
+        message="Supported dataset has no validator",
+    )
 
 
 def _manifest_individuals(manifest: PackageManifest) -> Any:

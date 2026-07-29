@@ -1237,7 +1237,8 @@ async def _fetch_structural_variant_rows(
             any(e.calls.gt) AS sample_gts,
             any(e.calls.qual) AS sample_quals,
             any(e.calls.readSupport) AS sample_read_supports,
-            any(e.calls.filter) AS sample_filters
+            any(e.calls.filter) AS sample_filters,
+            any(e.calls.cn) AS sample_copy_numbers
         FROM {entries_table} AS e
         LEFT JOIN {details_table} AS d ON d.key = e.key
         WHERE {' AND '.join(where_clauses)}
@@ -1267,6 +1268,7 @@ async def _fetch_structural_variant_rows(
             sample_quals,
             sample_read_supports,
             sample_filters_raw,
+            sample_copy_numbers,
         ) = row
         calls: list[StructuralVariantCall] = []
         sample_id_list = _listify(sample_ids)
@@ -1281,6 +1283,7 @@ async def _fetch_structural_variant_rows(
                     qual=_coerce_float(_indexed(sample_quals, index)),
                     read_support=_coerce_int(_indexed(sample_read_supports, index)),
                     filter=str(_indexed(sample_filters_raw, index) or "").strip() or None,
+                    copy_number=_coerce_int(_indexed(sample_copy_numbers, index)),
                 )
             )
         if not calls:

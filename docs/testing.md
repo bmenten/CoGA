@@ -7,8 +7,8 @@ requirement → its verifying test), see the Requirements Traceability Matrix
 
 | Suite | Files | Tests | Runner |
 | --- | --- | --- | --- |
-| Backend (Python) | 104 | ~662 | `pytest` |
-| Frontend (TypeScript/React) | 94 | 388 | `vitest` |
+| Backend (Python) | 139 | ~1054 | `pytest` |
+| Frontend (TypeScript/React) | 99 | 422 | `vitest` |
 
 > Counts are point-in-time; the test tree is the source of truth. Regenerate the inventory
 > with the commands in [§ Keeping this current](#keeping-this-current).
@@ -212,6 +212,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_family_member_batch_update_service.py](../backend/tests/test_family_member_batch_update_service.py) | Batch member updates with dirty-tracking. |
 | [backend/tests/test_family_member_detail_service.py](../backend/tests/test_family_member_detail_service.py) | Member detail retrieval and impact analysis. |
 | [backend/tests/test_family_package_import_pcf.py](../backend/tests/test_family_package_import_pcf.py) | PCF (array-CGH) dataset discovery and segment parsing; manifest availability probe stays inside the package root. |
+| [backend/tests/test_family_package_long_read.py](../backend/tests/test_family_package_long_read.py) | Long-read (nf-core/lrsvar) packages: version-tolerant glob discovery inside the package root, VCF sample-column resolution (`Sample0`, `<sample>_sort`), CNV/mito/QC/pipeline-info parsing, and a validator for every supported dataset type. |
 | [backend/tests/test_family_import_compensation.py](../backend/tests/test_family_import_compensation.py) | Failed-import compensation: shell delete clears interval tracks; incomplete-flag set/clear on family metadata. |
 | [backend/tests/test_family_pedigree_generation.py](../backend/tests/test_family_pedigree_generation.py) | Pedigree file generation / LINKAGE output. |
 | [backend/tests/test_family_structure_update_dirty.py](../backend/tests/test_family_structure_update_dirty.py) | Family-structure update with member dirty-tracking. |
@@ -349,6 +350,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/pages/families/__tests__/FamilyReportPage.test.tsx](../frontend/src/pages/families/__tests__/FamilyReportPage.test.tsx) | Clinical report: provenance footer, drift badge, sign-out/amend, audit timeline. |
 | [frontend/src/pages/families/__tests__/FamilyRoiMarkersPage.test.tsx](../frontend/src/pages/families/__tests__/FamilyRoiMarkersPage.test.tsx) | ROI-markers page filtering/API. |
 | [frontend/src/pages/families/__tests__/FamilySampleQcPage.test.tsx](../frontend/src/pages/families/__tests__/FamilySampleQcPage.test.tsx) | Sample-QC page rendering. |
+| [frontend/src/pages/families/__tests__/SampleQcCell.test.tsx](../frontend/src/pages/families/__tests__/SampleQcCell.test.tsx) | Per-member sequencing-QC cell: metric summary, and the pipeline QC report opened via a short-lived link in a detached tab. |
 | [frontend/src/pages/families/__tests__/FamilySmallVariantsPage.test.tsx](../frontend/src/pages/families/__tests__/FamilySmallVariantsPage.test.tsx) | Small-variants page: filtering, search, interactions, loading. |
 | [frontend/src/pages/families/__tests__/FamilyStructuralVariantsPage.test.tsx](../frontend/src/pages/families/__tests__/FamilyStructuralVariantsPage.test.tsx) | Structural-variants page filtering/API. |
 | [frontend/src/pages/families/__tests__/MonarchPhenotypeMatchPanel.test.tsx](../frontend/src/pages/families/__tests__/MonarchPhenotypeMatchPanel.test.tsx) | Monarch phenotype-match panel search/display. |

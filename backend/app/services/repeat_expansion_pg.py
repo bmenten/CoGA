@@ -21,6 +21,7 @@ from ..schemas import (
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .upload_safety import decode_upload_text
+from .family_package_common import resolve_vcf_sample_id
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
 from .vcf_header_provenance import extract_header_provenance
 
@@ -836,6 +837,19 @@ async def ingest_trgt_text(
         sample_uuid=sample_context.sample_uuid,
         filename=metadata.get("filename") or "uploaded.vcf",
     )
+    # Capture the TRGT caller version into the family's annotation manifest, as the
+    # family-level path does. Long-read packages take this per-sample route (the
+    # pipeline writes no joint TRGT VCF), so without it the repeat caller's version
+    # would be missing from every long-read family's provenance record.
+    from .annotation_manifest_service import merge_vcf_header_provenance
+
+    await merge_vcf_header_provenance(
+        session,
+        family_uuid=sample_context.family_uuid,
+        assembly_id=getattr(sample_context, "assembly_id", None),
+        modules=extract_header_provenance(lines, modality="repeats").as_modules(),
+        modality="repeats",
+    )
     await session.commit()
     return {
         "processed": processed,
@@ -862,11 +876,23 @@ async def ingest_family_trgt_text(
     for line in lines:
         if line.startswith("#CHROM"):
             header_samples = line.strip().split("\t")[9:]
-            matched_samples = {
-                sample_name: sample_contexts[sample_name]
-                for sample_name in header_samples
-                if sample_name in sample_contexts
-            }
+            matched_samples = {}
+            for sample_name in header_samples:
+                # TRGT names the column after its input alignment ("HG002_sort"), so an
+                # exact match is not enough; resolve through the shared alias rules.
+                resolved = resolve_vcf_sample_id(sample_name, set(sample_contexts))
+                if resolved is not None:
+                    matched_samples[sample_name] = sample_contexts[resolved]
+            if not matched_samples:
+                # Silently inserting zero rows here used to report "imported" while the
+                # repeat callset was dropped entirely.
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "TRGT VCF sample column(s) "
+                        f"{header_samples} match no sample in this family"
+                    ),
+                )
             for sample_context in matched_samples.values():
                 await clear_sample_repeat_expansions(
                     session,

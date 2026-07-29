@@ -48,6 +48,17 @@ Repeat expansions and tracks:
 - `sample_interval_track_sources`
 - `sample_paraphase_results`
 
+Per-sample and per-family JSONB metadata written by package import (no schema change —
+these are keys inside the existing `metadata` columns):
+
+| Column | Key | Contents |
+| --- | --- | --- |
+| `samples.metadata` | `sequencing_qc` | Read-level metrics (NanoPlot/NanoStats), per-chromosome and genome-wide depth (mosdepth), and the package-relative path of the rendered QC report |
+| `samples.metadata` | `alignment` | Package-relative CRAM/BAM path + index, so the genome browser resolves reads that live in the pipeline's own layout |
+| `samples.metadata` | `mtdna` | mtDNA haplogroup assigned from the mutserve annotation |
+| `samples.metadata` | `sv_files` | Filename per structural-variant source |
+| `families.metadata` | `pipeline` | Nextflow run parameters (reference build, callers, annotation caches) |
+
 Import jobs:
 
 - `family_import_jobs`
@@ -78,6 +89,21 @@ The important logical entities are:
 - structural variant records
 - structural variant sample calls
 - interval track records for coverage, WisecondorX segments, APCAD, PCF APCAD segment overlays, and haplotypes
+
+Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
+(`ensure_clickhouse_variant_tables`), which also carries the in-place `ALTER … ADD COLUMN
+IF NOT EXISTS` migrations for existing databases. Columns worth calling out:
+
+| Table | Column | Why it exists |
+| --- | --- | --- |
+| `…/SNV_INDEL/entries` | `calls.ps` | Phase set, for read-based cis/trans against a phased SV |
+| `…/SNV_INDEL/entries` | `calls.af` | Per-allele fraction; on chrM this *is* the heteroplasmy level the mtDNA workspace reads |
+| `…/SV/entries` | `calls.ps` | Phase set for a structural call |
+| `…/SV/entries` | `calls.cn` | Copy number from a depth-based CNV caller (HiFiCNV `FORMAT/CN`). `GT=1/1` on a duplication cannot distinguish CN=3 from CN=6, and the ClinGen CNV dosage scoring needs the actual number. Null for callers that report none. |
+
+The `source` column on both `entries` tables scopes deletes and re-imports, so one family
+can hold several independent callsets side by side: `clair3` (primary nuclear SNVs),
+`glimpse2` (imputed), `mito` (chrM), `needlr` and `hificnv` (SVs/CNVs).
 
 ## Identifier Rules
 

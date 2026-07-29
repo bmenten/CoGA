@@ -111,6 +111,11 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-DATA-004 | `services/raw_import_files_pg.py::verify_raw_import_file` | `test_raw_import_file_verify.py` (verified / mismatch / missing / unverifiable) | H4 | ✅ |
 | REQ-DATA-005 | `services/family_package_import.py` | `test_family_package_import.py` (25); `test_nipt_package_import.py` | H4,H12 | ✅ |
 | REQ-DATA-006 | `services/clickhouse_variant_storage.py` | `test_clickhouse_variant_storage_ops.py`; `test_clickhouse_integrity.py` | H9 | ✅ |
+| REQ-DATA-007 | `services/family_package_common.py::resolve_vcf_sample_id` / `vcf_sample_alias_map`; `repeat_expansion_pg.py::ingest_family_trgt_text` | `test_family_package_long_read.py` (suffix/prefix/declared resolution; per-sample binding; unresolved reported) | H4 | ✅ |
+| REQ-DATA-008 | `services/family_package_variants.py::_iter_cnv_structural_records`; `family_package_datasets.py::_import_cnv_dataset` | `test_family_package_long_read.py` (copy number, CSQ genes, source-scoped ids, sample binding) | H1 | ✅ |
+| REQ-DATA-009 | `services/family_package_datasets.py::_import_mito_dataset`; `variant_upload_service.py::parse_mutserve_annotation_lines` | `test_family_package_long_read.py` (chrM annotation join key; ID column never read as rsid; empty annotation file) | H1 | ✅ |
+| REQ-DATA-010 | `services/family_package_qc.py::extract_pipeline_versions` / `parse_pipeline_params`; `annotation_manifest_service.py::merge_vcf_header_provenance` | `test_family_package_long_read.py` (banner-tolerant version parse; both versions of a twice-run tool; params filtering) | H4 | ✅ |
+| REQ-DATA-011 | `services/family_package_qc.py::parse_nanostats_text` / `parse_mosdepth_summary_text`; `routers/family_qc_reports.py` | `test_family_package_long_read.py` (QC parsers); `SampleQcCell.test.tsx` (summary + report link) | H4 | ✅ |
 
 ### Sample QC
 | Req | Implementation | Verifying test | Risk | Status |
