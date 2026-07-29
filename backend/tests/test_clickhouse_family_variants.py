@@ -834,6 +834,7 @@ async def test_get_family_structural_variants_page_uses_clickhouse_pagination(
                 [42.0],
                 [8],
                 ["PASS"],
+                [None],
             )
         ]
 
@@ -951,6 +952,8 @@ def _structural_del_row(idx: int) -> tuple:
         [42.0],
         [8],
         ["PASS"],
+        # calls.cn — null for an alignment-based caller that reports no copy number.
+        [None],
     )
 
 

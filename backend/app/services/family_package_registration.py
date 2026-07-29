@@ -150,6 +150,26 @@ _PROVENANCE_PATH_KEYS = {
     "paternal",
     "mat",
     "pat",
+    # Long-read roles. Without these the files validate and import but leave no
+    # raw-file provenance row, so the traceability record would not name the CNV
+    # callset, the mitochondrial annotation, the alignment or the QC report a
+    # released interpretation rests on.
+    "bam",
+    "sv_vcf",
+    "sv_index",
+    "sv_annotation_tsv",
+    "copy_number_bedgraph",
+    "depth_bigwig",
+    "summary_html",
+    "report",
+    "read_stats",
+    "depth_summary",
+    "depth_regions",
+    "depth_global_dist",
+    "params",
+    "versions",
+    "execution_trace",
+    "execution_report",
 }
 
 

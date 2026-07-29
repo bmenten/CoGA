@@ -526,6 +526,9 @@ def _structural_variant_entry_rows(
         sample_phase_sets = [
             None if call.phase_set is None else int(call.phase_set) for call in record.calls
         ]
+        sample_copy_numbers = [
+            None if call.copy_number is None else int(call.copy_number) for call in record.calls
+        ]
         for project_id in normalized_project_ids:
             entry_rows.append(
                 (
@@ -546,6 +549,7 @@ def _structural_variant_entry_rows(
                     sample_read_supports,
                     sample_filters,
                     sample_phase_sets,
+                    sample_copy_numbers,
                     1,
                 )
             )

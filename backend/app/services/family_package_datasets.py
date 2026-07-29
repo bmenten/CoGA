@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
@@ -38,14 +38,25 @@ from .repeat_expansion_pg import (
     ingest_family_trgt_text,
     ingest_trgt_text,
 )
-from .variant_upload_service import upload_family_small_variant_file
+from .upload_safety import read_path_text_bounded
+from .variant_upload_service import parse_mutserve_annotation_path, upload_family_small_variant_file
 
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress  # noqa: F401
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map  # noqa: F401
 from .family_package_manifest import _ped_embryo_sample_ids  # noqa: F401
+from .family_package_qc import (  # noqa: F401
+    extract_pipeline_versions,
+    parse_mosdepth_summary_text,
+    parse_nanostats_text,
+    parse_pipeline_params,
+    record_family_pipeline_metadata as _record_family_pipeline_metadata,
+    record_sample_alignment_metadata as _record_sample_alignment_metadata,
+    record_sample_mtdna_metadata,
+    record_sample_qc_metadata as _record_sample_qc_metadata,
+)
 from .family_package_registration import _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count  # noqa: F401
 from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track  # noqa: F401
 from .family_package_validation import _manifest_hpo_rows, _pcf_role_path  # noqa: F401
-from .family_package_variants import _iter_needlr_structural_records, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata  # noqa: F401
+from .family_package_variants import _iter_cnv_structural_records, _iter_needlr_structural_records, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
@@ -77,11 +88,24 @@ async def _import_snv_dataset(
     vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
     if vcf_path is None:
         return await _register_only(summary, "Registered only; family_vcf path is unavailable")
-    source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
+    extra = dataset.model_extra or {}
+    source_format = str(extra.get("source_format") or "auto")
     # The SNV dataset holds primary (directly-called) genotypes — clair3 unless the
     # manifest overrides it. Scope the coexistence checks/cleanup to this source so
     # the imputed glimpse2 callset is never touched by the SNV importer.
-    snv_source = "glimpse2" if source_format == "glimpse2" else "clair3"
+    #
+    # An explicit source_format is used verbatim: hard-coding "clair3" for anything
+    # that is not glimpse2 made the compensating delete below wipe the family's
+    # nuclear callset when a differently-sourced dataset failed.
+    snv_source = source_format if source_format != "auto" else "clair3"
+    # FILTER values whose records carry no variant to review. DeepVariant marks
+    # reference blocks RefCall and zero-depth sites NoCall; on a whole-genome long-read
+    # callset those are half the file.
+    exclude_filters = extra.get("exclude_filters")
+    if isinstance(exclude_filters, str):
+        exclude_filters = [exclude_filters]
+    elif not isinstance(exclude_filters, (list, tuple)):
+        exclude_filters = None
     if conflict_mode == "update":
         existing_count = await count_family_small_variants(
             family_context.assembly_name,
@@ -123,6 +147,19 @@ async def _import_snv_dataset(
             }
         )
 
+    # Callers name the VCF's sample column after their own input file rather than the
+    # sample; resolve those to family sample ids up front so the loader does not reject
+    # the file outright.
+    sample_aliases, unresolved_samples = vcf_sample_alias_map(
+        read_vcf_sample_columns(vcf_path),
+        set(sample_contexts),
+        declared=extra.get("vcf_sample") or extra.get("sample_name"),
+    )
+    if unresolved_samples:
+        raise RuntimeError(
+            f"SNV VCF sample column(s) {unresolved_samples} match no sample in the family"
+        )
+
     async def run_upload() -> dict[str, Any]:
         if annotation_path is not None:
             async with _local_upload(vcf_path) as upload:
@@ -136,6 +173,8 @@ async def _import_snv_dataset(
                         overwrite=True,
                         format_hint=source_format,  # type: ignore[arg-type]
                         progress=report_snv_progress,
+                        sample_aliases=sample_aliases,
+                        exclude_filters=exclude_filters,
                     )
         async with _local_upload(vcf_path) as upload:
             return await upload_family_small_variant_file(
@@ -146,6 +185,8 @@ async def _import_snv_dataset(
                 overwrite=True,
                 format_hint=source_format,  # type: ignore[arg-type]
                 progress=report_snv_progress,
+                sample_aliases=sample_aliases,
+                exclude_filters=exclude_filters,
             )
 
     try:
@@ -920,6 +961,420 @@ async def _import_paraphase_dataset(
     )
 
 
+async def _record_mtdna_sample_metadata(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    annotations: Any,
+) -> None:
+    """Store the sample's mtDNA haplogroup on the sample record.
+
+    The mtDNA workspace reads ``samples.metadata["mtdna"]["haplogroup"]`` and otherwise
+    reports that no haplogroup is available. mutserve assigns haplogroups per *variant*
+    (each row lists the Phylotree clades that variant defines), so the sample-level
+    haplogroup is taken as the most frequently reported one across the callset.
+    """
+    if annotations is None or annotations.conn is None:
+        return
+    counts: dict[str, int] = {}
+    for (payload,) in annotations.conn.execute("SELECT annotation_json FROM annotations"):
+        try:
+            entry = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        haplogroup = entry.get("haplogroup")
+        if not haplogroup:
+            continue
+        for token in str(haplogroup).split(","):
+            name = token.strip()
+            if name:
+                counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return
+    haplogroup = max(counts.items(), key=lambda item: (item[1], item[0]))[0]
+    await record_sample_mtdna_metadata(
+        session,
+        sample_context=sample_context,
+        mtdna={"haplogroup": haplogroup, "haplogroup_support": counts[haplogroup]},
+    )
+
+
+async def _import_cnv_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    dataset: ManifestDataset,
+    summary: FamilyImportDatasetSummary,
+    family_context: FamilyMetadataContext,
+    sample_contexts: dict[str, SampleMetadataContext],
+    conflict_mode: str = "overwrite",
+) -> FamilyImportDatasetSummary:
+    """Import depth-based CNV calls (HiFiCNV) as structural variants, plus the
+    caller's per-bin copy-number track."""
+    if not family_context.assembly_name:
+        return await _register_only(summary, "Registered only; family is not linked to a single assembly")
+    if not dataset.per_sample:
+        return await _register_only(summary, "Registered only; CNV dataset has no per_sample entries")
+    if conflict_mode == "update":
+        existing_count = await count_family_structural_variants(
+            family_context.assembly_name,
+            family_context.family_uuid,
+            project_ids=family_context.project_ids,
+            source=CNV_SOURCE,
+        )
+        if existing_count:
+            return summary.model_copy(
+                update={
+                    "status": "skipped",
+                    "message": "Skipped CNV import in update mode because CNV calls already exist for this family",
+                    "summary": {"existing": existing_count},
+                }
+            )
+
+    records: list[Any] = []
+    sample_results: dict[str, Any] = {}
+    for sample_id, raw_entry in dataset.per_sample.items():
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None or not isinstance(raw_entry, dict):
+            continue
+        vcf_path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
+        if vcf_path is None:
+            continue
+        text_value = _read_package_text(vcf_path)
+        sample_records = _iter_cnv_structural_records(
+            text_value,
+            sample_id=sample_id,
+            source=CNV_SOURCE,
+        )
+        records.extend(sample_records)
+        sample_results[sample_id] = {
+            "calls": len(sample_records),
+            "filename": vcf_path.name,
+        }
+        bedgraph_path = _resolve_package_path(bundle.root, raw_entry.get("copy_number_bedgraph"))
+        if bedgraph_path is not None:
+            existing_bins = await _interval_track_count(
+                session,
+                sample_context=sample_context,
+                track_type="coverage",
+                source=CNV_SOURCE,
+            )
+            if conflict_mode == "update" and existing_bins:
+                sample_results[sample_id]["copy_number_track"] = {
+                    "skipped": True,
+                    "existing": existing_bins,
+                }
+            else:
+                sample_results[sample_id]["copy_number_track"] = await _import_copy_number_track(
+                    session,
+                    sample_context=sample_context,
+                    path=bedgraph_path,
+                    track_type="coverage",
+                    source=CNV_SOURCE,
+                )
+
+    if not records:
+        return await _register_only(summary, "Registered only; no CNV calls were parsed")
+    # Replace only this source: a family can carry NeedlR SVs and HiFiCNV calls at once.
+    await replace_family_structural_variants(
+        family_context.assembly_name,
+        family_context.family_uuid,
+        family_context.project_ids,
+        records,
+        source=CNV_SOURCE,
+    )
+    await _update_sv_file_metadata(
+        session,
+        sample_contexts=sample_contexts,
+        source=CNV_SOURCE,
+        filename=", ".join(
+            str(result.get("filename")) for result in sample_results.values() if result.get("filename")
+        ),
+    )
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": "Imported CNV calls into structural variant storage",
+            "summary": {"processed": len(records), "source": CNV_SOURCE, "samples": sample_results},
+        }
+    )
+
+
+async def _import_mito_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    dataset: ManifestDataset,
+    summary: FamilyImportDatasetSummary,
+    family_context: FamilyMetadataContext,
+    sample_contexts: dict[str, SampleMetadataContext],
+    conflict_mode: str = "overwrite",
+    progress: DatasetProgressCallback | None = None,
+) -> FamilyImportDatasetSummary:
+    """Import mitochondrial calls.
+
+    chrM SNVs go into the ordinary small-variant store under a dedicated ``mito``
+    source, which is what the existing mtDNA workspace reads (it queries by
+    chromosome, not source) and what keeps a nuclear re-import from deleting them.
+    The mutserve annotation TSV supplies heteroplasmy and haplogroup context.
+    """
+    if not family_context.assembly_name:
+        return await _register_only(summary, "Registered only; family is not linked to a single assembly")
+    if not dataset.per_sample:
+        return await _register_only(summary, "Registered only; mito dataset has no per_sample entries")
+    if conflict_mode == "update":
+        existing_count = await count_family_small_variants(
+            family_context.assembly_name,
+            family_context.family_uuid,
+            project_ids=family_context.project_ids,
+            source=MITO_SOURCE,
+        )
+        if existing_count:
+            return summary.model_copy(
+                update={
+                    "status": "skipped",
+                    "message": "Skipped mito import in update mode because mitochondrial variants already exist",
+                    "summary": {"existing": existing_count},
+                }
+            )
+
+    sample_results: dict[str, Any] = {}
+    imported_any = False
+    for sample_id, raw_entry in dataset.per_sample.items():
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None or not isinstance(raw_entry, dict):
+            continue
+        vcf_path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
+        if vcf_path is None:
+            continue
+        annotation_path = _resolve_package_path(bundle.root, raw_entry.get("annotation_tsv"))
+        mutserve_annotations = (
+            parse_mutserve_annotation_path(annotation_path) if annotation_path is not None else None
+        )
+        aliases, unresolved = vcf_sample_alias_map(
+            read_vcf_sample_columns(vcf_path),
+            set(sample_contexts),
+            declared=raw_entry.get("vcf_sample") or raw_entry.get("sample_name"),
+            target_sample_id=sample_id,
+        )
+        if unresolved:
+            raise RuntimeError(
+                f"Mito VCF for {sample_id} has sample column(s) {unresolved} that match no family sample"
+            )
+        try:
+            async with _local_upload(vcf_path) as upload:
+                result = await upload_family_small_variant_file(
+                    session,
+                    context=family_context,
+                    sample_contexts=sample_contexts,
+                    file=upload,
+                    overwrite=True,
+                    format_hint=MITO_SOURCE,  # type: ignore[arg-type]
+                    sample_aliases=aliases,
+                    vep_annotations=mutserve_annotations,
+                )
+        except HTTPException as exc:
+            # A run with no chrM variant is a normal outcome, not a dataset failure.
+            if exc.status_code == 400 and "No valid small-variant records" in str(exc.detail):
+                sample_results[sample_id] = {"inserted": 0, "message": "No chrM variants called"}
+                continue
+            raise
+        imported_any = True
+        sample_results[sample_id] = result
+        await _record_mtdna_sample_metadata(
+            session,
+            sample_context=sample_context,
+            annotations=mutserve_annotations,
+        )
+
+    if not imported_any:
+        return summary.model_copy(
+            update={
+                "status": "imported",
+                "message": "No mitochondrial variants were called for this family",
+                "summary": sample_results,
+            }
+        )
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": "Imported mitochondrial variants into small-variant storage",
+            "summary": sample_results,
+        }
+    )
+
+
+async def _import_qc_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    dataset: ManifestDataset,
+    summary: FamilyImportDatasetSummary,
+    sample_contexts: dict[str, SampleMetadataContext],
+    conflict_mode: str = "overwrite",
+) -> FamilyImportDatasetSummary:
+    """Record sequencing QC.
+
+    The read-level numbers (NanoPlot/NanoStats) and per-chromosome depth (mosdepth)
+    are parsed at import and stored on the sample, so the workspace shows them without
+    re-reading pipeline output. The rendered HTML report is recorded by path only --
+    it is untrusted pipeline output and is never inlined into the application.
+    """
+    if not dataset.per_sample:
+        return await _register_only(summary, "Registered only; QC dataset has no per_sample entries")
+    sample_results: dict[str, Any] = {}
+    for sample_id, raw_entry in dataset.per_sample.items():
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None or not isinstance(raw_entry, dict):
+            continue
+        metrics: dict[str, Any] = {}
+        read_stats_path = _resolve_package_path(bundle.root, raw_entry.get("read_stats"))
+        if read_stats_path is not None and read_stats_path.is_file():
+            metrics["reads"] = parse_nanostats_text(
+                read_path_text_bounded(read_stats_path, kind="NanoStats")
+            )
+        depth_summary_path = _resolve_package_path(bundle.root, raw_entry.get("depth_summary"))
+        if depth_summary_path is not None and depth_summary_path.is_file():
+            metrics["depth"] = parse_mosdepth_summary_text(
+                read_path_text_bounded(depth_summary_path, kind="mosdepth summary")
+            )
+        report_path = _resolve_package_path(bundle.root, raw_entry.get("report"))
+        if report_path is not None and report_path.is_file():
+            metrics["report"] = _display_path(bundle.root, report_path)
+        if not metrics:
+            continue
+        await _record_sample_qc_metadata(
+            session,
+            sample_context=sample_context,
+            metrics=metrics,
+        )
+        sample_results[sample_id] = metrics
+    if not sample_results:
+        return await _register_only(summary, "Registered only; no QC artefacts were readable")
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": "Recorded sequencing QC metrics and report location on each sample",
+            "summary": sample_results,
+        }
+    )
+
+
+async def _import_alignments_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    dataset: ManifestDataset,
+    summary: FamilyImportDatasetSummary,
+    sample_contexts: dict[str, SampleMetadataContext],
+    conflict_mode: str = "overwrite",
+) -> FamilyImportDatasetSummary:
+    """Record each sample's aligned-reads file so the CRAM/IGV endpoint can find it.
+
+    The alignment itself is never copied or re-read: the package layout puts it under
+    ``bams/<sample>.cram``, while the alignment endpoint's convention is
+    ``<family>/<sample>.cram``. Recording the package-relative path on the sample lets
+    the endpoint resolve either layout.
+    """
+    if not dataset.per_sample:
+        return await _register_only(summary, "Registered only; alignments dataset has no per_sample entries")
+    sample_results: dict[str, Any] = {}
+    for sample_id, raw_entry in dataset.per_sample.items():
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None or not isinstance(raw_entry, dict):
+            continue
+        alignment_path = _resolve_package_path(bundle.root, raw_entry.get("file"))
+        if alignment_path is None or not alignment_path.is_file():
+            continue
+        index_path = _resolve_package_path(bundle.root, raw_entry.get("index"))
+        entry = {
+            "path": _display_path(bundle.root, alignment_path),
+            "format": "cram" if alignment_path.name.endswith(".cram") else "bam",
+        }
+        if index_path is not None and index_path.is_file():
+            entry["index_path"] = _display_path(bundle.root, index_path)
+        await _record_sample_alignment_metadata(
+            session,
+            sample_context=sample_context,
+            alignment=entry,
+        )
+        sample_results[sample_id] = entry
+    if not sample_results:
+        return await _register_only(summary, "Registered only; no alignment files were found")
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": "Recorded aligned-read file locations for the genome browser",
+            "summary": sample_results,
+        }
+    )
+
+
+async def _import_pipeline_info_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    dataset: ManifestDataset,
+    summary: FamilyImportDatasetSummary,
+    family_context: FamilyMetadataContext,
+) -> FamilyImportDatasetSummary:
+    """Capture the Nextflow run record into the family's annotation manifest.
+
+    Every tool version behind the callset lives in ``software_versions.yaml``, and the
+    run's parameters (reference build, callers, VEP cache, repeat catalogue) in
+    ``params_*.json``. Recording them per family is what makes a released report
+    traceable back to the exact pipeline that produced its evidence.
+    """
+    from .annotation_manifest_service import merge_vcf_header_provenance
+
+    extra = dataset.model_extra or {}
+    modules: dict[str, Any] = {}
+    captured: dict[str, Any] = {}
+
+    versions_path = _resolve_package_path(bundle.root, extra.get("versions"))
+    if versions_path is not None and versions_path.is_file():
+        modules = extract_pipeline_versions(
+            read_path_text_bounded(versions_path, kind="Pipeline versions")
+        )
+        captured["versions"] = _display_path(bundle.root, versions_path)
+        captured["modules"] = sorted(modules)
+
+    params_path = _resolve_package_path(bundle.root, extra.get("params"))
+    parameters: dict[str, Any] = {}
+    if params_path is not None and params_path.is_file():
+        parameters = parse_pipeline_params(
+            read_path_text_bounded(params_path, kind="Pipeline params")
+        )
+        captured["params"] = _display_path(bundle.root, params_path)
+        captured["parameters"] = parameters
+
+    if not modules and not parameters:
+        return await _register_only(summary, "Registered only; no pipeline run record was readable")
+
+    if modules:
+        await merge_vcf_header_provenance(
+            session,
+            family_uuid=family_context.family_uuid,
+            assembly_id=getattr(family_context, "assembly_id", None),
+            modules=modules,
+            modality="pipeline",
+            source="manifest",
+        )
+    if parameters:
+        await _record_family_pipeline_metadata(
+            session,
+            family_uuid=family_context.family_uuid,
+            parameters=parameters,
+        )
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": "Recorded pipeline tool versions and run parameters for traceability",
+            "summary": captured,
+        }
+    )
+
+
 async def _import_phenotypes_dataset(
     session: AsyncSession,
     *,
@@ -1089,4 +1544,56 @@ async def _import_dataset(
             sample_contexts=sample_contexts,
             conflict_mode=conflict_mode,
         )
-    return summary
+    if summary.dataset_type == "cnv":
+        return await _import_cnv_dataset(
+            session,
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            family_context=family_context,
+            sample_contexts=sample_contexts,
+            conflict_mode=conflict_mode,
+        )
+    if summary.dataset_type == "mito":
+        return await _import_mito_dataset(
+            session,
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            family_context=family_context,
+            sample_contexts=sample_contexts,
+            conflict_mode=conflict_mode,
+            progress=progress,
+        )
+    if summary.dataset_type == "qc":
+        return await _import_qc_dataset(
+            session,
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            sample_contexts=sample_contexts,
+            conflict_mode=conflict_mode,
+        )
+    if summary.dataset_type == "alignments":
+        return await _import_alignments_dataset(
+            session,
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            sample_contexts=sample_contexts,
+            conflict_mode=conflict_mode,
+        )
+    if summary.dataset_type == "pipeline_info":
+        return await _import_pipeline_info_dataset(
+            session,
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            family_context=family_context,
+        )
+    # A validated, enabled dataset with no importer branch would otherwise report
+    # success while importing nothing. Fail loudly instead: adding a dataset type to
+    # SUPPORTED_DATASETS without an importer is a bug, not a runtime condition.
+    raise RuntimeError(
+        f"No importer is registered for dataset type '{summary.dataset_type}'"
+    )

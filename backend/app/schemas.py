@@ -1339,6 +1339,18 @@ class AlignmentManifestEntryOut(BaseModel):
     index_url: str
 
 
+class FamilyQcReportLinkOut(BaseModel):
+    """Short-lived URL for a sample's rendered sequencing-QC report.
+
+    The report is untrusted pipeline HTML, so it is opened in a new tab against an
+    isolated response rather than embedded in the application.
+    """
+
+    url: str
+    expires_at: datetime
+    filename: str
+
+
 class GeneExonOut(BaseModel):
     start: int
     end: int
@@ -1802,6 +1814,12 @@ class GenotypeOut(BaseModel):
     qual: Optional[float] = None
     filter: Optional[str] = None
     ps: Optional[int] = None
+    # Genotype quality. Already stored and filterable; returned so a reviewer can see
+    # the value they are filtering on.
+    gq: Optional[int] = None
+    # Copy number (FORMAT/CN) from a depth-based CNV caller. GT alone cannot separate
+    # a 3-copy from a 6-copy duplication.
+    cn: Optional[int] = None
 
 
 class SmallVariantCompoundHetReviewOut(BaseModel):

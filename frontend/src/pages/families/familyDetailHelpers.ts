@@ -122,6 +122,52 @@ export const coupleDraftsFromRelationships = (family: ApiFamilyRecord | undefine
       context: typeof relationship.metadata?.context === 'string' ? relationship.metadata.context : '',
     }));
 
+export interface SampleSequencingQc {
+  /** Package-relative path of the rendered QC report (NanoPlot today, MultiQC later). */
+  report?: string;
+  reads?: {
+    mean_read_length?: number;
+    median_read_length?: number;
+    mean_read_quality?: number;
+    median_read_quality?: number;
+    read_length_n50?: number;
+    read_count?: number;
+    total_bases?: number;
+  };
+  depth?: {
+    mean_depth?: number;
+    mito_mean_depth?: number;
+  };
+}
+
+/**
+ * Sequencing QC recorded on a sample at package import, or undefined when the family
+ * was imported without QC outputs. `sample_metadata` is typed but untyped-valued, so
+ * narrow it here rather than casting at each use site.
+ */
+export const sequencingQcForMember = (member: {
+  sample_metadata?: Record<string, unknown> | null;
+}): SampleSequencingQc | undefined => {
+  const qc = member.sample_metadata?.sequencing_qc;
+  return qc && typeof qc === 'object' ? (qc as SampleSequencingQc) : undefined;
+};
+
+/** Human-readable one-line QC summary for a table cell / tooltip. */
+export const formatSequencingQcSummary = (qc: SampleSequencingQc | undefined): string | null => {
+  if (!qc) return null;
+  const parts: string[] = [];
+  if (typeof qc.depth?.mean_depth === 'number') {
+    parts.push(`${qc.depth.mean_depth.toFixed(1)}x`);
+  }
+  if (typeof qc.reads?.read_length_n50 === 'number') {
+    parts.push(`N50 ${Math.round(qc.reads.read_length_n50).toLocaleString()} bp`);
+  }
+  if (typeof qc.reads?.median_read_quality === 'number') {
+    parts.push(`Q${qc.reads.median_read_quality.toFixed(0)}`);
+  }
+  return parts.length ? parts.join(' · ') : null;
+};
+
 export const formatRegion = (roi: ApiFamilyRegionOfInterest): string => {
   const chrom = roi.chr.startsWith('chr') ? roi.chr : `chr${roi.chr}`;
   return `${chrom}:${roi.start.toLocaleString()}-${roi.end.toLocaleString()}`;

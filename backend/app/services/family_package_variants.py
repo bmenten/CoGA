@@ -17,7 +17,13 @@ from .family_metadata_context import (
     SampleMetadataContext,
 )
 
-from .family_package_common import ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_vcf_info, _split_gene_symbols  # noqa: F401
+from .variant_annotation_parser import (
+    AnnotationHeaderState,
+    extract_small_variant_annotations,
+    update_annotation_header_state,
+)
+
+from .family_package_common import ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
@@ -75,6 +81,7 @@ def _iter_needlr_structural_records(
 ) -> list[StructuralVariantRecord]:
     sample_ids = set(sample_contexts)
     merged: dict[str, StructuralVariantRecord] = {}
+    allele_by_variant_id: dict[str, tuple[str, str]] = {}
     for line in text_value.splitlines():
         if not line or line.startswith("#"):
             continue
@@ -137,6 +144,26 @@ def _iter_needlr_structural_records(
             if record_id and record_id != "."
             else build_structural_variant_id(chrom, start, end, sv_type)
         )
+        # Co-located same-type calls (insertions in particular share a breakpoint and
+        # differ only in inserted sequence) would otherwise collapse onto one id and
+        # the last record would win. Only a genuine clash gets a discriminator, so
+        # every non-colliding id stays byte-identical to what earlier imports stored.
+        alleles = (ref, alt)
+        attempt = 0
+        while True:
+            previous_alleles = allele_by_variant_id.get(variant_id)
+            if previous_alleles is None or previous_alleles == alleles:
+                break
+            attempt += 1
+            suffix = str(abs(sv_len) if sv_len is not None else len(alt))
+            variant_id = build_structural_variant_id(
+                chrom,
+                start,
+                end,
+                sv_type,
+                discriminator=suffix if attempt == 1 else f"{suffix}.{attempt}",
+            )
+        allele_by_variant_id.setdefault(variant_id, alleles)
         annotation = {
             "source": "needlr",
             "ref": ref,
@@ -185,6 +212,100 @@ def _iter_needlr_structural_records(
             calls=sorted(call_by_sample.values(), key=lambda call: call.sample),
         )
     return list(merged.values())
+
+
+def _iter_cnv_structural_records(
+    text_value: str,
+    *,
+    sample_id: str,
+    source: str = "hificnv",
+) -> list[StructuralVariantRecord]:
+    """Parse a depth-based CNV caller's VCF (HiFiCNV) into structural-variant records.
+
+    The calls land in the structural-variant store rather than an interval track so
+    they are filterable, reviewable and reachable by the ClinGen CNV dosage scoring,
+    which needs the overlapping genes and the copy number.
+
+    Two things differ from the NeedlR path:
+
+    * genes come from ``INFO/CSQ`` (VEP), the only place this caller records them;
+    * the VCF's single sample column is named after the caller's internal sample slot
+      (``Sample0``), not the sample. The record is bound to ``sample_id`` -- the sample
+      the manifest declares this file for -- so the calls stay visible. Copying the
+      caller's name through would store rows that the project-scoped read path filters
+      out again, an import that "succeeds" and shows nothing.
+    """
+    annotation_state = AnnotationHeaderState()
+    records: list[StructuralVariantRecord] = []
+    for line in text_value.splitlines():
+        if line.startswith("##INFO"):
+            update_annotation_header_state(annotation_state, line.strip())
+            continue
+        if not line or line.startswith("#"):
+            continue
+        parts = line.rstrip("\n\r").split("\t")
+        if len(parts) < 8:
+            continue
+        chrom, pos_raw, record_id, ref, alt, qual_raw, filt_raw, info_raw = parts[:8]
+        start = _coerce_int(pos_raw)
+        if start is None:
+            continue
+        info = _parse_vcf_info(info_raw)
+        sv_type = _first_info_value(info, "SVTYPE") or alt.strip("<>") or "CNV"
+        sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
+        end = _coerce_int(_first_info_value(info, "END", "End_Pos"))
+        if end is None:
+            end = start + abs(sv_len or 1)
+        qual = _coerce_finite_float(qual_raw)
+        filt = None if filt_raw in {"", "."} else filt_raw
+        copy_number: int | None = None
+        gt = "./."
+        if len(parts) >= 10:
+            fmt_vals = _parse_format(parts[8], parts[9])
+            gt = fmt_vals.get("GT") or "./."
+            copy_number = _coerce_int(fmt_vals.get("CN"))
+        annotations = extract_small_variant_annotations(info, annotation_state)
+        gene_symbols: list[str] = []
+        seen_genes: set[str] = set()
+        for annotation in annotations:
+            gene = annotation.get("gene")
+            if gene and gene not in seen_genes:
+                seen_genes.add(str(gene))
+                gene_symbols.append(str(gene))
+        variant_id = (
+            record_id
+            if record_id and record_id != "."
+            else build_structural_variant_id(chrom, start, end, sv_type, source=source)
+        )
+        records.append(
+            StructuralVariantRecord(
+                variant_key=None,
+                variant_id=variant_id,
+                chr=normalize_chromosome(chrom),
+                start=start,
+                end=end,
+                sv_type=sv_type,
+                source=source,
+                remote_chr=None,
+                remote_start=None,
+                remote_end=None,
+                sv_len=sv_len,
+                filters=[] if filt is None else filt.split(";"),
+                gene_symbols=gene_symbols,
+                annotations=[{"source": source, "ref": ref, "alt": alt, "info": info}],
+                calls=[
+                    StructuralVariantCall(
+                        sample=sample_id,
+                        gt=gt,
+                        qual=qual,
+                        read_support=None,
+                        filter=filt,
+                        copy_number=copy_number,
+                    )
+                ],
+            )
+        )
+    return records
 
 
 async def _update_sv_file_metadata(

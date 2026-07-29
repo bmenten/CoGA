@@ -359,6 +359,7 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `calls.readSupport` Array(Nullable(UInt32)),
             `calls.filter` Array(Nullable(String)),
             `calls.ps` Array(Nullable(UInt64)),
+            `calls.cn` Array(Nullable(UInt16)),
             `sign` Int8
         )
         ENGINE = CollapsingMergeTree(sign)
@@ -368,6 +369,12 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         f"""
         ALTER TABLE {database}.`{dataset}/SV/entries`
         ADD COLUMN IF NOT EXISTS `calls.ps` Array(Nullable(UInt64)) AFTER `calls.filter`
+        """,
+        # Copy number from depth-based CNV callers (HiFiCNV FORMAT/CN). Added after
+        # `calls.ps` so existing databases pick it up in place.
+        f"""
+        ALTER TABLE {database}.`{dataset}/SV/entries`
+        ADD COLUMN IF NOT EXISTS `calls.cn` Array(Nullable(UInt16)) AFTER `calls.ps`
         """,
     ]
     async with _ensure_variant_tables_lock:
@@ -825,6 +832,7 @@ async def insert_structural_variant_records(
                 `calls.readSupport`,
                 `calls.filter`,
                 `calls.ps`,
+                `calls.cn`,
                 sign
             ) VALUES
             """,

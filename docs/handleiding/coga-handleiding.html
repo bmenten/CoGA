@@ -1877,7 +1877,7 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 <h3>Herkende bestandstypen en het pakketlayout</h3>
 <p>Een geldig pakket is een map met een <code>manifest.yaml</code> (of <code>.yml</code>/<code>.json</code>) en/of een <code>*.ped</code>-bestand. Het <code>standard_v1</code>-naamgevingsschema kent vaste zoekpaden per dataset. De discovery-stap scant die paden en stelt een manifest-voorstel samen met een beschikbaarheidstabel.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_discovery.py</code> (<code>discover_family_package_manifest</code>, <code>NAMING_SCHEMES</code>) en de gedocumenteerde layout in <code>docs/data-import.md</code>.</p>
-<p>De ondersteunde datasets zijn vastgelegd in de constante <code>SUPPORTED_DATASETS</code> (in <code>family_package_common.py</code>) — tien datasettypen — met per type een verwacht zoekpad (<code>{family_id}</code>/<code>{sample_id}</code> zijn plaatshouders):</p>
+<p>De ondersteunde datasets zijn vastgelegd in de constante <code>SUPPORTED_DATASETS</code> (in <code>family_package_common.py</code>) — vijftien datasettypen — met per type een verwacht zoekpad (<code>{family_id}</code>/<code>{sample_id}</code> zijn plaatshouders):</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -1899,8 +1899,8 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 </tr>
 <tr>
 <td><code>repeats_trgt</code></td>
-<td>Repeat-expansies (TRGT)</td>
-<td><code>repeats/{family_id}.trgt.vcf.gz</code></td>
+<td>Repeat-expansies (TRGT), per familie of per sample</td>
+<td><code>repeats/{sample_id}/{sample_id}_tr.vcf.gz</code></td>
 </tr>
 <tr>
 <td><code>wisecondorx</code></td>
@@ -1937,8 +1937,37 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 <td>Paraphase-resultaten (JSON)</td>
 <td><code>paraphase/{sample_id}.paraphase.json</code></td>
 </tr>
+<tr>
+<td><code>cnv</code></td>
+<td>CNV-calls uit een dieptecaller (HiFiCNV), VCF + copynumber-bedgraph</td>
+<td><code>cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz</code></td>
+</tr>
+<tr>
+<td><code>mito</code></td>
+<td>Mitochondriale varianten (chrM) + mutserve-annotatie</td>
+<td><code>mito/{sample_id}/{sample_id}.vcf.gz</code></td>
+</tr>
+<tr>
+<td><code>alignments</code></td>
+<td>Uitgelijnde reads voor de genoombrowser</td>
+<td><code>bams/{sample_id}.cram</code></td>
+</tr>
+<tr>
+<td><code>qc</code></td>
+<td>Sequencing-QC: NanoPlot/MultiQC-rapport, NanoStats, mosdepth</td>
+<td><code>qc/nanoplot/{sample_id}/{sample_id}NanoStats.txt</code></td>
+</tr>
+<tr>
+<td><code>pipeline_info</code></td>
+<td>Nextflow-runregistratie (toolversies, parameters)</td>
+<td><code>pipeline_info/software_versions.yaml</code></td>
+</tr>
 </tbody>
 </table></div>
+<p>De laatste vijf komen uit de long-read-pipeline (nf-core/lrsvar), die per sample
+wegschrijft en de toolversie in de bestandsnaam zet. Zoekpaden mogen daarom een <code>*</code>
+bevatten; de scanner lost die op tot een concreet pad binnen de pakketmap en schrijft
+nooit een patroon in het manifest.</p>
 <h3>Hoe families en samples worden afgeleid</h3>
 <p>De <strong>PED</strong> is de bron van waarheid voor de familiestructuur. Discovery en validatie parsen het PED strikt (zes kolommen, precies één familie), en elke per-sample dataset moet naar een sample-ID uit het PED verwijzen. Het manifest kan het PED aanvullen met klinische status, dragerschap (<code>carrier_status</code>/<code>carrier_type</code>) en expliciete relaties (partnerschappen, ouder-kind), maar mag geen samples introduceren die niet in het PED staan.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_validation.py</code> (<code>_parse_ped_text_strict</code> via <code>load_validated_family_package</code>) en <code>family_package_manifest.py</code> (<code>_ped_members_for_import</code>, <code>_manifest_relationships</code>). Voor een import tegen een <em>bestaande</em> familie kan het PED zelfs worden gereconstrueerd uit de database, zodat geen PED-bestand nodig is — zie <code>db_pedigree_fallback</code> in <code>family_package_import.py</code>.</p>
@@ -2041,6 +2070,36 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 <td><code>paraphase</code> JSON</td>
 <td><code>_replace_sample_paraphase_rows</code></td>
 <td><code>sample_paraphase_results</code></td>
+<td>Postgres</td>
+</tr>
+<tr>
+<td><code>cnv</code> VCF (+ bedgraph)</td>
+<td><code>_iter_cnv_structural_records</code> → <code>replace_family_structural_variants</code> (<code>hificnv</code>) / <code>_import_copy_number_track</code></td>
+<td>structural variants + <code>coverage</code>-interval-track</td>
+<td>ClickHouse</td>
+</tr>
+<tr>
+<td><code>mito</code> chrM-VCF (+ mutserve-TSV)</td>
+<td><code>upload_family_small_variant_file</code> (<code>mito</code>)</td>
+<td>small variants (chrM)</td>
+<td>ClickHouse</td>
+</tr>
+<tr>
+<td><code>qc</code> NanoStats/mosdepth/rapport</td>
+<td><code>record_sample_qc_metadata</code></td>
+<td><code>samples.metadata["sequencing_qc"]</code></td>
+<td>Postgres</td>
+</tr>
+<tr>
+<td><code>alignments</code> CRAM/BAM</td>
+<td><code>record_sample_alignment_metadata</code></td>
+<td><code>samples.metadata["alignment"]</code></td>
+<td>Postgres</td>
+</tr>
+<tr>
+<td><code>pipeline_info</code> versies/parameters</td>
+<td><code>extract_pipeline_versions</code> → <code>merge_vcf_header_provenance</code>; <code>record_family_pipeline_metadata</code></td>
+<td><code>family_annotation_manifest</code>, <code>families.metadata["pipeline"]</code></td>
 <td>Postgres</td>
 </tr>
 <tr>

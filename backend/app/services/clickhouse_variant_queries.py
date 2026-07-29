@@ -1595,6 +1595,8 @@ def _structural_variant_out(
                 qual=call.qual,
                 read_support=call.read_support,
                 filter=call.filter,
+                ps=call.phase_set,
+                cn=call.copy_number,
             )
             for call in calls
         ],

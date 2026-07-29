@@ -66,6 +66,11 @@ these upstream modules are captured per family and frozen into the report
 | Interval tracks | Coverage, segments, copy-number, APCD, haplotype-lineage, in BED-like form | PGT (aneuploidy/SV/coverage), NIPT (coverage), rare-disorder |
 | Phased/imputed markers | Per-site phased genotypes for haplotype segregation | PGT |
 | Repeat expansions (TRGT), Paraphase, mtDNA results | Per-sample specialized caller outputs; the **complete-mtDNA** call set from ONT adaptive sampling drives the mitochondrial app | Rare-disorder, mitochondrial (3.5) |
+| Copy-number VCF (depth-based caller) | Per-sample CNV calls with copy number, confidence intervals and overlapping genes; ingested as reviewable structural variants alongside the alignment-based SV calls | Rare-disorder, PGT |
+| mtDNA annotation table | Per-variant heteroplasmy level, coverage, haplogroup assignment and mtDNA population frequency accompanying the chrM call set | Mitochondrial (3.5) |
+| Sequencing QC | Per-sample read metrics (length, quality, N50, yield) and per-chromosome depth, plus the location of the pipeline's rendered QC report | All |
+| Aligned reads (CRAM/BAM) | Location only — read data is streamed to the browser for visual confirmation and never re-analysed by the device | All |
+| Pipeline run record | Tool versions and run parameters of the upstream analysis pipeline, captured per family for report traceability | All |
 | Pedigree / family metadata | Roles, parentage, sex, affected/carrier status, ROI, inheritance model, assay tags | All |
 | Reference data | Assembly, gene/transcript reference, ClinVar/gnomAD/GenCC/PanelApp/HPO/Monarch, clinical-CNV catalogue | All |
 

@@ -110,6 +110,33 @@ change a prior classification ([clinical-traceability.md](../clinical-traceabili
 | HPO | Phenotype ontology | reference import | Release |
 | Monarch | Gene-disease/phenotype | `monarch_gene_disease.release_version` | Release |
 | ClinGen / dbNSFP-gene / clinical-CNV catalogue | Constraint, gene-condition, CNV knowledge | reference import / build script | Release / build date |
+| AlphaMissense | Missense pathogenicity prediction | VEP plugin, per-family manifest | Model version |
+| STRchive disease-locus catalogue | Repeat-expansion loci and thresholds | pipeline manifest (`trgt_repeats`) + `repeat_loci` | Catalogue build |
+| MITOMAP / Phylotree 17 (via mutserve) | mtDNA haplogroup + variant context | pipeline manifest; mutserve annotation TSV | Tool release |
+| Helix mtDB | mtDNA population frequency | mutserve annotation TSV | Bundled with the annotator |
+
+### B.1 Upstream analysis pipeline (produced outside CoGA)
+
+The callers below run in the analysis pipeline, not in CoGA — CoGA's device boundary starts
+at the annotated VCF. They are registered because their versions determine the evidence a
+report rests on. Versions are captured **per family** from the pipeline's
+`software_versions.yaml` (or the VCF header when a package ships without one) and stored in
+`family_annotation_manifest`, so a signed report names the exact caller build behind it.
+
+| Source | Role | Version capture |
+| --- | --- | --- |
+| DeepVariant / DeepSomatic | Small-variant + chrM calling | pipeline manifest, `##DeepVariant_version` |
+| GLnexus | Joint genotyping | pipeline manifest |
+| Sniffles2 | Structural-variant calling | pipeline manifest, `##source=Sniffles2` |
+| NeedlR | SV annotation + population filtering | filename release + `##INFO` descriptions |
+| HiFiCNV | Depth-based CNV calling | pipeline manifest, `##source=hificnv` |
+| TRGT | Repeat-expansion genotyping | pipeline manifest, `##trgtVersion` |
+| Paraphase | Segmental-duplication resolution | pipeline manifest |
+| mutserve | mtDNA variant annotation | pipeline manifest |
+| Exomiser (+ data / CADD / REMM) | Phenotype-driven prioritisation embedded in the annotated VCF | pipeline manifest |
+| longphase | Read-based phasing | pipeline manifest, `##longphaseVersion` |
+| minimap2 / samtools / bcftools / mosdepth / NanoPlot | Alignment, file handling, coverage, read QC | pipeline manifest |
+| nf-core/lrsvar + Nextflow | Workflow definition and engine | pipeline manifest (`Workflow:` block) |
 
 **Policy:** updating any source in B is a controlled change (TF-18); the version manifest
 and drift detection ensure no signed report silently changes, and the **performance-evaluation
