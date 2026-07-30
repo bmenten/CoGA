@@ -71,6 +71,7 @@ import {
 } from './familyDetailHelpers';
 import VariantWorkspaceLink from './VariantWorkspaceLink';
 import SampleQcCell from './SampleQcCell';
+import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
 
 interface FamilyDetailPageProps {
   editable?: boolean;
@@ -352,6 +353,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const orderedMembers = useMemo(
     () => sortFamilyMembersProbandFirst(data?.members || []),
     [data?.members],
+  );
+  const pipelineSettings = useMemo(
+    () => pipelineSettingsFromMetadata(data?.metadata),
+    [data?.metadata],
   );
   // In edit mode the table renders drafts, which carry no sample_metadata. Keep the
   // API members addressable by sample so per-sample metadata (sequencing QC) is
@@ -1392,6 +1397,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               </div>
             )}
           </article>
+
+          <PipelineSettingsPanel settings={pipelineSettings} />
         </div>
       </section>
 

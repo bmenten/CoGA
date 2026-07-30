@@ -164,6 +164,18 @@ De import registreert eerst de familie-metadata en de provenance, en importeert 
 
 **Waar in de code:** de ClickHouse-loaders in `backend/app/services/clickhouse_variant_storage.py` (`insert_small_variant_records`, `replace_family_structural_variants`); de NeedlR-SV-parser is `_iter_needlr_structural_records` in `family_package_variants.py` (levert `StructuralVariantRecord`-objecten voor `replace_family_structural_variants`). De Postgres-schrijvers `ingest_family_trgt_text` (`repeat_expansion_pg.py`) en `_replace_sample_paraphase_rows` (`family_package_variants.py`).
 
+### Waar de pipeline-instellingen zichtbaar zijn
+
+De **runparameters** (genoombuild, welke caller welke variantklasse maakte, VEP-cache,
+repeat-catalogus, welke stappen liepen) staan in de kaart **Analysis pipeline** op de
+familiewerkplek én als sectie **Analysis pipeline settings** op het klinische rapport. De
+**toolversies** staan daar los van: die verschijnen in de annotatie-provenance-voettekst
+en in de regel "Modules & versions" van het rapport. Samen vormen ze het antwoord op
+"hoe is deze data gemaakt" (instellingen) en "waarmee" (versies).
+
+**Waar in de code:** `frontend/src/pages/families/PipelineSettingsPanel.tsx` (beide
+weergaven) en `AnnotationProvenanceSummary.tsx` (versies).
+
 Let op: **NIPT-artefacten** (`nipt_artifact_variants`, Postgres) worden *niet* door de pakket-import gevuld — die lopen via een aparte route (zie [hoofdstuk 8](08-filterpaginas-en-api.md)). De pakket-import promoveert wél een gedeclareerd `analysis_type` (bv. `monogenic_nipt`) en een per-sample `assay` (bv. `nipt_cfdna`) naar de familie-/sample-metadata, zodat de NIPT-context later herkend wordt.
 
 **Waar in de code:** `_register_package_provenance` in `family_package_registration.py`; `nipt_artifact_pg.py` is de aparte NIPT-loader.

@@ -2135,6 +2135,15 @@ nooit een patroon in het manifest.</p>
 </tbody>
 </table></div>
 <p class="waar"><strong>Waar in de code:</strong> de ClickHouse-loaders in <code>backend/app/services/clickhouse_variant_storage.py</code> (<code>insert_small_variant_records</code>, <code>replace_family_structural_variants</code>); de NeedlR-SV-parser is <code>_iter_needlr_structural_records</code> in <code>family_package_variants.py</code> (levert <code>StructuralVariantRecord</code>-objecten voor <code>replace_family_structural_variants</code>). De Postgres-schrijvers <code>ingest_family_trgt_text</code> (<code>repeat_expansion_pg.py</code>) en <code>_replace_sample_paraphase_rows</code> (<code>family_package_variants.py</code>).</p>
+<h3>Waar de pipeline-instellingen zichtbaar zijn</h3>
+<p>De <strong>runparameters</strong> (genoombuild, welke caller welke variantklasse maakte, VEP-cache,
+repeat-catalogus, welke stappen liepen) staan in de kaart <strong>Analysis pipeline</strong> op de
+familiewerkplek én als sectie <strong>Analysis pipeline settings</strong> op het klinische rapport. De
+<strong>toolversies</strong> staan daar los van: die verschijnen in de annotatie-provenance-voettekst
+en in de regel "Modules &amp; versions" van het rapport. Samen vormen ze het antwoord op
+"hoe is deze data gemaakt" (instellingen) en "waarmee" (versies).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/families/PipelineSettingsPanel.tsx</code> (beide
+weergaven) en <code>AnnotationProvenanceSummary.tsx</code> (versies).</p>
 <p>Let op: <strong>NIPT-artefacten</strong> (<code>nipt_artifact_variants</code>, Postgres) worden <em>niet</em> door de pakket-import gevuld — die lopen via een aparte route (zie <a href="#hs-8">hoofdstuk 8</a>). De pakket-import promoveert wél een gedeclareerd <code>analysis_type</code> (bv. <code>monogenic_nipt</code>) en een per-sample <code>assay</code> (bv. <code>nipt_cfdna</code>) naar de familie-/sample-metadata, zodat de NIPT-context later herkend wordt.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>_register_package_provenance</code> in <code>family_package_registration.py</code>; <code>nipt_artifact_pg.py</code> is de aparte NIPT-loader.</p>
 <h2>Import-job-tracking en foutafhandeling</h2>

@@ -21,6 +21,7 @@ import {
   type SmallVariantPage,
 } from './smallVariantSearch';
 import { type StructuralVariant } from './structuralVariantSearch';
+import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
 import {
   acmgClassificationLabel,
   buildSegregationSentence,
@@ -838,6 +839,11 @@ const FamilyReportPage: React.FC = () => {
           </ul>
         </section>
       ) : null}
+
+      <PipelineSettingsPanel
+        settings={pipelineSettingsFromMetadata(family?.metadata)}
+        variant="report"
+      />
 
       <footer className="surface-card report-footer">
         <p className="report-footer-timestamp">
