@@ -298,6 +298,31 @@ async def record_sample_alignment_metadata(
     )
 
 
+async def record_sample_signal_tracks(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    signal_tracks: dict[str, Any],
+) -> None:
+    """Record where a caller's signal files sit, under ``samples.metadata["signal_tracks"]``.
+
+    The genome browser streams these files directly rather than reading the binned
+    rows out of ClickHouse, so it needs the path. Probing for them the way the
+    alignment endpoints probe for a CRAM does not work here: the filenames carry
+    the caller's own naming (``HG002.Sample0.depth.bw``, ``HG002.HG002.maf.bw``),
+    so what the import actually found is recorded instead of re-guessed later.
+
+    Paths are package-relative, matching ``alignment``; they are resolved against
+    the family package root and containment-checked at serve time.
+    """
+
+    await _merge_sample_metadata(
+        session,
+        sample_uuid=sample_context.sample_uuid,
+        patch={"signal_tracks": signal_tracks},
+    )
+
+
 async def record_sample_mtdna_metadata(
     session: AsyncSession,
     *,

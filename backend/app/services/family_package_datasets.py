@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from functools import partial
 import json
+from math import log2
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +43,7 @@ from .repeat_expansion_pg import (
 from .upload_safety import read_path_text_bounded
 from .variant_upload_service import parse_mutserve_annotation_path, upload_family_small_variant_file
 
+from .family_package_bigwig import autosomal_median, open_bigwig
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map  # noqa: F401
 from .family_package_manifest import _ped_embryo_sample_ids  # noqa: F401
 from .family_package_qc import (  # noqa: F401
@@ -51,10 +54,11 @@ from .family_package_qc import (  # noqa: F401
     record_family_pipeline_metadata as _record_family_pipeline_metadata,
     record_sample_alignment_metadata as _record_sample_alignment_metadata,
     record_sample_mtdna_metadata,
+    record_sample_signal_tracks as _record_sample_signal_tracks,
     record_sample_qc_metadata as _record_sample_qc_metadata,
 )
 from .family_package_registration import _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count  # noqa: F401
-from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track  # noqa: F401
+from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track  # noqa: F401
 from .family_package_validation import _manifest_hpo_rows, _pcf_role_path  # noqa: F401
 from .family_package_variants import _iter_cnv_structural_records, _iter_needlr_structural_records, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata  # noqa: F401
 
@@ -362,42 +366,28 @@ async def _import_wisecondorx_dataset(
                     )
                 )
 
-        bins_path = _resolve_package_path(bundle.root, raw_entry.get("bins"))
-        segments_path = _resolve_package_path(bundle.root, raw_entry.get("segments"))
-        if bins_path is not None:
-            existing_bins = await _interval_track_count(
+        # bins carry a per-bin ratio (a coverage axis); segments carry the called
+        # level. Both go through the shared guard so a re-import owns its whole
+        # (track_type, source) pair rather than only the filename it happens to read.
+        for role, track_type in (("bins", "coverage"), ("segments", "segments")):
+            path = _resolve_package_path(bundle.root, raw_entry.get(role))
+            if path is None:
+                continue
+            sample_results[sample_id][role] = await _import_interval_track_unless_present(
                 session,
                 sample_context=sample_context,
-                track_type="coverage",
+                track_type=track_type,
                 source="wisecondorx",
-            )
-            if conflict_mode == "update" and existing_bins:
-                sample_results[sample_id]["bins"] = {"skipped": True, "existing": existing_bins}
-            else:
-                sample_results[sample_id]["bins"] = await _import_wisecondorx_track(
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_wisecondorx_track,
                     session,
                     sample_context=sample_context,
-                    path=bins_path,
-                    track_type="coverage",
-                    progress=lambda stats, role="bins": report_track(role, stats),
-                )
-        if segments_path is not None:
-            existing_segments = await _interval_track_count(
-                session,
-                sample_context=sample_context,
-                track_type="segments",
-                source="wisecondorx",
+                    path=path,
+                    track_type=track_type,
+                    progress=partial(report_track, role),
+                ),
             )
-            if conflict_mode == "update" and existing_segments:
-                sample_results[sample_id]["segments"] = {"skipped": True, "existing": existing_segments}
-            else:
-                sample_results[sample_id]["segments"] = await _import_wisecondorx_track(
-                    session,
-                    sample_context=sample_context,
-                    path=segments_path,
-                    track_type="segments",
-                    progress=lambda stats, role="segments": report_track(role, stats),
-                )
     skipped = [
         f"{sample_id}:{role}"
         for sample_id, roles in sample_results.items()
@@ -447,44 +437,30 @@ async def _import_qdnaseq_dataset(
                     )
                 )
 
-        bins_path = _resolve_package_path(bundle.root, raw_entry.get("bins") or raw_entry.get("file"))
-        segments_path = _resolve_package_path(bundle.root, raw_entry.get("segments"))
-        if bins_path is not None:
-            existing_bins = await _interval_track_count(
+        role_paths = {
+            "bins": raw_entry.get("bins") or raw_entry.get("file"),
+            "segments": raw_entry.get("segments"),
+        }
+        for role, track_type in (("bins", "coverage"), ("segments", "segments")):
+            path = _resolve_package_path(bundle.root, role_paths[role])
+            if path is None:
+                continue
+            sample_results[sample_id][role] = await _import_interval_track_unless_present(
                 session,
                 sample_context=sample_context,
-                track_type="coverage",
+                track_type=track_type,
                 source="qdnaseq",
-            )
-            if conflict_mode == "update" and existing_bins:
-                sample_results[sample_id]["bins"] = {"skipped": True, "existing": existing_bins}
-            else:
-                sample_results[sample_id]["bins"] = await _import_copy_number_track(
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_copy_number_track,
                     session,
                     sample_context=sample_context,
-                    path=bins_path,
-                    track_type="coverage",
+                    path=path,
+                    track_type=track_type,
                     source="qdnaseq",
-                    progress=lambda stats, role="bins": report_track(role, stats),
-                )
-        if segments_path is not None:
-            existing_segments = await _interval_track_count(
-                session,
-                sample_context=sample_context,
-                track_type="segments",
-                source="qdnaseq",
+                    progress=partial(report_track, role),
+                ),
             )
-            if conflict_mode == "update" and existing_segments:
-                sample_results[sample_id]["segments"] = {"skipped": True, "existing": existing_segments}
-            else:
-                sample_results[sample_id]["segments"] = await _import_copy_number_track(
-                    session,
-                    sample_context=sample_context,
-                    path=segments_path,
-                    track_type="segments",
-                    source="qdnaseq",
-                    progress=lambda stats, role="segments": report_track(role, stats),
-                )
     skipped = [
         f"{sample_id}:{role}"
         for sample_id, roles in sample_results.items()
@@ -999,6 +975,108 @@ async def _record_mtdna_sample_metadata(
     )
 
 
+def _autosomal_median_depth(path: Path) -> float | None:
+    """Autosomal median of a depth bigWig, for normalising it to a log2 ratio.
+
+    Its own pass over the file: the median has to be known before the first row is
+    written, and a second streaming pass costs well under a second even for a
+    whole-genome track.
+    """
+
+    reader = open_bigwig(path)
+    try:
+        return autosomal_median(reader)
+    finally:
+        reader.close()
+
+
+def _log2_copy_number_transform(copy_number: float) -> float:
+    """Integer copy number -> log2 ratio against a diploid baseline.
+
+    CN 2 -> 0, CN 1 -> -1, CN 4 -> +1: the same scale the ratio-reporting callers
+    use, so a HiFiCNV segment can be read against a WisecondorX or QDNAseq one and
+    against the coverage bins underneath it.
+
+    A homozygous deletion is CN 0, and log2(0) is -inf; it takes the same floor as
+    the depth track, which sits far below any single-copy loss.
+    """
+
+    if copy_number <= 0:
+        return _MIN_LOG2_RATIO
+    return max(log2(copy_number / 2.0), _MIN_LOG2_RATIO)
+
+
+def _log2_ratio_transform(normaliser: float | None) -> Callable[[float], float] | None:
+    """Convert read depth to log2(depth / ``normaliser``), or don't convert at all.
+
+    Returns ``None`` when there is no usable normaliser, which leaves the values
+    raw rather than inventing a baseline -- a track drawn against a made-up
+    reference would look like a genome-wide gain or loss.
+    """
+
+    if not normaliser or normaliser <= 0:
+        return None
+
+    def transform(value: float) -> float:
+        # log2(0) is -inf, which ClickHouse cannot store and no axis can draw. The
+        # floor also catches the near-zero depths a smoothed assembly gap leaves
+        # behind (0.0005x against a 20x median is -15.3), which would otherwise
+        # stretch the plotted range by an order of magnitude to show nothing.
+        if value <= 0:
+            return _MIN_LOG2_RATIO
+        return max(log2(value / normaliser), _MIN_LOG2_RATIO)
+
+    return transform
+
+
+# A 2^-10 floor: far below any real single-copy loss (-1), so anything at or below
+# it reads as "no coverage" rather than as a measurement.
+_MIN_LOG2_RATIO = -10.0
+
+
+async def _import_interval_track_unless_present(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    track_type: str,
+    source: str,
+    conflict_mode: str,
+    importer: Callable[[], Awaitable[dict[str, int]]],
+) -> dict[str, Any]:
+    """Run ``importer`` unless update mode must leave existing rows alone.
+
+    ``update`` means "add what is missing, touch nothing that is there"; the
+    importers themselves always replace their (track_type, source, filename)
+    triple, so the guard has to sit outside them. Shared by the three HiFiCNV
+    signal tracks, which differ only in what they read and where it lands.
+
+    When the import does run, the whole (track_type, source) pair is cleared
+    first rather than just the incoming filename. A source owns a track for a
+    sample; a filename-scoped replace silently accumulates rows when the file
+    that feeds a track changes. That is not hypothetical -- HiFiCNV's `coverage`
+    track used to be fed by the copy-number bedgraph and is now fed by the depth
+    bigWig, so a filename-scoped replace would leave the old copy-number rows
+    behind to be averaged into the new depth values.
+    """
+
+    existing = await _interval_track_count(
+        session,
+        sample_context=sample_context,
+        track_type=track_type,
+        source=source,
+    )
+    if conflict_mode == "update" and existing:
+        return {"skipped": True, "existing": existing}
+    if existing:
+        await _delete_sample_interval_source(
+            session,
+            sample_context=sample_context,
+            track_type=track_type,
+            source=source,
+        )
+    return await importer()
+
+
 async def _import_cnv_dataset(
     session: AsyncSession,
     *,
@@ -1051,27 +1129,121 @@ async def _import_cnv_dataset(
             "calls": len(sample_records),
             "filename": vcf_path.name,
         }
+        # HiFiCNV ships two signal files per sample and they measure different
+        # things, so they land on different tracks:
+        #
+        #   depth.bw          read depth per 2 kb bin  -> `coverage`
+        #   copynum.bedgraph  called integer copy number -> `segments`
+        #
+        # Before this split the bedgraph was the `coverage` track, which put copy
+        # number on an axis every other caller uses for depth or log2 ratio -- so
+        # a HiFiCNV track could not be compared with the WisecondorX or QDNAseq
+        # track stacked beside it.
         bedgraph_path = _resolve_package_path(bundle.root, raw_entry.get("copy_number_bedgraph"))
         if bedgraph_path is not None:
-            existing_bins = await _interval_track_count(
+            sample_results[sample_id]["copy_number_track"] = await _import_interval_track_unless_present(
+                session,
+                sample_context=sample_context,
+                track_type="segments",
+                source=CNV_SOURCE,
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_copy_number_track,
+                    session,
+                    sample_context=sample_context,
+                    path=bedgraph_path,
+                    track_type="segments",
+                    source=CNV_SOURCE,
+                    # The bedGraph holds an integer copy number; the segments track
+                    # holds a log2 ratio, which is what WisecondorX and QDNAseq write
+                    # and what the chart's axis is calibrated for. Stored raw, a
+                    # normal CN of 2 plotted above the top of a +-1.5 axis and drew a
+                    # solid line across the genome at the clip boundary.
+                    value_transform=_log2_copy_number_transform,
+                    extra_metadata={"normalization": "log2_ratio_to_diploid"},
+                ),
+            )
+
+        depth_path = _resolve_package_path(bundle.root, raw_entry.get("depth_bigwig"))
+        if depth_path is not None:
+            # Stored as a log2 ratio against the sample's own autosomal median, not as
+            # raw depth. The coverage track is drawn on one axis per sample and
+            # compared with the WisecondorX and QDNAseq tracks stacked beside it,
+            # which are themselves log2 ratios; a 1-copy loss then sits at -1 in all
+            # three instead of at a depth that means nothing without knowing the
+            # sample's own baseline. The raw bigWig is untouched and is what IGV gets.
+            normaliser = await asyncio.to_thread(_autosomal_median_depth, depth_path)
+            sample_results[sample_id]["depth_track"] = await _import_interval_track_unless_present(
                 session,
                 sample_context=sample_context,
                 track_type="coverage",
                 source=CNV_SOURCE,
-            )
-            if conflict_mode == "update" and existing_bins:
-                sample_results[sample_id]["copy_number_track"] = {
-                    "skipped": True,
-                    "existing": existing_bins,
-                }
-            else:
-                sample_results[sample_id]["copy_number_track"] = await _import_copy_number_track(
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_bigwig_interval_track,
                     session,
                     sample_context=sample_context,
-                    path=bedgraph_path,
+                    path=depth_path,
                     track_type="coverage",
                     source=CNV_SOURCE,
-                )
+                    # A depth bigWig spans the whole genome, so ~half its bins are
+                    # the zero-depth telomeric/centromeric gaps. They plot as a
+                    # flat line on the axis and cost ~600k rows per sample.
+                    skip_zero=True,
+                    value_transform=_log2_ratio_transform(normaliser),
+                    # The normaliser is part of what the stored numbers mean, so it is
+                    # recorded with the track rather than left to be re-derived.
+                    extra_metadata={
+                        "normalization": "log2_ratio_to_autosomal_median",
+                        "autosomal_median_depth": normaliser,
+                    },
+                ),
+            )
+
+        # Minor allele fraction is BAF-like, so it belongs on the APCAD track the
+        # views already draw. It carries no parent-of-origin -- bigWig has nowhere
+        # to record one -- hence `und`, which the readers treat as unphased rather
+        # than as a missing paternal/maternal call.
+        maf_path = _resolve_package_path(bundle.root, raw_entry.get("maf_bigwig"))
+        if maf_path is not None:
+            sample_results[sample_id]["maf_track"] = await _import_interval_track_unless_present(
+                session,
+                sample_context=sample_context,
+                track_type="apcad",
+                source=CNV_SOURCE,
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_bigwig_interval_track,
+                    session,
+                    sample_context=sample_context,
+                    path=maf_path,
+                    track_type="apcad",
+                    source=CNV_SOURCE,
+                    origin="und",
+                ),
+            )
+
+        # Where the signal files sit, for the browser to stream directly. Recorded
+        # rather than re-derived at serve time: HiFiCNV names them after its own run
+        # (`HG002.Sample0.depth.bw`, `HG002.HG002.maf.bw`), which no fixed path
+        # pattern predicts. Recorded whether or not the file produced ClickHouse
+        # rows -- the binned track and the file IGV streams are different artefacts,
+        # and the raw depth here is absolute where the binned copy is a log2 ratio.
+        signal_tracks = {
+            key: _display_path(bundle.root, path)
+            for key, path in (
+                ("depth_bigwig", depth_path),
+                ("maf_bigwig", maf_path),
+                ("copy_number_bedgraph", bedgraph_path),
+            )
+            if path is not None and path.is_file()
+        }
+        if signal_tracks:
+            await _record_sample_signal_tracks(
+                session,
+                sample_context=sample_context,
+                signal_tracks={CNV_SOURCE: signal_tracks},
+            )
 
     if not records:
         return await _register_only(summary, "Registered only; no CNV calls were parsed")

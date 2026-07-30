@@ -550,3 +550,124 @@ CREATE TABLE IF NOT EXISTS family_variant_ranking_cache (
 
 CREATE INDEX IF NOT EXISTS idx_family_variant_ranking_cache_base ON family_variant_ranking_cache USING btree (family_id, base_hash);
 CREATE INDEX IF NOT EXISTS idx_family_variant_ranking_cache_recent ON family_variant_ranking_cache USING btree (family_id, computed_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- qc_threshold_profiles / qc_thresholds (admin-managed sequencing-QC cut-offs)
+--
+-- Thresholds are grouped into named profiles because a single set cannot serve
+-- more than one assay: ~18x mean depth is normal for PacBio HiFi WGS and a hard
+-- failure on a 100x panel, so one global cut-off would misflag constantly. A
+-- family resolves to the profile named in families.metadata->>'qc_profile', and
+-- to the profile flagged is_default otherwise.
+--
+-- The *metric catalogue* (which metrics exist, their units, and whether a low or
+-- a high value is the bad one) lives in code — backend/app/services/qc_threshold_service.py
+-- QC_METRICS — because it is determined by what the QC parsers emit, not by
+-- configuration. Only the cut-off values are admin-settable, which is also what
+-- keeps an operator from inverting a comparison direction by accident.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS qc_threshold_profiles (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    key text NOT NULL,
+    label text NOT NULL,
+    description text,
+    is_default boolean DEFAULT false NOT NULL,
+    sort_order integer DEFAULT 500 NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT qc_threshold_profiles_pkey PRIMARY KEY (id),
+    CONSTRAINT qc_threshold_profiles_key_key UNIQUE (key),
+    CONSTRAINT qc_threshold_profiles_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- At most one default profile, so threshold resolution is never ambiguous.
+CREATE UNIQUE INDEX IF NOT EXISTS qc_threshold_profiles_one_default
+    ON qc_threshold_profiles ((is_default)) WHERE is_default;
+
+CREATE TABLE IF NOT EXISTS qc_thresholds (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    profile_id uuid NOT NULL,
+    metric_key text NOT NULL,
+    -- Either bound may be null: a metric can carry only a warning, only an error,
+    -- or (both null) be listed without gating anything.
+    warn_value double precision,
+    error_value double precision,
+    -- Written through from the code catalogue at save time; never read for evaluation.
+    -- It is here for legibility: a threshold row that outlives the code version that
+    -- wrote it must still be interpretable as a cut-off without checking out that
+    -- commit, which is what an IVDR audit of a historical configuration needs.
+    direction text DEFAULT 'lower_is_worse'::text NOT NULL,
+    updated_by uuid,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT qc_thresholds_pkey PRIMARY KEY (id),
+    CONSTRAINT qc_thresholds_direction_check
+        CHECK ((direction = ANY (ARRAY['lower_is_worse'::text, 'higher_is_worse'::text]))),
+    CONSTRAINT qc_thresholds_profile_metric_key UNIQUE (profile_id, metric_key),
+    CONSTRAINT qc_thresholds_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES qc_threshold_profiles(id) ON DELETE CASCADE,
+    CONSTRAINT qc_thresholds_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_qc_thresholds_profile ON qc_thresholds USING btree (profile_id);
+
+-- Seed profiles only. The cut-off VALUES are deliberately not seeded: they are a
+-- clinical decision for the lab, and shipping invented numbers would make an
+-- unreviewed cut-off look authoritative. An empty profile gates nothing, so the
+-- QC chip stays neutral until a threshold is entered in the admin page.
+INSERT INTO qc_threshold_profiles (key, label, description, is_default, sort_order) VALUES
+    ('default', 'Default', 'Applies to any family that does not name a profile.', true, 10),
+    ('long_read_wgs', 'Long-read WGS', 'PacBio HiFi / ONT whole-genome runs.', false, 20),
+    ('short_read_wgs', 'Short-read WGS', 'Illumina whole-genome runs.', false, 30),
+    ('short_read_panel', 'Short-read panel', 'Targeted panels, where expected depth is far higher.', false, 40),
+    -- Assays whose adequacy is judged on a different footing entirely: NIPT works
+    -- from a low-depth cell-free fraction, and PGT from a handful of amplified
+    -- cells. Reusing a WGS depth cut-off on either would report every run as
+    -- inadequate. Seeded empty, like every other profile -- the values are the
+    -- laboratory's to agree.
+    ('nipt_monogenic', 'Monogenic NIPT', 'Cell-free DNA, monogenic (single-gene) NIPT.', false, 50),
+    ('pgt', 'PGT', 'Preimplantation genetic testing on amplified embryo biopsies.', false, 60)
+ON CONFLICT (key) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- qc_threshold_changes (append-only record of every cut-off edit)
+--
+-- A QC cut-off decides whether the device reports a run as inadequate, so an edit
+-- has to be attributable and reconstructable. The HTTP request-audit pipeline
+-- records the path, body and actor of the change, but not the value that was
+-- *replaced* — so "who lowered the depth limit, and from what" was unanswerable.
+-- This table keeps both sides of every edit.
+--
+-- Append-only by trigger, like the clinical audit and report sign-out tables:
+-- UPDATE and DELETE are rejected, so the history cannot be rewritten to make a
+-- past configuration look different from what was actually in force.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS qc_threshold_changes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    profile_key text NOT NULL,
+    metric_key text NOT NULL,
+    previous_warn_value double precision,
+    previous_error_value double precision,
+    warn_value double precision,
+    error_value double precision,
+    changed_by uuid,
+    changed_by_email text,
+    -- Why the cut-off moved, in the changer's own words. The values either side are
+    -- recorded automatically, but they cannot say whether a limit was lowered because
+    -- a validation study supported it or because a run was inconvenient. Required by
+    -- the API; nullable here only so rows written before this column existed remain
+    -- readable in an append-only table.
+    reason text,
+    changed_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT qc_threshold_changes_pkey PRIMARY KEY (id),
+    CONSTRAINT qc_threshold_changes_changed_by_fkey FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Added after the table shipped; the baselines re-run on every boot, so an existing
+-- deployment picks the column up without a migration ledger.
+ALTER TABLE qc_threshold_changes ADD COLUMN IF NOT EXISTS reason text;
+
+CREATE INDEX IF NOT EXISTS idx_qc_threshold_changes_recent
+    ON qc_threshold_changes USING btree (changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_qc_threshold_changes_metric
+    ON qc_threshold_changes USING btree (profile_key, metric_key, changed_at DESC);
