@@ -139,6 +139,13 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
             },
             "qdnaseq": {
                 "bins": [
+                    # nf-core/lrsvar writes QDNAseq output as BED beside the HiFiCNV
+                    # results rather than as CSV under a QDNAseq/ directory, and names
+                    # the files after the caller: <sample>_cnv_qdnaseq_<role>.bed.
+                    # `bins` is the per-bin copy-number (log2 ratio) track; `raw_bins`
+                    # holds uncorrected read counts and `calls` the discrete call, both
+                    # of which the interval tracks have no axis for.
+                    "cnv/{sample_id}/{sample_id}_cnv_qdnaseq_bins.bed",
                     "QDNAseq/{sample_id}/bins.csv",
                     "QDNAseq/{sample_id}/sample_bins.csv",
                     "QDNAseq/{sample_id}/{sample_id}_bins.csv",
@@ -155,6 +162,9 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "qdnaseq/{sample_id}.csv",
                 ],
                 "segments": [
+                    # lrsvar abbreviates this one to `_segs`.
+                    "cnv/{sample_id}/{sample_id}_cnv_qdnaseq_segs.bed",
+                    "cnv/{sample_id}/{sample_id}_cnv_qdnaseq_segments.bed",
                     "QDNAseq/{sample_id}/segments.csv",
                     "QDNAseq/{sample_id}/sample_segments.csv",
                     "QDNAseq/{sample_id}/{sample_id}_segments.csv",

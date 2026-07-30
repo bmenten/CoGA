@@ -268,6 +268,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_apcad_band_targets.py](../backend/tests/test_apcad_band_targets.py) | APCAD downsample budget allocation across BAF bands. |
 | [backend/tests/test_apcad_origin_fallback.py](../backend/tests/test_apcad_origin_fallback.py) | APCAD origin preference: unphased (HiFiCNV MAF) tracks fall back to `und`, phased tracks keep the filter and stay empty where no informative markers fall. |
 | [backend/tests/test_family_package_bigwig.py](../backend/tests/test_family_package_bigwig.py) | bigWig reading (primary contigs only, karyotype order, zero-bin skipping) and which HiFiCNV file feeds which interval track. |
+| [backend/tests/test_family_package_cnv_callers.py](../backend/tests/test_family_package_cnv_callers.py) | CNV-caller discovery (QDNAseq lrsvar BED and legacy CSV layouts, WisecondorX sample-prefixed names) and interval-track ownership on re-import. |
 | [backend/tests/test_admin_clickhouse_listing.py](../backend/tests/test_admin_clickhouse_listing.py) | Admin ClickHouse listing and variant-count aggregation. |
 | [backend/tests/test_config.py](../backend/tests/test_config.py) | CORS-origins config parsing. |
 | [backend/tests/test_small_variant_clinvar_frequency_rescue.py](../backend/tests/test_small_variant_clinvar_frequency_rescue.py) | ClinVar P/LP rescue overriding frequency thresholds. |

@@ -363,42 +363,28 @@ async def _import_wisecondorx_dataset(
                     )
                 )
 
-        bins_path = _resolve_package_path(bundle.root, raw_entry.get("bins"))
-        segments_path = _resolve_package_path(bundle.root, raw_entry.get("segments"))
-        if bins_path is not None:
-            existing_bins = await _interval_track_count(
+        # bins carry a per-bin ratio (a coverage axis); segments carry the called
+        # level. Both go through the shared guard so a re-import owns its whole
+        # (track_type, source) pair rather than only the filename it happens to read.
+        for role, track_type in (("bins", "coverage"), ("segments", "segments")):
+            path = _resolve_package_path(bundle.root, raw_entry.get(role))
+            if path is None:
+                continue
+            sample_results[sample_id][role] = await _import_interval_track_unless_present(
                 session,
                 sample_context=sample_context,
-                track_type="coverage",
+                track_type=track_type,
                 source="wisecondorx",
-            )
-            if conflict_mode == "update" and existing_bins:
-                sample_results[sample_id]["bins"] = {"skipped": True, "existing": existing_bins}
-            else:
-                sample_results[sample_id]["bins"] = await _import_wisecondorx_track(
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_wisecondorx_track,
                     session,
                     sample_context=sample_context,
-                    path=bins_path,
-                    track_type="coverage",
-                    progress=lambda stats, role="bins": report_track(role, stats),
-                )
-        if segments_path is not None:
-            existing_segments = await _interval_track_count(
-                session,
-                sample_context=sample_context,
-                track_type="segments",
-                source="wisecondorx",
+                    path=path,
+                    track_type=track_type,
+                    progress=partial(report_track, role),
+                ),
             )
-            if conflict_mode == "update" and existing_segments:
-                sample_results[sample_id]["segments"] = {"skipped": True, "existing": existing_segments}
-            else:
-                sample_results[sample_id]["segments"] = await _import_wisecondorx_track(
-                    session,
-                    sample_context=sample_context,
-                    path=segments_path,
-                    track_type="segments",
-                    progress=lambda stats, role="segments": report_track(role, stats),
-                )
     skipped = [
         f"{sample_id}:{role}"
         for sample_id, roles in sample_results.items()
@@ -448,44 +434,30 @@ async def _import_qdnaseq_dataset(
                     )
                 )
 
-        bins_path = _resolve_package_path(bundle.root, raw_entry.get("bins") or raw_entry.get("file"))
-        segments_path = _resolve_package_path(bundle.root, raw_entry.get("segments"))
-        if bins_path is not None:
-            existing_bins = await _interval_track_count(
+        role_paths = {
+            "bins": raw_entry.get("bins") or raw_entry.get("file"),
+            "segments": raw_entry.get("segments"),
+        }
+        for role, track_type in (("bins", "coverage"), ("segments", "segments")):
+            path = _resolve_package_path(bundle.root, role_paths[role])
+            if path is None:
+                continue
+            sample_results[sample_id][role] = await _import_interval_track_unless_present(
                 session,
                 sample_context=sample_context,
-                track_type="coverage",
+                track_type=track_type,
                 source="qdnaseq",
-            )
-            if conflict_mode == "update" and existing_bins:
-                sample_results[sample_id]["bins"] = {"skipped": True, "existing": existing_bins}
-            else:
-                sample_results[sample_id]["bins"] = await _import_copy_number_track(
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_copy_number_track,
                     session,
                     sample_context=sample_context,
-                    path=bins_path,
-                    track_type="coverage",
+                    path=path,
+                    track_type=track_type,
                     source="qdnaseq",
-                    progress=lambda stats, role="bins": report_track(role, stats),
-                )
-        if segments_path is not None:
-            existing_segments = await _interval_track_count(
-                session,
-                sample_context=sample_context,
-                track_type="segments",
-                source="qdnaseq",
+                    progress=partial(report_track, role),
+                ),
             )
-            if conflict_mode == "update" and existing_segments:
-                sample_results[sample_id]["segments"] = {"skipped": True, "existing": existing_segments}
-            else:
-                sample_results[sample_id]["segments"] = await _import_copy_number_track(
-                    session,
-                    sample_context=sample_context,
-                    path=segments_path,
-                    track_type="segments",
-                    source="qdnaseq",
-                    progress=lambda stats, role="segments": report_track(role, stats),
-                )
     skipped = [
         f"{sample_id}:{role}"
         for sample_id, roles in sample_results.items()

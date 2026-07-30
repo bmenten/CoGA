@@ -326,7 +326,7 @@ The built-in `standard_v1` naming scheme checks these paths:
 - SV Needlr: `needlr/{family_id}.sv.annotated.vcf.gz` plus `.tbi`, with `needlr/family.sv.annotated.vcf.gz` and `sv_needlr/...` fallbacks
 - TRGT family VCF: `repeats/{family_id}.trgt.vcf.gz` plus `.tbi`/`.csi`, `repeats/{family_id}_tr.vcf`, or `repeats/family.trgt.vcf.gz`/`.vcf` fallbacks. Plain uncompressed `.vcf` files do not require an index.
 - WisecondorX: `wisecondorx/{sample_id}/bins.bed` and `segments.bed`, with `sample_bins.bed`, `{sample_id}_bins.bed`, `sample_segments.bed`, and `{sample_id}_segments.bed` fallbacks
-- QDNAseq: `QDNAseq/{sample_id}/bins.csv`, `{sample_id}.bins.csv`, `{sample_id}.csv`, or `{sample_id}_cnv_results.csv`, with optional `segments.csv`/`{sample_id}.segments.csv`; lower-case `qdnaseq` is also detected. If a QDNAseq CSV contains both `copynumber` and `segmented`, the same file can be used for both bins and segments.
+- QDNAseq: `cnv/{sample_id}/{sample_id}_cnv_qdnaseq_bins.bed` and `_cnv_qdnaseq_segs.bed` (the nf-core/lrsvar layout — BED beside the HiFiCNV output, named after the caller), or the older CSV layout `QDNAseq/{sample_id}/bins.csv`, `{sample_id}.bins.csv`, `{sample_id}.csv`, or `{sample_id}_cnv_results.csv` with optional `segments.csv`/`{sample_id}.segments.csv`; lower-case `qdnaseq` is also detected. If a QDNAseq CSV contains both `copynumber` and `segmented`, the same file can be used for both bins and segments. The caller also writes `_cnv_qdnaseq_raw_bins.bed` (uncorrected read counts) and `_cnv_qdnaseq_calls.bed` (discrete calls); neither is ingested, because the interval tracks have no axis for them.
 - APCAD: family VCFs at `APCAD/{family_id}.apcad.vcf[.gz]`, `APCAD/{family_id}_embryo_filtered_imp_parent.vcf.gz`, or per-sample `APCAD/{sample_id}.apcad.vcf`, with BED and `.apcad.tsv` fallbacks; lower-case `apcad` is also detected
 - PCF APCAD segments: per-sample files at `PCF/{sample_id}_pcf_mat_data.csv` and `PCF/{sample_id}_pcf_pat_data.csv`; lower-case `pcf` and dotted fallback names `PCF/{sample_id}.pcf.mat_data.csv` / `PCF/{sample_id}.pcf.pat_data.csv` are also detected. The verified CSV header is `"sampleID","CHROM","arm","start.pos","end.pos","n.probes","mean"`.
 - Haplotypes: family GLIMPSE2 VCFs at `GLIMPSE2/{family_id}.vcf[.gz]`, `GLIMPSE2/{family_id}_phased_final.vcf.gz`, or `GLIMPSE2/family.vcf[.gz]`; legacy per-sample `haplotypes/{sample_id}.glimpse2.bcf` plus `.csi` is still registered as provenance
@@ -349,6 +349,26 @@ Where each dataset lands:
 
 Each source tag scopes its own delete and re-import, so a family can hold NeedlR SVs,
 HiFiCNV calls and chrM variants at once and re-importing one never removes another.
+
+#### Coverage tracks are per caller, and not on a common scale
+
+A long-read package can carry three CNV callers for the same sample, each writing
+its own `coverage` and `segments` rows under its own `source` tag:
+
+| Source | `coverage` holds | Reference HG002 rows | Range |
+| --- | --- | --- | --- |
+| `hificnv` | read depth per 2 kb bin | 1,105,778 | 0.001–1681.7x |
+| `wisecondorx` | log2 ratio per 10 kb bin | 283,188 | −5.4–4.7 |
+| `qdnaseq` | log2 ratio per 100 kb bin | 26,367 | −4.0–0.8 |
+
+They are stacked for comparison, but **each needs its own y-axis** — HiFiCNV reports
+absolute depth while the other two report a normalised ratio. All three agree on
+chromosome naming (unprefixed, so `1` not `chr1`), which is what makes them alignable
+along x.
+
+WisecondorX bins with a `nan` ratio (empty bins) are skipped rather than stored as
+zero: 25,649 of 308,837 in the reference package. A stored zero would read as a
+complete loss.
 
 #### HiFiCNV signal files → interval tracks
 
