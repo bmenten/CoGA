@@ -2608,7 +2608,11 @@ class MitoDNACoverageOut(BaseModel):
 
 
 class MitoDNAQcOut(BaseModel):
-    status: Literal["pass", "warning", "fail", "unknown"] = "unknown"
+    # Shares the QC vocabulary used by sample-integrity QC (`QcStatus`) and the
+    # sequencing-QC verdict, rather than the `warning`/`unknown` spelling this module
+    # used to have on its own. `skip` means not assessed — no acceptance limit is
+    # configured, or there was nothing to measure — and is deliberately not `pass`.
+    status: Literal["pass", "warn", "fail", "skip"] = "skip"
     notes: List[str] = Field(default_factory=list)
     contamination: Optional[float] = None
     mean_depth: Optional[float] = None

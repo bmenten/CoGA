@@ -753,7 +753,8 @@ export interface ApiMitoDNACoverage {
 }
 
 export interface ApiMitoDNAQc {
-  status: 'pass' | 'warning' | 'fail' | 'unknown';
+  /** Shares the app-wide QC vocabulary; `skip` means not assessed, never `pass`. */
+  status: QcStatus;
   notes: string[];
   contamination?: number | null;
   mean_depth?: number | null;

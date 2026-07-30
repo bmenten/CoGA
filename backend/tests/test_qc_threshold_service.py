@@ -191,7 +191,7 @@ def test_mito_sample_qc_uses_configured_limits_not_constants() -> None:
 
     # Depth 30x against a 50x warning limit.
     warned = _sample_qc({}, coverage, {"mtdna.mean_depth": {"warn_value": 50.0, "error_value": 10.0}})
-    assert warned.status == "warning"
+    assert warned.status == "warn"
     assert any("50.0" in note for note in warned.notes)
 
     # The same depth against a stricter limit fails instead. Nothing about this verdict
@@ -201,6 +201,7 @@ def test_mito_sample_qc_uses_configured_limits_not_constants() -> None:
 
 
 def test_mito_sample_qc_without_limits_is_not_assessed() -> None:
+    """`skip` — not assessed — never `pass`, and never the old `unknown` spelling."""
     from app.schemas import MitoDNACoverageOut
     from app.services.mitochondrial_analysis import _sample_qc
 
@@ -208,7 +209,7 @@ def test_mito_sample_qc_without_limits_is_not_assessed() -> None:
     # that does not exist — this used to be a hard-coded `< 50x` rule.
     verdict = _sample_qc({}, MitoDNACoverageOut(mean_depth=5.0), {})
 
-    assert verdict.status == "unknown"
+    assert verdict.status == "skip"
     assert verdict.notes == []
 
 
@@ -220,5 +221,5 @@ def test_mito_contamination_fails_on_the_high_side() -> None:
     coverage = MitoDNACoverageOut()
 
     assert _sample_qc({"mtdna": {"contamination": 0.005}}, coverage, thresholds).status == "pass"
-    assert _sample_qc({"mtdna": {"contamination": 0.02}}, coverage, thresholds).status == "warning"
+    assert _sample_qc({"mtdna": {"contamination": 0.02}}, coverage, thresholds).status == "warn"
     assert _sample_qc({"mtdna": {"contamination": 0.05}}, coverage, thresholds).status == "fail"

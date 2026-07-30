@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
+import { QC_STATUS_CHIP, QC_STATUS_LABEL, worstQcStatus } from '../../lib/qcStatus';
 import PageState from '../../components/PageState';
 import InfoTip from '../../components/InfoTip';
 import Pedigree, { type PedigreeQcStatus } from '../../components/visualizations/Pedigree';
@@ -16,13 +17,6 @@ import type {
   QcStatus,
 } from '../../lib/apiTypes';
 
-const STATUS_META: Record<QcStatus, { label: string; chip: string }> = {
-  pass: { label: 'Pass', chip: 'table-chip table-chip--success' },
-  warn: { label: 'Warning', chip: 'table-chip table-chip--warning' },
-  fail: { label: 'Fail', chip: 'table-chip table-chip--critical' },
-  skip: { label: 'Not run', chip: 'table-chip table-chip--neutral' },
-};
-
 const OVERALL_COPY: Record<QcStatus, string> = {
   pass: 'All sample-integrity checks passed. No swaps or mislabelled relationships detected.',
   warn: 'Some checks need attention — review the warnings before interpretation.',
@@ -30,10 +24,7 @@ const OVERALL_COPY: Record<QcStatus, string> = {
   skip: 'Sample-integrity QC could not run (no genotypes available).',
 };
 
-const STATUS_RANK: Record<QcStatus, number> = { skip: 0, pass: 1, warn: 2, fail: 3 };
-
-const worstStatus = (statuses: QcStatus[]): QcStatus =>
-  statuses.reduce<QcStatus>((acc, s) => (STATUS_RANK[s] > STATUS_RANK[acc] ? s : acc), 'skip');
+const worstStatus = worstQcStatus;
 
 interface PedRow {
   fid: string;
@@ -56,7 +47,7 @@ const parsePedigree = (pedigree?: string | null): PedRow[] => {
 };
 
 const StatusChip: React.FC<{ status: QcStatus }> = ({ status }) => (
-  <span className={STATUS_META[status].chip}>{STATUS_META[status].label}</span>
+  <span className={QC_STATUS_CHIP[status]}>{QC_STATUS_LABEL[status]}</span>
 );
 
 const sexGlyph = (sex?: string | null): string => {

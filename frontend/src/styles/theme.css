@@ -7562,7 +7562,7 @@ button.table-link:hover {
   background: transparent;
 }
 
-.family-mtdna-sample-card--warning {
+.family-mtdna-sample-card--warn {
   border-top-color: #b47d2d;
   border-left-color: #b47d2d;
 }
@@ -7619,7 +7619,7 @@ button.table-link:hover {
   color: #1f7a53;
 }
 
-.family-mtdna-qc-chip--warning {
+.family-mtdna-qc-chip--warn {
   border-color: rgba(180, 125, 45, 0.24);
   background: rgba(180, 125, 45, 0.12);
   color: #8d6020;
@@ -7631,7 +7631,7 @@ button.table-link:hover {
   color: var(--color-signature-red);
 }
 
-.family-mtdna-qc-chip--unknown {
+.family-mtdna-qc-chip--skip {
   border-color: rgba(124, 129, 134, 0.18);
   background: rgba(124, 129, 134, 0.08);
   color: var(--color-text-muted);
