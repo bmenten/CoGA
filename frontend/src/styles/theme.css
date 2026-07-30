@@ -12438,7 +12438,7 @@ a.button-danger:hover {
   margin-bottom: 0.5rem;
 }
 
-.qc-profile-add input {
+.qc-profile-add input:not([type='checkbox']):not([type='radio']) {
   flex: 1 1 8rem;
   min-width: 0;
   /* Same shared form-control override as the threshold cells, so the add row does not
@@ -12468,7 +12468,7 @@ a.button-danger:hover {
 /* A cut-off is at most a handful of digits. Sized to its content rather than to the
    column, so the eye runs down a narrow pair of number columns instead of across two
    wide boxes per row. */
-.qc-threshold-table .qc-threshold-input {
+.qc-threshold-table input.qc-threshold-input:not([type='checkbox']):not([type='radio']) {
   /* Wide enough for a read count (12500000) without the digits crowding the edge. */
   width: 7.5rem;
   min-width: 0;
@@ -12487,12 +12487,12 @@ a.button-danger:hover {
 
 /* Sixteen rows of boxed inputs read as a form to fill in; these are mostly-empty
    optional bounds, so the border only appears where the eye already is. */
-.qc-threshold-table .qc-threshold-input:not(:focus):placeholder-shown {
+.qc-threshold-table input.qc-threshold-input:not([type='checkbox']):not(:focus):placeholder-shown {
   border-color: transparent;
   background: transparent;
 }
 
-.qc-threshold-table .qc-threshold-input:hover:not(:focus) {
+.qc-threshold-table input.qc-threshold-input:not([type='checkbox']):hover:not(:focus) {
   border-color: var(--color-border);
 }
 
