@@ -21,6 +21,8 @@ and a report, rather than three clients re-deriving it from raw numbers.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 import logging
 from typing import Any, Literal, Sequence
@@ -456,6 +458,76 @@ async def list_qc_threshold_changes(
         )
     ).mappings()
     return [dict(row) for row in rows]
+
+
+_PROFILE_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_]{1,62}$")
+
+
+async def create_qc_threshold_profile(
+    session: AsyncSession,
+    *,
+    label: str,
+    key: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Add an empty QC threshold profile.
+
+    Empty on purpose. A new profile exists because an assay is judged on a
+    different footing, so copying another profile's cut-offs into it would put an
+    unreviewed number in front of an operator with a laboratory's authority behind
+    it. Every metric starts unconfigured, which reports as *not assessed*.
+
+    The key is derived from the label when not given, because it appears in a
+    family's ``qc_profile`` metadata and in URLs; it is immutable afterwards, since
+    families reference it.
+    """
+
+    label = (label or "").strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="A profile label is required")
+    if key is None:
+        key = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+    key = (key or "").strip().lower()
+    if not _PROFILE_KEY_PATTERN.match(key):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "A profile key must be 2-63 characters of lowercase letters, digits or "
+                "underscores, starting with a letter or digit"
+            ),
+        )
+    existing = (
+        await session.execute(
+            text("SELECT label FROM qc_threshold_profiles WHERE key = :key"),
+            {"key": key},
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A QC threshold profile with key '{key}' already exists ({existing})",
+        )
+    # New profiles sort after the seeded ones rather than interleaving with them.
+    row = (
+        await session.execute(
+            text(
+                """
+                INSERT INTO qc_threshold_profiles (key, label, description, is_default, sort_order)
+                VALUES (
+                    :key,
+                    :label,
+                    NULLIF(:description, ''),
+                    false,
+                    COALESCE((SELECT MAX(sort_order) FROM qc_threshold_profiles), 0) + 10
+                )
+                RETURNING id::text AS id, key, label, description, is_default, sort_order
+                """
+            ),
+            {"key": key, "label": label, "description": (description or "").strip()},
+        )
+    ).mappings().one()
+    await session.commit()
+    return dict(row)
 
 
 async def set_qc_threshold(

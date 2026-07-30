@@ -174,6 +174,20 @@ class QcThresholdCatalogueOut(BaseModel):
     changes: List[QcThresholdChangeOut] = Field(default_factory=list)
 
 
+class QcThresholdProfileCreate(BaseModel):
+    """A new, empty QC threshold profile.
+
+    No cut-offs are copied from anywhere: a profile exists because an assay is judged
+    differently, so an inherited number would carry an authority nobody granted it.
+    """
+
+    label: str
+    # Derived from the label when omitted. Immutable afterwards — a family names its
+    # profile by key in `qc_profile` metadata.
+    key: Optional[str] = None
+    description: Optional[str] = None
+
+
 class QcThresholdUpdate(BaseModel):
     """Set or clear one metric's cut-offs in a profile.
 

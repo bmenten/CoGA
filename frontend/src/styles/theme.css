@@ -12289,3 +12289,101 @@ a.button-danger:hover {
   text-transform: uppercase;
   color: var(--color-text-muted);
 }
+
+/* ---------------------------------------------------------------------------
+   Admin → Sequencing QC thresholds
+   Profiles beside the metrics rather than stacked above them: the metric table
+   is 16 rows and the page was three full-width cards deep, so choosing a
+   profile meant scrolling away from the numbers it changes.
+   --------------------------------------------------------------------------- */
+.qc-threshold-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .qc-threshold-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.qc-profile-list ul {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.qc-profile-item {
+  width: 100%;
+  min-height: auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  background: none;
+  box-shadow: none;
+  transform: none;
+  text-align: left;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: inherit;
+}
+
+.qc-profile-item:hover {
+  background: var(--color-surface-muted);
+  transform: none;
+  box-shadow: none;
+}
+
+.qc-profile-item--active {
+  border-color: var(--color-accent);
+  background: var(--color-surface-muted);
+  font-weight: 600;
+}
+
+.qc-profile-item__label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.qc-profile-item__tag,
+.qc-profile-item__count {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.qc-profile-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.qc-profile-add input {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+/* A cut-off is at most a handful of digits; full-width inputs made the table
+   twice as wide as the numbers in it. */
+.qc-threshold-table .qc-threshold-input {
+  width: 5.5rem;
+  min-width: 0;
+}
+
+.qc-threshold-table td,
+.qc-threshold-table th {
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}

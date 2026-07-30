@@ -619,7 +619,14 @@ INSERT INTO qc_threshold_profiles (key, label, description, is_default, sort_ord
     ('default', 'Default', 'Applies to any family that does not name a profile.', true, 10),
     ('long_read_wgs', 'Long-read WGS', 'PacBio HiFi / ONT whole-genome runs.', false, 20),
     ('short_read_wgs', 'Short-read WGS', 'Illumina whole-genome runs.', false, 30),
-    ('short_read_panel', 'Short-read panel', 'Targeted panels, where expected depth is far higher.', false, 40)
+    ('short_read_panel', 'Short-read panel', 'Targeted panels, where expected depth is far higher.', false, 40),
+    -- Assays whose adequacy is judged on a different footing entirely: NIPT works
+    -- from a low-depth cell-free fraction, and PGT from a handful of amplified
+    -- cells. Reusing a WGS depth cut-off on either would report every run as
+    -- inadequate. Seeded empty, like every other profile -- the values are the
+    -- laboratory's to agree.
+    ('nipt_monogenic', 'Monogenic NIPT', 'Cell-free DNA, monogenic (single-gene) NIPT.', false, 50),
+    ('pgt', 'PGT', 'Preimplantation genetic testing on amplified embryo biopsies.', false, 60)
 ON CONFLICT (key) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
