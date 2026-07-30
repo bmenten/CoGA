@@ -2433,6 +2433,21 @@ class PhasedMarkerResponse(BaseModel):
     covered: Optional[List[int]] = None
 
 
+class SignalTrackManifestEntryOut(BaseModel):
+    """One caller signal file the genome browser can draw."""
+
+    sample_id: str
+    source: str
+    kind: str
+    name: str
+    format: Literal["bigwig", "bedgraph"]
+    url: str
+    # Fixed axis bounds where the quantity has them (MAF is 0-0.5 by construction);
+    # None means let the browser autoscale, which is right for read depth.
+    min: Optional[float] = None
+    max: Optional[float] = None
+
+
 class TrackAvailabilityOut(BaseModel):
     coverage: bool = False
     segments: bool = False

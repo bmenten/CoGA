@@ -407,6 +407,23 @@ Only primary chromosomes are read from a bigWig — an aligner's bigWig carries 
 contig it saw (195 in the reference package, of which 170 are ALT/random/decoy
 scaffolds that no view can plot).
 
+The files themselves are also served to the genome browser. The import records where
+each one sits under `samples.metadata["signal_tracks"][<source>]`, and
+`/signal-tracks/{family}/manifest` turns that into IGV track configs, with the files
+streamed by `/signal-tracks/{family}/{sample}/{source}/{kind}` (Range-capable, which
+is what makes a 143 MB MAF bigWig usable).
+
+The paths are recorded rather than re-derived at serve time: unlike a CRAM, which is
+always `<sample>.cram`, HiFiCNV names these after its own run
+(`HG002.Sample0.depth.bw`, `HG002.HG002.maf.bw`) and no fixed pattern predicts them.
+Recorded paths are package-relative, resolved against the family package root and
+containment-checked before anything is served.
+
+IGV gets the **raw depth**, not the log2 ratio stored in ClickHouse — absolute depth
+is the useful quantity when you are looking at reads. Read depth autoscales; MAF is
+pinned to 0–0.5 so its band structure does not move as you pan.
+
+
 Because the MAF track has no parent-of-origin calls, the APCAD reader treats its
 `paternal`/`maternal` preference as a preference rather than a filter: a track with no
 phased markers **at all** falls back to its unphased points instead of rendering blank.
