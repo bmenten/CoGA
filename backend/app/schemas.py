@@ -2436,6 +2436,10 @@ class PhasedMarkerResponse(BaseModel):
 class TrackAvailabilityOut(BaseModel):
     coverage: bool = False
     segments: bool = False
+    # Which callers actually have rows, so the views can draw one track per caller.
+    # `coverage`/`segments` stay as the "any at all" flags the older callers read.
+    coverage_sources: List[str] = Field(default_factory=list)
+    segments_sources: List[str] = Field(default_factory=list)
     apcad: bool = False
     apcad_pcf: bool = False
     variants: bool = False

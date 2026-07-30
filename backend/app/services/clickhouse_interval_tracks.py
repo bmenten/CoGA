@@ -203,6 +203,7 @@ async def fetch_interval_track_rows(
     track_type: str,
     chromosomes: Sequence[str],
     origins: Sequence[str] | None = None,
+    source: str | None = None,
     start: int | None = None,
     end: int | None = None,
     limit: int | None = None,
@@ -210,6 +211,13 @@ async def fetch_interval_track_rows(
     await ensure_clickhouse_interval_table(assembly_name)
     clauses = ["track_type = %(track_type)s"]
     params: dict[str, Any] = {"track_type": track_type}
+    if source is not None:
+        # Without this every caller's rows for a track type come back together. A
+        # sample can carry HiFiCNV, WisecondorX and QDNAseq coverage at once, and
+        # merging them is not a display quirk -- the windowed average downstream
+        # would blend three independent measurements into one meaningless line.
+        clauses.append("source = %(source)s")
+        params["source"] = source
     if sample_uuid is not None:
         clauses.append("sample_guid = %(sample_uuid)s")
         params["sample_uuid"] = str(sample_uuid)
@@ -424,6 +432,62 @@ async def fetch_apcad_downsampled(
         }
         for (chrom, row_start, row_end, value, origin) in rows
     ]
+
+
+async def get_interval_track_sources_by_sample(
+    assembly_name: str,
+    *,
+    family_uuid: str,
+    sample_uuid_to_name: dict[str, str],
+    track_type: str,
+    chromosomes: Sequence[str],
+    start: int | None = None,
+    end: int | None = None,
+) -> dict[str, list[str]]:
+    """Sample name → the sources that actually have rows for ``track_type``.
+
+    Presence alone ("this sample has coverage") is not enough once a sample can
+    carry three callers' coverage at once: the view has to know *which* callers,
+    so it can draw one track per caller rather than one track of everything
+    averaged together.
+    """
+
+    if not sample_uuid_to_name:
+        return {}
+    await ensure_clickhouse_interval_table(assembly_name)
+    clauses = [
+        "family_guid = %(family_uuid)s",
+        "sample_guid IN %(sample_uuids)s",
+        "track_type = %(track_type)s",
+    ]
+    params: dict[str, Any] = {
+        "family_uuid": family_uuid,
+        "sample_uuids": tuple(sample_uuid_to_name),
+        "track_type": track_type,
+    }
+    chrom_values = _chrom_values(chromosomes)
+    if chrom_values:
+        clauses.append("chrom IN %(chromosomes)s")
+        params["chromosomes"] = tuple(chrom_values)
+    if start is not None and end is not None:
+        clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
+        params["window_start"] = int(start)
+        params["window_end"] = int(end)
+    rows = await _execute(
+        f"""
+        SELECT DISTINCT sample_guid, source
+        FROM {_interval_table_name(assembly_name)}
+        WHERE {' AND '.join(clauses)}
+        """,
+        params,
+    )
+    by_sample: dict[str, list[str]] = {}
+    for sample_guid, source in rows:
+        name = sample_uuid_to_name.get(str(sample_guid))
+        if name is None or not source:
+            continue
+        by_sample.setdefault(name, []).append(str(source))
+    return {name: sorted(set(sources)) for name, sources in by_sample.items()}
 
 
 async def get_interval_track_presence_by_sample(

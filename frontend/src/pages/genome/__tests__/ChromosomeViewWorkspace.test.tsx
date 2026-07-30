@@ -197,6 +197,7 @@ describe('ChromosomeViewWorkspace', () => {
             availability={{
               S1: {
                 coverage: true,
+                coverageSources: ['hificnv'],
                 apcad: false,
                 apcadPcf: false,
                 variants: false,

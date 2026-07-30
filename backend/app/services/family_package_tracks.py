@@ -498,6 +498,8 @@ async def _import_bigwig_interval_track(
     source: str,
     origin: str | None = None,
     skip_zero: bool = False,
+    value_transform: Callable[[float], float] | None = None,
+    extra_metadata: dict[str, Any] | None = None,
     progress: Callable[[dict[str, int]], Awaitable[None]] | None = None,
 ) -> dict[str, int]:
     """Import a bigWig signal file as interval-track rows.
@@ -510,6 +512,11 @@ async def _import_bigwig_interval_track(
     parent-of-origin call, so a track fed from one is unphased by construction;
     passing ``"und"`` states that explicitly rather than leaving the column null
     and letting a reader infer a missing value means something.
+
+    ``value_transform`` converts each value before it is stored -- read depth to a
+    log2 ratio, say. A transformed track must record what it was transformed by:
+    pass the normaliser in ``extra_metadata`` so the stored numbers can be traced
+    back to the file they came from.
     """
 
     if not sample_context.assembly_name:
@@ -528,8 +535,9 @@ async def _import_bigwig_interval_track(
     batch: list[dict[str, Any]] = []
     reader = open_bigwig(path)
     try:
-        for chrom, start, end, value in iter_bigwig_intervals(reader, skip_zero=skip_zero):
+        for chrom, start, end, raw_value in iter_bigwig_intervals(reader, skip_zero=skip_zero):
             processed += 1
+            value = raw_value if value_transform is None else value_transform(raw_value)
             batch.append(
                 {
                     "sample_id": sample_context.sample_uuid,
@@ -576,6 +584,7 @@ async def _import_bigwig_interval_track(
             "filename": path.name,
             "uploaded_from": "family_package",
             "format": "bigwig",
+            **(extra_metadata or {}),
         },
     )
     await session.commit()

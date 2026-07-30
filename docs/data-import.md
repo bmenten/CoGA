@@ -350,25 +350,47 @@ Where each dataset lands:
 Each source tag scopes its own delete and re-import, so a family can hold NeedlR SVs,
 HiFiCNV calls and chrM variants at once and re-importing one never removes another.
 
-#### Coverage tracks are per caller, and not on a common scale
+#### Coverage tracks are per caller, on one shared axis
 
-A long-read package can carry three CNV callers for the same sample, each writing
-its own `coverage` and `segments` rows under its own `source` tag:
+A long-read package can carry three CNV callers for the same sample, each writing its
+own `coverage` and `segments` rows under its own `source` tag:
 
-| Source | `coverage` holds | Reference HG002 rows | Range |
+| Source | Native output | Stored as | Reference HG002 rows |
 | --- | --- | --- | --- |
-| `hificnv` | read depth per 2 kb bin | 1,105,778 | 0.001–1681.7x |
-| `wisecondorx` | log2 ratio per 10 kb bin | 283,188 | −5.4–4.7 |
-| `qdnaseq` | log2 ratio per 100 kb bin | 26,367 | −4.0–0.8 |
+| `hificnv` | read depth per 2 kb bin (0.001–1681.7x) | log2 ratio, normalised at import | 1,105,778 |
+| `wisecondorx` | log2 ratio per 10 kb bin | as-is | 283,188 |
+| `qdnaseq` | log2 ratio per 100 kb bin | as-is | 26,367 |
 
-They are stacked for comparison, but **each needs its own y-axis** — HiFiCNV reports
-absolute depth while the other two report a normalised ratio. All three agree on
-chromosome naming (unprefixed, so `1` not `chr1`), which is what makes them alignable
-along x.
+HiFiCNV's depth is divided by the sample's own **autosomal median** and stored as
+log2 of that ratio, so all three tracks mean the same thing and a single-copy loss
+sits at −1 in each. Without it a depth track and a ratio track cannot be read
+against one another: "18x" only means something if you already know the sample's
+baseline. The normaliser is recorded on the track source
+(`metadata.autosomal_median_depth`, 19.96x for the reference package) so the stored
+numbers can be traced back to the file.
+
+Autosomes only — chrX and chrY sit at half depth in a male sample and would move the
+normaliser by a sex-dependent amount. Values are floored at −10 (2⁻¹⁰ of baseline):
+log2(0) is −inf, and the near-zero depths left by a smoothed assembly gap would
+otherwise stretch the plotted range by an order of magnitude to show nothing.
+
+The raw depth bigWig is not modified and is what IGV is given, where absolute depth
+is the useful quantity.
+
+All three agree on chromosome naming (unprefixed, so `1` not `chr1`), which is what
+makes them alignable along x.
 
 WisecondorX bins with a `nan` ratio (empty bins) are skipped rather than stored as
 zero: 25,649 of 308,837 in the reference package. A stored zero would read as a
 complete loss.
+
+**Reading them.** `/bed/{sample}/coverage` takes a `source` parameter, and
+`/families/{id}/track-availability` reports `coverage_sources` / `segments_sources`
+per sample. The genome and chromosome views draw one track per available caller,
+labelled with the caller when there is more than one. **Omitting `source` returns
+every caller's rows merged** — for a windowed coverage read that means averaging
+three independent measurements into one that is none of them, so the views always
+pass it.
 
 #### HiFiCNV signal files → interval tracks
 

@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 from functools import partial
 import json
+from math import log2
 import logging
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -42,6 +43,7 @@ from .repeat_expansion_pg import (
 from .upload_safety import read_path_text_bounded
 from .variant_upload_service import parse_mutserve_annotation_path, upload_family_small_variant_file
 
+from .family_package_bigwig import autosomal_median, open_bigwig
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map  # noqa: F401
 from .family_package_manifest import _ped_embryo_sample_ids  # noqa: F401
 from .family_package_qc import (  # noqa: F401
@@ -972,6 +974,49 @@ async def _record_mtdna_sample_metadata(
     )
 
 
+def _autosomal_median_depth(path: Path) -> float | None:
+    """Autosomal median of a depth bigWig, for normalising it to a log2 ratio.
+
+    Its own pass over the file: the median has to be known before the first row is
+    written, and a second streaming pass costs well under a second even for a
+    whole-genome track.
+    """
+
+    reader = open_bigwig(path)
+    try:
+        return autosomal_median(reader)
+    finally:
+        reader.close()
+
+
+def _log2_ratio_transform(normaliser: float | None) -> Callable[[float], float] | None:
+    """Convert read depth to log2(depth / ``normaliser``), or don't convert at all.
+
+    Returns ``None`` when there is no usable normaliser, which leaves the values
+    raw rather than inventing a baseline -- a track drawn against a made-up
+    reference would look like a genome-wide gain or loss.
+    """
+
+    if not normaliser or normaliser <= 0:
+        return None
+
+    def transform(value: float) -> float:
+        # log2(0) is -inf, which ClickHouse cannot store and no axis can draw. The
+        # floor also catches the near-zero depths a smoothed assembly gap leaves
+        # behind (0.0005x against a 20x median is -15.3), which would otherwise
+        # stretch the plotted range by an order of magnitude to show nothing.
+        if value <= 0:
+            return _MIN_LOG2_RATIO
+        return max(log2(value / normaliser), _MIN_LOG2_RATIO)
+
+    return transform
+
+
+# A 2^-10 floor: far below any real single-copy loss (-1), so anything at or below
+# it reads as "no coverage" rather than as a measurement.
+_MIN_LOG2_RATIO = -10.0
+
+
 async def _import_interval_track_unless_present(
     session: AsyncSession,
     *,
@@ -1097,6 +1142,13 @@ async def _import_cnv_dataset(
 
         depth_path = _resolve_package_path(bundle.root, raw_entry.get("depth_bigwig"))
         if depth_path is not None:
+            # Stored as a log2 ratio against the sample's own autosomal median, not as
+            # raw depth. The coverage track is drawn on one axis per sample and
+            # compared with the WisecondorX and QDNAseq tracks stacked beside it,
+            # which are themselves log2 ratios; a 1-copy loss then sits at -1 in all
+            # three instead of at a depth that means nothing without knowing the
+            # sample's own baseline. The raw bigWig is untouched and is what IGV gets.
+            normaliser = await asyncio.to_thread(_autosomal_median_depth, depth_path)
             sample_results[sample_id]["depth_track"] = await _import_interval_track_unless_present(
                 session,
                 sample_context=sample_context,
@@ -1114,6 +1166,13 @@ async def _import_cnv_dataset(
                     # the zero-depth telomeric/centromeric gaps. They plot as a
                     # flat line on the axis and cost ~600k rows per sample.
                     skip_zero=True,
+                    value_transform=_log2_ratio_transform(normaliser),
+                    # The normaliser is part of what the stored numbers mean, so it is
+                    # recorded with the track rather than left to be re-derived.
+                    extra_metadata={
+                        "normalization": "log2_ratio_to_autosomal_median",
+                        "autosomal_median_depth": normaliser,
+                    },
                 ),
             )
 
