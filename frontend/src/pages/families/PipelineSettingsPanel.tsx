@@ -94,7 +94,11 @@ const scalarText = (value: unknown): string | null => {
 
 interface PipelineSettingsPanelProps {
   settings: PipelineSettings | undefined;
-  /** Render as a report section (heading + prose) rather than a workspace card. */
+  /**
+   * Both variants render the same full-width section; only the lead sentence differs,
+   * because the report can point at its own "Modules & versions" footer while the
+   * workspace has to say where versions live instead.
+   */
   variant?: 'workspace' | 'report';
 }
 
@@ -132,13 +136,7 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
 
   const body = (
     <>
-      <div
-        className={`pipeline-settings-grid${
-          // The workspace card sits in a narrow side column; a multi-column grid there
-          // squeezes reference filenames and model names into mid-word breaks.
-          variant === 'workspace' ? ' pipeline-settings-grid--stacked' : ''
-        }`}
-      >
+      <div className="pipeline-settings-grid">
         {groups.map((group) => (
           <div key={group.title} className="pipeline-settings-group">
             <span className="pipeline-settings-group-title">{group.title}</span>
@@ -162,34 +160,21 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
     </>
   );
 
-  if (variant === 'report') {
-    return (
-      <section className="surface-card report-pipeline" data-testid="pipeline-settings">
-        <h2 className="report-audit-heading">Analysis pipeline settings</h2>
-        <p className="report-paragraph report-audit-lead">
-          The upstream pipeline configuration these calls were produced with, as recorded at
-          import. Tool versions are listed under Modules &amp; versions below.
-        </p>
-        {body}
-      </section>
-    );
-  }
-
   return (
-    <article
-      className="surface-card-flat family-workspace-card"
+    <section
+      className={`surface-card report-pipeline${
+        variant === 'report' ? ' report-pipeline--report' : ''
+      }`}
       data-testid="pipeline-settings"
     >
-      <div className="family-workspace-card-head">
-        <div className="space-y-1">
-          <h2 className="section-title">Analysis pipeline</h2>
-          <p className="family-workspace-card-subtitle">
-            How this family&apos;s data was produced
-          </p>
-        </div>
-      </div>
+      <h2 className="report-audit-heading">Analysis pipeline settings</h2>
+      <p className="report-paragraph report-audit-lead">
+        {variant === 'report'
+          ? 'The upstream pipeline configuration these calls were produced with, as recorded at import. Tool versions are listed under Modules & versions below.'
+          : "How this family's data was produced, as recorded at import. Tool versions are shown separately in the annotation-provenance footer of the variant pages and on the report."}
+      </p>
       {body}
-    </article>
+    </section>
   );
 };
 

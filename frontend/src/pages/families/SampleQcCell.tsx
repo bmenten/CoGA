@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import api, { resolveApiUrl } from '../../lib/api';
+import InfoTip from '../../components/InfoTip';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { getErrorMessage } from '../../lib/errorMessage';
 import {
@@ -62,26 +63,36 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
   // Without a report there is nothing to open, so the metrics stay a plain chip
   // rather than a control that looks clickable and does nothing.
   const label = summary ?? 'QC report';
+  const tooltip = [detail, qc.report ? 'Click to open the pipeline QC report in a new tab' : null]
+    .filter(Boolean)
+    .join(' — ');
 
   return (
     <div className="family-qc-cell">
+      {/* InfoTip rather than a `title`: the native tooltip only appears after a
+          browser-controlled delay of a second or more, which reads as broken on a
+          chip whose whole point is the number behind it. */}
       {qc.report ? (
-        <button
-          type="button"
-          className="table-chip family-qc-chip"
-          onClick={openReport}
-          disabled={busy}
-          title={[detail, 'Opens the pipeline QC report in a new tab'].filter(Boolean).join('\n')}
-        >
-          <span className="family-qc-chip-value">{busy ? 'Opening…' : label}</span>
-          <span className="family-qc-chip-icon" aria-hidden="true">
-            ↗
-          </span>
-        </button>
+        <InfoTip label={tooltip} interactiveChild>
+          <button
+            type="button"
+            className="table-chip family-qc-chip"
+            onClick={openReport}
+            disabled={busy}
+          >
+            <span className="family-qc-chip-value">{busy ? 'Opening…' : label}</span>
+            <span className="family-qc-chip-icon" aria-hidden="true">
+              ↗
+            </span>
+          </button>
+        </InfoTip>
       ) : (
-        <span className="table-chip family-qc-chip-static" title={detail ?? undefined}>
+        // `interactiveChild` here too: with no report to open there is nothing to
+        // activate, and InfoTip's default anchor would add a button role for a
+        // control that does nothing.
+        <InfoTip label={tooltip} className="table-chip family-qc-chip-static" interactiveChild>
           {label}
-        </span>
+        </InfoTip>
       )}
       {error && <div className="dashboard-link-note family-qc-cell-error">{error}</div>}
     </div>

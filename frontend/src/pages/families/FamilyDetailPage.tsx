@@ -1397,8 +1397,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               </div>
             )}
           </article>
-
-          <PipelineSettingsPanel settings={pipelineSettings} />
         </div>
       </section>
 
@@ -1970,6 +1968,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       </section>
 
       <MonarchPhenotypeMatchPanel familyId={familyId} projectId={projectId} />
+
+      {/* Last on the page, as on the clinical report: how the data was produced is
+          context for everything above it, not a starting point. The workspace variant
+          differs only in its lead sentence — there is no "Modules & versions" footer
+          here to point at. */}
+      <PipelineSettingsPanel settings={pipelineSettings} variant="workspace" />
 
       {selectedMemberId && (
         <div
