@@ -155,9 +155,23 @@ class QcThresholdProfileOut(BaseModel):
     thresholds: List[QcThresholdOut] = Field(default_factory=list)
 
 
+class QcThresholdChangeOut(BaseModel):
+    """One entry of the append-only cut-off history, with both sides of the edit."""
+
+    profile_key: str
+    metric_key: str
+    previous_warn_value: Optional[float] = None
+    previous_error_value: Optional[float] = None
+    warn_value: Optional[float] = None
+    error_value: Optional[float] = None
+    changed_by_email: Optional[str] = None
+    changed_at: datetime
+
+
 class QcThresholdCatalogueOut(BaseModel):
     metrics: List[QcMetricCatalogueOut] = Field(default_factory=list)
     profiles: List[QcThresholdProfileOut] = Field(default_factory=list)
+    changes: List[QcThresholdChangeOut] = Field(default_factory=list)
 
 
 class QcThresholdUpdate(BaseModel):

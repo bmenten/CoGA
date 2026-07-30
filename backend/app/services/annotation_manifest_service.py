@@ -301,7 +301,15 @@ async def merge_vcf_header_provenance(
                         (family_id, assembly_id, modules, source, recorded_by, recorded_at)
                     VALUES
                         (CAST(:family_uuid AS uuid),
-                         CASE WHEN :assembly_id IS NULL THEN NULL ELSE CAST(:assembly_id AS uuid) END,
+                         -- NULLIF, not `CASE WHEN :assembly_id IS NULL`: asyncpg cannot
+                         -- infer a parameter's type when one of its uses is a bare
+                         -- `IS NULL`, and raises AmbiguousParameterError. The CASE form
+                         -- meant this INSERT failed on every call, and because the whole
+                         -- merge is best-effort and logs rather than raises, the family
+                         -- annotation manifest was silently never written — for any
+                         -- modality. Regression-guarded by
+                         -- test_sql_parameter_typing.py.
+                         CAST(NULLIF(:assembly_id, '') AS uuid),
                          CAST(:modules AS jsonb), :source, :recorded_by, now())
                     ON CONFLICT (family_id) DO UPDATE SET
                         modules = EXCLUDED.modules,
@@ -313,7 +321,9 @@ async def merge_vcf_header_provenance(
                 ),
                 {
                     "family_uuid": family_uuid,
-                    "assembly_id": assembly_id,
+                    # '' rather than None so NULLIF above resolves it to SQL NULL with a
+                    # parameter type asyncpg can infer.
+                    "assembly_id": assembly_id or "",
                     "modules": json.dumps(merged),
                     "recorded_by": recorded_by,
                     "source": recorded_source,

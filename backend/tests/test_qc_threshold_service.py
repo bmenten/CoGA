@@ -157,8 +157,68 @@ def test_evaluate_sequencing_qc_returns_none_without_recorded_qc() -> None:
     assert evaluate_sequencing_qc({"reads": {"quality_cutoffs": {"q20": {"reads": 1}}}}, {}) is None
 
 
-def test_read_length_spread_is_the_higher_is_worse_metric() -> None:
-    # Every other metric fails on the low side; a wide read-length distribution is the
-    # one that fails high. Pin it so a catalogue edit cannot silently invert it.
+def test_only_spread_and_contamination_fail_on_the_high_side() -> None:
+    # Everything else fails when it is too LOW. Pin the exceptions so a catalogue edit
+    # cannot silently invert a comparison.
     higher_is_worse = [metric.key for metric in QC_METRICS if metric.direction == "higher_is_worse"]
-    assert higher_is_worse == ["reads.stdev_read_length"]
+    assert higher_is_worse == ["reads.stdev_read_length", "mtdna.contamination"]
+
+
+def test_mtdna_metrics_are_configured_here_but_evaluated_elsewhere() -> None:
+    # Their cut-offs belong in the one admin place, but their values come from the
+    # mitochondrial analysis' own coverage/contamination inputs, not from
+    # samples.metadata["sequencing_qc"] — so the sequencing-QC evaluator must skip them
+    # rather than reporting them as unmeasured.
+    mtdna = {metric.key for metric in QC_METRICS if metric.source == "mtdna"}
+    assert mtdna == {"mtdna.mean_depth", "mtdna.contamination"}
+
+    result = evaluate_sequencing_qc(
+        HG002_QC, {"mtdna.mean_depth": {"warn_value": 50.0, "error_value": 10.0}}
+    )
+
+    assert result is not None
+    assert not any(entry["metric_key"].startswith("mtdna.") for entry in result["metrics"])
+
+
+# --- mitochondrial QC now reads the same configured cut-offs --------------------------
+
+
+def test_mito_sample_qc_uses_configured_limits_not_constants() -> None:
+    from app.schemas import MitoDNACoverageOut
+    from app.services.mitochondrial_analysis import _sample_qc
+
+    coverage = MitoDNACoverageOut(mean_depth=30.0)
+
+    # Depth 30x against a 50x warning limit.
+    warned = _sample_qc({}, coverage, {"mtdna.mean_depth": {"warn_value": 50.0, "error_value": 10.0}})
+    assert warned.status == "warning"
+    assert any("50.0" in note for note in warned.notes)
+
+    # The same depth against a stricter limit fails instead. Nothing about this verdict
+    # is hard-coded in the analysis module any more.
+    failed = _sample_qc({}, coverage, {"mtdna.mean_depth": {"warn_value": 60.0, "error_value": 40.0}})
+    assert failed.status == "fail"
+
+
+def test_mito_sample_qc_without_limits_is_not_assessed() -> None:
+    from app.schemas import MitoDNACoverageOut
+    from app.services.mitochondrial_analysis import _sample_qc
+
+    # A measured sample with no configured cut-off must not be reported as passing a gate
+    # that does not exist — this used to be a hard-coded `< 50x` rule.
+    verdict = _sample_qc({}, MitoDNACoverageOut(mean_depth=5.0), {})
+
+    assert verdict.status == "unknown"
+    assert verdict.notes == []
+
+
+def test_mito_contamination_fails_on_the_high_side() -> None:
+    from app.schemas import MitoDNACoverageOut
+    from app.services.mitochondrial_analysis import _sample_qc
+
+    thresholds = {"mtdna.contamination": {"warn_value": 0.01, "error_value": 0.03}}
+    coverage = MitoDNACoverageOut()
+
+    assert _sample_qc({"mtdna": {"contamination": 0.005}}, coverage, thresholds).status == "pass"
+    assert _sample_qc({"mtdna": {"contamination": 0.02}}, coverage, thresholds).status == "warning"
+    assert _sample_qc({"mtdna": {"contamination": 0.05}}, coverage, thresholds).status == "fail"

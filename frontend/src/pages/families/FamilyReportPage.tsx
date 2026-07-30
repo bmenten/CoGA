@@ -841,6 +841,7 @@ const FamilyReportPage: React.FC = () => {
       ) : null}
 
       <PipelineSettingsPanel
+        familyId={familyId}
         settings={pipelineSettingsFromMetadata(family?.metadata)}
         variant="report"
       />

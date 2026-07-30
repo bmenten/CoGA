@@ -1976,7 +1976,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           context for everything above it, not a starting point. The workspace variant
           differs only in its lead sentence — there is no "Modules & versions" footer
           here to point at. */}
-      <PipelineSettingsPanel settings={pipelineSettings} variant="workspace" />
+      <PipelineSettingsPanel familyId={data.family_id} settings={pipelineSettings} variant="workspace" />
 
       {selectedMemberId && (
         <div

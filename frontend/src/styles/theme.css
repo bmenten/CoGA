@@ -8299,6 +8299,26 @@ button.table-link:hover {
   margin-top: 0.5rem;
 }
 
+.pipeline-settings-versions {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.85rem;
+}
+
+.pipeline-settings-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+/* The version chips carry mixed-case tool names and versions, which the uppercase
+   badge-chip treatment mangles ("nf-core/lrsvar" -> "NF-CORE/LRSVAR"). */
+.pipeline-settings-chips .badge-chip {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 0.62rem;
+}
+
 .variant-table-review {
   display: grid;
   gap: 0.28rem;
