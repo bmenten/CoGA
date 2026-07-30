@@ -122,6 +122,9 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | --- | --- | --- | --- | --- |
 | REQ-QC-001 | `services/sample_integrity_service.py` | `test_sample_integrity_qc.py` (22); `test_sample_integrity_service.py` | H4 | ✅ |
 | REQ-QC-002 | `routers/families.py` `/qc/sample-integrity` | `test_sample_integrity_service.py`; `FamilySampleQcPage.test.tsx` | H4 | ✅ |
+| REQ-QC-003 | `services/qc_threshold_service.py` (`QC_METRICS`, `list_qc_threshold_profiles`, `set_qc_threshold`); `routers/admin.py` (`GET/PUT /admin/qc-thresholds`); `03_assay.sql` (`qc_threshold_profiles`, `qc_thresholds`) | `test_qc_threshold_service.py` (catalogue integrity, unknown metric rejected, inverted bounds rejected); `AdminQcThresholdsPage.test.tsx` (per-profile isolation, save/clear) | H14 | ✅ |
+| REQ-QC-004 | `services/qc_threshold_service.py` (`evaluate_metric`, `evaluate_sequencing_qc`, `worst_verdict`, `resolve_family_qc_thresholds`); `services/metadata_service.py::_attach_sequencing_qc_verdicts` | `test_qc_threshold_service.py` (bound semantics per direction; unmeasured and unconfigured both `skip`; worst-metric rollup) | H14 | ✅ |
+| REQ-QC-005 | `frontend/src/pages/families/SampleQcCell.tsx` | `SampleQcCell.test.tsx` (verdict word beside the value, tone class, breach sentence in the tooltip) | H14, H10 | ✅ |
 
 ### Mitochondrial disease — combined mtDNA + nuclear (app 3.5)
 | Req | Implementation | Verifying test | Risk | Status |

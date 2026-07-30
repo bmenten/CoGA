@@ -49,12 +49,13 @@ describe('SampleQcCell', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('shows depth and N50 short enough to fit a table cell, with the rest in the tooltip', async () => {
+  it('stays a compact pill: mean depth only, with the rest in the tooltip', async () => {
     render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
 
-    // The full string wrapped onto two lines in the members-table column, so the chip
-    // carries only the two headline numbers.
-    expect(screen.getByText('18.6x · N50 14 kb')).toBeInTheDocument();
+    // The chip sits beside the Status pill and must stay that narrow, so it carries one
+    // number; N50, quality and yield are on hover.
+    expect(screen.getByText('18.6x')).toBeInTheDocument();
+    expect(screen.queryByText(/N50/)).not.toBeInTheDocument();
     // The rest is revealed on hover through InfoTip, which appears immediately —
     // the native `title` tooltip only shows after a browser-controlled delay.
     await userEvent.hover(screen.getByRole('button'));

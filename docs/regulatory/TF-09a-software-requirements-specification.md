@@ -144,6 +144,9 @@
 | --- | --- | --- | --- |
 | REQ-QC-001 | Provide a sample-integrity QC suite (sex check, relatedness, Mendelian consistency, heterozygosity ratio, per-mode variant counts). | C | H4 |
 | REQ-QC-002 | Surface sample-integrity QC at the family level for review before sign-out. | C | H4 |
+| REQ-QC-003 | Maintain admin-managed sequencing-QC acceptance limits: per metric a warning limit and an error limit, grouped into named per-assay profiles, with the last-changing user recorded. The set of gateable metrics and the failing side of each are fixed by the software, not configurable. | C | H14 |
+| REQ-QC-004 | Evaluate each sample's recorded sequencing QC against the limits of its resolved profile **server-side**, returning a per-metric state (pass / warn / fail / not assessed) and the sample's worst state. A metric that was not measured, or for which no limit is configured, yields *not assessed* and never *pass*. | C | H14 |
+| REQ-QC-005 | Show each sample's worst sequencing-QC state in the family members table, distinguishable without relying on colour alone, and name the breaching metrics with their values and the limits they crossed on inspection. | C | H14, H10 |
 
 ### 3.10 Mitochondrial disease — combined mtDNA + nuclear (REQ-MITO)
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import api, { resolveApiUrl } from '../../lib/api';
 import InfoTip from '../../components/InfoTip';
-import type { ApiFamilyRecord } from '../../lib/apiTypes';
+import type { ApiFamilyRecord, ApiSampleSequencingQcEvaluation } from '../../lib/apiTypes';
 import { getErrorMessage } from '../../lib/errorMessage';
 import {
   formatSequencingQcDetail,
@@ -15,11 +15,55 @@ interface SampleQcCellProps {
 }
 
 /**
- * Sequencing QC for one family member.
+ * Chip tone per verdict. `warn` is amber and `fail` red — the two the operator asked
+ * for; `pass` and `skip` stay neutral so a coloured chip always means "look at this".
+ * `skip` is this codebase's word for "no cut-off configured", i.e. not assessed.
+ */
+const VERDICT_CHIP_CLASS: Record<ApiSampleSequencingQcEvaluation['verdict'], string> = {
+  pass: 'family-qc-chip--neutral',
+  warn: 'table-chip--warning',
+  fail: 'table-chip--critical',
+  skip: 'family-qc-chip--neutral',
+};
+
+/**
+ * The verdict word shown beside the depth, using the same labels as the sample-integrity
+ * QC page (`FamilySampleQcPage` STATUS_META) rather than a second spelling.
  *
- * The metrics recorded at import *are* the control that opens the pipeline's rendered
- * QC report (NanoPlot today, MultiQC once the pipeline switches) — one target rather
- * than a chip beside a button, since both said the same thing.
+ * Only the problem verdicts are labelled: a passing or unassessed chip shows the number
+ * alone and stays narrow, so a word beside the depth always means "look at this". Colour
+ * is never the only carrier of a QC failure — this is a regulated device and a
+ * colour-vision-deficient reviewer must still be able to read the outcome.
+ */
+const VERDICT_LABEL: Record<ApiSampleSequencingQcEvaluation['verdict'], string> = {
+  pass: '',
+  warn: 'Warning',
+  fail: 'Fail',
+  skip: '',
+};
+
+/** Sentence describing which metrics breached, for the tooltip. */
+const breachSentence = (qc: ApiSampleSequencingQcEvaluation): string | null => {
+  if (qc.verdict !== 'warn' && qc.verdict !== 'fail') return null;
+  const breached = qc.metrics.filter((metric) => metric.verdict === 'warn' || metric.verdict === 'fail');
+  if (!breached.length) return null;
+  const described = breached
+    .map((metric) => {
+      const bound = metric.verdict === 'fail' ? metric.error_value : metric.warn_value;
+      const side = metric.direction === 'lower_is_worse' ? 'below' : 'above';
+      return `${metric.label} ${metric.value} ${side} ${bound}`;
+    })
+    .join('; ');
+  const gate = qc.verdict === 'fail' ? 'Failed' : 'Warning';
+  return `${gate}: ${described}`;
+};
+
+/**
+ * Sequencing QC for one family member — a compact pill beside the Status chip.
+ *
+ * It shows the QC verdict and mean depth; every recorded metric, the cut-offs it was
+ * judged against and which of them breached are on hover. Clicking opens the pipeline's
+ * rendered QC report.
  *
  * The report opens through a short-lived link rather than a direct href: the API is
  * bearer-authenticated, so a plain navigation would 401, and the report is untrusted
@@ -30,6 +74,7 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
   const [error, setError] = useState<string | null>(null);
 
   const qc = member ? sequencingQcForMember(member) : undefined;
+  const evaluation = member?.sequencing_qc;
   const summary = formatSequencingQcSummary(qc);
   const detail = formatSequencingQcDetail(qc);
 
@@ -60,10 +105,19 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
     }
   };
 
-  // Without a report there is nothing to open, so the metrics stay a plain chip
-  // rather than a control that looks clickable and does nothing.
-  const label = summary ?? 'QC report';
-  const tooltip = [detail, qc.report ? 'Click to open the pipeline QC report in a new tab' : null]
+  const verdict = evaluation?.verdict ?? 'skip';
+  const verdictWord = VERDICT_LABEL[verdict];
+  const toneClass = VERDICT_CHIP_CLASS[verdict];
+  // Verdict first, then the headline number: "warn 18.6x". The verdict covers the case
+  // where a metric other than depth is the one that breached.
+  const label = [verdictWord, summary].filter(Boolean).join(' ') || 'QC report';
+
+  const tooltip = [
+    breachSentence(evaluation ?? { verdict: 'skip', metrics: [], breached: [] }),
+    detail,
+    evaluation?.profile_label ? `Thresholds: ${evaluation.profile_label} profile` : null,
+    qc.report ? 'Click to open the pipeline QC report in a new tab' : null,
+  ]
     .filter(Boolean)
     .join(' — ');
 
@@ -76,21 +130,19 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
         <InfoTip label={tooltip} interactiveChild>
           <button
             type="button"
-            className="table-chip family-qc-chip"
+            className={`table-chip family-qc-chip ${toneClass}`.trim()}
             onClick={openReport}
             disabled={busy}
           >
             <span className="family-qc-chip-value">{busy ? 'Opening…' : label}</span>
-            <span className="family-qc-chip-icon" aria-hidden="true">
-              ↗
-            </span>
           </button>
         </InfoTip>
       ) : (
-        // `interactiveChild` here too: with no report to open there is nothing to
-        // activate, and InfoTip's default anchor would add a button role for a
-        // control that does nothing.
-        <InfoTip label={tooltip} className="table-chip family-qc-chip-static" interactiveChild>
+        <InfoTip
+          label={tooltip}
+          className={`table-chip family-qc-chip-static ${toneClass}`.trim()}
+          interactiveChild
+        >
           {label}
         </InfoTip>
       )}

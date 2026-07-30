@@ -5158,6 +5158,29 @@ else:
 <li><strong>Non-destructief verwijderen:</strong> door <code>ON DELETE SET NULL</code> op <code>families.status_id</code> blijft een familie bestaan wanneer haar status wordt verwijderd — het statusveld wordt simpelweg leeggemaakt (zie de comment in <code>delete_family_status</code>).</li>
 <li>De feitelijke status/toewijzing per familie (<code>assigned_to</code>, <code>reviewed_by</code>) wordt gezet door elke gebruiker mét toegang tot de familie via <code>update_family_metadata_for_user</code>, met 404 bij onbekende familie en 403 bij geen toegang.</li>
 </ul>
+<h3>Sequencing-QC drempelwaarden</h3>
+<ul>
+<li><strong>AdminQcThresholdsPage</strong> (<code>AdminQcThresholdsPage.tsx</code>): stelt per sequencing-QC-parameter
+  een <strong>waarschuwings-</strong> en een <strong>foutgrens</strong> in. <code>GET /admin/qc-thresholds</code> levert de
+  metriekcatalogus én alle profielen; <code>PUT /admin/qc-thresholds/{profile_key}</code> zet of wist
+  één grens. Logica in <code>backend/app/services/qc_threshold_service.py</code>:</li>
+<li><strong>Profielen per assay.</strong> Eén grens kan geen twee assays dienen — ~18x gemiddelde dekking
+    is normaal voor PacBio HiFi WGS en een harde fout op een 100x panel. Een familie gebruikt
+    het profiel uit <code>families.metadata-&gt;&gt;'qc_profile'</code>, en anders het standaardprofiel (een
+    partiële unieke index garandeert dat er precies één standaard is).</li>
+<li><strong>De catalogus staat in code, de grenzen in de databank.</strong> Welke metrieken bestaan en of
+    een <em>lage</em> of een <em>hoge</em> waarde de foutzijde is, volgt uit wat de QC-parsers uitschrijven
+    (<code>QC_METRICS</code>) — geen configuratie. Zo kan een beheerder geen vergelijkingsrichting
+    omdraaien en een falende run groen maken. <code>direction</code> wordt wél meegeschreven in de rij,
+    zodat een historische configuratie leesbaar blijft zonder die codeversie.</li>
+<li><strong>Geen standaardgrenzen.</strong> Er worden geen waarden geseed: een grens is een klinische
+    beslissing. Zonder grens wordt een metriek gerapporteerd als <em>niet beoordeeld</em>, nooit als
+    geslaagd.</li>
+<li><strong>Evaluatie gebeurt server-side</strong> (<code>evaluate_sequencing_qc</code>), zodat werkplek, sample-QC en
+    rapport hetzelfde oordeel lezen. Het slechtste oordeel van alle metrieken wordt de
+    chip-kleur in de tabel Familieleden: amber bij waarschuwing, rood bij fout, met het
+    oordeelwoord ernaast zodat kleur niet de enige drager is.</li>
+</ul>
 <h3>Preset-filters &amp; variant-tags</h3>
 <ul>
 <li><strong>AdminPresetFiltersPage</strong> (<code>AdminPresetFiltersPage.tsx</code>): overzicht van de herbruikbare small-variant filter-presets (<code>GET /admin/small-variant-filter-presets</code>). Zie voor de filters zelf <a href="#hs-8">hoofdstuk 8</a>.</li>
