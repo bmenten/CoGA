@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { coverageTrackLabel, orderCoverageSources } from '../../lib/coverageSources';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
 import ApcadChart from '../../components/visualizations/ApcadChart';
@@ -55,6 +56,8 @@ const GENE_JUMP_PADDING_RATIO = 0.1;
 
 interface ChromosomeTrackAvailability {
   coverage: boolean;
+  /** The CNV callers with data, each drawn as its own stacked track. */
+  coverageSources: string[];
   apcad: boolean;
   apcadPcf: boolean;
   variants: boolean;
@@ -502,30 +505,37 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
           {membersWithData.map((member) => (
             <ViewerMemberSection key={`${familyDisplayId}-${member.sample_id}`} member={member}>
               <div className="overflow-x-auto space-y-2">
-                {trackVisibility.coverage && availability[member.sample_id]?.coverage && (
-                  <ViewerTrackBlock
-                    label="Coverage"
-                    width={trackWidth}
-                    frameClassName="h-[120px]"
-                    roiRange={regionRoiRange}
-                    roiTitle={roiTitle}
-                    viewportInteraction={viewportInteraction}
-                  >
-                    <CoverageSegmentsChart
-                      coverageUrls={[
-                        `${api.defaults.baseURL}/bed/${member.sample_id}/coverage?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&format=json`,
-                      ]}
-                      segmentsUrls={[
-                        `${api.defaults.baseURL}/bed/${member.sample_id}/segments?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&format=json`,
-                      ]}
-                      width={trackWidth}
-                      height={TRACK_HEIGHT}
-                      chroms={[chrom]}
-                      regionStart={region.start}
-                      regionEnd={region.end}
-                    />
-                  </ViewerTrackBlock>
-                )}
+                {trackVisibility.coverage &&
+                  // One track per caller. They are independent measurements of the
+                  // same thing, so a single merged track would average three
+                  // answers into one that is none of them.
+                  orderCoverageSources(availability[member.sample_id]?.coverageSources).map(
+                    (coverageSource, _index, allSources) => (
+                      <ViewerTrackBlock
+                        key={`coverage-${coverageSource}`}
+                        label={coverageTrackLabel(coverageSource, allSources.length)}
+                        width={trackWidth}
+                        frameClassName="h-[120px]"
+                        roiRange={regionRoiRange}
+                        roiTitle={roiTitle}
+                        viewportInteraction={viewportInteraction}
+                      >
+                        <CoverageSegmentsChart
+                          coverageUrls={[
+                            `${api.defaults.baseURL}/bed/${member.sample_id}/coverage?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&source=${coverageSource}&format=json`,
+                          ]}
+                          segmentsUrls={[
+                            `${api.defaults.baseURL}/bed/${member.sample_id}/segments?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${coverageSource}&format=json`,
+                          ]}
+                          width={trackWidth}
+                          height={TRACK_HEIGHT}
+                          chroms={[chrom]}
+                          regionStart={region.start}
+                          regionEnd={region.end}
+                        />
+                      </ViewerTrackBlock>
+                    ),
+                  )}
                 {trackVisibility.apcad &&
                   (availability[member.sample_id]?.apcad || availability[member.sample_id]?.apcadPcf) && (
                     <ViewerTrackBlock

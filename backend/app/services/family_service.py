@@ -22,6 +22,7 @@ from .bed_service import (
     get_family_haplotypes_batch_response,
     get_family_haplotypes_response,
     get_track_presence_by_sample,
+    get_track_sources_by_sample,
 )
 from .clickhouse_family_variants import (
     _fetch_gene_regions,
@@ -377,13 +378,17 @@ async def get_family_track_availability_for_user(
     if not availability:
         return FamilyTrackAvailabilityOut(samples={})
 
-    coverage_task = get_track_presence_by_sample(
+    # Coverage and segments report *which* callers have data, not just that some
+    # do: a sample can carry HiFiCNV, WisecondorX and QDNAseq at once and each is
+    # drawn as its own track. Same single query as the presence probe, one extra
+    # column.
+    coverage_task = get_track_sources_by_sample(
         session,
         context=context,
         track_type="coverage",
         chromosomes=chromosomes,
     )
-    segment_task = get_track_presence_by_sample(
+    segment_task = get_track_sources_by_sample(
         session,
         context=context,
         track_type="segments",
@@ -419,7 +424,7 @@ async def get_family_track_availability_for_user(
         start=start,
         end=end,
     )
-    coverage_ids, segment_ids, apcad_ids, apcad_pcf_ids, haplotype_ids, repeat_ids = await asyncio.gather(
+    coverage_sources, segment_sources, apcad_ids, apcad_pcf_ids, haplotype_ids, repeat_ids = await asyncio.gather(
         coverage_task,
         segment_task,
         apcad_task,
@@ -501,8 +506,10 @@ async def get_family_track_availability_for_user(
     sv_present = None if sv_needs_python else sv_result
 
     for sample_name, sample_availability in availability.items():
-        sample_availability.coverage = sample_name in coverage_ids
-        sample_availability.segments = sample_name in segment_ids
+        sample_availability.coverage_sources = coverage_sources.get(sample_name, [])
+        sample_availability.segments_sources = segment_sources.get(sample_name, [])
+        sample_availability.coverage = bool(sample_availability.coverage_sources)
+        sample_availability.segments = bool(sample_availability.segments_sources)
         sample_availability.apcad = sample_name in apcad_ids
         sample_availability.apcad_pcf = sample_name in apcad_pcf_ids
         sample_availability.haplotypes = sample_name in haplotype_ids

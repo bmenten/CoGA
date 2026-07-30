@@ -56,6 +56,13 @@ vi.mock('../ViewerTrackBlock', () => ({
   ),
 }));
 
+const MEMBER = {
+  sample_id: 'PROBAND',
+  role: 'proband',
+  affected: true,
+  sex: 'male',
+} as const;
+
 describe('GenomeOverviewWorkspace', () => {
   it('keeps whole-chromosome clicks and supports region jumps from chromosome ideograms', () => {
     const navigateToChromosome = vi.fn();
@@ -109,6 +116,8 @@ describe('GenomeOverviewWorkspace', () => {
           availability={{
             PROBAND: {
               coverage: true,
+              coverageSources: ['hificnv'],
+              segmentsSources: [],
               segments: false,
               apcad: false,
               apcadPcf: false,
@@ -120,8 +129,10 @@ describe('GenomeOverviewWorkspace', () => {
           variantFilters={{}}
           sampleFilterMap={{}}
           urlMaps={{
-            coverage: { PROBAND: ['http://test/coverage'] },
-            segments: {},
+            coverageTrackUrls: (_sampleId: string, source: string) => ({
+              coverageUrls: [`http://test/coverage?source=${source}`],
+              segmentsUrls: [`http://test/segments?source=${source}`],
+            }),
             apcad: {},
             apcadPcf: {},
             haplotypes: { PROBAND: ['http://test/haplotype'] },
@@ -141,7 +152,9 @@ describe('GenomeOverviewWorkspace', () => {
       </MemoryRouter>,
     );
 
-    const coverageSurface = screen.getByTestId('genome-region-select-coverage-PROBAND');
+    // The test id carries the caller: a sample can have three coverage tracks and
+    // each selection surface has to be addressable on its own.
+    const coverageSurface = screen.getByTestId('genome-region-select-coverage-PROBAND-hificnv');
     Object.defineProperty(coverageSurface, 'getBoundingClientRect', {
       value: () => ({
         left: 0,
@@ -172,5 +185,90 @@ describe('GenomeOverviewWorkspace', () => {
 
     fireEvent.click(screen.getByText('1'));
     expect(navigateToChromosome).toHaveBeenCalledWith('1');
+  });
+
+  it('draws one labelled coverage track per CNV caller', () => {
+    render(
+      <MemoryRouter>
+        <GenomeOverviewWorkspace
+          familyId="F1"
+          familyDisplayId="F1"
+          speciesName="Homo sapiens"
+          assemblyVersion="p14"
+          assembly="GRCh38"
+          projectId="p1"
+          trackAreaRef={{ current: null }}
+          backDest="/families/F1/structural-variants"
+          visibleRoi={null}
+          genomeRoiRange={null}
+          navigateToChromosome={vi.fn()}
+          familyMembers={[MEMBER]}
+          visibleMembers={[MEMBER]}
+          membersWithData={[MEMBER]}
+          inheritanceModel="dominant"
+          trackVisibility={{
+            coverage: true,
+            segments: true,
+            apcad: false,
+            haplotypes: false,
+            sv: false,
+            repeatExpansions: false,
+          }}
+          availability={{
+            PROBAND: {
+              coverage: true,
+              // Deliberately out of display order: the view must not depend on
+              // what order the availability query returned.
+              coverageSources: ['qdnaseq', 'hificnv', 'wisecondorx'],
+              segmentsSources: ['hificnv'],
+              segments: true,
+              apcad: false,
+              apcadPcf: false,
+              haplotypes: false,
+              sv: false,
+              repeatExpansions: false,
+            },
+          }}
+          variantFilters={{}}
+          sampleFilterMap={{}}
+          urlMaps={{
+            coverageTrackUrls: (_sampleId: string, source: string) => ({
+              coverageUrls: [`http://test/coverage?source=${source}`],
+              segmentsUrls: [`http://test/segments?source=${source}`],
+            }),
+            apcad: {},
+            apcadPcf: {},
+            haplotypes: {},
+            sv: {},
+          }}
+          layout={{
+            chroms: ['1'],
+            offsets: { '1': 0 },
+            lengths: { '1': 1000 },
+            total: 1000,
+          }}
+          trackWidth={1200}
+          trackHeight={120}
+          svTrackHeight={80}
+          showViewerLoading={false}
+        />
+      </MemoryRouter>,
+    );
+
+    // Three independent measurements, three tracks -- merging them would average
+    // three answers into one that is none of them.
+    const labels = screen
+      .getAllByRole('heading')
+      .map((node) => node.textContent)
+      .filter((text) => text?.startsWith('Coverage'));
+    // Display order, not the order the availability query returned: the same caller
+    // must sit in the same row for every family member.
+    expect(labels).toEqual([
+      'Coverage \u00b7 HiFiCNV',
+      'Coverage \u00b7 WisecondorX',
+      'Coverage \u00b7 QDNAseq',
+    ]);
+    expect(screen.getAllByTestId('coverage-chart')).toHaveLength(3);
+    expect(screen.getByTestId('genome-region-select-coverage-PROBAND-qdnaseq')).toBeInTheDocument();
   });
 });

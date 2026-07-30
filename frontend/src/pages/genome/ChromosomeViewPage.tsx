@@ -301,6 +301,7 @@ const ChromosomeViewPage: React.FC = () => {
           sampleId,
           {
             coverage: entry.coverage,
+            coverageSources: entry.coverage_sources ?? [],
             apcad: entry.apcad,
             apcadPcf: !!entry.apcad_pcf,
             variants: entry.variants,
@@ -313,6 +314,7 @@ const ChromosomeViewPage: React.FC = () => {
         string,
         {
           coverage: boolean;
+          coverageSources: string[];
           apcad: boolean;
           apcadPcf: boolean;
           variants: boolean;
