@@ -1939,7 +1939,7 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 </tr>
 <tr>
 <td><code>cnv</code></td>
-<td>CNV-calls uit een dieptecaller (HiFiCNV), VCF + copynumber-bedgraph</td>
+<td>CNV-calls uit een dieptecaller (HiFiCNV): VCF plus drie signaalbestanden (diepte-bigWig, copynumber-bedgraph, MAF-bigWig)</td>
 <td><code>cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz</code></td>
 </tr>
 <tr>
@@ -2073,9 +2073,9 @@ nooit een patroon in het manifest.</p>
 <td>Postgres</td>
 </tr>
 <tr>
-<td><code>cnv</code> VCF (+ bedgraph)</td>
-<td><code>_iter_cnv_structural_records</code> → <code>replace_family_structural_variants</code> (<code>hificnv</code>) / <code>_import_copy_number_track</code></td>
-<td>structural variants + <code>coverage</code>-interval-track</td>
+<td><code>cnv</code> VCF (+ signaalbestanden)</td>
+<td><code>_iter_cnv_structural_records</code> → <code>replace_family_structural_variants</code> (<code>hificnv</code>); <code>_import_bigwig_interval_track</code> / <code>_import_copy_number_track</code></td>
+<td>structural variants, plus <code>coverage</code> (diepte), <code>segments</code> (copynumber) en <code>apcad</code> (MAF, <code>origin = und</code>) interval-tracks</td>
 <td>ClickHouse</td>
 </tr>
 <tr>

@@ -322,6 +322,12 @@ async def fetch_apcad_downsampled(
     - Informative markers only: ``origin IN ('paternal','maternal')`` — these are the
       SNVs that distinguish the parental haplotypes (``und`` markers are not phasing-
       informative). The caller passes the origins; this keeps the informative set.
+      ``origins`` is a *preference*, not a hard filter: a track with no parent-of-origin
+      calls at all falls back to its unphased markers rather than rendering empty. That
+      is the HiFiCNV minor-allele-fraction track — bigWig has nowhere to record a
+      parental origin, so every one of its points is ``und``, and filtering them out
+      would silently blank the whole track. Where phased markers do exist they still
+      win, so a trio's APCAD track is unaffected.
     - Quality gate: keep VCF ``filter = PASS`` (plus markers with no recorded filter,
       so older uploads without provenance are not dropped); drop the low-quality
       VQSR-tranche markers. The per-marker ``qual`` score is also available in
@@ -342,8 +348,11 @@ async def fetch_apcad_downsampled(
     if chrom_values:
         base_clauses.append("chrom IN %(chromosomes)s")
         params["chromosomes"] = tuple(chrom_values)
+    # The origin preference is applied per-band below, not here, so one counts query
+    # can measure the track both with and without it.
+    origin_clause = ""
     if origins:
-        base_clauses.append("origin IN %(origins)s")
+        origin_clause = "origin IN %(origins)s"
         params["origins"] = tuple(str(value) for value in origins)
     if start is not None and end is not None:
         base_clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
@@ -357,9 +366,27 @@ async def fetch_apcad_downsampled(
     het_expr = "value >= 0.05 AND value <= 0.95"
     homo_expr = "value IS NOT NULL AND (value < 0.05 OR value > 0.95)"
 
+    # Whether to fall back to unphased markers is a property of the *track*, not of the
+    # window being drawn. Deciding it per window would be wrong in the direction that
+    # matters: on a genuinely phased track a stretch with no informative markers
+    # currently renders empty, and that emptiness is the autozygosity signal -- filling
+    # it with `und` points would mask exactly what the view exists to show. So probe the
+    # whole track once (LIMIT 1 on the primary key: family, sample, track_type).
+    if origin_clause:
+        probe_clauses = ["track_type = 'apcad'", "sample_guid = %(sample_uuid)s", origin_clause]
+        if family_uuid is not None:
+            probe_clauses.append("family_guid = %(family_uuid)s")
+        probe = await _execute(
+            f"SELECT 1 FROM {table} WHERE {' AND '.join(probe_clauses)} LIMIT 1",
+            params,
+        )
+        if not probe:
+            origin_clause = ""
+
+    band_where = f"{where} AND ({origin_clause})" if origin_clause else where
     counts = await _execute(
         f"SELECT countIf({het_expr}) AS het, countIf({homo_expr}) AS homo "
-        f"FROM {table} WHERE {where}",
+        f"FROM {table} WHERE {band_where}",
         params,
     )
     het_count, homo_count = (int(counts[0][0]), int(counts[0][1])) if counts else (0, 0)
@@ -375,7 +402,7 @@ async def fetch_apcad_downsampled(
     def _band_query(band_expr: str, target: int) -> str:
         return (
             f"SELECT chrom AS chr, start, end, value, origin FROM {table} "
-            f"WHERE {where} AND ({band_expr}) ORDER BY {qual_expr} DESC LIMIT {int(target)}"
+            f"WHERE {band_where} AND ({band_expr}) ORDER BY {qual_expr} DESC LIMIT {int(target)}"
         )
 
     subqueries: list[str] = []

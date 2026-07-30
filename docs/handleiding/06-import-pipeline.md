@@ -61,7 +61,7 @@ De ondersteunde datasets zijn vastgelegd in de constante `SUPPORTED_DATASETS` (i
 | `pcf` | PCF-segmenten, maternaal/paternaal (embryo) | `PCF/{sample_id}_pcf_mat_data.csv` |
 | `haplotypes` | GLIMPSE2-gefaseerde varianten | `GLIMPSE2/{family_id}_phased_final.vcf.gz` |
 | `paraphase` | Paraphase-resultaten (JSON) | `paraphase/{sample_id}.paraphase.json` |
-| `cnv` | CNV-calls uit een dieptecaller (HiFiCNV), VCF + copynumber-bedgraph | `cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz` |
+| `cnv` | CNV-calls uit een dieptecaller (HiFiCNV): VCF plus drie signaalbestanden (diepte-bigWig, copynumber-bedgraph, MAF-bigWig) | `cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz` |
 | `mito` | Mitochondriale varianten (chrM) + mutserve-annotatie | `mito/{sample_id}/{sample_id}.vcf.gz` |
 | `alignments` | Uitgelijnde reads voor de genoombrowser | `bams/{sample_id}.cram` |
 | `qc` | Sequencing-QC: NanoPlot/MultiQC-rapport, NanoStats, mosdepth | `qc/nanoplot/{sample_id}/{sample_id}NanoStats.txt` |
@@ -151,7 +151,7 @@ De import registreert eerst de familie-metadata en de provenance, en importeert 
 | interval-track bron-metadata | `upsert_interval_track_source` | `sample_interval_track_sources` | Postgres |
 | `repeats_trgt` VCF | `ingest_family_trgt_text` / `ingest_trgt_text` | `repeat_expansions` | Postgres |
 | `paraphase` JSON | `_replace_sample_paraphase_rows` | `sample_paraphase_results` | Postgres |
-| `cnv` VCF (+ bedgraph) | `_iter_cnv_structural_records` → `replace_family_structural_variants` (`hificnv`) / `_import_copy_number_track` | structural variants + `coverage`-interval-track | ClickHouse |
+| `cnv` VCF (+ signaalbestanden) | `_iter_cnv_structural_records` → `replace_family_structural_variants` (`hificnv`); `_import_bigwig_interval_track` / `_import_copy_number_track` | structural variants, plus `coverage` (diepte), `segments` (copynumber) en `apcad` (MAF, `origin = und`) interval-tracks | ClickHouse |
 | `mito` chrM-VCF (+ mutserve-TSV) | `upload_family_small_variant_file` (`mito`) | small variants (chrM) | ClickHouse |
 | `qc` NanoStats/mosdepth/rapport | `record_sample_qc_metadata` | `samples.metadata["sequencing_qc"]` | Postgres |
 | `alignments` CRAM/BAM | `record_sample_alignment_metadata` | `samples.metadata["alignment"]` | Postgres |

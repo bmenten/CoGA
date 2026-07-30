@@ -331,7 +331,7 @@ The built-in `standard_v1` naming scheme checks these paths:
 - PCF APCAD segments: per-sample files at `PCF/{sample_id}_pcf_mat_data.csv` and `PCF/{sample_id}_pcf_pat_data.csv`; lower-case `pcf` and dotted fallback names `PCF/{sample_id}.pcf.mat_data.csv` / `PCF/{sample_id}.pcf.pat_data.csv` are also detected. The verified CSV header is `"sampleID","CHROM","arm","start.pos","end.pos","n.probes","mean"`.
 - Haplotypes: family GLIMPSE2 VCFs at `GLIMPSE2/{family_id}.vcf[.gz]`, `GLIMPSE2/{family_id}_phased_final.vcf.gz`, or `GLIMPSE2/family.vcf[.gz]`; legacy per-sample `haplotypes/{sample_id}.glimpse2.bcf` plus `.csi` is still registered as provenance
 - Paraphase: `paraphase/{sample_id}.paraphase.json`, with nested `{sample_id}/{sample_id}.paraphase.json`, `{sample_id}.json`, and `paraphase/{sample_id}*/{sample_id}.paraphase.json` (suffixed directory) fallbacks
-- CNV (HiFiCNV): per-sample `cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz` plus `.tbi`, with optional `cnv/{sample_id}/{sample_id}*.copynum.bedgraph`, `{sample_id}*.depth.bw` and the VEP `_summary.html`
+- CNV (HiFiCNV): per-sample `cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz` plus `.tbi`, with optional `cnv/{sample_id}/{sample_id}*.copynum.bedgraph`, `{sample_id}*.depth.bw`, `{sample_id}*.maf.bw` and the VEP `_summary.html`
 - Mitochondrial: per-sample `mito/{sample_id}/{sample_id}.vcf.gz` plus `.tbi`, the mutserve annotation TSV at `mito/annotation/{sample_id}/{sample_id}_snv_annot.txt` (note `annotation/` sits *above* the sample directory here), and optional `mito/{sample_id}/{sample_id}_sv.vcf.gz` + `mito/annotation/{sample_id}/{sample_id}_sv_annot.txt`
 - Alignments: `bams/{sample_id}.cram` plus `.crai` (or `.bam`/`.bam.bai`), with `alignments/` and package-root fallbacks
 - QC: `qc/multiqc/{sample_id}/multiqc_report.html` or `qc/nanoplot/{sample_id}/{sample_id}NanoPlot-report.html` (no separator before `NanoPlot`), plus `{sample_id}NanoStats.txt` and `qc/depth/{sample_id}/{sample_id}.mosdepth.summary.txt`, `.regions.bed.gz`, `.mosdepth.global.dist.txt`. Every role is optional; a sample with at least one artefact is detected.
@@ -341,7 +341,7 @@ Where each dataset lands:
 
 | Dataset | Storage | Source tag | Surfaced in |
 | --- | --- | --- | --- |
-| `cnv` | ClickHouse structural variants; copy-number bedgraph as a coverage interval track | `hificnv` | SV workspace, CNV ACMG scoring, coverage tracks |
+| `cnv` | ClickHouse structural variants; three signal files as interval tracks (see below) | `hificnv` | SV workspace, CNV ACMG scoring, coverage / segments / APCAD tracks |
 | `mito` | ClickHouse small variants (chrM) | `mito` | mtDNA analysis workspace |
 | `qc` | `samples.metadata["sequencing_qc"]` | — | Family detail members table: a compact chip showing the QC verdict and mean depth, coloured amber/red when a configured cut-off is crossed, opening the pipeline QC report on click. Cut-offs are set per assay profile in **Admin → Sequencing QC Thresholds**; a metric with no cut-off is reported as not assessed, never as a pass. |
 | `alignments` | `samples.metadata["alignment"]` | — | IGV / genome browser via `/cram/...` |
@@ -349,6 +349,33 @@ Where each dataset lands:
 
 Each source tag scopes its own delete and re-import, so a family can hold NeedlR SVs,
 HiFiCNV calls and chrM variants at once and re-importing one never removes another.
+
+#### HiFiCNV signal files → interval tracks
+
+HiFiCNV ships three per-sample signal files that measure different things, so each
+lands on the interval track whose axis means the same thing:
+
+| Manifest key | File | Track | Notes |
+| --- | --- | --- | --- |
+| `depth_bigwig` | `{sample_id}*.depth.bw` | `coverage` | Read depth per 2 kb bin. Zero-valued bins (the assembly gaps a whole-genome bigWig also covers) are dropped — they plot as a flat line on the axis. |
+| `copy_number_bedgraph` | `{sample_id}*.copynum.bedgraph` | `segments` | Called integer copy number, drawn as step segments. |
+| `maf_bigwig` | `{sample_id}*.maf.bw` | `apcad` | Minor allele fraction (0–0.5), BAF-like. Written with `origin = und`: bigWig has nowhere to record a parent of origin. |
+
+Only primary chromosomes are read from a bigWig — an aligner's bigWig carries every
+contig it saw (195 in the reference package, of which 170 are ALT/random/decoy
+scaffolds that no view can plot).
+
+Because the MAF track has no parent-of-origin calls, the APCAD reader treats its
+`paternal`/`maternal` preference as a preference rather than a filter: a track with no
+phased markers **at all** falls back to its unphased points instead of rendering blank.
+The test is per track, not per window — on a genuinely phased track a stretch with no
+informative markers stays empty, because that emptiness is the autozygosity signal.
+
+> **Track ownership.** A `(track_type, source)` pair belongs wholly to the import that
+> writes it: re-importing clears the pair before loading, rather than replacing only the
+> incoming filename. Otherwise changing which file feeds a track leaves the previous
+> file's rows behind to be averaged in — which is exactly what would have happened when
+> `coverage`/`hificnv` moved from the copy-number bedGraph to the depth bigWig.
 
 Optional `snv` dataset settings:
 
@@ -636,6 +663,7 @@ datasets:
         vcf: cnv/HG002/annotation/HG002_annot.vcf.gz
         index: cnv/HG002/annotation/HG002_annot.vcf.gz.tbi
         copy_number_bedgraph: cnv/HG002/HG002.Sample0.copynum.bedgraph
+        maf_bigwig: cnv/HG002/HG002.HG002.maf.bw
 
   mito:
     enabled: true

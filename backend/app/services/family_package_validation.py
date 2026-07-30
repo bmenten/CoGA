@@ -695,7 +695,7 @@ def _validate_paraphase_dataset(
 # that are validated only when the manifest declares them.
 _PER_SAMPLE_DATASET_ROLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # dataset_type: (required roles, optional roles)
-    "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "summary_html")),
+    "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "maf_bigwig", "summary_html")),
     "mito": (("vcf",), ("index", "annotation_tsv", "sv_vcf", "sv_index", "sv_annotation_tsv")),
     "alignments": (("file",), ("index",)),
     "qc": ((), ("report", "read_stats", "depth_summary", "depth_regions", "depth_global_dist")),
