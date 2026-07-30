@@ -5180,6 +5180,16 @@ else:
     rapport hetzelfde oordeel lezen. Het slechtste oordeel van alle metrieken wordt de
     chip-kleur in de tabel Familieleden: amber bij waarschuwing, rood bij fout, met het
     oordeelwoord ernaast zodat kleur niet de enige drager is.</li>
+<li><strong>Ook de mitochondriale grenzen komen hiervandaan</strong> (<code>mtdna.mean_depth</code>,
+    <code>mtdna.contamination</code>). Die stonden eerder hard-coded in <code>mitochondrial_analysis.py</code>
+    (<code>mean_depth &lt; 50</code>, contaminatie 1%/3%) en waren dus onzichtbaar en onwijzigbaar; geen
+    enkele QC-grens zit nog in code.</li>
+<li><strong>Streng afgeschermd.</strong> Wijzigen kan alleen als beheerder, vereist een bevestiging
+    waarin beide zijden van de wijziging herhaald worden, en wordt weggeschreven naar de
+    <strong>append-only</strong> tabel <code>qc_threshold_changes</code> — met de <em>vervangen</em> waarde erbij. De
+    HTTP-auditpijplijn legt het verzoek vast maar kent de vorige waarde niet, dus alleen
+    hier is te zien wie een grens verlaagde en vanaf welke waarde. UPDATE en DELETE worden
+    door een trigger geweigerd.</li>
 </ul>
 <h3>Preset-filters &amp; variant-tags</h3>
 <ul>

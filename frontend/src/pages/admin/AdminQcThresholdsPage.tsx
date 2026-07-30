@@ -40,6 +40,9 @@ const AdminQcThresholdsPage: React.FC = () => {
   const [status, setStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, { warn: string; error: string }>>({});
+  // A cut-off decides whether a run is reported as inadequate, so it is not saved on a
+  // single stray click — the change is restated and confirmed first.
+  const [pendingMetric, setPendingMetric] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<ApiQcThresholdCatalogue>({
     queryKey: QUERY_KEY,
@@ -250,7 +253,7 @@ const AdminQcThresholdsPage: React.FC = () => {
                         type="button"
                         className="button-ghost"
                         disabled={!dirty || saveMutation.isPending}
-                        onClick={() => saveMutation.mutate(metric.key)}
+                        onClick={() => setPendingMetric(metric.key)}
                       >
                         Save
                       </button>
@@ -261,6 +264,105 @@ const AdminQcThresholdsPage: React.FC = () => {
             </tbody>
           </table>
         </div>
+      </section>
+
+      {pendingMetric && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setPendingMetric(null)}>
+          <section
+            className="modal-surface surface-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm threshold change"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2 className="section-title">Confirm QC cut-off change</h2>
+            <p className="section-copy">
+              {(() => {
+                const metric = (data?.metrics ?? []).find((entry) => entry.key === pendingMetric);
+                const draft = draftFor(pendingMetric);
+                const stored = storedByMetric[pendingMetric];
+                const shown = (value: string) => (value.trim() ? value : 'none');
+                return (
+                  <>
+                    <strong>{metric?.label ?? pendingMetric}</strong> in the{' '}
+                    <strong>{activeProfile?.label}</strong> profile:{' '}
+                    warning {shown(stored?.warn ?? '')} → {shown(draft.warn)}, error{' '}
+                    {shown(stored?.error ?? '')} → {shown(draft.error)}.
+                  </>
+                );
+              })()}
+            </p>
+            <p className="report-disclaimer">
+              This changes what the interface reports as an inadequate run for every sample using
+              this profile. The change is recorded permanently with your account.
+            </p>
+            <div className="compact-toolbar family-toolbar">
+              <button
+                type="button"
+                className="form-button"
+                disabled={saveMutation.isPending}
+                onClick={() => {
+                  const metricKey = pendingMetric;
+                  setPendingMetric(null);
+                  saveMutation.mutate(metricKey);
+                }}
+              >
+                Confirm change
+              </button>
+              <button type="button" className="button-ghost" onClick={() => setPendingMetric(null)}>
+                Cancel
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      <section className="surface-card space-y-3">
+        <div className="family-workspace-card-head">
+          <div className="space-y-1">
+            <h2 className="section-title">Change history</h2>
+            <p className="family-workspace-card-subtitle">
+              Every cut-off edit, with the value it replaced. Append-only — entries cannot be
+              altered or removed.
+            </p>
+          </div>
+        </div>
+        {(data?.changes ?? []).length === 0 ? (
+          <p className="dashboard-link-note">No cut-off has been changed yet.</p>
+        ) : (
+          <div className="data-table-shell overflow-x-auto">
+            <table className="analysis-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Who</th>
+                  <th>Profile</th>
+                  <th>Metric</th>
+                  <th>Warning</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.changes ?? []).map((change, index) => (
+                  <tr key={`${change.changed_at}-${change.metric_key}-${index}`}>
+                    <td className="table-subtle">
+                      {change.changed_at.replace('T', ' ').slice(0, 16)} UTC
+                    </td>
+                    <td className="table-subtle">{change.changed_by_email ?? 'unknown'}</td>
+                    <td className="table-subtle">{change.profile_key}</td>
+                    <td>{change.metric_key}</td>
+                    <td className="table-subtle">
+                      {boundText(change.previous_warn_value) || '—'} → {boundText(change.warn_value) || '—'}
+                    </td>
+                    <td className="table-subtle">
+                      {boundText(change.previous_error_value) || '—'} → {boundText(change.error_value) || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

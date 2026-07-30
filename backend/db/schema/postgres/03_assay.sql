@@ -621,3 +621,36 @@ INSERT INTO qc_threshold_profiles (key, label, description, is_default, sort_ord
     ('short_read_wgs', 'Short-read WGS', 'Illumina whole-genome runs.', false, 30),
     ('short_read_panel', 'Short-read panel', 'Targeted panels, where expected depth is far higher.', false, 40)
 ON CONFLICT (key) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- qc_threshold_changes (append-only record of every cut-off edit)
+--
+-- A QC cut-off decides whether the device reports a run as inadequate, so an edit
+-- has to be attributable and reconstructable. The HTTP request-audit pipeline
+-- records the path, body and actor of the change, but not the value that was
+-- *replaced* — so "who lowered the depth limit, and from what" was unanswerable.
+-- This table keeps both sides of every edit.
+--
+-- Append-only by trigger, like the clinical audit and report sign-out tables:
+-- UPDATE and DELETE are rejected, so the history cannot be rewritten to make a
+-- past configuration look different from what was actually in force.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS qc_threshold_changes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    profile_key text NOT NULL,
+    metric_key text NOT NULL,
+    previous_warn_value double precision,
+    previous_error_value double precision,
+    warn_value double precision,
+    error_value double precision,
+    changed_by uuid,
+    changed_by_email text,
+    changed_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT qc_threshold_changes_pkey PRIMARY KEY (id),
+    CONSTRAINT qc_threshold_changes_changed_by_fkey FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_qc_threshold_changes_recent
+    ON qc_threshold_changes USING btree (changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_qc_threshold_changes_metric
+    ON qc_threshold_changes USING btree (profile_key, metric_key, changed_at DESC);

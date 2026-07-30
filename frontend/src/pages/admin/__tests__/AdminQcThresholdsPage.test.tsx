@@ -31,6 +31,7 @@ const CATALOGUE = {
       help_text: 'Standard deviation of read length.',
     },
   ],
+  changes: [],
   profiles: [
     {
       id: 'p1',
@@ -124,6 +125,7 @@ describe('AdminQcThresholdsPage', () => {
     await user.clear(warn);
     await user.type(warn, '15');
     await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+    await user.click(await screen.findByRole('button', { name: /Confirm change/i }));
 
     await waitFor(() =>
       expect(mockedPut).toHaveBeenCalledWith('/admin/qc-thresholds/default', {
@@ -143,6 +145,7 @@ describe('AdminQcThresholdsPage', () => {
     await user.clear(warn);
     await user.clear(error);
     await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+    await user.click(await screen.findByRole('button', { name: /Confirm change/i }));
 
     // Nulls clear the row: a metric with no cut-off is not configured, and must not be
     // left behind as an all-null row implying it is.
@@ -162,6 +165,53 @@ describe('AdminQcThresholdsPage', () => {
     for (const button of screen.getAllByRole('button', { name: 'Save' })) {
       expect(button).toBeDisabled();
     }
+  });
+
+  it('does not write until the change is confirmed', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const warn = (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
+
+    await user.clear(warn);
+    await user.type(warn, '15');
+    await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+
+    // A cut-off decides whether a run is reported as inadequate; it must not be committed
+    // on one stray click. The dialog restates both sides of the change.
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(/warning 20 → 15/);
+    expect(dialog).toHaveTextContent(/error 10 → 10/);
+    expect(mockedPut).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /Cancel/i }));
+    expect(mockedPut).not.toHaveBeenCalled();
+  });
+
+  it('shows the append-only change history with the value each edit replaced', async () => {
+    mockedGet.mockResolvedValue({
+      data: {
+        ...CATALOGUE,
+        changes: [
+          {
+            profile_key: 'default',
+            metric_key: 'depth.mean_depth',
+            previous_warn_value: 30,
+            previous_error_value: 20,
+            warn_value: 20,
+            error_value: 10,
+            changed_by_email: 'admin@example.com',
+            changed_at: '2026-07-30T09:15:00',
+          },
+        ],
+      },
+    });
+    renderPage();
+
+    expect(await screen.findByText('Change history')).toBeInTheDocument();
+    expect(screen.getByText('admin@example.com')).toBeInTheDocument();
+    // The replaced value is the thing the HTTP request log cannot record.
+    expect(screen.getByText('30 → 20')).toBeInTheDocument();
+    expect(screen.getByText('20 → 10')).toBeInTheDocument();
   });
 
   it('says plainly that no cut-offs are shipped by default', async () => {

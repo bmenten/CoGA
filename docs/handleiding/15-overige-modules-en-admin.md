@@ -115,6 +115,16 @@ Meer achtergrond over deze tabellen staat in [hoofdstuk 3](03-databankstructuren
     rapport hetzelfde oordeel lezen. Het slechtste oordeel van alle metrieken wordt de
     chip-kleur in de tabel Familieleden: amber bij waarschuwing, rood bij fout, met het
     oordeelwoord ernaast zodat kleur niet de enige drager is.
+  - **Ook de mitochondriale grenzen komen hiervandaan** (`mtdna.mean_depth`,
+    `mtdna.contamination`). Die stonden eerder hard-coded in `mitochondrial_analysis.py`
+    (`mean_depth < 50`, contaminatie 1%/3%) en waren dus onzichtbaar en onwijzigbaar; geen
+    enkele QC-grens zit nog in code.
+  - **Streng afgeschermd.** Wijzigen kan alleen als beheerder, vereist een bevestiging
+    waarin beide zijden van de wijziging herhaald worden, en wordt weggeschreven naar de
+    **append-only** tabel `qc_threshold_changes` — met de *vervangen* waarde erbij. De
+    HTTP-auditpijplijn legt het verzoek vast maar kent de vorige waarde niet, dus alleen
+    hier is te zien wie een grens verlaagde en vanaf welke waarde. UPDATE en DELETE worden
+    door een trigger geweigerd.
 
 ### Preset-filters & variant-tags
 

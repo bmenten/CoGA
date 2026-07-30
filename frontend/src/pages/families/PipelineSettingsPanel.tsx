@@ -1,4 +1,8 @@
 import React from 'react';
+import { useQuery } from '@tanstack/react-query';
+
+import api from '../../lib/api';
+import type { ApiAnnotationManifest, ApiAnnotationModule } from '../../lib/apiTypes';
 
 /**
  * Settings of the upstream analysis pipeline, recorded per family at package import
@@ -92,7 +96,21 @@ const scalarText = (value: unknown): string | null => {
   return null;
 };
 
+/**
+ * The workflow itself comes first: which pipeline, at which version, on which engine is
+ * the single most important line of the record, and it was previously buried among the
+ * tools in an alphabetical footer.
+ */
+const WORKFLOW_KEYS = ['nf-core/lrsvar', 'nextflow'];
+
+const isWorkflowModule = (module: ApiAnnotationModule): boolean =>
+  WORKFLOW_KEYS.includes(module.key) ||
+  module.detail?.toLowerCase() === 'workflow' ||
+  module.key.startsWith('nf-core/');
+
 interface PipelineSettingsPanelProps {
+  /** Family whose recorded tool versions to show alongside the run parameters. */
+  familyId?: string;
   settings: PipelineSettings | undefined;
   /**
    * Both variants render the same full-width section; only the lead sentence differs,
@@ -103,19 +121,36 @@ interface PipelineSettingsPanelProps {
 }
 
 const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
+  familyId,
   settings,
   variant = 'workspace',
 }) => {
-  if (!settings) return null;
+  // Tool versions live in the family's annotation manifest, separately from the run
+  // parameters — a run is only traceable with both, so show them together.
+  const { data: manifest } = useQuery<ApiAnnotationManifest>({
+    queryKey: ['family', familyId, 'annotation-manifest'],
+    enabled: Boolean(familyId),
+    queryFn: async () =>
+      (await api.get(`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
+  });
 
+  const versioned = (manifest?.modules ?? []).filter((module) => module.version);
+  const workflowModules = versioned.filter(isWorkflowModule);
+  const toolModules = versioned
+    .filter((module) => !isWorkflowModule(module))
+    .sort((left, right) => left.label.localeCompare(right.label));
+
+  if (!settings && !versioned.length) return null;
+
+  const resolved = settings ?? {};
   const groups = PARAMETER_GROUPS.map((group) => ({
     title: group.title,
     rows: group.keys
-      .map(([key, label]) => ({ label, value: scalarText(settings[key]) }))
+      .map(([key, label]) => ({ label, value: scalarText(resolved[key]) }))
       .filter((row): row is { label: string; value: string } => row.value !== null),
   })).filter((group) => group.rows.length > 0);
 
-  const stages = STAGE_LABELS.filter(([key]) => settings[key] === true).map(([, label]) => label);
+  const stages = STAGE_LABELS.filter(([key]) => resolved[key] === true).map(([, label]) => label);
 
   // Anything the pipeline reported that this component does not know about. Shown
   // rather than dropped: a parameter added upstream still belongs on the record.
@@ -123,7 +158,7 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
     ...PARAMETER_GROUPS.flatMap((group) => group.keys.map(([key]) => key)),
     ...STAGE_LABELS.map(([key]) => key),
   ]);
-  const otherRows = Object.entries(settings)
+  const otherRows = Object.entries(resolved)
     .filter(([key]) => !known.has(key))
     .map(([key, value]) => ({ label: key, value: scalarText(value) }))
     .filter((row): row is { label: string; value: string } => row.value !== null)
@@ -132,7 +167,7 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
     groups.push({ title: 'Other', rows: otherRows });
   }
 
-  if (!groups.length && !stages.length) return null;
+  if (!groups.length && !stages.length && !versioned.length) return null;
 
   const body = (
     <>
@@ -157,6 +192,44 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
           {stages.join(' · ')}
         </p>
       )}
+      {workflowModules.length > 0 && (
+        <div className="pipeline-settings-versions" data-testid="pipeline-workflow">
+          <span className="pipeline-settings-group-title">Workflow</span>
+          <div className="pipeline-settings-chips">
+            {workflowModules.map((module) => (
+              <span
+                key={module.key}
+                className="badge-chip badge-chip--emphasis"
+                title={module.detail ?? module.label}
+              >
+                {module.label} <strong>{module.version}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {toolModules.length > 0 && (
+        <div className="pipeline-settings-versions" data-testid="pipeline-tools">
+          <span className="pipeline-settings-group-title">
+            Tool &amp; database versions ({toolModules.length})
+          </span>
+          <div className="pipeline-settings-chips">
+            {toolModules.map((module) => (
+              <span
+                key={module.key}
+                className="badge-chip"
+                title={
+                  module.detail
+                    ? `${module.label} — reported by ${module.detail}`
+                    : module.label
+                }
+              >
+                {module.label} <strong>{module.version}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -170,8 +243,8 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
       <h2 className="report-audit-heading">Analysis pipeline settings</h2>
       <p className="report-paragraph report-audit-lead">
         {variant === 'report'
-          ? 'The upstream pipeline configuration these calls were produced with, as recorded at import. Tool versions are listed under Modules & versions below.'
-          : "How this family's data was produced, as recorded at import. Tool versions are shown separately in the annotation-provenance footer of the variant pages and on the report."}
+          ? 'The upstream pipeline configuration and every tool version these calls were produced with, as recorded at import.'
+          : "How this family's data was produced: the run configuration and the version of every tool and database behind it, as recorded at import."}
       </p>
       {body}
     </section>

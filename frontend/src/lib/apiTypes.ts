@@ -75,9 +75,22 @@ export interface ApiQcThresholdProfile {
   thresholds: ApiQcThreshold[];
 }
 
+/** One entry of the append-only cut-off history, with both sides of the edit. */
+export interface ApiQcThresholdChange {
+  profile_key: string;
+  metric_key: string;
+  previous_warn_value?: number | null;
+  previous_error_value?: number | null;
+  warn_value?: number | null;
+  error_value?: number | null;
+  changed_by_email?: string | null;
+  changed_at: string;
+}
+
 export interface ApiQcThresholdCatalogue {
   metrics: ApiQcMetricCatalogueEntry[];
   profiles: ApiQcThresholdProfile[];
+  changes: ApiQcThresholdChange[];
 }
 
 export interface ApiFamilyMemberImpact {

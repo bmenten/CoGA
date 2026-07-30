@@ -147,6 +147,9 @@
 | REQ-QC-003 | Maintain admin-managed sequencing-QC acceptance limits: per metric a warning limit and an error limit, grouped into named per-assay profiles, with the last-changing user recorded. The set of gateable metrics and the failing side of each are fixed by the software, not configurable. | C | H14 |
 | REQ-QC-004 | Evaluate each sample's recorded sequencing QC against the limits of its resolved profile **server-side**, returning a per-metric state (pass / warn / fail / not assessed) and the sample's worst state. A metric that was not measured, or for which no limit is configured, yields *not assessed* and never *pass*. | C | H14 |
 | REQ-QC-005 | Show each sample's worst sequencing-QC state in the family members table, distinguishable without relying on colour alone, and name the breaching metrics with their values and the limits they crossed on inspection. | C | H14, H10 |
+| REQ-QC-006 | Apply the same admin-managed limits to the mitochondrial QC verdict (chrM mean depth, contamination); no QC acceptance limit is fixed in code. | C | H14, H13 |
+| REQ-QC-007 | Record every acceptance-limit change in an append-only history holding the replaced value, the new value and the acting user, and require the change to be confirmed against a restatement of both sides before it is committed. | C | H14, H9 |
+| REQ-TRACE-008 | Record, per family, the analysis pipeline and engine version and the version of every tool and reference database behind its callset, and present them with the run configuration. | C | H8 |
 
 ### 3.10 Mitochondrial disease — combined mtDNA + nuclear (REQ-MITO)
 

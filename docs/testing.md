@@ -204,6 +204,11 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_sample_integrity_service.py](../backend/tests/test_sample_integrity_service.py) | Family-scoped sample-integrity report generation. |
 | [tests/test_family_structure_validation.py](../tests/test_family_structure_validation.py) | Pedigree-graph validation and parent-sex consistency. |
 
+### SQL / driver contracts
+| Test file | Purpose |
+| --- | --- |
+| [backend/tests/test_sql_parameter_typing.py](../backend/tests/test_sql_parameter_typing.py) | Rejects `CASE WHEN :param IS NULL THEN NULL ELSE CAST(:param …)`, which asyncpg cannot assign a parameter type to. This form silently broke every annotation-manifest write from the day provenance capture was added; a mocked-session test cannot catch it. |
+
 ### Pedigree / family metadata / package import
 | Test file | Purpose |
 | --- | --- |
@@ -212,7 +217,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_family_member_batch_update_service.py](../backend/tests/test_family_member_batch_update_service.py) | Batch member updates with dirty-tracking. |
 | [backend/tests/test_family_member_detail_service.py](../backend/tests/test_family_member_detail_service.py) | Member detail retrieval and impact analysis. |
 | [backend/tests/test_family_package_import_pcf.py](../backend/tests/test_family_package_import_pcf.py) | PCF (array-CGH) dataset discovery and segment parsing; manifest availability probe stays inside the package root. |
-| [backend/tests/test_qc_threshold_service.py](../backend/tests/test_qc_threshold_service.py) | Sequencing-QC threshold evaluation: bound semantics per direction, an unmeasured or unconfigured metric reported as `skip` rather than `pass`, inverted bounds still failing, and the worst-metric rollup. |
+| [backend/tests/test_qc_threshold_service.py](../backend/tests/test_qc_threshold_service.py) | Sequencing-QC threshold evaluation: bound semantics per direction, an unmeasured or unconfigured metric reported as `skip` rather than `pass`, inverted bounds still failing, the worst-metric rollup, and the mitochondrial cut-offs reading the same configuration instead of module constants. |
 | [backend/tests/test_family_package_long_read.py](../backend/tests/test_family_package_long_read.py) | Long-read (nf-core/lrsvar) packages: version-tolerant glob discovery inside the package root, VCF sample-column resolution (`Sample0`, `<sample>_sort`), CNV/mito/QC/pipeline-info parsing, and a validator for every supported dataset type. |
 | [backend/tests/test_family_import_compensation.py](../backend/tests/test_family_import_compensation.py) | Failed-import compensation: shell delete clears interval tracks; incomplete-flag set/clear on family metadata. |
 | [backend/tests/test_family_pedigree_generation.py](../backend/tests/test_family_pedigree_generation.py) | Pedigree file generation / LINKAGE output. |

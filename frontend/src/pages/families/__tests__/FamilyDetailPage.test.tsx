@@ -241,9 +241,7 @@ describe('FamilyDetailPage', () => {
     const panel = await screen.findByTestId('pipeline-settings');
     expect(panel).toHaveTextContent('GRCh38');
     expect(panel).toHaveTextContent('deepvariant');
-    // The workspace has no "Modules & versions" footer, so it must not point at one.
-    expect(panel).not.toHaveTextContent(/Modules & versions/i);
-    expect(panel).toHaveTextContent(/annotation-provenance footer/i);
+    expect(panel).toHaveTextContent(/the run configuration and the version of every tool/i);
     // Last on the page: context for what is above it, not a starting point.
     const members = screen.getByText('Family members').closest('section');
     expect(members).not.toBeNull();

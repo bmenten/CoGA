@@ -42,6 +42,7 @@ from ..schemas import (
     ProjectsUpdate,
     QcMetricCatalogueOut,
     QcThresholdCatalogueOut,
+    QcThresholdChangeOut,
     QcThresholdProfileOut,
     QcThresholdUpdate,
     RawImportFileVerifyOut,
@@ -54,6 +55,7 @@ from ..schemas import (
 from ..services.audit_log_pg import list_audit_log_events
 from ..services.qc_threshold_service import (
     QC_METRICS,
+    list_qc_threshold_changes,
     list_qc_threshold_profiles,
     set_qc_threshold,
 )
@@ -590,6 +592,10 @@ async def list_qc_thresholds_admin(
             QcThresholdProfileOut(**profile)
             for profile in await list_qc_threshold_profiles(session)
         ],
+        changes=[
+            QcThresholdChangeOut(**change)
+            for change in await list_qc_threshold_changes(session)
+        ],
     )
 
 
@@ -603,9 +609,10 @@ async def set_qc_threshold_admin(
     """Set or clear one metric's cut-offs.
 
     A cut-off change alters what the interface reports as a failed run, so it must be
-    traceable. No explicit audit call is needed: the request-logging middleware records
-    every mutating request with its path, parsed body and acting user, so the metric key
-    and both bounds are already on the audit trail.
+    traceable in both directions. Two records cover it: the request-logging middleware
+    already captures the path, parsed body and acting user, and `set_qc_threshold`
+    appends the *replaced* values to the append-only `qc_threshold_changes` history —
+    which the request log cannot, having no prior value.
     """
     return await set_qc_threshold(
         session,
@@ -614,6 +621,7 @@ async def set_qc_threshold_admin(
         warn_value=payload.warn_value,
         error_value=payload.error_value,
         user_id=user.id,
+        user_email=user.email,
     )
 
 

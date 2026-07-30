@@ -50,18 +50,34 @@ QcVerdict = Status
 _VERDICT_RANK: dict[QcVerdict, int] = {"skip": 0, "pass": 1, "warn": 2, "fail": 3}
 
 
+#: Where a metric's value comes from. ``sequencing_qc`` metrics are read straight out of
+#: ``samples.metadata["sequencing_qc"]`` by ``evaluate_sequencing_qc``. ``mtdna`` metrics
+#: are computed by the mitochondrial analysis from its own coverage/contamination inputs,
+#: so that service evaluates them itself — but their cut-offs are configured here, in the
+#: one place, rather than hard-coded in the analysis.
+MetricSource = Literal["sequencing_qc", "mtdna"]
+
+
 @dataclass(frozen=True, slots=True)
 class QcMetric:
     key: str
     label: str
     unit: str
     direction: Direction
-    #: Dotted path into ``sequencing_qc`` — e.g. ``depth.mean_depth``.
+    #: Dotted path into the metric's source document — e.g. ``depth.mean_depth``.
     path: tuple[str, ...]
     help_text: str
+    source: MetricSource = "sequencing_qc"
 
 
-def _metric(key: str, label: str, unit: str, direction: Direction, help_text: str) -> QcMetric:
+def _metric(
+    key: str,
+    label: str,
+    unit: str,
+    direction: Direction,
+    help_text: str,
+    source: MetricSource = "sequencing_qc",
+) -> QcMetric:
     return QcMetric(
         key=key,
         label=label,
@@ -69,6 +85,7 @@ def _metric(key: str, label: str, unit: str, direction: Direction, help_text: st
         direction=direction,
         path=tuple(key.split(".")),
         help_text=help_text,
+        source=source,
     )
 
 
@@ -179,6 +196,25 @@ QC_METRICS: tuple[QcMetric, ...] = (
         "higher_is_worse",
         "Standard deviation of read length. A wide spread points at library fragmentation.",
     ),
+    # Mitochondrial QC. Evaluated by mitochondrial_analysis against its own coverage and
+    # contamination inputs, but configured here so there is one place a lab sets a QC
+    # cut-off. These replace numbers that used to be hard-coded in that module.
+    _metric(
+        "mtdna.mean_depth",
+        "mtDNA mean depth",
+        "x",
+        "lower_is_worse",
+        "Mean chrM coverage behind the mitochondrial analysis; drives whether heteroplasmy is callable.",
+        source="mtdna",
+    ),
+    _metric(
+        "mtdna.contamination",
+        "mtDNA contamination",
+        "fraction",
+        "higher_is_worse",
+        "Haplocheck-style contamination estimate. A raised value makes apparent heteroplasmy unreliable.",
+        source="mtdna",
+    ),
 )
 
 QC_METRICS_BY_KEY: dict[str, QcMetric] = {metric.key: metric for metric in QC_METRICS}
@@ -254,6 +290,8 @@ def evaluate_sequencing_qc(
         return None
     metrics: list[dict[str, Any]] = []
     for metric in QC_METRICS:
+        if metric.source != "sequencing_qc":
+            continue
         value = metric_value(sequencing_qc, metric)
         if value is None:
             continue
@@ -349,6 +387,77 @@ async def list_qc_threshold_profiles(session: AsyncSession) -> list[dict[str, An
     return list(profiles.values())
 
 
+async def _record_threshold_change(
+    session: AsyncSession,
+    *,
+    profile_key: str,
+    metric_key: str,
+    previous: dict[str, Any] | None,
+    warn_value: float | None,
+    error_value: float | None,
+    user_id: str | None,
+    user_email: str | None,
+) -> None:
+    """Append both sides of a cut-off edit to the immutable history.
+
+    The request-audit pipeline already records the path, body and actor, but not the
+    value that was replaced — so it cannot answer "who lowered the depth limit, and from
+    what". This can.
+    """
+    await session.execute(
+        text(
+            """
+            INSERT INTO qc_threshold_changes (
+                profile_key, metric_key,
+                previous_warn_value, previous_error_value,
+                warn_value, error_value,
+                changed_by, changed_by_email
+            )
+            VALUES (
+                :profile_key, :metric_key,
+                :previous_warn_value, :previous_error_value,
+                :warn_value, :error_value,
+                CAST(NULLIF(:user_id, '') AS uuid), NULLIF(:user_email, '')
+            )
+            """
+        ),
+        {
+            "profile_key": profile_key,
+            "metric_key": metric_key,
+            "previous_warn_value": (previous or {}).get("warn_value"),
+            "previous_error_value": (previous or {}).get("error_value"),
+            "warn_value": warn_value,
+            "error_value": error_value,
+            "user_id": user_id or "",
+            "user_email": user_email or "",
+        },
+    )
+
+
+async def list_qc_threshold_changes(
+    session: AsyncSession, *, limit: int = 100
+) -> list[dict[str, Any]]:
+    """Most recent cut-off edits, newest first."""
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT profile_key, metric_key,
+                       previous_warn_value, previous_error_value,
+                       warn_value, error_value,
+                       changed_by_email, changed_at
+                FROM qc_threshold_changes
+                ORDER BY changed_at DESC
+                LIMIT :limit
+                """
+            ),
+            # int-coerced, never interpolated.
+            {"limit": max(1, min(int(limit), 500))},
+        )
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
 async def set_qc_threshold(
     session: AsyncSession,
     *,
@@ -357,6 +466,7 @@ async def set_qc_threshold(
     warn_value: float | None,
     error_value: float | None,
     user_id: str | None,
+    user_email: str | None = None,
 ) -> dict[str, Any]:
     """Upsert one metric's cut-offs within a profile.
 
@@ -374,6 +484,19 @@ async def set_qc_threshold(
     ).scalar_one_or_none()
     if profile_id is None:
         raise HTTPException(status_code=404, detail=f"Unknown QC threshold profile: {profile_key}")
+    previous = (
+        await session.execute(
+            text(
+                """
+                SELECT warn_value, error_value FROM qc_thresholds
+                WHERE profile_id = CAST(:profile_id AS uuid) AND metric_key = :metric_key
+                """
+            ),
+            {"profile_id": profile_id, "metric_key": metric_key},
+        )
+    ).mappings().first()
+    previous_bounds = dict(previous) if previous else None
+
     if warn_value is None and error_value is None:
         await session.execute(
             text(
@@ -383,6 +506,16 @@ async def set_qc_threshold(
                 """
             ),
             {"profile_id": profile_id, "metric_key": metric_key},
+        )
+        await _record_threshold_change(
+            session,
+            profile_key=profile_key,
+            metric_key=metric_key,
+            previous=previous_bounds,
+            warn_value=None,
+            error_value=None,
+            user_id=user_id,
+            user_email=user_email,
         )
         await session.commit()
         return {"profile_key": profile_key, "metric_key": metric_key, "warn_value": None, "error_value": None}
@@ -444,6 +577,16 @@ async def set_qc_threshold(
             "user_id": user_id or "",
         },
     )
+    await _record_threshold_change(
+        session,
+        profile_key=profile_key,
+        metric_key=metric_key,
+        previous=previous_bounds,
+        warn_value=warn_value,
+        error_value=error_value,
+        user_id=user_id,
+        user_email=user_email,
+    )
     await session.commit()
     return {
         "profile_key": profile_key,
@@ -454,7 +597,7 @@ async def set_qc_threshold(
 
 
 async def resolve_family_qc_thresholds(
-    session: AsyncSession,
+    session: AsyncSession | None,
     *,
     family_uuid: str,
 ) -> dict[str, Any]:
@@ -464,7 +607,14 @@ async def resolve_family_qc_thresholds(
     An unknown or absent ``qc_profile`` falls back to the default profile rather than
     gating nothing, so a family cannot quietly opt out of its QC gate by carrying a
     typo.
+
+    With no session (presence probes and unit tests call the analysis without one) there
+    is nothing to read, so no cut-offs apply and every metric evaluates to ``skip``. That
+    is the safe direction: a sample is never reported as passing a gate that was not
+    consulted.
     """
+    if session is None:
+        return {"profile_key": None, "profile_label": None, "thresholds": {}}
     row = (
         await session.execute(
             text(
