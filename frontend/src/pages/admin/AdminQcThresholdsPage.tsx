@@ -43,6 +43,7 @@ const AdminQcThresholdsPage: React.FC = () => {
   // A cut-off decides whether a run is reported as inadequate, so it is not saved on a
   // single stray click — the change is restated and confirmed first.
   const [pendingMetric, setPendingMetric] = useState<string | null>(null);
+  const [pendingReason, setPendingReason] = useState('');
   const [newProfileLabel, setNewProfileLabel] = useState('');
   const [addingProfile, setAddingProfile] = useState(false);
 
@@ -90,6 +91,7 @@ const AdminQcThresholdsPage: React.FC = () => {
         metric_key: metricKey,
         warn_value: warn,
         error_value: errorBound,
+        reason: pendingReason.trim(),
       });
       return metricKey;
     },
@@ -102,6 +104,7 @@ const AdminQcThresholdsPage: React.FC = () => {
         delete next[`${activeProfileKey}:${metricKey}`];
         return next;
       });
+      setPendingReason('');
       setStatus({ tone: 'success', message: `Saved thresholds for ${metricKey}.` });
     },
     onError: (err) =>
@@ -370,14 +373,27 @@ const AdminQcThresholdsPage: React.FC = () => {
               })()}
             </p>
             <p className="report-disclaimer">
-              This changes what the interface reports as an inadequate run for every sample using
-              this profile. The change is recorded permanently with your account.
+              This changes what the interface flags as an inadequate run for every sample using
+              this profile. It is advisory — nothing is withheld from a report — but the change is
+              recorded permanently with your account.
             </p>
+            <label className="form-field">
+              <span>Reason for the change</span>
+              {/* Required. The values either side are recorded automatically; what they
+                  cannot say is whether a limit moved because a validation study supported
+                  it or because a run was inconvenient. */}
+              <textarea
+                rows={2}
+                value={pendingReason}
+                onChange={(event) => setPendingReason(event.target.value)}
+                placeholder="e.g. per VAL-P07 opvolgvalidatie, 2026-07"
+              />
+            </label>
             <div className="compact-toolbar family-toolbar">
               <button
                 type="button"
                 className="form-button"
-                disabled={saveMutation.isPending}
+                disabled={saveMutation.isPending || !pendingReason.trim()}
                 onClick={() => {
                   const metricKey = pendingMetric;
                   setPendingMetric(null);
@@ -386,7 +402,14 @@ const AdminQcThresholdsPage: React.FC = () => {
               >
                 Confirm change
               </button>
-              <button type="button" className="button-ghost" onClick={() => setPendingMetric(null)}>
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => {
+                  setPendingMetric(null);
+                  setPendingReason('');
+                }}
+              >
                 Cancel
               </button>
             </div>
@@ -417,6 +440,7 @@ const AdminQcThresholdsPage: React.FC = () => {
                   <th>Metric</th>
                   <th>Warning</th>
                   <th>Error</th>
+                  <th>Reason</th>
                 </tr>
               </thead>
               <tbody>
@@ -434,6 +458,8 @@ const AdminQcThresholdsPage: React.FC = () => {
                     <td className="table-subtle">
                       {boundText(change.previous_error_value) || '—'} → {boundText(change.error_value) || '—'}
                     </td>
+                    {/* Null only for edits made before a reason was required. */}
+                    <td>{change.reason || <span className="table-subtle">not recorded</span>}</td>
                   </tr>
                 ))}
               </tbody>

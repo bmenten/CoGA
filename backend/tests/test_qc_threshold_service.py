@@ -321,3 +321,30 @@ def test_the_seeded_profiles_ship_without_cut_offs() -> None:
     # And none of them ship a value: an invented cut-off would look authoritative
     # while never having been agreed by anyone.
     assert "INSERT INTO qc_thresholds" not in schema
+
+
+# ---------------------------------------------------------------------------
+# A cut-off change has to say why
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["", "   "])
+async def test_a_cut_off_change_without_a_reason_is_refused(reason: str) -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    # The values either side are recorded automatically. What they cannot say is
+    # whether a limit moved because a validation study supported it or because a run
+    # was inconvenient — and that is the part a reviewer needs years later.
+    with pytest.raises(HTTPException) as excinfo:
+        await set_qc_threshold(
+            _FakeProfileSession(),
+            profile_key="default",
+            metric_key="depth.mean_depth",
+            warn_value=20,
+            error_value=10,
+            user_id=None,
+            reason=reason,
+        )
+    assert excinfo.value.status_code == 400
+    assert "reason" in excinfo.value.detail.lower()
