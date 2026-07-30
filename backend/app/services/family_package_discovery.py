@@ -333,6 +333,12 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                 "depth_bigwig": [
                     "cnv/{sample_id}/{sample_id}*.depth.bw",
                 ],
+                # HiFiCNV names this one after both the run and the sample, so the
+                # reference package carries `HG002.HG002.maf.bw`; the wildcard after
+                # the first {sample_id} absorbs the repeat.
+                "maf_bigwig": [
+                    "cnv/{sample_id}/{sample_id}*.maf.bw",
+                ],
                 "summary_html": [
                     "cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz_summary.html",
                 ],
@@ -1155,7 +1161,7 @@ def _build_manifest_payload(
 
     # Long-read datasets: primary artefact required, companions recorded when present.
     long_read_roles: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-        "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "summary_html")),
+        "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "maf_bigwig", "summary_html")),
         "mito": (("vcf",), ("index", "annotation_tsv", "sv_vcf", "sv_index", "sv_annotation_tsv")),
         "alignments": (("file",), ("index",)),
         "qc": ((), ("report", "read_stats", "depth_summary", "depth_regions", "depth_global_dist")),

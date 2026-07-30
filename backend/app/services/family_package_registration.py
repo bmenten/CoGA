@@ -160,6 +160,7 @@ _PROVENANCE_PATH_KEYS = {
     "sv_annotation_tsv",
     "copy_number_bedgraph",
     "depth_bigwig",
+    "maf_bigwig",
     "summary_html",
     "report",
     "read_stats",

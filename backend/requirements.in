@@ -37,6 +37,9 @@ python-dotenv
 httpx
 pyfaidx
 pysam
+# Reading the bigWig signal tracks HiFiCNV ships in a long-read family package
+# (read depth, minor allele fraction) -- see app/services/family_package_bigwig.py.
+pyBigWig
 PyYAML
 
 # Clinical CNV knowledgebase build script (scripts/clinical_cnv_knowledgebase.py),

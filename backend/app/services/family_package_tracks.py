@@ -16,6 +16,7 @@ from .clickhouse_interval_tracks import (
     upsert_interval_track_source,
 )
 from .data_scope import normalize_chromosome
+from .family_package_bigwig import iter_bigwig_intervals, open_bigwig
 from .family_metadata_context import (
     SampleMetadataContext,
 )
@@ -483,6 +484,102 @@ async def _import_copy_number_track(
         "inserted": inserted,
         "skipped": skipped,
     }
+    if progress is not None:
+        await progress(result)
+    return result
+
+
+async def _import_bigwig_interval_track(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    path: Path,
+    track_type: str,
+    source: str,
+    origin: str | None = None,
+    skip_zero: bool = False,
+    progress: Callable[[dict[str, int]], Awaitable[None]] | None = None,
+) -> dict[str, int]:
+    """Import a bigWig signal file as interval-track rows.
+
+    Same contract as :func:`_import_copy_number_track` -- replace this
+    (track_type, source, filename) triple, stream rows in batches, then record
+    the source -- but reading a binary signal file instead of a delimited one.
+
+    ``origin`` is written to every row when given. bigWig has nowhere to put a
+    parent-of-origin call, so a track fed from one is unphased by construction;
+    passing ``"und"`` states that explicitly rather than leaving the column null
+    and letting a reader infer a missing value means something.
+    """
+
+    if not sample_context.assembly_name:
+        raise RuntimeError("Cannot import bigWig interval tracks without an assembly name")
+    await _delete_sample_interval_source(
+        session,
+        sample_context=sample_context,
+        track_type=track_type,
+        source=source,
+        filename=path.name,
+    )
+
+    processed = 0
+    inserted = 0
+    last_reported = 0
+    batch: list[dict[str, Any]] = []
+    reader = open_bigwig(path)
+    try:
+        for chrom, start, end, value in iter_bigwig_intervals(reader, skip_zero=skip_zero):
+            processed += 1
+            batch.append(
+                {
+                    "sample_id": sample_context.sample_uuid,
+                    "family_id": sample_context.family_uuid,
+                    "assembly_id": sample_context.assembly_id or "",
+                    "assembly_name": sample_context.assembly_name or "",
+                    "track_type": track_type,
+                    "source": source,
+                    "chr": chrom,
+                    "start": start,
+                    "end": end,
+                    "record_id": f"{chrom}:{start}-{end}",
+                    "value": value,
+                    "origin": origin,
+                    # Deliberately no per-row line number: a bigWig has no lines, and
+                    # a synthetic index would only invite someone to grep for it.
+                    "metadata_json": json.dumps(
+                        _jsonb_safe({"source": source, "filename": path.name})
+                    ),
+                }
+            )
+            if len(batch) >= 5000:
+                await _insert_interval_track_rows(session, batch)
+                inserted += len(batch)
+                batch = []
+                if progress is not None and processed - last_reported >= 50000:
+                    last_reported = processed
+                    await progress({"processed": processed, "inserted": inserted, "skipped": 0})
+    finally:
+        reader.close()
+    if batch:
+        await _insert_interval_track_rows(session, batch)
+        inserted += len(batch)
+
+    await upsert_interval_track_source(
+        session,
+        sample_context=sample_context,
+        track_type=track_type,
+        source=source,
+        filename=path.name,
+        row_count=inserted,
+        metadata={
+            "source": source,
+            "filename": path.name,
+            "uploaded_from": "family_package",
+            "format": "bigwig",
+        },
+    )
+    await session.commit()
+    result = {"processed": processed, "inserted": inserted, "skipped": processed - inserted}
     if progress is not None:
         await progress(result)
     return result

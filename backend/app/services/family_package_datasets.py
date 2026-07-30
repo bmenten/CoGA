@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from functools import partial
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,7 +55,7 @@ from .family_package_qc import (  # noqa: F401
     record_sample_qc_metadata as _record_sample_qc_metadata,
 )
 from .family_package_registration import _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count  # noqa: F401
-from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track  # noqa: F401
+from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track  # noqa: F401
 from .family_package_validation import _manifest_hpo_rows, _pcf_role_path  # noqa: F401
 from .family_package_variants import _iter_cnv_structural_records, _iter_needlr_structural_records, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata  # noqa: F401
 
@@ -999,6 +1000,49 @@ async def _record_mtdna_sample_metadata(
     )
 
 
+async def _import_interval_track_unless_present(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    track_type: str,
+    source: str,
+    conflict_mode: str,
+    importer: Callable[[], Awaitable[dict[str, int]]],
+) -> dict[str, Any]:
+    """Run ``importer`` unless update mode must leave existing rows alone.
+
+    ``update`` means "add what is missing, touch nothing that is there"; the
+    importers themselves always replace their (track_type, source, filename)
+    triple, so the guard has to sit outside them. Shared by the three HiFiCNV
+    signal tracks, which differ only in what they read and where it lands.
+
+    When the import does run, the whole (track_type, source) pair is cleared
+    first rather than just the incoming filename. A source owns a track for a
+    sample; a filename-scoped replace silently accumulates rows when the file
+    that feeds a track changes. That is not hypothetical -- HiFiCNV's `coverage`
+    track used to be fed by the copy-number bedgraph and is now fed by the depth
+    bigWig, so a filename-scoped replace would leave the old copy-number rows
+    behind to be averaged into the new depth values.
+    """
+
+    existing = await _interval_track_count(
+        session,
+        sample_context=sample_context,
+        track_type=track_type,
+        source=source,
+    )
+    if conflict_mode == "update" and existing:
+        return {"skipped": True, "existing": existing}
+    if existing:
+        await _delete_sample_interval_source(
+            session,
+            sample_context=sample_context,
+            track_type=track_type,
+            source=source,
+        )
+    return await importer()
+
+
 async def _import_cnv_dataset(
     session: AsyncSession,
     *,
@@ -1051,27 +1095,78 @@ async def _import_cnv_dataset(
             "calls": len(sample_records),
             "filename": vcf_path.name,
         }
+        # HiFiCNV ships two signal files per sample and they measure different
+        # things, so they land on different tracks:
+        #
+        #   depth.bw          read depth per 2 kb bin  -> `coverage`
+        #   copynum.bedgraph  called integer copy number -> `segments`
+        #
+        # Before this split the bedgraph was the `coverage` track, which put copy
+        # number on an axis every other caller uses for depth or log2 ratio -- so
+        # a HiFiCNV track could not be compared with the WisecondorX or QDNAseq
+        # track stacked beside it.
         bedgraph_path = _resolve_package_path(bundle.root, raw_entry.get("copy_number_bedgraph"))
         if bedgraph_path is not None:
-            existing_bins = await _interval_track_count(
+            sample_results[sample_id]["copy_number_track"] = await _import_interval_track_unless_present(
+                session,
+                sample_context=sample_context,
+                track_type="segments",
+                source=CNV_SOURCE,
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_copy_number_track,
+                    session,
+                    sample_context=sample_context,
+                    path=bedgraph_path,
+                    track_type="segments",
+                    source=CNV_SOURCE,
+                ),
+            )
+
+        depth_path = _resolve_package_path(bundle.root, raw_entry.get("depth_bigwig"))
+        if depth_path is not None:
+            sample_results[sample_id]["depth_track"] = await _import_interval_track_unless_present(
                 session,
                 sample_context=sample_context,
                 track_type="coverage",
                 source=CNV_SOURCE,
-            )
-            if conflict_mode == "update" and existing_bins:
-                sample_results[sample_id]["copy_number_track"] = {
-                    "skipped": True,
-                    "existing": existing_bins,
-                }
-            else:
-                sample_results[sample_id]["copy_number_track"] = await _import_copy_number_track(
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_bigwig_interval_track,
                     session,
                     sample_context=sample_context,
-                    path=bedgraph_path,
+                    path=depth_path,
                     track_type="coverage",
                     source=CNV_SOURCE,
-                )
+                    # A depth bigWig spans the whole genome, so ~half its bins are
+                    # the zero-depth telomeric/centromeric gaps. They plot as a
+                    # flat line on the axis and cost ~600k rows per sample.
+                    skip_zero=True,
+                ),
+            )
+
+        # Minor allele fraction is BAF-like, so it belongs on the APCAD track the
+        # views already draw. It carries no parent-of-origin -- bigWig has nowhere
+        # to record one -- hence `und`, which the readers treat as unphased rather
+        # than as a missing paternal/maternal call.
+        maf_path = _resolve_package_path(bundle.root, raw_entry.get("maf_bigwig"))
+        if maf_path is not None:
+            sample_results[sample_id]["maf_track"] = await _import_interval_track_unless_present(
+                session,
+                sample_context=sample_context,
+                track_type="apcad",
+                source=CNV_SOURCE,
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    _import_bigwig_interval_track,
+                    session,
+                    sample_context=sample_context,
+                    path=maf_path,
+                    track_type="apcad",
+                    source=CNV_SOURCE,
+                    origin="und",
+                ),
+            )
 
     if not records:
         return await _register_only(summary, "Registered only; no CNV calls were parsed")
