@@ -63,7 +63,12 @@ Sequencing-QC acceptance limits (admin-managed):
 
 - `qc_threshold_profiles` — named cut-off sets, one per assay type; a family resolves to
   the profile named in `families.metadata->>'qc_profile'` and to the `is_default` profile
-  otherwise. A partial unique index enforces at most one default.
+  otherwise. A partial unique index enforces at most one default. Seeded with `default`,
+  `long_read_wgs`, `short_read_wgs`, `short_read_panel`, `nipt_monogenic` and `pgt` —
+  all **empty**, since a cut-off is the laboratory's to agree. Admins can add more
+  (`POST /admin/qc-thresholds/profiles`); a new profile inherits no cut-offs, because an
+  inherited number would carry an authority nobody granted it. The key is derived from
+  the label and immutable, since families reference it.
 - `qc_threshold_changes` — **append-only** history of every cut-off edit, holding the
   value that was *replaced* as well as the new one plus the acting user. The HTTP
   request-audit pipeline records the request but has no prior value, so "who lowered the

@@ -1,4 +1,4 @@
-import { render as rtlRender, screen } from '@testing-library/react';
+import { render as rtlRender, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import PipelineSettingsPanel, {
@@ -67,11 +67,14 @@ describe('PipelineSettingsPanel', () => {
 
     expect(screen.getByText('Reference')).toBeInTheDocument();
     expect(screen.getByText('Genome build')).toBeInTheDocument();
-    expect(screen.getByText('Small variants')).toBeInTheDocument();
     expect(screen.getByText('Repeat catalogue')).toBeInTheDocument();
-    expect(screen.getByText('hificnv')).toBeInTheDocument();
-    // deepvariant called both the nuclear small variants and chrM, so it appears twice.
-    expect(screen.getAllByText('deepvariant')).toHaveLength(2);
+    // Callers are no longer parameter rows naming a tool that the versions footer
+    // then named again; they are rows of the tools table, with their version and
+    // the job they did.
+    const tools = screen.getByTestId('pipeline-tools');
+    expect(tools).toHaveTextContent('hificnv');
+    expect(tools).toHaveTextContent('Small variants');
+    expect(tools).toHaveTextContent('CNV');
   });
 
   it('collapses the boolean stage switches into the list of stages that ran', () => {
@@ -133,16 +136,36 @@ describe('PipelineSettingsPanel', () => {
 
     // Which pipeline, at which version, on which engine is the headline of the record —
     // it must not be buried among the tools.
-    const workflow = await screen.findByTestId('pipeline-workflow');
+    // The section renders straight away from the parameters and fills in when the
+    // manifest arrives — so wait for the manifest's content, not for the container.
+    await screen.findByText(/nf-core\/lrsvar/);
+    const workflow = screen.getByTestId('pipeline-workflow');
     expect(workflow).toHaveTextContent('nf-core/lrsvar');
     expect(workflow).toHaveTextContent('v1.0.0dev');
     expect(workflow).toHaveTextContent('26.04.3');
 
     const tools = screen.getByTestId('pipeline-tools');
     expect(tools).toHaveTextContent('minimap2');
+    expect(tools).toHaveTextContent('2.30-r1287');
     expect(tools).toHaveTextContent('samtools');
-    // A module with no version is not a traceability record; it is left out of the count.
-    expect(tools).toHaveTextContent('(2)');
+    // A module with no version is not a traceability record.
     expect(tools).not.toHaveTextContent('unversioned');
+    // Callers sort ahead of the rest: they produced the variants being read.
+    const rows = within(tools).getAllByRole('row').slice(1);
+    const roles = rows.map((row) => within(row).getAllByRole('cell')[2].textContent);
+    expect(roles.filter(Boolean).length).toBeGreaterThan(0);
+    expect(roles.indexOf('')).toBeGreaterThan(0);
+  });
+
+  it('keeps a caller the pipeline named but reported no version for', async () => {
+    const api = (await import('../../../lib/api')).default;
+    vi.mocked(api.get).mockResolvedValue({ data: { modules: [] } });
+
+    render(<PipelineSettingsPanel familyId="pacbio" settings={PACBIO_SETTINGS} />);
+
+    // Dropping it would silently shorten the record of what produced these calls.
+    const tools = await screen.findByTestId('pipeline-tools');
+    expect(tools).toHaveTextContent('hificnv');
+    expect(tools).toHaveTextContent('not reported');
   });
 });

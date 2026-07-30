@@ -24,12 +24,8 @@ const PARAMETER_GROUPS: { title: string; keys: [string, string][] }[] = [
     ],
   },
   {
-    title: 'Callers',
+    title: 'Caller models',
     keys: [
-      ['snv_caller', 'Small variants'],
-      ['sv_caller', 'Structural variants'],
-      ['cnv_caller', 'CNV'],
-      ['mito_caller', 'Mitochondrial'],
       ['clair3_model_pacbio', 'Clair3 model (PacBio)'],
       ['clair3_model_ont', 'Clair3 model (ONT)'],
     ],
@@ -108,6 +104,24 @@ const isWorkflowModule = (module: ApiAnnotationModule): boolean =>
   module.detail?.toLowerCase() === 'workflow' ||
   module.key.startsWith('nf-core/');
 
+/**
+ * Pipeline parameters that name the tool used for a job.
+ *
+ * These used to be rendered as their own "Callers" rows — `Small variants: clair3` —
+ * while a chip footer listed `clair3 1.1.2` a screen further down. Same tool, named
+ * twice, with the version only in the place you had to scroll to. The role is folded
+ * into the versions table instead, so each tool appears once, with what it did and
+ * what version it was.
+ */
+const CALLER_ROLES: [string, string][] = [
+  ['snv_caller', 'Small variants'],
+  ['sv_caller', 'Structural variants'],
+  ['cnv_caller', 'CNV'],
+  ['mito_caller', 'Mitochondrial'],
+];
+
+const normalizeToolKey = (value: string): string => value.trim().toLowerCase();
+
 interface PipelineSettingsPanelProps {
   /** Family whose recorded tool versions to show alongside the run parameters. */
   familyId?: string;
@@ -136,9 +150,6 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
 
   const versioned = (manifest?.modules ?? []).filter((module) => module.version);
   const workflowModules = versioned.filter(isWorkflowModule);
-  const toolModules = versioned
-    .filter((module) => !isWorkflowModule(module))
-    .sort((left, right) => left.label.localeCompare(right.label));
 
   if (!settings && !versioned.length) return null;
 
@@ -169,8 +180,84 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
 
   if (!groups.length && !stages.length && !versioned.length) return null;
 
+  // Which job each tool did, keyed by the tool name the pipeline recorded.
+  const roleByTool = new Map<string, string>();
+  for (const [key, role] of CALLER_ROLES) {
+    const named = scalarText(resolved[key]);
+    if (named) roleByTool.set(normalizeToolKey(named), role);
+  }
+
+  // One row per tool: the versioned modules, plus any caller the parameters named
+  // that reported no version — dropping those would silently shorten the record of
+  // what produced these calls.
+  const toolRows: {
+    key: string;
+    label: string;
+    version: string;
+    role?: string;
+    detail?: string | null;
+  }[] = versioned
+    .filter((module) => !isWorkflowModule(module))
+    .map((module) => ({
+      key: module.key,
+      label: module.label,
+      version: module.version as string,
+      role: roleByTool.get(normalizeToolKey(module.key)) ?? roleByTool.get(normalizeToolKey(module.label)),
+      detail: module.detail,
+    }));
+  const namedTools = new Set(toolRows.flatMap((row) => [normalizeToolKey(row.key), normalizeToolKey(row.label)]));
+  for (const [key, role] of CALLER_ROLES) {
+    const named = scalarText(resolved[key]);
+    if (named && !namedTools.has(normalizeToolKey(named))) {
+      toolRows.push({ key: `param:${key}`, label: named, version: '', role });
+    }
+  }
+  toolRows.sort((left, right) => {
+    // Callers first — they produced the variants being read — then the rest by name.
+    if (Boolean(left.role) !== Boolean(right.role)) return left.role ? -1 : 1;
+    return left.label.localeCompare(right.label);
+  });
+
   const body = (
     <>
+      {(workflowModules.length > 0 || toolRows.length > 0) && (
+        <div className="pipeline-settings-versions" data-testid="pipeline-workflow">
+          {workflowModules.length > 0 && (
+            <p className="pipeline-settings-workflow">
+              {workflowModules.map((module, index) => (
+                <span key={module.key}>
+                  {index > 0 ? ' on ' : ''}
+                  <strong>{module.label}</strong> {module.version}
+                </span>
+              ))}
+            </p>
+          )}
+          {toolRows.length > 0 && (
+            <div className="data-table-shell overflow-x-auto">
+              <table className="analysis-table pipeline-tools-table" data-testid="pipeline-tools">
+                <thead>
+                  <tr>
+                    <th>Tool / database</th>
+                    <th>Version</th>
+                    <th>Used for</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {toolRows.map((row) => (
+                    <tr key={row.key}>
+                      <td title={row.detail ? `reported by ${row.detail}` : undefined}>{row.label}</td>
+                      {/* A tool the pipeline named but reported no version for is shown
+                          as such, rather than omitted or left looking versioned. */}
+                      <td>{row.version || <span className="table-subtle">not reported</span>}</td>
+                      <td className="table-subtle">{row.role ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
       <div className="pipeline-settings-grid">
         {groups.map((group) => (
           <div key={group.title} className="pipeline-settings-group">
@@ -189,46 +276,8 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
       {stages.length > 0 && (
         <p className="pipeline-settings-stages" data-testid="pipeline-stages">
           <span className="pipeline-settings-group-title">Stages run</span>{' '}
-          {stages.join(' · ')}
+          {stages.join(' \u00b7 ')}
         </p>
-      )}
-      {workflowModules.length > 0 && (
-        <div className="pipeline-settings-versions" data-testid="pipeline-workflow">
-          <span className="pipeline-settings-group-title">Workflow</span>
-          <div className="pipeline-settings-chips">
-            {workflowModules.map((module) => (
-              <span
-                key={module.key}
-                className="badge-chip badge-chip--emphasis"
-                title={module.detail ?? module.label}
-              >
-                {module.label} <strong>{module.version}</strong>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      {toolModules.length > 0 && (
-        <div className="pipeline-settings-versions" data-testid="pipeline-tools">
-          <span className="pipeline-settings-group-title">
-            Tool &amp; database versions ({toolModules.length})
-          </span>
-          <div className="pipeline-settings-chips">
-            {toolModules.map((module) => (
-              <span
-                key={module.key}
-                className="badge-chip"
-                title={
-                  module.detail
-                    ? `${module.label} — reported by ${module.detail}`
-                    : module.label
-                }
-              >
-                {module.label} <strong>{module.version}</strong>
-              </span>
-            ))}
-          </div>
-        </div>
       )}
     </>
   );
