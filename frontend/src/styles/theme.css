@@ -12348,9 +12348,22 @@ a.button-danger:hover {
    --------------------------------------------------------------------------- */
 .qc-threshold-layout {
   display: grid;
-  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  /* Profile names carry an assay ("Preimplantation genetic testing") and a count; at
+     220px the longer ones wrapped to two lines. */
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
+}
+
+/* "Profiles", "Change history" and the active profile's name label the block under
+   them. `.section-title` is a page-heading style — up to 2.15rem — which made three
+   headings shout over the content they introduce. */
+.qc-section-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
 }
 
 @media (max-width: 900px) {
@@ -12375,16 +12388,21 @@ a.button-danger:hover {
   align-items: baseline;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.3rem 0.5rem;
+  padding: 0.25rem 0.5rem;
   border: 1px solid transparent;
   border-radius: var(--radius-sm, 6px);
   background: none;
   box-shadow: none;
   transform: none;
   text-align: left;
-  font-size: 0.85rem;
   cursor: pointer;
   color: inherit;
+  /* A profile is named after an assay ("Monogenic NIPT"); the shared button rule
+     renders it bold uppercase at 0.18em tracking, which is a shout, not a name. */
+  font-size: 0.82rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .qc-profile-item:hover {
@@ -12396,7 +12414,7 @@ a.button-danger:hover {
 .qc-profile-item--active {
   border-color: var(--color-accent);
   background: var(--color-surface-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .qc-profile-item__label {
@@ -12463,8 +12481,23 @@ a.button-danger:hover {
    it. Sixteen of those turned a short list of numbers into a page. */
 .qc-threshold-table td,
 .qc-threshold-table th {
-  padding: 0.05rem 0.5rem;
-  line-height: 1.35;
+  padding: 0 0.5rem;
+  line-height: 1.25;
+}
+
+/* A metric name is content, not a link or a heading. `.table-link` renders bold,
+   uppercase and wide-tracked, so "Mean depth" arrived as "M E A N   D E P T H" — the
+   loudest thing on a page of quiet numbers. */
+.qc-threshold-table .table-link {
+  font-size: 0.78rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: inherit;
+}
+
+.qc-threshold-table .table-link:hover {
+  color: var(--color-primary);
 }
 
 /* Column headings are a label for the column, not content: smaller and lighter than
@@ -12503,4 +12536,20 @@ a.button-danger:hover {
    compete with it. */
 .qc-threshold-table td .table-subtle {
   font-size: 0.68rem;
+}
+
+/* Without this the shared button rule (min-height 3rem) makes whichever row is being
+   edited three times the height of its neighbours, so the table jumps as you type. */
+.qc-threshold-table button {
+  min-height: auto;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  box-shadow: none;
+  transform: none;
+}
+
+.qc-threshold-table button:hover {
+  transform: none;
+  box-shadow: none;
 }
