@@ -270,6 +270,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_family_package_bigwig.py](../backend/tests/test_family_package_bigwig.py) | bigWig reading (primary contigs only, karyotype order, zero-bin skipping) and which HiFiCNV file feeds which interval track. |
 | [backend/tests/test_family_package_cnv_callers.py](../backend/tests/test_family_package_cnv_callers.py) | CNV-caller discovery (QDNAseq lrsvar BED and legacy CSV layouts, WisecondorX sample-prefixed names) and interval-track ownership on re-import. |
 | [backend/tests/test_coverage_normalization.py](../backend/tests/test_coverage_normalization.py) | Autosomal-median normaliser and the depth→log2-ratio transform that puts three CNV callers' coverage on one axis. |
+| [backend/tests/test_signal_track_router.py](../backend/tests/test_signal_track_router.py) | Signal-file serving for IGV: recorded-path resolution, containment against crafted family ids and paths, and the per-kind axis spec. |
 | [backend/tests/test_admin_clickhouse_listing.py](../backend/tests/test_admin_clickhouse_listing.py) | Admin ClickHouse listing and variant-count aggregation. |
 | [backend/tests/test_config.py](../backend/tests/test_config.py) | CORS-origins config parsing. |
 | [backend/tests/test_small_variant_clinvar_frequency_rescue.py](../backend/tests/test_small_variant_clinvar_frequency_rescue.py) | ClinVar P/LP rescue overriding frequency thresholds. |

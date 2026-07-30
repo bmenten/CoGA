@@ -54,6 +54,7 @@ from .family_package_qc import (  # noqa: F401
     record_family_pipeline_metadata as _record_family_pipeline_metadata,
     record_sample_alignment_metadata as _record_sample_alignment_metadata,
     record_sample_mtdna_metadata,
+    record_sample_signal_tracks as _record_sample_signal_tracks,
     record_sample_qc_metadata as _record_sample_qc_metadata,
 )
 from .family_package_registration import _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count  # noqa: F401
@@ -1197,6 +1198,28 @@ async def _import_cnv_dataset(
                     source=CNV_SOURCE,
                     origin="und",
                 ),
+            )
+
+        # Where the signal files sit, for the browser to stream directly. Recorded
+        # rather than re-derived at serve time: HiFiCNV names them after its own run
+        # (`HG002.Sample0.depth.bw`, `HG002.HG002.maf.bw`), which no fixed path
+        # pattern predicts. Recorded whether or not the file produced ClickHouse
+        # rows -- the binned track and the file IGV streams are different artefacts,
+        # and the raw depth here is absolute where the binned copy is a log2 ratio.
+        signal_tracks = {
+            key: _display_path(bundle.root, path)
+            for key, path in (
+                ("depth_bigwig", depth_path),
+                ("maf_bigwig", maf_path),
+                ("copy_number_bedgraph", bedgraph_path),
+            )
+            if path is not None and path.is_file()
+        }
+        if signal_tracks:
+            await _record_sample_signal_tracks(
+                session,
+                sample_context=sample_context,
+                signal_tracks={CNV_SOURCE: signal_tracks},
             )
 
     if not records:
