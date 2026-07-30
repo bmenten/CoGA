@@ -85,6 +85,8 @@ export interface ApiQcThresholdChange {
   error_value?: number | null;
   changed_by_email?: string | null;
   changed_at: string;
+  /** Why the cut-off moved; null only for edits made before it was required. */
+  reason?: string | null;
 }
 
 export interface ApiQcThresholdCatalogue {
@@ -575,6 +577,15 @@ export type ApiTrackAvailabilityResponse<TTrackAvailability> = {
 
 export interface ApiChromosomeTrackAvailability {
   coverage: boolean;
+  /**
+   * Which CNV callers actually have coverage rows for this sample. A long-read
+   * package can carry HiFiCNV, WisecondorX and QDNAseq at once and each is drawn
+   * as its own track; `coverage` remains the "any at all" flag.
+   */
+  coverage_sources?: string[];
+  segments_sources?: string[];
+  /** Which callers wrote the APCAD track; decides the axis (see MAF_AXIS_MAX). */
+  apcad_sources?: string[];
   apcad: boolean;
   apcad_pcf: boolean;
   variants: boolean;
@@ -586,6 +597,9 @@ export interface ApiChromosomeTrackAvailability {
 export interface ApiGenomeTrackAvailability {
   coverage: boolean;
   segments: boolean;
+  coverage_sources?: string[];
+  segments_sources?: string[];
+  apcad_sources?: string[];
   apcad: boolean;
   apcad_pcf: boolean;
   haplotypes: boolean;

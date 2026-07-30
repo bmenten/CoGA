@@ -21,6 +21,8 @@ and a report, rather than three clients re-deriving it from raw numbers.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 import logging
 from typing import Any, Literal, Sequence
@@ -397,12 +399,15 @@ async def _record_threshold_change(
     error_value: float | None,
     user_id: str | None,
     user_email: str | None,
+    reason: str,
 ) -> None:
     """Append both sides of a cut-off edit to the immutable history.
 
     The request-audit pipeline already records the path, body and actor, but not the
     value that was replaced — so it cannot answer "who lowered the depth limit, and from
-    what". This can.
+    what". This can, and ``reason`` carries the part neither can infer: *why*. The
+    numbers either side do not distinguish a limit lowered because a validation study
+    supported it from one lowered because a run was inconvenient.
     """
     await session.execute(
         text(
@@ -411,13 +416,13 @@ async def _record_threshold_change(
                 profile_key, metric_key,
                 previous_warn_value, previous_error_value,
                 warn_value, error_value,
-                changed_by, changed_by_email
+                changed_by, changed_by_email, reason
             )
             VALUES (
                 :profile_key, :metric_key,
                 :previous_warn_value, :previous_error_value,
                 :warn_value, :error_value,
-                CAST(NULLIF(:user_id, '') AS uuid), NULLIF(:user_email, '')
+                CAST(NULLIF(:user_id, '') AS uuid), NULLIF(:user_email, ''), :reason
             )
             """
         ),
@@ -430,6 +435,7 @@ async def _record_threshold_change(
             "error_value": error_value,
             "user_id": user_id or "",
             "user_email": user_email or "",
+            "reason": reason,
         },
     )
 
@@ -445,7 +451,7 @@ async def list_qc_threshold_changes(
                 SELECT profile_key, metric_key,
                        previous_warn_value, previous_error_value,
                        warn_value, error_value,
-                       changed_by_email, changed_at
+                       changed_by_email, changed_at, reason
                 FROM qc_threshold_changes
                 ORDER BY changed_at DESC
                 LIMIT :limit
@@ -458,6 +464,76 @@ async def list_qc_threshold_changes(
     return [dict(row) for row in rows]
 
 
+_PROFILE_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_]{1,62}$")
+
+
+async def create_qc_threshold_profile(
+    session: AsyncSession,
+    *,
+    label: str,
+    key: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Add an empty QC threshold profile.
+
+    Empty on purpose. A new profile exists because an assay is judged on a
+    different footing, so copying another profile's cut-offs into it would put an
+    unreviewed number in front of an operator with a laboratory's authority behind
+    it. Every metric starts unconfigured, which reports as *not assessed*.
+
+    The key is derived from the label when not given, because it appears in a
+    family's ``qc_profile`` metadata and in URLs; it is immutable afterwards, since
+    families reference it.
+    """
+
+    label = (label or "").strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="A profile label is required")
+    if key is None:
+        key = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+    key = (key or "").strip().lower()
+    if not _PROFILE_KEY_PATTERN.match(key):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "A profile key must be 2-63 characters of lowercase letters, digits or "
+                "underscores, starting with a letter or digit"
+            ),
+        )
+    existing = (
+        await session.execute(
+            text("SELECT label FROM qc_threshold_profiles WHERE key = :key"),
+            {"key": key},
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A QC threshold profile with key '{key}' already exists ({existing})",
+        )
+    # New profiles sort after the seeded ones rather than interleaving with them.
+    row = (
+        await session.execute(
+            text(
+                """
+                INSERT INTO qc_threshold_profiles (key, label, description, is_default, sort_order)
+                VALUES (
+                    :key,
+                    :label,
+                    NULLIF(:description, ''),
+                    false,
+                    COALESCE((SELECT MAX(sort_order) FROM qc_threshold_profiles), 0) + 10
+                )
+                RETURNING id::text AS id, key, label, description, is_default, sort_order
+                """
+            ),
+            {"key": key, "label": label, "description": (description or "").strip()},
+        )
+    ).mappings().one()
+    await session.commit()
+    return dict(row)
+
+
 async def set_qc_threshold(
     session: AsyncSession,
     *,
@@ -467,12 +543,23 @@ async def set_qc_threshold(
     error_value: float | None,
     user_id: str | None,
     user_email: str | None = None,
+    reason: str,
 ) -> dict[str, Any]:
     """Upsert one metric's cut-offs within a profile.
 
     Clearing both bounds deletes the row: a metric with no cut-off is not configured,
     and keeping an all-null row would make the admin list imply otherwise.
+
+    ``reason`` is required and non-empty. The cut-offs themselves are agreed in each
+    test's clinical validation report, outside this tool; what the tool has to be able
+    to show is that a change here was deliberate and attributable to that decision.
     """
+    reason = (reason or "").strip()
+    if not reason:
+        raise HTTPException(
+            status_code=400,
+            detail="A reason is required when changing a QC cut-off.",
+        )
     metric = QC_METRICS_BY_KEY.get(metric_key)
     if metric is None:
         raise HTTPException(status_code=400, detail=f"Unknown QC metric: {metric_key}")
@@ -516,6 +603,7 @@ async def set_qc_threshold(
             error_value=None,
             user_id=user_id,
             user_email=user_email,
+            reason=reason,
         )
         await session.commit()
         return {"profile_key": profile_key, "metric_key": metric_key, "warn_value": None, "error_value": None}
@@ -586,6 +674,7 @@ async def set_qc_threshold(
         error_value=error_value,
         user_id=user_id,
         user_email=user_email,
+        reason=reason,
     )
     await session.commit()
     return {

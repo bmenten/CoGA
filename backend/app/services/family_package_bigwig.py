@@ -25,8 +25,10 @@ belongs to the importer, not here.
 
 from __future__ import annotations
 
+from array import array
 from collections.abc import Iterator
 from pathlib import Path
+from statistics import median
 from typing import Any, Protocol
 
 from .data_scope import is_primary_chromosome, normalize_chromosome
@@ -117,6 +119,36 @@ def iter_bigwig_intervals(
             if skip_zero and value == 0.0:
                 continue
             yield normalized, start, end, value
+
+
+def autosomal_median(reader: BigWigReader, *, skip_zero: bool = True) -> float | None:
+    """Median signal across the autosomes, or ``None`` if there is nothing to measure.
+
+    Used to normalise a read-depth track into a log2 ratio so it can be compared
+    with the ratio tracks other CNV callers produce.
+
+    Autosomes only: chrX and chrY sit at half depth in a male sample and would
+    drag the normaliser down by a sex-dependent amount, which would then show up
+    as an apparent genome-wide shift. Zero-depth bins are excluded by default for
+    the same reason -- a depth bigWig spans the assembly gaps, and counting those
+    as observations would pull the median toward zero.
+    """
+
+    values = array("f")
+    available = reader.chroms() or {}
+    autosomes = [name for name in available if normalize_chromosome(name).isdigit()]
+    for chrom in sorted(autosomes, key=lambda name: int(normalize_chromosome(name))):
+        length = available.get(chrom)
+        if not length:
+            continue
+        for entry in reader.intervals(chrom, 0, int(length)) or ():
+            value = float(entry[2])
+            if skip_zero and value == 0.0:
+                continue
+            values.append(value)
+    if not values:
+        return None
+    return float(median(values))
 
 
 def bigwig_chrom_summary(reader: BigWigReader) -> dict[str, int]:

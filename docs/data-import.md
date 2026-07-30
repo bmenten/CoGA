@@ -326,7 +326,7 @@ The built-in `standard_v1` naming scheme checks these paths:
 - SV Needlr: `needlr/{family_id}.sv.annotated.vcf.gz` plus `.tbi`, with `needlr/family.sv.annotated.vcf.gz` and `sv_needlr/...` fallbacks
 - TRGT family VCF: `repeats/{family_id}.trgt.vcf.gz` plus `.tbi`/`.csi`, `repeats/{family_id}_tr.vcf`, or `repeats/family.trgt.vcf.gz`/`.vcf` fallbacks. Plain uncompressed `.vcf` files do not require an index.
 - WisecondorX: `wisecondorx/{sample_id}/bins.bed` and `segments.bed`, with `sample_bins.bed`, `{sample_id}_bins.bed`, `sample_segments.bed`, and `{sample_id}_segments.bed` fallbacks
-- QDNAseq: `QDNAseq/{sample_id}/bins.csv`, `{sample_id}.bins.csv`, `{sample_id}.csv`, or `{sample_id}_cnv_results.csv`, with optional `segments.csv`/`{sample_id}.segments.csv`; lower-case `qdnaseq` is also detected. If a QDNAseq CSV contains both `copynumber` and `segmented`, the same file can be used for both bins and segments.
+- QDNAseq: `cnv/{sample_id}/{sample_id}_cnv_qdnaseq_bins.bed` and `_cnv_qdnaseq_segs.bed` (the nf-core/lrsvar layout — BED beside the HiFiCNV output, named after the caller), or the older CSV layout `QDNAseq/{sample_id}/bins.csv`, `{sample_id}.bins.csv`, `{sample_id}.csv`, or `{sample_id}_cnv_results.csv` with optional `segments.csv`/`{sample_id}.segments.csv`; lower-case `qdnaseq` is also detected. If a QDNAseq CSV contains both `copynumber` and `segmented`, the same file can be used for both bins and segments. The caller also writes `_cnv_qdnaseq_raw_bins.bed` (uncorrected read counts) and `_cnv_qdnaseq_calls.bed` (discrete calls); neither is ingested, because the interval tracks have no axis for them.
 - APCAD: family VCFs at `APCAD/{family_id}.apcad.vcf[.gz]`, `APCAD/{family_id}_embryo_filtered_imp_parent.vcf.gz`, or per-sample `APCAD/{sample_id}.apcad.vcf`, with BED and `.apcad.tsv` fallbacks; lower-case `apcad` is also detected
 - PCF APCAD segments: per-sample files at `PCF/{sample_id}_pcf_mat_data.csv` and `PCF/{sample_id}_pcf_pat_data.csv`; lower-case `pcf` and dotted fallback names `PCF/{sample_id}.pcf.mat_data.csv` / `PCF/{sample_id}.pcf.pat_data.csv` are also detected. The verified CSV header is `"sampleID","CHROM","arm","start.pos","end.pos","n.probes","mean"`.
 - Haplotypes: family GLIMPSE2 VCFs at `GLIMPSE2/{family_id}.vcf[.gz]`, `GLIMPSE2/{family_id}_phased_final.vcf.gz`, or `GLIMPSE2/family.vcf[.gz]`; legacy per-sample `haplotypes/{sample_id}.glimpse2.bcf` plus `.csi` is still registered as provenance
@@ -350,6 +350,53 @@ Where each dataset lands:
 Each source tag scopes its own delete and re-import, so a family can hold NeedlR SVs,
 HiFiCNV calls and chrM variants at once and re-importing one never removes another.
 
+#### Coverage tracks are per caller, on one shared axis
+
+A long-read package can carry three CNV callers for the same sample, each writing its
+own `coverage` and `segments` rows under its own `source` tag:
+
+| Source | Native output | Stored as | Reference HG002 rows |
+| --- | --- | --- | --- |
+| `hificnv` | read depth per 2 kb bin (0.001–1681.7x) | log2 ratio, normalised at import | 1,105,778 |
+| `wisecondorx` | log2 ratio per 10 kb bin | as-is | 283,188 |
+| `qdnaseq` | log2 ratio per 100 kb bin | as-is | 26,367 |
+
+Both HiFiCNV tracks are normalised on the way in. Its depth is divided by the
+sample's own **autosomal median** and stored as log2 of that ratio, so all three
+tracks mean the same thing and a single-copy loss sits at −1 in each. Without it a depth track and a ratio track cannot be read
+against one another: "18x" only means something if you already know the sample's
+baseline. The normaliser is recorded on the track source
+(`metadata.autosomal_median_depth`, 19.96x for the reference package) so the stored
+numbers can be traced back to the file.
+
+Autosomes only — chrX and chrY sit at half depth in a male sample and would move the
+normaliser by a sex-dependent amount. Values are floored at −10 (2⁻¹⁰ of baseline):
+log2(0) is −inf, and the near-zero depths left by a smoothed assembly gap would
+otherwise stretch the plotted range by an order of magnitude to show nothing.
+
+The raw depth bigWig is not modified and is what IGV is given, where absolute depth
+is the useful quantity.
+
+The copy-number bedGraph gets the equivalent treatment against a diploid baseline —
+without it a normal CN of 2 plotted above the top of the ±1.5 axis and drew a solid
+line across the genome at the clip boundary, making the entire normal genome read as
+a gain.
+
+All three agree on chromosome naming (unprefixed, so `1` not `chr1`), which is what
+makes them alignable along x.
+
+WisecondorX bins with a `nan` ratio (empty bins) are skipped rather than stored as
+zero: 25,649 of 308,837 in the reference package. A stored zero would read as a
+complete loss.
+
+**Reading them.** `/bed/{sample}/coverage` takes a `source` parameter, and
+`/families/{id}/track-availability` reports `coverage_sources` / `segments_sources`
+per sample. The genome and chromosome views draw one track per available caller,
+labelled with the caller when there is more than one. **Omitting `source` returns
+every caller's rows merged** — for a windowed coverage read that means averaging
+three independent measurements into one that is none of them, so the views always
+pass it.
+
 #### HiFiCNV signal files → interval tracks
 
 HiFiCNV ships three per-sample signal files that measure different things, so each
@@ -358,12 +405,29 @@ lands on the interval track whose axis means the same thing:
 | Manifest key | File | Track | Notes |
 | --- | --- | --- | --- |
 | `depth_bigwig` | `{sample_id}*.depth.bw` | `coverage` | Read depth per 2 kb bin. Zero-valued bins (the assembly gaps a whole-genome bigWig also covers) are dropped — they plot as a flat line on the axis. |
-| `copy_number_bedgraph` | `{sample_id}*.copynum.bedgraph` | `segments` | Called integer copy number, drawn as step segments. |
+| `copy_number_bedgraph` | `{sample_id}*.copynum.bedgraph` | `segments` | Called integer copy number, stored as log2(CN / 2) so it shares the axis: CN 2 → 0, CN 1 → −1, CN 4 → +1. CN 0 takes the same −10 floor as the depth track. |
 | `maf_bigwig` | `{sample_id}*.maf.bw` | `apcad` | Minor allele fraction (0–0.5), BAF-like. Written with `origin = und`: bigWig has nowhere to record a parent of origin. |
 
 Only primary chromosomes are read from a bigWig — an aligner's bigWig carries every
 contig it saw (195 in the reference package, of which 170 are ALT/random/decoy
 scaffolds that no view can plot).
+
+The files themselves are also served to the genome browser. The import records where
+each one sits under `samples.metadata["signal_tracks"][<source>]`, and
+`/signal-tracks/{family}/manifest` turns that into IGV track configs, with the files
+streamed by `/signal-tracks/{family}/{sample}/{source}/{kind}` (Range-capable, which
+is what makes a 143 MB MAF bigWig usable).
+
+The paths are recorded rather than re-derived at serve time: unlike a CRAM, which is
+always `<sample>.cram`, HiFiCNV names these after its own run
+(`HG002.Sample0.depth.bw`, `HG002.HG002.maf.bw`) and no fixed pattern predicts them.
+Recorded paths are package-relative, resolved against the family package root and
+containment-checked before anything is served.
+
+IGV gets the **raw depth**, not the log2 ratio stored in ClickHouse — absolute depth
+is the useful quantity when you are looking at reads. Read depth autoscales; MAF is
+pinned to 0–0.5 so its band structure does not move as you pan.
+
 
 Because the MAF track has no parent-of-origin calls, the APCAD reader treats its
 `paternal`/`maternal` preference as a preference rather than a filter: a track with no

@@ -5,9 +5,15 @@ inadequate, so the edge cases matter more than the happy path: an unmeasured met
 unconfigured metric, an inverted bound pair, and the direction of comparison.
 """
 
+import pathlib
+
+import pytest
+from fastapi import HTTPException
+
 from app.services.qc_threshold_service import (
     QC_METRICS,
     QC_METRICS_BY_KEY,
+    create_qc_threshold_profile,
     evaluate_metric,
     evaluate_sequencing_qc,
     metric_value,
@@ -223,3 +229,122 @@ def test_mito_contamination_fails_on_the_high_side() -> None:
     assert _sample_qc({"mtdna": {"contamination": 0.005}}, coverage, thresholds).status == "pass"
     assert _sample_qc({"mtdna": {"contamination": 0.02}}, coverage, thresholds).status == "warn"
     assert _sample_qc({"mtdna": {"contamination": 0.05}}, coverage, thresholds).status == "fail"
+
+
+# ---------------------------------------------------------------------------
+# Adding a profile
+# ---------------------------------------------------------------------------
+
+
+class _FakeProfileSession:
+    """Just enough session to exercise key derivation and the duplicate guard."""
+
+    def __init__(self, existing_label: str | None = None) -> None:
+        self.existing_label = existing_label
+        self.committed = False
+
+    async def execute(self, statement, params=None):  # noqa: ANN001
+        existing = self.existing_label
+        bound = params or {}
+
+        class _Result:
+            def scalar_one_or_none(self):
+                return existing
+
+            def mappings(self):
+                class _M:
+                    def one(self_inner):
+                        return {
+                            "id": "00000000-0000-0000-0000-000000000001",
+                            "key": bound.get("key"),
+                            "label": bound.get("label"),
+                            "description": bound.get("description") or None,
+                            "is_default": False,
+                            "sort_order": 70,
+                        }
+
+                return _M()
+
+        _ = str(statement)
+        return _Result()
+
+    async def commit(self):
+        self.committed = True
+
+
+@pytest.mark.asyncio
+async def test_a_profile_key_is_derived_from_its_label() -> None:
+    session = _FakeProfileSession()
+    created = await create_qc_threshold_profile(session, label="Monogenic NIPT")
+
+    # The key lands in a family's `qc_profile` metadata and in URLs, so it cannot
+    # carry spaces or case.
+    assert created["key"] == "monogenic_nipt"
+    assert created["label"] == "Monogenic NIPT"
+    assert session.committed
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_key_is_refused_rather_than_silently_reused() -> None:
+    # Reusing an existing profile would apply someone else's cut-offs to a new assay.
+    with pytest.raises(HTTPException) as excinfo:
+        await create_qc_threshold_profile(_FakeProfileSession(existing_label="PGT"), label="PGT")
+    assert excinfo.value.status_code == 409
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("label", ["", "   "])
+async def test_a_profile_needs_a_label(label: str) -> None:
+    with pytest.raises(HTTPException) as excinfo:
+        await create_qc_threshold_profile(_FakeProfileSession(), label=label)
+    assert excinfo.value.status_code == 400
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("label", ["!!!", "-", "x"])
+async def test_a_label_that_yields_no_usable_key_is_refused(label: str) -> None:
+    # Better a 400 than a profile nothing can reference.
+    with pytest.raises(HTTPException) as excinfo:
+        await create_qc_threshold_profile(_FakeProfileSession(), label=label)
+    assert excinfo.value.status_code == 400
+
+
+def test_the_seeded_profiles_ship_without_cut_offs() -> None:
+    schema = (
+        pathlib.Path(__file__).resolve().parents[1] / "db/schema/postgres/03_assay.sql"
+    ).read_text(encoding="utf-8")
+
+    # Every assay that is judged on a different footing needs its own profile —
+    # a WGS depth bound would report every NIPT and PGT run as inadequate.
+    for key in ("nipt_monogenic", "pgt", "long_read_wgs", "short_read_panel"):
+        assert f"'{key}'" in schema, key
+    # And none of them ship a value: an invented cut-off would look authoritative
+    # while never having been agreed by anyone.
+    assert "INSERT INTO qc_thresholds" not in schema
+
+
+# ---------------------------------------------------------------------------
+# A cut-off change has to say why
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["", "   "])
+async def test_a_cut_off_change_without_a_reason_is_refused(reason: str) -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    # The values either side are recorded automatically. What they cannot say is
+    # whether a limit moved because a validation study supported it or because a run
+    # was inconvenient — and that is the part a reviewer needs years later.
+    with pytest.raises(HTTPException) as excinfo:
+        await set_qc_threshold(
+            _FakeProfileSession(),
+            profile_key="default",
+            metric_key="depth.mean_depth",
+            warn_value=20,
+            error_value=10,
+            user_id=None,
+            reason=reason,
+        )
+    assert excinfo.value.status_code == 400
+    assert "reason" in excinfo.value.detail.lower()

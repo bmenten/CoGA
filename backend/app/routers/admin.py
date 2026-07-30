@@ -44,6 +44,7 @@ from ..schemas import (
     QcThresholdCatalogueOut,
     QcThresholdChangeOut,
     QcThresholdProfileOut,
+    QcThresholdProfileCreate,
     QcThresholdUpdate,
     RawImportFileVerifyOut,
     SmallVariantFilterPresetOut,
@@ -54,6 +55,7 @@ from ..schemas import (
 )
 from ..services.audit_log_pg import list_audit_log_events
 from ..services.qc_threshold_service import (
+    create_qc_threshold_profile,
     QC_METRICS,
     list_qc_threshold_changes,
     list_qc_threshold_profiles,
@@ -599,6 +601,27 @@ async def list_qc_thresholds_admin(
     )
 
 
+@router.post("/qc-thresholds/profiles", status_code=201)
+async def create_qc_threshold_profile_admin(
+    payload: QcThresholdProfileCreate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> dict:
+    """Add an empty QC threshold profile.
+
+    Creating a profile is not itself a cut-off change — the new profile gates nothing
+    until values are entered, each of which goes through `set_qc_threshold` and its
+    append-only history. The request log records who added it.
+    """
+    _ = user
+    return await create_qc_threshold_profile(
+        session,
+        label=payload.label,
+        key=payload.key,
+        description=payload.description,
+    )
+
+
 @router.put("/qc-thresholds/{profile_key}")
 async def set_qc_threshold_admin(
     profile_key: str,
@@ -622,6 +645,7 @@ async def set_qc_threshold_admin(
         error_value=payload.error_value,
         user_id=user.id,
         user_email=user.email,
+        reason=payload.reason,
     )
 
 

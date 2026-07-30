@@ -136,3 +136,23 @@ async def test_no_probe_runs_when_the_caller_asks_for_every_origin(
 
     # Nothing to prefer, nothing to fall back from.
     assert not [q for q in fake.queries if q.startswith("SELECT 1")]
+
+
+@pytest.mark.asyncio
+async def test_markers_without_a_quality_score_are_spread_across_the_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = RecordingClickHouse(has_phased=False, het=60, homo=40)
+    await _run(fake, monkeypatch)
+
+    band = fake.band_queries[0]
+    # Ranking by quality is only a ranking while there is a quality to rank by. A
+    # MAF bigWig records a value per site and nothing else, so every row extracts
+    # 0.0 and the ORDER BY becomes a constant -- the LIMIT then keeps whatever
+    # ClickHouse read first, which in primary-key order is the start of the
+    # chromosome. Measured on the reference family: 2000 points inside 2.1 Mb of
+    # chr1's 249 Mb, with the rest of the track blank.
+    assert "cityHash64(chrom, start)" in band
+    # Quality still decides the ranking outright where it exists; the hash only
+    # makes the previously arbitrary tie order reproducible and spatially even.
+    assert band.index("qual") < band.index("cityHash64")

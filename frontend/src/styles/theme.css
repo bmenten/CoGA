@@ -8241,10 +8241,53 @@ button.table-link:hover {
 }
 
 /* Analysis-pipeline settings, shown both as a workspace card and a report section. */
+/* Four columns, so eight groups fall into two readable rows. auto-fit spread them
+   across eight narrow columns on a wide screen, which put one short list under each
+   heading and made the section look far busier than it is. */
 .pipeline-settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: 0.75rem 1.25rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem 1.5rem;
+}
+
+@media (max-width: 1100px) {
+  .pipeline-settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .pipeline-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Collapsed by default on the workspace: reference material, consulted occasionally. */
+.pipeline-settings-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pipeline-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.pipeline-settings-summary::before {
+  content: '\25b8';
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  transition: transform 0.12s ease;
+}
+
+.pipeline-settings-details[open] > .pipeline-settings-summary::before {
+  transform: rotate(90deg);
+}
+
+.pipeline-settings-summary h2 {
+  margin: 0;
 }
 
 /* The panel is full width in both places, so the grid may keep its columns. */
@@ -8281,6 +8324,13 @@ button.table-link:hover {
 
 .pipeline-settings-row dt {
   color: var(--color-text-muted);
+}
+
+/* What a tool was used for, beside its name — the job, not another column. */
+.pipeline-settings-note {
+  font-size: 0.68rem;
+  font-style: italic;
+  opacity: 0.75;
 }
 
 .pipeline-settings-row dd {
@@ -12288,4 +12338,241 @@ a.button-danger:hover {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Admin → Sequencing QC thresholds
+   Profiles beside the metrics rather than stacked above them: the metric table
+   is 16 rows and the page was three full-width cards deep, so choosing a
+   profile meant scrolling away from the numbers it changes.
+   --------------------------------------------------------------------------- */
+.qc-threshold-layout {
+  display: grid;
+  /* Profile names carry an assay ("Preimplantation genetic testing") and a count; at
+     220px the longer ones wrapped to two lines. */
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* "Profiles", "Change history" and the active profile's name label the block under
+   them. `.section-title` is a page-heading style — up to 2.15rem — which made three
+   headings shout over the content they introduce. */
+.qc-section-label {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-heading);
+}
+
+@media (max-width: 900px) {
+  .qc-threshold-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.qc-profile-list ul {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.qc-profile-item {
+  width: 100%;
+  min-height: auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  background: none;
+  box-shadow: none;
+  transform: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  /* A profile is named after an assay ("Monogenic NIPT"); the shared button rule
+     renders it bold uppercase at 0.18em tracking, which is a shout, not a name. */
+  font-size: 0.82rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.qc-profile-item:hover {
+  background: var(--color-surface-muted);
+  transform: none;
+  box-shadow: none;
+}
+
+.qc-profile-item--active {
+  border-color: var(--color-accent);
+  background: var(--color-surface-muted);
+  font-weight: 500;
+}
+
+.qc-profile-item__label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.qc-profile-item__tag,
+.qc-profile-item__count {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.qc-profile-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.qc-profile-add input:not([type='checkbox']):not([type='radio']) {
+  flex: 1 1 8rem;
+  min-width: 0;
+  /* Same shared form-control override as the threshold cells, so the add row does not
+     tower over the profile list it sits under. */
+  min-height: 0;
+  height: 1.75rem;
+  padding: 0 0.4rem;
+  font-size: 0.82rem;
+}
+
+.qc-profile-add button {
+  min-height: 0;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  box-shadow: none;
+  transform: none;
+}
+
+.qc-threshold-metrics .data-table-shell {
+  border: none;
+  box-shadow: none;
+  background: none;
+}
+
+/* A cut-off is at most a handful of digits. Sized to its content rather than to the
+   column, so the eye runs down a narrow pair of number columns instead of across two
+   wide boxes per row. */
+.qc-threshold-table input.qc-threshold-input:not([type='checkbox']):not([type='radio']) {
+  /* Wide enough for a read count (12500000) without the digits crowding the edge. */
+  width: 7.5rem;
+  min-width: 0;
+  /* The shared form-control rule sets min-height 3.15rem and 1rem padding — sized for
+     a login form, not for sixteen numeric cells. It, not the cell padding, was what
+     kept the rows tall. */
+  min-height: 0;
+  height: 1.55rem;
+  padding: 0 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  text-align: right;
+  /* Digits line up between rows, so an outlier is visible without reading each one. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sixteen rows of boxed inputs read as a form to fill in; these are mostly-empty
+   optional bounds, so the border only appears where the eye already is. */
+.qc-threshold-table input.qc-threshold-input:not([type='checkbox']):not(:focus):placeholder-shown {
+  border-color: transparent;
+  background: transparent;
+}
+
+.qc-threshold-table input.qc-threshold-input:not([type='checkbox']):hover:not(:focus) {
+  border-color: var(--color-border);
+}
+
+.qc-threshold-table {
+  font-size: 0.78rem;
+}
+
+/* The global `th, td` padding is 0.86rem vertical — a row taller than the input in
+   it. Sixteen of those turned a short list of numbers into a page. */
+.qc-threshold-table td,
+.qc-threshold-table th {
+  padding: 0 0.5rem;
+  line-height: 1.25;
+}
+
+/* A metric name is content, not a link or a heading. `.table-link` renders bold,
+   uppercase and wide-tracked, so "Mean depth" arrived as "M E A N   D E P T H" — the
+   loudest thing on a page of quiet numbers. */
+.qc-threshold-table .table-link {
+  font-size: 0.78rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: inherit;
+}
+
+.qc-threshold-table .table-link:hover {
+  color: var(--color-primary);
+}
+
+/* Column headings are a label for the column, not content: smaller and lighter than
+   the metric names underneath, which are what the eye should land on. */
+.qc-threshold-table th {
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+/* Every column shrinks to its content except the trailing one, which absorbs the
+   slack. Otherwise the metric column stretches and pushes the bounds to the far
+   right, leaving the value a ruler's width from the name it belongs to. */
+.qc-threshold-table th:not(:last-child),
+.qc-threshold-table td:not(:last-child) {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.qc-threshold-table th:last-child,
+.qc-threshold-table td:last-child {
+  width: auto;
+}
+
+/* Zebra striping earns its place on a wide table; on four narrow columns it is just
+   noise. A hairline rule keeps the rows separable without banding. */
+.qc-threshold-table tbody tr:nth-child(even) {
+  background: none;
+}
+
+.qc-threshold-table tbody tr + tr td {
+  border-top: 1px solid var(--color-border-subtle, rgba(17, 17, 17, 0.06));
+}
+
+/* The metric name carries the row; the unit and direction beside it should not
+   compete with it. */
+.qc-threshold-table td .table-subtle {
+  font-size: 0.68rem;
+}
+
+/* Without this the shared button rule (min-height 3rem) makes whichever row is being
+   edited three times the height of its neighbours, so the table jumps as you type. */
+.qc-threshold-table button {
+  min-height: auto;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  box-shadow: none;
+  transform: none;
+}
+
+.qc-threshold-table button:hover {
+  transform: none;
+  box-shadow: none;
 }

@@ -619,7 +619,14 @@ INSERT INTO qc_threshold_profiles (key, label, description, is_default, sort_ord
     ('default', 'Default', 'Applies to any family that does not name a profile.', true, 10),
     ('long_read_wgs', 'Long-read WGS', 'PacBio HiFi / ONT whole-genome runs.', false, 20),
     ('short_read_wgs', 'Short-read WGS', 'Illumina whole-genome runs.', false, 30),
-    ('short_read_panel', 'Short-read panel', 'Targeted panels, where expected depth is far higher.', false, 40)
+    ('short_read_panel', 'Short-read panel', 'Targeted panels, where expected depth is far higher.', false, 40),
+    -- Assays whose adequacy is judged on a different footing entirely: NIPT works
+    -- from a low-depth cell-free fraction, and PGT from a handful of amplified
+    -- cells. Reusing a WGS depth cut-off on either would report every run as
+    -- inadequate. Seeded empty, like every other profile -- the values are the
+    -- laboratory's to agree.
+    ('nipt_monogenic', 'Monogenic NIPT', 'Cell-free DNA, monogenic (single-gene) NIPT.', false, 50),
+    ('pgt', 'PGT', 'Preimplantation genetic testing on amplified embryo biopsies.', false, 60)
 ON CONFLICT (key) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
@@ -645,10 +652,20 @@ CREATE TABLE IF NOT EXISTS qc_threshold_changes (
     error_value double precision,
     changed_by uuid,
     changed_by_email text,
+    -- Why the cut-off moved, in the changer's own words. The values either side are
+    -- recorded automatically, but they cannot say whether a limit was lowered because
+    -- a validation study supported it or because a run was inconvenient. Required by
+    -- the API; nullable here only so rows written before this column existed remain
+    -- readable in an append-only table.
+    reason text,
     changed_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT qc_threshold_changes_pkey PRIMARY KEY (id),
     CONSTRAINT qc_threshold_changes_changed_by_fkey FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- Added after the table shipped; the baselines re-run on every boot, so an existing
+-- deployment picks the column up without a migration ledger.
+ALTER TABLE qc_threshold_changes ADD COLUMN IF NOT EXISTS reason text;
 
 CREATE INDEX IF NOT EXISTS idx_qc_threshold_changes_recent
     ON qc_threshold_changes USING btree (changed_at DESC);

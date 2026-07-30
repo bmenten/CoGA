@@ -43,6 +43,9 @@ const AdminQcThresholdsPage: React.FC = () => {
   // A cut-off decides whether a run is reported as inadequate, so it is not saved on a
   // single stray click — the change is restated and confirmed first.
   const [pendingMetric, setPendingMetric] = useState<string | null>(null);
+  const [pendingReason, setPendingReason] = useState('');
+  const [newProfileLabel, setNewProfileLabel] = useState('');
+  const [addingProfile, setAddingProfile] = useState(false);
 
   const { data, isLoading, error } = useQuery<ApiQcThresholdCatalogue>({
     queryKey: QUERY_KEY,
@@ -88,6 +91,7 @@ const AdminQcThresholdsPage: React.FC = () => {
         metric_key: metricKey,
         warn_value: warn,
         error_value: errorBound,
+        reason: pendingReason.trim(),
       });
       return metricKey;
     },
@@ -100,10 +104,28 @@ const AdminQcThresholdsPage: React.FC = () => {
         delete next[`${activeProfileKey}:${metricKey}`];
         return next;
       });
+      setPendingReason('');
       setStatus({ tone: 'success', message: `Saved thresholds for ${metricKey}.` });
     },
     onError: (err) =>
       setStatus({ tone: 'error', message: getErrorMessage(err, 'Could not save the threshold.') }),
+  });
+
+  const createProfileMutation = useMutation({
+    mutationFn: async (label: string) =>
+      (await api.post('/admin/qc-thresholds/profiles', { label })).data as { key: string },
+    onSuccess: async (profile) => {
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      setSelectedProfile(profile.key);
+      setNewProfileLabel('');
+      setAddingProfile(false);
+      setStatus({
+        tone: 'success',
+        message: 'Profile added. It gates nothing until cut-offs are entered.',
+      });
+    },
+    onError: (err) =>
+      setStatus({ tone: 'error', message: getErrorMessage(err, 'Could not add the profile.') }),
   });
 
   if (isLoading) {
@@ -137,15 +159,10 @@ const AdminQcThresholdsPage: React.FC = () => {
         </p>
         <h1 className="catalog-card-title">Sequencing QC thresholds</h1>
         <p className="section-copy">
-          Set the warning and error cut-offs for each sequencing-QC metric. A sample whose
-          measurement crosses the warning bound is shown amber in the family workspace; crossing
-          the error bound shows red. A metric with no cut-off is left unchecked rather than
-          reported as passing.
-        </p>
-        <p className="report-disclaimer">
-          Cut-offs are a clinical decision. No values are shipped by default — the numbers entered
-          here define what the interface reports as an inadequate run, and should be agreed with the
-          laboratory before use.
+          A warning bound shows the sample amber in the family workspace, an error bound red, and a
+          metric with no bound is left unchecked rather than reported as passing. Cut-offs are a
+          clinical decision: none are shipped by default, and the numbers entered here define what
+          the interface reports as an inadequate run.
         </p>
         {status && (
           <div
@@ -158,54 +175,100 @@ const AdminQcThresholdsPage: React.FC = () => {
         )}
       </section>
 
-      <section className="surface-card space-y-3">
-        <div className="family-workspace-card-head">
-          <div className="space-y-1">
-            <h2 className="section-title">Profile</h2>
-            <p className="family-workspace-card-subtitle">
-              One cut-off cannot serve two assays, so thresholds are grouped per assay. A family uses
-              the profile named in its <code>qc_profile</code> metadata, and the default profile
-              otherwise.
-            </p>
-          </div>
-        </div>
-        <div className="compact-toolbar family-toolbar">
-          {profiles.map((profile) => (
-            <button
-              key={profile.key}
-              type="button"
-              className={profile.key === activeProfileKey ? 'form-button' : 'button-secondary'}
-              onClick={() => setSelectedProfile(profile.key)}
+      <section className="surface-card qc-threshold-layout">
+        <aside className="qc-profile-list" aria-label="QC threshold profiles">
+          <h2 className="qc-section-label">Profiles</h2>
+          <ul>
+            {profiles.map((profile) => {
+              const configured = profile.thresholds.length;
+              return (
+                <li key={profile.key}>
+                  <button
+                    type="button"
+                    className={`qc-profile-item${
+                      profile.key === activeProfileKey ? ' qc-profile-item--active' : ''
+                    }`}
+                    aria-current={profile.key === activeProfileKey}
+                    onClick={() => setSelectedProfile(profile.key)}
+                  >
+                    <span className="qc-profile-item__label">
+                      {profile.label}
+                      {profile.is_default ? <span className="qc-profile-item__tag">default</span> : null}
+                    </span>
+                    {/* How many metrics this profile actually gates — the difference
+                        between a configured profile and an empty one, which is
+                        otherwise invisible until you open it. */}
+                    <span className="qc-profile-item__count">
+                      {configured ? `${configured} set` : 'none set'}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {addingProfile ? (
+            <form
+              className="qc-profile-add"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (newProfileLabel.trim()) createProfileMutation.mutate(newProfileLabel.trim());
+              }}
             >
-              {profile.label}
-              {profile.is_default ? ' (default)' : ''}
+              <input
+                type="text"
+                aria-label="New profile name"
+                placeholder="Assay name"
+                value={newProfileLabel}
+                onChange={(event) => setNewProfileLabel(event.target.value)}
+              />
+              <button
+                type="submit"
+                className="form-button"
+                disabled={!newProfileLabel.trim() || createProfileMutation.isPending}
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => {
+                  setAddingProfile(false);
+                  setNewProfileLabel('');
+                }}
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <button type="button" className="button-ghost" onClick={() => setAddingProfile(true)}>
+              + Add profile
             </button>
-          ))}
-        </div>
-        {activeProfile?.description && (
-          <p className="dashboard-link-note">{activeProfile.description}</p>
-        )}
-      </section>
+          )}
+          <p className="dashboard-link-note">
+            A family uses the profile named in its <code>qc_profile</code> metadata, and the default
+            otherwise. A new profile starts with no cut-offs, so it gates nothing until values are
+            entered.
+          </p>
+        </aside>
 
-      <section className="surface-card space-y-3">
-        <div className="family-workspace-card-head">
-          <div className="space-y-1">
-            <h2 className="section-title">Metrics</h2>
-            <p className="family-workspace-card-subtitle">
-              Leave both bounds blank to leave a metric unchecked.
-            </p>
+        <div className="qc-threshold-metrics">
+          <div className="family-workspace-card-head">
+            <div className="space-y-1">
+              <h2 className="qc-section-label">{activeProfile?.label ?? 'Metrics'}</h2>
+              <p className="family-workspace-card-subtitle">
+                {activeProfile?.description ?? 'Leave both bounds blank to leave a metric unchecked.'}
+              </p>
+            </div>
           </div>
-        </div>
         <div className="data-table-shell overflow-x-auto">
-          <table className="analysis-table">
+          <table className="analysis-table qc-threshold-table">
             <thead>
               <tr>
                 <th>Metric</th>
-                <th>Unit</th>
-                <th>Fails when</th>
+                {/* The failing side is a property of the metric, not of the bound, so it
+                    heads the column rather than repeating on all 16 rows. */}
                 <th>Warning</th>
                 <th>Error</th>
-                <th>Stored</th>
                 <th />
               </tr>
             </thead>
@@ -216,22 +279,35 @@ const AdminQcThresholdsPage: React.FC = () => {
                 const dirty =
                   drafts[`${activeProfileKey}:${metric.key}`] !== undefined &&
                   (draft.warn !== (stored?.warn ?? '') || draft.error !== (stored?.error ?? ''));
+                const worseWhenLower = metric.direction === 'lower_is_worse';
                 return (
                   <tr key={metric.key}>
                     <td>
-                      <InfoTip label={metric.help_text} className="table-link">
+                      <InfoTip
+                        label={`${metric.help_text} Fails when the value is ${
+                          worseWhenLower ? 'below' : 'above'
+                        } the bound.`}
+                        className="table-link"
+                      >
                         {metric.label}
-                      </InfoTip>
-                    </td>
-                    <td className="table-subtle">{metric.unit}</td>
-                    <td className="table-subtle">
-                      {metric.direction === 'lower_is_worse' ? 'value below bound' : 'value above bound'}
+                      </InfoTip>{' '}
+                      {/* Unit and failing side, inline: three former columns in the space
+                          of one, and both belong to the metric rather than to a bound. */}
+                      <span className="table-subtle">
+                        {metric.unit ? `${metric.unit} ` : ''}
+                        {worseWhenLower ? '↓' : '↑'}
+                      </span>
                     </td>
                     <td>
                       <input
                         type="number"
                         step="any"
+                        className="qc-threshold-input"
                         aria-label={`${metric.label} warning threshold`}
+                        // The stored value as placeholder: a blank input reads as "no
+                        // bound", and the former Stored column existed only to say
+                        // otherwise.
+                        placeholder={stored?.warn ? `${stored.warn}` : 'none'}
                         value={draft.warn}
                         onChange={(event) => setDraft(metric.key, { warn: event.target.value })}
                       />
@@ -240,29 +316,33 @@ const AdminQcThresholdsPage: React.FC = () => {
                       <input
                         type="number"
                         step="any"
+                        className="qc-threshold-input"
                         aria-label={`${metric.label} error threshold`}
+                        placeholder={stored?.error ? `${stored.error}` : 'none'}
                         value={draft.error}
                         onChange={(event) => setDraft(metric.key, { error: event.target.value })}
                       />
                     </td>
-                    <td className="table-subtle">
-                      {stored ? `${stored.warn || '—'} / ${stored.error || '—'}` : 'not set'}
-                    </td>
                     <td>
-                      <button
-                        type="button"
-                        className="button-ghost"
-                        disabled={!dirty || saveMutation.isPending}
-                        onClick={() => setPendingMetric(metric.key)}
-                      >
-                        Save
-                      </button>
+                      {/* Only the row being edited offers a Save; 16 permanently disabled
+                          buttons were 16 rows of noise. */}
+                      {dirty ? (
+                        <button
+                          type="button"
+                          className="button-ghost"
+                          disabled={saveMutation.isPending}
+                          onClick={() => setPendingMetric(metric.key)}
+                        >
+                          Save
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        </div>
         </div>
       </section>
 
@@ -293,14 +373,27 @@ const AdminQcThresholdsPage: React.FC = () => {
               })()}
             </p>
             <p className="report-disclaimer">
-              This changes what the interface reports as an inadequate run for every sample using
-              this profile. The change is recorded permanently with your account.
+              This changes what the interface flags as an inadequate run for every sample using
+              this profile. It is advisory — nothing is withheld from a report — but the change is
+              recorded permanently with your account.
             </p>
+            <label className="form-field">
+              <span>Reason for the change</span>
+              {/* Required. The values either side are recorded automatically; what they
+                  cannot say is whether a limit moved because a validation study supported
+                  it or because a run was inconvenient. */}
+              <textarea
+                rows={2}
+                value={pendingReason}
+                onChange={(event) => setPendingReason(event.target.value)}
+                placeholder="e.g. per VAL-P07 opvolgvalidatie, 2026-07"
+              />
+            </label>
             <div className="compact-toolbar family-toolbar">
               <button
                 type="button"
                 className="form-button"
-                disabled={saveMutation.isPending}
+                disabled={saveMutation.isPending || !pendingReason.trim()}
                 onClick={() => {
                   const metricKey = pendingMetric;
                   setPendingMetric(null);
@@ -309,7 +402,14 @@ const AdminQcThresholdsPage: React.FC = () => {
               >
                 Confirm change
               </button>
-              <button type="button" className="button-ghost" onClick={() => setPendingMetric(null)}>
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => {
+                  setPendingMetric(null);
+                  setPendingReason('');
+                }}
+              >
                 Cancel
               </button>
             </div>
@@ -320,7 +420,7 @@ const AdminQcThresholdsPage: React.FC = () => {
       <section className="surface-card space-y-3">
         <div className="family-workspace-card-head">
           <div className="space-y-1">
-            <h2 className="section-title">Change history</h2>
+            <h2 className="qc-section-label">Change history</h2>
             <p className="family-workspace-card-subtitle">
               Every cut-off edit, with the value it replaced. Append-only — entries cannot be
               altered or removed.
@@ -340,6 +440,7 @@ const AdminQcThresholdsPage: React.FC = () => {
                   <th>Metric</th>
                   <th>Warning</th>
                   <th>Error</th>
+                  <th>Reason</th>
                 </tr>
               </thead>
               <tbody>
@@ -357,6 +458,8 @@ const AdminQcThresholdsPage: React.FC = () => {
                     <td className="table-subtle">
                       {boundText(change.previous_error_value) || '—'} → {boundText(change.error_value) || '—'}
                     </td>
+                    {/* Null only for edits made before a reason was required. */}
+                    <td>{change.reason || <span className="table-subtle">not recorded</span>}</td>
                   </tr>
                 ))}
               </tbody>

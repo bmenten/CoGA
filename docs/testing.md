@@ -268,6 +268,9 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_apcad_band_targets.py](../backend/tests/test_apcad_band_targets.py) | APCAD downsample budget allocation across BAF bands. |
 | [backend/tests/test_apcad_origin_fallback.py](../backend/tests/test_apcad_origin_fallback.py) | APCAD origin preference: unphased (HiFiCNV MAF) tracks fall back to `und`, phased tracks keep the filter and stay empty where no informative markers fall. |
 | [backend/tests/test_family_package_bigwig.py](../backend/tests/test_family_package_bigwig.py) | bigWig reading (primary contigs only, karyotype order, zero-bin skipping) and which HiFiCNV file feeds which interval track. |
+| [backend/tests/test_family_package_cnv_callers.py](../backend/tests/test_family_package_cnv_callers.py) | CNV-caller discovery (QDNAseq lrsvar BED and legacy CSV layouts, WisecondorX sample-prefixed names) and interval-track ownership on re-import. |
+| [backend/tests/test_coverage_normalization.py](../backend/tests/test_coverage_normalization.py) | Autosomal-median normaliser and the depth→log2-ratio transform that puts three CNV callers' coverage on one axis. |
+| [backend/tests/test_signal_track_router.py](../backend/tests/test_signal_track_router.py) | Signal-file serving for IGV: recorded-path resolution, containment against crafted family ids and paths, and the per-kind axis spec. |
 | [backend/tests/test_admin_clickhouse_listing.py](../backend/tests/test_admin_clickhouse_listing.py) | Admin ClickHouse listing and variant-count aggregation. |
 | [backend/tests/test_config.py](../backend/tests/test_config.py) | CORS-origins config parsing. |
 | [backend/tests/test_small_variant_clinvar_frequency_rescue.py](../backend/tests/test_small_variant_clinvar_frequency_rescue.py) | ClinVar P/LP rescue overriding frequency thresholds. |
@@ -291,6 +294,8 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | --- | --- |
 | [frontend/src/__tests__/serverSecurityHeaders.test.ts](../frontend/src/__tests__/serverSecurityHeaders.test.ts) | SPA security response headers + enforcing CSP (IGV/S3/fonts-aware); HSTS opt-in. |
 | [frontend/src/lib/__tests__/api.test.ts](../frontend/src/lib/__tests__/api.test.ts) | Auth-header attachment and error normalization. |
+| [frontend/src/lib/__tests__/coverageSources.test.ts](../frontend/src/lib/__tests__/coverageSources.test.ts) | CNV-caller display order, labels for known and unknown callers, and when a coverage track names its caller. |
+| [frontend/src/styles/__tests__/controlOverrides.test.ts](../frontend/src/styles/__tests__/controlOverrides.test.ts) | CSS specificity guard: a rule that resizes a form control must actually beat the shared `input:not([type=…])` rule, whose `:not()` arguments make it (0,2,1). |
 | [frontend/src/lib/__tests__/auth.test.ts](../frontend/src/lib/__tests__/auth.test.ts) | Session persistence; token/role/username storage; admin/auth checks. |
 | [frontend/src/lib/__tests__/chromosomes.test.ts](../frontend/src/lib/__tests__/chromosomes.test.ts) | Natural chromosome ordering (numeric + X/Y/MT). |
 | [frontend/src/lib/__tests__/cnvAcmg.test.ts](../frontend/src/lib/__tests__/cnvAcmg.test.ts) | CNV ACMG classification, scoring, criterion evaluation. |
@@ -328,6 +333,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/components/__tests__/SmallVariantTrack.test.tsx](../frontend/src/components/__tests__/SmallVariantTrack.test.tsx) | Small-variant track rendering with query/API mocks. |
 | [frontend/src/components/__tests__/VariantTrack.test.tsx](../frontend/src/components/__tests__/VariantTrack.test.tsx) | Base variant-track rendering. |
 | [frontend/src/components/visualizations/__tests__/VizTooltip.test.tsx](../frontend/src/components/visualizations/__tests__/VizTooltip.test.tsx) | Floating tooltip portal rendering. |
+| [frontend/src/components/visualizations/__tests__/ApcadChart.test.tsx](../frontend/src/components/visualizations/__tests__/ApcadChart.test.tsx) | APCAD track draws whatever the server sent, unphased (`und`) points included, and still reports a genuinely empty region. |
 
 ### Shared UI components
 | Test file | Purpose |

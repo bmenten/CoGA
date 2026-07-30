@@ -224,7 +224,7 @@ describe('FamilyDetailPage', () => {
     vi.mocked(api.delete).mockReset();
   });
 
-  it('shows the analysis-pipeline settings last, with workspace-specific copy', async () => {
+  it('shows the analysis-pipeline settings last, collapsed', async () => {
     const queryClient = createTestQueryClient();
 
     render(
@@ -237,11 +237,12 @@ describe('FamilyDetailPage', () => {
       </QueryClientProvider>,
     );
 
-    // The pipeline block is recorded on the family at package import.
+    // The pipeline block is recorded on the family at package import. The panel is a
+    // closed <details> here, so its content is in the DOM but not shown until opened.
     const panel = await screen.findByTestId('pipeline-settings');
+    expect((panel as HTMLDetailsElement).open).toBe(false);
     expect(panel).toHaveTextContent('GRCh38');
     expect(panel).toHaveTextContent('deepvariant');
-    expect(panel).toHaveTextContent(/the run configuration and the version of every tool/i);
     // Last on the page: context for what is above it, not a starting point.
     const members = screen.getByText('Family members').closest('section');
     expect(members).not.toBeNull();
