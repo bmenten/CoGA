@@ -8241,10 +8241,53 @@ button.table-link:hover {
 }
 
 /* Analysis-pipeline settings, shown both as a workspace card and a report section. */
+/* Four columns, so eight groups fall into two readable rows. auto-fit spread them
+   across eight narrow columns on a wide screen, which put one short list under each
+   heading and made the section look far busier than it is. */
 .pipeline-settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: 0.75rem 1.25rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem 1.5rem;
+}
+
+@media (max-width: 1100px) {
+  .pipeline-settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .pipeline-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Collapsed by default on the workspace: reference material, consulted occasionally. */
+.pipeline-settings-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pipeline-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.pipeline-settings-summary::before {
+  content: '\25b8';
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  transition: transform 0.12s ease;
+}
+
+.pipeline-settings-details[open] > .pipeline-settings-summary::before {
+  transform: rotate(90deg);
+}
+
+.pipeline-settings-summary h2 {
+  margin: 0;
 }
 
 /* The panel is full width in both places, so the grid may keep its columns. */
@@ -12382,6 +12425,12 @@ a.button-danger:hover {
   min-width: 0;
 }
 
+.qc-threshold-metrics .data-table-shell {
+  border: none;
+  box-shadow: none;
+  background: none;
+}
+
 /* A cut-off is at most a handful of digits. Sized to its content rather than to the
    column, so the eye runs down a narrow pair of number columns instead of across two
    wide boxes per row. */
@@ -12407,27 +12456,51 @@ a.button-danger:hover {
 }
 
 .qc-threshold-table {
-  font-size: 0.82rem;
+  font-size: 0.78rem;
 }
 
+/* The global `th, td` padding is 0.86rem vertical — a row taller than the input in
+   it. Sixteen of those turned a short list of numbers into a page. */
 .qc-threshold-table td,
 .qc-threshold-table th {
-  padding-top: 0.1rem;
-  padding-bottom: 0.1rem;
+  padding: 0.05rem 0.5rem;
+  line-height: 1.35;
 }
 
-/* The two bound columns take only the width of their inputs; the metric name gets
-   the rest instead of everything being stretched to fill. */
-.qc-threshold-table th:nth-child(2),
-.qc-threshold-table th:nth-child(3),
-.qc-threshold-table td:nth-child(2),
-.qc-threshold-table td:nth-child(3) {
+/* Column headings are a label for the column, not content: smaller and lighter than
+   the metric names underneath, which are what the eye should land on. */
+.qc-threshold-table th {
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+/* Every column shrinks to its content except the trailing one, which absorbs the
+   slack. Otherwise the metric column stretches and pushes the bounds to the far
+   right, leaving the value a ruler's width from the name it belongs to. */
+.qc-threshold-table th:not(:last-child),
+.qc-threshold-table td:not(:last-child) {
   width: 1%;
   white-space: nowrap;
 }
 
 .qc-threshold-table th:last-child,
 .qc-threshold-table td:last-child {
-  width: 1%;
-  white-space: nowrap;
+  width: auto;
+}
+
+/* Zebra striping earns its place on a wide table; on four narrow columns it is just
+   noise. A hairline rule keeps the rows separable without banding. */
+.qc-threshold-table tbody tr:nth-child(even) {
+  background: none;
+}
+
+.qc-threshold-table tbody tr + tr td {
+  border-top: 1px solid var(--color-border-subtle, rgba(17, 17, 17, 0.06));
+}
+
+/* The metric name carries the row; the unit and direction beside it should not
+   compete with it. */
+.qc-threshold-table td .table-subtle {
+  font-size: 0.68rem;
 }

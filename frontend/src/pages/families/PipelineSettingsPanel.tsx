@@ -268,19 +268,8 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
 
   if (!groups.length && !stages.length) return null;
 
-  return (
-    <section
-      className={`surface-card report-pipeline${
-        variant === 'report' ? ' report-pipeline--report' : ''
-      }`}
-      data-testid="pipeline-settings"
-    >
-      <h2 className="report-audit-heading">Analysis pipeline settings</h2>
-      <p className="report-paragraph report-audit-lead">
-        {variant === 'report'
-          ? 'The upstream pipeline configuration and every tool version these calls were produced with, as recorded at import.'
-          : "How this family's data was produced: the run configuration and the version of every tool and database behind it, as recorded at import."}
-      </p>
+  const body = (
+    <>
       <div className="pipeline-settings-grid" data-testid="pipeline-tools">
         {groups.map((group) => (
           <div key={group.title} className="pipeline-settings-group">
@@ -310,7 +299,28 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
           <span className="pipeline-settings-group-title">Stages run</span> {stages.join(' · ')}
         </p>
       )}
-    </section>
+    </>
+  );
+
+  // On the report the section is printed, and a closed <details> prints nothing — so
+  // only the workspace collapses it. There it is reference material a reader consults
+  // occasionally, not something to scroll past on every visit, so it starts closed.
+  if (variant === 'report') {
+    return (
+      <section className="surface-card report-pipeline report-pipeline--report" data-testid="pipeline-settings">
+        <h2 className="report-audit-heading">Analysis pipeline settings</h2>
+        {body}
+      </section>
+    );
+  }
+
+  return (
+    <details className="surface-card report-pipeline pipeline-settings-details" data-testid="pipeline-settings">
+      <summary className="pipeline-settings-summary">
+        <h2 className="report-audit-heading">Analysis pipeline settings</h2>
+      </summary>
+      {body}
+    </details>
   );
 };
 
