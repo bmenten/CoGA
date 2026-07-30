@@ -8223,10 +8223,7 @@ button.table-link:hover {
   gap: 0.75rem 1.25rem;
 }
 
-.pipeline-settings-grid--stacked {
-  grid-template-columns: 1fr;
-  gap: 0.7rem;
-}
+/* The panel is full width in both places, so the grid may keep its columns. */
 
 .pipeline-settings-group {
   display: grid;

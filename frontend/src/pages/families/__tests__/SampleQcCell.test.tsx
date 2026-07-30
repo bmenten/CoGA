@@ -49,16 +49,16 @@ describe('SampleQcCell', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('shows depth and N50 short enough to fit a table cell, with the rest in the tooltip', () => {
+  it('shows depth and N50 short enough to fit a table cell, with the rest in the tooltip', async () => {
     render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
 
     // The full string wrapped onto two lines in the members-table column, so the chip
     // carries only the two headline numbers.
     expect(screen.getByText('18.6x · N50 14 kb')).toBeInTheDocument();
-    expect(screen.getByRole('button')).toHaveAttribute(
-      'title',
-      expect.stringContaining('median read quality Q32'),
-    );
+    // The rest is revealed on hover through InfoTip, which appears immediately —
+    // the native `title` tooltip only shows after a browser-controlled delay.
+    await userEvent.hover(screen.getByRole('button'));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('median read quality Q32');
   });
 
   it('opens the report through a short-lived link in a new tab', async () => {

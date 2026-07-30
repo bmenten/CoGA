@@ -92,9 +92,14 @@ describe('PipelineSettingsPanel', () => {
     expect(screen.getByText(/Modules & versions/i)).toBeInTheDocument();
   });
 
-  it('renders as a workspace card by default', () => {
+  it('points at where versions live when rendered outside the report', () => {
     render(<PipelineSettingsPanel settings={PACBIO_SETTINGS} />);
 
-    expect(screen.getByRole('heading', { name: /^analysis pipeline$/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /analysis pipeline settings/i }),
+    ).toBeInTheDocument();
+    // Off the report there is no "Modules & versions" footer to point at.
+    expect(screen.queryByText(/Modules & versions/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/annotation-provenance footer/i)).toBeInTheDocument();
   });
 });
