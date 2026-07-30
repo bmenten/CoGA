@@ -582,6 +582,8 @@ export interface ApiChromosomeTrackAvailability {
    */
   coverage_sources?: string[];
   segments_sources?: string[];
+  /** Which callers wrote the APCAD track; decides the axis (see MAF_AXIS_MAX). */
+  apcad_sources?: string[];
   apcad: boolean;
   apcad_pcf: boolean;
   variants: boolean;
@@ -595,6 +597,7 @@ export interface ApiGenomeTrackAvailability {
   segments: boolean;
   coverage_sources?: string[];
   segments_sources?: string[];
+  apcad_sources?: string[];
   apcad: boolean;
   apcad_pcf: boolean;
   haplotypes: boolean;

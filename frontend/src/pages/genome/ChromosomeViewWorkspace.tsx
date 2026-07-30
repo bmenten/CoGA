@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
-import { coverageTrackLabel, orderCoverageSources } from '../../lib/coverageSources';
+import { apcadAxisMax, coverageTrackLabel, orderCoverageSources } from '../../lib/coverageSources';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
 import ApcadChart from '../../components/visualizations/ApcadChart';
@@ -58,6 +58,8 @@ interface ChromosomeTrackAvailability {
   coverage: boolean;
   /** The CNV callers with data, each drawn as its own stacked track. */
   coverageSources: string[];
+  /** Callers on the APCAD track; folded MAF needs a 0-0.5 axis, phased needs 0-1. */
+  apcadSources: string[];
   apcad: boolean;
   apcadPcf: boolean;
   variants: boolean;
@@ -547,6 +549,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       viewportInteraction={viewportInteraction}
                     >
                       <ApcadChart
+                        maxValue={apcadAxisMax(availability[member.sample_id]?.apcadSources)}
                         apcadUrls={[
                           `${api.defaults.baseURL}/bed/${member.sample_id}/apcad?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${apcadPointLimit}&format=json`,
                         ]}

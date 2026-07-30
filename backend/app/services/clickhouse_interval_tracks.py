@@ -406,11 +406,23 @@ async def fetch_apcad_downsampled(
     # Keep the highest-quality markers in each band (qual = per-marker VCF confidence)
     # rather than a spatial sample. One ranked, LIMITed subquery per band, unioned.
     qual_expr = "JSONExtractFloat(metadata_json, 'qual')"
+    # Deterministic spatial tiebreaker. Ranking by quality alone is only a ranking
+    # while there *is* a quality to rank by: a track whose markers carry no `qual`
+    # -- HiFiCNV's minor-allele-fraction bigWig, which records a value per site and
+    # nothing else -- extracts 0.0 for every row, making the ORDER BY a constant. The
+    # LIMIT then keeps whatever ClickHouse read first, which in primary-key order is
+    # the start of the chromosome: 2000 points landed in 2.1 Mb of chr1's 249 Mb and
+    # the rest of the track was blank.
+    #
+    # Hashing the position spreads those ties uniformly across the requested range.
+    # Where `qual` does exist it still decides the ranking outright and this only
+    # makes the previously arbitrary tie order reproducible.
+    order_expr = f"{qual_expr} DESC, cityHash64(chrom, start)"
 
     def _band_query(band_expr: str, target: int) -> str:
         return (
             f"SELECT chrom AS chr, start, end, value, origin FROM {table} "
-            f"WHERE {band_where} AND ({band_expr}) ORDER BY {qual_expr} DESC LIMIT {int(target)}"
+            f"WHERE {band_where} AND ({band_expr}) ORDER BY {order_expr} LIMIT {int(target)}"
         )
 
     subqueries: list[str] = []

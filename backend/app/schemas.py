@@ -2455,6 +2455,10 @@ class TrackAvailabilityOut(BaseModel):
     # `coverage`/`segments` stay as the "any at all" flags the older callers read.
     coverage_sources: List[str] = Field(default_factory=list)
     segments_sources: List[str] = Field(default_factory=list)
+    # Which callers wrote the APCAD track. It holds parent-of-origin markers (0-1)
+    # for a phased trio and folded minor allele fraction (0-0.5) from a depth
+    # caller's bigWig; the two need different axes.
+    apcad_sources: List[str] = Field(default_factory=list)
     apcad: bool = False
     apcad_pcf: bool = False
     variants: bool = False
