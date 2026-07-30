@@ -42,12 +42,34 @@ _MODULE_LABELS: dict[str, str] = {
     "manta": "Manta",
     "trgt": "TRGT",
     "paraphase": "Paraphase",
+    "deepsomatic": "DeepSomatic",
+    "hificnv": "HiFiCNV",
+    "glnexus": "GLnexus",
+    "mutserve": "mutserve",
     # annotation engines
     "vep": "VEP",
     "snpeff": "SnpEff",
     "bcftools": "bcftools",
     "vcfanno": "vcfanno",
     "slivar": "slivar",
+    "ensemblvep": "Ensembl VEP",
+    "exomiser": "Exomiser",
+    "exomiser_data": "Exomiser data",
+    "remm": "ReMM",
+    # alignment / file handling / QC
+    "minimap2": "minimap2",
+    "samtools": "samtools",
+    "htslib": "HTSlib",
+    "tabix": "tabix",
+    "mosdepth": "mosdepth",
+    "nanoplot": "NanoPlot",
+    "longphase": "LongPhase",
+    "gzip": "gzip",
+    "xz": "xz",
+    "perl-math-cdf": "perl-Math-CDF",
+    # workflow + engine
+    "nf-core/lrsvar": "nf-core/lrsvar",
+    "nextflow": "Nextflow",
     # reference databases
     "clinvar": "ClinVar",
     "gnomad": "gnomAD",
@@ -72,6 +94,18 @@ _MODULE_LABELS: dict[str, str] = {
     "monarch": "Monarch",
     "hpo": "HPO",
 }
+def _fallback_module_label(key: str) -> str:
+    """Display label for a module the catalogue does not know: the key, verbatim.
+
+    Module keys are tool and database names, and their casing is part of their identity —
+    `nf-core/lrsvar`, `minimap2`, `xz`, `bcftools`. Title-casing an unrecognised one is a
+    guess, and for a name it is nearly always wrong. A record whose purpose is to say
+    exactly what produced a result must not rename it; anything that genuinely wants a
+    prettier label gets an explicit entry in `_MODULE_LABELS`.
+    """
+    return key
+
+
 _MODULE_ORDER = list(_MODULE_LABELS)
 
 
@@ -173,7 +207,8 @@ def _module_list(
         result.append(
             {
                 "key": key,
-                "label": _MODULE_LABELS.get(key, key.replace("_", " ").title()),
+                # Unknown keys are shown verbatim — see _fallback_module_label.
+                "label": _MODULE_LABELS.get(key, _fallback_module_label(key)),
                 "version": str(version) if version not in (None, "") else None,
                 "detail": str(detail) if detail else None,
                 "layer": layer,
