@@ -46,13 +46,19 @@ describe('SampleQcCell', () => {
     render(<SampleQcCell familyId="pacbio" member={member()} />);
 
     expect(screen.getByText('-')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /QC report/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('summarises depth, read-length N50 and read quality', () => {
+  it('shows depth and N50 short enough to fit a table cell, with the rest in the tooltip', () => {
     render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
 
-    expect(screen.getByText('18.6x · N50 14,283 bp · Q32')).toBeInTheDocument();
+    // The full string wrapped onto two lines in the members-table column, so the chip
+    // carries only the two headline numbers.
+    expect(screen.getByText('18.6x · N50 14 kb')).toBeInTheDocument();
+    expect(screen.getByRole('button')).toHaveAttribute(
+      'title',
+      expect.stringContaining('median read quality Q32'),
+    );
   });
 
   it('opens the report through a short-lived link in a new tab', async () => {
@@ -60,7 +66,7 @@ describe('SampleQcCell', () => {
     const user = userEvent.setup();
     render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
 
-    await user.click(screen.getByRole('button', { name: /QC report/i }));
+    await user.click(screen.getByRole('button', { name: /18.6x/ }));
 
     await waitFor(() =>
       expect(mockedGet).toHaveBeenCalledWith('/families/pacbio/qc-report/HG002/link'),
@@ -82,7 +88,7 @@ describe('SampleQcCell', () => {
     const user = userEvent.setup();
     render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
 
-    await user.click(screen.getByRole('button', { name: /QC report/i }));
+    await user.click(screen.getByRole('button', { name: /18.6x/ }));
 
     await waitFor(() =>
       expect(window.open).toHaveBeenCalledWith(
@@ -98,7 +104,7 @@ describe('SampleQcCell', () => {
     const user = userEvent.setup();
     render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
 
-    await user.click(screen.getByRole('button', { name: /QC report/i }));
+    await user.click(screen.getByRole('button', { name: /18.6x/ }));
 
     await waitFor(() =>
       expect(screen.getByText('QC report service is unavailable')).toBeInTheDocument(),
@@ -106,7 +112,7 @@ describe('SampleQcCell', () => {
     expect(window.open).not.toHaveBeenCalled();
   });
 
-  it('shows the metrics without a report button when only numbers were recorded', () => {
+  it('shows the metrics as a plain chip when there is no report to open', () => {
     render(
       <SampleQcCell
         familyId="pacbio"
@@ -115,6 +121,27 @@ describe('SampleQcCell', () => {
     );
 
     expect(screen.getByText('30.0x')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /QC report/i })).not.toBeInTheDocument();
+    // Nothing to open, so the chip must not look like a control.
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('offers the report even when no metrics were parsed', () => {
+    render(
+      <SampleQcCell
+        familyId="pacbio"
+        member={member({ sequencing_qc: { report: 'qc/nanoplot/HG002/report.html' } })}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /QC report/i })).toBeInTheDocument();
+  });
+
+  it('carries the metrics on the control itself rather than beside it', () => {
+    render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
+
+    // One target, not a chip plus a button that said the same thing.
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveAccessibleName(expect.stringContaining('18.6x'));
   });
 });

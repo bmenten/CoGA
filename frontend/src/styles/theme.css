@@ -8160,6 +8160,124 @@ button.table-link:hover {
   color: #466592;
 }
 
+/* Sequencing-QC cell: the metric chip doubles as the control that opens the
+   pipeline's QC report, so it needs to read as interactive while keeping the chip
+   shape the rest of the members table uses. */
+.family-qc-cell {
+  display: grid;
+  gap: 0.24rem;
+  justify-items: start;
+}
+
+.family-qc-chip,
+.family-qc-chip-static {
+  /* Measurements, not a label: the table's uppercase treatment turns "18.6x" into
+     "18.6X" and "kb" into "KB", and widens the chip past its column. */
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 0.66rem;
+  white-space: nowrap;
+}
+
+.family-qc-chip {
+  cursor: pointer;
+  border-color: rgba(82, 111, 161, 0.28);
+  background: rgba(82, 111, 161, 0.09);
+  color: #43608c;
+  font-family: inherit;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.family-qc-chip:hover:not(:disabled),
+.family-qc-chip:focus-visible {
+  border-color: var(--color-accent, #2563eb);
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--color-accent, #2563eb);
+}
+
+.family-qc-chip:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.family-qc-chip-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.family-qc-chip-icon {
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.family-qc-cell-error {
+  max-width: 12rem;
+}
+
+/* Analysis-pipeline settings, shown both as a workspace card and a report section. */
+.pipeline-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem 1.25rem;
+}
+
+.pipeline-settings-grid--stacked {
+  grid-template-columns: 1fr;
+  gap: 0.7rem;
+}
+
+.pipeline-settings-group {
+  display: grid;
+  gap: 0.3rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.pipeline-settings-group-title {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.pipeline-settings-list {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+}
+
+.pipeline-settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.pipeline-settings-row dt {
+  color: var(--color-text-muted);
+}
+
+.pipeline-settings-row dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-settings-stages {
+  margin: 0.7rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.report-pipeline .pipeline-settings-grid {
+  margin-top: 0.5rem;
+}
+
 .variant-table-review {
   display: grid;
   gap: 0.28rem;

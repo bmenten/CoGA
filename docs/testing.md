@@ -8,7 +8,7 @@ requirement → its verifying test), see the Requirements Traceability Matrix
 | Suite | Files | Tests | Runner |
 | --- | --- | --- | --- |
 | Backend (Python) | 139 | ~1054 | `pytest` |
-| Frontend (TypeScript/React) | 99 | 422 | `vitest` |
+| Frontend (TypeScript/React) | 100 | 433 | `vitest` |
 
 > Counts are point-in-time; the test tree is the source of truth. Regenerate the inventory
 > with the commands in [§ Keeping this current](#keeping-this-current).
@@ -350,7 +350,8 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/pages/families/__tests__/FamilyReportPage.test.tsx](../frontend/src/pages/families/__tests__/FamilyReportPage.test.tsx) | Clinical report: provenance footer, drift badge, sign-out/amend, audit timeline. |
 | [frontend/src/pages/families/__tests__/FamilyRoiMarkersPage.test.tsx](../frontend/src/pages/families/__tests__/FamilyRoiMarkersPage.test.tsx) | ROI-markers page filtering/API. |
 | [frontend/src/pages/families/__tests__/FamilySampleQcPage.test.tsx](../frontend/src/pages/families/__tests__/FamilySampleQcPage.test.tsx) | Sample-QC page rendering. |
-| [frontend/src/pages/families/__tests__/SampleQcCell.test.tsx](../frontend/src/pages/families/__tests__/SampleQcCell.test.tsx) | Per-member sequencing-QC cell: metric summary, and the pipeline QC report opened via a short-lived link in a detached tab. |
+| [frontend/src/pages/families/__tests__/SampleQcCell.test.tsx](../frontend/src/pages/families/__tests__/SampleQcCell.test.tsx) | Per-member sequencing-QC cell: the metric chip is itself the control that opens the pipeline QC report, via a short-lived link in a detached tab. |
+| [frontend/src/pages/families/__tests__/PipelineSettingsPanel.test.tsx](../frontend/src/pages/families/__tests__/PipelineSettingsPanel.test.tsx) | Analysis-pipeline settings panel: grouping and labelling, stage switches collapsed to what ran, unknown parameters still shown, workspace vs report variant. |
 | [frontend/src/pages/families/__tests__/FamilySmallVariantsPage.test.tsx](../frontend/src/pages/families/__tests__/FamilySmallVariantsPage.test.tsx) | Small-variants page: filtering, search, interactions, loading. |
 | [frontend/src/pages/families/__tests__/FamilyStructuralVariantsPage.test.tsx](../frontend/src/pages/families/__tests__/FamilyStructuralVariantsPage.test.tsx) | Structural-variants page filtering/API. |
 | [frontend/src/pages/families/__tests__/MonarchPhenotypeMatchPanel.test.tsx](../frontend/src/pages/families/__tests__/MonarchPhenotypeMatchPanel.test.tsx) | Monarch phenotype-match panel search/display. |

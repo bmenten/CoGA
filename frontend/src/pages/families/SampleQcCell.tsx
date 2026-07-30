@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import api, { resolveApiUrl } from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { getErrorMessage } from '../../lib/errorMessage';
-import { formatSequencingQcSummary, sequencingQcForMember } from './familyDetailHelpers';
+import {
+  formatSequencingQcDetail,
+  formatSequencingQcSummary,
+  sequencingQcForMember,
+} from './familyDetailHelpers';
 
 interface SampleQcCellProps {
   familyId: string;
@@ -10,14 +14,15 @@ interface SampleQcCellProps {
 }
 
 /**
- * Sequencing QC for one family member: the headline numbers recorded at import, plus a
- * link to the pipeline's rendered QC report (NanoPlot today, MultiQC once the pipeline
- * switches).
+ * Sequencing QC for one family member.
  *
- * The report is fetched through a short-lived link rather than a direct href: the API
- * is bearer-authenticated, so a plain navigation would 401, and the report itself is
- * untrusted pipeline HTML that the backend serves sandboxed. Opening it in a new tab
- * with `noopener` keeps it away from this document.
+ * The metrics recorded at import *are* the control that opens the pipeline's rendered
+ * QC report (NanoPlot today, MultiQC once the pipeline switches) — one target rather
+ * than a chip beside a button, since both said the same thing.
+ *
+ * The report opens through a short-lived link rather than a direct href: the API is
+ * bearer-authenticated, so a plain navigation would 401, and the report is untrusted
+ * pipeline HTML the backend serves sandboxed. `noopener` keeps it off this document.
  */
 const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
   const [busy, setBusy] = useState(false);
@@ -25,8 +30,9 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
 
   const qc = member ? sequencingQcForMember(member) : undefined;
   const summary = formatSequencingQcSummary(qc);
+  const detail = formatSequencingQcDetail(qc);
 
-  if (!qc) {
+  if (!qc || (!summary && !qc.report)) {
     return <span className="dashboard-link-note">-</span>;
   }
 
@@ -53,21 +59,31 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
     }
   };
 
+  // Without a report there is nothing to open, so the metrics stay a plain chip
+  // rather than a control that looks clickable and does nothing.
+  const label = summary ?? 'QC report';
+
   return (
-    <div className="space-y-1">
-      {summary && (
-        <span className="table-chip" title="Mean depth · read-length N50 · median read quality">
-          {summary}
-        </span>
-      )}
+    <div className="family-qc-cell">
       {qc.report ? (
-        <button type="button" className="button-ghost" onClick={openReport} disabled={busy}>
-          {busy ? 'Opening…' : 'QC report'}
+        <button
+          type="button"
+          className="table-chip family-qc-chip"
+          onClick={openReport}
+          disabled={busy}
+          title={[detail, 'Opens the pipeline QC report in a new tab'].filter(Boolean).join('\n')}
+        >
+          <span className="family-qc-chip-value">{busy ? 'Opening…' : label}</span>
+          <span className="family-qc-chip-icon" aria-hidden="true">
+            ↗
+          </span>
         </button>
       ) : (
-        !summary && <span className="dashboard-link-note">-</span>
+        <span className="table-chip family-qc-chip-static" title={detail ?? undefined}>
+          {label}
+        </span>
       )}
-      {error && <div className="dashboard-link-note">{error}</div>}
+      {error && <div className="dashboard-link-note family-qc-cell-error">{error}</div>}
     </div>
   );
 };

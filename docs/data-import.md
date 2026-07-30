@@ -345,7 +345,7 @@ Where each dataset lands:
 | `mito` | ClickHouse small variants (chrM) | `mito` | mtDNA analysis workspace |
 | `qc` | `samples.metadata["sequencing_qc"]` | — | Family detail members table (metrics + QC report link) |
 | `alignments` | `samples.metadata["alignment"]` | — | IGV / genome browser via `/cram/...` |
-| `pipeline_info` | `family_annotation_manifest` (tool versions, `source='manifest'`) and `families.metadata["pipeline"]` (run parameters) | — | Annotation provenance / report traceability |
+| `pipeline_info` | `family_annotation_manifest` (tool versions, `source='manifest'`) and `families.metadata["pipeline"]` (run parameters) | — | **Analysis pipeline** card on the family workspace; **Analysis pipeline settings** section on the clinical report; tool versions in the annotation-provenance footer and the report's Modules & versions line |
 
 Each source tag scopes its own delete and re-import, so a family can hold NeedlR SVs,
 HiFiCNV calls and chrM variants at once and re-importing one never removes another.
