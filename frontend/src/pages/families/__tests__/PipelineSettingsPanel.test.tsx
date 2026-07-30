@@ -97,24 +97,24 @@ describe('PipelineSettingsPanel', () => {
     expect(screen.getByText('enabled')).toBeInTheDocument();
   });
 
-  it('renders as a report section when asked', () => {
+  it('stays expanded on the report, where a collapsed section would print blank', () => {
     render(<PipelineSettingsPanel settings={PACBIO_SETTINGS} variant="report" />);
 
-    expect(
-      screen.getByRole('heading', { name: /analysis pipeline settings/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/every tool version these calls were produced with/i)).toBeInTheDocument();
+    const section = screen.getByTestId('pipeline-settings');
+    expect(section.tagName).toBe('SECTION');
+    expect(screen.getByRole('heading', { name: /analysis pipeline settings/i })).toBeInTheDocument();
+    expect(screen.getByText('Genome build')).toBeInTheDocument();
   });
 
-  it('renders as a workspace section by default', () => {
+  it('collapses on the workspace and starts closed', () => {
     render(<PipelineSettingsPanel settings={PACBIO_SETTINGS} />);
 
-    expect(
-      screen.getByRole('heading', { name: /analysis pipeline settings/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/the run configuration and the version of every tool/i),
-    ).toBeInTheDocument();
+    // Reference material a reader consults occasionally, not something to scroll past
+    // on every visit — but the heading stays visible so it can be found.
+    const section = screen.getByTestId('pipeline-settings') as HTMLDetailsElement;
+    expect(section.tagName).toBe('DETAILS');
+    expect(section.open).toBe(false);
+    expect(screen.getByRole('heading', { name: /analysis pipeline settings/i })).toBeInTheDocument();
   });
 
   it('shows the workflow and its engine separately from the tool versions', async () => {
