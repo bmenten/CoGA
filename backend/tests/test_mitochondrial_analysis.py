@@ -148,7 +148,7 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
 
     assert [sample.sample_id for sample in response.samples] == ["PROBAND", "MOM", "DAD"]
     assert response.samples[0].haplogroup == "H1"
-    assert response.samples[1].qc.status == "warning"
+    assert response.samples[1].qc.status == "warn"
     assert response.samples[1].qc.contamination == 0.012
     # The note names the configured limit, so a reviewer can see what it was judged against.
     assert any("0.01" in note for note in response.samples[1].qc.notes)

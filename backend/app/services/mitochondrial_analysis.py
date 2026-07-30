@@ -657,7 +657,9 @@ def _explicit_qc_status(metadata: dict[str, Any]) -> str | None:
     if normalized in {"fail", "failed", "error"}:
         return "fail"
     if normalized in {"warn", "warning", "review"}:
-        return "warning"
+        return "warn"
+    if normalized in {"skip", "skipped", "not_run", "not run", "n/a"}:
+        return "skip"
     return None
 
 
@@ -706,7 +708,7 @@ def _sample_qc(
         )
     )
     configured = thresholds or {}
-    status = explicit_status or "unknown"
+    status = explicit_status or "skip"
     gated = False
 
     def _apply(metric_key: str, value: float | None, direction: str, describe) -> None:
@@ -727,10 +729,8 @@ def _sample_qc(
             status = "fail"
             notes.append(describe(error_value))
         elif verdict == "warn":
-            # `warning` is this module's pre-existing spelling in MitoDNAQcOut.status;
-            # keep it rather than changing the mtDNA page's contract here.
             if status != "fail":
-                status = "warning"
+                status = "warn"
             notes.append(describe(warn_value))
 
     _apply(
@@ -745,7 +745,7 @@ def _sample_qc(
         "lower_is_worse",
         lambda bound: f"Mean mtDNA depth is below the configured limit of {bound}x.",
     )
-    if status == "unknown" and gated:
+    if status == "skip" and gated:
         status = "pass"
     return MitoDNAQcOut(
         status=status,  # type: ignore[arg-type]
@@ -793,7 +793,7 @@ def _family_qc_notes(samples: Sequence[MitoDNASampleOut], variants: Sequence[Mit
         notes.append("No per-sample mtDNA haplogroup metadata is available.")
     if not any(sample.coverage.mean_depth is not None for sample in samples):
         notes.append("No MT coverage track was found; variant-call depth is used when available.")
-    if any(sample.qc.status in {"warning", "fail"} for sample in samples):
+    if any(sample.qc.status in {"warn", "fail"} for sample in samples):
         notes.append("One or more samples have mtDNA QC warnings.")
     return notes
 

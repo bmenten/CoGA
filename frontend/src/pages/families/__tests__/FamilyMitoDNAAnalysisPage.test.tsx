@@ -84,7 +84,7 @@ describe('FamilyMitoDNAAnalysisPage', () => {
                 sex: 'female',
                 haplogroup: 'H1',
                 coverage: { mean_depth: 390, min_depth: 340, max_depth: 420, breadth: 0.97, source: 'coverage', regions: 10 },
-                qc: { status: 'warning', notes: ['Contamination estimate is elevated.'], contamination: 0.012, mean_depth: 390, min_mean_depth: 340 },
+                qc: { status: 'warn', notes: ['Contamination estimate is elevated.'], contamination: 0.012, mean_depth: 390, min_mean_depth: 340 },
               },
               {
                 sample_id: 'DAD',
@@ -228,6 +228,10 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     expect(screen.getAllByText('H1').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('J1')).toBeInTheDocument();
     expect(screen.getByText('Contamination estimate is elevated.')).toBeInTheDocument();
+    // The chip shows the shared human label, not the raw wire value the backend sends.
+    expect(screen.getByText('Warning')).toBeInTheDocument();
+    expect(screen.queryByText('warn')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Pass').length).toBeGreaterThanOrEqual(2);
 
     const pathogenicRow = screen.getByRole('row', { name: /m\.3243A>G/i });
     const rowScope = within(pathogenicRow as HTMLElement);
