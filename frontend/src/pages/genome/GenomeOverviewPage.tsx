@@ -340,6 +340,7 @@ const GenomeOverviewPage: React.FC = () => {
             segmentsSources: entry.segments_sources ?? [],
             segments: entry.segments,
             apcad: entry.apcad,
+            apcadSources: entry.apcad_sources ?? [],
             apcadPcf: !!entry.apcad_pcf,
             haplotypes: entry.haplotypes,
             sv: entry.variants,
@@ -354,6 +355,7 @@ const GenomeOverviewPage: React.FC = () => {
           segmentsSources: string[];
           segments: boolean;
           apcad: boolean;
+          apcadSources: string[];
           apcadPcf: boolean;
           haplotypes: boolean;
           sv: boolean;

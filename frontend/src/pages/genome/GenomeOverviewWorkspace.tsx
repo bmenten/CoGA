@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
-import { coverageTrackLabel, orderCoverageSources } from '../../lib/coverageSources';
+import { apcadAxisMax, coverageTrackLabel, orderCoverageSources } from '../../lib/coverageSources';
 import { cssVar } from '../../lib/colors';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
 import ApcadChart from '../../components/visualizations/ApcadChart';
@@ -31,6 +31,8 @@ interface GenomeTrackAvailability {
   /** The CNV callers with data; each is drawn as its own stacked track. */
   coverageSources: string[];
   segmentsSources: string[];
+  /** Callers on the APCAD track; folded MAF needs a 0-0.5 axis, phased needs 0-1. */
+  apcadSources: string[];
   apcad: boolean;
   apcadPcf: boolean;
   haplotypes: boolean;
@@ -380,6 +382,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                           testId={`genome-region-select-apcad-${member.sample_id}`}
                         >
                           <ApcadChart
+                            maxValue={apcadAxisMax(availability[member.sample_id]?.apcadSources)}
                             apcadUrls={urlMaps.apcad[member.sample_id]}
                             pcfUrls={
                               availability[member.sample_id]?.apcadPcf ? urlMaps.apcadPcf[member.sample_id] : undefined

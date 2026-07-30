@@ -303,6 +303,7 @@ const ChromosomeViewPage: React.FC = () => {
             coverage: entry.coverage,
             coverageSources: entry.coverage_sources ?? [],
             apcad: entry.apcad,
+            apcadSources: entry.apcad_sources ?? [],
             apcadPcf: !!entry.apcad_pcf,
             variants: entry.variants,
             smallVariants: entry.small_variants,
@@ -316,6 +317,7 @@ const ChromosomeViewPage: React.FC = () => {
           coverage: boolean;
           coverageSources: string[];
           apcad: boolean;
+          apcadSources: string[];
           apcadPcf: boolean;
           variants: boolean;
           smallVariants: boolean;

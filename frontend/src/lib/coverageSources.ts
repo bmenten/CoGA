@@ -59,3 +59,25 @@ export const orderCoverageSources = (sources: readonly string[] | undefined): st
  */
 export const coverageTrackLabel = (source: string, totalSources: number): string =>
   totalSources > 1 ? `Coverage · ${coverageSourceLabel(source)}` : 'Coverage';
+
+
+/**
+ * Callers whose APCAD rows are a *folded* minor allele fraction rather than
+ * parent-of-origin markers.
+ *
+ * A depth caller writes MAF as min(AF, 1-AF) per site, so its values never exceed
+ * 0.5 — drawn on the 0-1 B-allele axis the phased track uses, every point is
+ * squashed into the bottom half and the top half is dead space.
+ */
+const FOLDED_APCAD_SOURCES = new Set(['hificnv']);
+
+/** Top of the APCAD y-axis for the callers present on a sample. */
+export const apcadAxisMax = (sources: readonly string[] | undefined): number => {
+  const present = sources?.filter(Boolean) ?? [];
+  // Only fold the axis when everything drawn on it is folded. A sample carrying
+  // both a phased track and a MAF track needs the full range for the phased one.
+  if (present.length > 0 && present.every((source) => FOLDED_APCAD_SOURCES.has(source))) {
+    return 0.5;
+  }
+  return 1;
+};

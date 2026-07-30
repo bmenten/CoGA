@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  apcadAxisMax,
   coverageSourceLabel,
   coverageTrackLabel,
   orderCoverageSources,
@@ -49,5 +50,19 @@ describe('coverage sources', () => {
   it('only names the caller when there is more than one to tell apart', () => {
     expect(coverageTrackLabel('hificnv', 1)).toBe('Coverage');
     expect(coverageTrackLabel('hificnv', 3)).toBe('Coverage · HiFiCNV');
+  });
+
+  it('folds the APCAD axis only when every caller on it is folded', () => {
+    // A depth caller writes min(AF, 1-AF), so its points never exceed 0.5; on the
+    // 0-1 axis the phased track uses, the whole upper half is dead space.
+    expect(apcadAxisMax(['hificnv'])).toBe(0.5);
+    // Parent-of-origin markers run the full B-allele range.
+    expect(apcadAxisMax(['apcad'])).toBe(1);
+    // Mixed: the phased track needs the full range, so the folded one shares it
+    // rather than having its markers clipped away.
+    expect(apcadAxisMax(['apcad', 'hificnv'])).toBe(1);
+    // Nothing to draw: keep the conventional axis.
+    expect(apcadAxisMax([])).toBe(1);
+    expect(apcadAxisMax(undefined)).toBe(1);
   });
 });
