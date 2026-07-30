@@ -177,7 +177,7 @@ const AdminQcThresholdsPage: React.FC = () => {
 
       <section className="surface-card qc-threshold-layout">
         <aside className="qc-profile-list" aria-label="QC threshold profiles">
-          <h2 className="section-title">Profiles</h2>
+          <h2 className="qc-section-label">Profiles</h2>
           <ul>
             {profiles.map((profile) => {
               const configured = profile.thresholds.length;
@@ -254,7 +254,7 @@ const AdminQcThresholdsPage: React.FC = () => {
         <div className="qc-threshold-metrics">
           <div className="family-workspace-card-head">
             <div className="space-y-1">
-              <h2 className="section-title">{activeProfile?.label ?? 'Metrics'}</h2>
+              <h2 className="qc-section-label">{activeProfile?.label ?? 'Metrics'}</h2>
               <p className="family-workspace-card-subtitle">
                 {activeProfile?.description ?? 'Leave both bounds blank to leave a metric unchecked.'}
               </p>
@@ -420,7 +420,7 @@ const AdminQcThresholdsPage: React.FC = () => {
       <section className="surface-card space-y-3">
         <div className="family-workspace-card-head">
           <div className="space-y-1">
-            <h2 className="section-title">Change history</h2>
+            <h2 className="qc-section-label">Change history</h2>
             <p className="family-workspace-card-subtitle">
               Every cut-off edit, with the value it replaced. Append-only — entries cannot be
               altered or removed.
