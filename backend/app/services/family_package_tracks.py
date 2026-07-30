@@ -408,8 +408,17 @@ async def _import_copy_number_track(
     path: Path,
     track_type: str,
     source: str,
+    value_transform: Callable[[float], float] | None = None,
+    extra_metadata: dict[str, Any] | None = None,
     progress: Callable[[dict[str, int]], Awaitable[None]] | None = None,
 ) -> dict[str, int]:
+    """Import a delimited copy-number file as interval-track rows.
+
+    ``value_transform`` converts each value before storage, for a caller whose file
+    holds a different quantity from the track's axis -- HiFiCNV's bedGraph carries
+    integer copy number where the segments track holds a log2 ratio.
+    """
+
     if not sample_context.assembly_name:
         raise RuntimeError("Cannot import copy-number interval tracks without an assembly name")
     await _delete_sample_interval_source(
@@ -448,6 +457,8 @@ async def _import_copy_number_track(
             if row is None:
                 skipped += 1
                 continue
+            if value_transform is not None and row.get("value") is not None:
+                row["value"] = value_transform(float(row["value"]))
             batch.append(row)
             if len(batch) >= 5000:
                 await _insert_interval_track_rows(session, batch)

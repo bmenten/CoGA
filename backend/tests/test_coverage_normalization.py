@@ -16,6 +16,7 @@ import pytest
 from app.services.family_package_bigwig import autosomal_median
 from app.services.family_package_datasets import (
     _MIN_LOG2_RATIO,
+    _log2_copy_number_transform,
     _log2_ratio_transform,
 )
 
@@ -113,3 +114,42 @@ def test_no_usable_baseline_leaves_the_values_alone(normaliser: float | None) ->
     # genome-wide gain or loss. Raw depth on the wrong axis is at least honest, and
     # the recorded metadata says which it is.
     assert _log2_ratio_transform(normaliser) is None
+
+
+# ---------------------------------------------------------------------------
+# Copy number onto the same axis
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("copy_number", "expected"),
+    [
+        (2, 0.0),  # diploid baseline
+        (1, -1.0),  # one copy lost
+        (3, log2(1.5)),  # one copy gained
+        (4, 1.0),  # duplicated
+    ],
+)
+def test_copy_number_becomes_a_log2_ratio_against_diploid(
+    copy_number: int, expected: float
+) -> None:
+    # HiFiCNV's bedGraph holds an integer copy number, but the `segments` track holds
+    # a log2 ratio -- that is what WisecondorX and QDNAseq write and what the chart
+    # axis is calibrated for. Stored raw, a normal CN of 2 sat above the top of a
+    # +-1.5 axis and drew a solid line across the genome at the clip boundary.
+    assert _log2_copy_number_transform(copy_number) == pytest.approx(expected)
+
+
+def test_a_homozygous_deletion_takes_the_same_floor_as_the_depth_track() -> None:
+    # CN 0 is a real call, and log2(0) is -inf.
+    assert _log2_copy_number_transform(0) == _MIN_LOG2_RATIO
+    assert _log2_copy_number_transform(-1) == _MIN_LOG2_RATIO
+
+
+def test_copy_number_and_depth_agree_on_what_a_loss_looks_like() -> None:
+    depth = _log2_ratio_transform(20.0)
+    assert depth is not None
+    # The whole point of normalising both: a single-copy loss is -1 whether it
+    # reached the track as a called copy number or as read depth.
+    assert _log2_copy_number_transform(1) == pytest.approx(depth(10.0))
+    assert _log2_copy_number_transform(2) == pytest.approx(depth(20.0))

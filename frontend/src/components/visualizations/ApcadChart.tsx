@@ -166,7 +166,15 @@ const ApcadChart: React.FC<Props> = ({
         payload?.items.forEach((item) => {
           const chromName = normalizeChrom(item.chr);
           const origin = (item.origin || 'und').toLowerCase();
-          if (allowedChroms.has(chromName) && (origin === 'paternal' || origin === 'maternal')) {
+          // Every point the server sent is drawn, `und` included. Filtering to
+          // paternal/maternal here duplicated a decision the server already makes,
+          // and the two copies disagreed: a track with no parent-of-origin calls at
+          // all -- HiFiCNV's minor-allele-fraction bigWig, where bigWig has nowhere
+          // to record one -- is served as `und` on purpose, and this dropped every
+          // point of it, leaving "no APCAD data in this region" over a full track.
+          // Where phased markers exist the server sends only those, so nothing here
+          // changes for a trio.
+          if (allowedChroms.has(chromName) && Number.isFinite(item.value)) {
             bins.push({ chr: chromName, start: item.start, end: item.end, value: item.value, origin });
           }
         });

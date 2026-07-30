@@ -332,6 +332,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/components/__tests__/SmallVariantTrack.test.tsx](../frontend/src/components/__tests__/SmallVariantTrack.test.tsx) | Small-variant track rendering with query/API mocks. |
 | [frontend/src/components/__tests__/VariantTrack.test.tsx](../frontend/src/components/__tests__/VariantTrack.test.tsx) | Base variant-track rendering. |
 | [frontend/src/components/visualizations/__tests__/VizTooltip.test.tsx](../frontend/src/components/visualizations/__tests__/VizTooltip.test.tsx) | Floating tooltip portal rendering. |
+| [frontend/src/components/visualizations/__tests__/ApcadChart.test.tsx](../frontend/src/components/visualizations/__tests__/ApcadChart.test.tsx) | APCAD track draws whatever the server sent, unphased (`und`) points included, and still reports a genuinely empty region. |
 
 ### Shared UI components
 | Test file | Purpose |
