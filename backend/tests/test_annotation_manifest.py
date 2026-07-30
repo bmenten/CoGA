@@ -35,10 +35,13 @@ def test_module_list_merges_pipeline_over_platform_in_canonical_order() -> None:
     assert by_key["monarch"]["layer"] == "pipeline" and by_key["monarch"]["version"] == "override"
 
 
-def test_module_list_includes_unknown_keys_with_titled_label() -> None:
+def test_module_list_includes_unknown_keys_verbatim() -> None:
+    # Unknown keys used to be title-cased, which renamed the tools it was recording
+    # ("nf-core/lrsvar" -> "Nf-Core/Lrsvar", "xz" -> "Xz"). A provenance record must say
+    # exactly what produced a result, so an unrecognised key is shown as-is.
     out = ams._module_list({"custom_tool": "9"}, {})
     module = next(m for m in out if m["key"] == "custom_tool")
-    assert module["label"] == "Custom Tool" and module["version"] == "9" and module["layer"] == "pipeline"
+    assert module["label"] == "custom_tool" and module["version"] == "9" and module["layer"] == "pipeline"
 
 
 def test_refresh_modules_records_and_accumulates_per_modality() -> None:
@@ -102,3 +105,27 @@ def test_get_family_manifest_falls_back_to_family_metadata(monkeypatch) -> None:
     assert out["family_id"] == "FAM1" and out["assembly"] == "GRCh38"
     assert out["source"] == "manifest"
     assert any(m["key"] == "clinvar" and m["version"] == "2026-05" for m in out["modules"])
+
+
+def test_unknown_module_labels_are_not_renamed_by_title_casing() -> None:
+    """A traceability record must not rename the tool it records.
+
+    Title-casing an unrecognised key turned "nf-core/lrsvar" into "Nf-Core/Lrsvar" and
+    "xz" into "Xz". Tool names carry their own casing, so only keys that look like plain
+    words are prettified.
+    """
+    from backend.app.services.annotation_manifest_service import _fallback_module_label
+
+    for key in ("nf-core/lrsvar", "minimap2", "perl-math-cdf", "GATK4", "xz", "samtools"):
+        assert _fallback_module_label(key) == key
+
+
+def test_known_modules_keep_their_curated_label() -> None:
+    from backend.app.services.annotation_manifest_service import _MODULE_LABELS
+
+    # The tools this pipeline reports all have a curated label, so none of them falls
+    # through to the verbatim path with awkward casing.
+    assert _MODULE_LABELS["hificnv"] == "HiFiCNV"
+    assert _MODULE_LABELS["glnexus"] == "GLnexus"
+    assert _MODULE_LABELS["ensemblvep"] == "Ensembl VEP"
+    assert _MODULE_LABELS["nf-core/lrsvar"] == "nf-core/lrsvar"

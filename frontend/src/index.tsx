@@ -96,6 +96,9 @@ const AdminPresetFiltersPage = lazy(
 const AdminVariantTagsPage = lazy(
   () => import('./pages/admin/AdminVariantTagsPage')
 );
+const AdminQcThresholdsPage = lazy(
+  () => import('./pages/admin/AdminQcThresholdsPage')
+);
 const AdminFamilyStatusesPage = lazy(
   () => import('./pages/admin/AdminFamilyStatusesPage')
 );
@@ -354,6 +357,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 <Route
                   path="/admin/data/family-statuses"
                   element={routeElement(<AdminFamilyStatusesPage />)}
+                />
+                <Route
+                  path="/admin/data/qc-thresholds"
+                  element={routeElement(<AdminQcThresholdsPage />)}
                 />
                 <Route
                   path="/admin/data/clickhouse"

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
+import { apcadAxisMax, coverageTrackLabel, orderCoverageSources } from '../../lib/coverageSources';
 import { cssVar } from '../../lib/colors';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
 import ApcadChart from '../../components/visualizations/ApcadChart';
@@ -27,6 +28,11 @@ interface Layout {
 interface GenomeTrackAvailability {
   coverage: boolean;
   segments: boolean;
+  /** The CNV callers with data; each is drawn as its own stacked track. */
+  coverageSources: string[];
+  segmentsSources: string[];
+  /** Callers on the APCAD track; folded MAF needs a 0-0.5 axis, phased needs 0-1. */
+  apcadSources: string[];
   apcad: boolean;
   apcadPcf: boolean;
   haplotypes: boolean;
@@ -66,8 +72,11 @@ interface GenomeOverviewWorkspaceProps {
   variantFilters: Record<string, string>;
   sampleFilterMap: Record<string, string>;
   urlMaps: {
-    coverage: Record<string, string[]>;
-    segments: Record<string, string[]>;
+    /** Built per (sample, caller) — see GenomeOverviewPage for why it is a function. */
+    coverageTrackUrls: (
+      sampleId: string,
+      source: string,
+    ) => { coverageUrls: string[]; segmentsUrls: string[] };
     apcad: Record<string, string[]>;
     apcadPcf: Record<string, string[]>;
     haplotypes: Record<string, string[]>;
@@ -306,39 +315,55 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
           {membersWithData.map((member) => (
             <ViewerMemberSection key={member.sample_id} member={member}>
               <div className="overflow-x-auto">
-                {trackVisibility.coverage && availability[member.sample_id]?.coverage && (
-                  <ViewerTrackBlock
-                    label="Coverage"
-                    width={trackWidth}
-                    frameClassName="mb-2 h-[120px] cursor-pointer"
-                    roiRange={genomeRoiRange}
-                    roiTitle={roiTitle}
-                  >
-                    {layout && (
-                      <GenomeRegionSelectionSurface
-                        layout={layout}
-                        width={trackWidth}
-                        height={trackHeight}
-                        onSelectRegion={navigateToChromosome}
-                        testId={`genome-region-select-coverage-${member.sample_id}`}
-                      >
-                        <CoverageSegmentsChart
-                          coverageUrls={urlMaps.coverage[member.sample_id]}
-                          segmentsUrls={
-                            trackVisibility.segments && availability[member.sample_id]?.segments
-                              ? urlMaps.segments[member.sample_id]
-                              : undefined
-                          }
+                {trackVisibility.coverage &&
+                  // One track per CNV caller. All are stored as a log2 ratio against
+                  // the sample's own baseline, so a loss sits at the same height in
+                  // each and they can be read down the column.
+                  orderCoverageSources(availability[member.sample_id]?.coverageSources).map(
+                    (coverageSource, _index, allSources) => {
+                      const { coverageUrls, segmentsUrls } = urlMaps.coverageTrackUrls(
+                        member.sample_id,
+                        coverageSource,
+                      );
+                      return (
+                        <ViewerTrackBlock
+                          key={`coverage-${coverageSource}`}
+                          label={coverageTrackLabel(coverageSource, allSources.length)}
                           width={trackWidth}
-                          height={trackHeight}
-                          onChromosomeClick={navigateToChromosome}
-                          layout={layout}
-                          chroms={layout.chroms}
-                        />
-                      </GenomeRegionSelectionSurface>
-                    )}
-                  </ViewerTrackBlock>
-                )}
+                          frameClassName="mb-2 h-[120px] cursor-pointer"
+                          roiRange={genomeRoiRange}
+                          roiTitle={roiTitle}
+                        >
+                          {layout && (
+                            <GenomeRegionSelectionSurface
+                              layout={layout}
+                              width={trackWidth}
+                              height={trackHeight}
+                              onSelectRegion={navigateToChromosome}
+                              testId={`genome-region-select-coverage-${member.sample_id}-${coverageSource}`}
+                            >
+                              <CoverageSegmentsChart
+                                coverageUrls={coverageUrls}
+                                segmentsUrls={
+                                  trackVisibility.segments &&
+                                  (availability[member.sample_id]?.segmentsSources || []).includes(
+                                    coverageSource,
+                                  )
+                                    ? segmentsUrls
+                                    : undefined
+                                }
+                                width={trackWidth}
+                                height={trackHeight}
+                                onChromosomeClick={navigateToChromosome}
+                                layout={layout}
+                                chroms={layout.chroms}
+                              />
+                            </GenomeRegionSelectionSurface>
+                          )}
+                        </ViewerTrackBlock>
+                      );
+                    },
+                  )}
                 {trackVisibility.apcad &&
                   (availability[member.sample_id]?.apcad || availability[member.sample_id]?.apcadPcf) && (
                     <ViewerTrackBlock
@@ -357,6 +382,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                           testId={`genome-region-select-apcad-${member.sample_id}`}
                         >
                           <ApcadChart
+                            maxValue={apcadAxisMax(availability[member.sample_id]?.apcadSources)}
                             apcadUrls={urlMaps.apcad[member.sample_id]}
                             pcfUrls={
                               availability[member.sample_id]?.apcadPcf ? urlMaps.apcadPcf[member.sample_id] : undefined

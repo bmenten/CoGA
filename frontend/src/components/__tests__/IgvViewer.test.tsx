@@ -41,22 +41,26 @@ describe('IgvViewer', () => {
 
   it('loads alignment tracks from the manifest endpoint and passes them to IGV', async () => {
     localStorage.setItem('token', 'token-123');
-    apiGetMock.mockResolvedValue({
-      data: [
-        {
-          sample_id: 'S1',
-          format: 'cram',
-          url: '/cram/F1/S1.cram',
-          index_url: '/cram/F1/S1.cram.crai',
-        },
-        {
-          sample_id: 'S2',
-          format: 'bam',
-          url: '/cram/F1/S2.bam',
-          index_url: '/cram/F1/S2.bam.bai',
-        },
-      ],
-    });
+    apiGetMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.startsWith('/signal-tracks/')
+          ? []
+          : [
+              {
+                sample_id: 'S1',
+                format: 'cram',
+                url: '/cram/F1/S1.cram',
+                index_url: '/cram/F1/S1.cram.crai',
+              },
+              {
+                sample_id: 'S2',
+                format: 'bam',
+                url: '/cram/F1/S2.bam',
+                index_url: '/cram/F1/S2.bam.bai',
+              },
+            ],
+      }),
+    );
     createBrowserMock.mockResolvedValue({
       destroy: vi.fn(),
       search: searchMock,
@@ -104,16 +108,20 @@ describe('IgvViewer', () => {
 
   it('uses presigned S3 URLs directly, without attaching auth headers', async () => {
     localStorage.setItem('token', 'token-123');
-    apiGetMock.mockResolvedValue({
-      data: [
-        {
-          sample_id: 'S1',
-          format: 'cram',
-          url: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram?sig=abc',
-          index_url: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram.crai?sig=def',
-        },
-      ],
-    });
+    apiGetMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.startsWith('/signal-tracks/')
+          ? []
+          : [
+              {
+                sample_id: 'S1',
+                format: 'cram',
+                url: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram?sig=abc',
+                index_url: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram.crai?sig=def',
+              },
+            ],
+      }),
+    );
     createBrowserMock.mockResolvedValue({ destroy: vi.fn(), search: searchMock });
     loadIgvMock.mockResolvedValue({ createBrowser: createBrowserMock });
 
@@ -172,5 +180,110 @@ describe('IgvViewer', () => {
 
     await waitFor(() => expect(createBrowserMock).toHaveBeenCalled());
     await waitFor(() => expect(searchMock).toHaveBeenCalledWith('chr2:20-40'));
+  });
+
+  it('adds caller signal tracks above the alignments, with the right axis per quantity', async () => {
+    localStorage.setItem('token', 'token-123');
+    apiGetMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.startsWith('/signal-tracks/')
+          ? [
+              {
+                sample_id: 'S1',
+                source: 'hificnv',
+                kind: 'depth_bigwig',
+                name: 'S1 Read depth',
+                format: 'bigwig',
+                url: '/signal-tracks/F1/S1/hificnv/depth_bigwig',
+                min: null,
+                max: null,
+              },
+              {
+                sample_id: 'S1',
+                source: 'hificnv',
+                kind: 'maf_bigwig',
+                name: 'S1 Minor allele fraction',
+                format: 'bigwig',
+                url: '/signal-tracks/F1/S1/hificnv/maf_bigwig',
+                min: 0,
+                max: 0.5,
+              },
+            ]
+          : [
+              {
+                sample_id: 'S1',
+                format: 'cram',
+                url: '/cram/F1/S1.cram',
+                index_url: '/cram/F1/S1.cram.crai',
+              },
+            ],
+      }),
+    );
+    createBrowserMock.mockResolvedValue({ destroy: vi.fn(), search: searchMock });
+    loadIgvMock.mockResolvedValue({ createBrowser: createBrowserMock });
+
+    render(<IgvViewer familyId="F1" sampleIds={['S1']} genome="hg38" locus="chr1:10-20" />);
+
+    await waitFor(() => expect(createBrowserMock).toHaveBeenCalled());
+    const [, options] = createBrowserMock.mock.calls[0];
+    expect(options.tracks).toEqual([
+      {
+        name: 'S1 Read depth',
+        type: 'wig',
+        format: 'bigwig',
+        url: 'http://api.test/signal-tracks/F1/S1/hificnv/depth_bigwig',
+        // Depth is unbounded and sample-specific.
+        autoscale: true,
+        headers: { Authorization: 'Bearer token-123' },
+      },
+      {
+        name: 'S1 Minor allele fraction',
+        type: 'wig',
+        format: 'bigwig',
+        url: 'http://api.test/signal-tracks/F1/S1/hificnv/maf_bigwig',
+        // MAF is 0-0.5 by construction; autoscaling would move the bands about.
+        autoscale: false,
+        min: 0,
+        max: 0.5,
+        headers: { Authorization: 'Bearer token-123' },
+      },
+      {
+        name: 'S1',
+        type: 'alignment',
+        format: 'cram',
+        url: 'http://api.test/cram/F1/S1.cram',
+        indexURL: 'http://api.test/cram/F1/S1.cram.crai',
+        headers: { Authorization: 'Bearer token-123' },
+      },
+    ]);
+  });
+
+  it('still shows alignments when the signal manifest fails', async () => {
+    localStorage.setItem('token', 'token-123');
+    apiGetMock.mockImplementation((url: string) =>
+      url.startsWith('/signal-tracks/')
+        ? Promise.reject(new Error('signal manifest unavailable'))
+        : Promise.resolve({
+            data: [
+              {
+                sample_id: 'S1',
+                format: 'cram',
+                url: '/cram/F1/S1.cram',
+                index_url: '/cram/F1/S1.cram.crai',
+              },
+            ],
+          }),
+    );
+    createBrowserMock.mockResolvedValue({ destroy: vi.fn(), search: searchMock });
+    loadIgvMock.mockResolvedValue({ createBrowser: createBrowserMock });
+
+    render(<IgvViewer familyId="F1" sampleIds={['S1']} genome="hg38" locus="chr1:10-20" />);
+
+    // Signal tracks are an addition, not a dependency: losing them must not cost
+    // the reader the alignments they opened the browser for.
+    await waitFor(() => expect(createBrowserMock).toHaveBeenCalled());
+    const [, options] = createBrowserMock.mock.calls[0];
+    expect(options.tracks).toHaveLength(1);
+    expect(options.tracks[0].type).toBe('alignment');
   });
 });

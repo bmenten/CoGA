@@ -217,8 +217,7 @@ const GenomeOverviewPage: React.FC = () => {
   const urlMaps = useMemo(() => {
     if (!data) {
       return {
-        coverage: {},
-        segments: {},
+        coverageTrackUrls: () => ({ coverageUrls: [], segmentsUrls: [] }),
         apcad: {},
         apcadPcf: {},
         haplotypes: {},
@@ -238,25 +237,13 @@ const GenomeOverviewPage: React.FC = () => {
       return `${api.defaults.baseURL}/bed/${sampleId}/${bedType}/batch?${params.toString()}`;
     };
 
-    const coverage: Record<string, string[]> = {};
-    const segments: Record<string, string[]> = {};
     const apcad: Record<string, string[]> = {};
     const apcadPcf: Record<string, string[]> = {};
     const haplotypes: Record<string, string[]> = {};
     const sv: Record<string, string> = {};
 
     orderedMembers.forEach((member) => {
-      coverage[member.sample_id] = [
-        buildBatchBedUrl(member.sample_id, 'coverage', {
-          window: String(genomeTrackWindow),
-          limit: String(binLimit),
-        }),
-      ];
-      segments[member.sample_id] = [
-        buildBatchBedUrl(member.sample_id, 'segments', {
-          limit: String(segmentLimit),
-        }),
-      ];
+
       apcad[member.sample_id] = [
         buildBatchBedUrl(member.sample_id, 'apcad', {
           window: String(genomeTrackWindow),
@@ -280,7 +267,23 @@ const GenomeOverviewPage: React.FC = () => {
         `${api.defaults.baseURL}/families/${familyId}/structural-variants?${svParams.toString()}`;
     });
 
-    return { coverage, segments, apcad, apcadPcf, haplotypes, sv };
+    // A builder rather than a prebuilt map: which callers a sample has comes from
+    // the availability query, which is resolved after this memo, and threading it
+    // back in would mean reordering the hooks for no gain.
+    const coverageTrackUrls = (sampleId: string, source: string) => ({
+      coverageUrls: [
+        buildBatchBedUrl(sampleId, 'coverage', {
+          window: String(genomeTrackWindow),
+          limit: String(binLimit),
+          source,
+        }),
+      ],
+      segmentsUrls: [
+        buildBatchBedUrl(sampleId, 'segments', { limit: String(segmentLimit), source }),
+      ],
+    });
+
+    return { coverageTrackUrls, apcad, apcadPcf, haplotypes, sv };
   }, [
     apcadPointLimit,
     baseVariantParams,
@@ -333,8 +336,11 @@ const GenomeOverviewPage: React.FC = () => {
           sampleId,
           {
             coverage: entry.coverage,
+            coverageSources: entry.coverage_sources ?? [],
+            segmentsSources: entry.segments_sources ?? [],
             segments: entry.segments,
             apcad: entry.apcad,
+            apcadSources: entry.apcad_sources ?? [],
             apcadPcf: !!entry.apcad_pcf,
             haplotypes: entry.haplotypes,
             sv: entry.variants,
@@ -345,8 +351,11 @@ const GenomeOverviewPage: React.FC = () => {
         string,
         {
           coverage: boolean;
+          coverageSources: string[];
+          segmentsSources: string[];
           segments: boolean;
           apcad: boolean;
+          apcadSources: string[];
           apcadPcf: boolean;
           haplotypes: boolean;
           sv: boolean;

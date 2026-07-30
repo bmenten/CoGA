@@ -8,7 +8,27 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# pyBigWig publishes manylinux wheels for x86_64 only, so on arm64 (Apple Silicon
+# development machines) pip falls back to its sdist and needs a C toolchain and
+# libcurl headers. Deploy targets are linux/amd64 and take the wheel, but the build
+# has to work on both.
+#
+# The toolchain is installed and purged inside one RUN so it never reaches a layer
+# of the shipped image: the runtime stays compiler-free, which is both a smaller
+# image and one fewer thing in the attack surface (TF-13). The hash-locked
+# requirements still govern what gets built -- pip verifies the sdist against the
+# same lock as every wheel.
+RUN set -eux; \
+    build_deps='gcc libc6-dev libcurl4-openssl-dev zlib1g-dev'; \
+    apt-get update; \
+    # libcurl4 is the *runtime* library the built extension links against, and is
+    # installed separately so `--auto-remove` below does not take it away with the
+    # -dev package that pulled it in.
+    apt-get install -y --no-install-recommends libcurl4 $build_deps; \
+    pip install --no-cache-dir -r requirements.txt; \
+    apt-get purge -y --auto-remove $build_deps; \
+    apt-get install -y --no-install-recommends libcurl4; \
+    rm -rf /var/lib/apt/lists/*
 
 COPY backend/db ./db
 COPY backend/app ./app

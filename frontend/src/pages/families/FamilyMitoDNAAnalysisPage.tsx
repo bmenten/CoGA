@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import type {
   ApiFamilyMitoDNAAnalysis,
   ApiFamilyMember,
@@ -272,7 +273,7 @@ const SampleSummaryCard: React.FC<{ sample: ApiMitoDNASample }> = ({ sample }) =
         <div className="table-subtle">{sample.role || 'relative'}</div>
       </div>
       <span className={`table-chip family-mtdna-qc-chip family-mtdna-qc-chip--${sample.qc.status}`}>
-        {sample.qc.status}
+        {QC_STATUS_LABEL[sample.qc.status]}
       </span>
     </div>
     <div className="family-mtdna-sample-metrics">
@@ -399,7 +400,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     [mtDNA?.variants],
   );
   const qcWarningCount = useMemo(
-    () => (mtDNA?.samples || []).filter((sample) => sample.qc.status === 'warning' || sample.qc.status === 'fail').length,
+    () => (mtDNA?.samples || []).filter((sample) => sample.qc.status === 'warn' || sample.qc.status === 'fail').length,
     [mtDNA?.samples],
   );
   const openMitomapVariant = useCallback((variant: ApiMitoDNAVariant) => {

@@ -22,6 +22,77 @@ export interface ApiFamilyMember extends ApiFamilyMemberRef {
   carrier_evidence?: Record<string, unknown>;
   active?: boolean;
   sample_metadata?: Record<string, unknown>;
+  sequencing_qc?: ApiSampleSequencingQcEvaluation;
+}
+
+/** A sequencing-QC metric judged against its configured cut-offs. */
+export interface ApiSampleSequencingQcMetric {
+  metric_key: string;
+  label: string;
+  unit: string;
+  direction: 'lower_is_worse' | 'higher_is_worse';
+  value: number;
+  warn_value?: number | null;
+  error_value?: number | null;
+  /** `skip` = no cut-off configured, i.e. not checked — distinct from `pass`. Shares
+   *  the QcStatus vocabulary used by sample-integrity QC. */
+  verdict: QcStatus;
+}
+
+export interface ApiSampleSequencingQcEvaluation {
+  verdict: QcStatus;
+  metrics: ApiSampleSequencingQcMetric[];
+  breached: string[];
+  profile_key?: string | null;
+  profile_label?: string | null;
+}
+
+export interface ApiQcMetricCatalogueEntry {
+  key: string;
+  label: string;
+  unit: string;
+  direction: 'lower_is_worse' | 'higher_is_worse';
+  help_text: string;
+}
+
+export interface ApiQcThreshold {
+  metric_key: string;
+  label: string;
+  unit: string;
+  direction: 'lower_is_worse' | 'higher_is_worse';
+  known_metric: boolean;
+  warn_value?: number | null;
+  error_value?: number | null;
+}
+
+export interface ApiQcThresholdProfile {
+  id: string;
+  key: string;
+  label: string;
+  description?: string | null;
+  is_default: boolean;
+  sort_order: number;
+  thresholds: ApiQcThreshold[];
+}
+
+/** One entry of the append-only cut-off history, with both sides of the edit. */
+export interface ApiQcThresholdChange {
+  profile_key: string;
+  metric_key: string;
+  previous_warn_value?: number | null;
+  previous_error_value?: number | null;
+  warn_value?: number | null;
+  error_value?: number | null;
+  changed_by_email?: string | null;
+  changed_at: string;
+  /** Why the cut-off moved; null only for edits made before it was required. */
+  reason?: string | null;
+}
+
+export interface ApiQcThresholdCatalogue {
+  metrics: ApiQcMetricCatalogueEntry[];
+  profiles: ApiQcThresholdProfile[];
+  changes: ApiQcThresholdChange[];
 }
 
 export interface ApiFamilyMemberImpact {
@@ -506,6 +577,15 @@ export type ApiTrackAvailabilityResponse<TTrackAvailability> = {
 
 export interface ApiChromosomeTrackAvailability {
   coverage: boolean;
+  /**
+   * Which CNV callers actually have coverage rows for this sample. A long-read
+   * package can carry HiFiCNV, WisecondorX and QDNAseq at once and each is drawn
+   * as its own track; `coverage` remains the "any at all" flag.
+   */
+  coverage_sources?: string[];
+  segments_sources?: string[];
+  /** Which callers wrote the APCAD track; decides the axis (see MAF_AXIS_MAX). */
+  apcad_sources?: string[];
   apcad: boolean;
   apcad_pcf: boolean;
   variants: boolean;
@@ -517,6 +597,9 @@ export interface ApiChromosomeTrackAvailability {
 export interface ApiGenomeTrackAvailability {
   coverage: boolean;
   segments: boolean;
+  coverage_sources?: string[];
+  segments_sources?: string[];
+  apcad_sources?: string[];
   apcad: boolean;
   apcad_pcf: boolean;
   haplotypes: boolean;
@@ -684,7 +767,8 @@ export interface ApiMitoDNACoverage {
 }
 
 export interface ApiMitoDNAQc {
-  status: 'pass' | 'warning' | 'fail' | 'unknown';
+  /** Shares the app-wide QC vocabulary; `skip` means not assessed, never `pass`. */
+  status: QcStatus;
   notes: string[];
   contamination?: number | null;
   mean_depth?: number | null;

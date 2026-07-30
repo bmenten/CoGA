@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -20,10 +21,13 @@ from ..schemas import (
     FamilyStructureVersionOut,
     ProjectDashboardOut,
     ProjectOut,
+    SampleSequencingQcEvaluationOut,
     SpeciesOut,
     UserRead,
     UserRefOut,
 )
+
+logger = logging.getLogger(__name__)
 
 ADMIN_ROLES = {"admin", "superuser"}
 
@@ -1253,7 +1257,7 @@ async def get_family_record(
     sample_rows_by_family = await _fetch_family_sample_rows(session, [family_row["id"]])
     relationships_by_family = await _fetch_family_relationship_rows(session, [family_row["id"]])
     structure_versions_by_family = await _fetch_family_structure_version_rows(session, [family_row["id"]])
-    return _family_out_from_rows(
+    family_out = _family_out_from_rows(
         {
             **family_row,
             "relationships": relationships_by_family.get(family_row["id"], []),
@@ -1262,6 +1266,44 @@ async def get_family_record(
         sample_rows_by_family.get(family_row["id"], []),
         _visible_metadata_project_ids(family_row.get("project_ids"), user),
     )
+    await _attach_sequencing_qc_verdicts(session, family_uuid=str(family_row["id"]), family=family_out)
+    return family_out
+
+
+async def _attach_sequencing_qc_verdicts(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    family: FamilyOut,
+) -> None:
+    """Judge each member's recorded sequencing QC against the family's threshold profile.
+
+    Only the single-family read does this: the family *list* does not show QC, and
+    resolving a profile per family there would add a query per row for nothing.
+
+    Best-effort — a failure here must not take down the family workspace, which is
+    readable and useful without a QC verdict.
+    """
+    if not any(member.sample_metadata.get("sequencing_qc") for member in family.members):
+        return
+    try:
+        from .qc_threshold_service import evaluate_sequencing_qc, resolve_family_qc_thresholds
+
+        resolved = await resolve_family_qc_thresholds(session, family_uuid=family_uuid)
+        for member in family.members:
+            evaluation = evaluate_sequencing_qc(
+                member.sample_metadata.get("sequencing_qc"),
+                resolved["thresholds"],
+            )
+            if evaluation is None:
+                continue
+            member.sequencing_qc = SampleSequencingQcEvaluationOut(
+                **evaluation,
+                profile_key=resolved["profile_key"],
+                profile_label=resolved["profile_label"],
+            )
+    except Exception:  # noqa: BLE001 — a QC verdict must never break the workspace
+        logger.warning("Sequencing-QC threshold evaluation failed for family %s", family_uuid, exc_info=True)
 
 
 async def list_family_project_assignments(
