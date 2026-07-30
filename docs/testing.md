@@ -8,7 +8,7 @@ requirement → its verifying test), see the Requirements Traceability Matrix
 | Suite | Files | Tests | Runner |
 | --- | --- | --- | --- |
 | Backend (Python) | 139 | ~1054 | `pytest` |
-| Frontend (TypeScript/React) | 99 | 422 | `vitest` |
+| Frontend (TypeScript/React) | 100 | 433 | `vitest` |
 
 > Counts are point-in-time; the test tree is the source of truth. Regenerate the inventory
 > with the commands in [§ Keeping this current](#keeping-this-current).
@@ -204,6 +204,11 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_sample_integrity_service.py](../backend/tests/test_sample_integrity_service.py) | Family-scoped sample-integrity report generation. |
 | [tests/test_family_structure_validation.py](../tests/test_family_structure_validation.py) | Pedigree-graph validation and parent-sex consistency. |
 
+### SQL / driver contracts
+| Test file | Purpose |
+| --- | --- |
+| [backend/tests/test_sql_parameter_typing.py](../backend/tests/test_sql_parameter_typing.py) | Rejects `CASE WHEN :param IS NULL THEN NULL ELSE CAST(:param …)`, which asyncpg cannot assign a parameter type to. This form silently broke every annotation-manifest write from the day provenance capture was added; a mocked-session test cannot catch it. |
+
 ### Pedigree / family metadata / package import
 | Test file | Purpose |
 | --- | --- |
@@ -212,6 +217,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_family_member_batch_update_service.py](../backend/tests/test_family_member_batch_update_service.py) | Batch member updates with dirty-tracking. |
 | [backend/tests/test_family_member_detail_service.py](../backend/tests/test_family_member_detail_service.py) | Member detail retrieval and impact analysis. |
 | [backend/tests/test_family_package_import_pcf.py](../backend/tests/test_family_package_import_pcf.py) | PCF (array-CGH) dataset discovery and segment parsing; manifest availability probe stays inside the package root. |
+| [backend/tests/test_qc_threshold_service.py](../backend/tests/test_qc_threshold_service.py) | Sequencing-QC threshold evaluation: bound semantics per direction, an unmeasured or unconfigured metric reported as `skip` rather than `pass`, inverted bounds still failing, the worst-metric rollup, and the mitochondrial cut-offs reading the same configuration instead of module constants. |
 | [backend/tests/test_family_package_long_read.py](../backend/tests/test_family_package_long_read.py) | Long-read (nf-core/lrsvar) packages: version-tolerant glob discovery inside the package root, VCF sample-column resolution (`Sample0`, `<sample>_sort`), CNV/mito/QC/pipeline-info parsing, and a validator for every supported dataset type. |
 | [backend/tests/test_family_import_compensation.py](../backend/tests/test_family_import_compensation.py) | Failed-import compensation: shell delete clears interval tracks; incomplete-flag set/clear on family metadata. |
 | [backend/tests/test_family_pedigree_generation.py](../backend/tests/test_family_pedigree_generation.py) | Pedigree file generation / LINKAGE output. |
@@ -260,6 +266,11 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_github_releases_service.py](../backend/tests/test_github_releases_service.py) | GitHub release summary/changelog formatting. |
 | [backend/tests/test_ui_events.py](../backend/tests/test_ui_events.py) | UI-event path masking, label sanitization, batch insert. |
 | [backend/tests/test_apcad_band_targets.py](../backend/tests/test_apcad_band_targets.py) | APCAD downsample budget allocation across BAF bands. |
+| [backend/tests/test_apcad_origin_fallback.py](../backend/tests/test_apcad_origin_fallback.py) | APCAD origin preference: unphased (HiFiCNV MAF) tracks fall back to `und`, phased tracks keep the filter and stay empty where no informative markers fall. |
+| [backend/tests/test_family_package_bigwig.py](../backend/tests/test_family_package_bigwig.py) | bigWig reading (primary contigs only, karyotype order, zero-bin skipping) and which HiFiCNV file feeds which interval track. |
+| [backend/tests/test_family_package_cnv_callers.py](../backend/tests/test_family_package_cnv_callers.py) | CNV-caller discovery (QDNAseq lrsvar BED and legacy CSV layouts, WisecondorX sample-prefixed names) and interval-track ownership on re-import. |
+| [backend/tests/test_coverage_normalization.py](../backend/tests/test_coverage_normalization.py) | Autosomal-median normaliser and the depth→log2-ratio transform that puts three CNV callers' coverage on one axis. |
+| [backend/tests/test_signal_track_router.py](../backend/tests/test_signal_track_router.py) | Signal-file serving for IGV: recorded-path resolution, containment against crafted family ids and paths, and the per-kind axis spec. |
 | [backend/tests/test_admin_clickhouse_listing.py](../backend/tests/test_admin_clickhouse_listing.py) | Admin ClickHouse listing and variant-count aggregation. |
 | [backend/tests/test_config.py](../backend/tests/test_config.py) | CORS-origins config parsing. |
 | [backend/tests/test_small_variant_clinvar_frequency_rescue.py](../backend/tests/test_small_variant_clinvar_frequency_rescue.py) | ClinVar P/LP rescue overriding frequency thresholds. |
@@ -283,6 +294,8 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | --- | --- |
 | [frontend/src/__tests__/serverSecurityHeaders.test.ts](../frontend/src/__tests__/serverSecurityHeaders.test.ts) | SPA security response headers + enforcing CSP (IGV/S3/fonts-aware); HSTS opt-in. |
 | [frontend/src/lib/__tests__/api.test.ts](../frontend/src/lib/__tests__/api.test.ts) | Auth-header attachment and error normalization. |
+| [frontend/src/lib/__tests__/coverageSources.test.ts](../frontend/src/lib/__tests__/coverageSources.test.ts) | CNV-caller display order, labels for known and unknown callers, and when a coverage track names its caller. |
+| [frontend/src/styles/__tests__/controlOverrides.test.ts](../frontend/src/styles/__tests__/controlOverrides.test.ts) | CSS specificity guard: a rule that resizes a form control must actually beat the shared `input:not([type=…])` rule, whose `:not()` arguments make it (0,2,1). |
 | [frontend/src/lib/__tests__/auth.test.ts](../frontend/src/lib/__tests__/auth.test.ts) | Session persistence; token/role/username storage; admin/auth checks. |
 | [frontend/src/lib/__tests__/chromosomes.test.ts](../frontend/src/lib/__tests__/chromosomes.test.ts) | Natural chromosome ordering (numeric + X/Y/MT). |
 | [frontend/src/lib/__tests__/cnvAcmg.test.ts](../frontend/src/lib/__tests__/cnvAcmg.test.ts) | CNV ACMG classification, scoring, criterion evaluation. |
@@ -320,6 +333,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/components/__tests__/SmallVariantTrack.test.tsx](../frontend/src/components/__tests__/SmallVariantTrack.test.tsx) | Small-variant track rendering with query/API mocks. |
 | [frontend/src/components/__tests__/VariantTrack.test.tsx](../frontend/src/components/__tests__/VariantTrack.test.tsx) | Base variant-track rendering. |
 | [frontend/src/components/visualizations/__tests__/VizTooltip.test.tsx](../frontend/src/components/visualizations/__tests__/VizTooltip.test.tsx) | Floating tooltip portal rendering. |
+| [frontend/src/components/visualizations/__tests__/ApcadChart.test.tsx](../frontend/src/components/visualizations/__tests__/ApcadChart.test.tsx) | APCAD track draws whatever the server sent, unphased (`und`) points included, and still reports a genuinely empty region. |
 
 ### Shared UI components
 | Test file | Purpose |
@@ -350,7 +364,9 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/pages/families/__tests__/FamilyReportPage.test.tsx](../frontend/src/pages/families/__tests__/FamilyReportPage.test.tsx) | Clinical report: provenance footer, drift badge, sign-out/amend, audit timeline. |
 | [frontend/src/pages/families/__tests__/FamilyRoiMarkersPage.test.tsx](../frontend/src/pages/families/__tests__/FamilyRoiMarkersPage.test.tsx) | ROI-markers page filtering/API. |
 | [frontend/src/pages/families/__tests__/FamilySampleQcPage.test.tsx](../frontend/src/pages/families/__tests__/FamilySampleQcPage.test.tsx) | Sample-QC page rendering. |
-| [frontend/src/pages/families/__tests__/SampleQcCell.test.tsx](../frontend/src/pages/families/__tests__/SampleQcCell.test.tsx) | Per-member sequencing-QC cell: metric summary, and the pipeline QC report opened via a short-lived link in a detached tab. |
+| [frontend/src/pages/admin/__tests__/AdminQcThresholdsPage.test.tsx](../frontend/src/pages/admin/__tests__/AdminQcThresholdsPage.test.tsx) | Sequencing-QC threshold admin page: metric catalogue with its failing side, per-profile bounds that do not leak across profiles, save/clear payloads, and the no-shipped-defaults notice. |
+| [frontend/src/pages/families/__tests__/SampleQcCell.test.tsx](../frontend/src/pages/families/__tests__/SampleQcCell.test.tsx) | Per-member sequencing-QC cell: the metric chip is itself the control that opens the pipeline QC report, via a short-lived link in a detached tab. |
+| [frontend/src/pages/families/__tests__/PipelineSettingsPanel.test.tsx](../frontend/src/pages/families/__tests__/PipelineSettingsPanel.test.tsx) | Analysis-pipeline settings panel: grouping and labelling, stage switches collapsed to what ran, unknown parameters still shown, workspace vs report variant. |
 | [frontend/src/pages/families/__tests__/FamilySmallVariantsPage.test.tsx](../frontend/src/pages/families/__tests__/FamilySmallVariantsPage.test.tsx) | Small-variants page: filtering, search, interactions, loading. |
 | [frontend/src/pages/families/__tests__/FamilyStructuralVariantsPage.test.tsx](../frontend/src/pages/families/__tests__/FamilyStructuralVariantsPage.test.tsx) | Structural-variants page filtering/API. |
 | [frontend/src/pages/families/__tests__/MonarchPhenotypeMatchPanel.test.tsx](../frontend/src/pages/families/__tests__/MonarchPhenotypeMatchPanel.test.tsx) | Monarch phenotype-match panel search/display. |

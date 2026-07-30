@@ -113,10 +113,19 @@ interface Props {
   onChromosomeClick?: (chrom: string) => void;
   onLayout?: (layout: Layout & { chroms: string[] }) => void;
   layout?: Layout;
+  /**
+   * Top of the y-axis. 1 for a parent-of-origin track, whose markers run the full
+   * B-allele range; 0.5 for a *folded* minor allele fraction, where the caller has
+   * already collapsed each site onto min(AF, 1-AF) and nothing can exceed a half.
+   * Drawing folded values on a 0-1 axis leaves the whole upper half of the track
+   * empty and squashes the bands into the bottom.
+   */
+  maxValue?: number;
 }
 
 const ApcadChart: React.FC<Props> = ({
   apcadUrls,
+  maxValue = 1,
   pcfUrls = [],
   width = 800,
   height = 120,
@@ -166,7 +175,15 @@ const ApcadChart: React.FC<Props> = ({
         payload?.items.forEach((item) => {
           const chromName = normalizeChrom(item.chr);
           const origin = (item.origin || 'und').toLowerCase();
-          if (allowedChroms.has(chromName) && (origin === 'paternal' || origin === 'maternal')) {
+          // Every point the server sent is drawn, `und` included. Filtering to
+          // paternal/maternal here duplicated a decision the server already makes,
+          // and the two copies disagreed: a track with no parent-of-origin calls at
+          // all -- HiFiCNV's minor-allele-fraction bigWig, where bigWig has nowhere
+          // to record one -- is served as `und` on purpose, and this dropped every
+          // point of it, leaving "no APCAD data in this region" over a full track.
+          // Where phased markers exist the server sends only those, so nothing here
+          // changes for a trio.
+          if (allowedChroms.has(chromName) && Number.isFinite(item.value)) {
             bins.push({ chr: chromName, start: item.start, end: item.end, value: item.value, origin });
           }
         });
@@ -264,9 +281,13 @@ const ApcadChart: React.FC<Props> = ({
     // dots pinned to (and clipped at) the top/bottom pixel rows, where they were
     // effectively invisible. Ticks use yScale too, so they stay aligned.
     const yPad = TRACK_DOT_RADIUS + 2;
-    const yScale = (value: number) => yPad + (1 - value) * (height - 2 * yPad);
+    const axisTop = maxValue > 0 ? maxValue : 1;
+    const yScale = (value: number) => yPad + (1 - value / axisTop) * (height - 2 * yPad);
 
-    const tickValues = [0, 0.33, 0.5, 0.66, 1];
+    // A folded axis keeps the values that still mean something on it: 0 for a
+    // homozygous site, 1/3 for the minor allele of a trisomy, 1/2 for a balanced
+    // heterozygote. Their unfolded partners (2/3, 1) cannot occur.
+    const tickValues = axisTop <= 0.5 ? [0, 0.25, 0.33, 0.5] : [0, 0.33, 0.5, 0.66, 1];
     const gridColor = cssVar('--color-grid');
     const textColor = cssVar('--color-apcad-default');
     const paternalColor = cssVar('--color-apcad-paternal');
@@ -373,6 +394,7 @@ const ApcadChart: React.FC<Props> = ({
   }, [
     height,
     layout,
+    maxValue,
     onLayout,
     regionEnd,
     regionStart,

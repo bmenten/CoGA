@@ -59,6 +59,28 @@ these are keys inside the existing `metadata` columns):
 | `samples.metadata` | `sv_files` | Filename per structural-variant source |
 | `families.metadata` | `pipeline` | Nextflow run parameters (reference build, callers, annotation caches) |
 
+Sequencing-QC acceptance limits (admin-managed):
+
+- `qc_threshold_profiles` — named cut-off sets, one per assay type; a family resolves to
+  the profile named in `families.metadata->>'qc_profile'` and to the `is_default` profile
+  otherwise. A partial unique index enforces at most one default. Seeded with `default`,
+  `long_read_wgs`, `short_read_wgs`, `short_read_panel`, `nipt_monogenic` and `pgt` —
+  all **empty**, since a cut-off is the laboratory's to agree. Admins can add more
+  (`POST /admin/qc-thresholds/profiles`); a new profile inherits no cut-offs, because an
+  inherited number would carry an authority nobody granted it. The key is derived from
+  the label and immutable, since families reference it.
+- `qc_threshold_changes` — **append-only** history of every cut-off edit, holding the
+  value that was *replaced* as well as the new one plus the acting user. The HTTP
+  request-audit pipeline records the request but has no prior value, so "who lowered the
+  depth limit, and from what" is only answerable here. UPDATE and DELETE are rejected by
+  trigger (`04_traceability.sql`), like the clinical audit and sign-out chains.
+- `qc_thresholds` — per profile and metric, a warning and an error bound (either may be
+  null). The *metric catalogue* — which metrics exist and whether a low or a high value is
+  the failing side — lives in code (`qc_threshold_service.QC_METRICS`), because it follows
+  what the QC parsers emit; only the bounds are configuration. `direction` is written
+  through from that catalogue so a stored row stays interpretable without the code version
+  that wrote it.
+
 Import jobs:
 
 - `family_import_jobs`
@@ -67,8 +89,8 @@ Canonical schema files:
 
 - [01_access.sql](../backend/db/schema/postgres/01_access.sql) — pgcrypto extension + genome foundation (`species`, `assemblies`, `chromosomes`) + identity/authorization (`users`, `projects`, `project_users`, `auth_login_attempts`)
 - [02_reference.sql](../backend/db/schema/postgres/02_reference.sql) — reference/annotation data (`genes`, `gene_info`, `blacklist`, `clinical_cnvs`, `dgv_variants`, `segmental_duplications`, `gene_panels` and children, `hpo_*`, `monarch_*`, `repeat_loci`, `reference_dataset_imports`)
-- [03_assay.sql](../backend/db/schema/postgres/03_assay.sql) — families/samples + per-sample assay data + review/curation (`families`, `samples`, `family_members`, `family_projects`, `sample_projects`, `individual_hpo`, `repeat_expansions`, `sample_paraphase_results`, `sample_interval_track_sources`, `small_variant_reviews`, `structural_variant_reviews`, tag/preset tables, `family_sv_gene_index`, `family_variant_ranking_cache`, `family_import_jobs`)
-- [04_traceability.sql](../backend/db/schema/postgres/04_traceability.sql) — import provenance + append-only hash-chained clinical audit + integrity (`audit_log_events`, `ui_events`, `raw_import_files`, `family_annotation_manifest`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`) plus the immutability trigger functions/triggers
+- [03_assay.sql](../backend/db/schema/postgres/03_assay.sql) — families/samples + per-sample assay data + review/curation (`families`, `samples`, `family_members`, `family_projects`, `sample_projects`, `individual_hpo`, `repeat_expansions`, `sample_paraphase_results`, `sample_interval_track_sources`, `small_variant_reviews`, `structural_variant_reviews`, tag/preset tables, `family_sv_gene_index`, `family_variant_ranking_cache`, `family_import_jobs`, `qc_threshold_profiles`, `qc_thresholds`, `qc_threshold_changes`)
+- [04_traceability.sql](../backend/db/schema/postgres/04_traceability.sql) — import provenance + append-only hash-chained clinical audit + integrity (`audit_log_events`, `ui_events`, `raw_import_files`, `family_annotation_manifest`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`) plus the immutability trigger functions/triggers, including the append-only guard on `qc_threshold_changes`
 - [05_grants.sql](../backend/db/schema/postgres/05_grants.sql) — the restricted `coga_app` runtime role + grants/revokes
 
 ## ClickHouse Tables

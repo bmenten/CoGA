@@ -26,6 +26,7 @@ from .clickhouse_family_variants import (
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters
+from .qc_threshold_service import evaluate_metric, resolve_family_qc_thresholds
 from .small_variant_review_pg import get_small_variant_review_map
 
 
@@ -656,7 +657,9 @@ def _explicit_qc_status(metadata: dict[str, Any]) -> str | None:
     if normalized in {"fail", "failed", "error"}:
         return "fail"
     if normalized in {"warn", "warning", "review"}:
-        return "warning"
+        return "warn"
+    if normalized in {"skip", "skipped", "not_run", "not run", "n/a"}:
+        return "skip"
     return None
 
 
@@ -667,7 +670,22 @@ def _qc_notes(metadata: dict[str, Any]) -> list[str]:
     )
 
 
-def _sample_qc(metadata: dict[str, Any], coverage: MitoDNACoverageOut) -> MitoDNAQcOut:
+def _sample_qc(
+    metadata: dict[str, Any],
+    coverage: MitoDNACoverageOut,
+    thresholds: dict[str, dict[str, float | None]] | None = None,
+) -> MitoDNAQcOut:
+    """Mitochondrial QC verdict for one sample.
+
+    The depth and contamination cut-offs come from the family's QC threshold profile
+    (**Admin → Sequencing QC Thresholds**, metric keys ``mtdna.mean_depth`` and
+    ``mtdna.contamination``), not from constants: a QC cut-off is lab configuration, and
+    having one hard-coded here while every other cut-off was admin-settable meant two
+    mitochondrial-depth rules, one of them invisible and unchangeable.
+
+    With no cut-off configured a metric contributes nothing — the sample is not claimed
+    to pass on account of a gate that does not exist.
+    """
     notes = _qc_notes(metadata)
     contamination = _sample_contamination(metadata)
     explicit_status = _explicit_qc_status(metadata)
@@ -689,17 +707,45 @@ def _sample_qc(metadata: dict[str, Any], coverage: MitoDNACoverageOut) -> MitoDN
             ("package_sample_metadata", "mtdna", "min_mean_depth"),
         )
     )
-    status = explicit_status or "unknown"
-    if contamination is not None and contamination >= 0.03:
-        status = "fail"
-        notes.append("Contamination estimate is at or above 3%.")
-    elif contamination is not None and contamination >= 0.01 and status not in {"fail"}:
-        status = "warning"
-        notes.append("Contamination estimate is elevated.")
-    if mean_depth is not None and mean_depth < 50:
-        status = "warning" if status != "fail" else status
-        notes.append("Mean mtDNA depth is below 50x.")
-    if status == "unknown" and (mean_depth is not None or contamination is not None):
+    configured = thresholds or {}
+    status = explicit_status or "skip"
+    gated = False
+
+    def _apply(metric_key: str, value: float | None, direction: str, describe) -> None:
+        nonlocal status, gated
+        bounds = configured.get(metric_key) or {}
+        warn_value = bounds.get("warn_value")
+        error_value = bounds.get("error_value")
+        verdict = evaluate_metric(
+            value,
+            direction=direction,  # type: ignore[arg-type]
+            warn_value=warn_value,
+            error_value=error_value,
+        )
+        if verdict == "skip":
+            return
+        gated = True
+        if verdict == "fail":
+            status = "fail"
+            notes.append(describe(error_value))
+        elif verdict == "warn":
+            if status != "fail":
+                status = "warn"
+            notes.append(describe(warn_value))
+
+    _apply(
+        "mtdna.contamination",
+        contamination,
+        "higher_is_worse",
+        lambda bound: f"Contamination estimate is at or above the configured limit of {bound}.",
+    )
+    _apply(
+        "mtdna.mean_depth",
+        mean_depth,
+        "lower_is_worse",
+        lambda bound: f"Mean mtDNA depth is below the configured limit of {bound}x.",
+    )
+    if status == "skip" and gated:
         status = "pass"
     return MitoDNAQcOut(
         status=status,  # type: ignore[arg-type]
@@ -715,6 +761,7 @@ def _sample_outs(
     *,
     records: Sequence[SmallVariantRecord],
     coverage_map: dict[str, MitoDNACoverageOut],
+    qc_thresholds: dict[str, dict[str, float | None]] | None = None,
 ) -> list[MitoDNASampleOut]:
     variant_depth_map = _sample_variant_depth_coverage(records)
     samples: list[MitoDNASampleOut] = []
@@ -732,7 +779,7 @@ def _sample_outs(
                 sex=row.get("sex"),
                 haplogroup=_sample_haplogroup(metadata),
                 coverage=coverage,
-                qc=_sample_qc(metadata, coverage),
+                qc=_sample_qc(metadata, coverage, qc_thresholds),
             )
         )
     return samples
@@ -746,7 +793,7 @@ def _family_qc_notes(samples: Sequence[MitoDNASampleOut], variants: Sequence[Mit
         notes.append("No per-sample mtDNA haplogroup metadata is available.")
     if not any(sample.coverage.mean_depth is not None for sample in samples):
         notes.append("No MT coverage track was found; variant-call depth is used when available.")
-    if any(sample.qc.status in {"warning", "fail"} for sample in samples):
+    if any(sample.qc.status in {"warn", "fail"} for sample in samples):
         notes.append("One or more samples have mtDNA QC warnings.")
     return notes
 
@@ -797,7 +844,17 @@ async def get_family_mitochondrial_analysis_response(
         )
     member_by_sample = _member_meta(context)
     coverage_map = await _coverage_by_sample(context)
-    samples = _sample_outs(context, records=records, coverage_map=coverage_map)
+    # Resolved once per request, not per sample: every member of a family shares its
+    # threshold profile.
+    resolved_thresholds = await resolve_family_qc_thresholds(
+        session, family_uuid=context.family_uuid
+    )
+    samples = _sample_outs(
+        context,
+        records=records,
+        coverage_map=coverage_map,
+        qc_thresholds=resolved_thresholds["thresholds"],
+    )
     # Coverage can derive from a coverage track or from variant-call depth, so it
     # is read off the resolved sample outs (same logic the full response uses).
     has_coverage = any(

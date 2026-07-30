@@ -24,6 +24,19 @@ interface AlignmentManifestEntry {
   index_url: string;
 }
 
+/** A CNV caller's signal file — read depth, minor allele fraction, copy number. */
+interface SignalTrackManifestEntry {
+  sample_id: string;
+  source: string;
+  kind: string;
+  name: string;
+  format: 'bigwig' | 'bedgraph';
+  url: string;
+  /** Fixed axis bounds where the quantity has them; null means autoscale. */
+  min: number | null;
+  max: number | null;
+}
+
 const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locus }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const browserRef = useRef<DestroyableIgvBrowser | null>(null);
@@ -126,11 +139,21 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
         const manifestUrl = manifestParams.toString()
           ? `/cram/${familyId}/manifest?${manifestParams.toString()}`
           : `/cram/${familyId}/manifest`;
-        const manifestResponse = await api.get(manifestUrl, { signal: controller.signal });
+        const signalUrl = manifestParams.toString()
+          ? `/signal-tracks/${familyId}/manifest?${manifestParams.toString()}`
+          : `/signal-tracks/${familyId}/manifest`;
+        // Signal tracks are optional: a family imported without a depth caller has
+        // none, and that must not stop the alignments from loading.
+        const [manifestResponse, signalResponse] = await Promise.all([
+          api.get(manifestUrl, { signal: controller.signal }),
+          api
+            .get(signalUrl, { signal: controller.signal })
+            .catch(() => ({ data: [] as SignalTrackManifestEntry[] })),
+        ]);
         // In S3 mode the manifest returns absolute presigned URLs (auth is baked
         // into the URL); IGV must fetch those directly without our bearer header.
         // In local mode the URLs are backend-relative and need the API base + auth.
-        const tracks = (manifestResponse.data as AlignmentManifestEntry[]).map((entry) => ({
+        const alignmentTracks = (manifestResponse.data as AlignmentManifestEntry[]).map((entry) => ({
           name: entry.sample_id,
           type: 'alignment',
           format: entry.format,
@@ -138,6 +161,22 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
           indexURL: resolveApiUrl(entry.index_url, base),
           ...(isAbsoluteUrl(entry.url) ? {} : { headers }),
         }));
+        const signalTracks = (signalResponse.data as SignalTrackManifestEntry[]).map((entry) => ({
+          name: entry.name,
+          type: 'wig',
+          format: entry.format,
+          url: resolveApiUrl(entry.url, base),
+          // Depth is unbounded and sample-specific, so it autoscales; MAF is 0–0.5
+          // by construction and gets a fixed axis so its band structure stays put
+          // instead of rescaling with whatever is in view.
+          ...(entry.min !== null && entry.max !== null
+            ? { autoscale: false, min: entry.min, max: entry.max }
+            : { autoscale: true }),
+          ...(isAbsoluteUrl(entry.url) ? {} : { headers }),
+        }));
+        // Signal first: they are short, and an alignment track is tall enough to
+        // push anything below it out of view at the locus the user just opened.
+        const tracks = [...signalTracks, ...alignmentTracks];
         type GenomeArg = string | Record<string, unknown>;
         const igv = await loadIgv();
 

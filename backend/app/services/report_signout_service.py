@@ -29,7 +29,7 @@ from ..core.config import settings
 from .annotation_manifest_service import get_family_annotation_manifest
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
-from .family_metadata_context import build_family_metadata_context
+from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
 from .metadata_service import CurrentUser
 from .sample_integrity_qc import (
@@ -255,6 +255,46 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     return reported
 
 
+async def _canonical_sequencing_qc(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+) -> dict[str, Any]:
+    """The sequencing-QC verdicts and the cut-offs in force, for freezing.
+
+    Deterministic: profiles and metrics are sorted, and the values are the same numbers
+    the workspace showed. Best-effort — a family imported without QC outputs simply has
+    nothing here, and a QC display has never been allowed to break sign-out.
+    """
+
+    from .qc_threshold_service import evaluate_sequencing_qc, resolve_family_qc_thresholds
+
+    try:
+        resolved = await resolve_family_qc_thresholds(session, family_uuid=context.family_uuid)
+    except Exception:  # noqa: BLE001 — see the docstring
+        logger.exception("Could not resolve QC thresholds for the report snapshot")
+        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+
+    thresholds = resolved.get("thresholds") or {}
+    samples: dict[str, Any] = {}
+    for row in context.sample_rows:
+        sample_id = row.get("sample_id")
+        # `sample_metadata`, not `metadata` — the context query aliases it, and reading
+        # the wrong key yields an empty map with no error at all.
+        metadata = row.get("sample_metadata") or {}
+        sequencing_qc = metadata.get("sequencing_qc") if isinstance(metadata, dict) else None
+        evaluation = evaluate_sequencing_qc(sequencing_qc, thresholds)
+        if sample_id and evaluation is not None:
+            samples[str(sample_id)] = evaluation
+    return {
+        "profile_key": resolved.get("profile_key"),
+        "profile_label": resolved.get("profile_label"),
+        # Only the metrics that actually had a cut-off: an unconfigured metric gated
+        # nothing, and listing it would imply otherwise.
+        "thresholds": {key: thresholds[key] for key in sorted(thresholds)},
+        "samples": {key: samples[key] for key in sorted(samples)},
+    }
+
+
 async def build_report_snapshot(
     session: AsyncSession,
     *,
@@ -276,6 +316,7 @@ async def build_report_snapshot(
         session, family_id=family_id, user=user, project_id=project_id
     )
     reported = await _reported_reviews(session, context.family_uuid)
+    sequencing_qc = await _canonical_sequencing_qc(session, context)
     # A reported classification with no frozen evidence snapshot cannot be drift-verified
     # (evaluate_classification_drift only checks reviews that HAVE a snapshot), so it would
     # otherwise clear the sign-out drift gate unchallenged. Surface each as a "no_snapshot"
@@ -317,6 +358,12 @@ async def build_report_snapshot(
         # hash so the signed record proves QC was run and exactly what it found. A pure
         # function of the deterministically-ordered input genotypes, so it hashes stably.
         "sample_qc": _canonical_sample_qc(qc_report),
+        # Sequencing QC and, crucially, the cut-offs it was judged against. These are
+        # advisory — nothing is withheld from a report because of them — but the chip a
+        # reviewer saw beside each sample said "warning" or nothing *relative to limits
+        # that can be changed afterwards*. Without freezing them, a signed report cannot
+        # say what its own QC display meant at the time.
+        "sequencing_qc": sequencing_qc,
         "reported_variants": reported,
     }
 

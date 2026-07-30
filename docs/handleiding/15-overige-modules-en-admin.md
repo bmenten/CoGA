@@ -93,6 +93,39 @@ Meer achtergrond over deze tabellen staat in [hoofdstuk 3](03-databankstructuren
   - **Non-destructief verwijderen:** door `ON DELETE SET NULL` op `families.status_id` blijft een familie bestaan wanneer haar status wordt verwijderd — het statusveld wordt simpelweg leeggemaakt (zie de comment in `delete_family_status`).
   - De feitelijke status/toewijzing per familie (`assigned_to`, `reviewed_by`) wordt gezet door elke gebruiker mét toegang tot de familie via `update_family_metadata_for_user`, met 404 bij onbekende familie en 403 bij geen toegang.
 
+### Sequencing-QC drempelwaarden
+
+- **AdminQcThresholdsPage** (`AdminQcThresholdsPage.tsx`): stelt per sequencing-QC-parameter
+  een **waarschuwings-** en een **foutgrens** in. `GET /admin/qc-thresholds` levert de
+  metriekcatalogus én alle profielen; `PUT /admin/qc-thresholds/{profile_key}` zet of wist
+  één grens. Logica in `backend/app/services/qc_threshold_service.py`:
+  - **Profielen per assay.** Eén grens kan geen twee assays dienen — ~18x gemiddelde dekking
+    is normaal voor PacBio HiFi WGS en een harde fout op een 100x panel. Een familie gebruikt
+    het profiel uit `families.metadata->>'qc_profile'`, en anders het standaardprofiel (een
+    partiële unieke index garandeert dat er precies één standaard is).
+  - **De catalogus staat in code, de grenzen in de databank.** Welke metrieken bestaan en of
+    een *lage* of een *hoge* waarde de foutzijde is, volgt uit wat de QC-parsers uitschrijven
+    (`QC_METRICS`) — geen configuratie. Zo kan een beheerder geen vergelijkingsrichting
+    omdraaien en een falende run groen maken. `direction` wordt wél meegeschreven in de rij,
+    zodat een historische configuratie leesbaar blijft zonder die codeversie.
+  - **Geen standaardgrenzen.** Er worden geen waarden geseed: een grens is een klinische
+    beslissing. Zonder grens wordt een metriek gerapporteerd als *niet beoordeeld*, nooit als
+    geslaagd.
+  - **Evaluatie gebeurt server-side** (`evaluate_sequencing_qc`), zodat werkplek, sample-QC en
+    rapport hetzelfde oordeel lezen. Het slechtste oordeel van alle metrieken wordt de
+    chip-kleur in de tabel Familieleden: amber bij waarschuwing, rood bij fout, met het
+    oordeelwoord ernaast zodat kleur niet de enige drager is.
+  - **Ook de mitochondriale grenzen komen hiervandaan** (`mtdna.mean_depth`,
+    `mtdna.contamination`). Die stonden eerder hard-coded in `mitochondrial_analysis.py`
+    (`mean_depth < 50`, contaminatie 1%/3%) en waren dus onzichtbaar en onwijzigbaar; geen
+    enkele QC-grens zit nog in code.
+  - **Streng afgeschermd.** Wijzigen kan alleen als beheerder, vereist een bevestiging
+    waarin beide zijden van de wijziging herhaald worden, en wordt weggeschreven naar de
+    **append-only** tabel `qc_threshold_changes` — met de *vervangen* waarde erbij. De
+    HTTP-auditpijplijn legt het verzoek vast maar kent de vorige waarde niet, dus alleen
+    hier is te zien wie een grens verlaagde en vanaf welke waarde. UPDATE en DELETE worden
+    door een trigger geweigerd.
+
 ### Preset-filters & variant-tags
 
 - **AdminPresetFiltersPage** (`AdminPresetFiltersPage.tsx`): overzicht van de herbruikbare small-variant filter-presets (`GET /admin/small-variant-filter-presets`). Zie voor de filters zelf [hoofdstuk 8](08-filterpaginas-en-api.md).

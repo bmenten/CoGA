@@ -578,3 +578,69 @@ def test_audit_records_qc_status_and_acknowledgement(monkeypatch) -> None:
     assert after["acknowledged_qc"] is True
     assert after["qc_acknowledgement_reason"] == "repeat genotyping confirms identity"
     assert ", QC override acknowledged" in captured["summary"]
+
+
+# ---------------------------------------------------------------------------
+# Sequencing QC and the cut-offs it was judged against
+# ---------------------------------------------------------------------------
+
+
+def _qc_context() -> object:
+    return types.SimpleNamespace(
+        family_uuid="u1",
+        family_id="FAM1",
+        sample_rows=[
+            {
+                "sample_id": "HG002",
+                # The context query aliases samples.metadata to `sample_metadata`;
+                # reading the wrong key here yields an empty map and no error.
+                "sample_metadata": {"sequencing_qc": {"depth": {"mean_depth": 18.57}}},
+            },
+            {"sample_id": "NOQC", "sample_metadata": {}},
+        ],
+    )
+
+
+def test_snapshot_freezes_the_cut_offs_the_qc_verdict_was_judged_against(monkeypatch) -> None:
+    async def _resolve(session, *, family_uuid):
+        return {
+            "profile_key": "long_read_wgs",
+            "profile_label": "Long-read WGS",
+            "thresholds": {
+                "depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0},
+            },
+        }
+
+    from backend.app.services import qc_threshold_service as qts
+
+    monkeypatch.setattr(qts, "resolve_family_qc_thresholds", _resolve)
+
+    frozen = asyncio.run(rss._canonical_sequencing_qc(_Session(), _qc_context()))
+
+    # The chip a reviewer saw said "warning" *relative to limits that can be changed
+    # afterwards*. Without these, a signed report cannot say what its own QC display
+    # meant at the time.
+    assert frozen["profile_key"] == "long_read_wgs"
+    assert frozen["thresholds"] == {"depth.mean_depth": {"warn_value": 20.0, "error_value": 10.0}}
+    assert "HG002" in frozen["samples"], "the sample's QC verdict must be frozen too"
+    # A sample with no recorded QC contributes nothing rather than a fabricated pass.
+    assert "NOQC" not in frozen["samples"]
+
+
+def test_snapshot_sequencing_qc_survives_an_unresolvable_profile(monkeypatch) -> None:
+    async def _explode(session, *, family_uuid):
+        raise RuntimeError("clickhouse is down")
+
+    from backend.app.services import qc_threshold_service as qts
+
+    monkeypatch.setattr(qts, "resolve_family_qc_thresholds", _explode)
+
+    frozen = asyncio.run(rss._canonical_sequencing_qc(_Session(), _qc_context()))
+
+    # QC display is advisory; it has never been allowed to break sign-out.
+    assert frozen == {
+        "profile_key": None,
+        "profile_label": None,
+        "thresholds": {},
+        "samples": {},
+    }
