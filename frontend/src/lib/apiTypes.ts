@@ -22,6 +22,62 @@ export interface ApiFamilyMember extends ApiFamilyMemberRef {
   carrier_evidence?: Record<string, unknown>;
   active?: boolean;
   sample_metadata?: Record<string, unknown>;
+  sequencing_qc?: ApiSampleSequencingQcEvaluation;
+}
+
+/** A sequencing-QC metric judged against its configured cut-offs. */
+export interface ApiSampleSequencingQcMetric {
+  metric_key: string;
+  label: string;
+  unit: string;
+  direction: 'lower_is_worse' | 'higher_is_worse';
+  value: number;
+  warn_value?: number | null;
+  error_value?: number | null;
+  /** `skip` = no cut-off configured, i.e. not checked — distinct from `pass`. Shares
+   *  the QcStatus vocabulary used by sample-integrity QC. */
+  verdict: QcStatus;
+}
+
+export interface ApiSampleSequencingQcEvaluation {
+  verdict: QcStatus;
+  metrics: ApiSampleSequencingQcMetric[];
+  breached: string[];
+  profile_key?: string | null;
+  profile_label?: string | null;
+}
+
+export interface ApiQcMetricCatalogueEntry {
+  key: string;
+  label: string;
+  unit: string;
+  direction: 'lower_is_worse' | 'higher_is_worse';
+  help_text: string;
+}
+
+export interface ApiQcThreshold {
+  metric_key: string;
+  label: string;
+  unit: string;
+  direction: 'lower_is_worse' | 'higher_is_worse';
+  known_metric: boolean;
+  warn_value?: number | null;
+  error_value?: number | null;
+}
+
+export interface ApiQcThresholdProfile {
+  id: string;
+  key: string;
+  label: string;
+  description?: string | null;
+  is_default: boolean;
+  sort_order: number;
+  thresholds: ApiQcThreshold[];
+}
+
+export interface ApiQcThresholdCatalogue {
+  metrics: ApiQcMetricCatalogueEntry[];
+  profiles: ApiQcThresholdProfile[];
 }
 
 export interface ApiFamilyMemberImpact {

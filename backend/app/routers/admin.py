@@ -40,6 +40,10 @@ from ..schemas import (
     NiptArtifactCreate,
     NiptArtifactOut,
     ProjectsUpdate,
+    QcMetricCatalogueOut,
+    QcThresholdCatalogueOut,
+    QcThresholdProfileOut,
+    QcThresholdUpdate,
     RawImportFileVerifyOut,
     SmallVariantFilterPresetOut,
     SmallVariantTagDefinitionCreate,
@@ -48,6 +52,11 @@ from ..schemas import (
     UiEventPageOut,
 )
 from ..services.audit_log_pg import list_audit_log_events
+from ..services.qc_threshold_service import (
+    QC_METRICS,
+    list_qc_threshold_profiles,
+    set_qc_threshold,
+)
 from ..services.clinical_audit_service import verify_clinical_audit_chain
 from ..services.family_metadata_context import build_family_metadata_context
 from ..services.integrity_anchor_service import (
@@ -557,6 +566,55 @@ async def delete_family_status_admin(
 ) -> None:
     del user
     await delete_family_status(session, key=status_key)
+
+
+@router.get("/qc-thresholds", response_model=QcThresholdCatalogueOut)
+async def list_qc_thresholds_admin(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> QcThresholdCatalogueOut:
+    """The gateable sequencing-QC metrics and every configured threshold profile."""
+    del user
+    return QcThresholdCatalogueOut(
+        metrics=[
+            QcMetricCatalogueOut(
+                key=metric.key,
+                label=metric.label,
+                unit=metric.unit,
+                direction=metric.direction,
+                help_text=metric.help_text,
+            )
+            for metric in QC_METRICS
+        ],
+        profiles=[
+            QcThresholdProfileOut(**profile)
+            for profile in await list_qc_threshold_profiles(session)
+        ],
+    )
+
+
+@router.put("/qc-thresholds/{profile_key}")
+async def set_qc_threshold_admin(
+    profile_key: str,
+    payload: QcThresholdUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> dict:
+    """Set or clear one metric's cut-offs.
+
+    A cut-off change alters what the interface reports as a failed run, so it must be
+    traceable. No explicit audit call is needed: the request-logging middleware records
+    every mutating request with its path, parsed body and acting user, so the metric key
+    and both bounds are already on the audit trail.
+    """
+    return await set_qc_threshold(
+        session,
+        profile_key=profile_key,
+        metric_key=payload.metric_key,
+        warn_value=payload.warn_value,
+        error_value=payload.error_value,
+        user_id=user.id,
+    )
 
 
 @router.delete("/data/samples/{sample_id}/{data_type}")

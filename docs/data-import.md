@@ -343,7 +343,7 @@ Where each dataset lands:
 | --- | --- | --- | --- |
 | `cnv` | ClickHouse structural variants; copy-number bedgraph as a coverage interval track | `hificnv` | SV workspace, CNV ACMG scoring, coverage tracks |
 | `mito` | ClickHouse small variants (chrM) | `mito` | mtDNA analysis workspace |
-| `qc` | `samples.metadata["sequencing_qc"]` | — | Family detail members table (metrics + QC report link) |
+| `qc` | `samples.metadata["sequencing_qc"]` | — | Family detail members table: a compact chip showing the QC verdict and mean depth, coloured amber/red when a configured cut-off is crossed, opening the pipeline QC report on click. Cut-offs are set per assay profile in **Admin → Sequencing QC Thresholds**; a metric with no cut-off is reported as not assessed, never as a pass. |
 | `alignments` | `samples.metadata["alignment"]` | — | IGV / genome browser via `/cram/...` |
 | `pipeline_info` | `family_annotation_manifest` (tool versions, `source='manifest'`) and `families.metadata["pipeline"]` (run parameters) | — | **Analysis pipeline** card on the family workspace; **Analysis pipeline settings** section on the clinical report; tool versions in the annotation-provenance footer and the report's Modules & versions line |
 

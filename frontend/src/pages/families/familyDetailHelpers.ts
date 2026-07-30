@@ -157,20 +157,23 @@ const formatKilobases = (bases: number): string =>
   `${(bases / 1000).toFixed(bases < 10_000 ? 1 : 0)} kb`;
 
 /**
- * The two headline long-read QC numbers — mean depth and read-length N50 — short
- * enough to sit inside a members-table cell on one line. The rest goes in the
- * tooltip; see `formatSequencingQcDetail`.
+ * The single headline number for the members-table chip: mean depth.
+ *
+ * The chip sits in a narrow column beside the Status pill and has to stay that
+ * compact, so it carries one measurement and the QC verdict; every other metric is on
+ * hover (`formatSequencingQcDetail`). Depth is the number an interpreter reads first,
+ * and the verdict beside it covers the case where a *different* metric is the one
+ * failing.
  */
 export const formatSequencingQcSummary = (qc: SampleSequencingQc | undefined): string | null => {
   if (!qc) return null;
-  const parts: string[] = [];
   if (typeof qc.depth?.mean_depth === 'number') {
-    parts.push(`${qc.depth.mean_depth.toFixed(1)}x`);
+    return `${qc.depth.mean_depth.toFixed(1)}x`;
   }
   if (typeof qc.reads?.read_length_n50 === 'number') {
-    parts.push(`N50 ${formatKilobases(qc.reads.read_length_n50)}`);
+    return `N50 ${formatKilobases(qc.reads.read_length_n50)}`;
   }
-  return parts.length ? parts.join(' · ') : null;
+  return null;
 };
 
 /** Every recorded QC metric, spelled out for a tooltip. */

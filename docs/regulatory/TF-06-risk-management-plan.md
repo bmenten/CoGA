@@ -102,6 +102,7 @@ control, residual risk, and V&V reference.
 | H11 | **Unauthorized access / data integrity / confidentiality breach** (PHI) | All | S3–S4 | RBAC, audit, encryption/TLS (deployment open items, [security-posture](../security-posture.md)); TF-13, TF-14 |
 | H12 | **Wrong assembly / off-scope panel/assay used** | All | S4 | Assembly-scoped storage; **🔲 add explicit off-scope guard**; IFU |
 | H13 | **Incorrect mtDNA heteroplasmy / maternal-inheritance interpretation** | mito (3.5) | S4 | Heteroplasmy quantification + maternal-transmission logic with QC; Sample QC for maternal-lineage integrity (H4); ACMG review/sign-out; verification in TF-10 (`test_mitochondrial_analysis.py`) |
+| H14 | **Interpretation of a sequencing run of inadequate quality** — a false negative is reported from a run with too little depth, too short reads or too little aligned yield to support it | All | S4 | Per-sample sequencing QC captured at import and evaluated against admin-set acceptance limits per assay profile; the worst state is shown in the family members table, distinguishable **without relying on colour alone**, with the breaching metric and the limit it crossed named on inspection. A metric with **no configured limit is reported as not assessed, never as a pass**, so an unconfigured gate cannot read as a green one. Residual risk: the limits are lab configuration — with none entered nothing is gated, and the analyst-at-sign-out control is the only barrier (cf. §6 acceptability). |
 
 ## 6a. IVDR Annex I software risk table (H11.1-F12.2 / H14.4-OP1)
 

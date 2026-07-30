@@ -8179,23 +8179,52 @@ button.table-link:hover {
   white-space: nowrap;
 }
 
+/* Shape and interactivity only. The colour lives in the tone classes below, because
+   `.table-chip--warning` / `--critical` set the same three properties and this rule sits
+   later in the file — declaring colours here silently won and the verdict tone was lost.
+
+   The min-height/box-shadow/transform resets matter: this chip is a <button>, so without
+   them it inherits `min-height: 3rem` from the global button rule and stands 48px tall,
+   more than doubling the height of every members-table row, and it jumps on hover from
+   the button's translateY. Same reset the `.badge-chip button` rule uses. */
 .family-qc-chip {
   cursor: pointer;
-  border-color: rgba(82, 111, 161, 0.28);
-  background: rgba(82, 111, 161, 0.09);
-  color: #43608c;
   font-family: inherit;
+  min-height: auto;
+  box-shadow: none;
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
     color 0.15s ease;
 }
 
-.family-qc-chip:hover:not(:disabled),
+.family-qc-chip:hover,
 .family-qc-chip:focus-visible {
+  transform: none;
+}
+
+/* Neutral tone, applied when the verdict is pass or not-assessed. */
+.family-qc-chip--neutral {
+  border-color: rgba(82, 111, 161, 0.28);
+  background: rgba(82, 111, 161, 0.09);
+  color: #43608c;
+}
+
+.family-qc-chip--neutral:hover:not(:disabled),
+.family-qc-chip--neutral:focus-visible {
   border-color: var(--color-accent, #2563eb);
   background: rgba(37, 99, 235, 0.12);
   color: var(--color-accent, #2563eb);
+}
+
+/* A toned chip keeps its verdict colour on hover — deepen it instead of replacing it,
+   so hovering a failing sample never makes it look neutral. */
+.family-qc-chip.table-chip--warning:hover:not(:disabled),
+.family-qc-chip.table-chip--critical:hover:not(:disabled),
+.family-qc-chip.table-chip--warning:focus-visible,
+.family-qc-chip.table-chip--critical:focus-visible {
+  filter: brightness(0.94);
+  text-decoration: underline;
 }
 
 .family-qc-chip:disabled {
@@ -8205,11 +8234,6 @@ button.table-link:hover {
 
 .family-qc-chip-value {
   font-variant-numeric: tabular-nums;
-}
-
-.family-qc-chip-icon {
-  font-weight: 400;
-  opacity: 0.75;
 }
 
 .family-qc-cell-error {
