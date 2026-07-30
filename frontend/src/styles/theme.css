@@ -8283,6 +8283,13 @@ button.table-link:hover {
   color: var(--color-text-muted);
 }
 
+/* What a tool was used for, beside its name — the job, not another column. */
+.pipeline-settings-note {
+  font-size: 0.68rem;
+  font-style: italic;
+  opacity: 0.75;
+}
+
 .pipeline-settings-row dd {
   margin: 0;
   font-weight: 600;
@@ -12375,15 +12382,52 @@ a.button-danger:hover {
   min-width: 0;
 }
 
-/* A cut-off is at most a handful of digits; full-width inputs made the table
-   twice as wide as the numbers in it. */
+/* A cut-off is at most a handful of digits. Sized to its content rather than to the
+   column, so the eye runs down a narrow pair of number columns instead of across two
+   wide boxes per row. */
 .qc-threshold-table .qc-threshold-input {
-  width: 5.5rem;
+  width: 4rem;
   min-width: 0;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.8rem;
+  text-align: right;
+  /* Digits line up between rows, so an outlier is visible without reading each one. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sixteen rows of boxed inputs read as a form to fill in; these are mostly-empty
+   optional bounds, so the border only appears where the eye already is. */
+.qc-threshold-table .qc-threshold-input:not(:focus):placeholder-shown {
+  border-color: transparent;
+  background: transparent;
+}
+
+.qc-threshold-table .qc-threshold-input:hover:not(:focus) {
+  border-color: var(--color-border);
+}
+
+.qc-threshold-table {
+  font-size: 0.82rem;
 }
 
 .qc-threshold-table td,
 .qc-threshold-table th {
-  padding-top: 0.2rem;
-  padding-bottom: 0.2rem;
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
+}
+
+/* The two bound columns take only the width of their inputs; the metric name gets
+   the rest instead of everything being stretched to fill. */
+.qc-threshold-table th:nth-child(2),
+.qc-threshold-table th:nth-child(3),
+.qc-threshold-table td:nth-child(2),
+.qc-threshold-table td:nth-child(3) {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.qc-threshold-table th:last-child,
+.qc-threshold-table td:last-child {
+  width: 1%;
+  white-space: nowrap;
 }
