@@ -12360,10 +12360,10 @@ a.button-danger:hover {
    headings shout over the content they introduce. */
 .qc-section-label {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
+  letter-spacing: -0.01em;
+  color: var(--color-heading);
 }
 
 @media (max-width: 900px) {
@@ -12441,6 +12441,22 @@ a.button-danger:hover {
 .qc-profile-add input {
   flex: 1 1 8rem;
   min-width: 0;
+  /* Same shared form-control override as the threshold cells, so the add row does not
+     tower over the profile list it sits under. */
+  min-height: 0;
+  height: 1.75rem;
+  padding: 0 0.4rem;
+  font-size: 0.82rem;
+}
+
+.qc-profile-add button {
+  min-height: 0;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  box-shadow: none;
+  transform: none;
 }
 
 .qc-threshold-metrics .data-table-shell {
@@ -12453,10 +12469,17 @@ a.button-danger:hover {
    column, so the eye runs down a narrow pair of number columns instead of across two
    wide boxes per row. */
 .qc-threshold-table .qc-threshold-input {
-  width: 4rem;
+  /* Wide enough for a read count (12500000) without the digits crowding the edge. */
+  width: 7.5rem;
   min-width: 0;
-  padding: 0.15rem 0.35rem;
-  font-size: 0.8rem;
+  /* The shared form-control rule sets min-height 3.15rem and 1rem padding — sized for
+     a login form, not for sixteen numeric cells. It, not the cell padding, was what
+     kept the rows tall. */
+  min-height: 0;
+  height: 1.55rem;
+  padding: 0 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.4;
   text-align: right;
   /* Digits line up between rows, so an outlier is visible without reading each one. */
   font-variant-numeric: tabular-nums;
