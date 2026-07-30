@@ -85,6 +85,8 @@ export interface ApiQcThresholdChange {
   error_value?: number | null;
   changed_by_email?: string | null;
   changed_at: string;
+  /** Why the cut-off moved; null only for edits made before it was required. */
+  reason?: string | null;
 }
 
 export interface ApiQcThresholdCatalogue {

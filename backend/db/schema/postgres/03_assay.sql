@@ -652,10 +652,20 @@ CREATE TABLE IF NOT EXISTS qc_threshold_changes (
     error_value double precision,
     changed_by uuid,
     changed_by_email text,
+    -- Why the cut-off moved, in the changer's own words. The values either side are
+    -- recorded automatically, but they cannot say whether a limit was lowered because
+    -- a validation study supported it or because a run was inconvenient. Required by
+    -- the API; nullable here only so rows written before this column existed remain
+    -- readable in an append-only table.
+    reason text,
     changed_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT qc_threshold_changes_pkey PRIMARY KEY (id),
     CONSTRAINT qc_threshold_changes_changed_by_fkey FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- Added after the table shipped; the baselines re-run on every boot, so an existing
+-- deployment picks the column up without a migration ledger.
+ALTER TABLE qc_threshold_changes ADD COLUMN IF NOT EXISTS reason text;
 
 CREATE INDEX IF NOT EXISTS idx_qc_threshold_changes_recent
     ON qc_threshold_changes USING btree (changed_at DESC);

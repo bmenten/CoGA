@@ -132,13 +132,15 @@ describe('AdminQcThresholdsPage', () => {
     await user.clear(warn);
     await user.type(warn, '15');
     await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
-    await user.click(await screen.findByRole('button', { name: /Confirm change/i }));
+    await user.type(await screen.findByLabelText(/Reason for the change/i), 'per VAL-P07');
+    await user.click(screen.getByRole('button', { name: /Confirm change/i }));
 
     await waitFor(() =>
       expect(mockedPut).toHaveBeenCalledWith('/admin/qc-thresholds/default', {
         metric_key: 'depth.mean_depth',
         warn_value: 15,
         error_value: 10,
+        reason: 'per VAL-P07',
       }),
     );
   });
@@ -152,7 +154,8 @@ describe('AdminQcThresholdsPage', () => {
     await user.clear(warn);
     await user.clear(error);
     await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
-    await user.click(await screen.findByRole('button', { name: /Confirm change/i }));
+    await user.type(await screen.findByLabelText(/Reason for the change/i), 'per VAL-P07');
+    await user.click(screen.getByRole('button', { name: /Confirm change/i }));
 
     // Nulls clear the row: a metric with no cut-off is not configured, and must not be
     // left behind as an all-null row implying it is.
@@ -161,6 +164,7 @@ describe('AdminQcThresholdsPage', () => {
         metric_key: 'depth.mean_depth',
         warn_value: null,
         error_value: null,
+        reason: 'per VAL-P07',
       }),
     );
   });
@@ -268,5 +272,49 @@ describe('AdminQcThresholdsPage', () => {
     await user.click(screen.getByRole('button', { name: /Add profile/i }));
     expect(screen.getByRole('button', { name: /^Add$/ })).toBeDisabled();
     expect(mockedPost).not.toHaveBeenCalled();
+  });
+
+  it('will not commit a cut-off change without a reason', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const warn = (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
+
+    await user.clear(warn);
+    await user.type(warn, '15');
+    await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+
+    // The values either side are recorded automatically; what they cannot say is
+    // whether a limit moved because a validation study supported it or because a run
+    // was inconvenient.
+    const confirm = await screen.findByRole('button', { name: /Confirm change/i });
+    expect(confirm).toBeDisabled();
+    expect(mockedPut).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText(/Reason for the change/i), 'per VAL-P07');
+    expect(screen.getByRole('button', { name: /Confirm change/i })).toBeEnabled();
+  });
+
+  it('shows the recorded reason in the change history', async () => {
+    mockedGet.mockResolvedValue({
+      data: {
+        ...CATALOGUE,
+        changes: [
+          {
+            profile_key: 'default',
+            metric_key: 'depth.mean_depth',
+            previous_warn_value: 30,
+            previous_error_value: 20,
+            warn_value: 20,
+            error_value: 10,
+            changed_by_email: 'admin@example.com',
+            changed_at: '2026-07-30T09:15:00',
+            reason: 'per VAL-P07 opvolgvalidatie',
+          },
+        ],
+      },
+    });
+    renderPage();
+
+    expect(await screen.findByText('per VAL-P07 opvolgvalidatie')).toBeInTheDocument();
   });
 });

@@ -645,6 +645,7 @@ async def set_qc_threshold_admin(
         error_value=payload.error_value,
         user_id=user.id,
         user_email=user.email,
+        reason=payload.reason,
     )
 
 

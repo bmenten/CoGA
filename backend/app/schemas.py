@@ -166,6 +166,8 @@ class QcThresholdChangeOut(BaseModel):
     error_value: Optional[float] = None
     changed_by_email: Optional[str] = None
     changed_at: datetime
+    # Null only for edits made before the field was required.
+    reason: Optional[str] = None
 
 
 class QcThresholdCatalogueOut(BaseModel):
@@ -193,6 +195,12 @@ class QcThresholdUpdate(BaseModel):
 
     Both bounds null clears the threshold — a metric with no cut-off is not configured.
     """
+
+    # Required: the values either side are recorded automatically, but they cannot say
+    # whether a limit moved because a validation study supported it or because a run was
+    # inconvenient. Points at the test's clinical validation report, which is where the
+    # cut-off is actually agreed.
+    reason: str = Field(min_length=1, max_length=2000)
 
     metric_key: str
     warn_value: Optional[float] = None

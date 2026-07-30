@@ -399,12 +399,15 @@ async def _record_threshold_change(
     error_value: float | None,
     user_id: str | None,
     user_email: str | None,
+    reason: str,
 ) -> None:
     """Append both sides of a cut-off edit to the immutable history.
 
     The request-audit pipeline already records the path, body and actor, but not the
     value that was replaced — so it cannot answer "who lowered the depth limit, and from
-    what". This can.
+    what". This can, and ``reason`` carries the part neither can infer: *why*. The
+    numbers either side do not distinguish a limit lowered because a validation study
+    supported it from one lowered because a run was inconvenient.
     """
     await session.execute(
         text(
@@ -413,13 +416,13 @@ async def _record_threshold_change(
                 profile_key, metric_key,
                 previous_warn_value, previous_error_value,
                 warn_value, error_value,
-                changed_by, changed_by_email
+                changed_by, changed_by_email, reason
             )
             VALUES (
                 :profile_key, :metric_key,
                 :previous_warn_value, :previous_error_value,
                 :warn_value, :error_value,
-                CAST(NULLIF(:user_id, '') AS uuid), NULLIF(:user_email, '')
+                CAST(NULLIF(:user_id, '') AS uuid), NULLIF(:user_email, ''), :reason
             )
             """
         ),
@@ -432,6 +435,7 @@ async def _record_threshold_change(
             "error_value": error_value,
             "user_id": user_id or "",
             "user_email": user_email or "",
+            "reason": reason,
         },
     )
 
@@ -447,7 +451,7 @@ async def list_qc_threshold_changes(
                 SELECT profile_key, metric_key,
                        previous_warn_value, previous_error_value,
                        warn_value, error_value,
-                       changed_by_email, changed_at
+                       changed_by_email, changed_at, reason
                 FROM qc_threshold_changes
                 ORDER BY changed_at DESC
                 LIMIT :limit
@@ -539,12 +543,23 @@ async def set_qc_threshold(
     error_value: float | None,
     user_id: str | None,
     user_email: str | None = None,
+    reason: str,
 ) -> dict[str, Any]:
     """Upsert one metric's cut-offs within a profile.
 
     Clearing both bounds deletes the row: a metric with no cut-off is not configured,
     and keeping an all-null row would make the admin list imply otherwise.
+
+    ``reason`` is required and non-empty. The cut-offs themselves are agreed in each
+    test's clinical validation report, outside this tool; what the tool has to be able
+    to show is that a change here was deliberate and attributable to that decision.
     """
+    reason = (reason or "").strip()
+    if not reason:
+        raise HTTPException(
+            status_code=400,
+            detail="A reason is required when changing a QC cut-off.",
+        )
     metric = QC_METRICS_BY_KEY.get(metric_key)
     if metric is None:
         raise HTTPException(status_code=400, detail=f"Unknown QC metric: {metric_key}")
@@ -588,6 +603,7 @@ async def set_qc_threshold(
             error_value=None,
             user_id=user_id,
             user_email=user_email,
+            reason=reason,
         )
         await session.commit()
         return {"profile_key": profile_key, "metric_key": metric_key, "warn_value": None, "error_value": None}
@@ -658,6 +674,7 @@ async def set_qc_threshold(
         error_value=error_value,
         user_id=user_id,
         user_email=user_email,
+        reason=reason,
     )
     await session.commit()
     return {
