@@ -1,4 +1,4 @@
-import { render as rtlRender, screen, within } from '@testing-library/react';
+import { render as rtlRender, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import PipelineSettingsPanel, {
@@ -67,14 +67,13 @@ describe('PipelineSettingsPanel', () => {
 
     expect(screen.getByText('Reference')).toBeInTheDocument();
     expect(screen.getByText('Genome build')).toBeInTheDocument();
+    expect(screen.getByText('Repeats & paralogues')).toBeInTheDocument();
     expect(screen.getByText('Repeat catalogue')).toBeInTheDocument();
-    // Callers are no longer parameter rows naming a tool that the versions footer
-    // then named again; they are rows of the tools table, with their version and
-    // the job they did.
-    const tools = screen.getByTestId('pipeline-tools');
-    expect(tools).toHaveTextContent('hificnv');
-    expect(tools).toHaveTextContent('Small variants');
-    expect(tools).toHaveTextContent('CNV');
+    // Callers appear under the job they did, not as a separate flat list of tools.
+    const groups = screen.getByTestId('pipeline-tools');
+    expect(groups).toHaveTextContent('Variant calling');
+    expect(groups).toHaveTextContent('hificnv');
+    expect(groups).toHaveTextContent('CNV');
   });
 
   it('collapses the boolean stage switches into the list of stages that ran', () => {
@@ -93,7 +92,7 @@ describe('PipelineSettingsPanel', () => {
     // A setting added upstream belongs on the record even before this UI knows it.
     render(<PipelineSettingsPanel settings={{ genome: 'GRCh38', future_option: 'enabled' }} />);
 
-    expect(screen.getByText('Other')).toBeInTheDocument();
+    expect(screen.getByText('Other settings')).toBeInTheDocument();
     expect(screen.getByText('future_option')).toBeInTheDocument();
     expect(screen.getByText('enabled')).toBeInTheDocument();
   });
@@ -139,22 +138,61 @@ describe('PipelineSettingsPanel', () => {
     // The section renders straight away from the parameters and fills in when the
     // manifest arrives — so wait for the manifest's content, not for the container.
     await screen.findByText(/nf-core\/lrsvar/);
-    const workflow = screen.getByTestId('pipeline-workflow');
-    expect(workflow).toHaveTextContent('nf-core/lrsvar');
-    expect(workflow).toHaveTextContent('v1.0.0dev');
-    expect(workflow).toHaveTextContent('26.04.3');
+    const groups = screen.getByTestId('pipeline-tools');
+    // Which pipeline, at which version, on which engine is the headline of the record —
+    // its own group, first, not a row among 27 tools.
+    expect(groups).toHaveTextContent('Workflow');
+    expect(groups).toHaveTextContent('v1.0.0dev');
+    expect(groups).toHaveTextContent('26.04.3');
 
-    const tools = screen.getByTestId('pipeline-tools');
-    expect(tools).toHaveTextContent('minimap2');
-    expect(tools).toHaveTextContent('2.30-r1287');
-    expect(tools).toHaveTextContent('samtools');
+    // Alignment tools sit under the job they did, beside the parameters that
+    // configured it, rather than alphabetically among everything else.
+    expect(groups).toHaveTextContent('Alignment & phasing');
+    expect(groups).toHaveTextContent('minimap2');
+    expect(groups).toHaveTextContent('2.30-r1287');
+    expect(groups).toHaveTextContent('samtools');
     // A module with no version is not a traceability record.
-    expect(tools).not.toHaveTextContent('unversioned');
-    // Callers sort ahead of the rest: they produced the variants being read.
-    const rows = within(tools).getAllByRole('row').slice(1);
-    const roles = rows.map((row) => within(row).getAllByRole('cell')[2].textContent);
-    expect(roles.filter(Boolean).length).toBeGreaterThan(0);
-    expect(roles.indexOf('')).toBeGreaterThan(0);
+    expect(groups).not.toHaveTextContent('unversioned');
+  });
+
+  it('shows the genome build once, not as both a parameter and a module', async () => {
+    const api = (await import('../../../lib/api')).default;
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        modules: [
+          { key: 'assembly', label: 'assembly', version: 'GRCh38', detail: '2013-12-01', layer: 'reference', by_modality: null },
+        ],
+      },
+    });
+
+    render(<PipelineSettingsPanel familyId="pacbio" settings={{ genome: 'GRCh38' }} />);
+
+    await screen.findByText('Genome build');
+    // The `assembly` module and the `genome` parameter are the same fact; printing it
+    // under one heading twice is the duplication this layout exists to remove.
+    expect(screen.getAllByText('GRCh38')).toHaveLength(1);
+  });
+
+  it('collapses format libraries onto one line instead of a row each', async () => {
+    const api = (await import('../../../lib/api')).default;
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        modules: [
+          { key: 'htslib', label: 'htslib', version: '1.23.1', detail: null, layer: 'pipeline', by_modality: null },
+          { key: 'gzip', label: 'gzip', version: '1.14', detail: null, layer: 'pipeline', by_modality: null },
+          { key: 'xz', label: 'xz', version: '5.8.3', detail: null, layer: 'pipeline', by_modality: null },
+        ],
+      },
+    });
+
+    render(<PipelineSettingsPanel familyId="pacbio" settings={PACBIO_SETTINGS} />);
+
+    // Real provenance, but a reader looking for which caller made a deletion should
+    // not read past six compression libraries to find it.
+    const utilities = await screen.findByTestId('pipeline-utilities');
+    expect(utilities).toHaveTextContent('gzip 1.14');
+    expect(utilities).toHaveTextContent('xz 5.8.3');
+    expect(screen.getByTestId('pipeline-tools')).not.toHaveTextContent('gzip');
   });
 
   it('keeps a caller the pipeline named but reported no version for', async () => {
