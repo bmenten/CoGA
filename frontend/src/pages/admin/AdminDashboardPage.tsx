@@ -73,6 +73,11 @@ const adminGroups: AdminGroup[] = [
         description: 'Curate the workflow statuses analysts assign to families.',
       },
       {
+        label: 'Sequencing QC Thresholds',
+        to: '/admin/data/qc-thresholds',
+        description: 'Set the warning and error cut-offs that flag an inadequate sequencing run.',
+      },
+      {
         label: 'Package Import',
         to: '/admin/data/upload',
         description: 'Validate manifests and run package-based initial or incremental imports.',

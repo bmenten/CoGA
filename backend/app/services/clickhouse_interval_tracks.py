@@ -203,6 +203,7 @@ async def fetch_interval_track_rows(
     track_type: str,
     chromosomes: Sequence[str],
     origins: Sequence[str] | None = None,
+    source: str | None = None,
     start: int | None = None,
     end: int | None = None,
     limit: int | None = None,
@@ -210,6 +211,13 @@ async def fetch_interval_track_rows(
     await ensure_clickhouse_interval_table(assembly_name)
     clauses = ["track_type = %(track_type)s"]
     params: dict[str, Any] = {"track_type": track_type}
+    if source is not None:
+        # Without this every caller's rows for a track type come back together. A
+        # sample can carry HiFiCNV, WisecondorX and QDNAseq coverage at once, and
+        # merging them is not a display quirk -- the windowed average downstream
+        # would blend three independent measurements into one meaningless line.
+        clauses.append("source = %(source)s")
+        params["source"] = source
     if sample_uuid is not None:
         clauses.append("sample_guid = %(sample_uuid)s")
         params["sample_uuid"] = str(sample_uuid)
@@ -322,6 +330,12 @@ async def fetch_apcad_downsampled(
     - Informative markers only: ``origin IN ('paternal','maternal')`` — these are the
       SNVs that distinguish the parental haplotypes (``und`` markers are not phasing-
       informative). The caller passes the origins; this keeps the informative set.
+      ``origins`` is a *preference*, not a hard filter: a track with no parent-of-origin
+      calls at all falls back to its unphased markers rather than rendering empty. That
+      is the HiFiCNV minor-allele-fraction track — bigWig has nowhere to record a
+      parental origin, so every one of its points is ``und``, and filtering them out
+      would silently blank the whole track. Where phased markers do exist they still
+      win, so a trio's APCAD track is unaffected.
     - Quality gate: keep VCF ``filter = PASS`` (plus markers with no recorded filter,
       so older uploads without provenance are not dropped); drop the low-quality
       VQSR-tranche markers. The per-marker ``qual`` score is also available in
@@ -342,8 +356,11 @@ async def fetch_apcad_downsampled(
     if chrom_values:
         base_clauses.append("chrom IN %(chromosomes)s")
         params["chromosomes"] = tuple(chrom_values)
+    # The origin preference is applied per-band below, not here, so one counts query
+    # can measure the track both with and without it.
+    origin_clause = ""
     if origins:
-        base_clauses.append("origin IN %(origins)s")
+        origin_clause = "origin IN %(origins)s"
         params["origins"] = tuple(str(value) for value in origins)
     if start is not None and end is not None:
         base_clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
@@ -357,9 +374,27 @@ async def fetch_apcad_downsampled(
     het_expr = "value >= 0.05 AND value <= 0.95"
     homo_expr = "value IS NOT NULL AND (value < 0.05 OR value > 0.95)"
 
+    # Whether to fall back to unphased markers is a property of the *track*, not of the
+    # window being drawn. Deciding it per window would be wrong in the direction that
+    # matters: on a genuinely phased track a stretch with no informative markers
+    # currently renders empty, and that emptiness is the autozygosity signal -- filling
+    # it with `und` points would mask exactly what the view exists to show. So probe the
+    # whole track once (LIMIT 1 on the primary key: family, sample, track_type).
+    if origin_clause:
+        probe_clauses = ["track_type = 'apcad'", "sample_guid = %(sample_uuid)s", origin_clause]
+        if family_uuid is not None:
+            probe_clauses.append("family_guid = %(family_uuid)s")
+        probe = await _execute(
+            f"SELECT 1 FROM {table} WHERE {' AND '.join(probe_clauses)} LIMIT 1",
+            params,
+        )
+        if not probe:
+            origin_clause = ""
+
+    band_where = f"{where} AND ({origin_clause})" if origin_clause else where
     counts = await _execute(
         f"SELECT countIf({het_expr}) AS het, countIf({homo_expr}) AS homo "
-        f"FROM {table} WHERE {where}",
+        f"FROM {table} WHERE {band_where}",
         params,
     )
     het_count, homo_count = (int(counts[0][0]), int(counts[0][1])) if counts else (0, 0)
@@ -371,11 +406,23 @@ async def fetch_apcad_downsampled(
     # Keep the highest-quality markers in each band (qual = per-marker VCF confidence)
     # rather than a spatial sample. One ranked, LIMITed subquery per band, unioned.
     qual_expr = "JSONExtractFloat(metadata_json, 'qual')"
+    # Deterministic spatial tiebreaker. Ranking by quality alone is only a ranking
+    # while there *is* a quality to rank by: a track whose markers carry no `qual`
+    # -- HiFiCNV's minor-allele-fraction bigWig, which records a value per site and
+    # nothing else -- extracts 0.0 for every row, making the ORDER BY a constant. The
+    # LIMIT then keeps whatever ClickHouse read first, which in primary-key order is
+    # the start of the chromosome: 2000 points landed in 2.1 Mb of chr1's 249 Mb and
+    # the rest of the track was blank.
+    #
+    # Hashing the position spreads those ties uniformly across the requested range.
+    # Where `qual` does exist it still decides the ranking outright and this only
+    # makes the previously arbitrary tie order reproducible.
+    order_expr = f"{qual_expr} DESC, cityHash64(chrom, start)"
 
     def _band_query(band_expr: str, target: int) -> str:
         return (
             f"SELECT chrom AS chr, start, end, value, origin FROM {table} "
-            f"WHERE {where} AND ({band_expr}) ORDER BY {qual_expr} DESC LIMIT {int(target)}"
+            f"WHERE {band_where} AND ({band_expr}) ORDER BY {order_expr} LIMIT {int(target)}"
         )
 
     subqueries: list[str] = []
@@ -397,6 +444,62 @@ async def fetch_apcad_downsampled(
         }
         for (chrom, row_start, row_end, value, origin) in rows
     ]
+
+
+async def get_interval_track_sources_by_sample(
+    assembly_name: str,
+    *,
+    family_uuid: str,
+    sample_uuid_to_name: dict[str, str],
+    track_type: str,
+    chromosomes: Sequence[str],
+    start: int | None = None,
+    end: int | None = None,
+) -> dict[str, list[str]]:
+    """Sample name → the sources that actually have rows for ``track_type``.
+
+    Presence alone ("this sample has coverage") is not enough once a sample can
+    carry three callers' coverage at once: the view has to know *which* callers,
+    so it can draw one track per caller rather than one track of everything
+    averaged together.
+    """
+
+    if not sample_uuid_to_name:
+        return {}
+    await ensure_clickhouse_interval_table(assembly_name)
+    clauses = [
+        "family_guid = %(family_uuid)s",
+        "sample_guid IN %(sample_uuids)s",
+        "track_type = %(track_type)s",
+    ]
+    params: dict[str, Any] = {
+        "family_uuid": family_uuid,
+        "sample_uuids": tuple(sample_uuid_to_name),
+        "track_type": track_type,
+    }
+    chrom_values = _chrom_values(chromosomes)
+    if chrom_values:
+        clauses.append("chrom IN %(chromosomes)s")
+        params["chromosomes"] = tuple(chrom_values)
+    if start is not None and end is not None:
+        clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
+        params["window_start"] = int(start)
+        params["window_end"] = int(end)
+    rows = await _execute(
+        f"""
+        SELECT DISTINCT sample_guid, source
+        FROM {_interval_table_name(assembly_name)}
+        WHERE {' AND '.join(clauses)}
+        """,
+        params,
+    )
+    by_sample: dict[str, list[str]] = {}
+    for sample_guid, source in rows:
+        name = sample_uuid_to_name.get(str(sample_guid))
+        if name is None or not source:
+            continue
+        by_sample.setdefault(name, []).append(str(source))
+    return {name: sorted(set(sources)) for name, sources in by_sample.items()}
 
 
 async def get_interval_track_presence_by_sample(

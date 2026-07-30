@@ -358,3 +358,31 @@ CREATE TRIGGER integrity_anchors_immutable
 
 -- Runtime-role (coga_app) grants/revokes voor de append-only tabellen
 -- zijn geconsolideerd in 05_grants.sql (na de brede GRANT ON ALL TABLES).
+
+-- ---------------------------------------------------------------------------
+-- qc_threshold_changes — append-only QC cut-off history
+-- ---------------------------------------------------------------------------
+-- The table lives in 03_assay (next to the thresholds it records); the
+-- immutability trigger lives here with the other append-only guards. A cut-off
+-- decides whether the device reports a run as inadequate, so its history must not
+-- be rewritable — otherwise a past configuration could be made to look like
+-- something other than what was actually in force when a case was released.
+-- The FK-to-NULL unlink on user deletion is the one permitted change, mirroring
+-- the carve-out the clinical-audit guard makes.
+CREATE OR REPLACE FUNCTION qc_threshold_changes_block_mutation() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'qc_threshold_changes is append-only; DELETE is not permitted';
+    END IF;
+    IF (NEW.changed_by IS NOT NULL AND NEW.changed_by IS DISTINCT FROM OLD.changed_by)
+        OR (to_jsonb(NEW) - 'changed_by') IS DISTINCT FROM (to_jsonb(OLD) - 'changed_by') THEN
+        RAISE EXCEPTION 'qc_threshold_changes is append-only; UPDATE is not permitted';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS qc_threshold_changes_immutable ON qc_threshold_changes;
+CREATE TRIGGER qc_threshold_changes_immutable
+    BEFORE UPDATE OR DELETE ON qc_threshold_changes
+    FOR EACH ROW EXECUTE FUNCTION qc_threshold_changes_block_mutation();

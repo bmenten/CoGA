@@ -139,6 +139,13 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
             },
             "qdnaseq": {
                 "bins": [
+                    # nf-core/lrsvar writes QDNAseq output as BED beside the HiFiCNV
+                    # results rather than as CSV under a QDNAseq/ directory, and names
+                    # the files after the caller: <sample>_cnv_qdnaseq_<role>.bed.
+                    # `bins` is the per-bin copy-number (log2 ratio) track; `raw_bins`
+                    # holds uncorrected read counts and `calls` the discrete call, both
+                    # of which the interval tracks have no axis for.
+                    "cnv/{sample_id}/{sample_id}_cnv_qdnaseq_bins.bed",
                     "QDNAseq/{sample_id}/bins.csv",
                     "QDNAseq/{sample_id}/sample_bins.csv",
                     "QDNAseq/{sample_id}/{sample_id}_bins.csv",
@@ -155,6 +162,9 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "qdnaseq/{sample_id}.csv",
                 ],
                 "segments": [
+                    # lrsvar abbreviates this one to `_segs`.
+                    "cnv/{sample_id}/{sample_id}_cnv_qdnaseq_segs.bed",
+                    "cnv/{sample_id}/{sample_id}_cnv_qdnaseq_segments.bed",
                     "QDNAseq/{sample_id}/segments.csv",
                     "QDNAseq/{sample_id}/sample_segments.csv",
                     "QDNAseq/{sample_id}/{sample_id}_segments.csv",
@@ -332,6 +342,12 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                 ],
                 "depth_bigwig": [
                     "cnv/{sample_id}/{sample_id}*.depth.bw",
+                ],
+                # HiFiCNV names this one after both the run and the sample, so the
+                # reference package carries `HG002.HG002.maf.bw`; the wildcard after
+                # the first {sample_id} absorbs the repeat.
+                "maf_bigwig": [
+                    "cnv/{sample_id}/{sample_id}*.maf.bw",
                 ],
                 "summary_html": [
                     "cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz_summary.html",
@@ -1155,7 +1171,7 @@ def _build_manifest_payload(
 
     # Long-read datasets: primary artefact required, companions recorded when present.
     long_read_roles: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-        "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "summary_html")),
+        "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "maf_bigwig", "summary_html")),
         "mito": (("vcf",), ("index", "annotation_tsv", "sv_vcf", "sv_index", "sv_annotation_tsv")),
         "alignments": (("file",), ("index",)),
         "qc": ((), ("report", "read_stats", "depth_summary", "depth_regions", "depth_global_dist")),

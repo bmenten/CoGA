@@ -102,7 +102,11 @@ The `standard_v1` naming scheme knows several fallback names per layer (for exam
 
 Because long-read callers name a VCF's sample column after their own input file (`Sample0`, `HG002_sort`) rather than the sample, a per-sample dataset entry binds a single-column VCF to the sample it was declared for, and known tool suffixes are stripped otherwise. A column that matches no family sample fails the import instead of being dropped silently.
 
-Once imported, each sample's sequencing QC (mean depth, read-length N50, read quality) appears in the **Family members** table on the family page, with a link that opens the pipeline's QC report in a separate tab.
+Once imported, each sample's sequencing QC appears in the **Family members** table on the family page as a compact chip showing the QC verdict and mean depth. Hover for every recorded metric, the cut-offs it was judged against and which of them breached; click to open the pipeline's QC report in a separate tab.
+
+The chip turns amber when a measurement crosses its warning cut-off and red when it crosses the error cut-off. Cut-offs are configured per assay profile under **Admin → Sequencing QC Thresholds** — no values ship by default, and a metric without a cut-off is reported as not assessed rather than as a pass.
+
+The pipeline's own configuration — genome build, which caller produced which variant class, VEP cache, repeat catalogue, which stages ran — is recorded per family at import and shown in two places: the **Analysis pipeline** card on the family workspace, and an **Analysis pipeline settings** section on the clinical report. Tool *versions* are separate: they appear in the annotation-provenance footer and in the report's "Modules & versions" line.
 
 ### Manifest, dry-run, import
 

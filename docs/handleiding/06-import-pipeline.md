@@ -61,7 +61,7 @@ De ondersteunde datasets zijn vastgelegd in de constante `SUPPORTED_DATASETS` (i
 | `pcf` | PCF-segmenten, maternaal/paternaal (embryo) | `PCF/{sample_id}_pcf_mat_data.csv` |
 | `haplotypes` | GLIMPSE2-gefaseerde varianten | `GLIMPSE2/{family_id}_phased_final.vcf.gz` |
 | `paraphase` | Paraphase-resultaten (JSON) | `paraphase/{sample_id}.paraphase.json` |
-| `cnv` | CNV-calls uit een dieptecaller (HiFiCNV), VCF + copynumber-bedgraph | `cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz` |
+| `cnv` | CNV-calls uit een dieptecaller (HiFiCNV): VCF plus drie signaalbestanden (diepte-bigWig, copynumber-bedgraph, MAF-bigWig) | `cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz` |
 | `mito` | Mitochondriale varianten (chrM) + mutserve-annotatie | `mito/{sample_id}/{sample_id}.vcf.gz` |
 | `alignments` | Uitgelijnde reads voor de genoombrowser | `bams/{sample_id}.cram` |
 | `qc` | Sequencing-QC: NanoPlot/MultiQC-rapport, NanoStats, mosdepth | `qc/nanoplot/{sample_id}/{sample_id}NanoStats.txt` |
@@ -151,7 +151,7 @@ De import registreert eerst de familie-metadata en de provenance, en importeert 
 | interval-track bron-metadata | `upsert_interval_track_source` | `sample_interval_track_sources` | Postgres |
 | `repeats_trgt` VCF | `ingest_family_trgt_text` / `ingest_trgt_text` | `repeat_expansions` | Postgres |
 | `paraphase` JSON | `_replace_sample_paraphase_rows` | `sample_paraphase_results` | Postgres |
-| `cnv` VCF (+ bedgraph) | `_iter_cnv_structural_records` → `replace_family_structural_variants` (`hificnv`) / `_import_copy_number_track` | structural variants + `coverage`-interval-track | ClickHouse |
+| `cnv` VCF (+ signaalbestanden) | `_iter_cnv_structural_records` → `replace_family_structural_variants` (`hificnv`); `_import_bigwig_interval_track` / `_import_copy_number_track` | structural variants, plus `coverage` (diepte), `segments` (copynumber) en `apcad` (MAF, `origin = und`) interval-tracks | ClickHouse |
 | `mito` chrM-VCF (+ mutserve-TSV) | `upload_family_small_variant_file` (`mito`) | small variants (chrM) | ClickHouse |
 | `qc` NanoStats/mosdepth/rapport | `record_sample_qc_metadata` | `samples.metadata["sequencing_qc"]` | Postgres |
 | `alignments` CRAM/BAM | `record_sample_alignment_metadata` | `samples.metadata["alignment"]` | Postgres |
@@ -163,6 +163,18 @@ De import registreert eerst de familie-metadata en de provenance, en importeert 
 | de importtaak zelf | `queue_family_import_job` / `_update_job_progress` | `family_import_jobs` | Postgres |
 
 **Waar in de code:** de ClickHouse-loaders in `backend/app/services/clickhouse_variant_storage.py` (`insert_small_variant_records`, `replace_family_structural_variants`); de NeedlR-SV-parser is `_iter_needlr_structural_records` in `family_package_variants.py` (levert `StructuralVariantRecord`-objecten voor `replace_family_structural_variants`). De Postgres-schrijvers `ingest_family_trgt_text` (`repeat_expansion_pg.py`) en `_replace_sample_paraphase_rows` (`family_package_variants.py`).
+
+### Waar de pipeline-instellingen zichtbaar zijn
+
+De **runparameters** (genoombuild, welke caller welke variantklasse maakte, VEP-cache,
+repeat-catalogus, welke stappen liepen) staan in de kaart **Analysis pipeline** op de
+familiewerkplek én als sectie **Analysis pipeline settings** op het klinische rapport. De
+**toolversies** staan daar los van: die verschijnen in de annotatie-provenance-voettekst
+en in de regel "Modules & versions" van het rapport. Samen vormen ze het antwoord op
+"hoe is deze data gemaakt" (instellingen) en "waarmee" (versies).
+
+**Waar in de code:** `frontend/src/pages/families/PipelineSettingsPanel.tsx` (beide
+weergaven) en `AnnotationProvenanceSummary.tsx` (versies).
 
 Let op: **NIPT-artefacten** (`nipt_artifact_variants`, Postgres) worden *niet* door de pakket-import gevuld — die lopen via een aparte route (zie [hoofdstuk 8](08-filterpaginas-en-api.md)). De pakket-import promoveert wél een gedeclareerd `analysis_type` (bv. `monogenic_nipt`) en een per-sample `assay` (bv. `nipt_cfdna`) naar de familie-/sample-metadata, zodat de NIPT-context later herkend wordt.
 

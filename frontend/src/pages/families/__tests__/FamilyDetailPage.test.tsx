@@ -37,7 +37,7 @@ vi.mock('../../../lib/api', () => ({
             members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male' }],
             pedigree: null,
             projects: ['p1'],
-            metadata: {},
+            metadata: { pipeline: { genome: 'GRCh38', snv_caller: 'deepvariant' } },
             status: { key: 'analysis_in_progress', label: 'Analysis in progress', color: '#2f6fb0' },
             assigned_to: {
               id: 'u1',
@@ -222,6 +222,31 @@ describe('FamilyDetailPage', () => {
     vi.mocked(api.put).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.delete).mockReset();
+  });
+
+  it('shows the analysis-pipeline settings last, collapsed', async () => {
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // The pipeline block is recorded on the family at package import. The panel is a
+    // closed <details> here, so its content is in the DOM but not shown until opened.
+    const panel = await screen.findByTestId('pipeline-settings');
+    expect((panel as HTMLDetailsElement).open).toBe(false);
+    expect(panel).toHaveTextContent('GRCh38');
+    expect(panel).toHaveTextContent('deepvariant');
+    // Last on the page: context for what is above it, not a starting point.
+    const members = screen.getByText('Family members').closest('section');
+    expect(members).not.toBeNull();
+    expect(members!.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('lets a signed-in user change and save the family status', async () => {

@@ -1939,7 +1939,7 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 </tr>
 <tr>
 <td><code>cnv</code></td>
-<td>CNV-calls uit een dieptecaller (HiFiCNV), VCF + copynumber-bedgraph</td>
+<td>CNV-calls uit een dieptecaller (HiFiCNV): VCF plus drie signaalbestanden (diepte-bigWig, copynumber-bedgraph, MAF-bigWig)</td>
 <td><code>cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz</code></td>
 </tr>
 <tr>
@@ -2073,9 +2073,9 @@ nooit een patroon in het manifest.</p>
 <td>Postgres</td>
 </tr>
 <tr>
-<td><code>cnv</code> VCF (+ bedgraph)</td>
-<td><code>_iter_cnv_structural_records</code> → <code>replace_family_structural_variants</code> (<code>hificnv</code>) / <code>_import_copy_number_track</code></td>
-<td>structural variants + <code>coverage</code>-interval-track</td>
+<td><code>cnv</code> VCF (+ signaalbestanden)</td>
+<td><code>_iter_cnv_structural_records</code> → <code>replace_family_structural_variants</code> (<code>hificnv</code>); <code>_import_bigwig_interval_track</code> / <code>_import_copy_number_track</code></td>
+<td>structural variants, plus <code>coverage</code> (diepte), <code>segments</code> (copynumber) en <code>apcad</code> (MAF, <code>origin = und</code>) interval-tracks</td>
 <td>ClickHouse</td>
 </tr>
 <tr>
@@ -2135,6 +2135,15 @@ nooit een patroon in het manifest.</p>
 </tbody>
 </table></div>
 <p class="waar"><strong>Waar in de code:</strong> de ClickHouse-loaders in <code>backend/app/services/clickhouse_variant_storage.py</code> (<code>insert_small_variant_records</code>, <code>replace_family_structural_variants</code>); de NeedlR-SV-parser is <code>_iter_needlr_structural_records</code> in <code>family_package_variants.py</code> (levert <code>StructuralVariantRecord</code>-objecten voor <code>replace_family_structural_variants</code>). De Postgres-schrijvers <code>ingest_family_trgt_text</code> (<code>repeat_expansion_pg.py</code>) en <code>_replace_sample_paraphase_rows</code> (<code>family_package_variants.py</code>).</p>
+<h3>Waar de pipeline-instellingen zichtbaar zijn</h3>
+<p>De <strong>runparameters</strong> (genoombuild, welke caller welke variantklasse maakte, VEP-cache,
+repeat-catalogus, welke stappen liepen) staan in de kaart <strong>Analysis pipeline</strong> op de
+familiewerkplek én als sectie <strong>Analysis pipeline settings</strong> op het klinische rapport. De
+<strong>toolversies</strong> staan daar los van: die verschijnen in de annotatie-provenance-voettekst
+en in de regel "Modules &amp; versions" van het rapport. Samen vormen ze het antwoord op
+"hoe is deze data gemaakt" (instellingen) en "waarmee" (versies).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/families/PipelineSettingsPanel.tsx</code> (beide
+weergaven) en <code>AnnotationProvenanceSummary.tsx</code> (versies).</p>
 <p>Let op: <strong>NIPT-artefacten</strong> (<code>nipt_artifact_variants</code>, Postgres) worden <em>niet</em> door de pakket-import gevuld — die lopen via een aparte route (zie <a href="#hs-8">hoofdstuk 8</a>). De pakket-import promoveert wél een gedeclareerd <code>analysis_type</code> (bv. <code>monogenic_nipt</code>) en een per-sample <code>assay</code> (bv. <code>nipt_cfdna</code>) naar de familie-/sample-metadata, zodat de NIPT-context later herkend wordt.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>_register_package_provenance</code> in <code>family_package_registration.py</code>; <code>nipt_artifact_pg.py</code> is de aparte NIPT-loader.</p>
 <h2>Import-job-tracking en foutafhandeling</h2>
@@ -2892,7 +2901,7 @@ if context.project_ids:
 <p>De frontend voegt daar client-side filters aan toe (zoektekst, gnomAD-frequentiedrempel, synonieme varianten verbergen, scope "Clinical / Heteroplasmic / Homoplasmic / Maternal review"). Het combineert mtDNA met het <strong>nucleaire mito-genpanel</strong> doordat een mtDNA-variant naar een <code>SmallVariant</code>-vorm wordt vertaald (<code>toSmallVariantForAcmg</code>) en dezelfde ACMG-classificatiemodal en dezelfde review-endpoint gebruikt als de Small Variants — zie hoofdstuk <a href="#hs-10">10 — Tagging &amp; ACMG</a>. De heteroplasmie- en maternale-transmissiecontext wordt daarbij als <code>mito</code>-context meegegeven aan de ACMG-evaluator.</p>
 <p class="waar"><strong>Waar in de code:</strong> review-koppeling via <code>_attach_reviews</code> (mtDNA-service) en <code>get_small_variant_review_map</code>; VAF-drempels als constanten bovenaan <code>mitochondrial_analysis.py</code>.</p>
 <h3>Coverage en QC per sample</h3>
-<p>Naast varianten toont de pagina per sample de haplogroep, gemiddelde leesdiepte, breedte van dekking en een QC-status. Coverage komt uit de ClickHouse interval-tracks (<code>_coverage_by_sample</code>), met terugval op de leesdiepte uit de variant-calls als er geen coverage-track is. <code>_sample_qc</code> zet dit om in een status: <code>fail</code> bij een contaminatieschatting ≥ 3%, <code>warning</code> bij een verhoogde contaminatie (≥ 1%) of bij een gemiddelde diepte &lt; 50x. Bij een <code>count_only</code>-aanvraag wordt alleen goedkoop gecheckt of er data is (<code>_has_mt_coverage</code> gebruikt een <code>LIMIT 1</code>-probe), zodat het familie-dashboard de mtDNA-tegel kan tonen zonder de volledige track te streamen.</p>
+<p>Naast varianten toont de pagina per sample de haplogroep, gemiddelde leesdiepte, breedte van dekking en een QC-status. Coverage komt uit de ClickHouse interval-tracks (<code>_coverage_by_sample</code>), met terugval op de leesdiepte uit de variant-calls als er geen coverage-track is. <code>_sample_qc</code> zet dit om in een status uit de app-brede QC-woordenlijst (<code>pass</code> / <code>warn</code> / <code>fail</code> / <code>skip</code>). De grenswaarden staan niet in de code maar in het QC-drempelprofiel van de familie (<strong>Admin → Sequencing QC Thresholds</strong>, metrieken <code>mtdna.contamination</code> en <code>mtdna.mean_depth</code>). Is er voor een metriek geen grens ingesteld, dan telt die metriek niet mee: het sample krijgt <code>skip</code> in plaats van een <code>pass</code> op grond van een controle die niet bestaat. Bij een <code>count_only</code>-aanvraag wordt alleen goedkoop gecheckt of er data is (<code>_has_mt_coverage</code> gebruikt een <code>LIMIT 1</code>-probe), zodat het familie-dashboard de mtDNA-tegel kan tonen zonder de volledige track te streamen.</p>
 <h3>Sample QC: verwantschap, geslacht en sample-swaps</h3>
 <p>De <strong>Sample-integriteit-QC</strong> is een aparte, kritische pagina die controleert of de juiste sequentiedata aan de juiste persoon hangt. In een stamboomgedreven pijplijn is de stilste fout een verwisseld sample (sample-swap) of een verkeerd geregistreerde verwantschap: de varianten kloppen dan wel, maar worden aan de verkeerde persoon toegeschreven, waardoor de overervingsredenering ongemerkt fout gaat.</p>
 <p>Drie referentievrije controles (dat wil zeggen: ze hebben geen externe referentie nodig, ze rekenen puur op de genotypes zelf) draaien op de genotypes:</p>
@@ -5148,6 +5157,39 @@ else:
 <li>Een sleutel (<code>key</code>) wordt uniek geslugd uit het label (<code>_unique_status_key</code> + <code>_slugify_status</code>); kleuren worden gevalideerd tegen een hex-patroon (<code>_normalize_color</code>) met een veilige default.</li>
 <li><strong>Non-destructief verwijderen:</strong> door <code>ON DELETE SET NULL</code> op <code>families.status_id</code> blijft een familie bestaan wanneer haar status wordt verwijderd — het statusveld wordt simpelweg leeggemaakt (zie de comment in <code>delete_family_status</code>).</li>
 <li>De feitelijke status/toewijzing per familie (<code>assigned_to</code>, <code>reviewed_by</code>) wordt gezet door elke gebruiker mét toegang tot de familie via <code>update_family_metadata_for_user</code>, met 404 bij onbekende familie en 403 bij geen toegang.</li>
+</ul>
+<h3>Sequencing-QC drempelwaarden</h3>
+<ul>
+<li><strong>AdminQcThresholdsPage</strong> (<code>AdminQcThresholdsPage.tsx</code>): stelt per sequencing-QC-parameter
+  een <strong>waarschuwings-</strong> en een <strong>foutgrens</strong> in. <code>GET /admin/qc-thresholds</code> levert de
+  metriekcatalogus én alle profielen; <code>PUT /admin/qc-thresholds/{profile_key}</code> zet of wist
+  één grens. Logica in <code>backend/app/services/qc_threshold_service.py</code>:</li>
+<li><strong>Profielen per assay.</strong> Eén grens kan geen twee assays dienen — ~18x gemiddelde dekking
+    is normaal voor PacBio HiFi WGS en een harde fout op een 100x panel. Een familie gebruikt
+    het profiel uit <code>families.metadata-&gt;&gt;'qc_profile'</code>, en anders het standaardprofiel (een
+    partiële unieke index garandeert dat er precies één standaard is).</li>
+<li><strong>De catalogus staat in code, de grenzen in de databank.</strong> Welke metrieken bestaan en of
+    een <em>lage</em> of een <em>hoge</em> waarde de foutzijde is, volgt uit wat de QC-parsers uitschrijven
+    (<code>QC_METRICS</code>) — geen configuratie. Zo kan een beheerder geen vergelijkingsrichting
+    omdraaien en een falende run groen maken. <code>direction</code> wordt wél meegeschreven in de rij,
+    zodat een historische configuratie leesbaar blijft zonder die codeversie.</li>
+<li><strong>Geen standaardgrenzen.</strong> Er worden geen waarden geseed: een grens is een klinische
+    beslissing. Zonder grens wordt een metriek gerapporteerd als <em>niet beoordeeld</em>, nooit als
+    geslaagd.</li>
+<li><strong>Evaluatie gebeurt server-side</strong> (<code>evaluate_sequencing_qc</code>), zodat werkplek, sample-QC en
+    rapport hetzelfde oordeel lezen. Het slechtste oordeel van alle metrieken wordt de
+    chip-kleur in de tabel Familieleden: amber bij waarschuwing, rood bij fout, met het
+    oordeelwoord ernaast zodat kleur niet de enige drager is.</li>
+<li><strong>Ook de mitochondriale grenzen komen hiervandaan</strong> (<code>mtdna.mean_depth</code>,
+    <code>mtdna.contamination</code>). Die stonden eerder hard-coded in <code>mitochondrial_analysis.py</code>
+    (<code>mean_depth &lt; 50</code>, contaminatie 1%/3%) en waren dus onzichtbaar en onwijzigbaar; geen
+    enkele QC-grens zit nog in code.</li>
+<li><strong>Streng afgeschermd.</strong> Wijzigen kan alleen als beheerder, vereist een bevestiging
+    waarin beide zijden van de wijziging herhaald worden, en wordt weggeschreven naar de
+    <strong>append-only</strong> tabel <code>qc_threshold_changes</code> — met de <em>vervangen</em> waarde erbij. De
+    HTTP-auditpijplijn legt het verzoek vast maar kent de vorige waarde niet, dus alleen
+    hier is te zien wie een grens verlaagde en vanaf welke waarde. UPDATE en DELETE worden
+    door een trigger geweigerd.</li>
 </ul>
 <h3>Preset-filters &amp; variant-tags</h3>
 <ul>

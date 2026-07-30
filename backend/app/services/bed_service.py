@@ -20,6 +20,7 @@ from .clickhouse_interval_tracks import (
     fetch_interval_track_rows,
     get_interval_track_lineage_hash,
     get_interval_track_presence_by_sample,
+    get_interval_track_sources_by_sample,
     insert_interval_track_rows,
     upsert_interval_track_source,
 )
@@ -256,6 +257,7 @@ async def _fetch_raw_track_rows(
     track_type: str,
     chrom: str,
     origins: list[str] | None = None,
+    source: str | None = None,
     start: int | None = None,
     end: int | None = None,
     limit: int | None = None,
@@ -273,6 +275,7 @@ async def _fetch_raw_track_rows(
         track_type=track_type,
         chromosomes=[chrom],
         origins=origins,
+        source=source,
         start=start,
         end=end,
         limit=limit,
@@ -307,6 +310,7 @@ async def _fetch_bed_records_for_chrom(
     start: int | None,
     end: int | None,
     limit: int,
+    source: str | None = None,
 ) -> list[dict[str, Any]]:
     chrom_clean = normalize_chromosome(chrom)
     if bed_type == "coverage" and window:
@@ -317,6 +321,7 @@ async def _fetch_bed_records_for_chrom(
             family_uuid=sample_context.family_uuid,
             track_type=bed_type,
             chrom=chrom_clean,
+            source=source,
             start=start,
             end=end,
         )
@@ -341,6 +346,7 @@ async def _fetch_bed_records_for_chrom(
         track_type=bed_type,
         chrom=chrom_clean,
         origins=["paternal", "maternal"] if bed_type in {"apcad", "apcad_pcf"} else None,
+        source=source,
         start=start,
         end=end,
         limit=limit,
@@ -358,6 +364,7 @@ async def _fetch_bed_records_for_chroms(
     start: int | None,
     end: int | None,
     limit: int,
+    source: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch and process BED records for many chromosomes with a single
     ClickHouse query (``chrom IN (...)``) instead of one query per chromosome.
@@ -413,6 +420,7 @@ async def _fetch_bed_records_for_chroms(
         track_type=bed_type,
         chromosomes=ordered,
         origins=origins,
+        source=source,
         start=start,
         end=end,
     )
@@ -445,6 +453,7 @@ async def fetch_bed_text(
     start: int | None,
     end: int | None,
     limit: int,
+    source: str | None = None,
 ) -> PlainTextResponse:
     validate_bed_type(bed_type)
     records = await _fetch_bed_records_for_chrom(
@@ -456,6 +465,7 @@ async def fetch_bed_text(
         start=start,
         end=end,
         limit=limit,
+        source=source,
     )
     if not records:
         raise HTTPException(status_code=404, detail="No BED data found")
@@ -474,6 +484,7 @@ async def fetch_bed_json(
     start: int | None,
     end: int | None,
     limit: int,
+    source: str | None = None,
 ) -> JSONResponse:
     validate_bed_type(bed_type)
     records = await _fetch_bed_records_for_chrom(
@@ -485,6 +496,7 @@ async def fetch_bed_json(
         start=start,
         end=end,
         limit=limit,
+        source=source,
     )
     if not records:
         raise HTTPException(status_code=404, detail="No BED data found")
@@ -501,6 +513,7 @@ async def fetch_bed_batch_text(
     start: int | None,
     end: int | None,
     limit: int,
+    source: str | None = None,
 ) -> PlainTextResponse:
     validate_bed_type(bed_type)
     if not chroms:
@@ -514,6 +527,7 @@ async def fetch_bed_batch_text(
         start=start,
         end=end,
         limit=limit,
+        source=source,
     )
     if not records:
         raise HTTPException(status_code=404, detail="No BED data found")
@@ -532,6 +546,7 @@ async def fetch_bed_batch_json(
     start: int | None,
     end: int | None,
     limit: int,
+    source: str | None = None,
 ) -> JSONResponse:
     validate_bed_type(bed_type)
     if not chroms:
@@ -545,6 +560,7 @@ async def fetch_bed_batch_json(
         start=start,
         end=end,
         limit=limit,
+        source=source,
     )
     if not records:
         raise HTTPException(status_code=404, detail="No BED data found")
@@ -972,6 +988,37 @@ def _segments_by_uuid(
         for name, segs in segments_by_name.items()
         if name in context.sample_name_to_uuid
     }
+
+
+async def get_track_sources_by_sample(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    track_type: str,
+    chromosomes: list[str],
+    start: int | None = None,
+    end: int | None = None,
+) -> dict[str, list[str]]:
+    """Sample name → the callers that have rows for ``track_type``.
+
+    Supersedes bare presence for the track types more than one caller can write.
+    Being told a sample "has coverage" is not enough to draw it: HiFiCNV,
+    WisecondorX and QDNAseq each produce their own, and they are separate tracks.
+    """
+
+    validate_bed_type(track_type, allow_haplotype=True)
+    if not context.sample_uuid_to_name or not context.assembly_name:
+        return {}
+    _ = session
+    return await get_interval_track_sources_by_sample(
+        context.assembly_name,
+        family_uuid=context.family_uuid,
+        sample_uuid_to_name=context.sample_uuid_to_name,
+        track_type=track_type,
+        chromosomes=chromosomes,
+        start=start,
+        end=end,
+    )
 
 
 async def get_track_presence_by_sample(

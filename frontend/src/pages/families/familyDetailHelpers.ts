@@ -152,18 +152,54 @@ export const sequencingQcForMember = (member: {
   return qc && typeof qc === 'object' ? (qc as SampleSequencingQc) : undefined;
 };
 
-/** Human-readable one-line QC summary for a table cell / tooltip. */
+/** Read lengths in kb, which is how long-read N50s are normally quoted. */
+const formatKilobases = (bases: number): string =>
+  `${(bases / 1000).toFixed(bases < 10_000 ? 1 : 0)} kb`;
+
+/**
+ * The single headline number for the members-table chip: mean depth.
+ *
+ * The chip sits in a narrow column beside the Status pill and has to stay that
+ * compact, so it carries one measurement and the QC verdict; every other metric is on
+ * hover (`formatSequencingQcDetail`). Depth is the number an interpreter reads first,
+ * and the verdict beside it covers the case where a *different* metric is the one
+ * failing.
+ */
 export const formatSequencingQcSummary = (qc: SampleSequencingQc | undefined): string | null => {
+  if (!qc) return null;
+  if (typeof qc.depth?.mean_depth === 'number') {
+    return `${qc.depth.mean_depth.toFixed(1)}x`;
+  }
+  if (typeof qc.reads?.read_length_n50 === 'number') {
+    return `N50 ${formatKilobases(qc.reads.read_length_n50)}`;
+  }
+  return null;
+};
+
+/** Every recorded QC metric, spelled out for a tooltip. */
+export const formatSequencingQcDetail = (qc: SampleSequencingQc | undefined): string | null => {
   if (!qc) return null;
   const parts: string[] = [];
   if (typeof qc.depth?.mean_depth === 'number') {
-    parts.push(`${qc.depth.mean_depth.toFixed(1)}x`);
+    parts.push(`mean depth ${qc.depth.mean_depth.toFixed(1)}x`);
+  }
+  if (typeof qc.depth?.mito_mean_depth === 'number') {
+    parts.push(`chrM depth ${Math.round(qc.depth.mito_mean_depth).toLocaleString()}x`);
   }
   if (typeof qc.reads?.read_length_n50 === 'number') {
-    parts.push(`N50 ${Math.round(qc.reads.read_length_n50).toLocaleString()} bp`);
+    parts.push(`read-length N50 ${Math.round(qc.reads.read_length_n50).toLocaleString()} bp`);
+  }
+  if (typeof qc.reads?.median_read_length === 'number') {
+    parts.push(`median read length ${Math.round(qc.reads.median_read_length).toLocaleString()} bp`);
   }
   if (typeof qc.reads?.median_read_quality === 'number') {
-    parts.push(`Q${qc.reads.median_read_quality.toFixed(0)}`);
+    parts.push(`median read quality Q${qc.reads.median_read_quality.toFixed(0)}`);
+  }
+  if (typeof qc.reads?.read_count === 'number') {
+    parts.push(`${Math.round(qc.reads.read_count).toLocaleString()} reads`);
+  }
+  if (typeof qc.reads?.total_bases === 'number') {
+    parts.push(`${(qc.reads.total_bases / 1e9).toFixed(1)} Gb total`);
   }
   return parts.length ? parts.join(' · ') : null;
 };

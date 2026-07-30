@@ -51,6 +51,7 @@ each release; it is not maintained by hand.
 | **PyJWT[crypto]** | **2.13.0** | JWT signing/verification (HS256 local, RS256 Azure) | **H (security)** | CVE watch (auth) |
 | passlib[bcrypt] + bcrypt | 1.7.4 + 3.2.0 | Password hashing | **H (security)** | CVE watch |
 | pysam / pyfaidx | 0.24.0 / 0.9.0.4 | VCF/BAM/FASTA access | H | Changelog |
+| pyBigWig | 0.3.25 | bigWig signal-track reading (HiFiCNV read depth and minor allele fraction) | M | Changelog |
 | pandas / numpy | 2.3.3 / 2.2.6 | CNV knowledgebase build, analysis | M | Changelog |
 | requests / httpx / beautifulsoup4 / lxml | 2.34.2 / 0.28.1 / 4.15.0 / 6.1.1 | External fetches, parsing | M | CVE watch |
 | intervaltree | 3.2.1 | Interval ops | M | — |

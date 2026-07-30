@@ -127,6 +127,20 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
     monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
 
+    # The mtDNA cut-offs are admin configuration, not constants in this module. Stand in
+    # for the profile a lab would have configured.
+    async def fake_thresholds(_session, *, family_uuid):  # noqa: ANN001, ANN202
+        return {
+            "profile_key": "default",
+            "profile_label": "Default",
+            "thresholds": {
+                "mtdna.contamination": {"warn_value": 0.01, "error_value": 0.03},
+                "mtdna.mean_depth": {"warn_value": 50.0, "error_value": 10.0},
+            },
+        }
+
+    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", fake_thresholds)
+
     response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
         None,  # type: ignore[arg-type]
         context=_family_context(),
@@ -134,8 +148,10 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
 
     assert [sample.sample_id for sample in response.samples] == ["PROBAND", "MOM", "DAD"]
     assert response.samples[0].haplogroup == "H1"
-    assert response.samples[1].qc.status == "warning"
+    assert response.samples[1].qc.status == "warn"
     assert response.samples[1].qc.contamination == 0.012
+    # The note names the configured limit, so a reviewer can see what it was judged against.
+    assert any("0.01" in note for note in response.samples[1].qc.notes)
     assert response.variants[0].label == "m.3243A>G"
     assert response.variants[0].annotation.gene == "MT-TL1"
     assert response.variants[0].annotation.disorders == ["MELAS syndrome"]
