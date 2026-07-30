@@ -990,6 +990,22 @@ def _autosomal_median_depth(path: Path) -> float | None:
         reader.close()
 
 
+def _log2_copy_number_transform(copy_number: float) -> float:
+    """Integer copy number -> log2 ratio against a diploid baseline.
+
+    CN 2 -> 0, CN 1 -> -1, CN 4 -> +1: the same scale the ratio-reporting callers
+    use, so a HiFiCNV segment can be read against a WisecondorX or QDNAseq one and
+    against the coverage bins underneath it.
+
+    A homozygous deletion is CN 0, and log2(0) is -inf; it takes the same floor as
+    the depth track, which sits far below any single-copy loss.
+    """
+
+    if copy_number <= 0:
+        return _MIN_LOG2_RATIO
+    return max(log2(copy_number / 2.0), _MIN_LOG2_RATIO)
+
+
 def _log2_ratio_transform(normaliser: float | None) -> Callable[[float], float] | None:
     """Convert read depth to log2(depth / ``normaliser``), or don't convert at all.
 
@@ -1138,6 +1154,13 @@ async def _import_cnv_dataset(
                     path=bedgraph_path,
                     track_type="segments",
                     source=CNV_SOURCE,
+                    # The bedGraph holds an integer copy number; the segments track
+                    # holds a log2 ratio, which is what WisecondorX and QDNAseq write
+                    # and what the chart's axis is calibrated for. Stored raw, a
+                    # normal CN of 2 plotted above the top of a +-1.5 axis and drew a
+                    # solid line across the genome at the clip boundary.
+                    value_transform=_log2_copy_number_transform,
+                    extra_metadata={"normalization": "log2_ratio_to_diploid"},
                 ),
             )
 

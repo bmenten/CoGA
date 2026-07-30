@@ -361,9 +361,9 @@ own `coverage` and `segments` rows under its own `source` tag:
 | `wisecondorx` | log2 ratio per 10 kb bin | as-is | 283,188 |
 | `qdnaseq` | log2 ratio per 100 kb bin | as-is | 26,367 |
 
-HiFiCNV's depth is divided by the sample's own **autosomal median** and stored as
-log2 of that ratio, so all three tracks mean the same thing and a single-copy loss
-sits at −1 in each. Without it a depth track and a ratio track cannot be read
+Both HiFiCNV tracks are normalised on the way in. Its depth is divided by the
+sample's own **autosomal median** and stored as log2 of that ratio, so all three
+tracks mean the same thing and a single-copy loss sits at −1 in each. Without it a depth track and a ratio track cannot be read
 against one another: "18x" only means something if you already know the sample's
 baseline. The normaliser is recorded on the track source
 (`metadata.autosomal_median_depth`, 19.96x for the reference package) so the stored
@@ -376,6 +376,11 @@ otherwise stretch the plotted range by an order of magnitude to show nothing.
 
 The raw depth bigWig is not modified and is what IGV is given, where absolute depth
 is the useful quantity.
+
+The copy-number bedGraph gets the equivalent treatment against a diploid baseline —
+without it a normal CN of 2 plotted above the top of the ±1.5 axis and drew a solid
+line across the genome at the clip boundary, making the entire normal genome read as
+a gain.
 
 All three agree on chromosome naming (unprefixed, so `1` not `chr1`), which is what
 makes them alignable along x.
@@ -400,7 +405,7 @@ lands on the interval track whose axis means the same thing:
 | Manifest key | File | Track | Notes |
 | --- | --- | --- | --- |
 | `depth_bigwig` | `{sample_id}*.depth.bw` | `coverage` | Read depth per 2 kb bin. Zero-valued bins (the assembly gaps a whole-genome bigWig also covers) are dropped — they plot as a flat line on the axis. |
-| `copy_number_bedgraph` | `{sample_id}*.copynum.bedgraph` | `segments` | Called integer copy number, drawn as step segments. |
+| `copy_number_bedgraph` | `{sample_id}*.copynum.bedgraph` | `segments` | Called integer copy number, stored as log2(CN / 2) so it shares the axis: CN 2 → 0, CN 1 → −1, CN 4 → +1. CN 0 takes the same −10 floor as the depth track. |
 | `maf_bigwig` | `{sample_id}*.maf.bw` | `apcad` | Minor allele fraction (0–0.5), BAF-like. Written with `origin = und`: bigWig has nowhere to record a parent of origin. |
 
 Only primary chromosomes are read from a bigWig — an aligner's bigWig carries every
