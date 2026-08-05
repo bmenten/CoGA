@@ -18,7 +18,7 @@ fastapi==0.141.1
 # app/main.py stopped taking effect, so /api/* 307-redirected to the internal
 # backend host. Keep pinned until that is re-verified against a newer release.
 starlette==1.3.1
-uvicorn[standard]==0.52.0
+uvicorn[standard]==0.52.1
 sqlalchemy>=2.0.51
 greenlet>=3.5.4
 asyncpg
