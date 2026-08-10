@@ -228,6 +228,16 @@ interface GeneProfileExtra {
   ncbi_other_designations?: string[];
   clingen_curation_counts?: GeneClingenCurationCounts;
   clingen_gene_facts?: GeneClingenFacts;
+  // HGNC's identifiers live in their own block, mirroring the complete set. The flat
+  // hgnc_vega_id above it is a leftover promotion from the per-gene HGNC REST payload,
+  // kept only so caches written before that lookup was removed still render.
+  hgnc_identifiers?: {
+    vega_id?: string | null;
+    ucsc_id?: string | null;
+    ccds_id?: string[];
+    uniprot_ids?: string[];
+    mane_select?: string[];
+  };
   hgnc_vega_id?: string | null;
   refseq_accessions?: string[];
   omim_diseases?: Array<string | GeneOmimDiseaseEntry>;
@@ -242,7 +252,6 @@ interface GeneProfileExtra {
   dbnsfp_tissue_expression?: GeneDbnsfpExpression;
   dbnsfp_model_organisms?: GeneDbnsfpModelOrganisms;
   constraint_metrics?: GeneConstraintMetrics;
-  primad_url?: string | null;
 }
 
 interface GeneProfile {
@@ -576,7 +585,6 @@ const buildGeneLinks = (profile: GeneProfile): NamedLink[] => {
   const keggHref = profile.ncbi_gene_id
     ? `https://www.genome.jp/dbget-bin/www_bget?hsa:${encodeURIComponent(profile.ncbi_gene_id)}`
     : `https://www.genome.jp/kegg-bin/search?keyword=${symbolQuery}`;
-  const primadHref = profile.extra.primad_url?.trim() || null;
 
   const pushLink = (label: string, href?: string | null) => {
     if (!href || seen.has(label)) return;
@@ -595,7 +603,6 @@ const buildGeneLinks = (profile: GeneProfile): NamedLink[] => {
   pushLink('UniProt', byLabel.get('uniprot'));
   pushLink('Geno2MP', 'https://geno2mp.gs.washington.edu/Geno2MP/');
   pushLink('gnomAD', gnomadHref);
-  pushLink('primAD', primadHref);
   pushLink('MGI', `https://www.informatics.jax.org/searchtool/Search.do?query=${symbolQuery}`);
   pushLink('IMPC', `https://www.mousephenotype.org/data/search?term=${symbolQuery}`);
   pushLink('KEGG', keggHref);
@@ -968,7 +975,11 @@ const GeneInfoPage: React.FC = () => {
                 '—'
               ),
             },
-            { label: 'Vega', value: profile.extra.hgnc_vega_id || '—' },
+            {
+              label: 'Vega',
+              value:
+                profile.extra.hgnc_identifiers?.vega_id || profile.extra.hgnc_vega_id || '—',
+            },
             {
               label: 'Canonical transcript',
               value:
