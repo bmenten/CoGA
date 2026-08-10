@@ -187,6 +187,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [tests/test_gene_info_jobs_pg.py](../tests/test_gene_info_jobs_pg.py) | Gene-reference background refresh job (queue/run/state). |
 | [tests/test_reference_metadata_service.py](../tests/test_reference_metadata_service.py) | Reference metadata aggregation and transcript resolution. |
 | [tests/test_gencode_import.py](../tests/test_gencode_import.py) | GENCODE GTF → gene rows: release preamble, per-transcript rows, biotypes/identifiers, MANE tags, exon grouping, RefSeq accessions. |
+| [tests/test_gene_metadata_transcripts.py](../tests/test_gene_metadata_transcripts.py) | Transcript MANE / Ensembl-canonical flags read from the annotation's own tags. |
 | [tests/test_reference_source_service.py](../tests/test_reference_source_service.py) | Reference import-source management and assembly metadata. |
 
 ### Variant prioritization & explorer

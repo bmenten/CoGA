@@ -1507,6 +1507,14 @@ class GeneTranscriptOut(BaseModel):
     strand: int
     biotype: Optional[str] = None
     source: Optional[str] = None
+    # Clinical-relevance flags, taken from the annotation's own tags. Previously the
+    # Gene Explorer had to infer these by matching a transcript id against a single
+    # value scraped from ClinGen's gene page or fetched from Ensembl per gene — both of
+    # which only ran for genes dbNSFP did not cover, so the genes anyone actually looks
+    # up never carried them.
+    mane_select: bool = False
+    mane_plus_clinical: bool = False
+    ensembl_canonical: bool = False
 
 
 class GenePanelMembershipOut(BaseModel):

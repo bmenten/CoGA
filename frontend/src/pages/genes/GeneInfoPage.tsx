@@ -25,6 +25,10 @@ interface GeneTranscript {
   strand: number;
   biotype?: string | null;
   source?: string | null;
+  // Stated per transcript by the annotation itself, so these are known for every gene.
+  mane_select?: boolean;
+  mane_plus_clinical?: boolean;
+  ensembl_canonical?: boolean;
 }
 
 interface GenePanelMembership {
@@ -387,24 +391,39 @@ const classifyTranscript = (transcriptId: string) => {
 const matchesAnyTranscript = (transcriptId: string, references?: string[] | null) =>
   Boolean(references?.some((reference) => isSameTranscript(transcriptId, reference)));
 
+/**
+ * Badge a transcript from the annotation's own flags first, falling back to matching
+ * its id against the gene-level references.
+ *
+ * The id-matching path alone left these badges almost never shown: the MANE and
+ * canonical transcript ids come from a per-gene ClinGen scrape and an Ensembl lookup
+ * that only run for genes the local dbNSFP file does not cover — so the well-known
+ * genes people look up were exactly the ones with nothing to match against. The
+ * annotation states the same facts per transcript, for every gene, with no network call.
+ */
 const transcriptBadgesFor = (
-  transcriptId: string,
+  transcript: Pick<
+    GeneTranscript,
+    'transcript_id' | 'mane_select' | 'mane_plus_clinical' | 'ensembl_canonical'
+  >,
   context: TranscriptAnnotationContext,
-): TranscriptBadge[] =>
-  [
-    isSameTranscript(transcriptId, context.maneSelect)
+): TranscriptBadge[] => {
+  const transcriptId = transcript.transcript_id;
+  return [
+    transcript.mane_select || isSameTranscript(transcriptId, context.maneSelect)
       ? { label: 'MANE Select', tone: 'success' as const }
       : null,
-    isSameTranscript(transcriptId, context.manePlusClinical)
+    transcript.mane_plus_clinical || isSameTranscript(transcriptId, context.manePlusClinical)
       ? { label: 'MANE Plus Clinical', tone: 'accent' as const }
       : null,
     matchesAnyTranscript(transcriptId, context.refseqSelect)
       ? { label: 'RefSeq Select', tone: 'strong' as const }
       : null,
-    isSameTranscript(transcriptId, context.ensemblCanonical)
+    transcript.ensembl_canonical || isSameTranscript(transcriptId, context.ensemblCanonical)
       ? { label: 'Ensembl Canonical', tone: 'warning' as const }
       : null,
   ].filter((badge): badge is TranscriptBadge => Boolean(badge));
+};
 
 const ADVANCED_CONSTRAINT_METRICS: Array<{
   key: keyof GeneConstraintMetrics;
@@ -1045,10 +1064,12 @@ const GeneInfoPage: React.FC = () => {
         // Surface clinically annotated transcripts first (MANE Select, MANE
         // Plus Clinical, RefSeq Select, Ensembl Canonical), then by source.
         const annotated =
-          transcriptBadgesFor(transcript.transcript_id, transcriptBadgeContext).length > 0 ? 0 : 1;
-        const mane = isSameTranscript(transcript.transcript_id, transcriptBadgeContext.maneSelect)
-          ? 0
-          : 1;
+          transcriptBadgesFor(transcript, transcriptBadgeContext).length > 0 ? 0 : 1;
+        const mane =
+          transcript.mane_select ||
+          isSameTranscript(transcript.transcript_id, transcriptBadgeContext.maneSelect)
+            ? 0
+            : 1;
         const sourceRank = /^ENS/i.test(transcript.transcript_id)
           ? 0
           : /^(NM_|NR_|XM_|XR_)/i.test(transcript.transcript_id)
@@ -1697,10 +1718,7 @@ const GeneInfoPage: React.FC = () => {
                   <tbody>
                     {orderedTranscripts.length ? (
                       orderedTranscripts.map((transcript) => {
-                        const badges = transcriptBadgesFor(
-                          transcript.transcript_id,
-                          transcriptBadgeContext,
-                        );
+                        const badges = transcriptBadgesFor(transcript, transcriptBadgeContext);
 
                         return (
                           <tr key={transcript.transcript_id}>
