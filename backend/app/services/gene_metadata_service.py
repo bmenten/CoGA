@@ -51,6 +51,24 @@ def _transcript_id_from_doc(doc: dict[str, Any]) -> str:
     return str(extra.get("transcript_id") or doc.get("gene_id") or doc.get("hgnc_symbol"))
 
 
+def _transcript_relevance_flags(doc: dict[str, Any]) -> dict[str, bool]:
+    """Read MANE / Ensembl-canonical status off the annotation's own tags.
+
+    GENCODE states this per transcript (``MANE_Select``, ``MANE_Plus_Clinical``,
+    ``Ensembl_canonical``), so it is known for every gene without a network call. The
+    ``mane_select`` boolean is written by the importer; the rest are read from the tag
+    list, which also covers annotations that carry the tags without the flag.
+    """
+    extra = doc.get("extra") or {}
+    tags = {str(tag) for tag in (extra.get("tags") or [])}
+    return {
+        "mane_select": bool(extra.get("mane_select")) or "MANE_Select" in tags,
+        "mane_plus_clinical": bool(extra.get("mane_plus_clinical"))
+        or "MANE_Plus_Clinical" in tags,
+        "ensembl_canonical": "Ensembl_canonical" in tags,
+    }
+
+
 def _transcript_count_from_docs(docs: list[dict[str, Any]]) -> int:
     return len({_transcript_id_from_doc(doc) for doc in docs})
 
@@ -549,6 +567,7 @@ async def build_gene_profile(
             strand=int(doc.get("strand", 0)),
             biotype=doc.get("biotype"),
             source=doc.get("source"),
+            **_transcript_relevance_flags(doc),
         )
         for doc in sorted(
             primary_docs,
