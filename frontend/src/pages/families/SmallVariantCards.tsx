@@ -25,6 +25,7 @@ import {
   getReviewTagStyle,
   sortReviewTagKeys,
 } from './smallVariantResultUtils';
+import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import NiptClassificationBlock from './NiptClassificationBlock';
@@ -821,12 +822,20 @@ export default function SmallVariantCards({
                 </button>
               </div>
               <div className="variant-card-nav">
-                <Link to={igvHref} className="variant-card-resource variant-card-resource--clinical">
+                <GenomeWorkspaceLink
+                  to={igvHref}
+                  className="variant-card-resource variant-card-resource--clinical"
+                  label={`Open IGV at ${locus}`}
+                >
                   IGV
-                </Link>
-                <Link to={viewHref} className="variant-card-resource variant-card-resource--clinical">
+                </GenomeWorkspaceLink>
+                <GenomeWorkspaceLink
+                  to={viewHref}
+                  className="variant-card-resource variant-card-resource--clinical"
+                  label={`Open chromosome view around ${locus}`}
+                >
                   Chromosome view
-                </Link>
+                </GenomeWorkspaceLink>
               </div>
             </div>
 

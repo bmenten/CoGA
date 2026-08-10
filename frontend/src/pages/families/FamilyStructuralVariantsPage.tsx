@@ -8,6 +8,7 @@ import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/refe
 import PageState from '../../components/PageState';
 import LoadingBar from '../../components/LoadingBar';
 import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
+import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import StructuralVariantFilterForm from './StructuralVariantFilterForm';
 import StructuralVariantResults from './StructuralVariantResults';
 import {
@@ -309,18 +310,20 @@ const FamilyStructuralVariantsPage: React.FC = () => {
                 </div>
               </div>
               <div className="inline-actions">
-                <Link
+                <GenomeWorkspaceLink
                   to={`/families/${familyId}/genome${linkSearch}${projectId ? `${linkSearch ? '&' : '?'}project_id=${projectId}` : ''}`}
                   className="button-secondary hover:no-underline"
+                  label="Open the genome overview"
                 >
                   Genome
-                </Link>
-                <Link
+                </GenomeWorkspaceLink>
+                <GenomeWorkspaceLink
                   to={`/families/${familyId}/circos${linkSearch}${projectId ? `${linkSearch ? '&' : '?'}project_id=${projectId}` : ''}`}
                   className="button-secondary hover:no-underline"
+                  label="Open the Circos view"
                 >
                   Circos
-                </Link>
+                </GenomeWorkspaceLink>
                 <Link to={`/families/${familyId}`} className="button-ghost hover:no-underline">
                   Family
                 </Link>

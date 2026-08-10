@@ -19,6 +19,7 @@ import {
   getReviewTagStyle,
   sortReviewTagKeys,
 } from './smallVariantResultUtils';
+import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import VariantPriorityBlock from './VariantPriorityBlock';
 
 interface SmallVariantPairCardsProps {
@@ -147,7 +148,7 @@ export default function SmallVariantPairCards({
 
               <div className="variant-card-column variant-card-column--middle">
                 {group.variants.map((variant, index) => {
-                  const { igvHref, viewHref } = buildSmallVariantNavigation({
+                  const { igvHref, locus, viewHref } = buildSmallVariantNavigation({
                     variant,
                     familyId,
                     locationSearch,
@@ -158,12 +159,20 @@ export default function SmallVariantPairCards({
                       <div className="variant-card-review-header variant-card-review-header--compact">
                         <p className="variant-card-section-title">Variant {index + 1}</p>
                         <div className="variant-card-actions">
-                          <Link to={igvHref} className="button-secondary">
+                          <GenomeWorkspaceLink
+                            to={igvHref}
+                            className="button-secondary"
+                            label={`Open IGV at ${locus}`}
+                          >
                             IGV
-                          </Link>
-                          <Link to={viewHref} className="button-secondary">
+                          </GenomeWorkspaceLink>
+                          <GenomeWorkspaceLink
+                            to={viewHref}
+                            className="button-secondary"
+                            label={`Open chromosome view around ${locus}`}
+                          >
                             View
-                          </Link>
+                          </GenomeWorkspaceLink>
                         </div>
                       </div>
                       <p className="variant-card-subtitle">

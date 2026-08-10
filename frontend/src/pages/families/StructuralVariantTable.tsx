@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router';
 import { formatGt } from '../../lib/genotypes';
+import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import {
   buildReviewTagTooltip,
   formatFrequency,
@@ -449,25 +449,26 @@ export default function StructuralVariantTable({
                       : '';
                     return (
                       <div className="inline-actions">
-                        <Link to={hrefA} className="table-link" title={`Open IGV at ${locusA}`}>
+                        <GenomeWorkspaceLink to={hrefA} className="table-link" label={`Open IGV at ${locusA}`}>
                           IGV
-                        </Link>
+                        </GenomeWorkspaceLink>
                         {hasRemote && (
-                          <Link to={hrefB} className="table-link" title={`Open IGV at ${locusB}`}>
+                          <GenomeWorkspaceLink to={hrefB} className="table-link" label={`Open IGV at ${locusB}`}>
                             IGV
-                          </Link>
+                          </GenomeWorkspaceLink>
                         )}
                       </div>
                     );
                   })()}
                 </td>
                 <td className="whitespace-nowrap">
-                  <Link
+                  <GenomeWorkspaceLink
                     className="table-link"
                     to={buildStructuralVariantNavigation({ familyId, linkSearch, projectId, variant }).viewHref}
+                    label={`Open chromosome view around ${variant.chr}:${variant.start}-${variant.end}`}
                   >
                     View
-                  </Link>
+                  </GenomeWorkspaceLink>
                 </td>
               </tr>
               );
