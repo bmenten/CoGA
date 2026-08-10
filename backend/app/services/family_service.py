@@ -25,7 +25,6 @@ from .bed_service import (
     get_track_sources_by_sample,
 )
 from .clickhouse_family_variants import (
-    _fetch_gene_regions,
     _fetch_panel_regions,
     _fetch_structural_variant_rows,
     _small_variant_present_sample_names,

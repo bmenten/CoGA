@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any, Sequence
-from urllib.parse import quote
 
 import httpx
 from fastapi import HTTPException
