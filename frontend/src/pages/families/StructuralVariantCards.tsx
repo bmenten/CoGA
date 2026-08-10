@@ -387,7 +387,7 @@ export default function StructuralVariantCards({
                 <GenomeWorkspaceLink
                   to={viewHref}
                   className="variant-card-resource variant-card-resource--clinical"
-                  label={`Open chromosome view around ${locus}`}
+                  label={`Open chromosome view around ${variant.chr}:${variant.start}-${variant.end}`}
                 >
                   Chromosome view
                 </GenomeWorkspaceLink>
