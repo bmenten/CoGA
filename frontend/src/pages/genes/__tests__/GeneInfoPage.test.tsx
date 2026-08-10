@@ -162,7 +162,7 @@ describe('GeneInfoPage', () => {
                 dbnsfp_gene: {
                   status: 'success',
                   fetched_at: '2026-03-27T12:00:00Z',
-                  source_url: '/data/ref-data/dbNSFP5.3_gene.gz',
+                  source_url: '/data/ref-data/dbNSFP5.4_gene.gz',
                   message: null,
                   payload: { record_count: 1 },
                 },

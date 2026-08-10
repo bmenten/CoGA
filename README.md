@@ -127,7 +127,7 @@ Optional:
 - `GENE_REFERENCE_CLINGEN_DOSAGE_URL`
 - `GENE_REFERENCE_GENCC_URL`
 - `GENE_REFERENCE_CLINVAR_GENE_CONDITION_URL`
-- `GENE_REFERENCE_DBNSFP_GENE_PATH`, defaulting to `/data/ref-data/dbNSFP5.3_gene.gz` for local-first gene reference sync
+- `GENE_REFERENCE_DBNSFP_GENE_PATH`, defaulting to `/data/ref-data/dbNSFP5.4_gene.gz` for local-first gene reference sync
 - `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, defaulting to `true` to queue the first dbNSFP-backed human gene reference sync when a clean GRCh38 database has no cached gene info
 - `READS_PATH`
 - `REFERENCE_FASTA_PATH`
