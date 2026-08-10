@@ -27,8 +27,10 @@ Startup bootstrap:
 
 - On backend startup, CoGA ensures Homo sapiens GRCh38 is present as the default human
   organism/assembly.
-- When GRCh38 cytobands or genes are missing, CoGA imports the missing core reference tables from
-  UCSC `hg38`. If UCSC is unavailable, startup continues after creating the species/assembly shell.
+- When GRCh38 cytobands or genes are missing, CoGA imports the missing core reference tables.
+  **Human GRCh38 gene loci come from GENCODE**; everything else, and any failure to reach GENCODE,
+  falls back to the UCSC `hg38` track. If neither is available, startup continues after creating the
+  species/assembly shell.
 - CoGA can automatically seed `clinical_cnvs` and `segmental_duplications` for GRCh38 when those
   tables are empty.
 - When `/data/ref-data/dbNSFP5.4_gene.gz` or `GENE_REFERENCE_DBNSFP_GENE_PATH` is present and
@@ -46,6 +48,47 @@ Startup bootstrap:
   - `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH=...`
   - `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP=true|false`
   - `GENE_REFERENCE_DBNSFP_GENE_PATH=...`
+  - `REFERENCE_GENCODE_GTF_URL=...`
+  - `REFERENCE_GENCODE_REFSEQ_METADATA_URL=...`
+
+### Gene loci: GENCODE, not UCSC
+
+The `genes` table used to be a UCSC refGene export. That gave transcript spans and little else:
+`biotype` was the literal string `unknown` on every row, and there were no Ensembl or HGNC
+identifiers, so gene loci could not be joined to anything by identifier.
+
+Loci now come from **GENCODE** — the same annotation the variant pipeline is built on (dbNSFP 5.4
+is GENCODE 50 / Ensembl 116), so the coordinates agree with the variant annotation instead of
+merely being close to it.
+
+| | refGene (before) | GENCODE v50 (now) |
+| --- | --- | --- |
+| Rows | 105,019 transcripts | ~347,000 transcripts |
+| Distinct symbols | 30,002 | ~77,000 |
+| `biotype` | `unknown` on every row | real (`protein_coding`, `lncRNA`, `processed_pseudogene`, …) |
+| Identifiers | RefSeq accession only | Ensembl gene + transcript, HGNC id, RefSeq accessions |
+| MANE | not available | `MANE_Select` / `MANE_Plus_Clinical` tags |
+
+**The row shape is unchanged**: one row per transcript, with `gene_id` holding the transcript
+accession, exactly as the refGene import produced. That is deliberate — the table has sixteen
+consumers, and keeping the shape confines the change to the content of the rows.
+
+Identifier lookups accept more than before, not less. Gene search, package registration and the
+gene-metadata service match on the symbol, the versioned and unversioned Ensembl transcript, the
+Ensembl gene, and the **RefSeq accessions** carried in `extra.refseq_accessions` — so a saved query
+or panel naming an `NM_` accession keeps resolving after the swap. Those accessions come from
+GENCODE's `metadata.RefSeq` file; if it is unreachable the import still succeeds and only accession
+lookups are reduced.
+
+**Applying it to an existing deployment.** The gene table is replaced wholesale, so an instance
+already holding refGene rows needs a gene re-import (Administration → reference import with
+overwrite, or delete the assembly's `genes` rows and let the startup bootstrap refill them).
+Expect the table to grow roughly 3× — about 132 MB → 435 MB for GRCh38. Rolling back means
+pointing `REFERENCE_GENCODE_GTF_URL` at nothing and re-importing, which returns to the UCSC track.
+
+Bumping GENCODE means changing the release in both `REFERENCE_GENCODE_GTF_URL` and
+`REFERENCE_GENCODE_REFSEQ_METADATA_URL` together, then re-importing. The release the rows came from
+is recorded on the import (`gencode v50 (Ensembl 116)`), read out of the GTF's own preamble.
 
 Expected content:
 

@@ -1130,6 +1130,97 @@ async def apply_reference_dataset_text(
     )
 
 
+_GENE_INSERT_SQL = text(
+    """
+    INSERT INTO genes (
+        assembly_id, gene_id, hgnc_symbol, chr, start, "end",
+        exons, strand, biotype, description, source, extra
+    )
+    VALUES (
+        CAST(:assembly_id AS uuid), :gene_id, :hgnc_symbol, :chr, :start, :end,
+        CAST(:exons AS jsonb), :strand, :biotype, :description, :source, CAST(:extra AS jsonb)
+    )
+    """
+)
+
+# GENCODE is ~350k transcripts; building one parameter list for all of them costs
+# hundreds of megabytes before a single row reaches Postgres, so rows are streamed
+# through in batches instead.
+GENE_IMPORT_BATCH_SIZE = 5_000
+
+
+async def apply_reference_gene_rows(
+    session: AsyncSession,
+    *,
+    assembly_id: str,
+    rows: Iterable[dict[str, Any]],
+    overwrite: bool,
+    commit: bool = True,
+    performed_by: str | None = None,
+    source: str | None = None,
+) -> ReferenceUploadResult:
+    """Import gene rows that are already structured, rather than via the 12-column text.
+
+    The text import exists for hand-uploaded UCSC-style exports and flattens everything
+    it does not have a column for — it hardcodes ``biotype`` to ``unknown`` and the
+    source to ``refgene``. GENCODE carries real biotypes, Ensembl and HGNC identifiers
+    and MANE tags, so it is imported as rows and keeps them.
+    """
+    assembly = await _get_assembly_by_id(session, assembly_id)
+    existing_count = await _assembly_dataset_count(
+        session, assembly_id=assembly_id, dataset_type="genes"
+    )
+    replaced = existing_count > 0
+    if replaced and not overwrite:
+        raise HTTPException(status_code=409, detail="genes already exist for this assembly")
+    if replaced:
+        await session.execute(
+            text("DELETE FROM genes WHERE assembly_id = CAST(:assembly_id AS uuid)"),
+            {"assembly_id": assembly_id},
+        )
+
+    inserted = 0
+    batch: list[dict[str, Any]] = []
+    for row in rows:
+        batch.append(row)
+        if len(batch) >= GENE_IMPORT_BATCH_SIZE:
+            await session.execute(_GENE_INSERT_SQL, batch)
+            inserted += len(batch)
+            batch = []
+    if batch:
+        await session.execute(_GENE_INSERT_SQL, batch)
+        inserted += len(batch)
+
+    if not inserted:
+        raise HTTPException(status_code=400, detail="No valid gene rows found")
+
+    await session.execute(
+        text(
+            """
+            INSERT INTO reference_dataset_imports
+                (assembly_id, dataset_type, inserted, replaced, source, performed_by)
+            VALUES (CAST(:assembly_id AS uuid), 'genes', :inserted, :replaced, :source, :performed_by)
+            """
+        ),
+        {
+            "assembly_id": assembly_id,
+            "inserted": inserted,
+            "replaced": replaced,
+            "source": source,
+            "performed_by": performed_by,
+        },
+    )
+    if commit:
+        await session.commit()
+    return ReferenceUploadResult(
+        assembly_id=assembly["id"],
+        assembly_name=assembly["assembly_name"],
+        dataset_type="genes",
+        inserted=inserted,
+        replaced=replaced,
+    )
+
+
 def _require_region_window(start: int, end: int) -> None:
     """Region queries must be bounded by a genomic window; a missing window
     (start >= end) would otherwise materialize a whole chromosome's rows."""

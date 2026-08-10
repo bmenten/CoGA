@@ -150,6 +150,20 @@ async def _build_family_roi_payload(
               AND (
                 lower(hgnc_symbol) = lower(:query)
                 OR lower(gene_id) = lower(:query)
+                -- Under GENCODE, gene_id is an Ensembl transcript accession. Match the
+                -- unversioned form, the Ensembl gene, and the RefSeq accessions the
+                -- refGene-derived table used to be keyed on, so a query naming any of
+                -- them still resolves.
+                OR lower(COALESCE(extra->>'ensembl_transcript_id', '')) = lower(:query)
+                OR lower(COALESCE(extra->>'ensembl_gene_id', '')) = lower(:query)
+                OR EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements_text(
+                        COALESCE(extra->'refseq_accessions', '[]'::jsonb)
+                    ) AS accession
+                    WHERE lower(accession) = lower(:query)
+                       OR lower(split_part(accession, '.', 1)) = lower(:query)
+                )
               )
             -- Resolve to the effective chromosome (1-22, X, Y, M/MT) before any
             -- ALT/scaffold contig (e.g. "1_KI270766v1_alt", "Un_GL000195v1").

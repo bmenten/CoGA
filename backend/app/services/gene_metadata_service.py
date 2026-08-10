@@ -289,6 +289,19 @@ async def _lookup_gene_documents(
                 lower(g.hgnc_symbol) IN :candidates
                 OR lower(g.gene_id) IN :candidates
                 OR lower(COALESCE(g.extra->>'transcript_id', '')) IN :candidates
+                -- GENCODE keys gene_id on a versioned Ensembl transcript accession, so
+                -- also match the unversioned transcript, the Ensembl gene, and the
+                -- RefSeq accessions the refGene-derived table used to carry.
+                OR lower(COALESCE(g.extra->>'ensembl_transcript_id', '')) IN :candidates
+                OR lower(COALESCE(g.extra->>'ensembl_gene_id', '')) IN :candidates
+                OR EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements_text(
+                        COALESCE(g.extra->'refseq_accessions', '[]'::jsonb)
+                    ) AS accession
+                    WHERE lower(accession) IN :candidates
+                       OR lower(split_part(accession, '.', 1)) IN :candidates
+                )
               )
             """
         ).bindparams(

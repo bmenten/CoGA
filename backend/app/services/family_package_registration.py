@@ -456,6 +456,18 @@ async def _resolve_manifest_roi(
               AND (
                 lower(hgnc_symbol) = lower(:query)
                 OR lower(gene_id) = lower(:query)
+                -- Same identifier set as the family gene search: Ensembl transcript and
+                -- gene ids, plus the RefSeq accessions the old refGene table was keyed on.
+                OR lower(COALESCE(extra->>'ensembl_transcript_id', '')) = lower(:query)
+                OR lower(COALESCE(extra->>'ensembl_gene_id', '')) = lower(:query)
+                OR EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements_text(
+                        COALESCE(extra->'refseq_accessions', '[]'::jsonb)
+                    ) AS accession
+                    WHERE lower(accession) = lower(:query)
+                       OR lower(split_part(accession, '.', 1)) = lower(:query)
+                )
               )
             ORDER BY ("end" - start) DESC, hgnc_symbol
             LIMIT 1
