@@ -17,14 +17,14 @@ fastapi==0.141.1
 # under a Starlette upgrade the collection-root redirect normalisation in
 # app/main.py stopped taking effect, so /api/* 307-redirected to the internal
 # backend host. Keep pinned until that is re-verified against a newer release.
-starlette==1.3.1
-uvicorn[standard]==0.52.0
+starlette==1.4.1
+uvicorn[standard]==0.52.1
 sqlalchemy>=2.0.51
 greenlet>=3.5.4
 asyncpg
 clickhouse-connect[async]>=1.6.0,<2
 pydantic[email]>=2.13.4
-pydantic-settings>=2.14.2
+pydantic-settings>=2.15.0
 # PyJWT (not python-jose): python-jose pulls the `ecdsa` package, which has no
 # fix for the Minerva P-256 timing attack (GHSA-wj6h-64fc-37mp). We only use
 # HS256 + RS256, never ECDSA, and PyJWT verifies both without depending on ecdsa.
