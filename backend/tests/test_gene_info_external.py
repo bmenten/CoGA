@@ -1,10 +1,14 @@
-"""Outbound gene-lookup URL encoding (#336).
+"""Outbound gene-lookup request safety (#336).
 
-urllib's quote() defaults to safe='/', so a '/' or '../' in a gene symbol / id would
-pass through unescaped and forge the request PATH on the (fixed) external hosts
-(genenames / ensembl / clinicalgenome). These tests prove quote(..., safe='') now
-confines every interpolated identifier to a single path segment, while leaving
-legitimate identifiers byte-identical.
+The original defect: `urllib`'s `quote()` defaults to `safe='/'`, so a `/` or `../` in a
+gene symbol passed through unescaped and forged the request PATH on the fixed external
+hosts (genenames / ensembl / clinicalgenome). Those four per-gene lookups have since
+been removed entirely — the bulk HGNC, GENCODE and ClinGen files supply the same fields
+without a request — which retires that whole class of bug rather than guarding it.
+
+NCBI is the one per-gene lookup left, and it is structurally immune: the symbol goes in
+a query parameter that the HTTP client encodes, never into the URL path. These tests
+hold that line, so a future rewrite that interpolates a symbol into the path fails here.
 """
 from __future__ import annotations
 
@@ -14,56 +18,80 @@ import backend.app.services.gene_info_external as gene_info_external
 
 
 class _FakeResponse:
-    text = "<html></html>"
+    def __init__(self, payload: dict | None = None) -> None:
+        self._payload = payload or {"esearchresult": {"idlist": []}}
 
     def raise_for_status(self) -> None:
         return None
 
     def json(self) -> dict:
-        # Shapes tolerated by the callers under test.
-        return {"response": {"docs": []}, "data": [], "homologies": []}
+        return self._payload
 
 
 @pytest.fixture
-def captured_urls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    urls: list[str] = []
+def captured_requests(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict]]:
+    calls: list[tuple[str, dict]] = []
 
     async def fake_request(method: str, url: str, **kwargs):
-        urls.append(url)
+        calls.append((url, kwargs.get("params") or {}))
         return _FakeResponse()
 
     monkeypatch.setattr(gene_info_external, "resilient_request", fake_request)
-    return urls
+    return calls
 
 
 @pytest.mark.asyncio
-async def test_hgnc_url_escapes_slash_in_symbol(captured_urls: list[str]) -> None:
-    await gene_info_external.fetch_hgnc_gene("BRCA1/../admin")
-    url = captured_urls[-1]
-    assert url == "https://rest.genenames.org/fetch/symbol/BRCA1%2F..%2Fadmin"
-    assert "/" not in url.split("/symbol/", 1)[1]  # confined to one segment
+async def test_ncbi_lookup_keeps_the_symbol_out_of_the_url_path(
+    captured_requests: list[tuple[str, dict]],
+) -> None:
+    await gene_info_external.fetch_ncbi_gene("BRCA1/../admin", "Homo sapiens")
+
+    url, params = captured_requests[-1]
+    # The endpoint is fixed and the symbol travels as a parameter, so a '/' in it cannot
+    # add a path segment however hostile the symbol is.
+    assert url == "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    assert "BRCA1/../admin" not in url
+    assert params["term"] == "BRCA1/../admin[sym] AND Homo sapiens[orgn]"
 
 
 @pytest.mark.asyncio
-async def test_ensembl_homology_url_escapes_slash(captured_urls: list[str]) -> None:
-    await gene_info_external.fetch_ensembl_homologies("ENSG/../x")
-    assert "/" not in captured_urls[-1].split("/homology/id/human/", 1)[1]
+async def test_ncbi_lookup_keeps_the_species_out_of_the_url_path(
+    captured_requests: list[tuple[str, dict]],
+) -> None:
+    await gene_info_external.fetch_ncbi_gene("TP53", "Homo sapiens/../x")
+
+    url, params = captured_requests[-1]
+    assert url.endswith("/esearch.fcgi")
+    assert params["term"].endswith("Homo sapiens/../x[orgn]")
 
 
 @pytest.mark.asyncio
-async def test_ensembl_lookup_keeps_two_path_segments(captured_urls: list[str]) -> None:
-    await gene_info_external.fetch_ensembl_gene("TP53/../y", "Homo sapiens")
-    tail = captured_urls[-1].split("/lookup/symbol/", 1)[1]
-    assert len(tail.split("/")) == 2  # species / symbol — injected '/' added no segment
+async def test_ncbi_lookup_stops_when_no_gene_matches(
+    captured_requests: list[tuple[str, dict]],
+) -> None:
+    # An empty id list must not lead to a second request built from a missing id.
+    result = await gene_info_external.fetch_ncbi_gene("NOT_A_GENE", "Homo sapiens")
+
+    assert result == {}
+    assert len(captured_requests) == 1
 
 
 @pytest.mark.asyncio
-async def test_clingen_url_escapes_slash_in_identifier(captured_urls: list[str]) -> None:
-    await gene_info_external.fetch_clingen_gene("SYM/../x", None)
-    assert "/" not in captured_urls[-1].split("/kb/genes/", 1)[1]
+async def test_removed_per_gene_lookups_are_gone(
+    captured_requests: list[tuple[str, dict]],
+) -> None:
+    """The HGNC/Ensembl/ClinGen per-gene lookups must not come back unnoticed.
 
-
-@pytest.mark.asyncio
-async def test_hgnc_url_unchanged_for_legit_symbol(captured_urls: list[str]) -> None:
-    await gene_info_external.fetch_hgnc_gene("IGH@")
-    assert captured_urls[-1].endswith("/symbol/IGH%40")  # '@' still encoded, no regression
+    They were removed because they contributed almost nothing (see the sync measurements
+    in the module comment); reintroducing one would also reintroduce the path-forging
+    surface these tests were written for.
+    """
+    for name in (
+        "fetch_hgnc_gene",
+        "fetch_ensembl_gene",
+        "fetch_ensembl_homologies",
+        "fetch_clingen_gene",
+        "parse_clingen_gene_page",
+        "normalize_homologs",
+    ):
+        assert not hasattr(gene_info_external, name), f"{name} should have been removed"

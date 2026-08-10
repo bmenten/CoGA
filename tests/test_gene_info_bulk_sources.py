@@ -220,11 +220,9 @@ async def test_fetch_external_gene_bundle_uses_dbnsfp_without_online_fallback(
     async def forbidden_fetch(*args, **kwargs):
         raise AssertionError("Online source should not be called when dbNSFP has the gene")
 
-    monkeypatch.setattr(gene_info_external, "fetch_hgnc_gene", forbidden_fetch)
-    monkeypatch.setattr(gene_info_external, "fetch_ensembl_gene", forbidden_fetch)
-    monkeypatch.setattr(gene_info_external, "fetch_ensembl_homologies", forbidden_fetch)
+    # NCBI is the only per-gene lookup that still exists; dbNSFP covering the gene must
+    # short-circuit before it is reached.
     monkeypatch.setattr(gene_info_external, "fetch_ncbi_gene", forbidden_fetch)
-    monkeypatch.setattr(gene_info_external, "fetch_clingen_gene", forbidden_fetch)
 
     bulk_context = HumanGeneBulkContext(
         datasets={
@@ -285,12 +283,6 @@ async def test_fetch_external_gene_bundle_uses_dbnsfp_without_online_fallback(
 async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_dbnsfp_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def forbidden_rest_call(*args, **kwargs):
-        # Only NCBI still earns a per-gene request. HGNC, Ensembl, its homology call and
-        # the ClinGen page scrape were removed: measured over 4,052 genes they returned
-        # fields the bulk HGNC set already holds, a canonical transcript GENCODE already
-        # tags, no orthologue at all, and ClinGen fields that were null for ~99%.
-        raise AssertionError("this per-gene REST source should no longer be called")
 
     async def fake_fetch_ncbi_gene(symbol: str, species_name: str):
         assert symbol == "BRCA1"
@@ -301,11 +293,9 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
             "otheraliases": "BRCC1",
         }
 
+    # NCBI is the only per-gene lookup left; the others were removed outright, which
+    # backend/tests/test_gene_info_external.py asserts.
     monkeypatch.setattr(gene_info_external, "fetch_ncbi_gene", fake_fetch_ncbi_gene)
-    monkeypatch.setattr(gene_info_external, "fetch_hgnc_gene", forbidden_rest_call)
-    monkeypatch.setattr(gene_info_external, "fetch_ensembl_gene", forbidden_rest_call)
-    monkeypatch.setattr(gene_info_external, "fetch_ensembl_homologies", forbidden_rest_call)
-    monkeypatch.setattr(gene_info_external, "fetch_clingen_gene", forbidden_rest_call)
 
     bulk_context = HumanGeneBulkContext(
         datasets={
@@ -605,14 +595,9 @@ async def test_fetch_external_gene_bundle_takes_identity_from_the_bulk_hgnc_set(
     the complete set that is already downloaded once per job.
     """
 
-    async def forbidden_rest_call(*args, **kwargs):
-        raise AssertionError("this per-gene REST source should no longer be called")
-
     async def fake_fetch_ncbi_gene(symbol: str, species_name: str):
         return {"summary": "Tumor suppressor involved in DNA repair."}
 
-    for name in ("fetch_hgnc_gene", "fetch_ensembl_gene", "fetch_ensembl_homologies", "fetch_clingen_gene"):
-        monkeypatch.setattr(gene_info_external, name, forbidden_rest_call)
     monkeypatch.setattr(gene_info_external, "fetch_ncbi_gene", fake_fetch_ncbi_gene)
 
     bulk_context = HumanGeneBulkContext(
