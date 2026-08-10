@@ -125,7 +125,7 @@ async def test_queue_startup_gene_reference_refresh_if_needed_uses_local_dbnsfp(
     monkeypatch.setattr(
         gene_info_jobs_pg,
         "find_local_dbnsfp_gene_path",
-        lambda: Path("/data/ref-data/dbNSFP5.3_gene.gz"),
+        lambda: Path("/data/ref-data/dbNSFP5.4_gene.gz"),
     )
     monkeypatch.setattr(gene_info_jobs_pg, "_get_human_context", fake_get_human_context)
     monkeypatch.setattr(gene_info_jobs_pg, "_count_distinct_human_gene_symbols", fake_count_symbols)
