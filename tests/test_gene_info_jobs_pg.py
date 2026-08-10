@@ -225,3 +225,41 @@ def test_expand_groups_is_a_no_op_without_a_usable_hgnc_dataset() -> None:
 def test_gene_locus_omits_coordinates_for_a_gene_the_assembly_does_not_place() -> None:
     assert gene_info_jobs_pg._gene_locus({"chr": "17", "start": 1, "end": 2}) == "chr17:1-2"
     assert gene_info_jobs_pg._gene_locus({"assembly_id": "a1", "gene_id": None}) is None
+
+
+def test_expand_groups_drops_loci_hgnc_does_not_recognise_as_genes() -> None:
+    # A genome annotation names far more features than there are genes: GENCODE places
+    # ~77k symbols against HGNC's ~45k, the surplus being unnamed clone-based loci and
+    # novel transcripts. Enriching those costs four external lookups each and yields
+    # nothing, so HGNC decides what counts as a gene and the assembly only supplies loci.
+    grouped = {
+        "BRCA1": [{"assembly_id": "a1", "gene_id": "ENST1", "chr": "17", "start": 1, "end": 2}],
+        "AC093323.1": [{"assembly_id": "a1", "gene_id": "ENST2", "chr": "1", "start": 3, "end": 4}],
+    }
+
+    result = gene_info_jobs_pg._expand_groups_with_hgnc(
+        grouped,
+        assembly_ids=["a1"],
+        bulk_context=_hgnc_context(HGNC_RECORDS),
+        symbol=None,
+    )
+
+    assert "AC093323.1" not in result
+    assert "BRCA1" in result
+    # The HGNC genes the assembly does not place are still added.
+    assert {"BRCA1", "LMTK1", "SCN1A"} == set(result)
+
+
+def test_expand_groups_keeps_a_renamed_locus_even_though_its_old_symbol_is_unknown() -> None:
+    # AATK is not an approved symbol, so the "is this a gene?" check has to run against
+    # the resolved name, not the one the assembly happens to carry.
+    grouped = {"AATK": [{"assembly_id": "a1", "gene_id": "ENST3", "chr": "17", "start": 5, "end": 6}]}
+
+    result = gene_info_jobs_pg._expand_groups_with_hgnc(
+        grouped,
+        assembly_ids=["a1"],
+        bulk_context=_hgnc_context(HGNC_RECORDS),
+        symbol=None,
+    )
+
+    assert result["LMTK1"][0]["gene_id"] == "ENST3"

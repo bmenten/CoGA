@@ -163,6 +163,14 @@ def _expand_groups_with_hgnc(
     the assembly is authoritative about), then add the HGNC genes that have no locus
     here at all. Those get a row per human assembly with no coordinates — they are
     still real genes worth answering questions about.
+
+    **HGNC decides which genes exist; the assembly contributes only their loci.** An
+    annotation carries far more named features than there are genes — GENCODE places
+    ~77k symbols against HGNC's ~45k, the difference being unnamed clone-based loci
+    (``AC093323.1``) and novel transcripts. Enriching those is not merely wasted: each
+    one that dbNSFP does not cover costs four external lookups that return nothing, and
+    taking the union of both sets turned a 3.9k-gene fallback into a 39.4k-gene one —
+    roughly 157,000 requests at HGNC, Ensembl, NCBI and ClinGen for no cached data.
     """
     hgnc = (bulk_context.datasets.get("hgnc_complete_set") if bulk_context else None)
     if hgnc is None or hgnc.status != "success" or not hgnc.records_by_symbol:
@@ -172,6 +180,10 @@ def _expand_groups_with_hgnc(
     reconciled: dict[str, list[dict[str, Any]]] = {}
     for group_symbol, docs in grouped_by_symbol.items():
         canonical = resolver.get(group_symbol.strip().upper(), group_symbol)
+        # A locus whose symbol HGNC has never heard of is an annotated feature, not a
+        # gene; it keeps its row in `genes` and simply gets no enriched gene record.
+        if canonical not in hgnc.records_by_symbol:
+            continue
         reconciled.setdefault(canonical, []).extend(docs)
 
     wanted = (
