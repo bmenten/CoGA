@@ -20,6 +20,7 @@ import {
   sortSmallVariants,
   type TableSortKey,
 } from './smallVariantResultUtils';
+import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import VariantScoreCell from './VariantScoreCell';
 import SvSecondHitBadge from './SvSecondHitBadge';
 
@@ -382,18 +383,18 @@ export default function SmallVariantTable({
                   )}
                 </td>
                 <td>
-                  <Link to={igvHref} className="table-link" title={`Open IGV at ${locus}`}>
+                  <GenomeWorkspaceLink to={igvHref} className="table-link" label={`Open IGV at ${locus}`}>
                     IGV
-                  </Link>
+                  </GenomeWorkspaceLink>
                 </td>
                 <td className="small-variant-view-cell">
-                  <Link
+                  <GenomeWorkspaceLink
                     to={viewHref}
                     className="table-link"
-                    title={`Open chromosome view around ${variant.chr}:${variant.start}-${variant.end}`}
+                    label={`Open chromosome view around ${variant.chr}:${variant.start}-${variant.end}`}
                   >
                     View
-                  </Link>
+                  </GenomeWorkspaceLink>
                 </td>
               </tr>
             );

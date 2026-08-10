@@ -1224,6 +1224,12 @@ const guideSections: GuideSection[] = [
             locus.
           </li>
         </ul>
+        <p>
+          Opening any of these from a variant list — the IGV and View links on a row or card, or
+          the Genome and Circos buttons above the structural-variant table — opens a new browser
+          tab. The list you were working through keeps its filters, sort order, and scroll position
+          instead of re-running the query each time you come back from a locus.
+        </p>
         <h3>Small-variant track: colours and rows</h3>
         <p>
           In the Chromosome view, each small variant is drawn as a dot. Its colour encodes the
