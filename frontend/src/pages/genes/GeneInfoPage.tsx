@@ -598,7 +598,15 @@ const buildGeneLinks = (profile: GeneProfile): NamedLink[] => {
   pushLink('Protein Atlas', proteinAtlasHref);
   pushLink('NCBI Gene', ncbiGeneHref);
   pushLink('GTEx Portal', byLabel.get('gtex') || byLabel.get('gtex portal'));
-  pushLink('Monarch', `https://monarchinitiative.org/search?q=${symbolQuery}`);
+  // Monarch addresses nodes by CURIE, and a gene node is its HGNC id — the same shape
+  // the disease associations already link with (monarchinitiative.org/MONDO:…). Without
+  // it this was a free-text search that lands on a result list rather than the gene.
+  pushLink(
+    'Monarch',
+    profile.hgnc_id
+      ? `https://monarchinitiative.org/${profile.hgnc_id}`
+      : `https://monarchinitiative.org/search?q=${symbolQuery}`,
+  );
   pushLink('DECIPHER', byLabel.get('decipher'));
   pushLink('UniProt', byLabel.get('uniprot'));
   pushLink('Geno2MP', 'https://geno2mp.gs.washington.edu/Geno2MP/');

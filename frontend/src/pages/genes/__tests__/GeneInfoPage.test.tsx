@@ -455,9 +455,11 @@ describe('GeneInfoPage', () => {
       'href',
       'https://www.proteinatlas.org/ENSG00000012048-BRCA1',
     );
+    // Monarch addresses a gene node by its HGNC CURIE, the same way the disease
+    // associations link (monarchinitiative.org/MONDO:…), not by a text search.
     expect(screen.getByRole('link', { name: 'Monarch' })).toHaveAttribute(
       'href',
-      'https://monarchinitiative.org/search?q=BRCA1',
+      'https://monarchinitiative.org/HGNC:1100',
     );
     expect(screen.getByRole('link', { name: 'KEGG' })).toHaveAttribute(
       'href',
