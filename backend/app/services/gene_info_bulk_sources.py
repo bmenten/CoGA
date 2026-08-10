@@ -18,9 +18,9 @@ from .bounded_download import download_bounded_bytes, gunzip_bounded
 
 _MAX_ASSOCIATIONS_PER_GENE = 24
 _MAX_TERMS_PER_GENE = 96
-_DEFAULT_DBNSFP_GENE_PATH = Path("/data/ref-data/dbNSFP5.3_gene.gz")
+_DEFAULT_DBNSFP_GENE_PATH = Path("/data/ref-data/dbNSFP5.4_gene.gz")
 _REPO_DBNSFP_GENE_PATH = (
-    Path(__file__).resolve().parents[3] / "data" / "ref-data" / "dbNSFP5.3_gene.gz"
+    Path(__file__).resolve().parents[3] / "data" / "ref-data" / "dbNSFP5.4_gene.gz"
 )
 _MISSING_CELL_VALUES = {"", ".", "-", "na", "n/a", "none", "null"}
 

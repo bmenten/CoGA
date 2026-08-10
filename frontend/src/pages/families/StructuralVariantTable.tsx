@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router';
 import { formatGt } from '../../lib/genotypes';
+import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import {
   buildReviewTagTooltip,
   formatFrequency,
@@ -20,7 +20,7 @@ import type {
   StructuralVariantFamilyMember,
   StructuralVariantGenotype,
 } from './structuralVariantSearch';
-import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
+import { SV_FLANK_BP, buildStructuralVariantNavigation } from './structuralVariantNavigation';
 import VariantScoreCell from './VariantScoreCell';
 
 interface StructuralVariantTableProps {
@@ -435,9 +435,12 @@ export default function StructuralVariantTable({
                       : variant.remote_chr
                         ? `chr${variant.remote_chr}`
                         : '';
+                    // The partner side of a BND is a single breakpoint rather than a
+                    // span, so it gets the same flank as the primary locus — otherwise
+                    // IGV opens on a 1 bp window with no sequence context around it.
                     const locusB = hasRemote
-                      ? `${remoteChr}:${Math.max(1, variant.remote_start!)}-${
-                          variant.remote_start! + 1
+                      ? `${remoteChr}:${Math.max(1, variant.remote_start! - SV_FLANK_BP)}-${
+                          variant.remote_start! + SV_FLANK_BP
                         }`
                       : '';
                     const hrefB = hasRemote
@@ -449,25 +452,26 @@ export default function StructuralVariantTable({
                       : '';
                     return (
                       <div className="inline-actions">
-                        <Link to={hrefA} className="table-link" title={`Open IGV at ${locusA}`}>
+                        <GenomeWorkspaceLink to={hrefA} className="table-link" label={`Open IGV at ${locusA}`}>
                           IGV
-                        </Link>
+                        </GenomeWorkspaceLink>
                         {hasRemote && (
-                          <Link to={hrefB} className="table-link" title={`Open IGV at ${locusB}`}>
+                          <GenomeWorkspaceLink to={hrefB} className="table-link" label={`Open IGV at ${locusB}`}>
                             IGV
-                          </Link>
+                          </GenomeWorkspaceLink>
                         )}
                       </div>
                     );
                   })()}
                 </td>
                 <td className="whitespace-nowrap">
-                  <Link
+                  <GenomeWorkspaceLink
                     className="table-link"
                     to={buildStructuralVariantNavigation({ familyId, linkSearch, projectId, variant }).viewHref}
+                    label={`Open chromosome view around ${variant.chr}:${variant.start}-${variant.end}`}
                   >
                     View
-                  </Link>
+                  </GenomeWorkspaceLink>
                 </td>
               </tr>
               );

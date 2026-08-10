@@ -157,7 +157,7 @@ async def test_fetch_external_gene_bundle_uses_dbnsfp_without_online_fallback(
         datasets={
             "dbnsfp_gene": GeneBulkSourceDataset(
                 name="dbNSFP gene",
-                source_url="/data/ref-data/dbNSFP5.3_gene.gz",
+                source_url="/data/ref-data/dbNSFP5.4_gene.gz",
                 status="success",
                 records_by_symbol={
                     "BRCA1": {
