@@ -375,21 +375,11 @@ async def fetch_external_gene_bundle(
             message="HGNC sync is only available for human genes",
         )
 
+    # The per-gene Ensembl lookup is gone. Its only unique contribution was the
+    # canonical transcript, and GENCODE tags that per transcript for every gene, so the
+    # request bought a field we already hold — and only resolved for a third of the
+    # genes that reached this path anyway.
     ensembl_payload: Dict[str, Any] = {}
-    try:
-        ensembl_payload = await fetch_ensembl_gene(cleaned_symbol, str(species_document.get("name")))
-        source_status_map["ensembl"] = source_status(
-            status="success" if ensembl_payload else "missing",
-            source_url=f"https://rest.ensembl.org/lookup/symbol/{quote(ensembl_species_name(species_document), safe='')}/{quote(cleaned_symbol, safe='')}",
-            payload=ensembl_payload,
-            message=None if ensembl_payload else "No Ensembl record returned",
-        )
-    except Exception as error:  # pragma: no cover
-        source_status_map["ensembl"] = source_status(
-            status="error",
-            source_url=f"https://rest.ensembl.org/lookup/symbol/{quote(ensembl_species_name(species_document), safe='')}/{quote(cleaned_symbol, safe='')}",
-            message=str(error),
-        )
 
     ncbi_payload: Dict[str, Any] = {}
     try:
@@ -415,23 +405,10 @@ async def fetch_external_gene_bundle(
         hgnc_payload.get("ensembl_gene_id"),
         bulk_profile.get("ensembl_gene_id"),
     )
+    # The Ensembl homology call is gone too. It returned an orthologue for none of the
+    # 1,380 genes that reached it — every attempt ended in "No orthologues returned" or
+    # a DNS failure — while dbNSFP already supplies model-organism orthologues in bulk.
     homologs: List[Dict[str, Any]] = []
-    if ensembl_gene_id:
-        try:
-            homology_payload = await fetch_ensembl_homologies(ensembl_gene_id)
-            homologs = normalize_homologs(homology_payload, species_docs)
-            source_status_map["ensembl_homology"] = source_status(
-                status="success" if homologs else "missing",
-                source_url=f"https://rest.ensembl.org/homology/id/human/{quote(ensembl_gene_id, safe='')}",
-                payload={"count": len(homologs)},
-                message=None if homologs else "No orthologues returned",
-            )
-        except Exception as error:  # pragma: no cover
-            source_status_map["ensembl_homology"] = source_status(
-                status="error",
-                source_url=f"https://rest.ensembl.org/homology/id/human/{quote(ensembl_gene_id, safe='')}",
-                message=str(error),
-            )
 
     aliases = sorted(
         {
@@ -448,37 +425,16 @@ async def fetch_external_gene_bundle(
         set(as_list(hgnc_payload.get("prev_symbol")) + as_list(bulk_bundle.get("previous_symbols")))
     )
     omim_ids = as_list(hgnc_payload.get("omim_id"))
+    # The ClinGen gene-page scrape is gone. Measured across 4,052 genes that reached
+    # this path it reported success 4,046 times and carried almost nothing: a function
+    # for 61, a MANE transcript for 23, a GenCC classification for 1, an ACMG secondary
+    # finding for none. The fields it did fill — name, cytoband, locus type, aliases,
+    # previous symbols — all now arrive from the HGNC complete set in one download.
+    # That is structural rather than bad luck: this path only runs for genes dbNSFP does
+    # not cover, which are overwhelmingly lncRNAs and pseudogenes nobody has curated.
+    # ClinGen's actual curations still reach every gene through the bulk gene-validity
+    # and dosage files.
     clingen_payload: Dict[str, Any] = {}
-    if is_human:
-        try:
-            clingen_payload = await fetch_clingen_gene(
-                cleaned_symbol,
-                first_non_empty(hgnc_payload.get("hgnc_id")),
-            )
-            source_status_map["clingen"] = source_status(
-                status="success" if clingen_payload else "missing",
-                source_url=(
-                    f"https://search.clinicalgenome.org/kb/genes/{quote(first_non_empty(hgnc_payload.get('hgnc_id')) or cleaned_symbol, safe='')}"
-                ),
-                payload={
-                    "gene_facts_keys": sorted((clingen_payload.get("gene_facts") or {}).keys()),
-                    "curation_counts": clingen_payload.get("curation_counts", {}),
-                },
-                message=None if clingen_payload else "No ClinGen curated gene data returned",
-            )
-        except Exception as error:  # pragma: no cover
-            source_status_map["clingen"] = source_status(
-                status="error",
-                source_url=(
-                    f"https://search.clinicalgenome.org/kb/genes/{quote(first_non_empty(hgnc_payload.get('hgnc_id')) or cleaned_symbol, safe='')}"
-                ),
-                message=str(error),
-            )
-    else:
-        source_status_map["clingen"] = source_status(
-            status="missing",
-            message="ClinGen sync is only available for human genes",
-        )
 
     extra = {
         "hgnc_name": hgnc_payload.get("name"),

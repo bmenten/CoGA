@@ -293,19 +293,11 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
             "hgnc_id": "HGNC:1100",
         }
 
-    async def fake_fetch_ensembl_gene(symbol: str, species_name: str):
-        assert symbol == "BRCA1"
-        assert species_name == "Homo sapiens"
-        return {
-            "id": "ENSG00000012048",
-            "description": "BRCA1 DNA repair associated",
-            "canonical_transcript": "ENST00000357654",
-            "biotype": "protein_coding",
-        }
-
-    async def fake_fetch_ensembl_homologies(ensembl_gene_id: str):
-        assert ensembl_gene_id == "ENSG00000012048"
-        return {"data": []}
+    async def forbidden_rest_call(*args, **kwargs):
+        # The per-gene Ensembl lookup, its homology call and the ClinGen page scrape were
+        # removed: measured over 4,052 genes they returned a canonical transcript GENCODE
+        # already tags, no orthologue at all, and ClinGen fields that were null for ~99%.
+        raise AssertionError("this per-gene REST source should no longer be called")
 
     async def fake_fetch_ncbi_gene(symbol: str, species_name: str):
         assert symbol == "BRCA1"
@@ -316,24 +308,11 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
             "otheraliases": "BRCC1",
         }
 
-    async def fake_fetch_clingen_gene(symbol: str, hgnc_id: str | None):
-        assert symbol == "BRCA1"
-        assert hgnc_id == "HGNC:1100"
-        return {
-            "curation_counts": {
-                "clinical_actionability": 2,
-            },
-            "gene_facts": {
-                "cytoband": "17q21.31",
-                "gencc_classifications": {"Limited": 1},
-            },
-        }
-
     monkeypatch.setattr(gene_info_external, "fetch_hgnc_gene", fake_fetch_hgnc_gene)
-    monkeypatch.setattr(gene_info_external, "fetch_ensembl_gene", fake_fetch_ensembl_gene)
-    monkeypatch.setattr(gene_info_external, "fetch_ensembl_homologies", fake_fetch_ensembl_homologies)
     monkeypatch.setattr(gene_info_external, "fetch_ncbi_gene", fake_fetch_ncbi_gene)
-    monkeypatch.setattr(gene_info_external, "fetch_clingen_gene", fake_fetch_clingen_gene)
+    monkeypatch.setattr(gene_info_external, "fetch_ensembl_gene", forbidden_rest_call)
+    monkeypatch.setattr(gene_info_external, "fetch_ensembl_homologies", forbidden_rest_call)
+    monkeypatch.setattr(gene_info_external, "fetch_clingen_gene", forbidden_rest_call)
 
     bulk_context = HumanGeneBulkContext(
         datasets={
@@ -406,14 +385,10 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
     assert result["omim_gene_id"] is None
     assert result["source_status"]["dbnsfp_gene"]["status"] == "missing"
     assert isinstance(result["source_status"]["dbnsfp_gene"]["fetched_at"], str)
-    assert result["extra"]["clingen_curation_counts"] == {
-        "clinical_actionability": 2,
-        "gene_disease_validity": 3,
-    }
-    assert result["extra"]["clingen_gene_facts"]["gencc_classifications"] == {
-        "Limited": 1,
-        "Definitive": 5,
-    }
+    # ClinGen's curations still reach the gene, but from the bulk gene-validity file
+    # rather than the page scrape — so only the bulk count is present now.
+    assert result["extra"]["clingen_curation_counts"] == {"gene_disease_validity": 3}
+    assert result["extra"]["clingen_gene_facts"]["gencc_classifications"] == {"Definitive": 5}
     assert result["extra"]["omim_diseases"] == [
         {
             "label": "Breast-ovarian cancer, familial, susceptibility to, 1",
