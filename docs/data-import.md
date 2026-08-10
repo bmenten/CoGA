@@ -59,20 +59,47 @@ Expected content:
 
 Admin users can refresh cached human gene reference data from the Administration section.
 
-The sync now combines:
+### Which genes get a record
 
-- per-gene HGNC, Ensembl, NCBI Gene, and ClinGen lookups
-- bulk ClinGen gene-validity and dosage downloads
-- the GenCC submissions export
-- ClinVar `gene_condition_source_id` for gene-disease relationships
-- local `dbNSFP_gene` raw files through `GENE_REFERENCE_DBNSFP_GENE_PATH`
+**HGNC is the register of which human genes exist**, so the gene set comes from the HGNC complete
+set (`GENE_REFERENCE_HGNC_COMPLETE_SET_URL`, ~45,000 approved genes) rather than from whichever
+symbols the assembly's annotation happens to carry. Reconciliation against the `genes` table works
+in two directions:
 
-CoGA prefers the local dbNSFP gene file, defaulting to
-`/data/ref-data/dbNSFP5.4_gene.gz` in Docker. During gene reference sync, public ClinGen, GenCC,
-ClinVar, HGNC, Ensembl, and NCBI sources are used as fallback sources only when the local dbNSFP
-file is unavailable or does not contain the requested gene. The dbNSFP file enriches cached gene
-records with identifiers, names and aliases, OMIM/Orphanet/GenCC disease context, ClinGen dosage
-fields, HPO/GO/pathway terms, model organism context, tissue expression, and constraint metrics.
+- A symbol the assembly still uses but HGNC has since renamed is **folded onto the current symbol**,
+  carrying its locus with it — the assembly is authoritative about coordinates, HGNC about names.
+  dbNSFP 5.4 ships `LMTK1` for the gene an older annotation calls `AATK`; without this the gene is
+  looked up under a name no current source uses.
+- A gene HGNC recognises but the assembly does not place gets a record with **no coordinates**. It
+  is still a real gene worth answering questions about, and it still receives every annotation.
+
+Renames are resolved through HGNC's `prev_symbol`/`alias_symbol` columns. A historic symbol claimed
+by two different genes is dropped rather than guessed at — an ambiguous rename is not information,
+and picking one would attach annotation to the wrong gene.
+
+### Which sources are consulted
+
+**Every source is consulted for every gene.** These are whole-file downloads parsed once per job,
+so restricting them buys nothing. (Consulting the online sources only for genes dbNSFP had missed
+used to discard nearly all of their content: dbNSFP misses obscure ncRNA and pseudogenes, while
+ClinGen/GenCC/ClinVar curate exactly the well-known disease genes dbNSFP already covers, so the two
+sets barely intersect.)
+
+| Source | Contributes |
+| --- | --- |
+| HGNC complete set | identity: HGNC ID, current/previous/alias symbols, Ensembl + Entrez + RefSeq + CCDS + UniProt + MANE ids, locus group, cytogenetic band |
+| dbNSFP gene file (`GENE_REFERENCE_DBNSFP_GENE_PATH`) | constraint metrics, HPO/GO/pathway terms, OMIM/Orphanet/GenCC disease context, model organisms, tissue expression |
+| ClinGen gene validity / dosage | gene-disease validity classifications, haploinsufficiency + triplosensitivity |
+| GenCC | submitted gene-disease assertions and their classifications |
+| ClinVar `gene_condition_source_id` | gene-disease relationships and OMIM disease links |
+| per-gene Ensembl / NCBI / ClinGen REST | fallback enrichment for genes the bulk sources do not cover |
+
+Each cached gene records a per-source status, which the Administration page aggregates:
+
+- `success` — the source had a record for this gene
+- `missing` — the source was queried and genuinely has nothing for this gene
+- `not_consulted` — this source was never queried for this gene; **not** evidence about its coverage
+- `error` — the download or parse failed
 
 The pinned release is **dbNSFP 5.4** (August 2026, GENCODE 50 / Ensembl 116). The gene table ships
 inside the full dbNSFP archive from <https://www.dbnsfp.org/download> (registration required); place

@@ -426,3 +426,118 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
             "source": "ClinVar",
         }
     ]
+
+
+# The real HGNC complete set is a 45k-row TSV; these two rows carry the columns the
+# parser reads, including the rename that broke gene lookups when dbNSFP 5.4 shipped
+# LMTK1 for the gene the assembly still calls AATK.
+HGNC_COMPLETE_SET = (
+    "hgnc_id\tsymbol\tname\tlocus_group\tlocus_type\tstatus\tlocation\talias_symbol\t"
+    "prev_symbol\tgene_group\tdate_approved_reserved\tdate_symbol_changed\tdate_modified\t"
+    "entrez_id\tensembl_gene_id\tvega_id\tucsc_id\trefseq_accession\tccds_id\tuniprot_ids\t"
+    "omim_id\torphanet\tmane_select\n"
+    "HGNC:1100\tBRCA1\tBRCA1 DNA repair associated\tprotein-coding gene\tgene with protein product\t"
+    "Approved\t17q21.31\tRNF53|PPP1R53\tBRCAI|BRCC1\tRing finger proteins\t1994-01-01\t\t2026-01-01\t"
+    "672\tENSG00000012048\tOTTHUMG00000157426\tuc002ict.4\tNM_007294\tCCDS11453\tP38398\t113705\t145\t"
+    "ENST00000357654.9|NM_007294.4\n"
+    "HGNC:21\tLMTK1\tlemur tyrosine kinase 1\tprotein-coding gene\tgene with protein product\t"
+    "Approved\t17q25.3\tAATYK|LMR1\tAATK\tLemur tyrosine kinases\t1997-01-01\t2026-02-01\t2026-02-01\t"
+    "9625\tENSG00000181409\t\t\tNM_001080395\t\tQ6ZMQ8\t\t\t\n"
+)
+
+
+def test_parse_hgnc_complete_set_captures_identity_and_symbol_history() -> None:
+    result = gene_info_bulk_sources.parse_hgnc_complete_set_rows(HGNC_COMPLETE_SET)
+
+    assert set(result) == {"BRCA1", "LMTK1"}
+    brca1 = result["BRCA1"]
+    assert brca1["profile"]["hgnc_id"] == "HGNC:1100"
+    assert brca1["profile"]["ensembl_gene_id"] == "ENSG00000012048"
+    assert brca1["profile"]["ncbi_gene_id"] == "672"
+    assert brca1["profile"]["location"] == "17q21.31"
+    assert brca1["omim_gene_id"] == "113705"
+    assert brca1["aliases"] == ["RNF53", "PPP1R53"]
+    assert brca1["previous_symbols"] == ["BRCAI", "BRCC1"]
+    assert brca1["extra"]["hgnc_identifiers"]["uniprot_ids"] == ["P38398"]
+    assert brca1["extra"]["hgnc_identifiers"]["mane_select"] == [
+        "ENST00000357654.9",
+        "NM_007294.4",
+    ]
+    assert brca1["extra"]["hgnc_gene_facts"]["locus_group"] == "protein-coding gene"
+
+
+def test_parse_hgnc_complete_set_skips_withdrawn_entries() -> None:
+    withdrawn = HGNC_COMPLETE_SET.replace("Approved\t17q25.3", "Entry Withdrawn\t17q25.3")
+
+    result = gene_info_bulk_sources.parse_hgnc_complete_set_rows(withdrawn)
+
+    assert set(result) == {"BRCA1"}
+
+
+def test_hgnc_resolver_maps_previous_and_alias_symbols_to_the_current_one() -> None:
+    records = gene_info_bulk_sources.parse_hgnc_complete_set_rows(HGNC_COMPLETE_SET)
+
+    resolver = gene_info_bulk_sources.build_hgnc_symbol_resolver(records)
+
+    # The rename dbNSFP 5.4 shipped: the assembly still says AATK, HGNC says LMTK1.
+    assert resolver["AATK"] == "LMTK1"
+    assert resolver["LMTK1"] == "LMTK1"
+    assert resolver["BRCAI"] == "BRCA1"
+    assert resolver["RNF53"] == "BRCA1"
+    assert "NOT_A_GENE" not in resolver
+
+
+def test_hgnc_resolver_drops_a_historic_symbol_two_genes_both_claim() -> None:
+    contested = HGNC_COMPLETE_SET.replace("\tAATYK|LMR1\tAATK\t", "\tAATYK|RNF53\tAATK\t")
+
+    resolver = gene_info_bulk_sources.build_hgnc_symbol_resolver(
+        gene_info_bulk_sources.parse_hgnc_complete_set_rows(contested)
+    )
+
+    # RNF53 is an alias of BRCA1 and (in this fixture) of LMTK1 too. Guessing would
+    # attach one gene's annotation to the other, so the ambiguous claim is dropped.
+    assert "RNF53" not in resolver
+    assert resolver["AATK"] == "LMTK1"
+
+
+def test_hgnc_resolver_never_lets_an_alias_shadow_an_approved_symbol() -> None:
+    # LMTK1 lists AATYK as an alias; if some other gene were approved under AATYK the
+    # approved entry has to win, or that gene's own annotation lands on LMTK1.
+    records = gene_info_bulk_sources.parse_hgnc_complete_set_rows(
+        HGNC_COMPLETE_SET
+        + "HGNC:99\tAATYK\tdecoy\tprotein-coding gene\tgene with protein product\tApproved\t1p1\t\t\t\t"
+        "2000-01-01\t\t\t1\tENSG00000000001\t\t\t\t\t\t\t\n"
+    )
+
+    resolver = gene_info_bulk_sources.build_hgnc_symbol_resolver(records)
+
+    assert resolver["AATYK"] == "AATYK"
+
+
+def test_dataset_reports_not_consulted_apart_from_no_record() -> None:
+    dataset = GeneBulkSourceDataset(
+        name="GenCC",
+        source_url="https://example.test/gencc",
+        status="success",
+        records_by_symbol={"BRCA1": {"extra": {}}},
+        consulted_symbols={"BRCA1", "TP53"},
+    )
+
+    # Asked about and found.
+    assert dataset.status_for_symbol("BRCA1")["status"] == "success"
+    # Asked about, genuinely absent from the source.
+    assert dataset.status_for_symbol("TP53")["status"] == "missing"
+    # Never asked about — not evidence of anything about the source's coverage.
+    assert dataset.status_for_symbol("SCN1A")["status"] == "not_consulted"
+
+
+def test_dataset_consulted_for_every_symbol_never_reports_not_consulted() -> None:
+    dataset = GeneBulkSourceDataset(
+        name="GenCC",
+        source_url="https://example.test/gencc",
+        status="success",
+        records_by_symbol={"BRCA1": {"extra": {}}},
+        consulted_symbols=None,
+    )
+
+    assert dataset.status_for_symbol("SCN1A")["status"] == "missing"

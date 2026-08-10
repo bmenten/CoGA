@@ -134,6 +134,15 @@ class GeneBulkSourceDataset:
     message: str | None = None
     records_by_symbol: dict[str, dict[str, Any]] = field(default_factory=dict)
     payload: dict[str, Any] = field(default_factory=dict)
+    # Which symbols this dataset was actually asked about. ``None`` means the whole
+    # gene universe, so an absent record is a real "this source has nothing". When a
+    # dataset was built for a subset, everything outside it was never looked up, and
+    # recording that as ``missing`` is a lie that reads as poor coverage — the shape
+    # that made GenCC report one success across thirty thousand genes.
+    consulted_symbols: set[str] | None = None
+
+    def was_consulted_for(self, symbol: str) -> bool:
+        return self.consulted_symbols is None or symbol in self.consulted_symbols
 
     def status_for_symbol(self, symbol: str) -> dict[str, Any]:
         if self.status == "error":
@@ -142,6 +151,13 @@ class GeneBulkSourceDataset:
                 source_url=self.source_url,
                 payload=self.payload,
                 message=self.message,
+            )
+        if not self.was_consulted_for(symbol):
+            return _source_status(
+                status="not_consulted",
+                source_url=self.source_url,
+                payload=self.payload,
+                message=f"{self.name} was not queried for {symbol}",
             )
         record = self.records_by_symbol.get(symbol)
         if record is None:
@@ -188,6 +204,8 @@ def build_bulk_gene_bundle(
     source_status_map: dict[str, dict[str, Any]] = {}
     omim_gene_id: str | None = None
     primary_source: str | None = None
+    aliases: list[str] = []
+    previous_symbols: list[str] = []
 
     for name, dataset in bulk_context.datasets.items():
         source_status_map[name] = dataset.status_for_symbol(normalized_symbol)
@@ -207,6 +225,12 @@ def build_bulk_gene_bundle(
         candidate_omim_gene_id = str(record.get("omim_gene_id") or "").strip()
         if candidate_omim_gene_id and not omim_gene_id:
             omim_gene_id = candidate_omim_gene_id
+        for alias in record.get("aliases") or []:
+            if alias not in aliases:
+                aliases.append(alias)
+        for previous in record.get("previous_symbols") or []:
+            if previous not in previous_symbols:
+                previous_symbols.append(previous)
 
     return {
         "extra": merged_extra,
@@ -215,6 +239,8 @@ def build_bulk_gene_bundle(
         "source_status": source_status_map,
         "omim_gene_id": omim_gene_id,
         "primary_source": primary_source,
+        "aliases": aliases,
+        "previous_symbols": previous_symbols,
     }
 
 
@@ -432,6 +458,121 @@ def parse_gencc_rows(
             counts = record["extra"]["clingen_gene_facts"]["gencc_classifications"]
             counts[classification] = int(counts.get(classification) or 0) + 1
     return _finalize_gene_records(records_by_symbol)
+
+
+def _hgnc_multi(value: str) -> list[str]:
+    """HGNC packs repeated values into one pipe-separated, sometimes quoted cell."""
+    return [cleaned for entry in str(value or "").split("|") if (cleaned := _clean_cell(entry.strip('"')))]
+
+
+def parse_hgnc_complete_set_rows(
+    text_value: str, *, symbols: Iterable[str] | None = None
+) -> dict[str, dict[str, Any]]:
+    """Parse the HGNC complete set — the authority for which human genes exist.
+
+    Every other gene source is keyed on a symbol, and symbols are renamed: dbNSFP 5.4
+    ships ``LMTK1`` for the gene 5.3 called ``AATK``. HGNC is the register that records
+    both, so its ``prev_symbol``/``alias_symbol`` columns are what let a stale symbol
+    anywhere else in the pipeline resolve to the gene it now belongs to.
+    """
+    symbol_filter = {_normalize_symbol(symbol) for symbol in (symbols or []) if _normalize_symbol(symbol)}
+    reader = csv.DictReader(io.StringIO(text_value), delimiter="\t")
+    records_by_symbol: dict[str, dict[str, Any]] = {}
+    for raw_row in reader:
+        row = _normalized_row(raw_row)
+        symbol = _normalize_symbol(_row_value(row, "symbol"))
+        if not symbol:
+            continue
+        # Withdrawn/merged entries keep their row but no longer name a gene.
+        if (_row_value(row, "status") or "Approved").lower() != "approved":
+            continue
+        if symbol_filter and symbol not in symbol_filter:
+            continue
+
+        aliases = _hgnc_multi(_row_value(row, "alias_symbol"))
+        previous_symbols = _hgnc_multi(_row_value(row, "prev_symbol"))
+        omim_ids = _hgnc_multi(_row_value(row, "omim_id"))
+        profile = {
+            "hgnc_id": _row_value(row, "hgnc_id"),
+            "display_name": _row_value(row, "name"),
+            "ensembl_gene_id": _row_value(row, "ensembl_gene_id"),
+            "ncbi_gene_id": _row_value(row, "entrez_id"),
+            "gene_type": _row_value(row, "locus_type"),
+            "location": _row_value(row, "location"),
+        }
+        record = records_by_symbol.setdefault(
+            symbol,
+            {
+                "profile": {},
+                "extra": {},
+                "aliases": [],
+                "previous_symbols": [],
+                "status_payload": {"record_count": 0},
+            },
+        )
+        record["profile"] = {key: value for key, value in profile.items() if value}
+        record["aliases"] = aliases
+        record["previous_symbols"] = previous_symbols
+        if omim_ids:
+            record["omim_gene_id"] = _clean_omim_id(omim_ids[0])
+        identifiers = {
+            "hgnc_id": _row_value(row, "hgnc_id"),
+            "ensembl_gene_id": _row_value(row, "ensembl_gene_id"),
+            "entrez_id": _row_value(row, "entrez_id"),
+            "ucsc_id": _row_value(row, "ucsc_id"),
+            "vega_id": _row_value(row, "vega_id"),
+            "refseq_accession": _hgnc_multi(_row_value(row, "refseq_accession")),
+            "ccds_id": _hgnc_multi(_row_value(row, "ccds_id")),
+            "uniprot_ids": _hgnc_multi(_row_value(row, "uniprot_ids")),
+            "mane_select": _hgnc_multi(_row_value(row, "mane_select")),
+            "omim_ids": omim_ids,
+            "orphanet_id": _row_value(row, "orphanet"),
+        }
+        record["extra"]["hgnc_identifiers"] = {
+            key: value for key, value in identifiers.items() if value
+        }
+        record["extra"]["hgnc_gene_facts"] = {
+            key: value
+            for key, value in {
+                "locus_group": _row_value(row, "locus_group"),
+                "locus_type": _row_value(row, "locus_type"),
+                "gene_group": _hgnc_multi(_row_value(row, "gene_group")),
+                "date_approved": _row_value(row, "date_approved_reserved"),
+                "date_modified": _row_value(row, "date_modified"),
+                "date_symbol_changed": _row_value(row, "date_symbol_changed"),
+            }.items()
+            if value
+        }
+        record["status_payload"]["record_count"] = 1
+
+    return records_by_symbol
+
+
+def build_hgnc_symbol_resolver(
+    records_by_symbol: dict[str, dict[str, Any]],
+) -> dict[str, str]:
+    """Map every symbol HGNC knows — current, previous, alias — to the current one.
+
+    Approved symbols win over previous/alias claims, and a previous/alias symbol claimed
+    by more than one gene is dropped rather than guessed at: an ambiguous rename is not
+    information, and silently picking one gene would attach annotation to the wrong one.
+    """
+    resolver: dict[str, str] = {symbol: symbol for symbol in records_by_symbol}
+    contested: set[str] = set()
+    for symbol, record in records_by_symbol.items():
+        historic = (record.get("previous_symbols") or []) + (record.get("aliases") or [])
+        for candidate in historic:
+            normalized = _normalize_symbol(candidate)
+            if not normalized or normalized in records_by_symbol:
+                continue
+            existing = resolver.get(normalized)
+            if existing is not None and existing != symbol:
+                contested.add(normalized)
+                continue
+            resolver[normalized] = symbol
+    for normalized in contested:
+        resolver.pop(normalized, None)
+    return resolver
 
 
 def parse_clinvar_gene_condition_rows(
@@ -1030,6 +1171,7 @@ async def _load_csv_dataset(
     parser,
     symbols: Iterable[str] | None = None,
 ) -> GeneBulkSourceDataset:
+    consulted = {_normalize_symbol(symbol) for symbol in symbols} if symbols is not None else None
     try:
         text_value = await _download_text(url)
         records_by_symbol = parser(text_value, symbols=symbols)
@@ -1039,6 +1181,7 @@ async def _load_csv_dataset(
             status="success",
             records_by_symbol=records_by_symbol,
             payload={"symbols_with_records": len(records_by_symbol)},
+            consulted_symbols=consulted,
         )
     except Exception as exc:  # pragma: no cover
         return GeneBulkSourceDataset(
@@ -1053,7 +1196,7 @@ async def _load_online_gene_bulk_datasets(
     *,
     symbols: Iterable[str] | None = None,
 ) -> dict[str, GeneBulkSourceDataset]:
-    clingen_validity, clingen_dosage, gencc, clinvar_gene_condition = await asyncio.gather(
+    clingen_validity, clingen_dosage, gencc, clinvar_gene_condition, hgnc = await asyncio.gather(
         _load_csv_dataset(
             name="ClinGen gene validity",
             url=settings.gene_reference_clingen_validity_url,
@@ -1078,8 +1221,15 @@ async def _load_online_gene_bulk_datasets(
             parser=parse_clinvar_gene_condition_rows,
             symbols=symbols,
         ),
+        _load_csv_dataset(
+            name="HGNC complete set",
+            url=settings.gene_reference_hgnc_complete_set_url,
+            parser=parse_hgnc_complete_set_rows,
+            symbols=symbols,
+        ),
     )
     return {
+        "hgnc_complete_set": hgnc,
         "clingen_gene_validity": clingen_validity,
         "clingen_dosage": clingen_dosage,
         "gencc": gencc,
@@ -1149,21 +1299,17 @@ async def load_human_gene_bulk_context(
     normalized_symbols = sorted(
         {_normalize_symbol(symbol) for symbol in (symbols or []) if _normalize_symbol(symbol)}
     )
-    dbnsfp_gene = _load_dbnsfp_gene_dataset(symbols=normalized_symbols or None)
-    datasets: dict[str, GeneBulkSourceDataset] = {
-        "dbnsfp_gene": dbnsfp_gene,
-    }
-
-    fallback_symbols: list[str] | None
-    if dbnsfp_gene.status == "success":
-        fallback_symbols = [
-            symbol for symbol in normalized_symbols if symbol not in dbnsfp_gene.records_by_symbol
-        ]
-    else:
-        fallback_symbols = normalized_symbols or None
-
-    if dbnsfp_gene.status != "success" or fallback_symbols:
-        online_datasets = await _load_online_gene_bulk_datasets(symbols=fallback_symbols)
-        datasets.update(online_datasets)
-
+    # Every bulk source is consulted for every gene. These are whole-file downloads
+    # parsed once per job, so restricting them buys nothing — and the previous
+    # arrangement, where they were queried only for the genes dbNSFP had missed, threw
+    # away almost all of their content: dbNSFP misses obscure ncRNA and pseudogenes,
+    # while ClinGen/GenCC/ClinVar curate exactly the well-known disease genes dbNSFP
+    # already covers, so the two sets barely intersect. GenCC contributed one gene in
+    # thirty thousand that way.
+    dbnsfp_gene, online_datasets = await asyncio.gather(
+        asyncio.to_thread(_load_dbnsfp_gene_dataset, symbols=normalized_symbols or None),
+        _load_online_gene_bulk_datasets(symbols=normalized_symbols or None),
+    )
+    datasets: dict[str, GeneBulkSourceDataset] = {"dbnsfp_gene": dbnsfp_gene}
+    datasets.update(online_datasets)
     return HumanGeneBulkContext(datasets=datasets)

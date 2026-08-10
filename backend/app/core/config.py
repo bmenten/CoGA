@@ -237,6 +237,12 @@ class Settings(BaseSettings):
         default="https://ftp.ncbi.nlm.nih.gov/pub/clinvar/gene_condition_source_id",
         alias="GENE_REFERENCE_CLINVAR_GENE_CONDITION_URL",
     )
+    # HGNC is the naming authority, so its complete set defines which human genes exist
+    # and which symbols they used to carry. Every other gene source is joined onto it.
+    gene_reference_hgnc_complete_set_url: str = Field(
+        default="https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt",
+        alias="GENE_REFERENCE_HGNC_COMPLETE_SET_URL",
+    )
     github_repository: str = Field(default="bmenten/coga", alias="GITHUB_REPOSITORY")
     github_repository_url: str = Field(
         default="https://github.com/bmenten/coga",

@@ -31,6 +31,7 @@ interface GeneInfoSourceSummary {
   latest_fetched_at?: string | null;
   success_count: number;
   missing_count: number;
+  not_consulted_count: number;
   error_count: number;
   record_count: number;
 }
@@ -295,7 +296,8 @@ const GeneReferenceAdminPage: React.FC = () => {
                   <th>Source</th>
                   <th>Latest fetch</th>
                   <th>Success</th>
-                  <th>Missing</th>
+                  <th title="Queried for this gene, and the source had no record">No record</th>
+                  <th title="This source was never queried for these genes">Not consulted</th>
                   <th>Error</th>
                   <th>Records</th>
                 </tr>
@@ -307,6 +309,7 @@ const GeneReferenceAdminPage: React.FC = () => {
                     <td>{formatTimestamp(source.latest_fetched_at)}</td>
                     <td>{formatCount(source.success_count)}</td>
                     <td>{formatCount(source.missing_count)}</td>
+                    <td>{formatCount(source.not_consulted_count)}</td>
                     <td>{formatCount(source.error_count)}</td>
                     <td>{formatCount(source.record_count)}</td>
                   </tr>

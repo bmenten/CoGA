@@ -1710,6 +1710,10 @@ class GeneInfoSourceSummaryOut(BaseModel):
     latest_fetched_at: Optional[datetime] = None
     success_count: int = 0
     missing_count: int = 0
+    # Genes this source was never queried for, kept apart from the genes it was queried
+    # for and had nothing on — otherwise a skipped source is indistinguishable from an
+    # empty one and reads as poor coverage.
+    not_consulted_count: int = 0
     error_count: int = 0
     record_count: int = 0
 
