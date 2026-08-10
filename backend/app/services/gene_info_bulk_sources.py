@@ -269,13 +269,58 @@ def _finalize_gene_records(records_by_symbol: dict[str, dict[str, Any]]) -> dict
     return finalized
 
 
+def _is_clingen_rule_row(cells: list[str]) -> bool:
+    """A ClinGen banner rule — cells consisting only of '+' padding."""
+    values = [cell.strip() for cell in cells if cell.strip()]
+    return bool(values) and all(set(value) == {"+"} for value in values)
+
+
+def _clingen_rows(text_value: str) -> list[dict[str, str]]:
+    """Yield ClinGen CSV data rows, keyed by the file's real header.
+
+    Both ClinGen downloads open with a banner before the columns start — a title
+    line, ``FILE CREATED: <date>``, the webpage URL, and a ``+++`` rule — and repeat
+    that rule once more directly under the header::
+
+        "CLINGEN DOSAGE SENSITIVITY CURATIONS","","","","",""
+        "FILE CREATED: 2026-08-10","",...
+        "WEBPAGE: https://search.clinicalgenome.org/kb/gene-dosage","",...
+        "+++++++++++","+++++++",...
+        "GENE SYMBOL","HGNC ID","HAPLOINSUFFICIENCY",...
+        "+++++++++++","+++++++",...
+        "A4GALT","HGNC:18149",...
+
+    Handing that straight to ``csv.DictReader`` takes the title line as the field
+    names, so no column ever matches and every row is skipped — which is how both
+    ClinGen sources came to contribute nothing at all while still reporting a clean
+    download. Locate the header by the column we key on instead of assuming a fixed
+    banner height, so a file served without the banner parses just the same.
+    """
+    rows = list(csv.reader(io.StringIO(text_value)))
+    header_index = next(
+        (
+            index
+            for index, cells in enumerate(rows)
+            if any(_normalize_header(cell) == "gene_symbol" for cell in cells)
+        ),
+        None,
+    )
+    if header_index is None:
+        return []
+    header = rows[header_index]
+    return [
+        dict(zip(header, cells))
+        for cells in rows[header_index + 1 :]
+        if cells and not _is_clingen_rule_row(cells)
+    ]
+
+
 def parse_clingen_validity_rows(
     text_value: str, *, symbols: Iterable[str] | None = None
 ) -> dict[str, dict[str, Any]]:
     symbol_filter = {_normalize_symbol(symbol) for symbol in (symbols or []) if _normalize_symbol(symbol)}
-    reader = csv.DictReader(io.StringIO(text_value))
     records_by_symbol: dict[str, dict[str, Any]] = {}
-    for raw_row in reader:
+    for raw_row in _clingen_rows(text_value):
         row = _normalized_row(raw_row)
         symbol = _normalize_symbol(_row_value(row, "gene_symbol"))
         if not symbol:
@@ -313,9 +358,8 @@ def parse_clingen_dosage_rows(
     text_value: str, *, symbols: Iterable[str] | None = None
 ) -> dict[str, dict[str, Any]]:
     symbol_filter = {_normalize_symbol(symbol) for symbol in (symbols or []) if _normalize_symbol(symbol)}
-    reader = csv.DictReader(io.StringIO(text_value))
     records_by_symbol: dict[str, dict[str, Any]] = {}
-    for raw_row in reader:
+    for raw_row in _clingen_rows(text_value):
         row = _normalized_row(raw_row)
         symbol = _normalize_symbol(_row_value(row, "gene_symbol"))
         if not symbol:
