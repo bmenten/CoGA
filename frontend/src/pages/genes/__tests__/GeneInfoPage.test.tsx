@@ -77,7 +77,11 @@ describe('GeneInfoPage', () => {
                   exon_count: 24,
                   strand: -1,
                   biotype: 'protein_coding',
-                  source: 'ensembl',
+                  source: 'gencode',
+                  // GENCODE states these per transcript; the overview rows and the
+                  // badges both read them rather than a gene-level scraped value.
+                  mane_select: true,
+                  ensembl_canonical: true,
                 },
                 {
                   transcript_id: 'NM_007294.4',
@@ -191,7 +195,10 @@ describe('GeneInfoPage', () => {
               ],
               extra: {
                 hgnc_gene_group: ['DNA repair'],
-                ensembl_canonical_transcript: 'ENST00000357654',
+                // No ensembl_canonical_transcript / clingen mane_select_transcript here:
+                // those came from a per-gene Ensembl call and a ClinGen page scrape that
+                // no longer run, and were absent for all but a handful of genes even
+                // when they did. The transcript flags are the only source now.
                 ensembl_description: 'BRCA1 DNA repair associated',
                 ncbi_other_designations: ['breast cancer type 1 susceptibility protein'],
                 hgnc_vega_id: 'OTTHUMG00000157426',
@@ -317,7 +324,6 @@ describe('GeneInfoPage', () => {
                   loeuf: 0.16,
                   acmg_secondary_finding: true,
                   cytoband: '17q21.31',
-                  mane_select_transcript: 'ENST00000357654.9',
                   function: 'DNA repair and double-strand break signaling.',
                   genomic_coordinates: {
                     'GRCh37/hg19': 'chr17:41196311-41277499',
@@ -428,6 +434,15 @@ describe('GeneInfoPage', () => {
     expect(within(transcriptTable).getByText('ENST00000357654.9')).toBeInTheDocument();
     expect(within(transcriptTable).getByText('MANE Select')).toBeInTheDocument();
     expect(within(transcriptTable).getByText('Ensembl Canonical')).toBeInTheDocument();
+    // The overview names the transcripts too, not just the badges in the table. Both
+    // read the per-transcript GENCODE flags — the gene-level values these rows used to
+    // take came from a ClinGen scrape and an Ensembl call that no longer run, and were
+    // absent for all but a handful of genes even when they did.
+    for (const label of ['MANE transcript', 'Canonical transcript']) {
+      const row = screen.getByText(label).closest('.gene-compact-detail-row');
+      expect(row).not.toBeNull();
+      expect(within(row as HTMLElement).getByText('ENST00000357654.9')).toBeInTheDocument();
+    }
     // RefSeq Select is derived from the HGNC refseq accessions.
     expect(within(transcriptTable).getByText('NM_007294.4')).toBeInTheDocument();
     expect(within(transcriptTable).getByText('RefSeq Select')).toBeInTheDocument();

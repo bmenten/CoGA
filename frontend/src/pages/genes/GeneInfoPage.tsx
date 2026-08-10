@@ -971,9 +971,19 @@ const GeneInfoPage: React.FC = () => {
             { label: 'Vega', value: profile.extra.hgnc_vega_id || '—' },
             {
               label: 'Canonical transcript',
-              value: profile.extra.ensembl_canonical_transcript || '—',
+              value:
+                profile.transcripts.find((transcript) => transcript.ensembl_canonical)
+                  ?.transcript_id ||
+                profile.extra.ensembl_canonical_transcript ||
+                '—',
             },
-            { label: 'MANE transcript', value: clingenFacts?.mane_select_transcript || '—' },
+            {
+              label: 'MANE transcript',
+              value:
+                profile.transcripts.find((transcript) => transcript.mane_select)?.transcript_id ||
+                clingenFacts?.mane_select_transcript ||
+                '—',
+            },
           ]
         : [],
     [clingenFacts?.cytoband, clingenFacts?.mane_select_transcript, hg38Location, profile, t2tLocation],
