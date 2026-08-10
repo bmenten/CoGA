@@ -252,7 +252,6 @@ interface GeneProfileExtra {
   dbnsfp_tissue_expression?: GeneDbnsfpExpression;
   dbnsfp_model_organisms?: GeneDbnsfpModelOrganisms;
   constraint_metrics?: GeneConstraintMetrics;
-  primad_url?: string | null;
 }
 
 interface GeneProfile {
@@ -586,7 +585,6 @@ const buildGeneLinks = (profile: GeneProfile): NamedLink[] => {
   const keggHref = profile.ncbi_gene_id
     ? `https://www.genome.jp/dbget-bin/www_bget?hsa:${encodeURIComponent(profile.ncbi_gene_id)}`
     : `https://www.genome.jp/kegg-bin/search?keyword=${symbolQuery}`;
-  const primadHref = profile.extra.primad_url?.trim() || null;
 
   const pushLink = (label: string, href?: string | null) => {
     if (!href || seen.has(label)) return;
@@ -605,7 +603,6 @@ const buildGeneLinks = (profile: GeneProfile): NamedLink[] => {
   pushLink('UniProt', byLabel.get('uniprot'));
   pushLink('Geno2MP', 'https://geno2mp.gs.washington.edu/Geno2MP/');
   pushLink('gnomAD', gnomadHref);
-  pushLink('primAD', primadHref);
   pushLink('MGI', `https://www.informatics.jax.org/searchtool/Search.do?query=${symbolQuery}`);
   pushLink('IMPC', `https://www.mousephenotype.org/data/search?term=${symbolQuery}`);
   pushLink('KEGG', keggHref);
