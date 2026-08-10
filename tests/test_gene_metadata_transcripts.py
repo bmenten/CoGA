@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from backend.app.services.gene_metadata_service import _transcript_relevance_flags
+from backend.app.services.gene_metadata_service import (
+    _build_external_links,
+    _first_identifier,
+    _transcript_relevance_flags,
+)
 
 
 def test_transcript_flags_come_from_the_annotation_tags() -> None:
@@ -49,3 +53,67 @@ def test_transcript_flags_do_not_confuse_the_extended_canonical_tag() -> None:
     doc = {"extra": {"tags": ["basic", "Ensembl_canonical_extended"]}}
 
     assert _transcript_relevance_flags(doc)["ensembl_canonical"] is False
+
+
+BRCA1_EXTRA = {
+    "dbnsfp_identifiers": {
+        "uniprot_accessions": ["P38398"],
+        "ccds_ids": ["CCDS11453", "CCDS11454"],
+        "ucsc_ids": ["uc002ict.4"],
+    }
+}
+
+
+def _links(extra):
+    return {
+        link.label: link.href
+        for link in _build_external_links(
+            symbol="BRCA1",
+            gene_doc={"chr": "17", "start": 43044295, "end": 43125364},
+            assembly_name="GRCh38",
+            ensembl_gene_id="ENSG00000012048",
+            ncbi_gene_id="672",
+            hgnc_id="HGNC:1100",
+            omim_gene_id="113705",
+            extra=extra,
+        )
+    }
+
+
+def test_external_links_use_the_uniprot_accession_we_hold() -> None:
+    links = _links(BRCA1_EXTRA)
+
+    # Not a symbol search that hopes the first hit is the right gene.
+    assert links["UniProt"] == "https://www.uniprot.org/uniprotkb/P38398/entry"
+
+
+def test_external_links_add_ccds_and_a_ucsc_gene_page() -> None:
+    links = _links(BRCA1_EXTRA)
+
+    assert "CCDS" in links
+    assert "DATA=CCDS11453" in links["CCDS"]
+    assert "hgg_gene=uc002ict.4" in links["UCSC"]
+
+
+def test_external_links_fall_back_to_searches_without_identifiers() -> None:
+    links = _links({})
+
+    assert links["UniProt"] == "https://www.uniprot.org/uniprotkb?query=gene:BRCA1"
+    assert "CCDS" not in links
+    # No UCSC id, so the browser opens at the locus instead of the gene model.
+    assert "position=chr17" in links["UCSC"]
+
+
+def test_external_links_fall_back_from_dbnsfp_to_hgnc_identifiers() -> None:
+    links = _links({"hgnc_identifiers": {"uniprot_ids": ["Q6ZMQ8"], "ccds_id": ["CCDS999"]}})
+
+    assert links["UniProt"] == "https://www.uniprot.org/uniprotkb/Q6ZMQ8/entry"
+    assert "DATA=CCDS999" in links["CCDS"]
+
+
+def test_first_identifier_skips_empty_entries_and_blocks() -> None:
+    extra = {"dbnsfp_identifiers": {"uniprot_accessions": ["", "  ", "P38398"]}}
+
+    assert _first_identifier(extra, ("dbnsfp_identifiers", "uniprot_accessions")) == "P38398"
+    assert _first_identifier(extra, ("missing_block", "whatever")) is None
+    assert _first_identifier({"dbnsfp_identifiers": "not-a-dict"}, ("dbnsfp_identifiers", "x")) is None

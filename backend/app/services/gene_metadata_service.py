@@ -130,6 +130,23 @@ def _assembly_priority(assembly_name: str) -> tuple[int, str]:
     return (9, assembly_name)
 
 
+def _first_identifier(extra: dict[str, Any], *paths: tuple[str, str]) -> str | None:
+    """First non-empty identifier from ``extra[block][key]``, scalar or list.
+
+    dbNSFP and HGNC both carry the same identifiers under their own block, and either
+    may be absent for a given gene, so the caller lists the places to look in order of
+    preference and takes whatever is actually there.
+    """
+    for block, key in paths:
+        value = ((extra.get(block) or {}) if isinstance(extra.get(block), dict) else {}).get(key)
+        if isinstance(value, list):
+            value = next((entry for entry in value if str(entry or "").strip()), None)
+        text_value = str(value or "").strip()
+        if text_value:
+            return text_value
+    return None
+
+
 def _build_external_links(
     *,
     symbol: str,
@@ -139,6 +156,7 @@ def _build_external_links(
     ncbi_gene_id: str | None,
     hgnc_id: str | None,
     omim_gene_id: str | None,
+    extra: dict[str, Any] | None = None,
 ) -> list[GeneExternalLinkOut]:
     chrom = str(gene_doc.get("chr", ""))
     chrom_label = chrom if chrom.startswith("chr") else f"chr{chrom}"
@@ -146,6 +164,22 @@ def _build_external_links(
     ucsc_db = _ucsc_db_name(assembly_name)
     gnomad_dataset = _gnomad_dataset_name(assembly_name)
     pubmed_query = quote(f"{symbol}[Title/Abstract] OR {symbol}[MeSH Terms]")
+
+    # dbNSFP and HGNC both hand us exact accessions for this gene. Where one exists the
+    # link resolves to the record itself rather than running a symbol search and hoping
+    # the first hit is the right gene.
+    extra = extra or {}
+    uniprot_accession = _first_identifier(
+        extra,
+        ("dbnsfp_identifiers", "uniprot_accessions"),
+        ("hgnc_identifiers", "uniprot_ids"),
+    )
+    ccds_id = _first_identifier(
+        extra, ("dbnsfp_identifiers", "ccds_ids"), ("hgnc_identifiers", "ccds_id")
+    )
+    ucsc_id = _first_identifier(
+        extra, ("dbnsfp_identifiers", "ucsc_ids"), ("hgnc_identifiers", "ucsc_id")
+    )
 
     links = [
         GeneExternalLinkOut(
@@ -201,18 +235,42 @@ def _build_external_links(
         ),
         GeneExternalLinkOut(label="GTEx", href=f"https://gtexportal.org/home/gene/{quote(symbol)}"),
         GeneExternalLinkOut(label="ClinVar", href=f"https://www.ncbi.nlm.nih.gov/clinvar/?term={quote(symbol)}%5Bgene%5D"),
-        GeneExternalLinkOut(label="UniProt", href=f"https://www.uniprot.org/uniprotkb?query=gene:{quote(symbol)}"),
+        GeneExternalLinkOut(
+            label="UniProt",
+            href=(
+                f"https://www.uniprot.org/uniprotkb/{quote(uniprot_accession)}/entry"
+                if uniprot_accession
+                else f"https://www.uniprot.org/uniprotkb?query=gene:{quote(symbol)}"
+            ),
+        ),
         GeneExternalLinkOut(
             label="GeneReviews",
             href=f"https://www.ncbi.nlm.nih.gov/books/?term={quote(symbol)}%5Bbook%5D%20AND%20GeneReviews%5Bbook%5D",
         ),
         GeneExternalLinkOut(label="PanelApp", href=f"https://panelapp.genomicsengland.co.uk/entities/{quote(symbol)}"),
     ]
+    if ccds_id:
+        links.append(
+            GeneExternalLinkOut(
+                label="CCDS",
+                href=(
+                    "https://www.ncbi.nlm.nih.gov/CCDS/CcdsBrowse.cgi?"
+                    f"{urlencode({'REQUEST': 'CCDS', 'DATA': ccds_id})}"
+                ),
+            )
+        )
     if ucsc_db:
+        # The gene-model page when the UCSC id is known, otherwise the locus in the browser.
         links.append(
             GeneExternalLinkOut(
                 label="UCSC",
-                href=f"https://genome.ucsc.edu/cgi-bin/hgTracks?{urlencode({'db': ucsc_db, 'position': locus})}",
+                href=(
+                    "https://genome.ucsc.edu/cgi-bin/hgGene?"
+                    f"{urlencode({'db': ucsc_db, 'hgg_gene': ucsc_id})}"
+                    if ucsc_id
+                    else "https://genome.ucsc.edu/cgi-bin/hgTracks?"
+                    f"{urlencode({'db': ucsc_db, 'position': locus})}"
+                ),
             )
         )
     if ensembl_gene_id and gnomad_dataset:
@@ -612,6 +670,7 @@ async def build_gene_profile(
         ncbi_gene_id=cached_mapping.get("ncbi_gene_id"),
         hgnc_id=cached_mapping.get("hgnc_id"),
         omim_gene_id=cached_mapping.get("omim_gene_id"),
+        extra=dict(cached_mapping.get("extra") or {}),
     )
 
     monarch_rows = await list_monarch_gene_disease(
