@@ -1710,8 +1710,16 @@ class GeneInfoSourceSummaryOut(BaseModel):
     latest_fetched_at: Optional[datetime] = None
     success_count: int = 0
     missing_count: int = 0
+    # Genes this source was never queried for, kept apart from the genes it was queried
+    # for and had nothing on — otherwise a skipped source is indistinguishable from an
+    # empty one and reads as poor coverage.
+    not_consulted_count: int = 0
     error_count: int = 0
     record_count: int = 0
+    # Release behind the most recent fetch, and how many distinct releases the cache
+    # still holds — more than one means a partial refresh left a mixed cache.
+    release: Optional[str] = None
+    release_count: int = 0
 
 
 class GeneReferenceAdminStatusOut(BaseModel):

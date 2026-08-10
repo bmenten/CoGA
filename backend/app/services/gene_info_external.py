@@ -322,8 +322,24 @@ async def fetch_external_gene_bundle(
                 local_extra.get("ensembl_description"),
                 (local_extra.get("clingen_gene_facts") or {}).get("function"),
             ),
-            "aliases": sorted(set(as_list(local_profile.get("aliases")))),
-            "previous_symbols": sorted(set(as_list(local_profile.get("previous_symbols")))),
+            # HGNC is the register for what a gene is called and what it used to be
+            # called, so its symbol lists take precedence over anything a derived
+            # source carries in its own profile.
+            "aliases": sorted(
+                {
+                    alias
+                    for alias in (
+                        as_list(bulk_bundle.get("aliases")) + as_list(local_profile.get("aliases"))
+                    )
+                    if alias and alias != cleaned_symbol
+                }
+            ),
+            "previous_symbols": sorted(
+                set(
+                    as_list(bulk_bundle.get("previous_symbols"))
+                    + as_list(local_profile.get("previous_symbols"))
+                )
+            ),
             "ensembl_gene_id": first_non_empty(local_profile.get("ensembl_gene_id")),
             "ncbi_gene_id": first_non_empty(local_profile.get("ncbi_gene_id")),
             "hgnc_id": first_non_empty(local_profile.get("hgnc_id")),
@@ -391,9 +407,13 @@ async def fetch_external_gene_bundle(
             message=str(error),
         )
 
+    # The per-gene HGNC REST lookup resolves for barely half the genes that reach this
+    # path, so the bulk complete set backs it up: same authority, one download.
+    bulk_profile = bulk_bundle.get("profile") or {}
     ensembl_gene_id = first_non_empty(
         ensembl_payload.get("id"),
         hgnc_payload.get("ensembl_gene_id"),
+        bulk_profile.get("ensembl_gene_id"),
     )
     homologs: List[Dict[str, Any]] = []
     if ensembl_gene_id:
@@ -416,11 +436,17 @@ async def fetch_external_gene_bundle(
     aliases = sorted(
         {
             alias
-            for alias in (as_list(hgnc_payload.get("alias_symbol")) + as_list(ncbi_payload.get("otheraliases")))
+            for alias in (
+                as_list(hgnc_payload.get("alias_symbol"))
+                + as_list(ncbi_payload.get("otheraliases"))
+                + as_list(bulk_bundle.get("aliases"))
+            )
             if alias and alias != cleaned_symbol
         }
     )
-    previous_symbols = sorted(set(as_list(hgnc_payload.get("prev_symbol"))))
+    previous_symbols = sorted(
+        set(as_list(hgnc_payload.get("prev_symbol")) + as_list(bulk_bundle.get("previous_symbols")))
+    )
     omim_ids = as_list(hgnc_payload.get("omim_id"))
     clingen_payload: Dict[str, Any] = {}
     if is_human:
@@ -485,8 +511,9 @@ async def fetch_external_gene_bundle(
         "ncbi_gene_id": first_non_empty(
             ncbi_payload.get("uid"),
             hgnc_payload.get("entrez_id"),
+            bulk_profile.get("ncbi_gene_id"),
         ),
-        "hgnc_id": first_non_empty(hgnc_payload.get("hgnc_id")),
+        "hgnc_id": first_non_empty(hgnc_payload.get("hgnc_id"), bulk_profile.get("hgnc_id")),
         "omim_gene_id": first_non_empty(
             omim_ids[0] if omim_ids else None,
             bulk_bundle.get("omim_gene_id"),
@@ -494,10 +521,12 @@ async def fetch_external_gene_bundle(
         "gene_type": first_non_empty(
             hgnc_payload.get("locus_group"),
             ensembl_payload.get("biotype"),
+            bulk_profile.get("gene_type"),
         ),
         "location": first_non_empty(
             hgnc_payload.get("location"),
             ncbi_payload.get("maplocation"),
+            bulk_profile.get("location"),
         ),
         "homologs": homologs,
         "source_status": source_status_map,

@@ -24,7 +24,12 @@ from ..schemas import (
     GeneInfoSourceSummaryOut,
     GeneReferenceAdminStatusOut,
 )
-from .gene_info_bulk_sources import find_local_dbnsfp_gene_path, load_human_gene_bulk_context
+from .gene_info_bulk_sources import (
+    HumanGeneBulkContext,
+    build_hgnc_symbol_resolver,
+    find_local_dbnsfp_gene_path,
+    load_human_gene_bulk_context,
+)
 from .gene_info_external import fetch_external_gene_bundle
 
 logger = logging.getLogger(__name__)
@@ -56,8 +61,16 @@ def _assembly_priority(assembly_name: str) -> tuple[int, str]:
     return (9, assembly_name)
 
 
-def _gene_locus(doc: dict[str, Any]) -> str:
-    chrom = str(doc.get("chr", ""))
+def _gene_locus(doc: dict[str, Any]) -> str | None:
+    """Format the assembly locus, or nothing for a gene the assembly does not place.
+
+    Genes carried by HGNC but absent from the assembly's annotation have no
+    coordinates here; ``None`` lets the caller fall back to HGNC's cytogenetic band
+    instead of emitting a meaningless ``chr:0-0``.
+    """
+    chrom = str(doc.get("chr") or "")
+    if not chrom or doc.get("start") is None or doc.get("end") is None:
+        return None
     display = chrom if chrom.startswith("chr") else f"chr{chrom}"
     return f"{display}:{int(doc.get('start', 0)):,}-{int(doc.get('end', 0)):,}"
 
@@ -131,10 +144,56 @@ async def _fetch_species_rows(session: AsyncSession) -> list[dict[str, Any]]:
     return [dict(row) for row in result.mappings().all()]
 
 
+def _expand_groups_with_hgnc(
+    grouped_by_symbol: dict[str, list[dict[str, Any]]],
+    *,
+    assembly_ids: list[str],
+    bulk_context: HumanGeneBulkContext | None,
+    symbol: str | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Reconcile the assembly's gene list against the HGNC register.
+
+    Two things are wrong with taking the ``genes`` table as the gene set. It carries
+    symbols HGNC has since renamed, so their annotation is looked up under a name no
+    source uses any more; and it only holds what the assembly's annotation shipped,
+    which is far short of the genes HGNC recognises — the rest simply never get a
+    cached record, however much annotation we hold for them.
+
+    So: fold stale symbols into the current one (keeping their loci, which is the part
+    the assembly is authoritative about), then add the HGNC genes that have no locus
+    here at all. Those get a row per human assembly with no coordinates — they are
+    still real genes worth answering questions about.
+    """
+    hgnc = (bulk_context.datasets.get("hgnc_complete_set") if bulk_context else None)
+    if hgnc is None or hgnc.status != "success" or not hgnc.records_by_symbol:
+        return grouped_by_symbol
+
+    resolver = build_hgnc_symbol_resolver(hgnc.records_by_symbol)
+    reconciled: dict[str, list[dict[str, Any]]] = {}
+    for group_symbol, docs in grouped_by_symbol.items():
+        canonical = resolver.get(group_symbol.strip().upper(), group_symbol)
+        reconciled.setdefault(canonical, []).extend(docs)
+
+    wanted = (
+        {resolver.get(symbol.strip().upper(), symbol.strip())}
+        if symbol
+        else set(hgnc.records_by_symbol)
+    )
+    for hgnc_symbol in wanted:
+        if hgnc_symbol in reconciled or hgnc_symbol not in hgnc.records_by_symbol:
+            continue
+        reconciled[hgnc_symbol] = [
+            {"assembly_id": assembly_id, "gene_id": None, "hgnc_symbol": hgnc_symbol}
+            for assembly_id in assembly_ids
+        ]
+    return reconciled
+
+
 async def _load_human_gene_groups(
     session: AsyncSession,
     *,
     symbol: str | None = None,
+    bulk_context: HumanGeneBulkContext | None = None,
 ) -> tuple[HumanGeneContext, list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     human_context = await _get_human_context(session)
     assembly_ids = [assembly["id"] for assembly in human_context.assemblies]
@@ -193,6 +252,12 @@ async def _load_human_gene_groups(
         if not symbol_key:
             continue
         grouped_by_symbol.setdefault(symbol_key, []).append(gene_row)
+    grouped_by_symbol = _expand_groups_with_hgnc(
+        grouped_by_symbol,
+        assembly_ids=assembly_ids,
+        bulk_context=bulk_context,
+        symbol=symbol,
+    )
     return human_context, species_docs, grouped_by_symbol
 
 
@@ -226,8 +291,16 @@ async def _aggregate_gene_info_source_summaries(
             MAX(NULLIF(source.value->>'fetched_at', '')::timestamptz) AS latest_fetched_at,
             COUNT(*) FILTER (WHERE source.value->>'status' = 'success') AS success_count,
             COUNT(*) FILTER (WHERE source.value->>'status' = 'missing') AS missing_count,
+            COUNT(*) FILTER (WHERE source.value->>'status' = 'not_consulted') AS not_consulted_count,
             COUNT(*) FILTER (WHERE source.value->>'status' = 'error') AS error_count,
-            COUNT(*) AS record_count
+            COUNT(*) AS record_count,
+            -- The release behind the most recent fetch, plus how many distinct releases
+            -- the cache still holds: more than one means a partial refresh left genes
+            -- answered by different issues of the same source.
+            (
+                array_agg(source.value->>'release' ORDER BY source.value->>'fetched_at' DESC NULLS LAST)
+            )[1] AS release,
+            COUNT(DISTINCT source.value->>'release') AS release_count
         FROM gene_info gi
         CROSS JOIN LATERAL jsonb_each(COALESCE(gi.source_status, '{}'::jsonb)) AS source(key, value)
         WHERE gi.assembly_id IN :assembly_ids
@@ -242,8 +315,11 @@ async def _aggregate_gene_info_source_summaries(
             latest_fetched_at=row.get("latest_fetched_at"),
             success_count=int(row.get("success_count") or 0),
             missing_count=int(row.get("missing_count") or 0),
+            not_consulted_count=int(row.get("not_consulted_count") or 0),
             error_count=int(row.get("error_count") or 0),
             record_count=int(row.get("record_count") or 0),
+            release=row.get("release"),
+            release_count=int(row.get("release_count") or 0),
         )
         for row in result.mappings().all()
     ]
@@ -638,7 +714,7 @@ async def _upsert_gene_info_row(
         {
             "assembly_id": assembly_id,
             "hgnc_symbol": symbol,
-            "gene_id": str(gene_doc.get("gene_id")),
+            "gene_id": str(gene_doc["gene_id"]) if gene_doc.get("gene_id") is not None else None,
             "display_name": external_bundle.get("display_name") or gene_doc.get("description"),
             "summary": external_bundle.get("summary") or gene_doc.get("description"),
             "aliases": json.dumps(external_bundle.get("aliases", [])),
@@ -666,11 +742,11 @@ async def _refresh_grouped_human_gene_info(
     human_context: HumanGeneContext,
     species_docs: list[dict[str, Any]],
     grouped_by_symbol: dict[str, list[dict[str, Any]]],
+    bulk_context: HumanGeneBulkContext,
 ) -> GeneBulkRefreshOut:
     updated_records = 0
     sorted_symbols = sorted(grouped_by_symbol)
     total_symbols = len(sorted_symbols)
-    bulk_context = await load_human_gene_bulk_context(symbols=sorted_symbols)
     await session.execute(
         text(
             """
@@ -786,9 +862,19 @@ async def run_gene_reference_refresh_job(
         if job_row is None:
             return
         try:
+            job_symbol = str(job_row.get("symbol") or "").strip() or None
+            # Load the bulk sources before choosing which genes to refresh: HGNC is
+            # what says which human genes exist, so the gene set is derived from it
+            # rather than from whichever symbols the assembly's annotation happens to
+            # carry. A whole-cohort refresh consults every source for every gene, so it
+            # loads them unrestricted.
+            bulk_context = await load_human_gene_bulk_context(
+                symbols=[job_symbol] if job_symbol else None
+            )
             human_context, species_docs, grouped_by_symbol = await _load_human_gene_groups(
                 session,
-                symbol=str(job_row.get("symbol") or "").strip() or None,
+                symbol=job_symbol,
+                bulk_context=bulk_context,
             )
             result = await _refresh_grouped_human_gene_info(
                 session,
@@ -797,6 +883,7 @@ async def run_gene_reference_refresh_job(
                 human_context=human_context,
                 species_docs=species_docs,
                 grouped_by_symbol=grouped_by_symbol,
+                bulk_context=bulk_context,
             )
             await session.execute(
                 text(
