@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import gzip
 import io
+import itertools
 import logging
 import re
 import time
@@ -22,7 +24,17 @@ from ..schemas import (
     ReferenceImportSourceOrganismOut,
 )
 from .bounded_download import download_bounded_bytes, gunzip_bounded
-from .reference_metadata_service import _assembly_dataset_count, apply_reference_dataset_text
+from .gencode_import import (
+    GencodeRelease,
+    iter_gencode_gene_rows,
+    parse_gencode_refseq_metadata,
+    parse_gencode_release,
+)
+from .reference_metadata_service import (
+    _assembly_dataset_count,
+    apply_reference_dataset_text,
+    apply_reference_gene_rows,
+)
 
 UCSC_API_ROOT = "https://api.genome.ucsc.edu"
 UCSC_DOWNLOAD_ROOT = "https://hgdownload.soe.ucsc.edu/goldenPath"
@@ -473,6 +485,78 @@ async def _download_cytobands(
     )
 
 
+def _iter_gencode_rows_from_gzip(
+    raw: bytes,
+    *,
+    assembly_id: str,
+    refseq_by_transcript: dict[str, list[str]],
+):
+    """Stream GTF rows straight out of the compressed bytes.
+
+    The annotation is ~350k transcripts; decompressing it to one string, or collecting
+    the rows into a list, costs around a gigabyte before anything reaches Postgres.
+    Decompression is incremental and the caller batches, so neither ever happens.
+    """
+    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as gz:
+        stream = io.TextIOWrapper(gz, encoding="utf-8", errors="replace")
+        yield from iter_gencode_gene_rows(
+            stream,
+            assembly_id=assembly_id,
+            refseq_by_transcript=refseq_by_transcript,
+        )
+
+
+def _gencode_release_from_gzip(raw: bytes) -> GencodeRelease:
+    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as gz:
+        stream = io.TextIOWrapper(gz, encoding="utf-8", errors="replace")
+        return parse_gencode_release(itertools.islice(stream, 20))
+
+
+async def _download_gencode_genes(
+    client: httpx.AsyncClient,
+    *,
+    assembly_id: str,
+    ucsc_genome: str,
+) -> tuple[Any, str, str] | None:
+    """Fetch GENCODE gene rows, or ``None`` to let the caller fall back to UCSC.
+
+    GENCODE publishes human GRCh38 only, and a reference bootstrap must not be blocked
+    by an unreachable annotation, so every other genome and every failure returns
+    ``None`` rather than raising.
+    """
+    url = str(settings.reference_gencode_gtf_url or "").strip()
+    if not url or ucsc_genome != HUMAN_GRCH38_UCSC_GENOME:
+        return None
+    try:
+        raw = await download_bounded_bytes(client, url, source=url)
+        refseq_by_transcript = await _download_gencode_refseq_metadata(client)
+        release = _gencode_release_from_gzip(raw)
+        rows = _iter_gencode_rows_from_gzip(
+            raw,
+            assembly_id=assembly_id,
+            refseq_by_transcript=refseq_by_transcript,
+        )
+        return rows, url, f"gencode {release.label}" if release.label else "gencode"
+    except Exception as exc:  # pragma: no cover - network shape varies
+        logger.warning("GENCODE gene import failed (%s); falling back to UCSC", exc)
+        return None
+
+
+async def _download_gencode_refseq_metadata(client: httpx.AsyncClient) -> dict[str, list[str]]:
+    """Best-effort: a missing RefSeq map costs accession lookups, not the whole import."""
+    url = str(settings.reference_gencode_refseq_metadata_url or "").strip()
+    if not url:
+        return {}
+    try:
+        raw = await download_bounded_bytes(client, url, source=url)
+        return parse_gencode_refseq_metadata(
+            io.TextIOWrapper(gzip.GzipFile(fileobj=io.BytesIO(raw)), encoding="utf-8", errors="replace")
+        )
+    except Exception:  # pragma: no cover - network shape varies
+        logger.warning("GENCODE RefSeq metadata unavailable; accession lookups will be reduced")
+        return {}
+
+
 async def _download_genes(
     client: httpx.AsyncClient,
     *,
@@ -762,30 +846,50 @@ async def import_reference_from_ucsc(
             cytobands_inserted = cytobands.inserted
             cytobands_replaced = cytobands.replaced
         if not missing_only or genes_existing == 0 or overwrite:
-            # Not every UCSC genome publishes a supported gene table (e.g.
-            # T2T/hs1). Treat that as a soft failure: still create the assembly
-            # with cytobands so genes can be uploaded manually later.
-            try:
-                gene_text, gene_source_url, gene_source = await _download_genes(
-                    client, ucsc_genome=ucsc_genome
-                )
-            except HTTPException as exc:
-                gene_source = "unavailable"
-                gene_warning = exc.detail if isinstance(exc.detail, str) else "Gene table unavailable"
-                gene_text = None
-            if gene_text is not None:
-                genes = await apply_reference_dataset_text(
+            # GENCODE first: it is the annotation the variant pipeline is built on, and
+            # it carries biotypes, Ensembl/HGNC identifiers and MANE tags that no UCSC
+            # track does. Anything it cannot serve falls back to the UCSC track.
+            gencode = await _download_gencode_genes(
+                client, assembly_id=assembly_id, ucsc_genome=ucsc_genome
+            )
+            if gencode is not None:
+                gencode_rows, gene_source_url, gene_source = gencode
+                genes = await apply_reference_gene_rows(
                     session,
                     assembly_id=assembly_id,
-                    dataset_type="genes",
-                    text_value=gene_text,
+                    rows=gencode_rows,
                     overwrite=overwrite,
                     commit=False,
                     performed_by=performed_by,
-                    source="ucsc",
+                    source=gene_source,
                 )
                 genes_inserted = genes.inserted
                 genes_replaced = genes.replaced
+            else:
+                # Not every UCSC genome publishes a supported gene table (e.g.
+                # T2T/hs1). Treat that as a soft failure: still create the assembly
+                # with cytobands so genes can be uploaded manually later.
+                try:
+                    gene_text, gene_source_url, gene_source = await _download_genes(
+                        client, ucsc_genome=ucsc_genome
+                    )
+                except HTTPException as exc:
+                    gene_source = "unavailable"
+                    gene_warning = exc.detail if isinstance(exc.detail, str) else "Gene table unavailable"
+                    gene_text = None
+                if gene_text is not None:
+                    genes = await apply_reference_dataset_text(
+                        session,
+                        assembly_id=assembly_id,
+                        dataset_type="genes",
+                        text_value=gene_text,
+                        overwrite=overwrite,
+                        commit=False,
+                        performed_by=performed_by,
+                        source="ucsc",
+                    )
+                    genes_inserted = genes.inserted
+                    genes_replaced = genes.replaced
     await session.commit()
 
     return ReferenceAutoImportResult(

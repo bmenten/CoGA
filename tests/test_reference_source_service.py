@@ -9,6 +9,11 @@ from backend.app.schemas import ReferenceImportSourceAssemblyOut
 from backend.app.services import reference_source_service
 
 
+async def _decline_gencode(client, *, assembly_id: str, ucsc_genome: str):
+    """Stand-in for GENCODE being unavailable, so the UCSC fallback is exercised."""
+    return None
+
+
 class _FakeMappingsResult:
     def __init__(self, rows):
         self._rows = rows
@@ -338,6 +343,13 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
         "_download_genes",
         fake_download_genes,
     )
+    # GENCODE is preferred over the UCSC track; declining it here keeps this test on the
+    # UCSC path it was written for (and off an 80 MB live download).
+    monkeypatch.setattr(
+        reference_source_service,
+        "_download_gencode_genes",
+        _decline_gencode,
+    )
     monkeypatch.setattr(
         reference_source_service,
         "apply_reference_dataset_text",
@@ -410,6 +422,7 @@ async def test_import_reference_from_ucsc_missing_only_skips_loaded_datasets(
     )
     monkeypatch.setattr(reference_source_service, "_download_cytobands", forbidden_download)
     monkeypatch.setattr(reference_source_service, "_download_genes", forbidden_download)
+    monkeypatch.setattr(reference_source_service, "_download_gencode_genes", forbidden_download)
     monkeypatch.setattr(reference_source_service, "apply_reference_dataset_text", forbidden_apply)
 
     session = _RecordingSession(dataset_counts={"cytobands": 24, "genes": 2})

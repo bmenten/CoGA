@@ -243,6 +243,26 @@ class Settings(BaseSettings):
         default="https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt",
         alias="GENE_REFERENCE_HGNC_COMPLETE_SET_URL",
     )
+    # Human gene loci come from GENCODE rather than a UCSC track: it is the annotation
+    # the rest of the pipeline is built on (dbNSFP 5.4 is GENCODE 50 / Ensembl 116), so
+    # the coordinates agree with the variant annotation, and it carries real biotypes,
+    # Ensembl + HGNC identifiers and MANE tags. Pinned by release in the URL.
+    reference_gencode_gtf_url: str = Field(
+        default=(
+            "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/"
+            "gencode.v50.basic.annotation.gtf.gz"
+        ),
+        alias="REFERENCE_GENCODE_GTF_URL",
+    )
+    # Maps Ensembl transcripts to RefSeq accessions, so lookups that name an NM_/NR_
+    # accession keep resolving after the swap away from the refGene-derived table.
+    reference_gencode_refseq_metadata_url: str = Field(
+        default=(
+            "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/"
+            "gencode.v50.metadata.RefSeq.gz"
+        ),
+        alias="REFERENCE_GENCODE_REFSEQ_METADATA_URL",
+    )
     github_repository: str = Field(default="bmenten/coga", alias="GITHUB_REPOSITORY")
     github_repository_url: str = Field(
         default="https://github.com/bmenten/coga",
