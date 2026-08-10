@@ -122,6 +122,35 @@ describe('FamilyStructuralVariantsPage', () => {
     expect(screen.getAllByRole('button', { name: /clear all filters/i }).length).toBeGreaterThan(0);
   });
 
+  it('opens the genome workspaces in a new tab so the filtered list is not re-run on every look', async () => {
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+
+    // Per-variant loci and the whole-genome workspaces in the header both leave the
+    // list behind, so both open a tab rather than replacing it.
+    for (const name of [
+      // IGV is labelled with the window it opens — the chr1:1-2 call padded by
+      // SV_FLANK_BP either side — while the chromosome view names the call itself.
+      /open igv at chr1:1-50002 \(opens in a new tab\)/i,
+      /open chromosome view around chr1:1-2 \(opens in a new tab\)/i,
+      /open the genome overview \(opens in a new tab\)/i,
+      /open the circos view \(opens in a new tab\)/i,
+    ]) {
+      const link = screen.getByRole('link', { name });
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    }
+  });
+
   it('can save a quick review tag without updating count-only cache entries as variant pages', async () => {
     const queryClient = createTestQueryClient();
     render(

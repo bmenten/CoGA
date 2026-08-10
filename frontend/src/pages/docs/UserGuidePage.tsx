@@ -1224,6 +1224,12 @@ const guideSections: GuideSection[] = [
             locus.
           </li>
         </ul>
+        <p>
+          Opening any of these from a variant list — the IGV and View links on a row or card, or
+          the Genome and Circos buttons above the structural-variant table — opens a new browser
+          tab. The list you were working through keeps its filters, sort order, and scroll position
+          instead of re-running the query each time you come back from a locus.
+        </p>
         <h3>Small-variant track: colours and rows</h3>
         <p>
           In the Chromosome view, each small variant is drawn as a dot. Its colour encodes the
@@ -1931,7 +1937,18 @@ const formatSectionIndex = (index: number) => String(index + 1).padStart(2, '0')
 const WorkspaceLinkRow: React.FC<{ links: GuideLink[] }> = ({ links }) => (
   <div className="user-guide-link-row">
     {links.map((link) => (
-      <Link key={`${link.to}:${link.label}`} to={link.to} className="user-guide-link-chip">
+      <Link
+        key={`${link.to}:${link.label}`}
+        to={link.to}
+        className="user-guide-link-chip"
+        // Spelled out rather than left to be concatenated from the two spans.
+        // Accessible-name computation separates descendants with a space only when
+        // they are *blockified*, so this chip announces "Dashboard Start here" purely
+        // because the stylesheet makes it `inline-flex`. Strip the stylesheet — as
+        // jsdom does — and the identical markup announces "DashboardStart here". An
+        // accessible name should not depend on whether the CSS loaded.
+        aria-label={link.note ? `${link.label} ${link.note}` : link.label}
+      >
         <span>{link.label}</span>
         {link.note ? <span className="user-guide-link-note">{link.note}</span> : null}
       </Link>

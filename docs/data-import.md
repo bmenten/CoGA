@@ -31,14 +31,14 @@ Startup bootstrap:
   UCSC `hg38`. If UCSC is unavailable, startup continues after creating the species/assembly shell.
 - CoGA can automatically seed `clinical_cnvs` and `segmental_duplications` for GRCh38 when those
   tables are empty.
-- When `/data/ref-data/dbNSFP5.3_gene.gz` or `GENE_REFERENCE_DBNSFP_GENE_PATH` is present and
+- When `/data/ref-data/dbNSFP5.4_gene.gz` or `GENE_REFERENCE_DBNSFP_GENE_PATH` is present and
   `gene_info` is empty, startup queues the first dbNSFP-backed human gene reference sync.
 - Defaults:
   - assembly: `GRCh38`
   - CNV file: `/data/ref-data/clinical_cnv_syndromes_hg38_combined.tsv`
   - SegDup/LCR file:
     `/data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed`
-  - dbNSFP gene file: `/data/ref-data/dbNSFP5.3_gene.gz`
+  - dbNSFP gene file: `/data/ref-data/dbNSFP5.4_gene.gz`
 - Controls:
   - `REFERENCE_BOOTSTRAP_ENABLED=true|false`
   - `REFERENCE_BOOTSTRAP_ASSEMBLY_NAME=GRCh38`
@@ -68,11 +68,20 @@ The sync now combines:
 - local `dbNSFP_gene` raw files through `GENE_REFERENCE_DBNSFP_GENE_PATH`
 
 CoGA prefers the local dbNSFP gene file, defaulting to
-`/data/ref-data/dbNSFP5.3_gene.gz` in Docker. During gene reference sync, public ClinGen, GenCC,
+`/data/ref-data/dbNSFP5.4_gene.gz` in Docker. During gene reference sync, public ClinGen, GenCC,
 ClinVar, HGNC, Ensembl, and NCBI sources are used as fallback sources only when the local dbNSFP
 file is unavailable or does not contain the requested gene. The dbNSFP file enriches cached gene
 records with identifiers, names and aliases, OMIM/Orphanet/GenCC disease context, ClinGen dosage
 fields, HPO/GO/pathway terms, model organism context, tissue expression, and constraint metrics.
+
+The pinned release is **dbNSFP 5.4** (August 2026, GENCODE 50 / Ensembl 116). The gene table ships
+inside the full dbNSFP archive from <https://www.dbnsfp.org/download> (registration required); place
+its gene file at the configured path, renamed to `dbNSFP5.4_gene.gz`. Bumping to a newer dbNSFP
+release means: drop the new gene file next to (or over) the old one, update
+`GENE_REFERENCE_DBNSFP_GENE_PATH` and the defaults that reference the filename, and run a gene
+reference sync — cached `gene_info` rows are **not** refreshed automatically, they keep the values
+from the release they were synced with. Columns are read by header name, so dbNSFP adding or
+reordering gene columns is safe; a renamed or removed column silently empties that field.
 
 ## Pedigrees
 

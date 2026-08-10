@@ -257,7 +257,7 @@ class Settings(BaseSettings):
         alias="GITHUB_RELEASE_CACHE_TTL_SECONDS",
     )
     gene_reference_dbnsfp_gene_path: str | None = Field(
-        default="/data/ref-data/dbNSFP5.3_gene.gz",
+        default="/data/ref-data/dbNSFP5.4_gene.gz",
         alias="GENE_REFERENCE_DBNSFP_GENE_PATH",
     )
     gene_reference_bootstrap_on_startup: bool = Field(

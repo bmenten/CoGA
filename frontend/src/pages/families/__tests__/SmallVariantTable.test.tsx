@@ -146,4 +146,48 @@ describe('SmallVariantTable', () => {
     expect(tooltip).toHaveTextContent(/Inheritance: de novo/i);
     expect(tooltip).toHaveTextContent(/Seizure/);
   });
+
+  it('opens the IGV and chromosome-view links in a new tab so the filtered list survives', () => {
+    render(
+      <MemoryRouter>
+        <SmallVariantTable
+          variants={[
+            {
+              _id: 'nav',
+              chr: '1',
+              start: 100,
+              end: 100,
+              type: 'SNV',
+              gene: 'GENE1',
+              ref: 'A',
+              alt: 'G',
+              impact: 'HIGH',
+              effect: 'stop_gained',
+              genotypes: [],
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch="?gene=GENE1"
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+
+    const igv = screen.getByRole('link', { name: /open igv at chr1:100-100 \(opens in a new tab\)/i });
+    expect(igv).toHaveAttribute('target', '_blank');
+    expect(igv).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(igv).toHaveAttribute('href', expect.stringContaining('/families/F1/igv'));
+
+    const view = screen.getByRole('link', {
+      name: /open chromosome view around 1:100-100 \(opens in a new tab\)/i,
+    });
+    expect(view).toHaveAttribute('target', '_blank');
+    expect(view).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(view).toHaveAttribute('href', expect.stringContaining('/families/F1/chromosome/1'));
+  });
 });

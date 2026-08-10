@@ -19,6 +19,7 @@ import type {
   StructuralVariantFamilyMember,
 } from './structuralVariantSearch';
 import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
+import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { formatStructuralLength } from './StructuralVariantTable';
 import VariantPriorityBlock from './VariantPriorityBlock';
 
@@ -376,12 +377,20 @@ export default function StructuralVariantCards({
                 </button>
               </div>
               <div className="variant-card-nav">
-                <Link to={igvHref} className="variant-card-resource variant-card-resource--clinical">
+                <GenomeWorkspaceLink
+                  to={igvHref}
+                  className="variant-card-resource variant-card-resource--clinical"
+                  label={`Open IGV at ${locus}`}
+                >
                   IGV
-                </Link>
-                <Link to={viewHref} className="variant-card-resource variant-card-resource--clinical">
+                </GenomeWorkspaceLink>
+                <GenomeWorkspaceLink
+                  to={viewHref}
+                  className="variant-card-resource variant-card-resource--clinical"
+                  label={`Open chromosome view around ${variant.chr}:${variant.start}-${variant.end}`}
+                >
                   Chromosome view
-                </Link>
+                </GenomeWorkspaceLink>
               </div>
             </div>
           </article>
