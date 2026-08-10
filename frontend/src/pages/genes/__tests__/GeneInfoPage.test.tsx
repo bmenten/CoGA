@@ -201,7 +201,10 @@ describe('GeneInfoPage', () => {
                 // when they did. The transcript flags are the only source now.
                 ensembl_description: 'BRCA1 DNA repair associated',
                 ncbi_other_designations: ['breast cancer type 1 susceptibility protein'],
-                hgnc_vega_id: 'OTTHUMG00000157426',
+                // As the API actually returns it for a dbNSFP-covered gene: HGNC's
+                // identifiers arrive in their own block. The flat hgnc_vega_id was only
+                // ever produced by the per-gene HGNC lookup, which no longer runs.
+                hgnc_identifiers: { vega_id: 'OTTHUMG00000157426' },
                 refseq_accessions: ['NM_007294.4'],
                 omim_diseases: [
                   {
@@ -393,7 +396,9 @@ describe('GeneInfoPage', () => {
       'href',
       'https://pubmed.ncbi.nlm.nih.gov/32375709/',
     );
-    expect(screen.getByText('OTTHUMG00000157426')).toBeInTheDocument();
+    const vegaRow = screen.getByText('Vega').closest('.gene-compact-detail-row');
+    expect(vegaRow).not.toBeNull();
+    expect(within(vegaRow as HTMLElement).getByText('OTTHUMG00000157426')).toBeInTheDocument();
     expect(screen.getByText('NM_007294.4')).toBeInTheDocument();
     expect(screen.getByText('3.21')).toBeInTheDocument();
     expect(screen.getByText('0.094')).toBeInTheDocument();

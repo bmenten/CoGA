@@ -228,6 +228,16 @@ interface GeneProfileExtra {
   ncbi_other_designations?: string[];
   clingen_curation_counts?: GeneClingenCurationCounts;
   clingen_gene_facts?: GeneClingenFacts;
+  // HGNC's identifiers live in their own block, mirroring the complete set. The flat
+  // hgnc_vega_id above it is a leftover promotion from the per-gene HGNC REST payload,
+  // kept only so caches written before that lookup was removed still render.
+  hgnc_identifiers?: {
+    vega_id?: string | null;
+    ucsc_id?: string | null;
+    ccds_id?: string[];
+    uniprot_ids?: string[];
+    mane_select?: string[];
+  };
   hgnc_vega_id?: string | null;
   refseq_accessions?: string[];
   omim_diseases?: Array<string | GeneOmimDiseaseEntry>;
@@ -968,7 +978,11 @@ const GeneInfoPage: React.FC = () => {
                 '—'
               ),
             },
-            { label: 'Vega', value: profile.extra.hgnc_vega_id || '—' },
+            {
+              label: 'Vega',
+              value:
+                profile.extra.hgnc_identifiers?.vega_id || profile.extra.hgnc_vega_id || '—',
+            },
             {
               label: 'Canonical transcript',
               value:
