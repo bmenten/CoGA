@@ -204,7 +204,7 @@ describe('GeneInfoPage', () => {
                 // As the API actually returns it for a dbNSFP-covered gene: HGNC's
                 // identifiers arrive in their own block. The flat hgnc_vega_id was only
                 // ever produced by the per-gene HGNC lookup, which no longer runs.
-                hgnc_identifiers: { vega_id: 'OTTHUMG00000157426' },
+                hgnc_identifiers: { vega_id: 'OTTHUMG00000157426', mgd_id: 'MGI:104537' },
                 refseq_accessions: ['NM_007294.4'],
                 omim_diseases: [
                   {
@@ -460,6 +460,12 @@ describe('GeneInfoPage', () => {
     expect(screen.getByRole('link', { name: 'Monarch' })).toHaveAttribute(
       'href',
       'https://monarchinitiative.org/HGNC:1100',
+    );
+    // MGI catalogues the mouse: the ortholog's marker page, not a search for the human
+    // symbol. The old searchtool endpoint answers every query with the MGI homepage.
+    expect(screen.getByRole('link', { name: 'MGI' })).toHaveAttribute(
+      'href',
+      'https://www.informatics.jax.org/marker/MGI:104537',
     );
     expect(screen.getByRole('link', { name: 'KEGG' })).toHaveAttribute(
       'href',

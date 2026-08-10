@@ -393,14 +393,14 @@ HGNC_COMPLETE_SET = (
     "hgnc_id\tsymbol\tname\tlocus_group\tlocus_type\tstatus\tlocation\talias_symbol\t"
     "prev_symbol\tgene_group\tdate_approved_reserved\tdate_symbol_changed\tdate_modified\t"
     "entrez_id\tensembl_gene_id\tvega_id\tucsc_id\trefseq_accession\tccds_id\tuniprot_ids\t"
-    "omim_id\torphanet\tmane_select\n"
+    "omim_id\torphanet\tmane_select\tmgd_id\n"
     "HGNC:1100\tBRCA1\tBRCA1 DNA repair associated\tprotein-coding gene\tgene with protein product\t"
     "Approved\t17q21.31\tRNF53|PPP1R53\tBRCAI|BRCC1\tRing finger proteins\t1994-01-01\t\t2026-01-01\t"
     "672\tENSG00000012048\tOTTHUMG00000157426\tuc002ict.4\tNM_007294\tCCDS11453\tP38398\t113705\t145\t"
-    "ENST00000357654.9|NM_007294.4\n"
+    "ENST00000357654.9|NM_007294.4\tMGI:104537\n"
     "HGNC:21\tLMTK1\tlemur tyrosine kinase 1\tprotein-coding gene\tgene with protein product\t"
     "Approved\t17q25.3\tAATYK|LMR1\tAATK\tLemur tyrosine kinases\t1997-01-01\t2026-02-01\t2026-02-01\t"
-    "9625\tENSG00000181409\t\t\tNM_001080395\t\tQ6ZMQ8\t\t\t\n"
+    "9625\tENSG00000181409\t\t\tNM_001080395\t\tQ6ZMQ8\t\t\t\t\n"
 )
 
 
@@ -422,6 +422,8 @@ def test_parse_hgnc_complete_set_captures_identity_and_symbol_history() -> None:
         "NM_007294.4",
     ]
     assert brca1["extra"]["hgnc_gene_facts"]["locus_group"] == "protein-coding gene"
+    # MGI addresses the mouse ortholog by this id; there is no route from a human symbol.
+    assert brca1["extra"]["hgnc_identifiers"]["mgd_id"] == "MGI:104537"
 
 
 def test_parse_hgnc_complete_set_skips_withdrawn_entries() -> None:
