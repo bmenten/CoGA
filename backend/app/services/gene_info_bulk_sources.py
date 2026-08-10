@@ -598,6 +598,9 @@ def parse_hgnc_complete_set_rows(
             "mane_select": _hgnc_multi(_row_value(row, "mane_select")),
             "omim_ids": omim_ids,
             "orphanet_id": _row_value(row, "orphanet"),
+            # MGI's mouse-marker id, which addresses the ortholog's page directly —
+            # informatics.jax.org has no way to reach it from a human symbol.
+            "mgd_id": _row_value(row, "mgd_id"),
         }
         record["extra"]["hgnc_identifiers"] = {
             key: value for key, value in identifiers.items() if value

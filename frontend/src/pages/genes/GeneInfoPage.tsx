@@ -234,6 +234,7 @@ interface GeneProfileExtra {
   hgnc_identifiers?: {
     vega_id?: string | null;
     ucsc_id?: string | null;
+    mgd_id?: string | null;
     ccds_id?: string[];
     uniprot_ids?: string[];
     mane_select?: string[];
@@ -598,12 +599,30 @@ const buildGeneLinks = (profile: GeneProfile): NamedLink[] => {
   pushLink('Protein Atlas', proteinAtlasHref);
   pushLink('NCBI Gene', ncbiGeneHref);
   pushLink('GTEx Portal', byLabel.get('gtex') || byLabel.get('gtex portal'));
-  pushLink('Monarch', `https://monarchinitiative.org/search?q=${symbolQuery}`);
+  // Monarch addresses nodes by CURIE, and a gene node is its HGNC id — the same shape
+  // the disease associations already link with (monarchinitiative.org/MONDO:…). Without
+  // it this was a free-text search that lands on a result list rather than the gene.
+  pushLink(
+    'Monarch',
+    profile.hgnc_id
+      ? `https://monarchinitiative.org/${profile.hgnc_id}`
+      : `https://monarchinitiative.org/search?q=${symbolQuery}`,
+  );
   pushLink('DECIPHER', byLabel.get('decipher'));
   pushLink('UniProt', byLabel.get('uniprot'));
   pushLink('Geno2MP', 'https://geno2mp.gs.washington.edu/Geno2MP/');
   pushLink('gnomAD', gnomadHref);
-  pushLink('MGI', `https://www.informatics.jax.org/searchtool/Search.do?query=${symbolQuery}`);
+  // MGI catalogues the mouse, so the useful destination is the ortholog's marker page,
+  // which HGNC's mgd_id addresses directly. The old searchtool endpoint is dead — it
+  // answers every query with the MGI homepage — so the fallback is quicksearch, which
+  // does still run the search for the genes that have no mouse ortholog.
+  const mgdId = profile.extra.hgnc_identifiers?.mgd_id?.trim();
+  pushLink(
+    'MGI',
+    mgdId
+      ? `https://www.informatics.jax.org/marker/${mgdId}`
+      : `https://www.informatics.jax.org/quicksearch/summary?query=${symbolQuery}`,
+  );
   pushLink('IMPC', `https://www.mousephenotype.org/data/search?term=${symbolQuery}`);
   pushLink('KEGG', keggHref);
   pushLink('ClinGen', byLabel.get('clingen'));
