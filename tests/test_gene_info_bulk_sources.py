@@ -33,6 +33,79 @@ BRCA1,HGNC:1100,Breast-ovarian cancer,MONDO:0012934,AD,SOP v1,Definitive,https:/
     ]
 
 
+# The shape ClinGen actually serves: a title line, FILE CREATED, the webpage URL and a
+# "+++" rule ahead of the real header, plus one more rule directly under it. Parsing this
+# as a plain CSV takes the title line as the field names and silently yields nothing,
+# which is how both ClinGen sources contributed no data at all while still reporting a
+# successful download.
+CLINGEN_VALIDITY_WITH_BANNER = """\
+"CLINGEN GENE DISEASE VALIDITY CURATIONS","","","","","","","","",""
+"FILE CREATED: 2026-08-10","","","","","","","","",""
+"WEBPAGE: https://search.clinicalgenome.org/kb/gene-validity","","","","","","","","",""
+"+++++++++++","++++++++++++++","+++++++++++++","++++++++++++++++++","+++++++++","+++++++++","++++++++++++++","+++++++++++++","+++++++++++++++++++","++++++++++++"
+"GENE SYMBOL","GENE ID (HGNC)","DISEASE LABEL","DISEASE ID (MONDO)","MOI","SOP","CLASSIFICATION","ONLINE REPORT","CLASSIFICATION DATE","GCEP"
+"+++++++++++","++++++++++++++","+++++++++++++","++++++++++++++++++","+++++++++","+++++++++","++++++++++++++","+++++++++++++","+++++++++++++++++++","++++++++++++"
+"BRCA1","HGNC:1100","Breast-ovarian cancer","MONDO:0012934","AD","SOP10","Definitive","https://example.test/report","2026-01-01","Hereditary Cancer GCEP"
+"""
+
+CLINGEN_DOSAGE_WITH_BANNER = """\
+"CLINGEN DOSAGE SENSITIVITY CURATIONS","","","","",""
+"FILE CREATED: 2026-08-10","","","","",""
+"WEBPAGE: https://search.clinicalgenome.org/kb/gene-dosage","","","","",""
+"+++++++++++","+++++++","++++++++++++++++++","+++++++++++++++++","+++++++++++++","++++"
+"GENE SYMBOL","HGNC ID","HAPLOINSUFFICIENCY","TRIPLOSENSITIVITY","ONLINE REPORT","DATE"
+"+++++++++++","+++++++","++++++++++++++++++","+++++++++++++++++","+++++++++++++","++++"
+"BRCA1","HGNC:1100","Sufficient Evidence for Haploinsufficiency","No Evidence for Triplosensitivity","https://example.test/dosage","2021-09-23T08:27:44-04:00"
+"""
+
+
+def test_parse_clingen_validity_rows_skips_the_download_banner() -> None:
+    result = gene_info_bulk_sources.parse_clingen_validity_rows(CLINGEN_VALIDITY_WITH_BANNER)
+
+    assert set(result) == {"BRCA1"}
+    assertions = result["BRCA1"]["extra"]["clingen_validity_assertions"]
+    assert [entry["classification"] for entry in assertions] == ["Definitive"]
+    assert result["BRCA1"]["extra"]["clingen_curation_counts"]["gene_disease_validity"] == 1
+
+
+def test_parse_clingen_dosage_rows_skips_the_download_banner() -> None:
+    result = gene_info_bulk_sources.parse_clingen_dosage_rows(CLINGEN_DOSAGE_WITH_BANNER)
+
+    assert set(result) == {"BRCA1"}
+    assert result["BRCA1"]["extra"]["clingen_dosage_assertions"] == [
+        {
+            "hgnc_id": "HGNC:1100",
+            "haploinsufficiency": "Sufficient Evidence for Haploinsufficiency",
+            "triplosensitivity": "No Evidence for Triplosensitivity",
+            "online_report": "https://example.test/dosage",
+            "date": "2021-09-23T08:27:44-04:00",
+        }
+    ]
+
+
+def test_parse_clingen_rows_never_emits_the_banner_rule_as_a_gene() -> None:
+    # The "+++" rule under the header has a value in the GENE SYMBOL column, so it would
+    # otherwise be ingested as a gene named "+++++++++++".
+    for result in (
+        gene_info_bulk_sources.parse_clingen_validity_rows(CLINGEN_VALIDITY_WITH_BANNER),
+        gene_info_bulk_sources.parse_clingen_dosage_rows(CLINGEN_DOSAGE_WITH_BANNER),
+    ):
+        assert not any(set(symbol) == {"+"} for symbol in result)
+
+
+def test_parse_clingen_rows_still_reads_a_file_served_without_a_banner() -> None:
+    # The header is located by its columns rather than a fixed offset, so ClinGen
+    # dropping the banner would not break parsing the other way round.
+    csv_text = (
+        '"GENE SYMBOL","HGNC ID","HAPLOINSUFFICIENCY","TRIPLOSENSITIVITY","ONLINE REPORT","DATE"\n'
+        '"TP53","HGNC:11998","Sufficient Evidence for Haploinsufficiency","No Evidence for Triplosensitivity","https://example.test/tp53","2020-01-01"\n'
+    )
+
+    result = gene_info_bulk_sources.parse_clingen_dosage_rows(csv_text)
+
+    assert set(result) == {"TP53"}
+
+
 def test_parse_clingen_validity_rows_filters_to_requested_symbols() -> None:
     csv_text = """GENE SYMBOL,GENE ID (HGNC),DISEASE LABEL,DISEASE ID (MONDO),MOI,SOP,CLASSIFICATION,ONLINE REPORT,CLASSIFICATION DATE,GCEP
 BRCA1,HGNC:1100,Breast-ovarian cancer,MONDO:0012934,AD,SOP v1,Definitive,https://example.test/1,2026-01-01,GCEP
