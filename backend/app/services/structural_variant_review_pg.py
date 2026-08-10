@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-from typing import Any, Iterable, Sequence
-from uuid import UUID
+from typing import Any, Sequence
 
 from fastapi import HTTPException
-from fastapi.encoders import jsonable_encoder
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 

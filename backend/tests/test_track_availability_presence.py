@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
 
 from backend.app.services import clickhouse_family_variants as cfv
 from backend.app.services.clickhouse_family_variants import _small_variant_present_sample_names

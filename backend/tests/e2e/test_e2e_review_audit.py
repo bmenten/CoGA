@@ -30,7 +30,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-import yaml
 
 pytestmark = pytest.mark.integration
 

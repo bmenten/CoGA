@@ -10,7 +10,6 @@ Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job set
 
 from __future__ import annotations
 
-import asyncio
 from uuid import uuid4
 
 import pytest
