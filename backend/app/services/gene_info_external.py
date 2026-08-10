@@ -353,27 +353,12 @@ async def fetch_external_gene_bundle(
 
     source_status_map: Dict[str, Dict[str, Any]] = {}
 
-    hgnc_payload: Dict[str, Any] = {}
-    if is_human:
-        try:
-            hgnc_payload = await fetch_hgnc_gene(cleaned_symbol)
-            source_status_map["hgnc"] = source_status(
-                status="success" if hgnc_payload else "missing",
-                source_url=f"https://rest.genenames.org/fetch/symbol/{quote(cleaned_symbol, safe='')}",
-                payload=hgnc_payload,
-                message=None if hgnc_payload else "No HGNC record returned",
-            )
-        except Exception as error:  # pragma: no cover
-            source_status_map["hgnc"] = source_status(
-                status="error",
-                source_url=f"https://rest.genenames.org/fetch/symbol/{quote(cleaned_symbol, safe='')}",
-                message=str(error),
-            )
-    else:
-        source_status_map["hgnc"] = source_status(
-            status="missing",
-            message="HGNC sync is only available for human genes",
-        )
+    # The per-gene HGNC REST lookup is gone as well. It resolved for barely half the
+    # genes reaching this path, and every field it returned — name, aliases, previous
+    # symbols, OMIM/Ensembl/Entrez ids, locus group, location, VEGA id, RefSeq
+    # accessions — is in the HGNC complete set, which is already loaded in bulk for all
+    # ~45,000 approved genes and reports its own per-gene status. Those values are read
+    # off the bulk bundle below.
 
     # The per-gene Ensembl lookup is gone. Its only unique contribution was the
     # canonical transcript, and GENCODE tags that per transcript for every gene, so the
@@ -397,12 +382,14 @@ async def fetch_external_gene_bundle(
             message=str(error),
         )
 
-    # The per-gene HGNC REST lookup resolves for barely half the genes that reach this
-    # path, so the bulk complete set backs it up: same authority, one download.
+    # Everything the per-gene HGNC call used to supply comes off the bulk complete set:
+    # the same authority, already downloaded once for the whole job.
     bulk_profile = bulk_bundle.get("profile") or {}
+    bulk_extra = bulk_bundle.get("extra") or {}
+    hgnc_identifiers = bulk_extra.get("hgnc_identifiers") or {}
+    hgnc_gene_facts = bulk_extra.get("hgnc_gene_facts") or {}
     ensembl_gene_id = first_non_empty(
         ensembl_payload.get("id"),
-        hgnc_payload.get("ensembl_gene_id"),
         bulk_profile.get("ensembl_gene_id"),
     )
     # The Ensembl homology call is gone too. It returned an orthologue for none of the
@@ -414,17 +401,13 @@ async def fetch_external_gene_bundle(
         {
             alias
             for alias in (
-                as_list(hgnc_payload.get("alias_symbol"))
-                + as_list(ncbi_payload.get("otheraliases"))
-                + as_list(bulk_bundle.get("aliases"))
+                as_list(ncbi_payload.get("otheraliases")) + as_list(bulk_bundle.get("aliases"))
             )
             if alias and alias != cleaned_symbol
         }
     )
-    previous_symbols = sorted(
-        set(as_list(hgnc_payload.get("prev_symbol")) + as_list(bulk_bundle.get("previous_symbols")))
-    )
-    omim_ids = as_list(hgnc_payload.get("omim_id"))
+    previous_symbols = sorted(set(as_list(bulk_bundle.get("previous_symbols"))))
+    omim_ids = as_list(hgnc_identifiers.get("omim_ids"))
     # The ClinGen gene-page scrape is gone. Measured across 4,052 genes that reached
     # this path it reported success 4,046 times and carried almost nothing: a function
     # for 61, a MANE transcript for 23, a GenCC classification for 1, an ACMG secondary
@@ -437,10 +420,10 @@ async def fetch_external_gene_bundle(
     clingen_payload: Dict[str, Any] = {}
 
     extra = {
-        "hgnc_name": hgnc_payload.get("name"),
-        "hgnc_gene_group": as_list(hgnc_payload.get("gene_group")),
-        "hgnc_vega_id": first_non_empty(hgnc_payload.get("vega_id")),
-        "refseq_accessions": as_list(hgnc_payload.get("refseq_accession")),
+        "hgnc_name": bulk_profile.get("display_name"),
+        "hgnc_gene_group": as_list(hgnc_gene_facts.get("gene_group")),
+        "hgnc_vega_id": first_non_empty(hgnc_identifiers.get("vega_id")),
+        "refseq_accessions": as_list(hgnc_identifiers.get("refseq_accession")),
         "ensembl_canonical_transcript": ensembl_payload.get("canonical_transcript"),
         "ensembl_description": ensembl_payload.get("description"),
         "ncbi_other_designations": as_list(ncbi_payload.get("otherdesignations")),
@@ -452,8 +435,7 @@ async def fetch_external_gene_bundle(
 
     return {
         "display_name": first_non_empty(
-            clingen_payload.get("gene_facts", {}).get("hgnc_name"),
-            hgnc_payload.get("name"),
+            bulk_profile.get("display_name"),
             ncbi_payload.get("description"),
         ),
         "summary": first_non_empty(
@@ -466,23 +448,21 @@ async def fetch_external_gene_bundle(
         "ensembl_gene_id": ensembl_gene_id,
         "ncbi_gene_id": first_non_empty(
             ncbi_payload.get("uid"),
-            hgnc_payload.get("entrez_id"),
             bulk_profile.get("ncbi_gene_id"),
         ),
-        "hgnc_id": first_non_empty(hgnc_payload.get("hgnc_id"), bulk_profile.get("hgnc_id")),
+        "hgnc_id": first_non_empty(bulk_profile.get("hgnc_id")),
         "omim_gene_id": first_non_empty(
             omim_ids[0] if omim_ids else None,
             bulk_bundle.get("omim_gene_id"),
         ),
         "gene_type": first_non_empty(
-            hgnc_payload.get("locus_group"),
+            hgnc_gene_facts.get("locus_group"),
             ensembl_payload.get("biotype"),
             bulk_profile.get("gene_type"),
         ),
         "location": first_non_empty(
-            hgnc_payload.get("location"),
-            ncbi_payload.get("maplocation"),
             bulk_profile.get("location"),
+            ncbi_payload.get("maplocation"),
         ),
         "homologs": homologs,
         "source_status": source_status_map,

@@ -285,18 +285,11 @@ async def test_fetch_external_gene_bundle_uses_dbnsfp_without_online_fallback(
 async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_dbnsfp_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_fetch_hgnc_gene(symbol: str):
-        assert symbol == "BRCA1"
-        return {
-            "name": "BRCA1 DNA repair associated",
-            "alias_symbol": ["BRCC1"],
-            "hgnc_id": "HGNC:1100",
-        }
-
     async def forbidden_rest_call(*args, **kwargs):
-        # The per-gene Ensembl lookup, its homology call and the ClinGen page scrape were
-        # removed: measured over 4,052 genes they returned a canonical transcript GENCODE
-        # already tags, no orthologue at all, and ClinGen fields that were null for ~99%.
+        # Only NCBI still earns a per-gene request. HGNC, Ensembl, its homology call and
+        # the ClinGen page scrape were removed: measured over 4,052 genes they returned
+        # fields the bulk HGNC set already holds, a canonical transcript GENCODE already
+        # tags, no orthologue at all, and ClinGen fields that were null for ~99%.
         raise AssertionError("this per-gene REST source should no longer be called")
 
     async def fake_fetch_ncbi_gene(symbol: str, species_name: str):
@@ -308,8 +301,8 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
             "otheraliases": "BRCC1",
         }
 
-    monkeypatch.setattr(gene_info_external, "fetch_hgnc_gene", fake_fetch_hgnc_gene)
     monkeypatch.setattr(gene_info_external, "fetch_ncbi_gene", fake_fetch_ncbi_gene)
+    monkeypatch.setattr(gene_info_external, "fetch_hgnc_gene", forbidden_rest_call)
     monkeypatch.setattr(gene_info_external, "fetch_ensembl_gene", forbidden_rest_call)
     monkeypatch.setattr(gene_info_external, "fetch_ensembl_homologies", forbidden_rest_call)
     monkeypatch.setattr(gene_info_external, "fetch_clingen_gene", forbidden_rest_call)
@@ -599,3 +592,88 @@ def test_source_status_without_a_release_states_none_rather_than_guessing() -> N
 
     assert status["release"] is None
     assert status["release_detail"] == {}
+
+
+@pytest.mark.asyncio
+async def test_fetch_external_gene_bundle_takes_identity_from_the_bulk_hgnc_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No per-gene HGNC request, yet identity still resolves.
+
+    Everything the removed HGNC REST call supplied — name, aliases, previous symbols,
+    Ensembl/Entrez/OMIM ids, locus group, location, VEGA id, RefSeq accessions — is in
+    the complete set that is already downloaded once per job.
+    """
+
+    async def forbidden_rest_call(*args, **kwargs):
+        raise AssertionError("this per-gene REST source should no longer be called")
+
+    async def fake_fetch_ncbi_gene(symbol: str, species_name: str):
+        return {"summary": "Tumor suppressor involved in DNA repair."}
+
+    for name in ("fetch_hgnc_gene", "fetch_ensembl_gene", "fetch_ensembl_homologies", "fetch_clingen_gene"):
+        monkeypatch.setattr(gene_info_external, name, forbidden_rest_call)
+    monkeypatch.setattr(gene_info_external, "fetch_ncbi_gene", fake_fetch_ncbi_gene)
+
+    bulk_context = HumanGeneBulkContext(
+        datasets={
+            "hgnc_complete_set": GeneBulkSourceDataset(
+                name="HGNC complete set",
+                source_url="https://example.test/hgnc",
+                status="success",
+                records_by_symbol={
+                    "BRCA1": {
+                        "profile": {
+                            "hgnc_id": "HGNC:1100",
+                            "display_name": "BRCA1 DNA repair associated",
+                            "ensembl_gene_id": "ENSG00000012048",
+                            "ncbi_gene_id": "672",
+                            "location": "17q21.31",
+                        },
+                        "aliases": ["RNF53"],
+                        "previous_symbols": ["BRCAI"],
+                        "omim_gene_id": "113705",
+                        "extra": {
+                            "hgnc_identifiers": {
+                                "vega_id": "OTTHUMG00000157426",
+                                "refseq_accession": ["NM_007294"],
+                                "omim_ids": ["113705"],
+                            },
+                            "hgnc_gene_facts": {
+                                "locus_group": "protein-coding gene",
+                                "gene_group": ["Ring finger proteins"],
+                            },
+                        },
+                    }
+                },
+            ),
+            "dbnsfp_gene": GeneBulkSourceDataset(
+                name="dbNSFP gene",
+                source_url="/tmp/dbNSFP_gene.tsv.gz",
+                status="success",
+                records_by_symbol={},
+            ),
+        }
+    )
+
+    result = await gene_info_external.fetch_external_gene_bundle(
+        symbol="BRCA1",
+        species_document={"name": "Homo sapiens"},
+        species_docs=[],
+        bulk_context=bulk_context,
+    )
+
+    assert result["display_name"] == "BRCA1 DNA repair associated"
+    assert result["hgnc_id"] == "HGNC:1100"
+    assert result["ensembl_gene_id"] == "ENSG00000012048"
+    assert result["ncbi_gene_id"] == "672"
+    assert result["omim_gene_id"] == "113705"
+    assert result["gene_type"] == "protein-coding gene"
+    assert result["location"] == "17q21.31"
+    assert result["aliases"] == ["RNF53"]
+    assert result["previous_symbols"] == ["BRCAI"]
+    assert result["extra"]["hgnc_vega_id"] == "OTTHUMG00000157426"
+    assert result["extra"]["refseq_accessions"] == ["NM_007294"]
+    assert result["extra"]["hgnc_gene_group"] == ["Ring finger proteins"]
+    # NCBI is the one per-gene source still worth its request.
+    assert result["summary"] == "Tumor suppressor involved in DNA repair."
