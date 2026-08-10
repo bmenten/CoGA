@@ -101,6 +101,38 @@ Each cached gene records a per-source status, which the Administration page aggr
 - `not_consulted` — this source was never queried for this gene; **not** evidence about its coverage
 - `error` — the download or parse failed
 
+### Release traceability
+
+Every status also records **which issue of the source produced it**, so a cached gene can be traced
+back to the exact file it came from. This applies to `missing` verdicts too — "this source had
+nothing for this gene" only means something against a stated release.
+
+| Field | Meaning |
+| --- | --- |
+| `release` | what the file states about itself, where it states anything |
+| `release_detail.checksum` | sha256 of the bytes actually parsed |
+| `release_detail.size_bytes` | size of those bytes |
+| `fetched_at` | when this gene was answered |
+
+Where each label comes from:
+
+| Source | Release label | Example |
+| --- | --- | --- |
+| dbNSFP | version in the filename | `5.4` |
+| ClinGen validity / dosage | `FILE CREATED` line in the download banner | `2026-08-10` |
+| HGNC complete set | newest `date_modified` across rows | `2026-08-07` |
+| GenCC | newest `submitted_run_date` across rows | `2026-08-02` |
+| ClinVar gene-condition | none — its per-row `LastUpdated` is a non-ISO string spread over hundreds of values, so no release is claimed rather than a wrong one guessed | — |
+
+The checksum is the identifier that always exists: two caches agree on their provenance if and only
+if the checksums match. For dbNSFP it is taken over the file as it sits on disk, so an operator can
+reproduce it with `sha256sum` against the file they deployed.
+
+The Administration table shows the release behind the most recent fetch. If cached genes are
+answered by **more than one release** of the same source — the signature of a partial refresh — the
+row is flagged with the number of distinct releases still present, and a full gene reference sync
+brings them back onto one.
+
 The pinned release is **dbNSFP 5.4** (August 2026, GENCODE 50 / Ensembl 116). The gene table ships
 inside the full dbNSFP archive from <https://www.dbnsfp.org/download> (registration required); place
 its gene file at the configured path, renamed to `dbNSFP5.4_gene.gz`. Bumping to a newer dbNSFP

@@ -5,6 +5,7 @@ import csv
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import gzip
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -110,18 +111,49 @@ def merge_gene_extra(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str,
     return merged
 
 
+@dataclass(slots=True)
+class GeneSourceRelease:
+    """Which exact issue of a reference source produced a cached gene record.
+
+    ``label`` is the release the file states about itself — dbNSFP's version, the date
+    in ClinGen's banner, HGNC's newest ``date_modified``. Not every source declares one,
+    so ``checksum`` (sha256 of the bytes actually parsed) is the identifier that always
+    exists: two caches agree on their provenance if and only if the checksums match.
+    """
+
+    label: str | None = None
+    checksum: str | None = None
+    size_bytes: int | None = None
+
+    def as_payload(self) -> dict[str, Any]:
+        return {
+            key: value
+            for key, value in {
+                "label": self.label,
+                "checksum": self.checksum,
+                "size_bytes": self.size_bytes,
+            }.items()
+            if value is not None
+        }
+
+
 def _source_status(
     *,
     status: str,
     source_url: str | None = None,
     payload: dict[str, Any] | None = None,
     message: str | None = None,
+    release: GeneSourceRelease | None = None,
 ) -> dict[str, Any]:
     return {
         "status": status,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "source_url": source_url,
         "message": message,
+        # Flattened alongside the status rather than buried in the payload: this is the
+        # field a reader needs to answer "which release said this?" about any one gene.
+        "release": release.label if release else None,
+        "release_detail": release.as_payload() if release else {},
         "payload": payload or {},
     }
 
@@ -134,6 +166,7 @@ class GeneBulkSourceDataset:
     message: str | None = None
     records_by_symbol: dict[str, dict[str, Any]] = field(default_factory=dict)
     payload: dict[str, Any] = field(default_factory=dict)
+    release: GeneSourceRelease | None = None
     # Which symbols this dataset was actually asked about. ``None`` means the whole
     # gene universe, so an absent record is a real "this source has nothing". When a
     # dataset was built for a subset, everything outside it was never looked up, and
@@ -158,14 +191,18 @@ class GeneBulkSourceDataset:
                 source_url=self.source_url,
                 payload=self.payload,
                 message=f"{self.name} was not queried for {symbol}",
+                release=self.release,
             )
         record = self.records_by_symbol.get(symbol)
         if record is None:
+            # A "no record" verdict is only meaningful against a stated release, so it
+            # carries one too: this release of this source had nothing for this gene.
             return _source_status(
                 status="missing",
                 source_url=self.source_url,
                 payload={"record_count": 0, **self.payload},
                 message=self.message or f"No {self.name} record for {symbol}",
+                release=self.release,
             )
         status_payload = dict(self.payload)
         status_payload.update(record.get("status_payload") or {})
@@ -174,6 +211,7 @@ class GeneBulkSourceDataset:
             source_url=self.source_url,
             payload=status_payload,
             message=self.message,
+            release=self.release,
         )
 
 
@@ -458,6 +496,39 @@ def parse_gencc_rows(
             counts = record["extra"]["clingen_gene_facts"]["gencc_classifications"]
             counts[classification] = int(counts.get(classification) or 0) + 1
     return _finalize_gene_records(records_by_symbol)
+
+
+def _clingen_release_label(text_value: str) -> str | None:
+    """The ``FILE CREATED: <date>`` line ClinGen puts in its download banner."""
+    match = re.search(r"FILE CREATED:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})", text_value[:4096])
+    return match.group(1) if match else None
+
+
+def _max_column_release_label(text_value: str, *, column: str, delimiter: str) -> str | None:
+    """Newest ISO date in a per-row column, for sources that state no release of their own.
+
+    HGNC and GenCC both ship undated files whose rows carry a last-modified/run date, so
+    the newest of those is the closest thing to "which issue of this file is this".
+    Values that are not ISO dates are ignored rather than sorted as strings — ClinVar's
+    ``Feb 16 2016`` style would otherwise produce a confidently wrong answer.
+    """
+    reader = csv.DictReader(io.StringIO(text_value), delimiter=delimiter)
+    newest = ""
+    for raw_row in reader:
+        value = _clean_cell(_normalized_row(raw_row).get(_normalize_header(column), ""))
+        if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value) and value > newest:
+            newest = value
+    return newest or None
+
+
+def _dbnsfp_release_label(path: Path) -> str | None:
+    """dbNSFP states its version in the filename — dbNSFP5.4_gene.gz."""
+    match = re.search(r"dbNSFP[_\-]?v?(\d+\.\d+[a-z]?)", path.name, flags=re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _checksum(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _hgnc_multi(value: str) -> list[str]:
@@ -1170,10 +1241,17 @@ async def _load_csv_dataset(
     url: str,
     parser,
     symbols: Iterable[str] | None = None,
+    release_label=None,
 ) -> GeneBulkSourceDataset:
     consulted = {_normalize_symbol(symbol) for symbol in symbols} if symbols is not None else None
     try:
         text_value = await _download_text(url)
+        encoded = text_value.encode("utf-8")
+        release = GeneSourceRelease(
+            label=release_label(text_value) if release_label else None,
+            checksum=_checksum(encoded),
+            size_bytes=len(encoded),
+        )
         records_by_symbol = parser(text_value, symbols=symbols)
         return GeneBulkSourceDataset(
             name=name,
@@ -1182,6 +1260,7 @@ async def _load_csv_dataset(
             records_by_symbol=records_by_symbol,
             payload={"symbols_with_records": len(records_by_symbol)},
             consulted_symbols=consulted,
+            release=release,
         )
     except Exception as exc:  # pragma: no cover
         return GeneBulkSourceDataset(
@@ -1202,30 +1281,40 @@ async def _load_online_gene_bulk_datasets(
             url=settings.gene_reference_clingen_validity_url,
             parser=parse_clingen_validity_rows,
             symbols=symbols,
+            release_label=_clingen_release_label,
         ),
         _load_csv_dataset(
             name="ClinGen dosage",
             url=settings.gene_reference_clingen_dosage_url,
             parser=parse_clingen_dosage_rows,
             symbols=symbols,
+            release_label=_clingen_release_label,
         ),
         _load_csv_dataset(
             name="GenCC",
             url=settings.gene_reference_gencc_url,
             parser=parse_gencc_rows,
             symbols=symbols,
+            release_label=lambda text_value: _max_column_release_label(
+                text_value, column="submitted_run_date", delimiter=","
+            ),
         ),
         _load_csv_dataset(
             name="ClinVar gene-condition",
             url=settings.gene_reference_clinvar_gene_condition_url,
             parser=parse_clinvar_gene_condition_rows,
             symbols=symbols,
+            # ClinVar's per-row LastUpdated is a "Feb 16 2016" style string spread over
+            # 866 distinct values; no release is claimed, so the checksum stands alone.
         ),
         _load_csv_dataset(
             name="HGNC complete set",
             url=settings.gene_reference_hgnc_complete_set_url,
             parser=parse_hgnc_complete_set_rows,
             symbols=symbols,
+            release_label=lambda text_value: _max_column_release_label(
+                text_value, column="date_modified", delimiter="\t"
+            ),
         ),
     )
     return {
@@ -1275,6 +1364,15 @@ def _load_dbnsfp_gene_dataset(
         )
 
     try:
+        # Hashed as it sits on disk (the compressed bytes), so the recorded checksum is
+        # one an operator can reproduce with sha256sum against the file they deployed.
+        raw = existing_path.read_bytes()
+        release = GeneSourceRelease(
+            label=_dbnsfp_release_label(existing_path),
+            checksum=_checksum(raw),
+            size_bytes=len(raw),
+        )
+        del raw
         records_by_symbol = parse_dbnsfp_gene_rows(existing_path, symbols=symbols)
         return GeneBulkSourceDataset(
             name="dbNSFP gene",
@@ -1282,6 +1380,7 @@ def _load_dbnsfp_gene_dataset(
             status="success",
             records_by_symbol=records_by_symbol,
             payload={"symbols_with_records": len(records_by_symbol)},
+            release=release,
         )
     except Exception as exc:  # pragma: no cover
         return GeneBulkSourceDataset(

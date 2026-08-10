@@ -293,7 +293,14 @@ async def _aggregate_gene_info_source_summaries(
             COUNT(*) FILTER (WHERE source.value->>'status' = 'missing') AS missing_count,
             COUNT(*) FILTER (WHERE source.value->>'status' = 'not_consulted') AS not_consulted_count,
             COUNT(*) FILTER (WHERE source.value->>'status' = 'error') AS error_count,
-            COUNT(*) AS record_count
+            COUNT(*) AS record_count,
+            -- The release behind the most recent fetch, plus how many distinct releases
+            -- the cache still holds: more than one means a partial refresh left genes
+            -- answered by different issues of the same source.
+            (
+                array_agg(source.value->>'release' ORDER BY source.value->>'fetched_at' DESC NULLS LAST)
+            )[1] AS release,
+            COUNT(DISTINCT source.value->>'release') AS release_count
         FROM gene_info gi
         CROSS JOIN LATERAL jsonb_each(COALESCE(gi.source_status, '{}'::jsonb)) AS source(key, value)
         WHERE gi.assembly_id IN :assembly_ids
@@ -311,6 +318,8 @@ async def _aggregate_gene_info_source_summaries(
             not_consulted_count=int(row.get("not_consulted_count") or 0),
             error_count=int(row.get("error_count") or 0),
             record_count=int(row.get("record_count") or 0),
+            release=row.get("release"),
+            release_count=int(row.get("release_count") or 0),
         )
         for row in result.mappings().all()
     ]

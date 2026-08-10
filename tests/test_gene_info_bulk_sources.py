@@ -541,3 +541,86 @@ def test_dataset_consulted_for_every_symbol_never_reports_not_consulted() -> Non
     )
 
     assert dataset.status_for_symbol("SCN1A")["status"] == "missing"
+
+
+def test_dbnsfp_release_label_reads_the_version_out_of_the_filename() -> None:
+    from pathlib import Path
+
+    assert gene_info_bulk_sources._dbnsfp_release_label(Path("/d/dbNSFP5.4_gene.gz")) == "5.4"
+    assert gene_info_bulk_sources._dbnsfp_release_label(Path("/d/dbNSFP4.3a_gene.gz")) == "4.3a"
+    assert gene_info_bulk_sources._dbnsfp_release_label(Path("/d/genes.gz")) is None
+
+
+def test_clingen_release_label_reads_the_banner_date() -> None:
+    assert (
+        gene_info_bulk_sources._clingen_release_label(CLINGEN_DOSAGE_WITH_BANNER) == "2026-08-10"
+    )
+    assert gene_info_bulk_sources._clingen_release_label("no banner here") is None
+
+
+def test_max_column_release_label_takes_the_newest_iso_date() -> None:
+    text_value = (
+        "symbol\tdate_modified\n"
+        "BRCA1\t2026-01-01\n"
+        "TP53\t2026-08-07\n"
+        "SCN1A\t2025-12-31\n"
+    )
+
+    label = gene_info_bulk_sources._max_column_release_label(
+        text_value, column="date_modified", delimiter="\t"
+    )
+
+    assert label == "2026-08-07"
+
+
+def test_max_column_release_label_ignores_non_iso_dates() -> None:
+    # ClinVar's "Feb 16 2016" style sorts wrongly as a string; a confidently wrong
+    # release is worse than none, so those values are skipped.
+    text_value = "symbol\tlastupdated\nBRCA1\tFeb 16 2016\nTP53\tJan 02 2020\n"
+
+    label = gene_info_bulk_sources._max_column_release_label(
+        text_value, column="lastupdated", delimiter="\t"
+    )
+
+    assert label is None
+
+
+def test_source_status_carries_the_release_for_every_verdict() -> None:
+    release = gene_info_bulk_sources.GeneSourceRelease(
+        label="2026-08-10", checksum="abc123", size_bytes=42
+    )
+    dataset = GeneBulkSourceDataset(
+        name="ClinGen dosage",
+        source_url="https://example.test/dosage",
+        status="success",
+        records_by_symbol={"BRCA1": {"extra": {}}},
+        consulted_symbols={"BRCA1", "TP53"},
+        release=release,
+    )
+
+    found = dataset.status_for_symbol("BRCA1")
+    absent = dataset.status_for_symbol("TP53")
+    skipped = dataset.status_for_symbol("SCN1A")
+
+    # "This release had nothing for this gene" is only meaningful with the release
+    # attached, so every verdict carries it — not just the successes.
+    assert found["release"] == absent["release"] == skipped["release"] == "2026-08-10"
+    assert found["release_detail"] == {
+        "label": "2026-08-10",
+        "checksum": "abc123",
+        "size_bytes": 42,
+    }
+
+
+def test_source_status_without_a_release_states_none_rather_than_guessing() -> None:
+    dataset = GeneBulkSourceDataset(
+        name="ClinVar gene-condition",
+        source_url="https://example.test/clinvar",
+        status="success",
+        records_by_symbol={"BRCA1": {"extra": {}}},
+    )
+
+    status = dataset.status_for_symbol("BRCA1")
+
+    assert status["release"] is None
+    assert status["release_detail"] == {}

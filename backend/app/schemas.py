@@ -1716,6 +1716,10 @@ class GeneInfoSourceSummaryOut(BaseModel):
     not_consulted_count: int = 0
     error_count: int = 0
     record_count: int = 0
+    # Release behind the most recent fetch, and how many distinct releases the cache
+    # still holds — more than one means a partial refresh left a mixed cache.
+    release: Optional[str] = None
+    release_count: int = 0
 
 
 class GeneReferenceAdminStatusOut(BaseModel):

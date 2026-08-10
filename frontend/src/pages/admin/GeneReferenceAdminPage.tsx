@@ -34,6 +34,8 @@ interface GeneInfoSourceSummary {
   not_consulted_count: number;
   error_count: number;
   record_count: number;
+  release?: string | null;
+  release_count: number;
 }
 
 interface GeneReferenceAdminStatus {
@@ -294,6 +296,7 @@ const GeneReferenceAdminPage: React.FC = () => {
               <thead>
                 <tr>
                   <th>Source</th>
+                  <th>Release</th>
                   <th>Latest fetch</th>
                   <th>Success</th>
                   <th title="Queried for this gene, and the source had no record">No record</th>
@@ -306,6 +309,17 @@ const GeneReferenceAdminPage: React.FC = () => {
                 {data.source_summaries.map((source) => (
                   <tr key={source.source}>
                     <td>{source.source.toUpperCase()}</td>
+                    <td>
+                      {source.release || <span className="table-subtle">—</span>}
+                      {source.release_count > 1 ? (
+                        <span
+                          className="badge-chip badge-chip--danger ml-2"
+                          title={`Cached genes are answered by ${source.release_count} different releases of this source. Run a full refresh to bring them onto one.`}
+                        >
+                          {source.release_count} releases
+                        </span>
+                      ) : null}
+                    </td>
                     <td>{formatTimestamp(source.latest_fetched_at)}</td>
                     <td>{formatCount(source.success_count)}</td>
                     <td>{formatCount(source.missing_count)}</td>
