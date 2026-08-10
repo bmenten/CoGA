@@ -42,6 +42,8 @@ HUMAN_GRCH38_TAX_ID = 9606
 HUMAN_GRCH38_SCIENTIFIC_NAME = "Homo sapiens"
 HUMAN_GRCH38_COMMON_NAME = "human"
 HUMAN_GRCH38_UCSC_GENOME = "hg38"
+# T2T-CHM13v2.0. UCSC calls it hs1; it is a separate assembly, not a GRCh38 patch.
+HUMAN_T2T_UCSC_GENOME = "hs1"
 HUMAN_GRCH38_ASSEMBLY_NAME = "GRCh38"
 HUMAN_GRCH38_FALLBACK_VERSION = "hg38"
 HUMAN_GRCH38_RELEASE_DATE = date(2013, 12, 1)
@@ -490,6 +492,7 @@ def _iter_gencode_rows_from_gzip(
     *,
     assembly_id: str,
     refseq_by_transcript: dict[str, list[str]],
+    source: str = "gencode",
 ):
     """Stream GTF rows straight out of the compressed bytes.
 
@@ -503,6 +506,7 @@ def _iter_gencode_rows_from_gzip(
             stream,
             assembly_id=assembly_id,
             refseq_by_transcript=refseq_by_transcript,
+            source=source,
         )
 
 
@@ -518,27 +522,43 @@ async def _download_gencode_genes(
     assembly_id: str,
     ucsc_genome: str,
 ) -> tuple[Any, str, str] | None:
-    """Fetch GENCODE gene rows, or ``None`` to let the caller fall back to UCSC.
+    """Fetch gene rows from a GTF, or ``None`` to let the caller fall back to UCSC.
 
-    GENCODE publishes human GRCh38 only, and a reference bootstrap must not be blocked
-    by an unreachable annotation, so every other genome and every failure returns
-    ``None`` rather than raising.
+    GRCh38 gets GENCODE. T2T-CHM13 gets UCSC's RefSeq-derived GTF, because GENCODE
+    publishes no CHM13 annotation and UCSC serves none of the gene tables the
+    refGene-era importer looked for — that GTF carries coordinates but no biotypes,
+    Ensembl identifiers or MANE tags, which is why its rows are labelled by their real
+    source rather than as GENCODE.
+
+    A reference bootstrap must not be blocked by an unreachable annotation, so every
+    other genome and every failure returns ``None`` rather than raising.
     """
-    url = str(settings.reference_gencode_gtf_url or "").strip()
-    if not url or ucsc_genome != HUMAN_GRCH38_UCSC_GENOME:
+    if ucsc_genome == HUMAN_GRCH38_UCSC_GENOME:
+        url = str(settings.reference_gencode_gtf_url or "").strip()
+        source_label, wants_refseq_metadata = "gencode", True
+    elif ucsc_genome == HUMAN_T2T_UCSC_GENOME:
+        url = str(settings.reference_t2t_gtf_url or "").strip()
+        source_label, wants_refseq_metadata = "ucsc ncbiRefSeq", False
+    else:
         return None
+    if not url:
+        return None
+
     try:
         raw = await download_bounded_bytes(client, url, source=url)
-        refseq_by_transcript = await _download_gencode_refseq_metadata(client)
+        refseq_by_transcript = (
+            await _download_gencode_refseq_metadata(client) if wants_refseq_metadata else {}
+        )
         release = _gencode_release_from_gzip(raw)
         rows = _iter_gencode_rows_from_gzip(
             raw,
             assembly_id=assembly_id,
             refseq_by_transcript=refseq_by_transcript,
+            source=source_label,
         )
-        return rows, url, f"gencode {release.label}" if release.label else "gencode"
+        return rows, url, f"{source_label} {release.label}" if release.label else source_label
     except Exception as exc:  # pragma: no cover - network shape varies
-        logger.warning("GENCODE gene import failed (%s); falling back to UCSC", exc)
+        logger.warning("GTF gene import failed for %s (%s); falling back to UCSC", ucsc_genome, exc)
         return None
 
 
@@ -966,4 +986,50 @@ async def ensure_human_grch38_reference_on_startup(
             fallback["version"],
             fallback["assembly_id"],
         )
+        return None
+
+
+async def ensure_human_t2t_reference_on_startup(
+    session: AsyncSession,
+) -> ReferenceAutoImportResult | None:
+    """Import T2T-CHM13v2.0 alongside GRCh38 when the deployment asks for it.
+
+    Off unless ``REFERENCE_BOOTSTRAP_T2T`` is set: a second assembly roughly doubles the
+    reference footprint, and not every deployment reports on T2T. The gene page's T2T
+    locus rows stay empty until it is enabled — which is the honest state, since without
+    this there is no T2T assembly for them to describe.
+
+    T2T is a genuinely poorer annotation than GRCh38 here. UCSC publishes no cytoband
+    table for hs1, so cytobands fall back to one band per chromosome built from the
+    chromosome sizes, and its gene GTF is RefSeq-derived: coordinates, but no biotypes,
+    Ensembl identifiers or MANE tags. Failure is never fatal — GRCh38 is the primary
+    assembly and must come up regardless.
+    """
+    if not settings.reference_bootstrap_enabled or not settings.reference_bootstrap_t2t:
+        return None
+    try:
+        result = await import_reference_from_ucsc(
+            session,
+            tax_id=HUMAN_GRCH38_TAX_ID,
+            ucsc_genome=HUMAN_T2T_UCSC_GENOME,
+            overwrite=False,
+            missing_only=True,
+        )
+        if result.cytobands_inserted or result.genes_inserted:
+            logger.info(
+                "Bootstrapped Homo sapiens %s/%s reference data (%d chromosomes, %d genes)",
+                result.assembly_name,
+                result.assembly_version,
+                result.cytobands_inserted,
+                result.genes_inserted,
+            )
+        return result
+    except Exception:
+        logger.exception(
+            "Failed to bootstrap Homo sapiens T2T-CHM13 reference data; GRCh38 is unaffected"
+        )
+        try:
+            await session.rollback()
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to roll back failed T2T reference bootstrap")
         return None

@@ -111,6 +111,8 @@ The frontend is the only Node package in the repository. Run npm commands from `
 | `GENE_REFERENCE_HGNC_COMPLETE_SET_URL` | HGNC complete set; defines which human genes the reference sync caches and resolves renamed symbols onto their current name |
 | `REFERENCE_GENCODE_GTF_URL` | GENCODE GTF supplying human GRCh38 gene loci, biotypes, Ensembl/HGNC ids and MANE tags; pinned by release, falls back to the UCSC track when unset or unreachable |
 | `REFERENCE_GENCODE_REFSEQ_METADATA_URL` | GENCODE transcript → RefSeq accession map, so lookups naming an `NM_`/`NR_` accession keep resolving |
+| `REFERENCE_BOOTSTRAP_T2T` | Import T2T-CHM13v2.0 as a second human assembly on startup; off by default, since a second assembly roughly doubles the reference footprint |
+| `REFERENCE_T2T_GTF_URL` | T2T gene loci (UCSC `hs1.ncbiRefSeq.gtf.gz`); RefSeq-derived, so coordinates but no biotypes, Ensembl ids or MANE tags |
 | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP` | Queue the first dbNSFP-backed human gene reference sync on startup when GRCh38 genes exist and `gene_info` is still empty; defaults to `true` |
 | `VITE_API_BASE_URL` | Frontend API base URL; defaults to same-origin `/api`, proxied to the backend |
 

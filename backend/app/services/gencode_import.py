@@ -34,6 +34,12 @@ from .data_scope import normalize_chromosome
 _VERSION_RE = re.compile(r"version\s+(\d+\w*)\s*\(Ensembl\s+(\d+)\)", re.IGNORECASE)
 _DATE_RE = re.compile(r"^##date:\s*(\d{4}-\d{2}-\d{2})", re.IGNORECASE)
 _ATTR_RE = re.compile(r'(\S+)\s+"([^"]*)"')
+# NCBI transcript accessions, as they appear in RefSeq-derived GTFs.
+_REFSEQ_ACCESSION_RE = re.compile(r"^(?:N[MR]|X[MR])_\d+", re.IGNORECASE)
+# A real Ensembl accession: ENS, an optional species code, a feature letter, then digits
+# (ENSG00000012048, ENST00000357654, ENSMUSG00000017146). Deliberately stricter than an
+# "ENS" prefix — ENSA and ENSAP1-3 are human gene symbols, not Ensembl ids.
+_ENSEMBL_ACCESSION_RE = re.compile(r"^ENS[A-Z]*[GTPE]\d{6,}")
 
 
 @dataclass(slots=True)
@@ -84,6 +90,25 @@ def _strip_version(identifier: str) -> str:
     return identifier.split(".", 1)[0] if identifier.startswith("ENS") else identifier
 
 
+def _ensembl_id(identifier: str) -> str | None:
+    """The unversioned Ensembl id, or nothing when this is not an Ensembl id at all.
+
+    GENCODE puts ``ENSG…``/``ENST…`` in ``gene_id``/``transcript_id``, but a
+    RefSeq-derived GTF — UCSC's ``hs1.ncbiRefSeq.gtf`` for T2T, for one — puts the gene
+    *symbol* in ``gene_id`` and an ``NM_``/``NR_`` accession in ``transcript_id``.
+    Recording those as Ensembl identifiers would be a plain falsehood, and one that
+    later joins would act on.
+
+    Matching the full accession shape rather than an ``ENS`` prefix matters: **ENSA** is
+    a real human gene (endosulfine alpha), as are its pseudogenes **ENSAP1**–**ENSAP3**.
+    A prefix test files all four as Ensembl ids.
+    """
+    identifier = str(identifier or "").strip()
+    if not _ENSEMBL_ACCESSION_RE.match(identifier):
+        return None
+    return identifier.split(".", 1)[0]
+
+
 @dataclass(slots=True)
 class _Transcript:
     gene_attributes: dict[str, Any]
@@ -94,7 +119,9 @@ class _Transcript:
     strand: int
     exons: list[dict[str, int]] = field(default_factory=list)
 
-    def as_row(self, *, assembly_id: str, refseq_by_transcript: dict[str, list[str]]) -> dict[str, Any]:
+    def as_row(
+        self, *, assembly_id: str, refseq_by_transcript: dict[str, list[str]], source: str
+    ) -> dict[str, Any]:
         transcript_id = self.attributes.get("transcript_id", "")
         gene_id = self.attributes.get("gene_id", "")
         tags = self.attributes.get("tags") or []
@@ -104,7 +131,12 @@ class _Transcript:
             {"name": f"exon{index}", "start": exon["start"], "end": exon["end"]}
             for index, exon in enumerate(self.exons, start=1)
         ]
-        refseq = refseq_by_transcript.get(_strip_version(transcript_id), [])
+        refseq = list(refseq_by_transcript.get(_strip_version(transcript_id), []))
+        # A RefSeq-derived GTF names the transcript by its accession, so it is its own
+        # RefSeq mapping — recording it keeps accession lookups working for assemblies
+        # that have no separate metadata.RefSeq file.
+        if _REFSEQ_ACCESSION_RE.match(transcript_id) and transcript_id not in refseq:
+            refseq.insert(0, transcript_id)
         return {
             "assembly_id": assembly_id,
             # Same semantics as the refGene import: the row is a transcript, and
@@ -118,15 +150,15 @@ class _Transcript:
             "strand": self.strand,
             "biotype": self.attributes.get("transcript_type") or self.gene_attributes.get("gene_type") or "unknown",
             "description": self.attributes.get("transcript_name") or "",
-            "source": "gencode",
+            "source": source,
             "extra": json.dumps(
                 {
                     key: value
                     for key, value in {
                         "transcript_id": transcript_id,
-                        "ensembl_transcript_id": _strip_version(transcript_id),
-                        "ensembl_gene_id": _strip_version(gene_id),
-                        "ensembl_gene_id_versioned": gene_id,
+                        "ensembl_transcript_id": _ensembl_id(transcript_id),
+                        "ensembl_gene_id": _ensembl_id(gene_id),
+                        "ensembl_gene_id_versioned": gene_id if _ensembl_id(gene_id) else None,
                         "hgnc_id": self.gene_attributes.get("hgnc_id") or self.attributes.get("hgnc_id"),
                         "gene_type": self.gene_attributes.get("gene_type") or self.attributes.get("gene_type"),
                         "transcript_type": self.attributes.get("transcript_type"),
@@ -150,8 +182,14 @@ def iter_gencode_gene_rows(
     *,
     assembly_id: str,
     refseq_by_transcript: dict[str, list[str]] | None = None,
+    source: str = "gencode",
 ) -> Iterator[dict[str, Any]]:
-    """Stream `genes` rows out of a GENCODE GTF, one per transcript."""
+    """Stream `genes` rows out of a GTF, one per transcript.
+
+    Written for GENCODE, but the same shape reads a RefSeq-derived GTF — UCSC's
+    ``hs1.ncbiRefSeq.gtf`` for T2T-CHM13 — which has no ``gene`` feature lines, no
+    biotypes and no Ensembl identifiers. ``source`` records which one a row came
+    from, because the two are not equivalent in what they can tell you."""
     refseq_by_transcript = refseq_by_transcript or {}
     gene_attributes: dict[str, Any] = {}
     current: _Transcript | None = None
@@ -166,14 +204,22 @@ def iter_gencode_gene_rows(
 
         if feature == "gene":
             if current is not None:
-                yield current.as_row(assembly_id=assembly_id, refseq_by_transcript=refseq_by_transcript)
+                yield current.as_row(
+                    assembly_id=assembly_id,
+                    refseq_by_transcript=refseq_by_transcript,
+                    source=source,
+                )
                 current = None
             gene_attributes = _attributes(raw_attributes)
             continue
 
         if feature == "transcript":
             if current is not None:
-                yield current.as_row(assembly_id=assembly_id, refseq_by_transcript=refseq_by_transcript)
+                yield current.as_row(
+                    assembly_id=assembly_id,
+                    refseq_by_transcript=refseq_by_transcript,
+                    source=source,
+                )
             current = _Transcript(
                 gene_attributes=gene_attributes,
                 attributes=_attributes(raw_attributes),
@@ -188,7 +234,11 @@ def iter_gencode_gene_rows(
             current.exons.append({"start": int(start), "end": int(end)})
 
     if current is not None:
-        yield current.as_row(assembly_id=assembly_id, refseq_by_transcript=refseq_by_transcript)
+        yield current.as_row(
+            assembly_id=assembly_id,
+            refseq_by_transcript=refseq_by_transcript,
+            source=source,
+        )
 
 
 def parse_gencode_refseq_metadata(lines: Iterable[str]) -> dict[str, list[str]]:

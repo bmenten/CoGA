@@ -32,7 +32,10 @@ from .services.family_package_import import (
 )
 from .services.repeat_expansion_pg import seed_builtin_repeat_catalog
 from .services.reference_metadata_service import seed_builtin_reference_tracks
-from .services.reference_source_service import ensure_human_grch38_reference_on_startup
+from .services.reference_source_service import (
+    ensure_human_grch38_reference_on_startup,
+    ensure_human_t2t_reference_on_startup,
+)
 from .services.hpo_service import ensure_hpo_ontology_on_startup
 from .services.audit_log_pg import start_audit_log_worker, stop_audit_log_worker
 from .services.clickhouse_integrity_monitor import (
@@ -66,6 +69,8 @@ async def lifespan(app: FastAPI):
     async with session_factory() as session:
         await seed_builtin_repeat_catalog(session)
         await ensure_human_grch38_reference_on_startup(session)
+        # Opt-in second assembly; never blocks startup if it fails.
+        await ensure_human_t2t_reference_on_startup(session)
         await ensure_hpo_ontology_on_startup(
             session,
             ontology_path=settings.hpo_ontology_path,

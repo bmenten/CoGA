@@ -144,3 +144,104 @@ def test_parse_gencode_refseq_metadata_groups_accessions_by_transcript() -> None
 
     assert mapping["ENST00000357654"] == ["NM_007294.4", "NP_009225.1"]
     assert mapping["ENST00000471181"] == ["NR_027676.2"]
+
+
+# UCSC's hs1.ncbiRefSeq.gtf for T2T-CHM13: no gene feature lines, the gene *symbol* in
+# gene_id, a RefSeq accession in transcript_id, and no biotype, hgnc_id or tags.
+REFSEQ_GTF = (
+    'chrY\tncbiRefSeq.2023-05-29\ttranscript\t62449384\t62451910\t.\t-\t.\t'
+    'gene_id "DDX11L16"; transcript_id "NR_110561.1";  gene_name "DDX11L16";\n'
+    'chrY\tncbiRefSeq.2023-05-29\texon\t62449384\t62450563\t.\t-\t.\t'
+    'gene_id "DDX11L16"; transcript_id "NR_110561.1"; exon_number "3"; gene_name "DDX11L16";\n'
+    'chrY\tncbiRefSeq.2023-05-29\texon\t62451063\t62451171\t.\t-\t.\t'
+    'gene_id "DDX11L16"; transcript_id "NR_110561.1"; exon_number "2"; gene_name "DDX11L16";\n'
+)
+
+
+def test_refseq_gtf_never_claims_a_symbol_is_an_ensembl_id() -> None:
+    rows = list(iter_gencode_gene_rows(REFSEQ_GTF.splitlines(), assembly_id="T2T"))
+
+    assert len(rows) == 1
+    extra = json.loads(rows[0]["extra"])
+    # gene_id here is "DDX11L16", a symbol. Recording it as an Ensembl gene id would be
+    # a falsehood that later joins would act on.
+    assert "ensembl_gene_id" not in extra
+    assert "ensembl_gene_id_versioned" not in extra
+    assert "ensembl_transcript_id" not in extra
+
+
+def test_refseq_gtf_keeps_the_accession_addressable() -> None:
+    rows = list(iter_gencode_gene_rows(REFSEQ_GTF.splitlines(), assembly_id="T2T"))
+    extra = json.loads(rows[0]["extra"])
+
+    # There is no metadata.RefSeq file for this assembly, but the transcript is named by
+    # its accession, so it is its own mapping and accession lookups keep working.
+    assert rows[0]["gene_id"] == "NR_110561.1"
+    assert extra["refseq_accessions"] == ["NR_110561.1"]
+
+
+def test_refseq_gtf_parses_without_gene_feature_lines() -> None:
+    rows = list(iter_gencode_gene_rows(REFSEQ_GTF.splitlines(), assembly_id="T2T"))
+
+    # The symbol has to come off the transcript, since no gene feature ever appears.
+    assert rows[0]["hgnc_symbol"] == "DDX11L16"
+    assert rows[0]["chr"] == "Y"
+    assert rows[0]["strand"] == -1
+    assert len(json.loads(rows[0]["exons"])) == 2
+
+
+def test_refseq_gtf_reports_an_unknown_biotype_rather_than_inventing_one() -> None:
+    rows = list(iter_gencode_gene_rows(REFSEQ_GTF.splitlines(), assembly_id="T2T"))
+
+    extra = json.loads(rows[0]["extra"])
+    # No transcript_type in the file, so "unknown" rather than a guessed biotype.
+    assert rows[0]["biotype"] == "unknown"
+    # This annotation carries no MANE tags at all, so nothing is flagged and the gene
+    # page badges nothing — which beats badging the wrong transcript.
+    assert extra["mane_select"] is False
+    assert extra["mane_plus_clinical"] is False
+    assert "tags" not in extra
+    assert "hgnc_id" not in extra
+
+
+def test_rows_are_labelled_with_the_source_they_came_from() -> None:
+    gencode = list(iter_gencode_gene_rows(GENCODE_GTF.splitlines(), assembly_id="A1"))
+    refseq = list(
+        iter_gencode_gene_rows(
+            REFSEQ_GTF.splitlines(), assembly_id="T2T", source="ucsc ncbiRefSeq"
+        )
+    )
+
+    # The two annotations are not equivalent in what they can tell you, so a row says
+    # which one it came from rather than both claiming to be GENCODE.
+    assert {row["source"] for row in gencode} == {"gencode"}
+    assert {row["source"] for row in refseq} == {"ucsc ncbiRefSeq"}
+
+
+def test_ensembl_id_guard_rejects_symbols_that_merely_start_with_ens() -> None:
+    from backend.app.services.gencode_import import _ensembl_id
+
+    # ENSA is endosulfine alpha and ENSAP1-3 are its pseudogenes: real human symbols
+    # that begin with "ENS". A prefix test files all four as Ensembl ids — this was a
+    # live defect, caught only by parsing the whole T2T annotation (11 rows affected).
+    for symbol in ("ENSA", "ENSAP1", "ENSAP2", "ENSAP3", "DDX11L16", "NM_007294.4"):
+        assert _ensembl_id(symbol) is None, symbol
+
+    # Genuine accessions still resolve, versions stripped, including non-human species.
+    assert _ensembl_id("ENSG00000012048.24") == "ENSG00000012048"
+    assert _ensembl_id("ENST00000357654.9") == "ENST00000357654"
+    assert _ensembl_id("ENSMUSG00000017146") == "ENSMUSG00000017146"
+
+
+def test_refseq_gtf_does_not_mistake_the_ensa_gene_for_an_ensembl_id() -> None:
+    gtf = (
+        'chr1\tncbiRefSeq\ttranscript\t100\t200\t.\t+\t.\t'
+        'gene_id "ENSA"; transcript_id "NM_004436.4"; gene_name "ENSA";\n'
+        'chr1\tncbiRefSeq\texon\t100\t200\t.\t+\t.\t'
+        'gene_id "ENSA"; transcript_id "NM_004436.4"; exon_number "1"; gene_name "ENSA";\n'
+    )
+
+    row = list(iter_gencode_gene_rows(gtf.splitlines(), assembly_id="T2T"))[0]
+
+    assert row["hgnc_symbol"] == "ENSA"
+    assert "ensembl_gene_id" not in json.loads(row["extra"])

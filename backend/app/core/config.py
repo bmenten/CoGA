@@ -263,6 +263,17 @@ class Settings(BaseSettings):
         ),
         alias="REFERENCE_GENCODE_REFSEQ_METADATA_URL",
     )
+    # T2T-CHM13v2.0 (UCSC hs1) gene loci. GENCODE publishes no CHM13 annotation and UCSC
+    # serves none of the gene tables the refGene-era importer looked for, so this
+    # RefSeq-derived GTF is the available source. It carries coordinates but no
+    # biotypes, Ensembl identifiers or MANE tags — see docs/data-import.md.
+    reference_t2t_gtf_url: str = Field(
+        default="https://hgdownload.soe.ucsc.edu/goldenPath/hs1/bigZips/genes/hs1.ncbiRefSeq.gtf.gz",
+        alias="REFERENCE_T2T_GTF_URL",
+    )
+    # Off by default: a second assembly roughly doubles the reference footprint and not
+    # every deployment reports on T2T. The gene page's T2T rows stay empty until it is on.
+    reference_bootstrap_t2t: bool = Field(default=False, alias="REFERENCE_BOOTSTRAP_T2T")
     github_repository: str = Field(default="bmenten/coga", alias="GITHUB_REPOSITORY")
     github_repository_url: str = Field(
         default="https://github.com/bmenten/coga",
