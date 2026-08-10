@@ -87,7 +87,40 @@ Expect the table to grow roughly 3× — about 132 MB → 435 MB for GRCh38. Rol
 pointing `REFERENCE_GENCODE_GTF_URL` at nothing and re-importing, which returns to the UCSC track.
 
 Bumping GENCODE means changing the release in both `REFERENCE_GENCODE_GTF_URL` and
-`REFERENCE_GENCODE_REFSEQ_METADATA_URL` together, then re-importing. The release the rows came from
+`REFERENCE_GENCODE_REFSEQ_METADATA_URL` together, then re-importing.
+
+### T2T-CHM13v2.0 (optional second assembly)
+
+The gene page renders a **T2T locus** row and an `hg38 … · T2T …` summary line. Those describe a
+second assembly that is **not imported by default** — set `REFERENCE_BOOTSTRAP_T2T=true` to enable
+it. A second assembly roughly doubles the reference footprint and not every deployment reports on
+T2T, so it is opt-in; until it is on, those rows are empty, which is the honest state.
+
+The T2T annotation is genuinely poorer than GRCh38's, and the imported rows say so:
+
+| | GRCh38 (GENCODE v50) | T2T-CHM13 (UCSC RefSeq GTF) |
+| --- | --- | --- |
+| gene feature lines | yes | none — transcripts only |
+| gene identifier | `ENSG…` | the gene **symbol** |
+| biotype | real | absent → `unknown` |
+| `hgnc_id`, MANE tags | present | absent |
+| cytobands | UCSC banding | one band per chromosome, from chromosome sizes |
+| dated | 2026-04-08 | 2023-05-29 |
+
+GENCODE publishes no CHM13 release, and UCSC serves none of the gene tables the refGene-era importer
+looked for (`ncbiRefSeqCurated`, `ncbiRefSeq`, `refGene`, `ensGene` are all 404 for `hs1`). The one
+available source is `hs1.ncbiRefSeq.gtf.gz` under `bigZips/genes`, set by
+`REFERENCE_T2T_GTF_URL`. Rows are labelled `ucsc ncbiRefSeq` rather than `gencode`, so a reader can
+tell which annotation answered.
+
+Two details worth knowing when reading T2T rows:
+
+- **No Ensembl identifiers are recorded**, because the file has none. An identifier is only stored
+  as Ensembl when it matches the full accession shape — a prefix test is not enough, since `ENSA`
+  (endosulfine alpha) and `ENSAP1`–`ENSAP3` are real gene symbols beginning with `ENS`.
+- **The transcript accession is its own RefSeq mapping.** There is no `metadata.RefSeq` file for
+  this assembly, so the `NM_`/`NR_` accession in `transcript_id` is recorded directly and accession
+  lookups keep working. The release the rows came from
 is recorded on the import (`gencode v50 (Ensembl 116)`), read out of the GTF's own preamble.
 
 Expected content:
