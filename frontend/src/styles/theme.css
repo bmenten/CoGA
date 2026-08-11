@@ -5640,6 +5640,15 @@ tbody tr:hover {
   gap: 0.35rem;
 }
 
+/* RefSeq accessions the annotation maps onto a transcript the VCF named by its Ensembl
+   id. Monospace like the transcript id above it, muted so the id stays primary. */
+.variant-transcript-refseq {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1180px) {
   .variant-card-body {
     grid-template-columns: minmax(0, 1fr);
