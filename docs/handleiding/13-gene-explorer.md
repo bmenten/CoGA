@@ -48,25 +48,72 @@ CoGA verrijkt genen uit meerdere gezaghebbende bronnen. De ophaal-logica staat i
 
 | Bron | Functie | Levert |
 |---|---|---|
-| HGNC (genenames.org) | `fetch_hgnc_gene` | Officiële naam, aliassen, vorige symbolen, HGNC-id, RefSeq-accessies, Ensembl/Entrez-id, OMIM-ids |
-| Ensembl REST | `fetch_ensembl_gene` | Ensembl-gen-id, biotype, canonical transcript, beschrijving |
-| Ensembl homology | `fetch_ensembl_homologies` + `normalize_homologs` | Orthologen in andere soorten |
 | NCBI Gene (E-utilities) | `fetch_ncbi_gene` | Samenvatting, aliassen, maplocation |
-| ClinGen (kennisbank-pagina) | `fetch_clingen_gene` + `parse_clingen_gene_page` | Curatie-tellingen (gen–ziekte-validiteit, dosage-sensitiviteit), %HI, pLI, LOEUF, MANE Select-transcript, ACMG SF-status |
+
+Dat is de **enige** per-gen REST-bron die overblijft. De HGNC-, Ensembl-, Ensembl-homology- en
+ClinGen-paginabronnen die hier vroeger stonden zijn verwijderd: gemeten over 4.052 genen die dit pad
+bereikten leverden ze niets wat de bulk-bestanden al bevatten. De ClinGen-pagina meldde 4.046 keer
+"success" maar gaf een functie voor 61 genen, een MANE-transcript voor 23 en een GenCC-classificatie
+voor 1; Ensembl leverde alleen het canonical transcript, dat GENCODE per transcript labelt; de
+homology-call gaf 0 orthologen in 1.380 pogingen; en alles wat HGNC per gen teruggaf staat in de
+complete set, die één keer per job wordt gedownload en alle ~45.000 genen dekt in plaats van de
+helft. Dat is geen toeval: dit pad draait alleen voor genen die dbNSFP níét dekt, en dat zijn
+overwegend lncRNA's en pseudogenen die niemand gecureerd heeft. NCBI blijft omdat het als enige een
+gen-samenvatting levert voor genen buiten dbNSFP (1.685 van die 4.052).
 
 `backend/app/services/gene_info_bulk_sources.py` doet de **bulk-bronnen** — hele bestanden ineens ingelezen en per symbool geïndexeerd:
 
 | Bron | Parser | Levert |
 |---|---|---|
+| HGNC complete set (TSV) | `parse_hgnc_complete_set_rows` | **Het register van welke genen bestaan**: HGNC-id, huidig symbool, vorige symbolen en aliassen, Ensembl/Entrez/RefSeq/CCDS/UniProt/MANE-ids, locus-groep, cytoband |
 | dbNSFP gene (lokaal `.gz`-bestand) | `parse_dbnsfp_gene_rows` | De rijkste bron: constraint-metrieken (`_dbnsfp_constraint_metrics` — gnomAD pLI/LOEUF, ExAC-scores, RVIS, pHaplo/pTriplo, GDI, s-het…), OMIM/Orphanet-ziekteassociaties, GO-termen, pathways, HPO-termen, weefsel-expressie, model-organisme-orthologen |
 | ClinGen gene validity (CSV) | `parse_clingen_validity_rows` | Gen–ziekte-validiteitsclassificaties (Definitive/Strong/…) met MONDO-id, overervingswijze, SOP, datum |
 | ClinGen dosage (CSV) | `parse_clingen_dosage_rows` | Haploinsufficiëntie/triplosensitiviteit-scores |
 | GenCC (CSV) | `parse_gencc_rows` | Gen–ziekte-assertions van meerdere submitters met classificatie en overervingswijze |
 | ClinVar gene-condition (TSV) | `parse_clinvar_gene_condition_rows` | Gen↔aandoening-relaties met OMIM-mim en bron |
 
-De coördinatie zit in `load_human_gene_bulk_context` (in `gene_info_bulk_sources.py`): dbNSFP is de primaire bron. Voor symbolen die **wel** in dbNSFP zitten, worden de online CSV/TSV-bronnen overgeslagen (dbNSFP bevat die informatie al); alleen voor de **overige** symbolen (`fallback_symbols`), of wanneer dbNSFP ontbreekt, worden de ClinGen/GenCC/ClinVar-bestanden gedownload. De URL's van die bulk-bronnen zijn configureerbaar (`gene_reference_clingen_validity_url`, `gene_reference_clingen_dosage_url`, `gene_reference_gencc_url`, `gene_reference_clinvar_gene_condition_url` in `backend/app/core/config.py`); het lokale dbNSFP-pad via `gene_reference_dbnsfp_gene_path`.
+De coördinatie zit in `load_human_gene_bulk_context` (in `gene_info_bulk_sources.py`): **elke bulk-bron
+wordt voor élk gen geraadpleegd**. Dit zijn hele bestanden die per job één keer worden ingelezen, dus
+beperken levert niets op. Vroeger werden de online bestanden alléén geraadpleegd voor symbolen die
+dbNSFP niet dekte, en dat gooide vrijwel hun hele inhoud weg: dbNSFP mist obscure lncRNA's en
+pseudogenen, terwijl ClinGen/GenCC/ClinVar juist de bekende ziektegenen cureren die dbNSFP al dekt —
+de twee verzamelingen overlappen nauwelijks. GenCC leverde op die manier 1 gen op de 30.000.
 
-`fetch_external_gene_bundle` (in `gene_info_external.py`) voegt alles samen tot één "bundle": als dbNSFP het gen dekt (`primary_source == "dbnsfp_gene"`), wordt dat als "fast path" gebruikt en worden de trage REST-calls vermeden; anders worden HGNC/Ensembl/NCBI/ClinGen live opgehaald en met de bulk-data samengevoegd via `merge_gene_extra`. Elke deelbron krijgt een `source_status`-record (status, `fetched_at`, `source_url`, eventueel foutmelding) — dit is de provenance die later in de admin-pagina en op het gen-profiel zichtbaar is.
+Welke genen bestaan wordt bepaald door **HGNC**, niet door de annotatie: een locus met een symbool dat
+HGNC niet kent (bijvoorbeeld `AC093323.1`) is een geannoteerd kenmerk en geen gen, houdt zijn rij in
+`genes` en krijgt simpelweg geen verrijkt record. Hernoemde symbolen worden via `prev_symbol`/
+`alias_symbol` naar het huidige symbool gevouwen (`build_hgnc_symbol_resolver`), zodat `AATK` het
+record van `LMTK1` vindt; een historisch symbool waar twee genen aanspraak op maken wordt weggelaten
+in plaats van geraden.
+
+De URL's van de bulk-bronnen zijn configureerbaar (`gene_reference_hgnc_complete_set_url`,
+`gene_reference_clingen_validity_url`, `gene_reference_clingen_dosage_url`,
+`gene_reference_gencc_url`, `gene_reference_clinvar_gene_condition_url` in
+`backend/app/core/config.py`); het lokale dbNSFP-pad via `gene_reference_dbnsfp_gene_path`.
+
+`fetch_external_gene_bundle` (in `gene_info_external.py`) voegt alles samen tot één "bundle": als
+dbNSFP het gen dekt (`primary_source == "dbnsfp_gene"`), wordt dat als "fast path" gebruikt en wordt
+de NCBI-call overgeslagen; anders wordt NCBI opgehaald en met de bulk-data samengevoegd via
+`merge_gene_extra`. De identiteitsvelden (naam, aliassen, vorige symbolen, Ensembl/Entrez/OMIM-ids,
+locus-groep, VEGA-id, RefSeq-accessies) komen in beide gevallen uit de HGNC complete set.
+
+Elke deelbron krijgt een `source_status`-record: status, `fetched_at`, `source_url`, eventuele
+foutmelding, en **`release`** — welke uitgave van de bron dit gen beantwoordde (dbNSFP `5.4`, HGNC
+`2026-08-07`, de `FILE CREATED`-datum van ClinGen, de nieuwste `submitted_run_date` van GenCC), plus
+in `release_detail` de sha256 van de daadwerkelijk ingelezen bytes. Bronnen die zelf geen uitgave
+vermelden (ClinVar) krijgen bewust geen `release` in plaats van een verzonnen versie.
+
+De status kent vier waarden, en het onderscheid tussen de middelste twee is het punt:
+
+| Status | Betekenis |
+|---|---|
+| `success` | de bron had een record voor dit gen |
+| `missing` | de bron is bevraagd en heeft niets voor dit gen |
+| `not_consulted` | de bron is voor dit gen nooit bevraagd — **geen** uitspraak over dekking |
+| `error` | de download of het inlezen mislukte |
+
+Dit is de provenance die in de admin-pagina (kolommen "Release", "No record", "Not consulted") en
+onderaan het gen-profiel zichtbaar is.
 
 **PanelApp** is een aparte bron met een eigen service, `backend/app/services/panelapp_service.py`. Die wordt niet gebruikt voor gen-verrijking maar voor het **importeren van genpanels** (Genomics England PanelApp) — `search_panelapp_panels`, `fetch_panelapp_panel` en `extract_panelapp_import_content`. Belangrijk voor traceerbaarheid: de import-metadata bevat expliciet `panelapp_id`, `version`, `version_created`, `status` en een `source_url` (zie het `metadata`-blok in `extract_panelapp_import_content`). Deze panels verschijnen daarna als "Panel-lidmaatschap" op het gen-profiel. De aanroepende endpoints staan in `backend/app/routers/panels.py` (`GET /panels/panelapp/search`, `POST /panels/import/panelapp`).
 

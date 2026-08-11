@@ -128,6 +128,10 @@ Optional:
 - `GENE_REFERENCE_GENCC_URL`
 - `GENE_REFERENCE_CLINVAR_GENE_CONDITION_URL`
 - `GENE_REFERENCE_HGNC_COMPLETE_SET_URL`, the HGNC complete set that defines which human genes the reference sync caches
+- `REFERENCE_GENCODE_GTF_URL`, the GENCODE annotation supplying GRCh38 gene loci, biotypes, Ensembl/HGNC ids and MANE tags
+- `REFERENCE_GENCODE_REFSEQ_METADATA_URL`, GENCODE's transcript → RefSeq accession map
+- `REFERENCE_BOOTSTRAP_T2T`, defaulting to `false`; imports T2T-CHM13v2.0 as a second human assembly
+- `REFERENCE_T2T_GTF_URL`, the RefSeq-derived annotation used for T2T gene loci
 - `GENE_REFERENCE_DBNSFP_GENE_PATH`, defaulting to `/data/ref-data/dbNSFP5.4_gene.gz` for local-first gene reference sync
 - `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, defaulting to `true` to queue the first dbNSFP-backed human gene reference sync when a clean GRCh38 database has no cached gene info
 - `READS_PATH`

@@ -96,7 +96,27 @@ Deze functie is zo geschreven dat ze ook werkt onder de beperkte rol `coga_app`,
 Zonder een soort en een assembly is er geen coördinatenstelsel voor varianten. `ensure_human_grch38_reference_on_startup` (in `backend/app/services/reference_source_service.py`) garandeert dat *Homo sapiens* (taxon-id 9606, constante `HUMAN_GRCH38_TAX_ID`) met assembly **GRCh38 / hg38** bestaat, inclusief cytobanden en genen. De logica:
 
 1. Bestaat de GRCh38-assembly al mét cytobanden én genen? Dan niets doen (`_find_human_grch38_assembly` + `_assembly_dataset_count`).
-2. Anders probeert `import_reference_from_ucsc` de data van **UCSC** te halen: cytobanden (`_download_cytobands`) en genen (`_download_genes`, dat achtereenvolgens tabellen als `ncbiRefSeqCurated`, `ncbiRefSeq`, `refGene` en `ensGene` probeert). De soort en assembly worden aangemaakt via `_get_or_create_species` en `_get_or_create_assembly`.
+2. Anders haalt `import_reference_from_ucsc` de data op. Cytobanden komen van **UCSC**
+   (`_download_cytobands`; bestaat er geen cytoband-tabel voor het genoom, dan wordt uit de
+   chromosoomgroottes één band per chromosoom opgebouwd). Genen komen bij voorkeur uit een
+   **GTF-annotatie** (`_download_gencode_genes`): GENCODE voor GRCh38, de RefSeq-afgeleide
+   `hs1.ncbiRefSeq.gtf` voor T2T-CHM13. Lukt dat niet — of gaat het om een ander genoom — dan valt
+   het terug op de oude UCSC-gentabellen (`_download_genes`, dat achtereenvolgens `ncbiRefSeqCurated`,
+   `ncbiRefSeq`, `refGene` en `ensGene` probeert). De soort en assembly worden aangemaakt via
+   `_get_or_create_species` en `_get_or_create_assembly`.
+
+   GENCODE levert wat een UCSC-track niet heeft: echte biotypes, Ensembl- én HGNC-identifiers en
+   MANE-labels per transcript. De rij-vorm blijft ongewijzigd (één rij per transcript, met het
+   transcript-accession in `gene_id`), zodat de zestien consumenten van de `genes`-tabel niets
+   merken; alleen de inhoud van de rijen verandert. Elke rij draagt de bron waar hij vandaan komt
+   (`gencode` of `ucsc ncbiRefSeq`), want die twee annotaties zeggen niet hetzelfde.
+
+3. **T2T-CHM13v2.0** wordt optioneel als tweede assembly geïmporteerd
+   (`ensure_human_t2t_reference_on_startup`, aan te zetten met `REFERENCE_BOOTSTRAP_T2T=true`).
+   Standaard staat dat uit: een tweede assembly verdubbelt ruwweg de referentie-footprint. De
+   annotatie is bovendien armer dan die van GRCh38 — coördinaten wel, maar geen biotypes,
+   Ensembl-identifiers of MANE-labels — en GENCODE publiceert geen CHM13-uitgave. Mislukt deze
+   import, dan is dat nooit fataal: GRCh38 is de primaire assembly en moet hoe dan ook opkomen.
 3. Mislukt de download, dan valt de code terug op `ensure_human_grch38_species_assembly`: een lege "schaal" (soort + assembly zonder data), zodat het platform toch bruikbaar blijft en genen later handmatig geïmporteerd kunnen worden.
 
 Er zit een SSRF-hardening (server-side request forgery: voorkomen dat een aanvaller de server ongewenste URL's laat oproepen) in `_safe_ucsc_genome`: de genoom-identifier wordt tegen een strikte regex (`_UCSC_GENOME_RE.fullmatch`) gevalideerd voordat hij in een download-URL wordt geïnterpoleerd; bij een ongeldige waarde volgt een `HTTPException`. De hele bootstrap kan uitgezet worden met `REFERENCE_BOOTSTRAP_ENABLED=false` (instelling `reference_bootstrap_enabled`).
@@ -176,7 +196,7 @@ De uitrol is ontworpen rond een aantal expliciete waarborgen:
 - **Secret-beheer.** Lokaal weigert de backend te starten met placeholder-secrets (`validate_security_defaults`). In GCP komen alle geheimen uit Secret Manager en worden ze pas bij runtime in de container geïnjecteerd, niet in images of Terraform-state ingebakken. `SECRET_KEY` (JWT-ondertekening) en `INTEGRITY_ANCHOR_SIGNING_KEY` (integriteitsankers) moeten verschillende waarden hebben — een gedocumenteerde eis, waarbij de deploygids (§5.5) ze met aparte `openssl rand`-oproepen genereert.
 - **TLS naar de datastores.** Postgres via de Cloud SQL Python-Connector (mTLS, "verify-full"-graad over privé-IP; instelling `postgres_use_cloud_sql_connector`, connectorlogica `_cloud_sql_connect` in `backend/app/core/postgres.py`). ClickHouse over HTTPS met een private CA die de backend verifieert (`CLICKHOUSE_SECURE/VERIFY/CA_CERT`, afgehandeld in `_create_clickhouse_client` in `backend/app/core/clickhouse.py`). Encryptie-at-rest via CMEK op Cloud SQL, disks en buckets.
 - **Beperkte runtime-DB-rol.** Het schemabestand `backend/db/schema/postgres/040_app_runtime_role_privileges.sql` maakt de rol `coga_app` aan die géén DDL kan draaien en géén `UPDATE`/`DELETE` op de append-only audit-, report-signout- en hash-chain-tabellen mag. Dat sluit een "owner-bypass" op de append-only- en hash-chain-controles. De rol wordt momenteel in "fallback"-modus (`NOLOGIN`) uitgeleverd tot een gecoördineerde DSN-flip; tot dan boot de app nog als eigenaar (zie `docs/db-runtime-role-runbook.md`).
-- **Reproduceerbaarheid.** Container-images zijn per digest vastgepind; `APP_VERSION`/`GIT_SHA` worden bij build-time ingebakken en in elk ondertekend rapport bevroren; de HPO-release en het dbNSFP-bestand (`dbNSFP5.4_gene.gz`) zijn gepinde referentieversies. Zo is voor elke analyse achteraf exact te reconstrueren welke code én welke referentiedata gebruikt zijn.
+- **Reproduceerbaarheid.** Container-images zijn per digest vastgepind; `APP_VERSION`/`GIT_SHA` worden bij build-time ingebakken en in elk ondertekend rapport bevroren; de HPO-release, het dbNSFP-bestand (`dbNSFP5.4_gene.gz`) en de GENCODE-uitgave (`REFERENCE_GENCODE_GTF_URL`) zijn gepinde referentieversies, en elk gecacht gen-record legt per bron vast wélke uitgave hem beantwoordde (zie hoofdstuk [13-gene-explorer.md](13-gene-explorer.md)). Zo is voor elke analyse achteraf exact te reconstrueren welke code én welke referentiedata gebruikt zijn.
 - **Auditing vanaf boot.** De audit-log-worker start vóór de seeding, en de ClickHouse-integriteitsmonitor draait vanaf opstart, zodat gebeurtenissen en datacorruptie van meet af aan worden vastgelegd.
 
 De uitrol-handleiding merkt tot slot op dat een aantal IVDR-verplichtingen procesmatig blijven (change control, een bijgewerkte DPIA nu Google een data-sub-processor is) en dus buiten de code vallen — zie `docs/deployment-gcp.md` §13.
@@ -192,7 +212,7 @@ De uitrol-handleiding merkt tot slot op dat een aantal IVDR-verplichtingen proce
 | `backend/app/core/clickhouse.py` | `init_clickhouse_schema`, databanknaam-rendering, TLS-clientopbouw |
 | `backend/db/schema/postgres/*.sql` | Genummerde Postgres-schemabestanden (001–042), incl. `040_app_runtime_role_privileges.sql` |
 | `backend/db/schema/clickhouse/001_coga_variant_storage.sql` | ClickHouse variant-schema |
-| `backend/app/services/reference_source_service.py` | GRCh38-bootstrap: soort/assembly, cytobanden, genen (UCSC) |
+| `backend/app/services/reference_source_service.py` | Bootstrap van GRCh38 (en optioneel T2T-CHM13): soort/assembly, cytobanden, genen (GENCODE-GTF, met UCSC als terugval) |
 | `backend/app/services/reference_metadata_service.py` | `seed_builtin_reference_tracks` (klinische CNV's, segmentale duplicaties) |
 | `backend/app/services/repeat_expansion_pg.py` | `seed_builtin_repeat_catalog` (repeat-loci + STRchive) |
 | `backend/app/services/hpo_service.py` | `ensure_hpo_ontology_on_startup` |
