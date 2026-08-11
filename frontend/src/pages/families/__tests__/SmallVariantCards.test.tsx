@@ -251,7 +251,8 @@ describe('SmallVariantCards', () => {
               impact: 'MODERATE',
               effect: 'missense_variant',
               gene_pli: 0.99,
-              polyphen: 'probably_damaging',
+              // As VEP writes it: call and score joined, underscored.
+              polyphen: 'probably_damaging(0.998)',
               spliceai_max: 0.12,
               // AlphaMissense is a first-class field, and the annotation repeats it under
               // its own key — both shapes are what the backend really sends.
@@ -281,6 +282,8 @@ describe('SmallVariantCards', () => {
     expect(within(silico).getByText('AlphaMissense')).toBeInTheDocument();
     expect(within(silico).getByText(/0\.810 · likely pathogenic/)).toBeInTheDocument();
     expect(within(silico).getByText('pLI')).toBeInTheDocument();
+    // VEP joins the call to its score; the card spaces them and drops the underscores.
+    expect(within(silico).getByText('probably damaging (0.998)')).toBeInTheDocument();
 
     await userEvent.click(screen.getByText('More annotations & detail'));
 

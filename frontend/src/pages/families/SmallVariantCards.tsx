@@ -19,6 +19,7 @@ import {
   formatCompoundHetPhaseStatus,
   formatHgvsG,
   formatLocus,
+  formatPredictionScore,
   formatScore,
   formatTokenLabel,
   getClinvarHighlightTone,
@@ -629,8 +630,10 @@ export default function SmallVariantCards({
           typeof variant.revel === 'number' ? { label: 'REVEL', value: formatScore(variant.revel) } : null,
           alphaMissense ? { label: 'AlphaMissense', value: alphaMissense } : null,
           typeof variant.spliceai_max === 'number' ? { label: 'SpliceAI', value: formatScore(variant.spliceai_max) } : null,
-          variant.sift ? { label: 'SIFT', value: variant.sift } : null,
-          variant.polyphen ? { label: 'PolyPhen', value: variant.polyphen } : null,
+          variant.sift ? { label: 'SIFT', value: formatPredictionScore(variant.sift) } : null,
+          variant.polyphen
+            ? { label: 'PolyPhen', value: formatPredictionScore(variant.polyphen) }
+            : null,
           typeof variant.gene_pli === 'number' ? { label: 'pLI', value: formatScore(variant.gene_pli, 3) } : null,
           typeof variant.gene_missense_z === 'number' ? { label: 'Missense Z', value: formatScore(variant.gene_missense_z) } : null,
         ].filter((item): item is { label: string; value: string } => Boolean(item));
@@ -759,7 +762,7 @@ export default function SmallVariantCards({
                     <dd>
                       {hgvsG || '—'}
                       {variant.cytoband ? (
-                        <span className="variant-card-cytoband"> ({variant.cytoband})</span>
+                        <span className="variant-card-cytoband">({variant.cytoband})</span>
                       ) : null}
                     </dd>
                   </div>
