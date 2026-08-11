@@ -352,6 +352,60 @@ describe('SmallVariantCards', () => {
       .closest('.variant-card-transcript-row') as HTMLElement;
     expect(within(transcriptRow).getByText('MANE')).toBeInTheDocument();
     expect(within(transcriptRow).getByText('Canonical')).toBeInTheDocument();
+
+    // The consequence names the variant, so it rides with the gene in the headline.
+    const headline = screen.getByText('BRCA2').closest('.variant-card-headline') as HTMLElement;
+    expect(within(headline).getByText('missense variant')).toBeInTheDocument();
+    expect(within(transcriptRow).queryByText('missense variant')).not.toBeInTheDocument();
+  });
+
+  it('puts the LoF chip in the headline before the SV second-hit badge', () => {
+    renderCards(
+        <SmallVariantCards
+          variants={[
+            {
+              _id: 'brca2-var',
+              chr: '13',
+              start: 32316461,
+              end: 32316461,
+              type: 'SNV',
+              gene: 'BRCA2',
+              ref: 'G',
+              alt: 'A',
+              impact: 'HIGH',
+              effect: 'stop_gained',
+              lof: 'HC',
+              transcript_id: 'ENST00000380152.8',
+              sv_second_hit: {
+                sv_count: 1,
+                sv_types: ['DEL'],
+                has_deletion: true,
+                phase: 'trans',
+                phase_evidence: 'read',
+                deletion_unmasked: true,
+              },
+              genotypes: [],
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />,
+    );
+
+    const headline = screen.getByText('BRCA2').closest('.variant-card-headline') as HTMLElement;
+    const text = [...headline.children].map((node) => node.textContent || '');
+    const consequence = text.findIndex((value) => value.includes('stop gained'));
+    const lof = text.findIndex((value) => value.includes('LoF HC'));
+    const secondHit = text.findIndex((value) => value.includes('SV'));
+    expect(consequence).toBeGreaterThan(-1);
+    expect(lof).toBeGreaterThan(consequence);
+    expect(secondHit).toBeGreaterThan(lof);
   });
 
   it('splits a multi-accession ID column into separate links', () => {
