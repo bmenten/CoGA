@@ -723,10 +723,29 @@ async def build_gene_profile(
         for row in monarch_rows
     ]
 
+    # The annotation behind the loci and transcripts is recorded per assembly at import
+    # time, so it comes from the import log rather than the gene row.
+    annotation_result = await session.execute(
+        text(
+            """
+            SELECT source, performed_at
+            FROM reference_dataset_imports
+            WHERE assembly_id = CAST(:assembly_id AS uuid)
+              AND dataset_type = 'genes'
+            ORDER BY performed_at DESC
+            LIMIT 1
+            """
+        ),
+        {"assembly_id": primary_assembly["id"]},
+    )
+    annotation_row = annotation_result.mappings().first()
+
     return GeneProfileOut(
         assembly_id=str(primary_assembly["id"]),
         assembly_name=str(primary_assembly["assembly_name"]),
         assembly_version=primary_assembly.get("version"),
+        gene_annotation_source=(annotation_row or {}).get("source"),
+        gene_annotation_imported_at=(annotation_row or {}).get("performed_at"),
         species_name=str(species_row["name"]),
         symbol=str(primary["hgnc_symbol"]),
         gene_id=str(primary["gene_id"]),

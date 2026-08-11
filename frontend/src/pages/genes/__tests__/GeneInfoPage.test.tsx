@@ -143,6 +143,8 @@ describe('GeneInfoPage', () => {
                 small_variants: 4,
                 structural_variants: 1,
               },
+              gene_annotation_source: 'gencode v50 (Ensembl 116)',
+              gene_annotation_imported_at: '2026-08-10T20:30:00Z',
               source_status: {
                 hgnc: {
                   status: 'success',
@@ -169,7 +171,17 @@ describe('GeneInfoPage', () => {
                   fetched_at: '2026-03-27T12:00:00Z',
                   source_url: '/data/ref-data/dbNSFP5.4_gene.gz',
                   message: null,
+                  release: '5.4',
+                  release_detail: { label: '5.4', checksum: 'abc123def456789' },
                   payload: { record_count: 1 },
+                },
+                hgnc_complete_set: {
+                  status: 'success',
+                  fetched_at: '2026-08-10T20:00:00Z',
+                  source_url: 'https://example.test/hgnc',
+                  message: null,
+                  release: '2026-08-07',
+                  payload: {},
                 },
               },
               external_links: [
@@ -485,6 +497,11 @@ describe('GeneInfoPage', () => {
       'href',
       'https://www.informatics.jax.org/marker/MGI:104537',
     );
+    // The provenance strip names which release of each source produced this page, and
+    // which annotation the loci came from — not merely that a source answered.
+    expect(screen.getByText(/Annotation gencode v50 \(Ensembl 116\)/)).toBeInTheDocument();
+    expect(screen.getByText('dbNSFP 5.4')).toBeInTheDocument();
+    expect(screen.getByText('HGNC 2026-08-07')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'KEGG' })).toHaveAttribute(
       'href',
       'https://www.genome.jp/dbget-bin/www_bget?hsa:672',

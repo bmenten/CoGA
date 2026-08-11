@@ -1555,10 +1555,19 @@ class GeneVariantCountsOut(BaseModel):
 
 
 class GeneInfoSourceStatusOut(BaseModel):
-    status: Literal["success", "missing", "error"]
+    # "not_consulted" means the source was never queried for this gene, which is not a
+    # statement about its coverage. Omitting it here would 500 the gene profile for any
+    # gene carrying one, since the cache has recorded them since the sources stopped
+    # being consulted as a fallback.
+    status: Literal["success", "missing", "not_consulted", "error"]
     fetched_at: datetime
     source_url: Optional[str] = None
     message: Optional[str] = None
+    # Which issue of the source answered — dbNSFP's version, HGNC's newest modification
+    # date, ClinGen's file date. Without this the page can show that a source answered
+    # but not what it answered from.
+    release: Optional[str] = None
+    release_detail: Dict[str, Any] = Field(default_factory=dict)
     payload: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -1588,6 +1597,11 @@ class GeneProfileOut(BaseModel):
     assembly_id: str
     assembly_name: str
     assembly_version: Optional[str] = None
+    # Which annotation the loci and transcripts came from, e.g. "gencode v50 (Ensembl
+    # 116)" or "ucsc ncbiRefSeq". Recorded per assembly at import, not per gene, so it
+    # is read from the import record rather than the gene row.
+    gene_annotation_source: Optional[str] = None
+    gene_annotation_imported_at: Optional[datetime] = None
     species_name: str
     symbol: str
     gene_id: str
