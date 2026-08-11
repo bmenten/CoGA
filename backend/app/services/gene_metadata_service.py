@@ -51,6 +51,24 @@ def _transcript_id_from_doc(doc: dict[str, Any]) -> str:
     return str(extra.get("transcript_id") or doc.get("gene_id") or doc.get("hgnc_symbol"))
 
 
+_REFSEQ_TRANSCRIPT_PREFIXES = ("NM_", "NR_", "XM_", "XR_")
+
+
+def _transcript_refseq_accessions(doc: dict[str, Any]) -> list[str]:
+    """RefSeq transcript accessions for this transcript, protein accessions excluded.
+
+    GENCODE's RefSeq mapping lists both sides of the pair — ``NM_007294.4`` alongside
+    ``NP_009225.1`` — and a transcript table should offer only the transcript.
+    """
+    extra = doc.get("extra") or {}
+    seen: list[str] = []
+    for accession in extra.get("refseq_accessions") or []:
+        value = str(accession or "").strip()
+        if value.upper().startswith(_REFSEQ_TRANSCRIPT_PREFIXES) and value not in seen:
+            seen.append(value)
+    return seen
+
+
 def _transcript_relevance_flags(doc: dict[str, Any]) -> dict[str, bool]:
     """Read MANE / Ensembl-canonical status off the annotation's own tags.
 
@@ -625,6 +643,7 @@ async def build_gene_profile(
             strand=int(doc.get("strand", 0)),
             biotype=doc.get("biotype"),
             source=doc.get("source"),
+            refseq_accessions=_transcript_refseq_accessions(doc),
             **_transcript_relevance_flags(doc),
         )
         for doc in sorted(

@@ -117,3 +117,41 @@ def test_first_identifier_skips_empty_entries_and_blocks() -> None:
     assert _first_identifier(extra, ("dbnsfp_identifiers", "uniprot_accessions")) == "P38398"
     assert _first_identifier(extra, ("missing_block", "whatever")) is None
     assert _first_identifier({"dbnsfp_identifiers": "not-a-dict"}, ("dbnsfp_identifiers", "x")) is None
+
+
+def test_transcript_refseq_accessions_exclude_protein_ids() -> None:
+    from backend.app.services.gene_metadata_service import _transcript_refseq_accessions
+
+    # GENCODE's RefSeq mapping lists both sides of the pair; a transcript table should
+    # offer the transcript, not the protein it encodes.
+    doc = {
+        "extra": {
+            "refseq_accessions": [
+                "NM_007294.4",
+                "NP_009225.1",
+                "NM_001407598.1",
+                "NP_001394527.1",
+            ]
+        }
+    }
+
+    assert _transcript_refseq_accessions(doc) == ["NM_007294.4", "NM_001407598.1"]
+
+
+def test_transcript_refseq_accessions_keep_non_coding_and_predicted_transcripts() -> None:
+    from backend.app.services.gene_metadata_service import _transcript_refseq_accessions
+
+    doc = {"extra": {"refseq_accessions": ["NR_110561.1", "XM_011516.2", "XR_001.1"]}}
+
+    assert _transcript_refseq_accessions(doc) == ["NR_110561.1", "XM_011516.2", "XR_001.1"]
+
+
+def test_transcript_refseq_accessions_dedupe_and_tolerate_absence() -> None:
+    from backend.app.services.gene_metadata_service import _transcript_refseq_accessions
+
+    assert _transcript_refseq_accessions(
+        {"extra": {"refseq_accessions": ["NM_007294.4", "NM_007294.4", " "]}}
+    ) == ["NM_007294.4"]
+    # Most transcripts have no RefSeq equivalent at all.
+    assert _transcript_refseq_accessions({"extra": {}}) == []
+    assert _transcript_refseq_accessions({}) == []
