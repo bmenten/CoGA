@@ -3176,7 +3176,9 @@ tbody tr:hover {
 
 .analysis-filter-grid {
   display: grid;
-  gap: 0.9rem;
+  /* Matches the filter dropdown's own 0.45rem rhythm; 0.9rem spread a row of small
+     numeric fields much wider than they need. */
+  gap: 0.45rem;
 }
 
 .variant-workbench-card {
@@ -3444,6 +3446,27 @@ tbody tr:hover {
   gap: 0.45rem;
   border-top: 1px solid rgba(10, 11, 12, 0.06);
   padding: 0.46rem 0.5rem 0.52rem;
+}
+
+/* A filter popover holds a dozen numeric fields to be read at a glance. The global
+   3.15rem control height is sized for standalone forms and left each dropdown a column
+   of oversized boxes — while the quick selects in the same form were already 2rem.
+   Match those, so one form has one control size. */
+.variant-filter-dropdown-content
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.variant-filter-dropdown-content select,
+.variant-filter-dropdown-content textarea,
+.analysis-filter-grid input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.analysis-filter-grid select {
+  min-height: 2rem;
+  padding: 0.42rem 0.55rem;
+  font-size: 0.7rem;
+}
+
+/* A range has no text to pad, so the inherited 1rem padding was pure height. */
+.variant-filter-dropdown-content input[type='range'] {
+  min-height: 1.1rem;
+  padding: 0;
 }
 
 /* Monogenic NIPT filter form helpers (mirror the small-variant filter look). */
