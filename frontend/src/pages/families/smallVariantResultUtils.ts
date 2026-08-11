@@ -65,6 +65,16 @@ export const formatTokenLabel = (value?: string) => {
   return value.replace(/_/g, ' ');
 };
 
+// VEP writes the call and its score joined up — `deleterious_low_confidence(0)` — which
+// reads as one word. Space the score off and un-snake the term.
+export const formatPredictionScore = (value?: string | null): string => {
+  const text = (value || '').trim();
+  if (!text || text === '-') return '—';
+  const match = /^(.*?)\s*\(([^)]*)\)$/.exec(text);
+  if (!match) return text.replace(/_/g, ' ');
+  return `${match[1].replace(/_/g, ' ')} (${match[2]})`;
+};
+
 export const formatLocus = (variant: Pick<SmallVariant, 'chr' | 'start' | 'end'>) => {
   const chr = variant.chr.startsWith('chr') ? variant.chr : `chr${variant.chr}`;
   return `${chr}:${variant.start.toLocaleString()}-${Math.max(

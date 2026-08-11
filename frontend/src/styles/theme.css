@@ -5125,29 +5125,41 @@ tbody tr:hover {
   min-width: 0;
 }
 
-.variant-card-col-title {
+/* A shade larger and more widely tracked than the field names below it, so the column
+   and section headers read as headers rather than as another key. */
+.variant-card-col-title,
+.variant-card-section-title {
   margin: 0;
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-text-muted);
 }
 
-.variant-card-mini-dl {
+/* One grid for the whole list rather than a grid per row, so the key column is sized by
+   the longest label present (ALPHAMISSENSE overflowed the old fixed 5.25rem and ran
+   under its own value) and every row still lines up. */
+.variant-card-mini-dl,
+.variant-card-detail-list,
+.variant-card-stat-list {
   display: grid;
-  gap: 0.16rem;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.16rem 0.7rem;
   margin: 0;
-}
-
-.variant-card-mini-dl > div {
-  display: grid;
-  grid-template-columns: 5.25rem minmax(0, 1fr);
-  gap: 0.5rem;
   align-items: baseline;
 }
 
-.variant-card-mini-dl dt {
+.variant-card-mini-dl > div,
+.variant-card-detail-row,
+.variant-card-stat-row {
+  display: contents;
+}
+
+/* The card and its disclosure are one document: same key, same value, same rhythm. */
+.variant-card-mini-dl dt,
+.variant-card-detail-row dt,
+.variant-card-stat-row dt {
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -5155,12 +5167,20 @@ tbody tr:hover {
   color: var(--color-text-muted);
 }
 
-.variant-card-mini-dl dd {
+.variant-card-mini-dl dd,
+.variant-card-detail-row dd,
+.variant-card-stat-row dd {
   margin: 0;
   font-size: 0.8rem;
+  line-height: 1.45;
   color: var(--color-secondary);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+
+.variant-card-cytoband {
+  margin-left: 0.4rem;
+  color: var(--color-text-muted);
 }
 
 .variant-card-col .variant-transcript-trigger {
@@ -5329,10 +5349,6 @@ tbody tr:hover {
   gap: 0.4rem;
 }
 
-.variant-card-cytoband {
-  color: var(--color-text-muted);
-}
-
 .variant-card-idlist {
   display: flex;
   flex-wrap: wrap;
@@ -5408,48 +5424,6 @@ tbody tr:hover {
      them — which floated a short list (population frequencies especially) into the
      vertical middle of its cell. Pack the rows to the top instead. */
   align-content: start;
-}
-
-.variant-card-section-title {
-  margin: 0;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.variant-card-detail-list,
-.variant-card-stat-list {
-  display: grid;
-  gap: 0.55rem;
-  margin: 0;
-}
-
-.variant-card-detail-row,
-.variant-card-stat-row {
-  display: grid;
-  grid-template-columns: minmax(100px, 0.8fr) minmax(0, 1fr);
-  gap: 0.9rem;
-  align-items: baseline;
-}
-
-.variant-card-detail-row dt,
-.variant-card-stat-row dt {
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
-
-.variant-card-detail-row dd,
-.variant-card-stat-row dd {
-  margin: 0;
-  color: var(--color-heading);
-  font-size: 0.9rem;
-  line-height: 1.45;
-  word-break: break-word;
 }
 
 .variant-card-note-box,
@@ -5553,14 +5527,8 @@ tbody tr:hover {
   overflow-wrap: anywhere;
 }
 
-.variant-card-stat-row {
-  grid-template-columns: minmax(88px, 0.85fr) minmax(0, 1fr);
-}
-
-.variant-card-stat-row dd {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
+/* Frequencies read left-aligned like every other value on the card; right-aligning them
+   made the population list the one block that did not match the top. */
 
 .variant-card-genotype-strip {
   display: grid;
@@ -5794,14 +5762,13 @@ tbody tr:hover {
     padding: 0.95rem;
   }
 
-  .variant-card-detail-row,
-  .variant-card-stat-row {
+  /* Narrow enough that a key column costs more than it buys: stack key over value.
+     The rows are display:contents, so this is set on the list that owns the grid. */
+  .variant-card-mini-dl,
+  .variant-card-detail-list,
+  .variant-card-stat-list {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.18rem;
-  }
-
-  .variant-card-stat-row dd {
-    text-align: left;
   }
 
   .variant-card-link-row::before {

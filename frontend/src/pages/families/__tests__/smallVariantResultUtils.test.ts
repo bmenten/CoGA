@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatHgvsG, parseVariantIds } from '../smallVariantResultUtils';
+import { formatHgvsG, formatPredictionScore, parseVariantIds } from '../smallVariantResultUtils';
 
 const variant = (chr: string, start: number, ref: string, alt: string) =>
   ({ chr, start, ref, alt }) as Parameters<typeof formatHgvsG>[0];
@@ -38,6 +38,30 @@ describe('formatHgvsG', () => {
     expect(formatHgvsG(variant('1', 100, '<DEL>', 'A'))).toBeNull();
     expect(formatHgvsG(variant('1', 100, '', 'A'))).toBeNull();
     expect(formatHgvsG(variant('1', 100, 'A', 'A'))).toBeNull();
+  });
+});
+
+describe('formatPredictionScore', () => {
+  it('spaces the score off the call', () => {
+    expect(formatPredictionScore('deleterious(0.01)')).toBe('deleterious (0.01)');
+    expect(formatPredictionScore('tolerated(1)')).toBe('tolerated (1)');
+  });
+
+  it('un-snakes a multi-word call', () => {
+    expect(formatPredictionScore('deleterious_low_confidence(0)')).toBe(
+      'deleterious low confidence (0)',
+    );
+    expect(formatPredictionScore('probably_damaging(0.999)')).toBe('probably damaging (0.999)');
+  });
+
+  it('leaves a bare call alone apart from the underscores', () => {
+    expect(formatPredictionScore('probably_damaging')).toBe('probably damaging');
+  });
+
+  it('renders a missing or no-call value as a dash', () => {
+    expect(formatPredictionScore('')).toBe('—');
+    expect(formatPredictionScore(null)).toBe('—');
+    expect(formatPredictionScore('-')).toBe('—');
   });
 });
 
