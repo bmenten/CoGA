@@ -39,7 +39,7 @@ The "done" criteria:
 | --- | --- | --- |
 | SNV per-variant gene annotations | ✅ | `GRCh38/SNV_INDEL/entries.gene_symbols` (Array), `is_annotated_in_any_gene` |
 | SV per-variant gene annotations | ✅ | `GRCh38/SV/entries.gene_symbols` (Array) + per-sample `calls.gt` |
-| SNV compound-het pairing (SNV+SNV) | ✅ | `_compound_het_pairs` / `_records_form_compound_het_pair` (`clickhouse_family_variants.py`): both het in **all affected**, and **not both** in any unaffected → trans by segregation |
+| SNV compound-het pairing (SNV+SNV) | ✅ | `_compound_het_pairs` / `_compound_het_pair_phase` (`clickhouse_variant_queries.py`): both het in **all affected**, **not both** in any unaffected, then **read-backed phasing** — a pair the caller places on the same haplotype of one phase set is cis and is dropped; opposite haplotypes give `phase="trans"`; no shared phase set gives `phase="unknown"` |
 | Inheritance / de-novo (parent genotypes) | ✅ | `_record_matches_de_novo`, `_segregation_modes_by_variant`; pedigree via `FamilyMetadataContext` (`affected_sample_names`, `relationship_rows`, `sample_rows`) |
 | **SNV phasing** | ✅ | `SNV_INDEL/entries.calls.ps` (phase set, per sample) |
 | **SV phasing** | ✅ (Phase 2) | `SV/entries.calls.ps` now captured from the VCF `PS`; phased `GT` (`a\|b`) preserved. `NULL` for unphased calls (no phased SVs in current data) |
@@ -99,8 +99,16 @@ Each candidate pair carries a `phase` verdict with its evidence tier:
 - **trio / segregation** (available now): SNV and SV transmitted from different parents ⇒
   trans; same parent ⇒ cis; ambiguous ⇒ unknown. Reuses the pedigree + the not-both-in-
   unaffected logic.
-- **read-based** (long-read; *blocked on §7*): compare the SNV phase set/haplotype with the
-  SV phase set once SVs are phased upstream.
+- **read-based, SNV+SNV** (shipped): two het SNVs sharing a phase set carry haplotype-
+  resolved genotypes, so `0|1` against `1|0` is **trans** and `0|1` against `0|1` is
+  **cis**. Cis pairs are dropped as candidates rather than labelled — one intact copy of
+  the gene remains, so the pair cannot be the recessive explanation. Implemented in
+  `_phased_alt_haplotype` / `_pair_phase_for_sample` / `_compound_het_pair_phase`.
+  Haplotype indices are only compared **within one phase set**; across blocks they mean
+  nothing. A homozygous call yields no haplotype (it is on both), which is also why such
+  calls carry no phase set — and they are excluded by the het rule anyway.
+- **read-based, SNV+SV** (long-read; *blocked on §7*): compare the SNV phase set/haplotype
+  with the SV phase set once SVs are phased upstream.
 - **unknown**: singleton family or no informative parent and no read phase.
 
 ---

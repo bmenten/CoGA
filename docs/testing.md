@@ -156,6 +156,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_clickhouse.py](../backend/tests/test_clickhouse.py) | ClickHouse client query/command/insert dispatch and recording. |
 | [backend/tests/test_clickhouse_dataset_key.py](../backend/tests/test_clickhouse_dataset_key.py) | Dataset-key normalization and injection-safe handling. |
 | [backend/tests/test_clickhouse_family_variants.py](../backend/tests/test_clickhouse_family_variants.py) | Small-variant query, genotype/phasing parsing, inheritance + compound-het. |
+| [backend/tests/test_compound_het_phasing.py](../backend/tests/test_compound_het_phasing.py) | Read-backed compound-het phase: cis pairs dropped, trans labelled, haplotypes compared only within a phase set, hom/multi-allelic/unphased calls left unresolved. |
 | [backend/tests/test_clickhouse_integrity.py](../backend/tests/test_clickhouse_integrity.py) | ClickHouse table-integrity / detached-parts checks. |
 | [backend/tests/test_clickhouse_interval_tracks.py](../backend/tests/test_clickhouse_interval_tracks.py) | Interval-track presence detection and region filtering. |
 | [backend/tests/test_clickhouse_variant_storage_ops.py](../backend/tests/test_clickhouse_variant_storage_ops.py) | Variant-assembly listing, table dedup, mutation status. |
@@ -375,6 +376,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/pages/families/__tests__/MonarchPhenotypeMatchPanel.test.tsx](../frontend/src/pages/families/__tests__/MonarchPhenotypeMatchPanel.test.tsx) | Monarch phenotype-match panel search/display. |
 | [frontend/src/pages/families/__tests__/NiptClassificationBlock.test.tsx](../frontend/src/pages/families/__tests__/NiptClassificationBlock.test.tsx) | NIPT per-variant block: category/confidence/VAF/flags. |
 | [frontend/src/pages/families/__tests__/SmallVariantCards.test.tsx](../frontend/src/pages/families/__tests__/SmallVariantCards.test.tsx) | Small-variant cards: transcript popup and effects, CCDS/RefSeq badges, gene–disease list, HGVS.g headline, dbSNP link, card-vs-disclosure split. |
+| [frontend/src/pages/families/__tests__/SmallVariantPairCards.test.tsx](../frontend/src/pages/families/__tests__/SmallVariantPairCards.test.tsx) | Compound-het pair cards: read-backed trans vs unresolved phasing, kept distinct from the curator's phase status. |
 | [frontend/src/pages/families/__tests__/SmallVariantTable.test.tsx](../frontend/src/pages/families/__tests__/SmallVariantTable.test.tsx) | Small-variant table rendering and tooltips. |
 | [frontend/src/pages/families/__tests__/SvSecondHitBadge.test.tsx](../frontend/src/pages/families/__tests__/SvSecondHitBadge.test.tsx) | SV second-hit (compound-het) badge. |
 | [frontend/src/pages/families/__tests__/buildLiteraturePubmedHref.test.ts](../frontend/src/pages/families/__tests__/buildLiteraturePubmedHref.test.ts) | PubMed search-URL construction for variants. |

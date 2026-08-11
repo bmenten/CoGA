@@ -132,6 +132,10 @@ class SmallVariantCompoundHetPair:
     gene_id: str | None
     left: SmallVariantRecord
     right: SmallVariantRecord
+    # "trans" when the caller placed the two alts on opposite haplotypes of one phase
+    # set, "unknown" when no shared phase block resolves them. Cis pairs are excluded
+    # upstream, so they never appear here.
+    phase: str = "unknown"
 
 
 @dataclass(slots=True)
