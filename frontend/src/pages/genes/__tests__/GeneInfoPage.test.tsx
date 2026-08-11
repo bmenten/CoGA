@@ -83,6 +83,7 @@ describe('GeneInfoPage', () => {
                   mane_select: true,
                   ensembl_canonical: true,
                   refseq_accessions: ['NM_007294.4'],
+                  ccds_id: 'CCDS11453.1',
                 },
                 {
                   transcript_id: 'NM_007294.4',
@@ -92,6 +93,7 @@ describe('GeneInfoPage', () => {
                   strand: -1,
                   biotype: 'protein_coding',
                   source: 'refgene',
+                  mane_plus_clinical: true,
                 },
               ],
               aliases: ['BRCC1'],
@@ -463,11 +465,23 @@ describe('GeneInfoPage', () => {
       'https://www.ncbi.nlm.nih.gov/nuccore/NM_007294.4',
     );
     expect(within(transcriptTable).getByText('MANE Select')).toBeInTheDocument();
+    // CCDS membership is a per-transcript signal, so it is badged on the transcript
+    // rather than shown once for the gene.
+    expect(within(transcriptTable).getByText('CCDS')).toBeInTheDocument();
     expect(within(transcriptTable).getByText('Ensembl Canonical')).toBeInTheDocument();
     // The overview names the transcripts too, not just the badges in the table. Both
     // read the per-transcript GENCODE flags — the gene-level values these rows used to
     // take came from a ClinGen scrape and an Ensembl call that no longer run, and were
     // absent for all but a handful of genes even when they did.
+    // MANE Plus Clinical is rare but clinically important, so the overview names it
+    // beside the other two rather than leaving it to a badge further down.
+    // The label also exists as a badge in the transcript table, so match the term.
+    const plusClinicalRow = screen
+      .getByText('MANE Plus Clinical', { selector: 'dt' })
+      .closest('.gene-compact-detail-row');
+    expect(
+      within(plusClinicalRow as HTMLElement).getByText('NM_007294.4'),
+    ).toBeInTheDocument();
     for (const label of ['MANE transcript', 'Canonical transcript']) {
       const row = screen.getByText(label).closest('.gene-compact-detail-row');
       expect(row).not.toBeNull();

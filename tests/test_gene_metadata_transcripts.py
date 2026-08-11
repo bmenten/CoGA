@@ -155,3 +155,19 @@ def test_transcript_refseq_accessions_dedupe_and_tolerate_absence() -> None:
     # Most transcripts have no RefSeq equivalent at all.
     assert _transcript_refseq_accessions({"extra": {}}) == []
     assert _transcript_refseq_accessions({}) == []
+
+
+def test_transcript_flags_and_ccds_travel_together_from_the_annotation() -> None:
+    # GENCODE states CCDS membership two ways on a transcript: the ccdsid attribute and
+    # a CCDS tag. The id is the useful one, since it names the consensus record.
+    doc = {
+        "extra": {
+            "ccds_id": "CCDS11453.1",
+            "tags": ["basic", "CCDS", "MANE_Plus_Clinical"],
+        }
+    }
+
+    flags = _transcript_relevance_flags(doc)
+
+    assert flags["mane_plus_clinical"] is True
+    assert (doc["extra"]).get("ccds_id") == "CCDS11453.1"
