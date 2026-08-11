@@ -32,6 +32,8 @@ interface GeneTranscript {
   // Matching RefSeq transcript accessions. Empty for a transcript RefSeq has no
   // equivalent of, which is most of them — GENCODE maps about a sixth.
   refseq_accessions?: string[];
+  // CCDS membership: the coding sequence agreed across Ensembl, NCBI and UCSC.
+  ccds_id?: string | null;
 }
 
 interface GenePanelMembership {
@@ -338,7 +340,7 @@ interface NamedStringGroup {
   items: string[];
 }
 
-type TranscriptBadgeTone = 'success' | 'warning' | 'accent' | 'strong';
+type TranscriptBadgeTone = 'success' | 'warning' | 'accent' | 'strong' | 'neutral';
 
 interface TranscriptBadge {
   label: string;
@@ -438,7 +440,7 @@ const matchesAnyTranscript = (transcriptId: string, references?: string[] | null
 const transcriptBadgesFor = (
   transcript: Pick<
     GeneTranscript,
-    'transcript_id' | 'mane_select' | 'mane_plus_clinical' | 'ensembl_canonical'
+    'transcript_id' | 'mane_select' | 'mane_plus_clinical' | 'ensembl_canonical' | 'ccds_id'
   >,
   context: TranscriptAnnotationContext,
 ): TranscriptBadge[] => {
@@ -456,6 +458,7 @@ const transcriptBadgesFor = (
     transcript.ensembl_canonical || isSameTranscript(transcriptId, context.ensemblCanonical)
       ? { label: 'Ensembl Canonical', tone: 'warning' as const }
       : null,
+    transcript.ccds_id ? { label: 'CCDS', tone: 'neutral' as const } : null,
   ].filter((badge): badge is TranscriptBadge => Boolean(badge));
 };
 
@@ -1037,6 +1040,15 @@ const GeneInfoPage: React.FC = () => {
                 profile.transcripts.find((transcript) => transcript.mane_select)?.transcript_id ||
                 clingenFacts?.mane_select_transcript ||
                 '—',
+            },
+            // Rare — 74 transcripts genome-wide — but when a gene has one it is the
+            // clinically important alternative, so it belongs beside MANE Select rather
+            // than only as a badge further down the page.
+            {
+              label: 'MANE Plus Clinical',
+              value:
+                profile.transcripts.find((transcript) => transcript.mane_plus_clinical)
+                  ?.transcript_id || '—',
             },
           ]
         : [],

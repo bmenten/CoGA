@@ -1515,6 +1515,10 @@ class GeneTranscriptOut(BaseModel):
     mane_select: bool = False
     mane_plus_clinical: bool = False
     ensembl_canonical: bool = False
+    # CCDS membership: the consensus coding sequence agreed between Ensembl, NCBI, UCSC
+    # and the reference projects. A per-transcript quality signal, so it belongs on the
+    # transcript rather than on the gene, where only one arbitrary id could be shown.
+    ccds_id: Optional[str] = None
     # Matching RefSeq transcript accessions (NM_/NR_/XM_/XR_). Protein accessions are
     # left out: this is a transcript table, and NP_ ids would not be selectable there.
     refseq_accessions: List[str] = Field(default_factory=list)

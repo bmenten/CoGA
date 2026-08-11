@@ -644,6 +644,7 @@ async def build_gene_profile(
             biotype=doc.get("biotype"),
             source=doc.get("source"),
             refseq_accessions=_transcript_refseq_accessions(doc),
+            ccds_id=(str((doc.get("extra") or {}).get("ccds_id") or "").strip() or None),
             **_transcript_relevance_flags(doc),
         )
         for doc in sorted(
