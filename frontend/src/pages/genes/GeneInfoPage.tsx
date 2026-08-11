@@ -43,12 +43,30 @@ interface GeneVariantCounts {
 }
 
 interface GeneSourceStatus {
-  status: 'success' | 'missing' | 'error';
+  // 'not_consulted' means the source was never queried for this gene — not a statement
+  // about whether it has anything.
+  status: 'success' | 'missing' | 'not_consulted' | 'error';
   fetched_at: string;
   source_url?: string | null;
   message?: string | null;
+  // Which issue of the source answered: dbNSFP's version, HGNC's newest modification
+  // date, ClinGen's file date. Absent for sources that state no release of their own.
+  release?: string | null;
+  release_detail?: { label?: string | null; checksum?: string | null; size_bytes?: number | null };
   payload: Record<string, unknown>;
 }
+
+// Readable names for the raw source keys, so the provenance strip reads as data sources
+// rather than as column names.
+const SOURCE_LABELS: Record<string, string> = {
+  dbnsfp_gene: 'dbNSFP',
+  hgnc_complete_set: 'HGNC',
+  clingen_gene_validity: 'ClinGen validity',
+  clingen_dosage: 'ClinGen dosage',
+  gencc: 'GenCC',
+  clinvar_gene_condition: 'ClinVar',
+  ncbi: 'NCBI Gene',
+};
 
 interface GeneExternalLink {
   label: string;
@@ -283,6 +301,9 @@ interface GeneProfile {
   panels: GenePanelMembership[];
   family_counts?: GeneVariantCounts | null;
   source_status: Record<string, GeneSourceStatus>;
+  // The annotation the loci and transcripts came from, recorded per assembly at import.
+  gene_annotation_source?: string | null;
+  gene_annotation_imported_at?: string | null;
   external_links: GeneExternalLink[];
   monarch_associations?: GeneMonarchAssociation[];
   extra: GeneProfileExtra;
@@ -1825,15 +1846,38 @@ const GeneInfoPage: React.FC = () => {
 
           <footer className="gene-compact-footer">
             <span>Latest refresh: {formatTimestamp(profile.updated_at)}</span>
-            {sourceEntries.length ? (
-              <span className="gene-compact-inline-links">
-                {sourceEntries.map(([name, source]) => (
-                  <span key={name} className={`gene-compact-source gene-compact-source--${source.status}`}>
-                    {name.toUpperCase()} {source.status}
-                  </span>
-                ))}
+            {/* Which release of each source produced what is on this page. A source that
+                answered without stating a release shows its status instead, rather than
+                an invented version. */}
+            <span className="gene-compact-inline-links">
+              <span
+                className="gene-compact-source gene-compact-source--success"
+                title={
+                  profile.gene_annotation_imported_at
+                    ? `Gene loci and transcripts imported ${formatTimestamp(profile.gene_annotation_imported_at)}`
+                    : undefined
+                }
+              >
+                Annotation {profile.gene_annotation_source || 'unknown'}
               </span>
-            ) : null}
+              {sourceEntries.map(([name, source]) => (
+                <span
+                  key={name}
+                  className={`gene-compact-source gene-compact-source--${source.status}`}
+                  title={[
+                    source.message,
+                    source.release_detail?.checksum
+                      ? `sha256 ${source.release_detail.checksum.slice(0, 12)}…`
+                      : null,
+                    `fetched ${formatTimestamp(source.fetched_at)}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                >
+                  {SOURCE_LABELS[name] || name.toUpperCase()} {source.release || source.status}
+                </span>
+              ))}
+            </span>
           </footer>
         </>
       )}
