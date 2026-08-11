@@ -29,6 +29,9 @@ interface GeneTranscript {
   mane_select?: boolean;
   mane_plus_clinical?: boolean;
   ensembl_canonical?: boolean;
+  // Matching RefSeq transcript accessions. Empty for a transcript RefSeq has no
+  // equivalent of, which is most of them — GENCODE maps about a sixth.
+  refseq_accessions?: string[];
 }
 
 interface GenePanelMembership {
@@ -1747,6 +1750,7 @@ const GeneInfoPage: React.FC = () => {
                   <thead>
                     <tr>
                       <th>Transcript</th>
+                      <th>RefSeq</th>
                       <th>Type</th>
                       <th>Source</th>
                       <th>Start</th>
@@ -1763,6 +1767,25 @@ const GeneInfoPage: React.FC = () => {
                         return (
                           <tr key={transcript.transcript_id}>
                             <td>{transcript.transcript_id}</td>
+                            <td>
+                              {transcript.refseq_accessions?.length ? (
+                                <span className="gene-compact-inline-links">
+                                  {transcript.refseq_accessions.map((accession) => (
+                                    <a
+                                      key={accession}
+                                      className="gene-compact-link"
+                                      href={`https://www.ncbi.nlm.nih.gov/nuccore/${encodeURIComponent(accession)}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      {accession}
+                                    </a>
+                                  ))}
+                                </span>
+                              ) : (
+                                <span className="table-empty">—</span>
+                              )}
+                            </td>
                             <td>{classifyTranscript(transcript.transcript_id)}</td>
                             <td>{transcript.source || '—'}</td>
                             <td>{transcript.start.toLocaleString()}</td>
