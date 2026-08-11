@@ -96,6 +96,44 @@ describe('parseVariantIds', () => {
     });
   });
 
+  // VEP joins co-located ids with `&`, and the stored data uses it about as often as
+  // the comma. Splitting only on commas left these whole and unlinked.
+  it('splits an ampersand-joined pair', () => {
+    expect(parseVariantIds('rs777972314&COSV106382136')).toEqual([
+      {
+        id: 'rs777972314',
+        source: 'dbSNP',
+        href: 'https://www.ncbi.nlm.nih.gov/snp/rs777972314',
+      },
+      {
+        id: 'COSV106382136',
+        source: 'COSMIC',
+        href: 'https://cancer.sanger.ac.uk/cosmic/search?q=COSV106382136',
+      },
+    ]);
+  });
+
+  it('routes every HGMD class present in the data', () => {
+    // CR/CM/CS/CD/CX/CP/CI/BM/HM/HD all occur in the stored ID column.
+    for (const id of ['CR090490', 'CM950484', 'CS100321', 'CD0911544', 'CX1314995', 'CP015821', 'CI151835', 'BM1350102', 'HM972178', 'HD070030']) {
+      const [entry] = parseVariantIds(`rs1&${id}`).slice(1);
+      expect(entry.source, id).toBe('HGMD');
+      expect(entry.href, id).toBe(`https://www.hgmd.cf.ac.uk/ac/mut.php?acc=${id}`);
+    }
+  });
+
+  it('does not mistake a COSMIC accession for HGMD', () => {
+    expect(parseVariantIds('COSV59694286')[0].source).toBe('COSMIC');
+  });
+
+  it('splits three ids joined by commas', () => {
+    expect(parseVariantIds('rs477067,COSV61661500,COSV61661861').map((e) => e.id)).toEqual([
+      'rs477067',
+      'COSV61661500',
+      'COSV61661861',
+    ]);
+  });
+
   it('keeps an unrecognised accession as unlinked text', () => {
     expect(parseVariantIds('rs1,WEIRD_ID_9')).toEqual([
       { id: 'rs1', source: 'dbSNP', href: 'https://www.ncbi.nlm.nih.gov/snp/rs1' },
