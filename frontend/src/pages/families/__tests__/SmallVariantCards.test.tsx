@@ -303,7 +303,7 @@ describe('SmallVariantCards', () => {
     expect(screen.getByText(/some other field/i)).toBeInTheDocument();
   });
 
-  it('heads the card with HGVS.g instead of a locus and links dbSNP out', async () => {
+  it('heads the card with HGVS.g and its cytoband instead of a locus', async () => {
     renderCards(
         <SmallVariantCards
           variants={[
@@ -316,9 +316,12 @@ describe('SmallVariantCards', () => {
               gene: 'BRCA2',
               ref: 'G',
               alt: 'A',
+              cytoband: '13q13.1',
               rsid: 'rs80359550',
               hgvsc: 'ENST00000380152.8:c.7007G>A',
               transcript_id: 'ENST00000380152.8',
+              mane_select: true,
+              canonical: true,
               impact: 'MODERATE',
               effect: 'missense_variant',
               genotypes: [],
@@ -336,11 +339,95 @@ describe('SmallVariantCards', () => {
     );
 
     expect(screen.getByText('chr13:g.32316461G>A')).toBeInTheDocument();
+    expect(screen.getByText('(13q13.1)')).toBeInTheDocument();
     // The headline no longer repeats the position as a locus range.
     expect(screen.queryByText(/32,316,461/)).not.toBeInTheDocument();
 
     const dbSnp = screen.getByRole('link', { name: 'rs80359550' });
     expect(dbSnp).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/snp/rs80359550');
+
+    // MANE and Canonical sit with the transcript they describe, not with the consequence.
+    const transcriptRow = screen
+      .getByText('ENST00000380152.8')
+      .closest('.variant-card-transcript-row') as HTMLElement;
+    expect(within(transcriptRow).getByText('MANE')).toBeInTheDocument();
+    expect(within(transcriptRow).getByText('Canonical')).toBeInTheDocument();
+  });
+
+  it('splits a multi-accession ID column into separate links', () => {
+    renderCards(
+        <SmallVariantCards
+          variants={[
+            {
+              _id: 'brca2-var',
+              chr: '13',
+              start: 32316461,
+              end: 32316461,
+              type: 'SNV',
+              gene: 'BRCA2',
+              ref: 'G',
+              alt: 'A',
+              rsid: 'rs201819463,COSV53715949',
+              impact: 'MODERATE',
+              effect: 'missense_variant',
+              genotypes: [],
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />,
+    );
+
+    expect(screen.getByRole('link', { name: 'rs201819463' })).toHaveAttribute(
+      'href',
+      'https://www.ncbi.nlm.nih.gov/snp/rs201819463',
+    );
+    expect(screen.getByRole('link', { name: 'COSV53715949' })).toHaveAttribute(
+      'href',
+      'https://cancer.sanger.ac.uk/cosmic/search?q=COSV53715949',
+    );
+    // Not chips — the pill styling belongs to tags, not to identifiers.
+    expect(screen.getByRole('link', { name: 'rs201819463' })).toHaveClass('variant-card-id-link');
+  });
+
+  it('hides the ID row entirely when the variant has no accession', () => {
+    renderCards(
+        <SmallVariantCards
+          variants={[
+            {
+              _id: 'brca2-var',
+              chr: '13',
+              start: 32316461,
+              end: 32316461,
+              type: 'SNV',
+              gene: 'BRCA2',
+              ref: 'G',
+              alt: 'A',
+              impact: 'MODERATE',
+              effect: 'missense_variant',
+              genotypes: [],
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />,
+    );
+
+    expect(screen.queryByText('dbSNP')).not.toBeInTheDocument();
+    // The rows around it are untouched.
+    expect(screen.getByText('Alleles')).toBeInTheDocument();
   });
 
   it('folds the disclosure into combined context and annotation sections', async () => {
@@ -385,8 +472,10 @@ describe('SmallVariantCards', () => {
     const context = screen
       .getByText('Variant & transcript context')
       .closest('.variant-card-section') as HTMLElement;
-    expect(within(context).getByText('Type / source')).toBeInTheDocument();
-    expect(within(context).getByText('Biotype')).toBeInTheDocument();
+    // Gene first, narrowing to the transcript, then the call's own provenance.
+    expect(
+      [...context.querySelectorAll('dt')].map((node) => node.textContent),
+    ).toEqual(['Gene ID', 'Biotype', 'Feature', 'Exon / intron', 'Type / source', 'Phase set']);
 
     const annotations = screen
       .getByText('Other scores & annotations')

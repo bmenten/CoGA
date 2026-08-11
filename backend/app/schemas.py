@@ -2238,6 +2238,9 @@ class VariantOut(ApiDocumentModel):
     spliceai_max: Optional[float] = None
     alpha_missense_pathogenicity: Optional[float] = None
     alpha_missense_class: Optional[str] = None
+    # Resolved from the assembly's cytoband track at display time, not carried by the
+    # VCF; only the page's variants are looked up.
+    cytoband: Optional[str] = None
     annotation_extra: Dict[str, Any] = Field(default_factory=dict)
     transcripts: List[SmallVariantTranscriptOut] = Field(default_factory=list)
     genotypes: List[GenotypeOut] = Field(default_factory=list)

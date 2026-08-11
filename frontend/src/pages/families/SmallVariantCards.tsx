@@ -11,7 +11,6 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
-  buildDbSnpHref,
   buildReviewTagTooltip,
   buildSmallVariantExternalLinks,
   buildSmallVariantGeneInfoHref,
@@ -27,6 +26,7 @@ import {
   getImpactTone,
   getReviewClassificationTone,
   getReviewTagStyle,
+  parseVariantIds,
   sortReviewTagKeys,
 } from './smallVariantResultUtils';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
@@ -506,16 +506,18 @@ const buildVariantDetailData = (variant: SmallVariant) => {
   // One section rather than a "Variant summary" / "Transcript context" pair: between
   // them they were six rows across two columns. Consequence, HGVS, locus, dbSNP,
   // alleles and the transcript itself are all on the card already.
+  // Gene first, then narrowing to the transcript and the position within it, and only
+  // then the call's own provenance.
   const contextItems = [
+    { label: 'Gene ID', value: variant.gene_id || '—' },
+    { label: 'Biotype', value: variant.transcript_biotype || '—' },
+    { label: 'Feature', value: variant.feature_type || '—' },
+    { label: 'Exon / intron', value: variant.exon || variant.intron || '—' },
     {
       label: 'Type / source',
       value: `${variant.type}${variant.source ? ` · ${variant.source}` : ''}`,
     },
     { label: 'Phase set', value: String(variant.ps ?? '—') },
-    { label: 'Gene ID', value: variant.gene_id || '—' },
-    { label: 'Biotype', value: variant.transcript_biotype || '—' },
-    { label: 'Feature', value: variant.feature_type || '—' },
-    { label: 'Exon / intron', value: variant.exon || variant.intron || '—' },
   ];
   return { scoreItems, frequencyItems, contextItems, additionalAnnotations };
 };
@@ -594,7 +596,7 @@ export default function SmallVariantCards({
         // Replaces the locus that used to sit in the headline: it carries the same
         // position, in the notation a report is written in.
         const hgvsG = formatHgvsG(variant);
-        const dbSnpHref = buildDbSnpHref(variant.rsid);
+        const variantIds = parseVariantIds(variant.rsid);
         const popFreq = variant.population_frequencies || {};
         // AlphaMissense arrives as two first-class fields. Reading it out of
         // annotation_extra missed it entirely, because the extra keys are the
@@ -723,32 +725,43 @@ export default function SmallVariantCards({
                   <span className={`variant-card-chip variant-card-chip--${getImpactTone(variant.impact)}`}>
                     {consequenceLabel !== '—' ? consequenceLabel : variant.impact || 'Impact n/a'}
                   </span>
-                  {variant.mane_select ? (
-                    <span className="variant-card-chip variant-card-chip--success">MANE</span>
-                  ) : null}
-                  {variant.canonical ? (
-                    <span className="variant-card-chip variant-card-chip--soft">Canonical</span>
-                  ) : null}
                   {variant.lof ? (
                     <span className="variant-card-chip variant-card-chip--critical">LoF {variant.lof}</span>
                   ) : null}
                 </div>
-                {transcripts.length ? (
-                  <button
-                    type="button"
-                    className="variant-transcript-trigger"
-                    onClick={() => setTranscriptPopupVariant(variant)}
-                  >
-                    <span className="variant-transcript-trigger-id">{transcriptLabel}</span>
-                    <span className="variant-transcript-trigger-count">
-                      {transcripts.length} transcript{transcripts.length === 1 ? '' : 's'}
-                    </span>
-                  </button>
+                {transcripts.length || variant.mane_select || variant.canonical ? (
+                  // MANE and Canonical describe this transcript, so they ride with the
+                  // accession rather than sitting up with the consequence.
+                  <div className="variant-card-transcript-row">
+                    {transcripts.length ? (
+                      <button
+                        type="button"
+                        className="variant-transcript-trigger"
+                        onClick={() => setTranscriptPopupVariant(variant)}
+                      >
+                        <span className="variant-transcript-trigger-id">{transcriptLabel}</span>
+                        <span className="variant-transcript-trigger-count">
+                          {transcripts.length} transcript{transcripts.length === 1 ? '' : 's'}
+                        </span>
+                      </button>
+                    ) : null}
+                    {variant.mane_select ? (
+                      <span className="variant-card-chip variant-card-chip--success">MANE</span>
+                    ) : null}
+                    {variant.canonical ? (
+                      <span className="variant-card-chip variant-card-chip--soft">Canonical</span>
+                    ) : null}
+                  </div>
                 ) : null}
                 <dl className="variant-card-mini-dl">
                   <div>
                     <dt>HGVS.g</dt>
-                    <dd>{hgvsG || '—'}</dd>
+                    <dd>
+                      {hgvsG || '—'}
+                      {variant.cytoband ? (
+                        <span className="variant-card-cytoband"> ({variant.cytoband})</span>
+                      ) : null}
+                    </dd>
                   </div>
                   <div>
                     <dt>HGVS.c</dt>
@@ -764,23 +777,29 @@ export default function SmallVariantCards({
                       {variant.ref || '—'} → {variant.alt || '—'}
                     </dd>
                   </div>
-                  <div>
-                    <dt>dbSNP</dt>
-                    <dd>
-                      {dbSnpHref ? (
-                        <a
-                          href={dbSnpHref}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="variant-card-inline-link"
-                        >
-                          {variant.rsid}
-                        </a>
-                      ) : (
-                        variant.rsid || '—'
-                      )}
-                    </dd>
-                  </div>
+                  {variantIds.length ? (
+                    <div>
+                      <dt>dbSNP</dt>
+                      <dd className="variant-card-idlist">
+                        {variantIds.map((entry) =>
+                          entry.href ? (
+                            <a
+                              key={entry.id}
+                              href={entry.href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="variant-card-id-link"
+                              title={entry.source ? `${entry.source} ${entry.id}` : entry.id}
+                            >
+                              {entry.id}
+                            </a>
+                          ) : (
+                            <span key={entry.id}>{entry.id}</span>
+                          ),
+                        )}
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
                 {members.length ? (
                   <div className="variant-card-gtlist">

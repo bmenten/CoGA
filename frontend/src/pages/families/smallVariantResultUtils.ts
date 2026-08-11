@@ -115,10 +115,54 @@ export const formatHgvsG = (
   return `${chr}:g.${span}delins${altRest}`;
 };
 
-export const buildDbSnpHref = (rsid?: string | null): string | null => {
-  const id = (rsid || '').trim();
-  if (!/^rs\d+$/i.test(id)) return null;
-  return `https://www.ncbi.nlm.nih.gov/snp/${encodeURIComponent(id)}`;
+export interface VariantIdLink {
+  id: string;
+  source: string | null;
+  href: string | null;
+}
+
+// The VCF ID column is not dbSNP-only: annotation pipelines write COSMIC and HGMD
+// accessions into it too, comma-separated (rs201819463,COSV53715949). Each is a
+// separate record in a separate database, so each gets its own link. Anything
+// unrecognised stays plain text rather than being pointed at the wrong database.
+export const parseVariantIds = (rsid?: string | null): VariantIdLink[] => {
+  const ids = (rsid || '')
+    .split(/[,;\s]+/)
+    .map((value) => value.trim())
+    .filter((value) => value && value !== '.');
+  const seen = new Set<string>();
+  return ids
+    .filter((id) => {
+      const key = id.toUpperCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((id) => {
+      if (/^rs\d+$/i.test(id)) {
+        return {
+          id,
+          source: 'dbSNP',
+          href: `https://www.ncbi.nlm.nih.gov/snp/${encodeURIComponent(id)}`,
+        };
+      }
+      if (/^COS[VMN]\d+$/i.test(id)) {
+        return {
+          id,
+          source: 'COSMIC',
+          href: `https://cancer.sanger.ac.uk/cosmic/search?q=${encodeURIComponent(id)}`,
+        };
+      }
+      // HGMD accession classes: C = a public-genome mutation, H = a held record.
+      if (/^[CH][DGIMNRSX]\d+$/i.test(id)) {
+        return {
+          id,
+          source: 'HGMD',
+          href: `https://www.hgmd.cf.ac.uk/ac/mut.php?acc=${encodeURIComponent(id)}`,
+        };
+      }
+      return { id, source: null, href: null };
+    });
 };
 
 export const getImpactTone = (impact?: string) => {

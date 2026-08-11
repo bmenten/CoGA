@@ -281,6 +281,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_structural_variant_track_slim.py](../backend/tests/test_structural_variant_track_slim.py) | SV track slimming (annotations dropped in track mode). |
 | [backend/tests/test_structural_variant_ingest.py](../backend/tests/test_structural_variant_ingest.py) | SV record iterators coerce coordinates and skip malformed records rather than aborting ingest. |
 | [backend/tests/test_variant_annotation_parser.py](../backend/tests/test_variant_annotation_parser.py) | VCF annotation parsing incl. SpliceAI / scientific notation. |
+| [backend/tests/test_variant_cytoband_labels.py](../backend/tests/test_variant_cytoband_labels.py) | Cytoband lookup shared by small and structural variants: band per position, multi-band spans, chromosome aliases. |
 | [tests/test_variant_annotation_parser.py](../tests/test_variant_annotation_parser.py) | VCF CSQ annotation header parsing (top-level suite). |
 | [tests/test_admin_inventory.py](../tests/test_admin_inventory.py) | Data-inventory admin endpoint, assembly-scoped counting. |
 | [tests/test_admin_service.py](../tests/test_admin_service.py) | Admin service listing and family-count aggregation. |
