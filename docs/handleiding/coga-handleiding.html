@@ -1304,7 +1304,27 @@ async def get_family(
 <p>Zonder een soort en een assembly is er geen coördinatenstelsel voor varianten. <code>ensure_human_grch38_reference_on_startup</code> (in <code>backend/app/services/reference_source_service.py</code>) garandeert dat <em>Homo sapiens</em> (taxon-id 9606, constante <code>HUMAN_GRCH38_TAX_ID</code>) met assembly <strong>GRCh38 / hg38</strong> bestaat, inclusief cytobanden en genen. De logica:</p>
 <ol>
 <li>Bestaat de GRCh38-assembly al mét cytobanden én genen? Dan niets doen (<code>_find_human_grch38_assembly</code> + <code>_assembly_dataset_count</code>).</li>
-<li>Anders probeert <code>import_reference_from_ucsc</code> de data van <strong>UCSC</strong> te halen: cytobanden (<code>_download_cytobands</code>) en genen (<code>_download_genes</code>, dat achtereenvolgens tabellen als <code>ncbiRefSeqCurated</code>, <code>ncbiRefSeq</code>, <code>refGene</code> en <code>ensGene</code> probeert). De soort en assembly worden aangemaakt via <code>_get_or_create_species</code> en <code>_get_or_create_assembly</code>.</li>
+<li>Anders haalt <code>import_reference_from_ucsc</code> de data op. Cytobanden komen van <strong>UCSC</strong>
+   (<code>_download_cytobands</code>; bestaat er geen cytoband-tabel voor het genoom, dan wordt uit de
+   chromosoomgroottes één band per chromosoom opgebouwd). Genen komen bij voorkeur uit een
+   <strong>GTF-annotatie</strong> (<code>_download_gencode_genes</code>): GENCODE voor GRCh38, de RefSeq-afgeleide
+   <code>hs1.ncbiRefSeq.gtf</code> voor T2T-CHM13. Lukt dat niet — of gaat het om een ander genoom — dan valt
+   het terug op de oude UCSC-gentabellen (<code>_download_genes</code>, dat achtereenvolgens <code>ncbiRefSeqCurated</code>,
+   <code>ncbiRefSeq</code>, <code>refGene</code> en <code>ensGene</code> probeert). De soort en assembly worden aangemaakt via
+   <code>_get_or_create_species</code> en <code>_get_or_create_assembly</code>.</li>
+</ol>
+<p>GENCODE levert wat een UCSC-track niet heeft: echte biotypes, Ensembl- én HGNC-identifiers en
+   MANE-labels per transcript. De rij-vorm blijft ongewijzigd (één rij per transcript, met het
+   transcript-accession in <code>gene_id</code>), zodat de zestien consumenten van de <code>genes</code>-tabel niets
+   merken; alleen de inhoud van de rijen verandert. Elke rij draagt de bron waar hij vandaan komt
+   (<code>gencode</code> of <code>ucsc ncbiRefSeq</code>), want die twee annotaties zeggen niet hetzelfde.</p>
+<ol start="3">
+<li><strong>T2T-CHM13v2.0</strong> wordt optioneel als tweede assembly geïmporteerd
+   (<code>ensure_human_t2t_reference_on_startup</code>, aan te zetten met <code>REFERENCE_BOOTSTRAP_T2T=true</code>).
+   Standaard staat dat uit: een tweede assembly verdubbelt ruwweg de referentie-footprint. De
+   annotatie is bovendien armer dan die van GRCh38 — coördinaten wel, maar geen biotypes,
+   Ensembl-identifiers of MANE-labels — en GENCODE publiceert geen CHM13-uitgave. Mislukt deze
+   import, dan is dat nooit fataal: GRCh38 is de primaire assembly en moet hoe dan ook opkomen.</li>
 <li>Mislukt de download, dan valt de code terug op <code>ensure_human_grch38_species_assembly</code>: een lege "schaal" (soort + assembly zonder data), zodat het platform toch bruikbaar blijft en genen later handmatig geïmporteerd kunnen worden.</li>
 </ol>
 <p>Er zit een SSRF-hardening (server-side request forgery: voorkomen dat een aanvaller de server ongewenste URL's laat oproepen) in <code>_safe_ucsc_genome</code>: de genoom-identifier wordt tegen een strikte regex (<code>_UCSC_GENOME_RE.fullmatch</code>) gevalideerd voordat hij in een download-URL wordt geïnterpoleerd; bij een ongeldige waarde volgt een <code>HTTPException</code>. De hele bootstrap kan uitgezet worden met <code>REFERENCE_BOOTSTRAP_ENABLED=false</code> (instelling <code>reference_bootstrap_enabled</code>).</p>
@@ -1399,7 +1419,7 @@ async def get_family(
 <li><strong>Secret-beheer.</strong> Lokaal weigert de backend te starten met placeholder-secrets (<code>validate_security_defaults</code>). In GCP komen alle geheimen uit Secret Manager en worden ze pas bij runtime in de container geïnjecteerd, niet in images of Terraform-state ingebakken. <code>SECRET_KEY</code> (JWT-ondertekening) en <code>INTEGRITY_ANCHOR_SIGNING_KEY</code> (integriteitsankers) moeten verschillende waarden hebben — een gedocumenteerde eis, waarbij de deploygids (§5.5) ze met aparte <code>openssl rand</code>-oproepen genereert.</li>
 <li><strong>TLS naar de datastores.</strong> Postgres via de Cloud SQL Python-Connector (mTLS, "verify-full"-graad over privé-IP; instelling <code>postgres_use_cloud_sql_connector</code>, connectorlogica <code>_cloud_sql_connect</code> in <code>backend/app/core/postgres.py</code>). ClickHouse over HTTPS met een private CA die de backend verifieert (<code>CLICKHOUSE_SECURE/VERIFY/CA_CERT</code>, afgehandeld in <code>_create_clickhouse_client</code> in <code>backend/app/core/clickhouse.py</code>). Encryptie-at-rest via CMEK op Cloud SQL, disks en buckets.</li>
 <li><strong>Beperkte runtime-DB-rol.</strong> Het schemabestand <code>backend/db/schema/postgres/040_app_runtime_role_privileges.sql</code> maakt de rol <code>coga_app</code> aan die géén DDL kan draaien en géén <code>UPDATE</code>/<code>DELETE</code> op de append-only audit-, report-signout- en hash-chain-tabellen mag. Dat sluit een "owner-bypass" op de append-only- en hash-chain-controles. De rol wordt momenteel in "fallback"-modus (<code>NOLOGIN</code>) uitgeleverd tot een gecoördineerde DSN-flip; tot dan boot de app nog als eigenaar (zie <code>docs/db-runtime-role-runbook.md</code>).</li>
-<li><strong>Reproduceerbaarheid.</strong> Container-images zijn per digest vastgepind; <code>APP_VERSION</code>/<code>GIT_SHA</code> worden bij build-time ingebakken en in elk ondertekend rapport bevroren; de HPO-release en het dbNSFP-bestand (<code>dbNSFP5.4_gene.gz</code>) zijn gepinde referentieversies. Zo is voor elke analyse achteraf exact te reconstrueren welke code én welke referentiedata gebruikt zijn.</li>
+<li><strong>Reproduceerbaarheid.</strong> Container-images zijn per digest vastgepind; <code>APP_VERSION</code>/<code>GIT_SHA</code> worden bij build-time ingebakken en in elk ondertekend rapport bevroren; de HPO-release, het dbNSFP-bestand (<code>dbNSFP5.4_gene.gz</code>) en de GENCODE-uitgave (<code>REFERENCE_GENCODE_GTF_URL</code>) zijn gepinde referentieversies, en elk gecacht gen-record legt per bron vast wélke uitgave hem beantwoordde (zie hoofdstuk <a href="#hs-13">13-gene-explorer.md</a>). Zo is voor elke analyse achteraf exact te reconstrueren welke code én welke referentiedata gebruikt zijn.</li>
 <li><strong>Auditing vanaf boot.</strong> De audit-log-worker start vóór de seeding, en de ClickHouse-integriteitsmonitor draait vanaf opstart, zodat gebeurtenissen en datacorruptie van meet af aan worden vastgelegd.</li>
 </ul>
 <p>De uitrol-handleiding merkt tot slot op dat een aantal IVDR-verplichtingen procesmatig blijven (change control, een bijgewerkte DPIA nu Google een data-sub-processor is) en dus buiten de code vallen — zie <code>docs/deployment-gcp.md</code> §13.</p>
@@ -1442,7 +1462,7 @@ async def get_family(
 </tr>
 <tr>
 <td><code>backend/app/services/reference_source_service.py</code></td>
-<td>GRCh38-bootstrap: soort/assembly, cytobanden, genen (UCSC)</td>
+<td>Bootstrap van GRCh38 (en optioneel T2T-CHM13): soort/assembly, cytobanden, genen (GENCODE-GTF, met UCSC als terugval)</td>
 </tr>
 <tr>
 <td><code>backend/app/services/reference_metadata_service.py</code></td>
@@ -4629,32 +4649,22 @@ if source:
 </thead>
 <tbody>
 <tr>
-<td>HGNC (genenames.org)</td>
-<td><code>fetch_hgnc_gene</code></td>
-<td>Officiële naam, aliassen, vorige symbolen, HGNC-id, RefSeq-accessies, Ensembl/Entrez-id, OMIM-ids</td>
-</tr>
-<tr>
-<td>Ensembl REST</td>
-<td><code>fetch_ensembl_gene</code></td>
-<td>Ensembl-gen-id, biotype, canonical transcript, beschrijving</td>
-</tr>
-<tr>
-<td>Ensembl homology</td>
-<td><code>fetch_ensembl_homologies</code> + <code>normalize_homologs</code></td>
-<td>Orthologen in andere soorten</td>
-</tr>
-<tr>
 <td>NCBI Gene (E-utilities)</td>
 <td><code>fetch_ncbi_gene</code></td>
 <td>Samenvatting, aliassen, maplocation</td>
 </tr>
-<tr>
-<td>ClinGen (kennisbank-pagina)</td>
-<td><code>fetch_clingen_gene</code> + <code>parse_clingen_gene_page</code></td>
-<td>Curatie-tellingen (gen–ziekte-validiteit, dosage-sensitiviteit), %HI, pLI, LOEUF, MANE Select-transcript, ACMG SF-status</td>
-</tr>
 </tbody>
 </table></div>
+<p>Dat is de <strong>enige</strong> per-gen REST-bron die overblijft. De HGNC-, Ensembl-, Ensembl-homology- en
+ClinGen-paginabronnen die hier vroeger stonden zijn verwijderd: gemeten over 4.052 genen die dit pad
+bereikten leverden ze niets wat de bulk-bestanden al bevatten. De ClinGen-pagina meldde 4.046 keer
+"success" maar gaf een functie voor 61 genen, een MANE-transcript voor 23 en een GenCC-classificatie
+voor 1; Ensembl leverde alleen het canonical transcript, dat GENCODE per transcript labelt; de
+homology-call gaf 0 orthologen in 1.380 pogingen; en alles wat HGNC per gen teruggaf staat in de
+complete set, die één keer per job wordt gedownload en alle ~45.000 genen dekt in plaats van de
+helft. Dat is geen toeval: dit pad draait alleen voor genen die dbNSFP níét dekt, en dat zijn
+overwegend lncRNA's en pseudogenen die niemand gecureerd heeft. NCBI blijft omdat het als enige een
+gen-samenvatting levert voor genen buiten dbNSFP (1.685 van die 4.052).</p>
 <p><code>backend/app/services/gene_info_bulk_sources.py</code> doet de <strong>bulk-bronnen</strong> — hele bestanden ineens ingelezen en per symbool geïndexeerd:</p>
 <div class="scroll"><table>
 <thead>
@@ -4665,6 +4675,11 @@ if source:
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>HGNC complete set (TSV)</td>
+<td><code>parse_hgnc_complete_set_rows</code></td>
+<td><strong>Het register van welke genen bestaan</strong>: HGNC-id, huidig symbool, vorige symbolen en aliassen, Ensembl/Entrez/RefSeq/CCDS/UniProt/MANE-ids, locus-groep, cytoband</td>
+</tr>
 <tr>
 <td>dbNSFP gene (lokaal <code>.gz</code>-bestand)</td>
 <td><code>parse_dbnsfp_gene_rows</code></td>
@@ -4692,8 +4707,61 @@ if source:
 </tr>
 </tbody>
 </table></div>
-<p>De coördinatie zit in <code>load_human_gene_bulk_context</code> (in <code>gene_info_bulk_sources.py</code>): dbNSFP is de primaire bron. Voor symbolen die <strong>wel</strong> in dbNSFP zitten, worden de online CSV/TSV-bronnen overgeslagen (dbNSFP bevat die informatie al); alleen voor de <strong>overige</strong> symbolen (<code>fallback_symbols</code>), of wanneer dbNSFP ontbreekt, worden de ClinGen/GenCC/ClinVar-bestanden gedownload. De URL's van die bulk-bronnen zijn configureerbaar (<code>gene_reference_clingen_validity_url</code>, <code>gene_reference_clingen_dosage_url</code>, <code>gene_reference_gencc_url</code>, <code>gene_reference_clinvar_gene_condition_url</code> in <code>backend/app/core/config.py</code>); het lokale dbNSFP-pad via <code>gene_reference_dbnsfp_gene_path</code>.</p>
-<p><code>fetch_external_gene_bundle</code> (in <code>gene_info_external.py</code>) voegt alles samen tot één "bundle": als dbNSFP het gen dekt (<code>primary_source == "dbnsfp_gene"</code>), wordt dat als "fast path" gebruikt en worden de trage REST-calls vermeden; anders worden HGNC/Ensembl/NCBI/ClinGen live opgehaald en met de bulk-data samengevoegd via <code>merge_gene_extra</code>. Elke deelbron krijgt een <code>source_status</code>-record (status, <code>fetched_at</code>, <code>source_url</code>, eventueel foutmelding) — dit is de provenance die later in de admin-pagina en op het gen-profiel zichtbaar is.</p>
+<p>De coördinatie zit in <code>load_human_gene_bulk_context</code> (in <code>gene_info_bulk_sources.py</code>): <strong>elke bulk-bron
+wordt voor élk gen geraadpleegd</strong>. Dit zijn hele bestanden die per job één keer worden ingelezen, dus
+beperken levert niets op. Vroeger werden de online bestanden alléén geraadpleegd voor symbolen die
+dbNSFP niet dekte, en dat gooide vrijwel hun hele inhoud weg: dbNSFP mist obscure lncRNA's en
+pseudogenen, terwijl ClinGen/GenCC/ClinVar juist de bekende ziektegenen cureren die dbNSFP al dekt —
+de twee verzamelingen overlappen nauwelijks. GenCC leverde op die manier 1 gen op de 30.000.</p>
+<p>Welke genen bestaan wordt bepaald door <strong>HGNC</strong>, niet door de annotatie: een locus met een symbool dat
+HGNC niet kent (bijvoorbeeld <code>AC093323.1</code>) is een geannoteerd kenmerk en geen gen, houdt zijn rij in
+<code>genes</code> en krijgt simpelweg geen verrijkt record. Hernoemde symbolen worden via <code>prev_symbol</code>/
+<code>alias_symbol</code> naar het huidige symbool gevouwen (<code>build_hgnc_symbol_resolver</code>), zodat <code>AATK</code> het
+record van <code>LMTK1</code> vindt; een historisch symbool waar twee genen aanspraak op maken wordt weggelaten
+in plaats van geraden.</p>
+<p>De URL's van de bulk-bronnen zijn configureerbaar (<code>gene_reference_hgnc_complete_set_url</code>,
+<code>gene_reference_clingen_validity_url</code>, <code>gene_reference_clingen_dosage_url</code>,
+<code>gene_reference_gencc_url</code>, <code>gene_reference_clinvar_gene_condition_url</code> in
+<code>backend/app/core/config.py</code>); het lokale dbNSFP-pad via <code>gene_reference_dbnsfp_gene_path</code>.</p>
+<p><code>fetch_external_gene_bundle</code> (in <code>gene_info_external.py</code>) voegt alles samen tot één "bundle": als
+dbNSFP het gen dekt (<code>primary_source == "dbnsfp_gene"</code>), wordt dat als "fast path" gebruikt en wordt
+de NCBI-call overgeslagen; anders wordt NCBI opgehaald en met de bulk-data samengevoegd via
+<code>merge_gene_extra</code>. De identiteitsvelden (naam, aliassen, vorige symbolen, Ensembl/Entrez/OMIM-ids,
+locus-groep, VEGA-id, RefSeq-accessies) komen in beide gevallen uit de HGNC complete set.</p>
+<p>Elke deelbron krijgt een <code>source_status</code>-record: status, <code>fetched_at</code>, <code>source_url</code>, eventuele
+foutmelding, en <strong><code>release</code></strong> — welke uitgave van de bron dit gen beantwoordde (dbNSFP <code>5.4</code>, HGNC
+<code>2026-08-07</code>, de <code>FILE CREATED</code>-datum van ClinGen, de nieuwste <code>submitted_run_date</code> van GenCC), plus
+in <code>release_detail</code> de sha256 van de daadwerkelijk ingelezen bytes. Bronnen die zelf geen uitgave
+vermelden (ClinVar) krijgen bewust geen <code>release</code> in plaats van een verzonnen versie.</p>
+<p>De status kent vier waarden, en het onderscheid tussen de middelste twee is het punt:</p>
+<div class="scroll"><table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Betekenis</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>success</code></td>
+<td>de bron had een record voor dit gen</td>
+</tr>
+<tr>
+<td><code>missing</code></td>
+<td>de bron is bevraagd en heeft niets voor dit gen</td>
+</tr>
+<tr>
+<td><code>not_consulted</code></td>
+<td>de bron is voor dit gen nooit bevraagd — <strong>geen</strong> uitspraak over dekking</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td>de download of het inlezen mislukte</td>
+</tr>
+</tbody>
+</table></div>
+<p>Dit is de provenance die in de admin-pagina (kolommen "Release", "No record", "Not consulted") en
+onderaan het gen-profiel zichtbaar is.</p>
 <p><strong>PanelApp</strong> is een aparte bron met een eigen service, <code>backend/app/services/panelapp_service.py</code>. Die wordt niet gebruikt voor gen-verrijking maar voor het <strong>importeren van genpanels</strong> (Genomics England PanelApp) — <code>search_panelapp_panels</code>, <code>fetch_panelapp_panel</code> en <code>extract_panelapp_import_content</code>. Belangrijk voor traceerbaarheid: de import-metadata bevat expliciet <code>panelapp_id</code>, <code>version</code>, <code>version_created</code>, <code>status</code> en een <code>source_url</code> (zie het <code>metadata</code>-blok in <code>extract_panelapp_import_content</code>). Deze panels verschijnen daarna als "Panel-lidmaatschap" op het gen-profiel. De aanroepende endpoints staan in <code>backend/app/routers/panels.py</code> (<code>GET /panels/panelapp/search</code>, <code>POST /panels/import/panelapp</code>).</p>
 <h2>Caching in Postgres: waarom en waar</h2>
 <p>De externe bronnen worden <strong>niet live per paginabezoek</strong> bevraagd. Dat zou traag, fragiel (afhankelijk van externe uptime) en niet-reproduceerbaar zijn — twee reviewers zouden verschillende data zien. In plaats daarvan cachet CoGA de verrijking in Postgres, en leest de pagina uitsluitend uit die cache.</p>
