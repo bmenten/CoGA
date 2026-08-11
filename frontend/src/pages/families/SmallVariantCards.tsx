@@ -464,31 +464,31 @@ const TranscriptPopup = ({
   );
 };
 
+// annotation_extra keys the card surfaces itself, so the disclosure does not repeat them.
+const CARD_CONSUMED_EXTRA_KEYS = new Set([
+  'alphamissense',
+  'alphamissense_score',
+  'am_pathogenicity',
+  'alphamissense_pathogenicity',
+  'am_class',
+  'alphamissense_class',
+]);
+
 // Detail-disclosure annotations, built only when a card's "More annotations"
 // section is open (see openCardIds) so collapsed cards skip this per-render work.
-const buildVariantDetailData = (
-  variant: SmallVariant,
-  ctx: { locus: string; transcripts: SmallVariantTranscript[]; transcriptLabel: string },
-) => {
-  const { locus, transcripts, transcriptLabel } = ctx;
+const buildVariantDetailData = (variant: SmallVariant) => {
   const populationFrequencies = Object.entries(variant.population_frequencies || {}).filter(
     ([, value]) => typeof value === 'number' && Number.isFinite(value),
   );
+  // annotation_extra is the source of AlphaMissense on the card, so listing it raw here
+  // showed the same score twice. Anything the card lifts out is excluded.
   const additionalAnnotations = Object.entries(variant.annotation_extra || {}).filter(
-    ([, value]) => value !== null && value !== '',
+    ([key, value]) => value !== null && value !== '' && !CARD_CONSUMED_EXTRA_KEYS.has(key.toLowerCase()),
   );
+  // Only what the card itself does not already show. pLI, Missense Z, CADD, REVEL,
+  // SpliceAI, SIFT and PolyPhen are all in the card's In silico column, so repeating
+  // them here made the disclosure a second copy of the card rather than extra detail.
   const scoreItems = [
-    typeof variant.gene_pli === 'number'
-      ? { label: 'pLI', value: formatScore(variant.gene_pli, 3) }
-      : null,
-    typeof variant.gene_missense_z === 'number'
-      ? { label: 'Missense Z', value: formatScore(variant.gene_missense_z) }
-      : null,
-    variant.cadd_phred ? { label: 'CADD', value: formatScore(variant.cadd_phred) } : null,
-    variant.revel ? { label: 'REVEL', value: formatScore(variant.revel) } : null,
-    variant.spliceai_max ? { label: 'SpliceAI', value: formatScore(variant.spliceai_max) } : null,
-    variant.sift ? { label: 'SIFT', value: variant.sift } : null,
-    variant.polyphen ? { label: 'PolyPhen', value: variant.polyphen } : null,
     variant.lof_filter ? { label: 'LoF filter', value: variant.lof_filter } : null,
     variant.lof_flags ? { label: 'LoF flags', value: variant.lof_flags } : null,
   ].filter((item): item is { label: string; value: string } => Boolean(item));
@@ -504,19 +504,14 @@ const buildVariantDetailData = (
       })),
   ].filter((item): item is { label: string; value: string } => Boolean(item));
   const transcriptItems = [
-    { label: 'Transcript', value: transcripts.length ? transcriptLabel : '—' },
+    // The transcript itself is the button in the card's left column.
     { label: 'Gene ID', value: variant.gene_id || '—' },
     { label: 'Biotype', value: variant.transcript_biotype || '—' },
     { label: 'Feature', value: variant.feature_type || '—' },
     { label: 'Exon / intron', value: variant.exon || variant.intron || '—' },
   ];
+  // Consequence, HGVS.c/p, locus, dbSNP and alleles are all on the card already.
   const changeItems = [
-    { label: 'Consequence', value: formatTokenLabel(variant.effect) },
-    { label: 'HGVS.c', value: variant.hgvsc || '—' },
-    { label: 'HGVS.p', value: variant.hgvsp || '—' },
-    { label: 'Locus', value: locus },
-    { label: 'dbSNP', value: variant.rsid || '—' },
-    { label: 'Alleles', value: `${variant.ref || '—'} → ${variant.alt || '—'}` },
     {
       label: 'Type / source',
       value: `${variant.type}${variant.source ? ` · ${variant.source}` : ''}`,
@@ -576,7 +571,7 @@ export default function SmallVariantCards({
         const transcriptLabel = variant.transcript_id || transcripts[0]?.transcript_id || 'View transcripts';
         const detailsOpen = openCardIds.has(variant._id);
         const detailData = detailsOpen
-          ? buildVariantDetailData(variant, { locus, transcripts, transcriptLabel })
+          ? buildVariantDetailData(variant)
           : null;
         const {
           scoreItems = [],
@@ -667,7 +662,7 @@ export default function SmallVariantCards({
                 <span className="variant-card-locus">{formatLocus(variant)}</span>
                 {variant.sv_second_hit ? <SvSecondHitBadge hit={variant.sv_second_hit} /> : null}
                 <span className="variant-card-subtitle">
-                  {variant.hgvsp || variant.hgvsc || consequenceLabel}
+                  {variant.hgvsc || consequenceLabel}
                 </span>
               </div>
               <div className="variant-card-headtags">
@@ -746,6 +741,18 @@ export default function SmallVariantCards({
                     <span className="variant-card-chip variant-card-chip--critical">LoF {variant.lof}</span>
                   ) : null}
                 </div>
+                {transcripts.length ? (
+                  <button
+                    type="button"
+                    className="variant-transcript-trigger"
+                    onClick={() => setTranscriptPopupVariant(variant)}
+                  >
+                    <span className="variant-transcript-trigger-id">{transcriptLabel}</span>
+                    <span className="variant-transcript-trigger-count">
+                      {transcripts.length} transcript{transcripts.length === 1 ? '' : 's'}
+                    </span>
+                  </button>
+                ) : null}
                 <dl className="variant-card-mini-dl">
                   <div>
                     <dt>HGVS.c</dt>
@@ -765,36 +772,6 @@ export default function SmallVariantCards({
                     <dt>dbSNP</dt>
                     <dd>{variant.rsid || '—'}</dd>
                   </div>
-                  {omimLink ? (
-                    <div>
-                      <dt>OMIM</dt>
-                      <dd>
-                        <a
-                          href={omimLink.href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="variant-card-resource variant-card-resource--clinical"
-                        >
-                          {variant.gene || 'search'}
-                        </a>
-                      </dd>
-                    </div>
-                  ) : null}
-                  {decipherLink ? (
-                    <div>
-                      <dt>DECIPHER</dt>
-                      <dd>
-                        <a
-                          href={decipherLink.href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="variant-card-resource variant-card-resource--clinical"
-                        >
-                          {variant.gene || 'view'}
-                        </a>
-                      </dd>
-                    </div>
-                  ) : null}
                 </dl>
                 {members.length ? (
                   <div className="variant-card-gtlist">
@@ -931,17 +908,29 @@ export default function SmallVariantCards({
                 ) : (
                   <p className="variant-card-empty-note">No predictions imported.</p>
                 )}
-                {transcripts.length ? (
-                  <button
-                    type="button"
-                    className="variant-transcript-trigger"
-                    onClick={() => setTranscriptPopupVariant(variant)}
-                  >
-                    <span>{transcriptLabel}</span>
-                    <span className="variant-transcript-trigger-count">
-                      {transcripts.length} transcript{transcripts.length === 1 ? '' : 's'}
-                    </span>
-                  </button>
+                {omimLink || decipherLink ? (
+                  <div className="variant-card-resources">
+                    {omimLink ? (
+                      <a
+                        href={omimLink.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="variant-card-resource variant-card-resource--clinical"
+                      >
+                        OMIM
+                      </a>
+                    ) : null}
+                    {decipherLink ? (
+                      <a
+                        href={decipherLink.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="variant-card-resource variant-card-resource--clinical"
+                      >
+                        DECIPHER
+                      </a>
+                    ) : null}
+                  </div>
                 ) : null}
               </section>
             </div>

@@ -231,6 +231,58 @@ describe('SmallVariantCards', () => {
     );
   });
 
+  it('keeps the card the primary view and the disclosure strictly extra', async () => {
+    renderCards(
+        <SmallVariantCards
+          variants={[
+            {
+              _id: 'brca2-var',
+              chr: '13',
+              start: 32316461,
+              end: 32316461,
+              type: 'SNV',
+              gene: 'BRCA2',
+              ref: 'G',
+              alt: 'A',
+              rsid: 'rs80359550',
+              hgvsc: 'ENST00000380152.8:c.7007G>A',
+              hgvsp: 'ENSP00000369497.3:p.Arg2336His',
+              transcript_id: 'ENST00000380152.8',
+              impact: 'MODERATE',
+              effect: 'missense_variant',
+              gene_pli: 0.99,
+              polyphen: 'probably_damaging',
+              spliceai_max: 0.12,
+              annotation_extra: { alphamissense: 0.81, some_other_field: 'keep me' },
+              genotypes: [],
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />,
+    );
+
+    // The card carries the essentials, including AlphaMissense under In silico.
+    expect(screen.getByText('AlphaMissense')).toBeInTheDocument();
+    expect(screen.getByText('pLI')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('More annotations & detail'));
+
+    // Everything the card already states appears exactly once — the disclosure is extra
+    // detail, not a second copy of the card.
+    for (const label of ['HGVS.c', 'HGVS.p', 'Alleles', 'dbSNP', 'AlphaMissense', 'pLI', 'PolyPhen', 'SpliceAI']) {
+      expect(screen.getAllByText(label)).toHaveLength(1);
+    }
+    // Genuinely extra annotation still shows.
+    expect(screen.getByText(/some other field/i)).toBeInTheDocument();
+  });
+
   it('shows the priority breakdown on a prioritized variant card', () => {
     renderCards(
         <SmallVariantCards

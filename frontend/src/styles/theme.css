@@ -5319,6 +5319,24 @@ tbody tr:hover {
   gap: 0.5rem;
   border-radius: 4px;
   text-align: left;
+  /* Reads as the variant's transcript identity rather than a heavy action button, so it
+     drops the filled background and carries the accession in the signature colour. */
+  background: transparent;
+  border: 1px solid var(--color-border);
+  padding: 0.25rem 0.5rem;
+}
+
+.variant-transcript-trigger:hover,
+.variant-transcript-trigger:focus-visible {
+  background: var(--color-signature-red-soft);
+  border-color: var(--color-signature-red);
+}
+
+.variant-transcript-trigger-id {
+  color: var(--color-signature-red);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .variant-transcript-trigger-count {
