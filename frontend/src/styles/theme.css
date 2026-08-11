@@ -2591,6 +2591,19 @@ tbody tr:hover {
   color: var(--color-heading);
 }
 
+/* A page title that is also the way back to its parent: it reads as the heading it is
+   until you go near it. */
+.page-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-title-link:hover,
+.page-title-link:focus-visible {
+  color: var(--color-signature-red);
+  text-decoration: underline;
+}
+
 .catalog-card-copy {
   font-size: 0.94rem;
   line-height: 1.75;

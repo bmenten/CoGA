@@ -366,14 +366,65 @@ describe('FamilySmallVariantsPage', () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText('Showing 1000+')).toBeInTheDocument();
-    expect(screen.getByText('All variants 1000+')).toBeInTheDocument();
+    // Thousands separated, matching the SNV/indel chips beside them.
+    expect(await screen.findByText('Showing 1,000+')).toBeInTheDocument();
+    expect(screen.getByText('All variants 1,000+')).toBeInTheDocument();
     expect(screen.getByText('SNVs 900')).toBeInTheDocument();
     expect(screen.getByText('Indels 101')).toBeInTheDocument();
     expect(screen.getByText('PROBAND')).toBeInTheDocument();
     expect(screen.getByText('345')).toBeInTheDocument();
     expect(screen.getByText('300')).toBeInTheDocument();
     expect(screen.getByText('45')).toBeInTheDocument();
+  });
+
+  it('separates an exact total and makes the family title the only way back', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { members: [], projects: [] } });
+      }
+      if (url === '/panels' || url === '/families/F1/small-variant-filter-presets') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/families/F1/small-variant-tags') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.startsWith('/families/F1/small-variants?page=1&page_size=100')) {
+        return Promise.resolve({
+          data: {
+            variants: [],
+            total: 24680,
+            total_is_estimated: false,
+            unfiltered_total: 135791,
+            unfiltered_total_is_estimated: false,
+            small_variant_summary: {
+              total_variants: 135791,
+              snv_count: 120000,
+              indel_count: 15791,
+              sample_counts: [],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText('All variants 135,791')).toBeInTheDocument();
+    expect(screen.getByText('Showing 24,680')).toBeInTheDocument();
+
+    // The heading itself navigates, so the separate Family button is gone.
+    const title = screen.getByRole('link', { name: 'Family F1' });
+    expect(title).toHaveAttribute('href', '/families/F1');
+    expect(screen.getAllByRole('link', { name: /^Family/ })).toHaveLength(1);
   });
 
   it('applies CoGA quick filters without opening each section', async () => {

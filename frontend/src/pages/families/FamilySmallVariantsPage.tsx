@@ -34,9 +34,9 @@ import {
 const formatVariantTotal = (total: number | undefined, estimated?: boolean): string => {
   const safeTotal = Math.max(total ?? 0, 0);
   if (!estimated || safeTotal <= 0) {
-    return String(safeTotal);
+    return safeTotal.toLocaleString();
   }
-  return `${Math.max(safeTotal - 1, 0)}+`;
+  return `${Math.max(safeTotal - 1, 0).toLocaleString()}+`;
 };
 
 const formatSummaryCount = (value: number | undefined): string =>
@@ -286,7 +286,13 @@ const FamilySmallVariantsPage: React.FC = () => {
             <div className="page-header">
               <div className="space-y-2">
                 <p className="page-kicker">Small Variants</p>
-                <h1 className="catalog-card-title">Family {familyId}</h1>
+                {/* The title is the way back to the family, so the header does not
+                    also need a button that goes to the same place. */}
+                <h1 className="catalog-card-title">
+                  <Link to={`/families/${familyId}`} className="page-title-link">
+                    Family {familyId}
+                  </Link>
+                </h1>
                 {data ? (
                   <div className="variant-sample-summary">
                     {smallVariantSummary?.sample_counts?.length ? (
@@ -336,11 +342,6 @@ const FamilySmallVariantsPage: React.FC = () => {
                     </div>
                   </div>
                 ) : null}
-              </div>
-              <div className="inline-actions">
-                <Link to={`/families/${familyId}`} className="button-ghost hover:no-underline">
-                  Family
-                </Link>
               </div>
             </div>
           </div>

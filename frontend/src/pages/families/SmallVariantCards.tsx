@@ -654,6 +654,14 @@ export default function SmallVariantCards({
                     {variant.gene || variant.gene_id || 'Intergenic variant'}
                   </span>
                 )}
+                {/* The consequence is what the variant is, so it belongs with the gene
+                    rather than heading the left column. */}
+                <span className={`variant-card-chip variant-card-chip--${getImpactTone(variant.impact)}`}>
+                  {consequenceLabel !== '—' ? consequenceLabel : variant.impact || 'Impact n/a'}
+                </span>
+                {variant.lof ? (
+                  <span className="variant-card-chip variant-card-chip--critical">LoF {variant.lof}</span>
+                ) : null}
                 {variant.sv_second_hit ? <SvSecondHitBadge hit={variant.sv_second_hit} /> : null}
                 <span className="variant-card-subtitle">
                   {variant.hgvsc || consequenceLabel}
@@ -721,14 +729,6 @@ export default function SmallVariantCards({
             <div className="variant-card-cols">
               <section className="variant-card-col">
                 <p className="variant-card-col-title">Variant &amp; genotypes</p>
-                <div className="variant-card-chip-row">
-                  <span className={`variant-card-chip variant-card-chip--${getImpactTone(variant.impact)}`}>
-                    {consequenceLabel !== '—' ? consequenceLabel : variant.impact || 'Impact n/a'}
-                  </span>
-                  {variant.lof ? (
-                    <span className="variant-card-chip variant-card-chip--critical">LoF {variant.lof}</span>
-                  ) : null}
-                </div>
                 {transcripts.length || variant.mane_select || variant.canonical ? (
                   // MANE and Canonical describe this transcript, so they ride with the
                   // accession rather than sitting up with the consequence.
