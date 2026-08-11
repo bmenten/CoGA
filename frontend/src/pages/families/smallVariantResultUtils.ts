@@ -136,8 +136,10 @@ export interface VariantIdLink {
 // separate record in a separate database, so each gets its own link. Anything
 // unrecognised stays plain text rather than being pointed at the wrong database.
 export const parseVariantIds = (rsid?: string | null): VariantIdLink[] => {
+  // VEP joins co-located ids with `&`; the VCF ID column uses `,`. Both appear in the
+  // stored data in roughly equal numbers, so both have to be split on.
   const ids = (rsid || '')
-    .split(/[,;\s]+/)
+    .split(/[,;&\s]+/)
     .map((value) => value.trim())
     .filter((value) => value && value !== '.');
   const seen = new Set<string>();
@@ -163,8 +165,10 @@ export const parseVariantIds = (rsid?: string | null): VariantIdLink[] => {
           href: `https://cancer.sanger.ac.uk/cosmic/search?q=${encodeURIComponent(id)}`,
         };
       }
-      // HGMD accession classes: C = a public-genome mutation, H = a held record.
-      if (/^[CH][DGIMNRSX]\d+$/i.test(id)) {
+      // An HGMD accession is a record-set letter followed by a mutation-class letter:
+      // M missense/nonsense, D deletion, I insertion, X indel, S splicing, R regulatory,
+      // G/N gross lesion, P complex rearrangement. The live data carries C*, H* and B*.
+      if (/^[A-Z][DGIMNPRSX]\d+$/i.test(id)) {
         return {
           id,
           source: 'HGMD',
