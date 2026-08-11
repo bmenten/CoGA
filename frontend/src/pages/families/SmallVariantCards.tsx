@@ -11,12 +11,14 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
+  buildDbSnpHref,
   buildReviewTagTooltip,
   buildSmallVariantExternalLinks,
   buildSmallVariantGeneInfoHref,
   buildSmallVariantNavigation,
   formatFrequency,
   formatCompoundHetPhaseStatus,
+  formatHgvsG,
   formatLocus,
   formatScore,
   formatTokenLabel,
@@ -465,13 +467,11 @@ const TranscriptPopup = ({
 };
 
 // annotation_extra keys the card surfaces itself, so the disclosure does not repeat them.
+// These are the names the annotation carries (see variant_annotation_parser); the parser
+// maps the VEP spellings (am_class, AlphaMissense_pathogenicity) onto them on import.
 const CARD_CONSUMED_EXTRA_KEYS = new Set([
-  'alphamissense',
-  'alphamissense_score',
-  'am_pathogenicity',
-  'alphamissense_pathogenicity',
-  'am_class',
-  'alphamissense_class',
+  'alpha_missense_class',
+  'alpha_missense_pathogenicity',
 ]);
 
 // Detail-disclosure annotations, built only when a card's "More annotations"
@@ -503,22 +503,21 @@ const buildVariantDetailData = (variant: SmallVariant) => {
         value: formatFrequency(value),
       })),
   ].filter((item): item is { label: string; value: string } => Boolean(item));
-  const transcriptItems = [
-    // The transcript itself is the button in the card's left column.
-    { label: 'Gene ID', value: variant.gene_id || '—' },
-    { label: 'Biotype', value: variant.transcript_biotype || '—' },
-    { label: 'Feature', value: variant.feature_type || '—' },
-    { label: 'Exon / intron', value: variant.exon || variant.intron || '—' },
-  ];
-  // Consequence, HGVS.c/p, locus, dbSNP and alleles are all on the card already.
-  const changeItems = [
+  // One section rather than a "Variant summary" / "Transcript context" pair: between
+  // them they were six rows across two columns. Consequence, HGVS, locus, dbSNP,
+  // alleles and the transcript itself are all on the card already.
+  const contextItems = [
     {
       label: 'Type / source',
       value: `${variant.type}${variant.source ? ` · ${variant.source}` : ''}`,
     },
     { label: 'Phase set', value: String(variant.ps ?? '—') },
+    { label: 'Gene ID', value: variant.gene_id || '—' },
+    { label: 'Biotype', value: variant.transcript_biotype || '—' },
+    { label: 'Feature', value: variant.feature_type || '—' },
+    { label: 'Exon / intron', value: variant.exon || variant.intron || '—' },
   ];
-  return { scoreItems, frequencyItems, transcriptItems, changeItems, additionalAnnotations };
+  return { scoreItems, frequencyItems, contextItems, additionalAnnotations };
 };
 
 export default function SmallVariantCards({
@@ -576,8 +575,7 @@ export default function SmallVariantCards({
         const {
           scoreItems = [],
           frequencyItems = [],
-          transcriptItems = [],
-          changeItems = [],
+          contextItems = [],
           additionalAnnotations = [],
         } = detailData ?? {};
         const clinvarSummary = formatTokenLabel(variant.clinvar);
@@ -593,23 +591,23 @@ export default function SmallVariantCards({
         );
 
         const consequenceLabel = formatTokenLabel(variant.effect);
+        // Replaces the locus that used to sit in the headline: it carries the same
+        // position, in the notation a report is written in.
+        const hgvsG = formatHgvsG(variant);
+        const dbSnpHref = buildDbSnpHref(variant.rsid);
         const popFreq = variant.population_frequencies || {};
-        const extra = variant.annotation_extra || {};
-        const pickExtra = (keys: string[]): string | number | boolean | null => {
-          for (const key of keys) {
-            const value = extra[key];
-            if (value !== undefined && value !== null && value !== '') return value;
-          }
-          return null;
-        };
-        const alphaMissense = pickExtra([
-          'alphamissense',
-          'alphamissense_score',
-          'am_pathogenicity',
-          'alphamissense_pathogenicity',
-          'am_class',
-          'alphamissense_class',
-        ]);
+        // AlphaMissense arrives as two first-class fields. Reading it out of
+        // annotation_extra missed it entirely, because the extra keys are the
+        // annotation's own spellings, not the VEP ones.
+        const alphaMissenseScore =
+          typeof variant.alpha_missense_pathogenicity === 'number'
+            ? formatScore(variant.alpha_missense_pathogenicity, 3)
+            : null;
+        const alphaMissenseClass = formatTokenLabel(variant.alpha_missense_class || undefined);
+        const alphaMissense =
+          alphaMissenseScore && alphaMissenseClass !== '—'
+            ? `${alphaMissenseScore} · ${alphaMissenseClass}`
+            : alphaMissenseScore || (alphaMissenseClass !== '—' ? alphaMissenseClass : null);
         const gnomadLink = externalLinks.find((link) => link.label === 'gnomAD');
         const clinvarLink = externalLinks.find((link) => link.label === 'ClinVar');
         const omimLink = externalLinks.find((link) => link.label === 'OMIM');
@@ -627,12 +625,7 @@ export default function SmallVariantCards({
         const silicoRows = [
           typeof variant.cadd_phred === 'number' ? { label: 'CADD', value: formatScore(variant.cadd_phred) } : null,
           typeof variant.revel === 'number' ? { label: 'REVEL', value: formatScore(variant.revel) } : null,
-          alphaMissense != null
-            ? {
-                label: 'AlphaMissense',
-                value: typeof alphaMissense === 'number' ? formatScore(alphaMissense, 3) : String(alphaMissense),
-              }
-            : null,
+          alphaMissense ? { label: 'AlphaMissense', value: alphaMissense } : null,
           typeof variant.spliceai_max === 'number' ? { label: 'SpliceAI', value: formatScore(variant.spliceai_max) } : null,
           variant.sift ? { label: 'SIFT', value: variant.sift } : null,
           variant.polyphen ? { label: 'PolyPhen', value: variant.polyphen } : null,
@@ -659,7 +652,6 @@ export default function SmallVariantCards({
                     {variant.gene || variant.gene_id || 'Intergenic variant'}
                   </span>
                 )}
-                <span className="variant-card-locus">{formatLocus(variant)}</span>
                 {variant.sv_second_hit ? <SvSecondHitBadge hit={variant.sv_second_hit} /> : null}
                 <span className="variant-card-subtitle">
                   {variant.hgvsc || consequenceLabel}
@@ -755,6 +747,10 @@ export default function SmallVariantCards({
                 ) : null}
                 <dl className="variant-card-mini-dl">
                   <div>
+                    <dt>HGVS.g</dt>
+                    <dd>{hgvsG || '—'}</dd>
+                  </div>
+                  <div>
                     <dt>HGVS.c</dt>
                     <dd>{variant.hgvsc || '—'}</dd>
                   </div>
@@ -770,7 +766,20 @@ export default function SmallVariantCards({
                   </div>
                   <div>
                     <dt>dbSNP</dt>
-                    <dd>{variant.rsid || '—'}</dd>
+                    <dd>
+                      {dbSnpHref ? (
+                        <a
+                          href={dbSnpHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="variant-card-inline-link"
+                        >
+                          {variant.rsid}
+                        </a>
+                      ) : (
+                        variant.rsid || '—'
+                      )}
+                    </dd>
                   </div>
                 </dl>
                 {members.length ? (
@@ -1012,20 +1021,9 @@ export default function SmallVariantCards({
               {detailsOpen && (
               <div className="variant-card-more-grid">
                 <div className="variant-card-section">
-                  <p className="variant-card-section-title">Variant summary</p>
+                  <p className="variant-card-section-title">Variant &amp; transcript context</p>
                   <dl className="variant-card-detail-list">
-                    {changeItems.map((item) => (
-                      <div key={item.label} className="variant-card-detail-row">
-                        <dt>{item.label}</dt>
-                        <dd>{item.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-                <div className="variant-card-section">
-                  <p className="variant-card-section-title">Transcript context</p>
-                  <dl className="variant-card-detail-list">
-                    {transcriptItems.map((item) => (
+                    {contextItems.map((item) => (
                       <div key={item.label} className="variant-card-detail-row">
                         <dt>{item.label}</dt>
                         <dd>{item.value}</dd>
@@ -1038,18 +1036,24 @@ export default function SmallVariantCards({
                   <VariantGeneDiseases symbol={variant.gene} />
                 </div>
                 <div className="variant-card-section">
-                  <p className="variant-card-section-title">All scores &amp; constraint</p>
-                  {scoreItems.length ? (
-                    <dl className="variant-card-stat-list">
+                  <p className="variant-card-section-title">Other scores &amp; annotations</p>
+                  {scoreItems.length || additionalAnnotations.length ? (
+                    <dl className="variant-card-detail-list">
                       {scoreItems.map((item) => (
-                        <div key={item.label} className="variant-card-stat-row">
+                        <div key={item.label} className="variant-card-detail-row">
                           <dt>{item.label}</dt>
                           <dd>{item.value}</dd>
                         </div>
                       ))}
+                      {additionalAnnotations.map(([label, value]) => (
+                        <div key={label} className="variant-card-detail-row">
+                          <dt>{label.replace(/_/g, ' ')}</dt>
+                          <dd>{String(value)}</dd>
+                        </div>
+                      ))}
                     </dl>
                   ) : (
-                    <p className="variant-card-empty-note">No predictive scores imported.</p>
+                    <p className="variant-card-empty-note">No further annotations imported.</p>
                   )}
                 </div>
                 <div className="variant-card-section">
@@ -1067,19 +1071,6 @@ export default function SmallVariantCards({
                     <p className="variant-card-empty-note">No population frequencies imported.</p>
                   )}
                 </div>
-                {additionalAnnotations.length ? (
-                  <div className="variant-card-section">
-                    <p className="variant-card-section-title">Additional annotations</p>
-                    <dl className="variant-card-detail-list">
-                      {additionalAnnotations.map(([label, value]) => (
-                        <div key={label} className="variant-card-detail-row">
-                          <dt>{label.replace(/_/g, ' ')}</dt>
-                          <dd>{String(value)}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </div>
-                ) : null}
                 {variant.review?.compound_het ? (
                   <div className="variant-card-section">
                     <p className="variant-card-section-title">Compound-het pair</p>

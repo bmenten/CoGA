@@ -73,6 +73,54 @@ export const formatLocus = (variant: Pick<SmallVariant, 'chr' | 'start' | 'end'>
   ).toLocaleString()}`;
 };
 
+// HGVS genomic notation derived from the VCF-style chr/pos/ref/alt the API returns.
+// The reference is named by its UCSC-style chromosome rather than a versioned RefSeq
+// accession, which keeps it consistent with the rest of the UI; the assembly is stated
+// on the analysis page. Duplications are written as insertions because deciding `dup`
+// needs the flanking reference sequence, which the client does not have.
+export const formatHgvsG = (
+  variant: Pick<SmallVariant, 'chr' | 'start' | 'ref' | 'alt'>,
+): string | null => {
+  const ref = (variant.ref || '').toUpperCase();
+  const alt = (variant.alt || '').toUpperCase();
+  if (!/^[ACGTN]+$/.test(ref) || !/^[ACGTN]+$/.test(alt) || ref === alt) return null;
+  if (!Number.isFinite(variant.start)) return null;
+  const chr = variant.chr.startsWith('chr') ? variant.chr : `chr${variant.chr}`;
+
+  let refCore = ref;
+  let altCore = alt;
+  // Trim the shared suffix first, then the shared padding base VCF carries on indels.
+  while (
+    refCore.length > 1 &&
+    altCore.length > 1 &&
+    refCore[refCore.length - 1] === altCore[altCore.length - 1]
+  ) {
+    refCore = refCore.slice(0, -1);
+    altCore = altCore.slice(0, -1);
+  }
+  let offset = 0;
+  while (offset < refCore.length && offset < altCore.length && refCore[offset] === altCore[offset]) {
+    offset += 1;
+  }
+  const refRest = refCore.slice(offset);
+  const altRest = altCore.slice(offset);
+  const first = variant.start + offset;
+  const last = first + refRest.length - 1;
+  const span = refRest.length === 1 ? `${first}` : `${first}_${last}`;
+
+  if (refRest.length === 1 && altRest.length === 1) return `${chr}:g.${first}${refRest}>${altRest}`;
+  if (!altRest) return `${chr}:g.${span}del`;
+  // A pure insertion sits between the last unchanged base and the next one.
+  if (!refRest) return `${chr}:g.${first - 1}_${first}ins${altRest}`;
+  return `${chr}:g.${span}delins${altRest}`;
+};
+
+export const buildDbSnpHref = (rsid?: string | null): string | null => {
+  const id = (rsid || '').trim();
+  if (!/^rs\d+$/i.test(id)) return null;
+  return `https://www.ncbi.nlm.nih.gov/snp/${encodeURIComponent(id)}`;
+};
+
 export const getImpactTone = (impact?: string) => {
   switch ((impact || '').toUpperCase()) {
     case 'HIGH':
