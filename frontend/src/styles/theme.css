@@ -5155,7 +5155,8 @@ tbody tr:hover {
   justify-content: flex-start;
   min-height: 1.6rem;
   margin-top: 0.15rem;
-  padding: 0.12rem 0.5rem;
+  /* No horizontal padding, so the frameless accession lines up with the rows below it. */
+  padding: 0.12rem 0;
   font-size: 0.72rem;
 }
 
@@ -5320,16 +5321,23 @@ tbody tr:hover {
   border-radius: 4px;
   text-align: left;
   /* Reads as the variant's transcript identity rather than a heavy action button, so it
-     drops the filled background and carries the accession in the signature colour. */
+     drops both the filled background and the frame, and carries the accession in the
+     signature colour. */
   background: transparent;
-  border: 1px solid var(--color-border);
-  padding: 0.25rem 0.5rem;
+  border: 1px solid transparent;
+  padding: 0.25rem 0;
 }
 
 .variant-transcript-trigger:hover,
 .variant-transcript-trigger:focus-visible {
-  background: var(--color-signature-red-soft);
-  border-color: var(--color-signature-red);
+  background: transparent;
+  border-color: transparent;
+}
+
+.variant-transcript-trigger:hover .variant-transcript-trigger-id,
+.variant-transcript-trigger:focus-visible .variant-transcript-trigger-id {
+  color: var(--color-signature-red-dark);
+  text-decoration: underline;
 }
 
 .variant-transcript-trigger-id {

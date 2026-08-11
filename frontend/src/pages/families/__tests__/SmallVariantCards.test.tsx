@@ -253,7 +253,15 @@ describe('SmallVariantCards', () => {
               gene_pli: 0.99,
               polyphen: 'probably_damaging',
               spliceai_max: 0.12,
-              annotation_extra: { alphamissense: 0.81, some_other_field: 'keep me' },
+              // AlphaMissense is a first-class field, and the annotation repeats it under
+              // its own key — both shapes are what the backend really sends.
+              alpha_missense_pathogenicity: 0.81,
+              alpha_missense_class: 'likely_pathogenic',
+              annotation_extra: {
+                alpha_missense_pathogenicity: 0.81,
+                alpha_missense_class: 'likely_pathogenic',
+                some_other_field: 'keep me',
+              },
               genotypes: [],
             },
           ]}
@@ -268,19 +276,123 @@ describe('SmallVariantCards', () => {
         />,
     );
 
-    // The card carries the essentials, including AlphaMissense under In silico.
-    expect(screen.getByText('AlphaMissense')).toBeInTheDocument();
-    expect(screen.getByText('pLI')).toBeInTheDocument();
+    // The card carries the essentials, including the AlphaMissense score under In silico.
+    const silico = screen.getByText('In silico').closest('section') as HTMLElement;
+    expect(within(silico).getByText('AlphaMissense')).toBeInTheDocument();
+    expect(within(silico).getByText(/0\.810 · likely pathogenic/)).toBeInTheDocument();
+    expect(within(silico).getByText('pLI')).toBeInTheDocument();
 
     await userEvent.click(screen.getByText('More annotations & detail'));
 
     // Everything the card already states appears exactly once — the disclosure is extra
     // detail, not a second copy of the card.
-    for (const label of ['HGVS.c', 'HGVS.p', 'Alleles', 'dbSNP', 'AlphaMissense', 'pLI', 'PolyPhen', 'SpliceAI']) {
+    for (const label of [
+      'HGVS.g',
+      'HGVS.c',
+      'HGVS.p',
+      'Alleles',
+      'dbSNP',
+      'AlphaMissense',
+      'pLI',
+      'PolyPhen',
+      'SpliceAI',
+    ]) {
       expect(screen.getAllByText(label)).toHaveLength(1);
     }
     // Genuinely extra annotation still shows.
     expect(screen.getByText(/some other field/i)).toBeInTheDocument();
+  });
+
+  it('heads the card with HGVS.g instead of a locus and links dbSNP out', async () => {
+    renderCards(
+        <SmallVariantCards
+          variants={[
+            {
+              _id: 'brca2-var',
+              chr: '13',
+              start: 32316461,
+              end: 32316461,
+              type: 'SNV',
+              gene: 'BRCA2',
+              ref: 'G',
+              alt: 'A',
+              rsid: 'rs80359550',
+              hgvsc: 'ENST00000380152.8:c.7007G>A',
+              transcript_id: 'ENST00000380152.8',
+              impact: 'MODERATE',
+              effect: 'missense_variant',
+              genotypes: [],
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />,
+    );
+
+    expect(screen.getByText('chr13:g.32316461G>A')).toBeInTheDocument();
+    // The headline no longer repeats the position as a locus range.
+    expect(screen.queryByText(/32,316,461/)).not.toBeInTheDocument();
+
+    const dbSnp = screen.getByRole('link', { name: 'rs80359550' });
+    expect(dbSnp).toHaveAttribute('href', 'https://www.ncbi.nlm.nih.gov/snp/rs80359550');
+  });
+
+  it('folds the disclosure into combined context and annotation sections', async () => {
+    renderCards(
+        <SmallVariantCards
+          variants={[
+            {
+              _id: 'brca2-var',
+              chr: '13',
+              start: 32316461,
+              end: 32316461,
+              type: 'SNV',
+              gene: 'BRCA2',
+              gene_id: 'ENSG00000139618',
+              ref: 'G',
+              alt: 'A',
+              transcript_biotype: 'protein_coding',
+              lof_filter: 'END_TRUNC',
+              impact: 'MODERATE',
+              effect: 'missense_variant',
+              annotation_extra: { some_other_field: 'keep me' },
+              genotypes: [],
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />,
+    );
+
+    await userEvent.click(screen.getByText('More annotations & detail'));
+
+    // Two combined sections replace the four that used to split these rows.
+    for (const gone of ['Variant summary', 'Transcript context', 'All scores & constraint', 'Additional annotations']) {
+      expect(screen.queryByText(gone)).not.toBeInTheDocument();
+    }
+    const context = screen
+      .getByText('Variant & transcript context')
+      .closest('.variant-card-section') as HTMLElement;
+    expect(within(context).getByText('Type / source')).toBeInTheDocument();
+    expect(within(context).getByText('Biotype')).toBeInTheDocument();
+
+    const annotations = screen
+      .getByText('Other scores & annotations')
+      .closest('.variant-card-section') as HTMLElement;
+    expect(within(annotations).getByText('LoF filter')).toBeInTheDocument();
+    expect(within(annotations).getByText(/some other field/i)).toBeInTheDocument();
   });
 
   it('shows the priority breakdown on a prioritized variant card', () => {
