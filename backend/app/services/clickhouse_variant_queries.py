@@ -90,6 +90,14 @@ _GENE_QUERY_SPLIT = re.compile(r"[\s,;]+")
 _HET_GT_VALUES = {"0/1", "1/0", "0|1", "1|0"}
 
 
+# Phase of a compound-het pair as derived from the caller's own phasing, distinct from
+# the curator's `phase_status` on a saved group review. `cis` never reaches a response:
+# a cis pair is not a compound-het candidate, so it is dropped rather than reported.
+COMPOUND_HET_PHASE_TRANS = "trans"
+COMPOUND_HET_PHASE_CIS = "cis"
+COMPOUND_HET_PHASE_UNKNOWN = "unknown"
+
+
 _HOM_ALT_GT_VALUES = {"1/1", "1|1"}
 
 
@@ -1209,17 +1217,68 @@ def _record_matches_x_linked_recessive(
     return True
 
 
-def _records_form_compound_het_pair(
+def _phased_alt_haplotype(gt: str | None) -> int | None:
+    """Which haplotype carries the alt in a phased het call, or None.
+
+    ``0|1`` -> 1 and ``1|0`` -> 0. None when the call cannot place a single alt on one
+    haplotype: unphased (``0/1``), homozygous, no-call, or multi-allelic with an alt on
+    both haplotypes (``1|2``), where "the" alt is ambiguous.
+    """
+    text = str(gt or "").strip()
+    if "|" not in text:
+        return None
+    alleles = text.split("|")
+    if len(alleles) != 2:
+        return None
+    left, right = (allele.strip() for allele in alleles)
+    if left in ("", ".") or right in ("", "."):
+        return None
+    left_is_alt = left != "0"
+    right_is_alt = right != "0"
+    if left_is_alt == right_is_alt:
+        return None
+    return 0 if left_is_alt else 1
+
+
+def _pair_phase_for_sample(
+    left_call: SmallVariantCall | None,
+    right_call: SmallVariantCall | None,
+) -> str | None:
+    """``cis``/``trans`` when read-backed phasing resolves the pair, else None.
+
+    Both calls must sit in the same phase set (the caller's PS tag) for their haplotype
+    indices to be comparable at all — indices from different phase blocks say nothing
+    about each other.
+    """
+    if left_call is None or right_call is None:
+        return None
+    if left_call.ps is None or right_call.ps is None or left_call.ps != right_call.ps:
+        return None
+    left_haplotype = _phased_alt_haplotype(left_call.gt)
+    right_haplotype = _phased_alt_haplotype(right_call.gt)
+    if left_haplotype is None or right_haplotype is None:
+        return None
+    return COMPOUND_HET_PHASE_CIS if left_haplotype == right_haplotype else COMPOUND_HET_PHASE_TRANS
+
+
+def _compound_het_pair_phase(
     left: SmallVariantRecord,
     right: SmallVariantRecord,
     *,
     affected_samples: Sequence[str],
     unaffected_samples: Sequence[str],
-) -> bool:
+) -> str | None:
+    """The pair's phase, or None when it is not a compound-het candidate at all.
+
+    Genotype rules first: every affected sample het for both, and no unaffected sample
+    carrying both. Then phasing, which can only ever remove candidates — a pair the reads
+    place on the same haplotype in any affected sample is in cis, so that sample carries
+    one intact copy of the gene and the pair cannot be the recessive explanation.
+    """
     if left.variant_id == right.variant_id:
-        return False
+        return None
     if not affected_samples:
-        return False
+        return None
 
     left_calls = _small_call_map(left)
     right_calls = _small_call_map(right)
@@ -1228,11 +1287,43 @@ def _records_form_compound_het_pair(
         _call_is_het(left_calls.get(sample)) and _call_is_het(right_calls.get(sample))
         for sample in affected_samples
     ):
-        return False
+        return None
 
-    return not any(
+    if any(
         _call_has_alt(left_calls.get(sample)) and _call_has_alt(right_calls.get(sample))
         for sample in unaffected_samples
+    ):
+        return None
+
+    resolved = {
+        phase
+        for sample in affected_samples
+        if (phase := _pair_phase_for_sample(left_calls.get(sample), right_calls.get(sample)))
+    }
+    if COMPOUND_HET_PHASE_CIS in resolved:
+        return None
+    if COMPOUND_HET_PHASE_TRANS in resolved:
+        return COMPOUND_HET_PHASE_TRANS
+    # No shared phase block: the genotypes are consistent with compound het, but nothing
+    # proves the two alts sit on different haplotypes.
+    return COMPOUND_HET_PHASE_UNKNOWN
+
+
+def _records_form_compound_het_pair(
+    left: SmallVariantRecord,
+    right: SmallVariantRecord,
+    *,
+    affected_samples: Sequence[str],
+    unaffected_samples: Sequence[str],
+) -> bool:
+    return (
+        _compound_het_pair_phase(
+            left,
+            right,
+            affected_samples=affected_samples,
+            unaffected_samples=unaffected_samples,
+        )
+        is not None
     )
 
 
@@ -1262,12 +1353,13 @@ def _compound_het_pairs(
                 pair_ids = tuple(sorted((left.variant_id, right.variant_id)))
                 if pair_ids in pair_map:
                     continue
-                if not _records_form_compound_het_pair(
+                phase = _compound_het_pair_phase(
                     left,
                     right,
                     affected_samples=affected_samples,
                     unaffected_samples=unaffected_samples,
-                ):
+                )
+                if phase is None:
                     continue
                 ordered_left, ordered_right = sorted((left, right), key=_small_record_sort_key)
                 gene, gene_id = _resolve_compound_het_pair_gene_labels(ordered_left, ordered_right)
@@ -1277,6 +1369,7 @@ def _compound_het_pairs(
                     gene_id=gene_id,
                     left=ordered_left,
                     right=ordered_right,
+                    phase=phase,
                 )
 
     return sorted(

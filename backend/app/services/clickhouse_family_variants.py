@@ -2346,6 +2346,7 @@ async def get_family_small_variants_page(
                         gene=pair.gene,
                         gene_id=pair.gene_id,
                         variants=[left_variant, right_variant],
+                        phase=pair.phase,
                     )
                 )
             else:

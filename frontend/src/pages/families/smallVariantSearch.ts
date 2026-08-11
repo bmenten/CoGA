@@ -246,6 +246,9 @@ export interface SmallVariantGroup {
   gene_id?: string;
   variants: SmallVariant[];
   review?: SmallVariantCompoundHetReview | null;
+  // Derived from the caller's phasing, unlike review.phase_status which is the
+  // curator's own call. Cis pairs are excluded server-side and never arrive here.
+  phase?: 'trans' | 'unknown';
 }
 
 export type SmallVariantReviewSavePayload = {

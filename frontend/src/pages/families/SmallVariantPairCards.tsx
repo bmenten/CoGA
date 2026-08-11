@@ -112,6 +112,18 @@ export default function SmallVariantPairCards({
                       <span className="analysis-pill analysis-pill--muted">Phase</span>
                       <span>{formatCompoundHetPhaseStatus(group.review?.phase_status)}</span>
                     </div>
+                    {/* What the reads say, as opposed to what the curator recorded above.
+                        Cis pairs never reach the client — they are dropped as candidates. */}
+                    <div className="variant-compound-het-summary-row">
+                      <span className="analysis-pill analysis-pill--muted">Phasing</span>
+                      {group.phase === 'trans' ? (
+                        <span className="variant-card-chip variant-card-chip--success">
+                          In trans · read-backed
+                        </span>
+                      ) : (
+                        <span>Not resolved by reads</span>
+                      )}
+                    </div>
                   </div>
                   {group.review?.classification ? (
                     <span
