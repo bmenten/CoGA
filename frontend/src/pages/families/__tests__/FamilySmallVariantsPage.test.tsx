@@ -550,6 +550,18 @@ describe('FamilySmallVariantsPage', () => {
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('sample_filter=PROBAND'));
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('%3A20%3A10%3A0.2%3A4'));
     });
+    // Scoped to the request this click produced, not "any call ever made": the page's
+    // default preset already bounds popmax, so a toHaveBeenCalledWith here would be
+    // satisfied by the initial load and would pass even if the quick filter cleared it.
+    const quickFilterUrl = [...apiMock.get.mock.calls]
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('inheritance=de_novo_dominant'))
+      .pop();
+    expect(quickFilterUrl).toContain('max_gnomad_exomes_af=0.01');
+    // Popmax has to be bounded too: an annotation run can carry VEP's MAX_AF without any
+    // gnomAD exome/genome AF, and the query reads a missing AF as 0.
+    expect(quickFilterUrl).toContain('max_gnomad_popmax_af=0.01');
+
     await waitFor(() =>
       expect(screen.queryByText('Loading small variants')).not.toBeInTheDocument(),
     );

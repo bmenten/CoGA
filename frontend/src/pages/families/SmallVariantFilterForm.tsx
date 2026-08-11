@@ -593,7 +593,11 @@ const SmallVariantFilterForm = ({
       setDraftFilterValue('max_gnomad_af', '');
       setDraftFilterValue('max_gnomad_exomes_af', FREQUENCY_QUICK_GNOMAD_AF);
       setDraftFilterValue('max_gnomad_genomes_af', FREQUENCY_QUICK_GNOMAD_AF);
-      setDraftFilterValue('max_gnomad_popmax_af', '');
+      // Popmax has to be constrained too. An annotation run that emits VEP's MAX_AF but
+      // no gnomAD exome/genome AF leaves those two filters comparing against a missing
+      // value, which the query treats as 0 — so a variant at popmax 1.0 passed a
+      // "gnomAD <1%" preset untouched.
+      setDraftFilterValue('max_gnomad_popmax_af', FREQUENCY_QUICK_GNOMAD_AF);
       setDraftFilterValue('max_topmed_af', '');
       setDraftFilterValue('max_gnomad_ac', '');
       setDraftFilterValue('max_gnomad_hom_count', FREQUENCY_QUICK_GNOMAD_COUNT);
@@ -749,11 +753,11 @@ const SmallVariantFilterForm = ({
     if (allFrequencyValues.every((value) => value.trim() === '')) return 'all';
     if (
       !draftFilters.max_gnomad_af.trim() &&
-      !draftFilters.max_gnomad_popmax_af.trim() &&
       !draftFilters.max_topmed_af.trim() &&
       !draftFilters.max_gnomad_ac.trim() &&
       numericFilterEquals(draftFilters.max_gnomad_exomes_af, FREQUENCY_QUICK_GNOMAD_AF) &&
       numericFilterEquals(draftFilters.max_gnomad_genomes_af, FREQUENCY_QUICK_GNOMAD_AF) &&
+      numericFilterEquals(draftFilters.max_gnomad_popmax_af, FREQUENCY_QUICK_GNOMAD_AF) &&
       numericFilterEquals(draftFilters.max_gnomad_hom_count, FREQUENCY_QUICK_GNOMAD_COUNT) &&
       numericFilterEquals(draftFilters.max_gnomad_hemi_count, FREQUENCY_QUICK_GNOMAD_COUNT)
     ) {

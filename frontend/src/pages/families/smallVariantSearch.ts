@@ -887,8 +887,18 @@ const buildPresetState = (
     });
   };
 
+  // A frequency ceiling has to bound popmax as well as the global AF. An annotation run
+  // can carry VEP's MAX_AF while carrying no gnomAD AF at all, and the query reads a
+  // missing AF as 0 — so an AF-only ceiling let a variant at popmax 1.0 straight through.
+  // popmax is >= the global AF by construction, so bounding both is the stricter reading:
+  // a variant that is rare globally but common in one population no longer survives.
+  const setFrequencyCeiling = (value: string) => {
+    filters.max_gnomad_af = value;
+    filters.max_gnomad_popmax_af = value;
+  };
+
   if (preset === 'dominant_strict') {
-    filters.max_gnomad_af = '0.001';
+    setFrequencyCeiling('0.001');
     filters.impact = 'HIGH';
     filters.canonical_only = 'true';
     filters.min_cadd = '20';
@@ -896,7 +906,7 @@ const buildPresetState = (
     setAffectedGenotypes(HET_GT_GROUP, { qual: '20', dp: '10', af: '0.2', ad_alt: '4' });
     setUnaffectedGenotypes(REF_GT_GROUP);
   } else if (preset === 'dominant_relaxed') {
-    filters.max_gnomad_af = '0.01';
+    setFrequencyCeiling('0.01');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
     filters.min_cadd = '15';
@@ -910,7 +920,7 @@ const buildPresetState = (
     filters.inheritance = 'de_novo';
     filters.category = '1';
     filters.impact = 'HIGH, MODERATE';
-    filters.max_gnomad_af = '0.01';
+    setFrequencyCeiling('0.01');
     filters.clinvar_overrides_frequency = 'true';
   } else if (preset === 'nipt_recessive') {
     // Monogenic NIPT: genes where both parents carry a high/moderate, rare
@@ -919,7 +929,7 @@ const buildPresetState = (
     // (none / one / both) off the categories. ClinVar P/LP overrides frequency.
     filters.inheritance = 'recessive_at_risk';
     filters.impact = 'HIGH, MODERATE';
-    filters.max_gnomad_af = '0.01';
+    setFrequencyCeiling('0.01');
     filters.clinvar_overrides_frequency = 'true';
   } else if (preset === 'expanded_carrier_screening') {
     const couple = resolveCarrierScreeningCoupleMembers(members);
@@ -927,7 +937,7 @@ const buildPresetState = (
       return { filters, sampleFilters };
     }
     filters.expanded_carrier_screening = 'true';
-    filters.max_gnomad_af = '0.01';
+    setFrequencyCeiling('0.01');
   } else if (preset === 'phenotype_priority') {
     // Exomiser-style: rare candidate set ranked by gene-phenotype match. gnomAD
     // <1% + H/H <=10, but ClinVar P/LP overrules the frequency cut-off; ClinVar
@@ -937,6 +947,7 @@ const buildPresetState = (
     filters.impact = 'HIGH, MODERATE';
     filters.max_gnomad_exomes_af = '0.01';
     filters.max_gnomad_genomes_af = '0.01';
+    filters.max_gnomad_popmax_af = '0.01';
     filters.max_gnomad_hom_count = '10';
     filters.max_gnomad_hemi_count = '10';
     filters.clinvar_overrides_frequency = 'true';
@@ -950,13 +961,13 @@ const buildPresetState = (
     });
   } else if (preset === 'compound_het') {
     filters.inheritance = 'compound_het';
-    filters.max_gnomad_af = '0.02';
+    setFrequencyCeiling('0.02');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
     setAffectedGenotypes(HET_GT_GROUP, { qual: '15', dp: '6', af: '0.18', ad_alt: '3' });
     setUnaffectedGenotypes([...REF_GT_GROUP, ...HET_GT_GROUP]);
   } else if (preset === 'recessive_hom') {
-    filters.max_gnomad_af = '0.01';
+    setFrequencyCeiling('0.01');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
     setAffectedGenotypes(HOM_GT_GROUP, { qual: '20', dp: '8', af: '0.75', ad_alt: '5' });
@@ -972,7 +983,7 @@ const buildPresetState = (
     });
   } else if (preset === 'recessive_permissive') {
     filters.inheritance = 'recessive';
-    filters.max_gnomad_af = '0.02';
+    setFrequencyCeiling('0.02');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
     setAffectedGenotypes([...HET_GT_GROUP, ...HOM_GT_GROUP], {
@@ -983,7 +994,7 @@ const buildPresetState = (
     });
     setUnaffectedGenotypes([...REF_GT_GROUP, ...HET_GT_GROUP]);
   } else if (preset === 'any_affected') {
-    filters.max_gnomad_af = '0.01';
+    setFrequencyCeiling('0.01');
     filters.impact = 'HIGH, MODERATE';
     filters.canonical_only = 'true';
     filters.min_cadd = '15';
@@ -994,7 +1005,7 @@ const buildPresetState = (
       ad_alt: '3',
     });
   } else if (preset === 'clinvar_review') {
-    filters.max_gnomad_af = '0.01';
+    setFrequencyCeiling('0.01');
     filters.clinvar = 'Pathogenic';
     filters.classification =
       'Pathogenic - class 5, Likely Pathogenic - class 4, VUS - class 3';
