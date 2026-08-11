@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
   ALL_GT_GROUPS,
@@ -9,6 +9,7 @@ import {
   resolveSampleFiltersFromPreset,
   useSmallVariantSearchState,
   type FamilyMember,
+  type SmallPreset,
   type SmallVariantFilterPreset,
   type SmallVariantSampleFilter,
 } from '../smallVariantSearch';
@@ -277,5 +278,79 @@ describe('useSmallVariantSearchState default (fresh open)', () => {
     expect(result.current.filters.panel_id).toBe('');
     rerender({ loaded: true, id: 'mendel-1' });
     await waitFor(() => expect(result.current.filters.panel_id).toBe('mendel-1'));
+  });
+});
+
+describe('preset frequency ceilings bound popmax', () => {
+  const family = {
+    members: [
+      { sample_id: 'S1', role: 'proband', affected: true, sex: 'female' },
+      { sample_id: 'S2', role: 'mother', affected: false, sex: 'female' },
+      { sample_id: 'S3', role: 'father', affected: false, sex: 'male' },
+    ],
+    relationships: [],
+    projects: [],
+  } as never;
+
+  const renderSearch = () =>
+    renderHook(() =>
+      useSmallVariantSearchState({
+        family,
+        locationSearch: '',
+        navigate: () => {},
+        panelsLoaded: true,
+      }),
+    );
+
+  // An annotation run can carry VEP's MAX_AF and no gnomAD AF at all, and the query
+  // reads a missing AF as 0. A preset that caps only the AF therefore lets a variant at
+  // popmax 1.0 through untouched, which is the whole point of bounding both.
+  const PRESETS: SmallPreset[] = [
+    'dominant_strict',
+    'dominant_relaxed',
+    'compound_het',
+    'phenotype_priority',
+    'recessive_hom',
+    'recessive_permissive',
+    'any_affected',
+    'clinvar_review',
+    'nipt_de_novo',
+    'nipt_recessive',
+  ];
+
+  it.each(PRESETS)('%s caps popmax as tightly as the AF it sets', async (preset) => {
+    const { result } = renderSearch();
+    await waitFor(() => expect(result.current.filters).toBeTruthy());
+
+    act(() => result.current.applyPreset(preset));
+
+    const { max_gnomad_popmax_af: popmax, max_gnomad_af: af } = result.current.draftFilters;
+    expect(popmax, `${preset} left popmax unbounded`).not.toBe('');
+    if (af) {
+      expect(Number(popmax), `${preset} popmax looser than its AF`).toBeLessThanOrEqual(Number(af));
+    }
+  });
+
+  it('keeps the strictest preset strict', async () => {
+    const { result } = renderSearch();
+    await waitFor(() => expect(result.current.filters).toBeTruthy());
+
+    act(() => result.current.applyPreset('dominant_strict'));
+    expect(result.current.draftFilters.max_gnomad_popmax_af).toBe('0.001');
+
+    act(() => result.current.applyPreset('compound_het'));
+    expect(result.current.draftFilters.max_gnomad_popmax_af).toBe('0.02');
+  });
+
+  it('bounds popmax on the exomes/genomes preset that sets no global AF', async () => {
+    const { result } = renderSearch();
+    await waitFor(() => expect(result.current.filters).toBeTruthy());
+
+    act(() => result.current.applyPreset('phenotype_priority'));
+    // This one caps exomes and genomes rather than the global AF, so popmax is the only
+    // thing standing between a MAX_AF-only annotation and the result list.
+    expect(result.current.draftFilters.max_gnomad_af).toBe('');
+    expect(result.current.draftFilters.max_gnomad_exomes_af).toBe('0.01');
+    expect(result.current.draftFilters.max_gnomad_popmax_af).toBe('0.01');
   });
 });
