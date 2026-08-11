@@ -82,6 +82,7 @@ describe('GeneInfoPage', () => {
                   // badges both read them rather than a gene-level scraped value.
                   mane_select: true,
                   ensembl_canonical: true,
+                  refseq_accessions: ['NM_007294.4'],
                 },
                 {
                   transcript_id: 'NM_007294.4',
@@ -411,7 +412,10 @@ describe('GeneInfoPage', () => {
     const vegaRow = screen.getByText('Vega').closest('.gene-compact-detail-row');
     expect(vegaRow).not.toBeNull();
     expect(within(vegaRow as HTMLElement).getByText('OTTHUMG00000157426')).toBeInTheDocument();
-    expect(screen.getByText('NM_007294.4')).toBeInTheDocument();
+    // Gene-level RefSeq accessions in the overview. Scoped, because the accession now
+    // also appears in the transcript table twice — as a transcript and as a mapping.
+    const refseqRow = screen.getByText('RefSeq accessions').closest('.gene-compact-detail-row');
+    expect(within(refseqRow as HTMLElement).getByText('NM_007294.4')).toBeInTheDocument();
     expect(screen.getByText('3.21')).toBeInTheDocument();
     expect(screen.getByText('0.094')).toBeInTheDocument();
     expect(screen.getByText('0.880')).toBeInTheDocument();
@@ -449,6 +453,15 @@ describe('GeneInfoPage', () => {
       'true',
     );
     expect(within(transcriptTable).getByText('ENST00000357654.9')).toBeInTheDocument();
+    // The Ensembl transcript's row also names its RefSeq equivalent, and links to it.
+    // Scoped to that row: NM_007294.4 is separately a transcript of its own here.
+    const ensemblRow = within(transcriptTable)
+      .getByText('ENST00000357654.9')
+      .closest('tr') as HTMLElement;
+    expect(within(ensemblRow).getByRole('link', { name: 'NM_007294.4' })).toHaveAttribute(
+      'href',
+      'https://www.ncbi.nlm.nih.gov/nuccore/NM_007294.4',
+    );
     expect(within(transcriptTable).getByText('MANE Select')).toBeInTheDocument();
     expect(within(transcriptTable).getByText('Ensembl Canonical')).toBeInTheDocument();
     // The overview names the transcripts too, not just the badges in the table. Both
@@ -460,8 +473,13 @@ describe('GeneInfoPage', () => {
       expect(row).not.toBeNull();
       expect(within(row as HTMLElement).getByText('ENST00000357654.9')).toBeInTheDocument();
     }
-    // RefSeq Select is derived from the HGNC refseq accessions.
-    expect(within(transcriptTable).getByText('NM_007294.4')).toBeInTheDocument();
+    // RefSeq Select is derived from the HGNC refseq accessions. The RefSeq transcript
+    // has a row of its own, distinct from the mapping shown on the Ensembl row above.
+    const refseqTranscriptRow = within(transcriptTable)
+      .getAllByText('NM_007294.4')
+      .map((node) => node.closest('tr'))
+      .find((row) => row?.querySelector('td')?.textContent === 'NM_007294.4');
+    expect(refseqTranscriptRow).toBeTruthy();
     expect(within(transcriptTable).getByText('RefSeq Select')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Protein Atlas' })).toHaveAttribute(
       'href',

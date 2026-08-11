@@ -1515,6 +1515,9 @@ class GeneTranscriptOut(BaseModel):
     mane_select: bool = False
     mane_plus_clinical: bool = False
     ensembl_canonical: bool = False
+    # Matching RefSeq transcript accessions (NM_/NR_/XM_/XR_). Protein accessions are
+    # left out: this is a transcript table, and NP_ ids would not be selectable there.
+    refseq_accessions: List[str] = Field(default_factory=list)
 
 
 class GenePanelMembershipOut(BaseModel):
