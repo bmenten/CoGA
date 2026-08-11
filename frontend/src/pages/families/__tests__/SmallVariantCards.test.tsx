@@ -1,14 +1,40 @@
+import { QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SmallVariantCards from '../SmallVariantCards';
+import api from '../../../lib/api';
+import { createTestQueryClient } from '../../../test/createTestQueryClient';
+
+vi.mock('../../../lib/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
+
+// The transcript modal reads CCDS and RefSeq from the imported gene annotation, since
+// the VCF annotation carries neither.
+const mockGeneProfile = (transcripts: unknown[]) => {
+  (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+    url === '/genes/profile'
+      ? Promise.resolve({ data: { transcripts } })
+      : Promise.resolve({ data: {} }),
+  );
+};
+
+const renderCards = (ui: React.ReactElement) =>
+  render(
+    <QueryClientProvider client={createTestQueryClient()}>
+      <MemoryRouter>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  );
 
 describe('SmallVariantCards', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockGeneProfile([]);
+  });
+
   it('opens a transcript popup with all transcript effects from the transcript field', async () => {
-    render(
-      <MemoryRouter>
+    renderCards(
         <SmallVariantCards
           variants={[
             {
@@ -70,8 +96,7 @@ describe('SmallVariantCards', () => {
           onEditReview={vi.fn()}
           onAcmgClassify={vi.fn()}
           onToggleReviewTag={vi.fn(async () => undefined)}
-        />
-      </MemoryRouter>,
+        />,
     );
 
     await userEvent.click(screen.getByRole('button', { name: /NM_000059\.4.*2 transcripts/i }));
@@ -88,9 +113,58 @@ describe('SmallVariantCards', () => {
     expect(within(dialog).getAllByText('Exon 13/27')).toHaveLength(2);
   });
 
+  it('badges CCDS and names RefSeq accessions from the gene annotation', async () => {
+    // The VCF annotation has no CCDS or RefSeq; the imported GENCODE rows do, keyed by
+    // the transcript the variant names — versions differ, so matching is on the stem.
+    mockGeneProfile([
+      {
+        transcript_id: 'ENST00000380152.8',
+        ccds_id: 'CCDS9344.1',
+        refseq_accessions: ['NM_000059.4'],
+      },
+    ]);
+
+    renderCards(
+        <SmallVariantCards
+          variants={[
+            {
+              _id: 'brca2-var',
+              chr: '13',
+              start: 32316461,
+              end: 32316461,
+              type: 'SNV',
+              gene: 'BRCA2',
+              ref: 'G',
+              alt: 'A',
+              impact: 'MODERATE',
+              effect: 'missense_variant',
+              transcript_id: 'ENST00000380152',
+              transcript_biotype: 'protein_coding',
+              canonical: true,
+              genotypes: [],
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /ENST00000380152/i }));
+    const dialog = await screen.findByRole('dialog', { name: /BRCA2/i });
+
+    // Matched despite the VCF naming the unversioned transcript.
+    expect(await within(dialog).findByText('CCDS')).toBeInTheDocument();
+    expect(within(dialog).getByText('NM_000059.4')).toBeInTheDocument();
+  });
+
   it('shows the priority breakdown on a prioritized variant card', () => {
-    render(
-      <MemoryRouter>
+    renderCards(
         <SmallVariantCards
           variants={[
             {
@@ -129,8 +203,7 @@ describe('SmallVariantCards', () => {
           onEditReview={vi.fn()}
           onAcmgClassify={vi.fn()}
           onToggleReviewTag={vi.fn(async () => undefined)}
-        />
-      </MemoryRouter>,
+        />,
     );
 
     expect(screen.getByText(/Priority 0.46/)).toBeInTheDocument();

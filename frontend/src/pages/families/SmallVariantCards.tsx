@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
+import api from '../../lib/api';
 import {
   COLLABORATION_QUICK_TAGS,
   getTagDefinitionMap,
@@ -165,16 +167,67 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
 const transcriptRegionLabel = (transcript: SmallVariantTranscript) =>
   transcript.exon ? `Exon ${transcript.exon}` : transcript.intron ? `Intron ${transcript.intron}` : '—';
 
-const transcriptBadges = (transcript: SmallVariantTranscript) =>
+const transcriptBadges = (
+  transcript: SmallVariantTranscript,
+  detail?: { ccds_id?: string | null },
+) =>
   [
     transcript.mane_select ? { label: 'MANE Select', tone: 'success' } : null,
     transcript.mane_plus_clinical ? { label: 'MANE Plus Clinical', tone: 'accent' } : null,
     transcript.canonical ? { label: 'Canonical', tone: 'warning' } : null,
+    // CCDS is not in the VCF annotation; it comes from the imported gene annotation.
+    detail?.ccds_id ? { label: 'CCDS', tone: 'neutral' } : null,
     transcript.primary ? { label: 'Shown on card', tone: 'neutral' } : null,
   ].filter(
     (value): value is { label: string; tone: 'success' | 'accent' | 'warning' | 'neutral' } =>
       Boolean(value),
   );
+
+
+/**
+ * CCDS membership and RefSeq accessions for a variant's transcripts.
+ *
+ * The VCF annotation carries only canonical/MANE flags, so these come from the imported
+ * gene annotation instead — the same GENCODE rows the Gene Explorer reads. Fetched when
+ * the modal opens rather than joined into every variant page: the variant list is the
+ * hot path behind the filter, and this is wanted for one gene at a time.
+ */
+interface GeneTranscriptDetail {
+  transcript_id: string;
+  ccds_id?: string | null;
+  refseq_accessions?: string[];
+}
+
+// VEP writes ENST00000357654, the annotation stores ENST00000357654.9. Compare on the
+// accession, not the version, or nothing ever matches.
+const transcriptKey = (id?: string | null) => (id || '').trim().toUpperCase().split('.')[0];
+
+const useGeneTranscriptDetails = (symbol?: string | null) => {
+  const { data } = useQuery<{ transcripts?: GeneTranscriptDetail[] }>({
+    queryKey: ['gene-profile-transcripts', symbol],
+    enabled: Boolean(symbol),
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () =>
+      (await api.get('/genes/profile', { params: { symbol } })).data as {
+        transcripts?: GeneTranscriptDetail[];
+      },
+  });
+
+  return useMemo(() => {
+    const byKey = new Map<string, GeneTranscriptDetail>();
+    for (const transcript of data?.transcripts ?? []) {
+      const key = transcriptKey(transcript.transcript_id);
+      if (key) byKey.set(key, transcript);
+      // A RefSeq-named transcript in the VCF resolves through the accessions the
+      // annotation maps onto its Ensembl transcript.
+      for (const accession of transcript.refseq_accessions ?? []) {
+        const accessionKey = transcriptKey(accession);
+        if (accessionKey && !byKey.has(accessionKey)) byKey.set(accessionKey, transcript);
+      }
+    }
+    return byKey;
+  }, [data]);
+};
 
 const TranscriptPopup = ({
   variant,
@@ -185,6 +238,7 @@ const TranscriptPopup = ({
 }) => {
   const transcripts = getVariantTranscripts(variant);
   const geneName = variant.gene || variant.gene_id || transcripts[0]?.gene || 'Intergenic variant';
+  const transcriptDetails = useGeneTranscriptDetails(variant.gene || transcripts[0]?.gene);
   const variantLabel = `${formatLocus(variant)} · ${variant.ref || '—'} → ${variant.alt || '—'}`;
 
   return (
@@ -238,7 +292,13 @@ const TranscriptPopup = ({
             </thead>
             <tbody>
               {transcripts.map((transcript, index) => {
-                const badges = transcriptBadges(transcript);
+                const detail = transcriptDetails.get(transcriptKey(transcript.transcript_id));
+                const badges = transcriptBadges(transcript, detail);
+                // The VCF names one transcript; the annotation knows which RefSeq
+                // accessions correspond to it.
+                const refseq = (detail?.refseq_accessions ?? []).filter(
+                  (accession) => transcriptKey(accession) !== transcriptKey(transcript.transcript_id),
+                );
                 return (
                   <tr key={`${transcript.transcript_id || 'transcript'}-${index}`}>
                     <td>
@@ -250,6 +310,9 @@ const TranscriptPopup = ({
                             'Transcript'}
                           {transcript.transcript_biotype ? ` · ${transcript.transcript_biotype}` : ''}
                         </span>
+                        {refseq.length ? (
+                          <span className="variant-transcript-refseq">{refseq.join(', ')}</span>
+                        ) : null}
                       </div>
                     </td>
                     <td>
