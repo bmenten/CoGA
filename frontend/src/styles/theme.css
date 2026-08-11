@@ -5642,6 +5642,41 @@ tbody tr:hover {
 
 /* RefSeq accessions the annotation maps onto a transcript the VCF named by its Ensembl
    id. Monospace like the transcript id above it, muted so the id stays primary. */
+/* Gene-disease associations in a card's expanded detail. Two short lists rather than a
+   table: they are for orientation, with the Gene Explorer holding the full set. */
+.variant-card-disease-groups {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.variant-card-disease-heading {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin: 0 0 0.25rem;
+}
+
+.variant-card-disease-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.variant-card-disease-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.73rem;
+}
+
+.variant-card-disease-source {
+  font-size: 0.66rem;
+  color: var(--color-text-muted);
+}
+
 .variant-transcript-refseq {
   font-family: var(--font-mono);
   font-size: 0.68rem;

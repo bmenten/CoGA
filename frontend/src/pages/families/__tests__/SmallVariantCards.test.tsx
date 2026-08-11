@@ -163,6 +163,74 @@ describe('SmallVariantCards', () => {
     expect(within(dialog).getByText('NM_000059.4')).toBeInTheDocument();
   });
 
+  it('lists Monarch and OMIM associations when the card detail is expanded', async () => {
+    (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      url === '/genes/profile'
+        ? Promise.resolve({
+            data: {
+              transcripts: [],
+              monarch_associations: [
+                {
+                  mondo_id: 'MONDO:0700269',
+                  disease_label: 'BRCA2-related cancer predisposition',
+                  causal: true,
+                  sources: ['clingen'],
+                  monarch_url: 'https://monarchinitiative.org/MONDO:0700269',
+                },
+              ],
+              extra: {
+                omim_diseases: [
+                  { label: 'Breast cancer', omim_id: '114480', href: 'https://www.omim.org/entry/114480' },
+                ],
+              },
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+
+    renderCards(
+        <SmallVariantCards
+          variants={[
+            {
+              _id: 'brca2-var',
+              chr: '13',
+              start: 32316461,
+              end: 32316461,
+              type: 'SNV',
+              gene: 'BRCA2',
+              ref: 'G',
+              alt: 'A',
+              genotypes: [],
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />,
+    );
+
+    // Collapsed: the section is not rendered, so nothing is fetched for it.
+    expect(screen.queryByText(/Gene–disease associations/)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('More annotations & detail'));
+
+    expect(await screen.findByText(/Gene–disease associations/)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('link', { name: 'BRCA2-related cancer predisposition' }),
+    ).toHaveAttribute('href', 'https://monarchinitiative.org/MONDO:0700269');
+    // Causal is stated, because it changes how the association reads.
+    expect(screen.getByText('causal')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Breast cancer' })).toHaveAttribute(
+      'href',
+      'https://www.omim.org/entry/114480',
+    );
+  });
+
   it('shows the priority breakdown on a prioritized variant card', () => {
     renderCards(
         <SmallVariantCards

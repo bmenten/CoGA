@@ -198,20 +198,51 @@ interface GeneTranscriptDetail {
   refseq_accessions?: string[];
 }
 
+interface GeneMonarchAssociation {
+  mondo_id?: string | null;
+  disease_label?: string | null;
+  causal?: boolean;
+  sources?: string[];
+  monarch_url?: string | null;
+}
+
+interface GeneOmimDisease {
+  label?: string | null;
+  omim_id?: string | null;
+  href?: string | null;
+}
+
+interface GeneProfileSlice {
+  transcripts?: GeneTranscriptDetail[];
+  monarch_associations?: GeneMonarchAssociation[];
+  extra?: { omim_diseases?: Array<string | GeneOmimDisease> };
+}
+
+/**
+ * The gene profile for a variant's gene, fetched once and shared.
+ *
+ * The transcript modal and a card's expanded detail both want parts of it, so they use
+ * one cache entry rather than each fetching the same gene. Only fired on a user action —
+ * opening the modal or the disclosure — never as part of the variant list, which is the
+ * hot path behind the filter.
+ */
+const useGeneProfileSlice = (symbol?: string | null) => {
+  const { data } = useQuery<GeneProfileSlice>({
+    queryKey: ['gene-profile-slice', symbol],
+    enabled: Boolean(symbol),
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () =>
+      (await api.get('/genes/profile', { params: { symbol } })).data as GeneProfileSlice,
+  });
+  return data;
+};
+
 // VEP writes ENST00000357654, the annotation stores ENST00000357654.9. Compare on the
 // accession, not the version, or nothing ever matches.
 const transcriptKey = (id?: string | null) => (id || '').trim().toUpperCase().split('.')[0];
 
 const useGeneTranscriptDetails = (symbol?: string | null) => {
-  const { data } = useQuery<{ transcripts?: GeneTranscriptDetail[] }>({
-    queryKey: ['gene-profile-transcripts', symbol],
-    enabled: Boolean(symbol),
-    staleTime: 5 * 60 * 1000,
-    queryFn: async () =>
-      (await api.get('/genes/profile', { params: { symbol } })).data as {
-        transcripts?: GeneTranscriptDetail[];
-      },
-  });
+  const data = useGeneProfileSlice(symbol);
 
   return useMemo(() => {
     const byKey = new Map<string, GeneTranscriptDetail>();
@@ -227,6 +258,88 @@ const useGeneTranscriptDetails = (symbol?: string | null) => {
     }
     return byKey;
   }, [data]);
+};
+
+
+/**
+ * Gene–disease associations for the card's expanded detail.
+ *
+ * Its own component so the fetch is tied to mounting: the disclosure renders this only
+ * when open, so a collapsed card costs nothing and expanding one reuses whatever the
+ * transcript modal already cached for the same gene.
+ */
+const VariantGeneDiseases = ({ symbol }: { symbol?: string | null }) => {
+  const profile = useGeneProfileSlice(symbol);
+  const monarch = (profile?.monarch_associations ?? []).filter((entry) => entry.disease_label);
+  const omim = (profile?.extra?.omim_diseases ?? [])
+    .map((entry) => (typeof entry === 'string' ? { label: entry } : entry))
+    .filter((entry): entry is GeneOmimDisease => Boolean(entry?.label));
+
+  if (!symbol) {
+    return <p className="variant-card-empty-note">No gene assigned to this variant.</p>;
+  }
+  if (!profile) {
+    return <p className="variant-card-empty-note">Loading gene–disease associations…</p>;
+  }
+  if (!monarch.length && !omim.length) {
+    return <p className="variant-card-empty-note">No gene–disease associations cached for {symbol}.</p>;
+  }
+
+  return (
+    <div className="variant-card-disease-groups">
+      {monarch.length ? (
+        <div>
+          <p className="variant-card-disease-heading">Monarch ({monarch.length})</p>
+          <ul className="variant-card-disease-list">
+            {monarch.slice(0, 8).map((entry) => (
+              <li key={entry.mondo_id || entry.disease_label}>
+                {entry.monarch_url ? (
+                  <a href={entry.monarch_url} target="_blank" rel="noreferrer">
+                    {entry.disease_label}
+                  </a>
+                ) : (
+                  <span>{entry.disease_label}</span>
+                )}
+                {/* Whether the gene causes the disease or is merely associated changes
+                    how the association should be read, so it is stated. */}
+                {entry.causal ? <span className="variant-card-chip variant-card-chip--strong">causal</span> : null}
+                {entry.sources?.length ? (
+                  <span className="variant-card-disease-source">{entry.sources.join(', ')}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {monarch.length > 8 ? (
+            <p className="variant-card-empty-note">+{monarch.length - 8} more in the Gene Explorer.</p>
+          ) : null}
+        </div>
+      ) : null}
+      {omim.length ? (
+        <div>
+          <p className="variant-card-disease-heading">OMIM ({omim.length})</p>
+          <ul className="variant-card-disease-list">
+            {omim.slice(0, 8).map((entry) => (
+              <li key={entry.omim_id || entry.label}>
+                {entry.href ? (
+                  <a href={entry.href} target="_blank" rel="noreferrer">
+                    {entry.label}
+                  </a>
+                ) : (
+                  <span>{entry.label}</span>
+                )}
+                {entry.omim_id ? (
+                  <span className="variant-card-disease-source">MIM {entry.omim_id}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {omim.length > 8 ? (
+            <p className="variant-card-empty-note">+{omim.length - 8} more in the Gene Explorer.</p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 };
 
 const TranscriptPopup = ({
@@ -930,6 +1043,10 @@ export default function SmallVariantCards({
                       </div>
                     ))}
                   </dl>
+                </div>
+                <div className="variant-card-section">
+                  <p className="variant-card-section-title">Gene&ndash;disease associations</p>
+                  <VariantGeneDiseases symbol={variant.gene} />
                 </div>
                 <div className="variant-card-section">
                   <p className="variant-card-section-title">All scores &amp; constraint</p>
