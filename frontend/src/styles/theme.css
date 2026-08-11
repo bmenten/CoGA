@@ -5308,6 +5308,38 @@ tbody tr:hover {
   color: var(--color-secondary);
 }
 
+/* The transcript accession and the flags that describe it, on one line. */
+.variant-card-transcript-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.variant-card-cytoband {
+  color: var(--color-text-muted);
+}
+
+.variant-card-idlist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
+}
+
+/* A plain link, not a chip: the VCF ID column can hold several accessions and a row
+   of pills reads as tags rather than as the identifiers they are. */
+.variant-card-id-link {
+  color: var(--color-secondary);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(10, 11, 12, 0.18);
+}
+
+.variant-card-id-link:hover,
+.variant-card-id-link:focus-visible {
+  color: var(--color-signature-red-dark);
+  border-bottom-color: var(--color-signature-red);
+}
+
 .variant-card-inline-link:hover {
   border-color: rgba(198, 31, 45, 0.14);
   background: rgba(198, 31, 45, 0.05);
@@ -5359,6 +5391,10 @@ tbody tr:hover {
 .variant-card-section {
   display: grid;
   gap: 0.6rem;
+  /* Grid cells stretch to the tallest section in the row, and auto rows stretch with
+     them — which floated a short list (population frequencies especially) into the
+     vertical middle of its cell. Pack the rows to the top instead. */
+  align-content: start;
 }
 
 .variant-card-section-title {

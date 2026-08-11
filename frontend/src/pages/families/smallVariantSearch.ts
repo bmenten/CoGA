@@ -150,6 +150,7 @@ export interface SmallVariant {
   spliceai_max?: number;
   alpha_missense_pathogenicity?: number;
   alpha_missense_class?: string | null;
+  cytoband?: string | null;
   annotation_extra?: Record<string, string | number | boolean | null>;
   transcripts?: SmallVariantTranscript[];
   genotypes: SmallVariantGenotype[];

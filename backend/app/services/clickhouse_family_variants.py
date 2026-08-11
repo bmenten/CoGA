@@ -95,19 +95,25 @@ _SMALL_TRACK_RESULT_LIMIT = 10000
 MAX_VARIANT_PAGE_SIZE = _SMALL_TRACK_RESULT_LIMIT
 
 
-async def _fetch_structural_cytoband_map(
+async def _fetch_cytoband_label_map(
     session: AsyncSession,
     *,
     assembly_id: str | None,
-    records: Sequence[StructuralVariantRecord],
+    loci: Sequence[tuple[str, str, int, int]],
 ) -> dict[str, str]:
-    if not assembly_id or not records:
+    """Cytoband label per locus, keyed by the caller's id.
+
+    ``loci`` is ``(key, chromosome, start, end)``. Shared by structural and small
+    variants: both need the band the call sits in, and neither carries it in the
+    payload — it comes from the assembly's cytoband track.
+    """
+    if not assembly_id or not loci:
         return {}
     chromosomes = list(
         dict.fromkeys(
             alias
-            for record in records
-            for alias in (normalize_chromosome(record.chr), f"chr{normalize_chromosome(record.chr)}")
+            for _key, chrom, _start, _end in loci
+            for alias in (normalize_chromosome(chrom), f"chr{normalize_chromosome(chrom)}")
         )
     )
     result = await session.execute(
@@ -138,16 +144,29 @@ async def _fetch_structural_cytoband_map(
         band_map[normalized] = [band for band in bands if isinstance(band, dict)]
 
     cytobands: dict[str, str] = {}
-    for record in records:
-        bands = band_map.get(normalize_chromosome(record.chr))
+    for key, chrom, start, end in loci:
+        bands = band_map.get(normalize_chromosome(chrom))
         if not bands:
             continue
-        start_band = _band_name_for_position(bands, record.start)
-        end_band = _band_name_for_position(bands, record.end)
-        label = _format_cytoband_label(record.chr, start_band, end_band)
+        start_band = _band_name_for_position(bands, start)
+        end_band = _band_name_for_position(bands, end)
+        label = _format_cytoband_label(chrom, start_band, end_band)
         if label:
-            cytobands[record.variant_id] = label
+            cytobands[key] = label
     return cytobands
+
+
+async def _fetch_structural_cytoband_map(
+    session: AsyncSession,
+    *,
+    assembly_id: str | None,
+    records: Sequence[StructuralVariantRecord],
+) -> dict[str, str]:
+    return await _fetch_cytoband_label_map(
+        session,
+        assembly_id=assembly_id,
+        loci=[(record.variant_id, record.chr, record.start, record.end) for record in records],
+    )
 
 
 async def _fetch_gene_regions(
@@ -556,6 +575,20 @@ async def _hydrate_small_variant_outs(
             variant.gene_pli = metrics.get("gene_pli")
         if variant.gene_missense_z is None:
             variant.gene_missense_z = metrics.get("gene_missense_z")
+
+    try:
+        cytoband_map = await _fetch_cytoband_label_map(
+            session,
+            assembly_id=context.assembly_id,
+            loci=[
+                (str(variant.id), variant.chr, variant.start, variant.end)
+                for variant in variants
+            ],
+        )
+    except Exception:  # pragma: no cover - the band is decoration, never the page
+        cytoband_map = {}
+    for variant in variants:
+        variant.cytoband = cytoband_map.get(str(variant.id))
 
 
 async def _execute_clickhouse(query: str, params: dict[str, Any]) -> list[tuple[Any, ...]]:
