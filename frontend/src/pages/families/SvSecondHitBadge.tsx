@@ -11,7 +11,10 @@ import type { SvSecondHit } from './smallVariantSearch';
  * `title` attribute: the badge's inline SVG icon swallows the pointer, so `title` never
  * fired, and a fixed tooltip also escapes the variant table's scroll clipping.
  */
-const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null }> = ({ hit }) => {
+const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null; href?: string | null }> = ({
+  hit,
+  href,
+}) => {
   const [tip, setTip] = useState<{ top: number; left: number } | null>(null);
   if (!hit) return null;
 
@@ -33,11 +36,16 @@ const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null }> = ({ hit }) => {
       : hit.phase === 'cis'
         ? ` It is in cis (the same allele as this SNV)${how}.`
         : '';
-  const message = unmasked
+  const explanation = unmasked
     ? `This gene is also hit by a deletion (${types}${zygosity}) in trans${how} with this heterozygous SNV — the deletion removes the other allele, so the gene is effectively biallelic.`
     : `This gene is also hit by a structural variant (${types}${zygosity}) — a possible cross-type second hit.${phaseSentence}`;
+  // The click target is not obvious from a badge, so the tooltip that explains the
+  // pattern also says where it goes.
+  const message = href
+    ? `${explanation} Opens the family's structural variants for this gene in a new tab.`
+    : explanation;
 
-  const showTip = (event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>) => {
+  const showTip = (event: MouseEvent<HTMLElement> | FocusEvent<HTMLElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     setTip({ top: rect.bottom + 6, left: rect.left });
   };
@@ -47,31 +55,53 @@ const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null }> = ({ hit }) => {
     'sv-second-hit-badge',
     hit.has_deletion ? 'sv-second-hit-badge--del' : '',
     unmasked ? 'sv-second-hit-badge--unmasked' : '',
+    href ? 'sv-second-hit-badge--link' : '',
   ]
     .filter(Boolean)
     .join(' ');
 
+  const body = (
+    <>
+      SV: {types}
+      {hit.sv_count > 1 ? ` ×${hit.sv_count}` : ''}
+      {phase ? (
+        <span className={`sv-second-hit-phase${byReads ? ' sv-second-hit-phase--read' : ''}`}>
+          {phase}
+          {byReads ? '✓' : ''}
+        </span>
+      ) : null}
+    </>
+  );
+
   return (
     <>
-      <span
-        className={className}
-        tabIndex={0}
-        onMouseEnter={showTip}
-        onMouseLeave={hideTip}
-        onFocus={showTip}
-        onBlur={hideTip}
-      >
-        SV: {types}
-        {hit.sv_count > 1 ? ` ×${hit.sv_count}` : ''}
-        {phase ? (
-          <span
-            className={`sv-second-hit-phase${byReads ? ' sv-second-hit-phase--read' : ''}`}
-          >
-            {phase}
-            {byReads ? '✓' : ''}
-          </span>
-        ) : null}
-      </span>
+      {href ? (
+        // New tab, like the other genome links, so the filtered variant list survives.
+        <a
+          className={className}
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={message}
+          onMouseEnter={showTip}
+          onMouseLeave={hideTip}
+          onFocus={showTip}
+          onBlur={hideTip}
+        >
+          {body}
+        </a>
+      ) : (
+        <span
+          className={className}
+          tabIndex={0}
+          onMouseEnter={showTip}
+          onMouseLeave={hideTip}
+          onFocus={showTip}
+          onBlur={hideTip}
+        >
+          {body}
+        </span>
+      )}
       {tip ? (
         <span
           className="sv-second-hit-tooltip"

@@ -433,6 +433,27 @@ export const buildSmallVariantGeneInfoHref = (
   return `/genes?${params.toString()}`;
 };
 
+/**
+ * Where a second-hit badge goes: the family's SV list, filtered to this gene.
+ *
+ * The badge summary carries no SV identity — `summarize_second_hit` collapses the
+ * matching SVs to counts, types, zygosity and phase — and a gene can be hit by several
+ * SVs, so there is no single SV to jump to. The gene-filtered SV list shows all of them
+ * with the type, size, frequency and review state needed to judge whether one completes
+ * a recessive genotype, and links on to IGV per SV from there.
+ */
+export const buildSvSecondHitHref = (
+  variant: Pick<SmallVariant, 'gene' | 'gene_id'>,
+  familyId?: string,
+  projectId?: string,
+) => {
+  const geneLabel = (variant.gene || variant.gene_id || '').trim();
+  if (!geneLabel || !familyId) return null;
+  const params = new URLSearchParams({ gene: geneLabel });
+  if (projectId) params.set('project_id', projectId);
+  return `/families/${familyId}/structural-variants?${params.toString()}`;
+};
+
 export const buildSmallVariantExternalLinks = ({
   variant,
   speciesName,
