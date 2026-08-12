@@ -44,17 +44,19 @@ const ClinicalCnvExplorerPage = () => {
 
   return (
     <div className="page-shell analysis-shell">
-      <section className="surface-card space-y-4">
-        <div className="space-y-1">
-          <p className="page-kicker">Clinical CNV explorer</p>
-          <h2 className="section-title">
-            Clinical CNVs
-            {cnvs ? <span className="variant-results-count">{rows.length.toLocaleString()}</span> : null}
-          </h2>
-          <p className="table-subtle">
-            Curated recurrent CNV syndromes (ClinGen / DECIPHER / literature) available in this CoGA
-            instance. Select one to view its details.
-          </p>
+      <section className="surface-card page-top-card space-y-4">
+        <div className="page-header">
+          <div className="space-y-2">
+            <p className="page-kicker">Clinical CNV explorer</p>
+            <h1 className="catalog-card-title">
+              Clinical CNVs
+              {cnvs ? <span className="variant-results-count">{rows.length.toLocaleString()}</span> : null}
+            </h1>
+            <p className="page-copy">
+              Curated recurrent CNV syndromes (ClinGen / DECIPHER / literature) available in this
+              CoGA instance. Select one to view its details.
+            </p>
+          </div>
         </div>
 
         <form

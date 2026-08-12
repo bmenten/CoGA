@@ -4,6 +4,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
+import FamilyPageHeader from './FamilyPageHeader';
 import type {
   ApiAnnotationManifest,
   ApiClassificationDrift,
@@ -389,33 +390,34 @@ const FamilyReportPage: React.FC = () => {
 
   return (
     <div className="page-shell report-page space-y-6">
-      <header className="surface-card report-header">
-        <div className="space-y-1">
-          <p className="page-kicker">Clinical report</p>
-          <h1 className="page-state-title">Family {familyId}</h1>
-          <p className="report-header-meta">{referenceLabel}</p>
-        </div>
-        <div className="report-header-actions no-print">
-          <Link to={`/families/${familyId}`} className="button-secondary hover:no-underline">
-            Back to family
-          </Link>
-          <button type="button" className="form-button" onClick={() => window.print()}>
-            Print report
-          </button>
-          <button
-            type="button"
-            className="form-button"
-            onClick={handleSignOut}
-            disabled={signOut.isPending}
-          >
-            {signOut.isPending
-              ? 'Signing out…'
-              : signouts?.latest
-                ? 'Amend sign-out'
-                : 'Sign out report'}
-          </button>
-        </div>
-      </header>
+      <FamilyPageHeader
+        kicker="Clinical report"
+        familyId={familyId}
+        family={family}
+        projectId={projectId}
+        className="report-header"
+        actions={
+          <div className="report-header-actions no-print">
+            <button type="button" className="form-button" onClick={() => window.print()}>
+              Print report
+            </button>
+            <button
+              type="button"
+              className="form-button"
+              onClick={handleSignOut}
+              disabled={signOut.isPending}
+            >
+              {signOut.isPending
+                ? 'Signing out…'
+                : signouts?.latest
+                  ? 'Amend sign-out'
+                  : 'Sign out report'}
+            </button>
+          </div>
+        }
+      >
+        <p className="report-header-meta">{referenceLabel}</p>
+      </FamilyPageHeader>
 
       {qcGate ? (
         <div

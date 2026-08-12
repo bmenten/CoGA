@@ -116,6 +116,15 @@ describe('FamilySampleQcPage', () => {
     expect(container.querySelector('.qc-matrix-cell--fail')).toBeTruthy();
   });
 
+  it('opens with the shared family header', async () => {
+    renderPage();
+    // Same top card as every other family page: the title is the way back, and there is
+    // no separate "Back to family" button doing the same job.
+    const title = await screen.findByRole('link', { name: 'Family FAM1' });
+    expect(title).toHaveAttribute('href', '/families/FAM1');
+    expect(screen.queryByRole('link', { name: /back to family/i })).not.toBeInTheDocument();
+  });
+
   it('shows an all-clear overall status and green rings when checks pass', async () => {
     mockApi({
       family_id: 'FAM1',

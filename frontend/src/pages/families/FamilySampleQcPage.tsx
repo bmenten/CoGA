@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { QC_STATUS_CHIP, QC_STATUS_LABEL, worstQcStatus } from '../../lib/qcStatus';
 import PageState from '../../components/PageState';
+import FamilyPageHeader from './FamilyPageHeader';
 import InfoTip from '../../components/InfoTip';
 import Pedigree, { type PedigreeQcStatus } from '../../components/visualizations/Pedigree';
 import type {
@@ -424,22 +425,17 @@ const FamilySampleQcPage: React.FC = () => {
 
   return (
     <div className="page-shell space-y-6">
-      <header className="surface-card report-header">
-        <div className="space-y-1">
-          <p className="page-kicker">Sample-integrity QC · {qc.application_label || qc.application}</p>
-          <h1 className="page-state-title">Family {familyId}</h1>
-          <p className="report-header-meta">
-            {qc.genotype_source
-              ? `${qc.genotype_source} genotypes · ${qc.autosomal_sites.toLocaleString()} autosomal sites`
-              : 'cfDNA classification'}
-          </p>
-        </div>
-        <div className="report-header-actions">
-          <Link to={`/families/${familyId}`} className="button-secondary hover:no-underline">
-            Back to family
-          </Link>
-        </div>
-      </header>
+      <FamilyPageHeader
+        kicker={`Sample-integrity QC · ${qc.application_label || qc.application}`}
+        familyId={familyId}
+        family={family}
+      >
+        <p className="catalog-card-copy">
+          {qc.genotype_source
+            ? `${qc.genotype_source} genotypes · ${qc.autosomal_sites.toLocaleString()} autosomal sites`
+            : 'cfDNA classification'}
+        </p>
+      </FamilyPageHeader>
 
       <section className={`surface-card qc-overall qc-overall--${qc.overall_status}`}>
         <div className="qc-overall-head">
