@@ -308,13 +308,29 @@ describe('FamilyParaphasePage', () => {
       'https://www.omim.org/entry/253300',
     );
     // Chromosome-view link is derived from the analysed phase_region and uses the
-    // shared red small-variant link style.
-    const smnChromLink = smnScope.getByRole('link', { name: /chromosome view/i });
+    // shared red small-variant link style. Both genome links leave this table behind,
+    // so both open a tab — as on the small-variant, SV and repeat tables.
+    const smnChromLink = smnScope.getByRole('link', {
+      name: /chromosome view at chr5:70,917,100-70,961,220.*opens in a new tab/i,
+    });
     expect(smnChromLink).toHaveAttribute(
       'href',
       '/families/F1/chromosome/5?start=70917100&end=70961220',
     );
     expect(smnChromLink).toHaveClass('variant-card-resource--clinical');
+    expect(smnChromLink).toHaveAttribute('target', '_blank');
+    expect(smnChromLink).toHaveAttribute('rel', 'noopener noreferrer');
+
+    // IGV opens on the analysed region plus 1 kb, so its edges are visible.
+    const smnIgvLink = smnScope.getByRole('link', {
+      name: /open igv at chr5:70916100-70962220.*opens in a new tab/i,
+    });
+    expect(smnIgvLink).toHaveAttribute(
+      'href',
+      '/families/F1/igv?locus=chr5%3A70916100-70962220' +
+        '&back_path=%2Ffamilies%2FF1%2Fparaphase',
+    );
+    expect(smnIgvLink).toHaveAttribute('target', '_blank');
     expect(smnScope.getByText('PROBAND')).toBeInTheDocument();
     expect(smnScope.getByText('MOTHER')).toBeInTheDocument();
     // Pathogenicity status chips + key CN are visible by default.
