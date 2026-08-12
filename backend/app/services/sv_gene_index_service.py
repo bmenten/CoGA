@@ -244,6 +244,7 @@ def summarize_second_hit(
         phase_evidence = "segregation" if phase in {"trans", "cis"} else None
 
     has_deletion = any(t in {"DEL", "CNV"} for t in sv_types)
+    locus_chr, locus_start, locus_end = _bounding_locus(svs)
     return {
         "sv_count": len(svs),
         "sv_types": sv_types,
@@ -252,7 +253,42 @@ def summarize_second_hit(
         "phase": phase,
         "phase_evidence": phase_evidence,
         "deletion_unmasked": has_deletion and phase == "trans",
+        "chr": locus_chr,
+        "start": locus_start,
+        "end": locus_end,
     }
+
+
+def _bounding_locus(svs: list[dict[str, Any]]) -> tuple[str | None, int | None, int | None]:
+    """Span covering these SVs, so a link can go to them rather than to their gene.
+
+    Gene symbol and gene coordinates disagree often enough that filtering by gene sends
+    the analyst to an empty page: SV annotation includes flanking genes, while the SV
+    search requires a real overlap with a stored transcript. A locus is not open to that
+    disagreement.
+
+    SVs on one gene share a chromosome; if a symbol somehow spans several, bound only the
+    most-represented one rather than inventing a span across chromosomes.
+    """
+    by_chrom: dict[str, list[tuple[int, int]]] = {}
+    for sv in svs:
+        chrom = str(sv.get("chr") or "").strip()
+        start = sv.get("start")
+        end = sv.get("end")
+        if not chrom or start is None or end is None:
+            continue
+        try:
+            start_pos, end_pos = int(start), int(end)
+        except (TypeError, ValueError):
+            continue
+        if end_pos < start_pos:
+            start_pos, end_pos = end_pos, start_pos
+        by_chrom.setdefault(chrom, []).append((start_pos, end_pos))
+    if not by_chrom:
+        return None, None, None
+    chrom = max(by_chrom, key=lambda key: len(by_chrom[key]))
+    spans = by_chrom[chrom]
+    return chrom, min(span[0] for span in spans), max(span[1] for span in spans)
 
 
 async def clear_family_sv_gene_index(session: AsyncSession, family_uuid: str) -> None:

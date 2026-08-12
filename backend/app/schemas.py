@@ -2158,8 +2158,15 @@ class SvSecondHitOut(BaseModel):
     sv_types: List[str] = Field(default_factory=list)
     # Which of the variant's genes the SV actually hits. Not always the variant's primary
     # symbol — a small variant can be annotated to several genes and the SV may sit on any
-    # of them, so this is what a link to the SVs has to filter on.
+    # of them.
     gene: Optional[str] = None
+    # Span covering the overlapping SVs. A link uses this rather than the gene: SV
+    # annotation includes flanking genes while the SV search requires a real overlap with
+    # a stored transcript, so a gene-filtered link lands on an empty page for roughly one
+    # badge in six.
+    chr: Optional[str] = None
+    start: Optional[int] = None
+    end: Optional[int] = None
     # Zygosity of the overlapping SV in affected individuals ("het" / "hom" / "mixed").
     affected_zygosity: Optional[str] = None
     # A deletion (or CNV) can remove the second copy and unmask a heterozygous SNV.

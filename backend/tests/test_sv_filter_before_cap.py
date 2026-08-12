@@ -89,3 +89,60 @@ class TestWhereClauses:
         where, _params = _clauses(context, [Region(chr="1", start=1, end=2)])
         assert "e.family_guid = %(family_guid)s" in where
         assert "e.sign = 1" in where
+
+
+class TestSecondHitBoundingLocus:
+    """The badge links by locus because gene symbol and gene coordinates disagree often
+    enough to matter: SV annotation includes flanking genes, the SV search requires a
+    real overlap with a stored transcript."""
+
+    @staticmethod
+    def _summary(svs):
+        from backend.app.services.sv_gene_index_service import summarize_second_hit
+
+        return summarize_second_hit(svs, ["S1"])
+
+    def test_a_single_sv_bounds_itself(self) -> None:
+        summary = self._summary([{"sv_type": "INS", "chr": "1", "start": 207494109, "end": 207494110, "gt": {}}])
+        assert (summary["chr"], summary["start"], summary["end"]) == ("1", 207494109, 207494110)
+
+    def test_several_svs_are_bounded_together(self) -> None:
+        summary = self._summary(
+            [
+                {"sv_type": "DEL", "chr": "2", "start": 500, "end": 900, "gt": {}},
+                {"sv_type": "DUP", "chr": "2", "start": 100, "end": 300, "gt": {}},
+            ]
+        )
+        assert (summary["chr"], summary["start"], summary["end"]) == ("2", 100, 900)
+
+    def test_reversed_coordinates_are_normalised(self) -> None:
+        summary = self._summary([{"sv_type": "DEL", "chr": "3", "start": 900, "end": 100, "gt": {}}])
+        assert (summary["start"], summary["end"]) == (100, 900)
+
+    def test_a_symbol_spanning_chromosomes_bounds_only_the_common_one(self) -> None:
+        # Repeat-family symbols (U6, Y_RNA) occur genome-wide; a span across chromosomes
+        # would be meaningless, so the best-represented chromosome wins.
+        summary = self._summary(
+            [
+                {"sv_type": "DEL", "chr": "5", "start": 100, "end": 200, "gt": {}},
+                {"sv_type": "DEL", "chr": "5", "start": 300, "end": 400, "gt": {}},
+                {"sv_type": "DEL", "chr": "9", "start": 999, "end": 1999, "gt": {}},
+            ]
+        )
+        assert (summary["chr"], summary["start"], summary["end"]) == ("5", 100, 400)
+
+    def test_missing_or_unparsable_coordinates_yield_no_locus(self) -> None:
+        assert self._summary([{"sv_type": "DEL", "gt": {}}])["chr"] is None
+        assert self._summary([{"sv_type": "DEL", "chr": "1", "start": None, "end": 5, "gt": {}}])["chr"] is None
+        assert self._summary([{"sv_type": "DEL", "chr": "1", "start": "x", "end": 5, "gt": {}}])["chr"] is None
+
+    def test_an_sv_without_coordinates_does_not_drag_the_span(self) -> None:
+        summary = self._summary(
+            [
+                {"sv_type": "DEL", "chr": "7", "start": 100, "end": 200, "gt": {}},
+                {"sv_type": "DEL", "gt": {}},
+            ]
+        )
+        assert (summary["chr"], summary["start"], summary["end"]) == ("7", 100, 200)
+        # The count still reflects every SV on the gene.
+        assert summary["sv_count"] == 2
