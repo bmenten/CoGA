@@ -282,6 +282,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_structural_variant_track_slim.py](../backend/tests/test_structural_variant_track_slim.py) | SV track slimming (annotations dropped in track mode). |
 | [backend/tests/test_structural_variant_ingest.py](../backend/tests/test_structural_variant_ingest.py) | SV record iterators coerce coordinates and skip malformed records rather than aborting ingest. |
 | [backend/tests/test_variant_annotation_parser.py](../backend/tests/test_variant_annotation_parser.py) | VCF annotation parsing incl. SpliceAI / scientific notation. |
+| [backend/tests/test_repeat_contraction_loci.py](../backend/tests/test_repeat_contraction_loci.py) | Repeat loci pathogenic by contraction (VWA1, MIR7-2): a benign count is never flagged, expansion loci keep their thresholds, and pathogenic_max is not treated as a ceiling. |
 | [backend/tests/test_sv_filter_before_cap.py](../backend/tests/test_sv_filter_before_cap.py) | SV region push-down: gene/panel regions reach the SQL so the candidate cap bounds the ranking rather than deciding what the filter sees; span overlap, coordinate normalisation, dedupe. |
 | [backend/tests/test_variant_cytoband_labels.py](../backend/tests/test_variant_cytoband_labels.py) | Cytoband lookup shared by small and structural variants: band per position, multi-band spans, chromosome aliases. |
 | [tests/test_variant_annotation_parser.py](../tests/test_variant_annotation_parser.py) | VCF CSQ annotation header parsing (top-level suite). |

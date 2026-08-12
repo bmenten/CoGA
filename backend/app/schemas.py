@@ -2591,6 +2591,12 @@ class RepeatExpansionRowOut(BaseModel):
     motif: Optional[str] = None
     warning_min: Optional[int] = None
     pathogenic_min: Optional[int] = None
+    # The catalog's full ranges. Needed because a couple of loci are pathogenic by
+    # contraction, where "pathogenic at or above pathogenic_min" is not the rule and a
+    # cutoff stated as a single lower bound would read backwards.
+    benign_min: Optional[int] = None
+    benign_max: Optional[int] = None
+    pathogenic_max: Optional[int] = None
     status: Literal["normal", "intermediate", "pathogenic", "unknown"] = "unknown"
     calls: Dict[str, RepeatExpansionSampleCallOut] = Field(default_factory=dict)
 
