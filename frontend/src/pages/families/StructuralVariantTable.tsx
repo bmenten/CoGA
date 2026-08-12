@@ -20,7 +20,7 @@ import type {
   StructuralVariantFamilyMember,
   StructuralVariantGenotype,
 } from './structuralVariantSearch';
-import { SV_FLANK_BP, buildStructuralVariantNavigation } from './structuralVariantNavigation';
+import { SV_IGV_FLANK_BP, buildStructuralVariantNavigation } from './structuralVariantNavigation';
 import VariantScoreCell from './VariantScoreCell';
 
 interface StructuralVariantTableProps {
@@ -422,7 +422,7 @@ export default function StructuralVariantTable({
                 )}
                 <td className="whitespace-nowrap">
                   {(() => {
-                    const { locus: locusA, igvHref: hrefA } = buildStructuralVariantNavigation({
+                    const { igvLocus: locusA, igvHref: hrefA } = buildStructuralVariantNavigation({
                       familyId,
                       linkSearch,
                       projectId,
@@ -439,8 +439,8 @@ export default function StructuralVariantTable({
                     // span, so it gets the same flank as the primary locus — otherwise
                     // IGV opens on a 1 bp window with no sequence context around it.
                     const locusB = hasRemote
-                      ? `${remoteChr}:${Math.max(1, variant.remote_start! - SV_FLANK_BP)}-${
-                          variant.remote_start! + SV_FLANK_BP
+                      ? `${remoteChr}:${Math.max(1, variant.remote_start! - SV_IGV_FLANK_BP)}-${
+                          variant.remote_start! + SV_IGV_FLANK_BP
                         }`
                       : '';
                     const hrefB = hasRemote

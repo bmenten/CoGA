@@ -139,8 +139,9 @@ describe('FamilyStructuralVariantsPage', () => {
     // list behind, so both open a tab rather than replacing it.
     for (const name of [
       // IGV is labelled with the window it opens — the chr1:1-2 call padded by
-      // SV_FLANK_BP either side — while the chromosome view names the call itself.
-      /open igv at chr1:1-50002 \(opens in a new tab\)/i,
+      // SV_IGV_FLANK_BP either side, clamped to 1 — while the chromosome view names
+      // the call itself.
+      /open igv at chr1:1-1002 \(opens in a new tab\)/i,
       /open chromosome view around chr1:1-2 \(opens in a new tab\)/i,
       /open the genome overview \(opens in a new tab\)/i,
       /open the circos view \(opens in a new tab\)/i,
