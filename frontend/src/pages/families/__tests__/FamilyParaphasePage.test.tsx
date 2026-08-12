@@ -307,6 +307,13 @@ describe('FamilyParaphasePage', () => {
       'href',
       'https://www.omim.org/entry/253300',
     );
+    // The shared family header: the title is the way back to the workspace, and the
+    // page no longer carries a separate button to the same place.
+    expect(screen.getByRole('link', { name: 'Family F1' })).toHaveAttribute(
+      'href',
+      '/families/F1',
+    );
+
     // Chromosome-view link is derived from the analysed phase_region and uses the
     // shared red small-variant link style. Both genome links leave this table behind,
     // so both open a tab — as on the small-variant, SV and repeat tables.

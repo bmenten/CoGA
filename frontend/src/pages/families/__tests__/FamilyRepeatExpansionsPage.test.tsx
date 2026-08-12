@@ -213,6 +213,12 @@ describe('FamilyRepeatExpansionsPage', () => {
     const lastCell = (row as HTMLElement).querySelectorAll('td').item(3);
     expect(lastCell.textContent?.replace(/\s+/g, ' ').trim()).toBe('orange ≥ 36 · red ≥ 40');
 
+    // The shared family header: the title is the way back to the workspace, and the
+    // page no longer carries a separate button to the same place.
+    expect(screen.getByRole('link', { name: 'Family F1' })).toHaveAttribute(
+      'href',
+      '/families/F1',
+    );
     expect(screen.getByText('2 of 2 loci')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Gene'), { target: { value: 'TBP' } });
     expect(screen.getByText('1 of 2 loci')).toBeInTheDocument();
