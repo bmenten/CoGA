@@ -181,6 +181,10 @@ export interface SvSecondHit {
   sv_types: string[];
   // Which of the variant's genes the SV hits — not always the primary symbol.
   gene?: string | null;
+  // Span covering the overlapping SVs, used to link straight to them.
+  chr?: string | null;
+  start?: number | null;
+  end?: number | null;
   affected_zygosity?: string | null;
   has_deletion: boolean;
   phase?: string;

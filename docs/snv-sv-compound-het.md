@@ -76,6 +76,12 @@ until the SVs change.
 - **Flag:** when an SNV result's gene is in the SV index, attach a compact descriptor
   (`sv_second_hit: { type, zygosity, count }`) the table/cards render as a badge —
   *"⚠ also hit by an SV (DEL · het)"*, expandable to the SV detail.
+- **Navigation:** the badge links to the family's SVs at the span covering the overlapping
+  SVs. It links by locus rather than by gene because SV annotation includes flanking
+  genes while the SV search requires a real overlap with a stored transcript — on one
+  long-read family, 2,190 of 12,854 SV/gene pairs (≈1 in 6) do not overlap any stored
+  transcript row of the gene they are annotated to, so a gene-filtered link lands on an
+  empty page.
 - **Filter:** a new SNV filter `require_sv_second_hit` ("restrict to genes also hit by an
   SV"), so the analyst pulls the candidate list in one query. (And the symmetric flag on the
   SV page: "also hit by an SNV".)

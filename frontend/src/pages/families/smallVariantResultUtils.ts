@@ -447,16 +447,21 @@ export const buildSvSecondHitHref = (
   familyId?: string,
   projectId?: string,
 ) => {
-  // The SV may sit on a secondary gene of this variant, so filter on the gene that
-  // actually matched; the primary symbol would find nothing.
-  const geneLabel = (
-    variant.sv_second_hit?.gene ||
-    variant.gene ||
-    variant.gene_id ||
-    ''
-  ).trim();
-  if (!geneLabel || !familyId) return null;
-  const params = new URLSearchParams({ gene: geneLabel });
+  if (!familyId) return null;
+  const hit = variant.sv_second_hit;
+  const params = new URLSearchParams();
+  // Prefer the SVs' own span. Filtering by gene sends the analyst to an empty page
+  // whenever the SV is annotated to a gene it does not positionally overlap — the SV
+  // annotation includes flanking genes, the SV search demands a real overlap.
+  if (hit?.chr && typeof hit.start === 'number' && typeof hit.end === 'number') {
+    params.set('locus', `${hit.chr}:${hit.start}-${hit.end}`);
+  } else {
+    // Older payloads carry no span: fall back to the gene the SV hit, then the
+    // variant's own symbol.
+    const geneLabel = (hit?.gene || variant.gene || variant.gene_id || '').trim();
+    if (!geneLabel) return null;
+    params.set('gene', geneLabel);
+  }
   if (projectId) params.set('project_id', projectId);
   return `/families/${familyId}/structural-variants?${params.toString()}`;
 };

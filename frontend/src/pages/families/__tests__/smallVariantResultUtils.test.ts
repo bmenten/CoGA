@@ -159,23 +159,46 @@ describe('parseVariantIds', () => {
 });
 
 describe('buildSvSecondHitHref', () => {
-  const variant = (gene?: string, geneId?: string, hitGene?: string) =>
+  const variant = (gene?: string, geneId?: string, hit?: Record<string, unknown>) =>
     ({
       gene,
       gene_id: geneId,
-      sv_second_hit: hitGene ? { gene: hitGene } : undefined,
+      sv_second_hit: hit,
     }) as Parameters<typeof buildSvSecondHitHref>[0];
+  const locusHit = (chr: string, start: number, end: number, gene?: string) => ({
+    chr,
+    start,
+    end,
+    ...(gene ? { gene } : {}),
+  });
 
-  it('points at the family SV list filtered to the gene', () => {
+  // The SVs' own span is not open to annotation-vs-coordinate disagreement, so it is
+  // preferred over any gene filter.
+  it('links to the span covering the SVs', () => {
+    expect(
+      buildSvSecondHitHref(variant('CR2', undefined, locusHit('1', 207494109, 207494110)), 'F1'),
+    ).toBe('/families/F1/structural-variants?locus=1%3A207494109-207494110');
+  });
+
+  it('prefers the span even when a matched gene is present', () => {
+    const href = buildSvSecondHitHref(
+      variant('RPE', undefined, locusHit('10', 103251100, 103251101, 'UNC80')),
+      'F1',
+    );
+    expect(href).toContain('locus=10%3A103251100-103251101');
+    expect(href).not.toContain('gene=');
+  });
+
+  it('falls back to the gene list when the payload carries no span', () => {
     expect(buildSvSecondHitHref(variant('TRNT1'), 'F1')).toBe(
       '/families/F1/structural-variants?gene=TRNT1',
     );
   });
 
   it('carries the project through', () => {
-    expect(buildSvSecondHitHref(variant('TRNT1'), 'F1', 'P1')).toBe(
-      '/families/F1/structural-variants?gene=TRNT1&project_id=P1',
-    );
+    expect(
+      buildSvSecondHitHref(variant('TRNT1', undefined, locusHit('3', 100, 200)), 'F1', 'P1'),
+    ).toBe('/families/F1/structural-variants?locus=3%3A100-200&project_id=P1');
   });
 
   it('falls back to the gene id when there is no symbol', () => {
@@ -192,7 +215,7 @@ describe('buildSvSecondHitHref', () => {
   // A small variant can be annotated to several genes and the SV may sit on any of
   // them; filtering on the primary symbol then finds nothing.
   it('filters on the gene the SV actually hits, not the primary symbol', () => {
-    expect(buildSvSecondHitHref(variant('RPE', undefined, 'UNC80'), 'F1')).toBe(
+    expect(buildSvSecondHitHref(variant('RPE', undefined, { gene: 'UNC80' }), 'F1')).toBe(
       '/families/F1/structural-variants?gene=UNC80',
     );
   });
