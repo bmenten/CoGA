@@ -1177,13 +1177,16 @@ const GeneInfoPage: React.FC = () => {
 
   return (
     <div className="page-shell gene-compact-page">
-      <section className="gene-compact-header">
-        <div className="gene-compact-header-copy">
-          <h1 className="catalog-card-title">Gene Explorer</h1>
-          <p className="dashboard-link-note">
-            Search a human gene and open a compact reference summary with local panels, disease
-            evidence, transcripts, and direct resource links.
-          </p>
+      <section className="surface-card page-top-card gene-compact-header">
+        <div className="page-header">
+          <div className="space-y-2">
+            <p className="page-kicker">Genes</p>
+            <h1 className="catalog-card-title">Gene Explorer</h1>
+            <p className="page-copy">
+              Search a human gene and open a compact reference summary with local panels, disease
+              evidence, transcripts, and direct resource links.
+            </p>
+          </div>
         </div>
 
         <form className="gene-compact-search" onSubmit={handleSubmit}>

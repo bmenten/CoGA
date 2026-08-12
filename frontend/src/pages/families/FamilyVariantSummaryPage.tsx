@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import Histogram from '../../components/visualizations/Histogram';
 import { compareChromosomes } from '../../lib/chromosomes';
 import PageState from '../../components/PageState';
+import FamilyPageHeader from './FamilyPageHeader';
 
 const VARIANT_LIMIT = 100000;
 
@@ -43,6 +44,14 @@ type SharedVariantCounts = Record<string, Record<string, number>>;
 
 const FamilyVariantSummaryPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
+  // For the shared header's pedigree — the other family pages already load this.
+  const { data: family } = useQuery<{ pedigree?: string | null; members?: unknown[] }>({
+    queryKey: ['family', familyId],
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}`);
+      return res.data;
+    },
+  });
   const { data, isLoading } = useQuery<VariantLength[]>({
     queryKey: ['family', familyId, 'structural-variant-lengths'],
     queryFn: async () => {
@@ -142,28 +151,18 @@ const FamilyVariantSummaryPage: React.FC = () => {
 
   return (
     <div className="page-shell analysis-shell">
-      <section className="surface-card page-top-card">
-        <div className="page-header">
-          <div className="space-y-2">
-            <p className="page-kicker">Summary</p>
-            <h1 className="catalog-card-title">Variant summary for family {familyId}</h1>
-            <p className="catalog-card-copy">
-              Review counts, sharing, and length distributions.
-            </p>
-          </div>
-          <div className="inline-actions">
-            <Link to={`/families/${familyId}`} className="button-secondary hover:no-underline">
-              Back to family
-            </Link>
-            <button
-              onClick={() => setLogScale((s) => !s)}
-              className="button-ghost"
-            >
-              {logScale ? 'Linear scale' : 'Log scale'}
-            </button>
-          </div>
-        </div>
-      </section>
+      <FamilyPageHeader
+        kicker="Variant summary"
+        familyId={familyId}
+        family={family}
+        actions={
+          <button onClick={() => setLogScale((s) => !s)} className="button-ghost">
+            {logScale ? 'Linear scale' : 'Log scale'}
+          </button>
+        }
+      >
+        <p className="catalog-card-copy">Review counts, sharing, and length distributions.</p>
+      </FamilyPageHeader>
 
       <nav className="analysis-nav">
         <a href="#counts">
