@@ -186,12 +186,29 @@ describe('FamilyRepeatExpansionsPage', () => {
       'href',
       'https://www.omim.org/search?index=entry&search=Huntington%20disease',
     );
-    expect(
-      rowScope.getByRole('link', { name: /chromosome view ±1 mb/i }),
-    ).toHaveAttribute(
+    // Both genome links leave this list behind, so both open a tab — matching the
+    // small-variant and structural-variant tables.
+    const chromosomeLink = rowScope.getByRole('link', {
+      name: /chromosome view ±1 mb.*opens in a new tab/i,
+    });
+    expect(chromosomeLink).toHaveAttribute(
       'href',
       '/families/F1/chromosome/4?start=2074876&end=4074933',
     );
+    expect(chromosomeLink).toHaveAttribute('target', '_blank');
+    expect(chromosomeLink).toHaveAttribute('rel', 'noopener noreferrer');
+
+    // IGV opens tight on the repeat: what matters there is the reads spanning it.
+    // The locus is the repeat (3,074,876-3,074,933) padded by 1 kb either side.
+    const igvLink = rowScope.getByRole('link', {
+      name: /open igv at chr4:3073876-3075933.*opens in a new tab/i,
+    });
+    expect(igvLink).toHaveAttribute(
+      'href',
+      '/families/F1/igv?locus=chr4%3A3073876-3075933' +
+        '&back_path=%2Ffamilies%2FF1%2Frepeat-expansions',
+    );
+    expect(igvLink).toHaveAttribute('target', '_blank');
 
     const lastCell = (row as HTMLElement).querySelectorAll('td').item(3);
     expect(lastCell.textContent?.replace(/\s+/g, ' ').trim()).toBe('orange ≥ 36 · red ≥ 40');

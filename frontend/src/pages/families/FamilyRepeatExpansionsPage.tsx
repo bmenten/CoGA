@@ -13,6 +13,7 @@ import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
+import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 
 interface PedRow {
   fid: string;
@@ -102,6 +103,31 @@ const buildRepeatChromosomeHref = (
     params.set('project_id', projectId);
   }
   return `/families/${familyId}/chromosome/${chrom}?${params.toString()}`;
+};
+
+// A repeat locus is small, and what matters in IGV is the reads spanning it, so the
+// window is the repeat plus enough flank to see them anchor — the same reasoning (and
+// flank) as a structural variant. The 1 MB chromosome-view padding is for a different
+// question: where the repeat sits on the chromosome.
+const IGV_PADDING_BP = 1_000;
+
+const getRepeatIgvLocus = (row: ApiRepeatExpansionRow) => {
+  const chrom = row.chr.startsWith('chr') ? row.chr : `chr${row.chr}`;
+  const end = Math.max(row.start, row.end);
+  return `${chrom}:${Math.max(1, row.start - IGV_PADDING_BP)}-${end + IGV_PADDING_BP}`;
+};
+
+const buildRepeatIgvHref = (
+  familyId: string,
+  row: ApiRepeatExpansionRow,
+  projectId?: string,
+): string => {
+  const params = new URLSearchParams({ locus: getRepeatIgvLocus(row) });
+  if (projectId) {
+    params.set('project_id', projectId);
+  }
+  params.set('back_path', `/families/${familyId}/repeat-expansions`);
+  return `/families/${familyId}/igv?${params.toString()}`;
 };
 
 const FamilyRepeatExpansionsPage: React.FC = () => {
@@ -322,19 +348,27 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                       chr{row.chr}:{row.start.toLocaleString()}-{row.end.toLocaleString()}
                     </div>
                     {row.motif && <div className="table-subtle">{row.motif}</div>}
-                    <div className="mt-1">
-                      <Link
+                    {/* Both leave this list behind, so both open a tab — same as the
+                        small-variant and structural-variant tables. */}
+                    <div className="mt-1 inline-actions">
+                      <GenomeWorkspaceLink
+                        to={buildRepeatIgvHref(family.family_id, row, resolvedProjectId)}
+                        className="variant-card-resource variant-card-resource--clinical"
+                        label={`Open IGV at ${getRepeatIgvLocus(row)}`}
+                      >
+                        IGV
+                      </GenomeWorkspaceLink>
+                      <GenomeWorkspaceLink
                         to={buildRepeatChromosomeHref(
                           family.family_id,
                           row,
                           resolvedProjectId,
                         )}
                         className="variant-card-resource variant-card-resource--clinical"
-                        aria-label={`Chromosome view ${CHROMOSOME_VIEW_PADDING_LABEL} around ${getRepeatChromosomeViewWindow(row)}`}
-                        title={`Open ${getRepeatChromosomeViewWindow(row)} in chromosome view`}
+                        label={`Chromosome view ${CHROMOSOME_VIEW_PADDING_LABEL} around ${getRepeatChromosomeViewWindow(row)}`}
                       >
                         Chromosome view
-                      </Link>
+                      </GenomeWorkspaceLink>
                     </div>
                   </td>
                   <td>
