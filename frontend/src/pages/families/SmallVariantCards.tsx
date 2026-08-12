@@ -895,7 +895,22 @@ export default function SmallVariantCards({
               </section>
 
               <section className="variant-card-col">
-                <p className="variant-card-col-title">Frequencies</p>
+                {/* The heading is the way to the population data behind these numbers. */}
+                {gnomadLink ? (
+                  <p className="variant-card-col-title">
+                    <a
+                      href={gnomadLink.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="variant-card-col-title-link"
+                      title="Open this variant in gnomAD"
+                    >
+                      Frequencies
+                    </a>
+                  </p>
+                ) : (
+                  <p className="variant-card-col-title">Frequencies</p>
+                )}
                 <dl className="variant-card-mini-dl">
                   {freqRows.map((row) => (
                     <div key={row.label}>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildGnomadSvRegionHref,
   buildSvSecondHitHref,
   formatHgvsG,
   formatPredictionScore,
@@ -230,5 +231,67 @@ describe('buildSvSecondHitHref', () => {
     expect(buildSvSecondHitHref(variant(), 'F1')).toBeNull();
     expect(buildSvSecondHitHref(variant('  '), 'F1')).toBeNull();
     expect(buildSvSecondHitHref(variant('TRNT1'), undefined)).toBeNull();
+  });
+});
+
+describe('buildGnomadSvRegionHref', () => {
+  const sv = (chr: string, start: number, end: number) =>
+    ({ chr, start, end }) as Parameters<typeof buildGnomadSvRegionHref>[0]['variant'];
+
+  it('opens the SV browser over the call span for GRCh38', () => {
+    expect(
+      buildGnomadSvRegionHref({
+        variant: sv('2', 160120294, 160120688),
+        speciesName: 'Homo sapiens',
+        assemblyName: 'GRCh38',
+      }),
+    ).toBe(
+      'https://gnomad.broadinstitute.org/region/2-160120294-160120688?dataset=gnomad_sv_r4',
+    );
+  });
+
+  it('uses the v2 SV dataset for GRCh37', () => {
+    const href = buildGnomadSvRegionHref({
+      variant: sv('2', 100, 200),
+      speciesName: 'Homo sapiens',
+      assemblyName: 'GRCh37',
+    });
+    expect(href).toContain('dataset=gnomad_sv_r2_1');
+  });
+
+  it('strips a chr prefix, since gnomAD regions are unprefixed', () => {
+    const href = buildGnomadSvRegionHref({
+      variant: sv('chrX', 100, 200),
+      speciesName: 'Homo sapiens',
+      assemblyName: 'GRCh38',
+    });
+    expect(href).toContain('/region/X-100-200');
+  });
+
+  it('stays silent where gnomAD has nothing to compare against', () => {
+    // T2T coordinates do not correspond to any gnomAD release.
+    expect(
+      buildGnomadSvRegionHref({
+        variant: sv('1', 100, 200),
+        speciesName: 'Homo sapiens',
+        assemblyName: 'T2T-CHM13v2.0',
+      }),
+    ).toBeNull();
+    expect(
+      buildGnomadSvRegionHref({
+        variant: sv('1', 100, 200),
+        speciesName: 'Mus musculus',
+        assemblyName: 'GRCm39',
+      }),
+    ).toBeNull();
+  });
+
+  it('never emits an inverted span', () => {
+    const href = buildGnomadSvRegionHref({
+      variant: sv('1', 500, 100),
+      speciesName: 'Homo sapiens',
+      assemblyName: 'GRCh38',
+    });
+    expect(href).toContain('/region/1-500-500');
   });
 });

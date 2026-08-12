@@ -1,4 +1,5 @@
 import { compareChromosomes } from '../../lib/chromosomes';
+import type { StructuralVariant } from './structuralVariantSearch';
 import {
   COMPOUND_HET_PHASE_STATUS_LABELS,
   type SmallVariant,
@@ -381,6 +382,38 @@ export const getGnomadDataset = (
   if (assembly.includes('grch38') || assembly.includes('hg38')) return 'gnomad_r4';
   if (assembly.includes('grch37') || assembly.includes('hg19')) return 'gnomad_r2_1';
   return null;
+};
+
+/**
+ * gnomAD's structural-variant browser for the region a call spans.
+ *
+ * gnomAD has no identifier that maps onto a caller's SV, so this is a region view rather
+ * than a variant page — the analyst compares the call against gnomAD's SVs over the same
+ * interval. Returns null when there is nothing to compare against: a non-human species,
+ * or an assembly gnomAD does not publish (T2T among them), where the coordinates would
+ * not correspond.
+ */
+export const buildGnomadSvRegionHref = ({
+  variant,
+  speciesName,
+  assemblyName,
+  assemblyVersion,
+}: {
+  variant: Pick<StructuralVariant, 'chr' | 'start' | 'end'>;
+  speciesName?: string;
+  assemblyName?: string;
+  assemblyVersion?: string;
+}): string | null => {
+  const dataset = getGnomadDataset(speciesName, assemblyName, assemblyVersion);
+  if (!dataset) return null;
+  const svDataset = dataset === 'gnomad_r4' ? 'gnomad_sv_r4' : 'gnomad_sv_r2_1';
+  const chr = variant.chr.replace(/^chr/i, '');
+  if (!chr || !Number.isFinite(variant.start)) return null;
+  const start = Math.max(1, Math.trunc(variant.start));
+  const end = Math.max(start, Math.trunc(variant.end ?? variant.start));
+  return `https://gnomad.broadinstitute.org/region/${encodeURIComponent(
+    `${chr}-${start}-${end}`,
+  )}?dataset=${svDataset}`;
 };
 
 export const buildSmallVariantNavigation = ({

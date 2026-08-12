@@ -5161,6 +5161,20 @@ tbody tr:hover {
   min-width: 0;
 }
 
+/* A column heading that is also a way out to the source behind its numbers. It keeps
+   the heading's own colour and weight until you go near it. */
+.variant-card-col-title-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+
+.variant-card-col-title-link:hover,
+.variant-card-col-title-link:focus-visible {
+  color: var(--color-signature-red);
+  border-bottom-style: solid;
+}
+
 /* A shade larger and more widely tracked than the field names below it, so the column
    and section headers read as headers rather than as another key. */
 .variant-card-col-title,

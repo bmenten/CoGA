@@ -401,6 +401,14 @@ describe('SmallVariantCards', () => {
         />,
     );
 
+    // The Frequencies heading is the way to the population data behind its numbers.
+    const frequencies = screen.getByRole('link', { name: 'Frequencies' });
+    expect(frequencies).toHaveAttribute(
+      'href',
+      expect.stringContaining('gnomad.broadinstitute.org/variant/'),
+    );
+    expect(frequencies).toHaveAttribute('target', '_blank');
+
     // The badge is the way into the SV that caused it, filtered to this gene.
     expect(screen.getByRole('link', { name: /also hit by a deletion/i })).toHaveAttribute(
       'href',
