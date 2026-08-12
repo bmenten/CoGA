@@ -10,6 +10,7 @@ import type {
 } from '../../lib/apiTypes';
 import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
+import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 
@@ -169,6 +170,30 @@ const buildParaphaseChromosomeHref = (
   return `/families/${familyId}/chromosome/${region.chrom}?${params.toString()}`;
 };
 
+// IGV opens on the analysed region plus a little flank, so the edges of the segmental
+// duplication are visible rather than flush against the view — the same 1 kb the
+// structural-variant and repeat links use.
+const IGV_PADDING_BP = 1_000;
+
+const formatParaphaseRegion = (region: { chrom: string; start: number; end: number }) =>
+  `chr${region.chrom}:${region.start.toLocaleString()}-${region.end.toLocaleString()}`;
+
+const getParaphaseIgvLocus = (region: { chrom: string; start: number; end: number }) =>
+  `chr${region.chrom}:${Math.max(1, region.start - IGV_PADDING_BP)}-${
+    Math.max(region.start, region.end) + IGV_PADDING_BP
+  }`;
+
+const buildParaphaseIgvHref = (
+  familyId: string,
+  region: { chrom: string; start: number; end: number },
+  projectId?: string | null,
+): string => {
+  const params = new URLSearchParams({ locus: getParaphaseIgvLocus(region) });
+  if (projectId) params.set('project_id', projectId);
+  params.set('back_path', `/families/${familyId}/paraphase`);
+  return `/families/${familyId}/igv?${params.toString()}`;
+};
+
 const CLINICAL_STATUS_META: Record<string, { label: string; className: string }> = {
   pathogenic: { label: 'Pathogenic', className: 'paraphase-status--pathogenic' },
   carrier: { label: 'Carrier', className: 'paraphase-status--carrier' },
@@ -312,14 +337,24 @@ const ParaphaseLocusCard: React.FC<{
       {clinical?.interpretation && (
         <p className="paraphase-card-interpretation">{clinical.interpretation}</p>
       )}
+      {/* Both leave this table behind, so both open a tab — same as the small-variant,
+          structural-variant and repeat tables. */}
       {phaseRegion && (
         <div className="paraphase-card-links">
-          <Link
+          <GenomeWorkspaceLink
+            to={buildParaphaseIgvHref(familyId, phaseRegion, projectId)}
+            className="variant-card-resource variant-card-resource--clinical"
+            label={`Open IGV at ${getParaphaseIgvLocus(phaseRegion)}`}
+          >
+            IGV
+          </GenomeWorkspaceLink>
+          <GenomeWorkspaceLink
             to={buildParaphaseChromosomeHref(familyId, phaseRegion, projectId)}
             className="variant-card-resource variant-card-resource--clinical"
+            label={`Open chromosome view at ${formatParaphaseRegion(phaseRegion)}`}
           >
             Chromosome view
-          </Link>
+          </GenomeWorkspaceLink>
         </div>
       )}
       <div className="paraphase-card-samples">
