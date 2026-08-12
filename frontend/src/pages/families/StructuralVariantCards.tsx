@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { formatGt } from '../../lib/genotypes';
 import {
+  buildGnomadSvRegionHref,
   buildReviewTagTooltip,
   formatFrequency,
   formatScore,
@@ -25,6 +26,11 @@ import VariantPriorityBlock from './VariantPriorityBlock';
 
 interface StructuralVariantCardsProps {
   familyId?: string;
+  // Needed to pick the right gnomAD dataset, and to stay silent on assemblies
+  // gnomAD does not publish.
+  speciesName?: string;
+  assemblyName?: string;
+  assemblyVersion?: string;
   linkSearch: string;
   members: StructuralVariantFamilyMember[];
   projectId?: string;
@@ -62,6 +68,9 @@ const genotypeZygosity = (gt?: string): 'na' | 'ref' | 'hom' | 'het' => {
 
 export default function StructuralVariantCards({
   familyId,
+  speciesName,
+  assemblyName,
+  assemblyVersion,
   linkSearch,
   members,
   projectId,
@@ -85,6 +94,12 @@ export default function StructuralVariantCards({
     <div className="variant-card-list">
       {variants.map((variant) => {
         const extra = variant.annotation_extra || {};
+        const gnomadRegionHref = buildGnomadSvRegionHref({
+          variant,
+          speciesName,
+          assemblyName,
+          assemblyVersion,
+        });
         const { locus, igvHref, viewHref } = buildStructuralVariantNavigation({
           familyId,
           linkSearch,
@@ -274,7 +289,23 @@ export default function StructuralVariantCards({
               </section>
 
               <section className="variant-card-col">
-                <p className="variant-card-col-title">Frequencies</p>
+                {/* gnomAD has no id matching a caller's SV, so this is its region view:
+                    the analyst compares this call against gnomAD's SVs over the same span. */}
+                {gnomadRegionHref ? (
+                  <p className="variant-card-col-title">
+                    <a
+                      href={gnomadRegionHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="variant-card-col-title-link"
+                      title="Open this region in the gnomAD SV browser"
+                    >
+                      Frequencies
+                    </a>
+                  </p>
+                ) : (
+                  <p className="variant-card-col-title">Frequencies</p>
+                )}
                 <dl className="variant-card-mini-dl">
                   {freqRows.map((row) => (
                     <div key={row.label}>

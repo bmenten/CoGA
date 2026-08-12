@@ -22,6 +22,9 @@ type ResultViewMode = 'auto' | 'table' | 'cards';
 
 type StructuralVariantResultsProps = {
   familyId?: string;
+  speciesName?: string;
+  assemblyName?: string;
+  assemblyVersion?: string;
   filteredTotal: number;
   linkSearch: string;
   members: StructuralVariantFamilyMember[];
@@ -42,6 +45,9 @@ type StructuralVariantResultsProps = {
 
 export default function StructuralVariantResults({
   familyId,
+  speciesName,
+  assemblyName,
+  assemblyVersion,
   filteredTotal,
   linkSearch,
   members,
@@ -199,6 +205,9 @@ export default function StructuralVariantResults({
         {resolvedViewMode === 'cards' ? (
           <StructuralVariantCards
             familyId={familyId}
+            speciesName={speciesName}
+            assemblyName={assemblyName}
+            assemblyVersion={assemblyVersion}
             linkSearch={linkSearch}
             members={members}
             onEditReview={(variant) => {

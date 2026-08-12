@@ -412,6 +412,9 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         <div className={isFetching ? 'variant-results-fetching' : undefined} aria-busy={isFetching}>
       <StructuralVariantResults
         familyId={familyId}
+        speciesName={speciesName}
+        assemblyName={assemblyName}
+        assemblyVersion={assemblyVersion}
         filteredTotal={filteredTotal}
         linkSearch={linkSearch}
         members={orderedMembers}
