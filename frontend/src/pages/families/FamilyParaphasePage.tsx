@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router';
+import { useLocation, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type {
@@ -8,31 +8,13 @@ import type {
   ApiParaphaseGeneResult,
   ApiParaphaseSampleResult,
 } from '../../lib/apiTypes';
-import Pedigree from '../../components/visualizations/Pedigree';
+import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 
-interface PedRow {
-  fid: string;
-  iid: string;
-  pid: string;
-  mid: string;
-  sex: string;
-  phen: string;
-}
 
-const parsePedigree = (pedigree?: string | null): PedRow[] => {
-  if (!pedigree) return [];
-  return pedigree
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [fid, iid, pid, mid, sex, phen] = line.trim().split(/\s+/);
-      return { fid, iid, pid, mid, sex, phen };
-    });
-};
 
 const formatNullableNumber = (value?: number | null, digits = 0): string => {
   if (value == null || Number.isNaN(value)) return 'n/a';
@@ -486,7 +468,6 @@ const FamilyParaphasePage: React.FC = () => {
     () => sortFamilyMembersProbandFirst(paraphaseTable?.samples || family?.members || []),
     [family?.members, paraphaseTable?.samples],
   );
-  const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
   const referenceLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion },
     'Not linked',
@@ -548,13 +529,11 @@ const FamilyParaphasePage: React.FC = () => {
 
   return (
     <div className="page-shell family-paraphase-page space-y-6">
-      <section className="surface-card page-top-card">
-        <div className={`page-top-card-grid${pedRows.length ? ' page-top-card-grid--with-visual' : ''}`}>
-          <div className="page-top-card-copy">
-            <div className="space-y-1">
-              <p className="page-kicker">Paraphase</p>
-              <h1 className="catalog-card-title">Family {family.family_id}</h1>
-            </div>
+      <FamilyPageHeader
+        kicker="Paraphase"
+        family={family}
+        projectId={resolvedProjectId}
+      >
             <div className="family-workspace-summary">
               <div className="family-workspace-stat">
                 <span className="stat-label">Members</span>
@@ -577,24 +556,7 @@ const FamilyParaphasePage: React.FC = () => {
                 </strong>
               </div>
             </div>
-          </div>
-          {pedRows.length > 0 && (
-            <div className="page-top-card-visual">
-              <div className="page-top-card-pedigree family-workspace-pedigree">
-                <p className="stat-label">Pedigree</p>
-                <div className="mono-panel overflow-x-auto bg-[rgba(255,255,255,0.92)]!">
-                  <Pedigree
-                    rows={pedRows}
-                    members={family?.members}
-                    relationships={family?.relationships}
-                    inheritanceModel={(family?.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
+      </FamilyPageHeader>
 
       <section className="surface-card space-y-4">
         <div className="page-header">
@@ -604,9 +566,6 @@ const FamilyParaphasePage: React.FC = () => {
               Medically relevant Paraphase regions are shown by default. Show all to include exploratory regions.
             </p>
           </div>
-          <Link to={`/families/${family.family_id}`} className="button-secondary hover:no-underline">
-            Back to family workspace
-          </Link>
         </div>
 
         <div className="family-paraphase-toolbar">

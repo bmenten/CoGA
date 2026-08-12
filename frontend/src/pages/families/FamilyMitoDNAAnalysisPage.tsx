@@ -11,7 +11,7 @@ import type {
   ApiMitoDNAVariant,
   ApiMitoDNAVariantSampleCall,
 } from '../../lib/apiTypes';
-import Pedigree from '../../components/visualizations/Pedigree';
+import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
@@ -93,25 +93,7 @@ const samplesToMembers = (samples: ApiMitoDNASample[]): ApiFamilyMember[] =>
     sex: sample.sex || 'und',
   }));
 
-interface PedRow {
-  fid: string;
-  iid: string;
-  pid: string;
-  mid: string;
-  sex: string;
-  phen: string;
-}
 
-const parsePedigree = (pedigree?: string | null): PedRow[] => {
-  if (!pedigree) return [];
-  return pedigree
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [fid, iid, pid, mid, sex, phen] = line.trim().split(/\s+/);
-      return { fid, iid, pid, mid, sex, phen };
-    });
-};
 
 const formatPercent = (value?: number | null, digits = 1): string =>
   value == null
@@ -340,7 +322,6 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     enabled: Boolean(familyId && (!family?.projects?.length || !referenceLoading)),
   });
 
-  const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
   const referenceLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion },
     'Not linked',
@@ -488,13 +469,11 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
 
   return (
     <div className="page-shell family-mtdna-page space-y-6">
-      <section className="surface-card page-top-card">
-        <div className={`page-top-card-grid${pedRows.length ? ' page-top-card-grid--with-visual' : ''}`}>
-          <div className="page-top-card-copy">
-            <div className="space-y-1">
-              <p className="page-kicker">mtDNA analysis</p>
-              <h1 className="catalog-card-title">Family {family.family_id}</h1>
-            </div>
+      <FamilyPageHeader
+        kicker="mtDNA analysis"
+        family={family}
+        projectId={resolvedProjectId}
+      >
             <div className="family-workspace-summary">
               <div className="family-workspace-stat">
                 <span className="stat-label">Members</span>
@@ -517,24 +496,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                 <strong className="family-workspace-stat-value">{qcWarningCount}</strong>
               </div>
             </div>
-          </div>
-          {pedRows.length > 0 && (
-            <div className="page-top-card-visual">
-              <div className="page-top-card-pedigree family-workspace-pedigree">
-                <p className="stat-label">Pedigree</p>
-                <div className="mono-panel overflow-x-auto bg-[rgba(255,255,255,0.92)]!">
-                  <Pedigree
-                    rows={pedRows}
-                    members={family.members}
-                    relationships={family.relationships}
-                    inheritanceModel={(family.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
+      </FamilyPageHeader>
 
       <section className="surface-card space-y-4">
         <div className="page-header">
@@ -544,9 +506,6 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
               Mothers and children are grouped together; fathers are shown separately from the maternal line.
             </p>
           </div>
-          <Link to={`/families/${family.family_id}`} className="button-secondary hover:no-underline">
-            Back to family workspace
-          </Link>
         </div>
 
         <div className="family-mtdna-sample-layout">

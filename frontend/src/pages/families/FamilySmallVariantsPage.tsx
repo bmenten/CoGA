@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router';
+import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
-import Pedigree from '../../components/visualizations/Pedigree';
+import FamilyPageHeader from './FamilyPageHeader';
 import { useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import LoadingBar from '../../components/LoadingBar';
@@ -12,7 +12,6 @@ import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 import {
   buildPresetPayload,
-  parsePedigree,
   useSmallVariantSearchState,
   type GenePanel,
   type SmallVariant,
@@ -254,7 +253,6 @@ const FamilySmallVariantsPage: React.FC = () => {
     },
   });
 
-  const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / 100));
 
   if (!variantQueryReady || (isLoading && !data)) {
@@ -280,19 +278,56 @@ const FamilySmallVariantsPage: React.FC = () => {
 
   return (
     <div className="page-shell analysis-shell">
-      <section className="surface-card page-top-card variant-workbench-card">
-        <div className={`page-top-card-grid${pedRows.length ? ' page-top-card-grid--with-visual' : ''}`}>
-          <div className="page-top-card-copy">
-            <div className="page-header">
-              <div className="space-y-2">
-                <p className="page-kicker">Small Variants</p>
-                {/* The title is the way back to the family, so the header does not
-                    also need a button that goes to the same place. */}
-                <h1 className="catalog-card-title">
-                  <Link to={`/families/${familyId}`} className="page-title-link">
-                    Family {familyId}
-                  </Link>
-                </h1>
+      <FamilyPageHeader
+        kicker="Small Variants"
+        familyId={familyId}
+        family={family}
+        projectId={preferredProjectId}
+        className="variant-workbench-card"
+        footer={
+          <>
+        <div className="variant-filter-collapse-bar">
+          <button
+            type="button"
+            className="variant-filter-collapse-toggle"
+            aria-expanded={!filtersCollapsed}
+            onClick={() => setFiltersCollapsed((current) => !current)}
+          >
+            <span className="variant-filter-dropdown-caret" aria-hidden="true">
+              ▾
+            </span>
+            <span>{filtersCollapsed ? 'Show filters' : 'Hide filters'}</span>
+          </button>
+        </div>
+        {!filtersCollapsed && (
+        <SmallVariantFilterForm
+          activeFilterChips={activeFilterChips}
+          applyPreset={applyPreset}
+          applySavedPreset={applySavedPreset}
+          draftFilters={draftFilters}
+          feedback={workspaceFeedback}
+          handleApply={handleApply}
+          handleGtToggle={handleGtToggle}
+          handleReset={handleReset}
+          handleSampleFieldChange={handleSampleFieldChange}
+          members={members}
+          relationships={family?.relationships ?? []}
+          onSaveCurrentPreset={async (payload) => {
+            await savePresetMutation.mutateAsync(payload);
+          }}
+          panels={panels}
+          presets={presets}
+          removeActiveFilterChip={removeActiveFilterChip}
+          sampleDraftFilters={sampleDraftFilters}
+          savingPreset={savePresetMutation.isPending}
+          setDraftFilterValue={setDraftFilterValue}
+          tags={tags}
+          toggleDraftFilterListValue={toggleDraftFilterListValue}
+        />
+        )}
+          </>
+        }
+      >
                 {data ? (
                   <div className="variant-sample-summary">
                     {smallVariantSummary?.sample_counts?.length ? (
@@ -342,63 +377,7 @@ const FamilySmallVariantsPage: React.FC = () => {
                     </div>
                   </div>
                 ) : null}
-              </div>
-            </div>
-          </div>
-          {pedRows.length > 0 && (
-            <div className="page-top-card-visual">
-              <div className="page-top-card-pedigree">
-                <p className="analysis-section-title">Pedigree</p>
-                <Pedigree
-                  rows={pedRows}
-                  members={family?.members}
-                  relationships={family?.relationships}
-                  inheritanceModel={(family?.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="variant-filter-collapse-bar">
-          <button
-            type="button"
-            className="variant-filter-collapse-toggle"
-            aria-expanded={!filtersCollapsed}
-            onClick={() => setFiltersCollapsed((current) => !current)}
-          >
-            <span className="variant-filter-dropdown-caret" aria-hidden="true">
-              ▾
-            </span>
-            <span>{filtersCollapsed ? 'Show filters' : 'Hide filters'}</span>
-          </button>
-        </div>
-        {!filtersCollapsed && (
-        <SmallVariantFilterForm
-          activeFilterChips={activeFilterChips}
-          applyPreset={applyPreset}
-          applySavedPreset={applySavedPreset}
-          draftFilters={draftFilters}
-          feedback={workspaceFeedback}
-          handleApply={handleApply}
-          handleGtToggle={handleGtToggle}
-          handleReset={handleReset}
-          handleSampleFieldChange={handleSampleFieldChange}
-          members={members}
-          relationships={family?.relationships ?? []}
-          onSaveCurrentPreset={async (payload) => {
-            await savePresetMutation.mutateAsync(payload);
-          }}
-          panels={panels}
-          presets={presets}
-          removeActiveFilterChip={removeActiveFilterChip}
-          sampleDraftFilters={sampleDraftFilters}
-          savingPreset={savePresetMutation.isPending}
-          setDraftFilterValue={setDraftFilterValue}
-          tags={tags}
-          toggleDraftFilterListValue={toggleDraftFilterListValue}
-        />
-        )}
-      </section>
+      </FamilyPageHeader>
 
       <div className="variant-results-region">
         {isFetching ? <LoadingBar label="Loading variants" /> : null}

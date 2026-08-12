@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router';
+import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
-import Pedigree from '../../components/visualizations/Pedigree';
+import FamilyPageHeader from './FamilyPageHeader';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import LoadingBar from '../../components/LoadingBar';
@@ -25,7 +25,6 @@ import {
 } from './structuralVariantSearch';
 import {
   normalizeReviewClassification,
-  parsePedigree,
 } from './smallVariantSearch';
 
 type StructuralVariantPage = {
@@ -199,7 +198,6 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   const filteredTotal = data?.total ?? 0;
   const overallTotal = allData?.total ?? filteredTotal;
   const totalPages = Math.max(1, Math.ceil(filteredTotal / 100));
-  const pedRows = useMemo(() => parsePedigree(familyData?.pedigree), [familyData?.pedigree]);
 
   const savePresetMutation = useMutation({
     mutationFn: async (payload: { name: string; description?: string; scope: 'family' | 'global' }) => {
@@ -293,57 +291,32 @@ const FamilyStructuralVariantsPage: React.FC = () => {
 
   return (
     <div className="page-shell analysis-shell">
-      <section className="surface-card page-top-card variant-workbench-card">
-        <div className={`page-top-card-grid${pedRows.length ? ' page-top-card-grid--with-visual' : ''}`}>
-          <div className="page-top-card-copy">
-            <div className="page-header">
-              <div className="space-y-2">
-                <p className="page-kicker">Structural Variants</p>
-                <h1 className="catalog-card-title">Family {familyId}</h1>
-                <p className="catalog-card-copy">{referenceLabel}</p>
-                <div className="variant-summary-row">
-                  <span className="badge-chip">Showing {filteredTotal}</span>
-                  <span className="badge-chip">All variants {overallTotal}</span>
-                  <span className="badge-chip">Active filters {activeFilterCount}</span>
-                  <span className="badge-chip">Tag library {tags.length}</span>
-                  {isFetching ? <span className="badge-chip">Updating…</span> : null}
-                </div>
-              </div>
-              <div className="inline-actions">
-                <GenomeWorkspaceLink
-                  to={`/families/${familyId}/genome${linkSearch}${projectId ? `${linkSearch ? '&' : '?'}project_id=${projectId}` : ''}`}
-                  className="button-secondary hover:no-underline"
-                  label="Open the genome overview"
-                >
-                  Genome
-                </GenomeWorkspaceLink>
-                <GenomeWorkspaceLink
-                  to={`/families/${familyId}/circos${linkSearch}${projectId ? `${linkSearch ? '&' : '?'}project_id=${projectId}` : ''}`}
-                  className="button-secondary hover:no-underline"
-                  label="Open the Circos view"
-                >
-                  Circos
-                </GenomeWorkspaceLink>
-                <Link to={`/families/${familyId}`} className="button-ghost hover:no-underline">
-                  Family
-                </Link>
-              </div>
-            </div>
-          </div>
-          {pedRows.length > 0 && (
-            <div className="page-top-card-visual">
-              <div className="page-top-card-pedigree">
-                <p className="analysis-section-title">Pedigree</p>
-                <Pedigree
-                  rows={pedRows}
-                  members={familyData?.members}
-                  relationships={familyData?.relationships}
-                  inheritanceModel={(familyData?.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
-                />
-              </div>
-            </div>
-          )}
-        </div>
+      <FamilyPageHeader
+        kicker="Structural Variants"
+        familyId={familyId}
+        family={familyData}
+        projectId={projectId}
+        className="variant-workbench-card"
+        actions={
+          <>
+            <GenomeWorkspaceLink
+              to={`/families/${familyId}/genome${linkSearch}${projectId ? `${linkSearch ? '&' : '?'}project_id=${projectId}` : ''}`}
+              className="button-secondary hover:no-underline"
+              label="Open the genome overview"
+            >
+              Genome
+            </GenomeWorkspaceLink>
+            <GenomeWorkspaceLink
+              to={`/families/${familyId}/circos${linkSearch}${projectId ? `${linkSearch ? '&' : '?'}project_id=${projectId}` : ''}`}
+              className="button-secondary hover:no-underline"
+              label="Open the Circos view"
+            >
+              Circos
+            </GenomeWorkspaceLink>
+          </>
+        }
+        footer={
+          <>
 
         <div className="variant-filter-collapse-bar">
           <button
@@ -383,7 +356,18 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           toggleDraftFilterListValue={toggleDraftFilterListValue}
         />
         )}
-      </section>
+          </>
+        }
+      >
+        <p className="catalog-card-copy">{referenceLabel}</p>
+        <div className="variant-summary-row">
+          <span className="badge-chip">Showing {filteredTotal}</span>
+          <span className="badge-chip">All variants {overallTotal}</span>
+          <span className="badge-chip">Active filters {activeFilterCount}</span>
+          <span className="badge-chip">Tag library {tags.length}</span>
+          {isFetching ? <span className="badge-chip">Updating…</span> : null}
+        </div>
+      </FamilyPageHeader>
 
       <div className="variant-results-region">
         {isFetching ? <LoadingBar label="Loading variants" /> : null}
