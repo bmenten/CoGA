@@ -4649,6 +4649,19 @@ tbody tr:hover {
   cursor: help;
 }
 
+/* When the badge leads somewhere it is a link, not just an explanation: take the
+   pointer and underline on hover so the click target is discoverable. */
+.sv-second-hit-badge--link {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sv-second-hit-badge--link:hover,
+.sv-second-hit-badge--link:focus-visible {
+  text-decoration: underline;
+  border-color: var(--color-warning-strong, #92580a);
+}
+
 .sv-second-hit-badge:hover,
 .sv-second-hit-badge:focus-visible {
   filter: brightness(0.97);

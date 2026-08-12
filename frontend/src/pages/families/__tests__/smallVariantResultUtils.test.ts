@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatHgvsG, formatPredictionScore, parseVariantIds } from '../smallVariantResultUtils';
+import {
+  buildSvSecondHitHref,
+  formatHgvsG,
+  formatPredictionScore,
+  parseVariantIds,
+} from '../smallVariantResultUtils';
 
 const variant = (chr: string, start: number, ref: string, alt: string) =>
   ({ chr, start, ref, alt }) as Parameters<typeof formatHgvsG>[0];
@@ -150,5 +155,39 @@ describe('parseVariantIds', () => {
 
   it('drops repeats so the same accession is not linked twice', () => {
     expect(parseVariantIds('rs1;rs1 rs2').map((entry) => entry.id)).toEqual(['rs1', 'rs2']);
+  });
+});
+
+describe('buildSvSecondHitHref', () => {
+  const variant = (gene?: string, geneId?: string) =>
+    ({ gene, gene_id: geneId }) as Parameters<typeof buildSvSecondHitHref>[0];
+
+  it('points at the family SV list filtered to the gene', () => {
+    expect(buildSvSecondHitHref(variant('TRNT1'), 'F1')).toBe(
+      '/families/F1/structural-variants?gene=TRNT1',
+    );
+  });
+
+  it('carries the project through', () => {
+    expect(buildSvSecondHitHref(variant('TRNT1'), 'F1', 'P1')).toBe(
+      '/families/F1/structural-variants?gene=TRNT1&project_id=P1',
+    );
+  });
+
+  it('falls back to the gene id when there is no symbol', () => {
+    expect(buildSvSecondHitHref(variant(undefined, 'ENSG00000072756'), 'F1')).toBe(
+      '/families/F1/structural-variants?gene=ENSG00000072756',
+    );
+  });
+
+  it('escapes a symbol that needs it', () => {
+    expect(buildSvSecondHitHref(variant('HLA-DRB1'), 'F1')).toContain('gene=HLA-DRB1');
+    expect(buildSvSecondHitHref(variant('C4A/C4B'), 'F1')).toContain('gene=C4A%2FC4B');
+  });
+
+  it('declines without a gene or without a family', () => {
+    expect(buildSvSecondHitHref(variant(), 'F1')).toBeNull();
+    expect(buildSvSecondHitHref(variant('  '), 'F1')).toBeNull();
+    expect(buildSvSecondHitHref(variant('TRNT1'), undefined)).toBeNull();
   });
 });

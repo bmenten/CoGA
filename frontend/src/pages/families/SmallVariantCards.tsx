@@ -15,6 +15,7 @@ import {
   buildSmallVariantExternalLinks,
   buildSmallVariantGeneInfoHref,
   buildSmallVariantNavigation,
+  buildSvSecondHitHref,
   formatFrequency,
   formatCompoundHetPhaseStatus,
   formatHgvsG,
@@ -665,7 +666,12 @@ export default function SmallVariantCards({
                 {variant.lof ? (
                   <span className="variant-card-chip variant-card-chip--critical">LoF {variant.lof}</span>
                 ) : null}
-                {variant.sv_second_hit ? <SvSecondHitBadge hit={variant.sv_second_hit} /> : null}
+                {variant.sv_second_hit ? (
+                  <SvSecondHitBadge
+                    hit={variant.sv_second_hit}
+                    href={buildSvSecondHitHref(variant, familyId, projectId)}
+                  />
+                ) : null}
                 <span className="variant-card-subtitle">
                   {variant.hgvsc || consequenceLabel}
                 </span>

@@ -401,6 +401,12 @@ describe('SmallVariantCards', () => {
         />,
     );
 
+    // The badge is the way into the SV that caused it, filtered to this gene.
+    expect(screen.getByRole('link', { name: /also hit by a deletion/i })).toHaveAttribute(
+      'href',
+      '/families/F1/structural-variants?gene=BRCA2&project_id=P1',
+    );
+
     const headline = screen.getByText('BRCA2').closest('.variant-card-headline') as HTMLElement;
     const text = [...headline.children].map((node) => node.textContent || '');
     const consequence = text.findIndex((value) => value.includes('stop gained'));

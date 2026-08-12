@@ -12,6 +12,7 @@ import {
   buildReviewTagTooltip,
   buildSmallVariantGeneInfoHref,
   buildSmallVariantNavigation,
+  buildSvSecondHitHref,
   formatCompoundHetPhaseStatus,
   getClinvarHighlightTone,
   getReviewClassificationTone,
@@ -226,7 +227,10 @@ export default function SmallVariantTable({
                   {variant.sv_second_hit ? (
                     <>
                       {' '}
-                      <SvSecondHitBadge hit={variant.sv_second_hit} />
+                      <SvSecondHitBadge
+                        hit={variant.sv_second_hit}
+                        href={buildSvSecondHitHref(variant, familyId, projectId)}
+                      />
                     </>
                   ) : null}
                 </td>

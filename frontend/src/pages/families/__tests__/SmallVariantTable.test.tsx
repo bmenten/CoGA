@@ -191,3 +191,57 @@ describe('SmallVariantTable', () => {
     expect(view).toHaveAttribute('href', expect.stringContaining('/families/F1/chromosome/1'));
   });
 });
+
+describe('SmallVariantTable SV second hit', () => {
+  const renderWithHit = (props: { familyId?: string; projectId?: string }) =>
+    render(
+      <MemoryRouter>
+        <SmallVariantTable
+          variants={[
+            {
+              _id: 'trnt1-var',
+              chr: '3',
+              start: 3129108,
+              end: 3129108,
+              type: 'SNV',
+              gene: 'TRNT1',
+              ref: 'C',
+              alt: 'T',
+              impact: 'MODERATE',
+              effect: 'missense_variant',
+              genotypes: [],
+              sv_second_hit: {
+                sv_count: 1,
+                sv_types: ['DEL'],
+                affected_zygosity: 'het',
+                has_deletion: true,
+                phase: 'trans',
+                deletion_unmasked: true,
+              },
+            },
+          ]}
+          members={[]}
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+          {...props}
+        />
+      </MemoryRouter>,
+    );
+
+  it('links the badge to the family SV list filtered to the gene', () => {
+    renderWithHit({ familyId: 'F1', projectId: 'P1' });
+    expect(screen.getByRole('link', { name: /also hit by a deletion/i })).toHaveAttribute(
+      'href',
+      '/families/F1/structural-variants?gene=TRNT1&project_id=P1',
+    );
+  });
+
+  it('still shows the badge when there is no family to link to', () => {
+    renderWithHit({});
+    expect(screen.queryByRole('link', { name: /also hit by a deletion/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/SV: DEL/)).toBeInTheDocument();
+  });
+});
