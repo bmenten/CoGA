@@ -443,11 +443,18 @@ export const buildSmallVariantGeneInfoHref = (
  * a recessive genotype, and links on to IGV per SV from there.
  */
 export const buildSvSecondHitHref = (
-  variant: Pick<SmallVariant, 'gene' | 'gene_id'>,
+  variant: Pick<SmallVariant, 'gene' | 'gene_id' | 'sv_second_hit'>,
   familyId?: string,
   projectId?: string,
 ) => {
-  const geneLabel = (variant.gene || variant.gene_id || '').trim();
+  // The SV may sit on a secondary gene of this variant, so filter on the gene that
+  // actually matched; the primary symbol would find nothing.
+  const geneLabel = (
+    variant.sv_second_hit?.gene ||
+    variant.gene ||
+    variant.gene_id ||
+    ''
+  ).trim();
   if (!geneLabel || !familyId) return null;
   const params = new URLSearchParams({ gene: geneLabel });
   if (projectId) params.set('project_id', projectId);

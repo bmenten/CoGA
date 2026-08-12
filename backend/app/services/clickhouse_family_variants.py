@@ -515,11 +515,15 @@ async def _attach_sv_second_hits(
             return
         affected, unaffected = _family_affected_unaffected_sample_names(context)
         for variant in variants:
-            hit = next(
-                (second_hits[gene] for gene in _variant_gene_keys(variant) if gene in second_hits),
+            # A variant can hit several genes and the SV may be on any of them, so record
+            # which one matched. The badge's link needs that gene, not the variant's
+            # primary symbol — those differ whenever the SV sits on a secondary gene.
+            matched_gene = next(
+                (gene for gene in _variant_gene_keys(variant) if gene in second_hits),
                 None,
             )
-            if hit:
+            if matched_gene:
+                hit = second_hits[matched_gene]
                 snv_gt = {gt.sample: gt.gt for gt in (variant.genotypes or []) if gt.sample}
                 snv_ps = {
                     gt.sample: int(gt.ps)
@@ -527,13 +531,16 @@ async def _attach_sv_second_hits(
                     if gt.sample and gt.ps is not None
                 }
                 variant.sv_second_hit = SvSecondHitOut.model_validate(
-                    summarize_second_hit(
-                        hit["svs"],
-                        list(affected),
-                        unaffected_samples=list(unaffected),
-                        snv_gt_by_sample=snv_gt,
-                        snv_ps_by_sample=snv_ps,
-                    )
+                    {
+                        **summarize_second_hit(
+                            hit["svs"],
+                            list(affected),
+                            unaffected_samples=list(unaffected),
+                            snv_gt_by_sample=snv_gt,
+                            snv_ps_by_sample=snv_ps,
+                        ),
+                        "gene": matched_gene,
+                    }
                 )
     except Exception:  # noqa: BLE001 - the second-hit overlay must never break the page
         logger.warning("SV second-hit overlay failed for family %s", context.family_id, exc_info=True)
@@ -1240,12 +1247,15 @@ async def _fetch_structural_variant_rows(
     limit: int | None = None,
     offset: int = 0,
     track_mode: bool = False,
+    include_regions: Sequence[Region] = (),
 ) -> list[StructuralVariantRecord]:
     if not context.assembly_name:
         return []
     entries_table = _structural_table_name(context.assembly_name, "entries")
     details_table = _structural_table_name(context.assembly_name, "variants/details")
-    where_clauses, params = _structural_variant_where_clauses(context, filters)
+    where_clauses, params = _structural_variant_where_clauses(
+        context, filters, include_regions=include_regions
+    )
     # The genome track never uses the (multi-KB-per-variant) annotation JSON, and we set
     # annotations=[] for it below; not selecting the column means ClickHouse never reads
     # it off disk — the bulk of the remaining per-member fetch time for tens of
@@ -2522,12 +2532,20 @@ async def _prioritized_structural_variants_page(
         else set()
     )
 
+    # Read a candidate window the size the unranked page already uses, with the gene and
+    # panel regions pushed into SQL, and only cap once the filters have run. Capping the
+    # fetch first decided which rows the filter was allowed to see: a gene-filtered
+    # search returned nothing whenever that gene's SV fell outside the first 5,000 rows,
+    # which reads as "no such SV" rather than "we only looked at part of the callset".
     records = await _fetch_structural_variant_rows(
-        context, filters, limit=_PRIORITIZE_CANDIDATE_LIMIT + 1
+        context,
+        filters,
+        limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP + 1,
+        include_regions=include_regions,
     )
-    capped = len(records) > _PRIORITIZE_CANDIDATE_LIMIT
-    if capped:
-        records = records[:_PRIORITIZE_CANDIDATE_LIMIT]
+    fetch_overflowed = len(records) > _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
+    if fetch_overflowed:
+        records = records[:_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP]
     filtered = [
         record
         for record in records
@@ -2539,6 +2557,10 @@ async def _prioritized_structural_variants_page(
     ]
     if not filtered:
         return VariantPage(total=0, variants=[], summary={})
+    # The cap now bounds the ranking work over the filtered set, which is what it was
+    # for; scoring every SV in a large callset is the expensive part.
+    capped = fetch_overflowed or len(filtered) > _PRIORITIZE_CANDIDATE_LIMIT
+    filtered = filtered[:_PRIORITIZE_CANDIDATE_LIMIT]
 
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
     segregation_evaluated = bool(affected_names)
@@ -2822,7 +2844,13 @@ async def get_family_structural_variants_page(
         else set()
     )
     records = await _fetch_structural_variant_rows(
-        context, filters, limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP + 1, track_mode=track_mode
+        context,
+        filters,
+        limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP + 1,
+        track_mode=track_mode,
+        # Same reason as the ranked path: narrowing in SQL means the row cap cannot
+        # decide which rows the gene/panel filter sees.
+        include_regions=include_regions,
     )
     total_is_estimated = len(records) > _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
     if total_is_estimated:
