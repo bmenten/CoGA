@@ -159,8 +159,12 @@ describe('parseVariantIds', () => {
 });
 
 describe('buildSvSecondHitHref', () => {
-  const variant = (gene?: string, geneId?: string) =>
-    ({ gene, gene_id: geneId }) as Parameters<typeof buildSvSecondHitHref>[0];
+  const variant = (gene?: string, geneId?: string, hitGene?: string) =>
+    ({
+      gene,
+      gene_id: geneId,
+      sv_second_hit: hitGene ? { gene: hitGene } : undefined,
+    }) as Parameters<typeof buildSvSecondHitHref>[0];
 
   it('points at the family SV list filtered to the gene', () => {
     expect(buildSvSecondHitHref(variant('TRNT1'), 'F1')).toBe(
@@ -183,6 +187,20 @@ describe('buildSvSecondHitHref', () => {
   it('escapes a symbol that needs it', () => {
     expect(buildSvSecondHitHref(variant('HLA-DRB1'), 'F1')).toContain('gene=HLA-DRB1');
     expect(buildSvSecondHitHref(variant('C4A/C4B'), 'F1')).toContain('gene=C4A%2FC4B');
+  });
+
+  // A small variant can be annotated to several genes and the SV may sit on any of
+  // them; filtering on the primary symbol then finds nothing.
+  it('filters on the gene the SV actually hits, not the primary symbol', () => {
+    expect(buildSvSecondHitHref(variant('RPE', undefined, 'UNC80'), 'F1')).toBe(
+      '/families/F1/structural-variants?gene=UNC80',
+    );
+  });
+
+  it('falls back to the primary symbol when the payload names no gene', () => {
+    expect(buildSvSecondHitHref(variant('TRNT1', undefined, undefined), 'F1')).toBe(
+      '/families/F1/structural-variants?gene=TRNT1',
+    );
   });
 
   it('declines without a gene or without a family', () => {

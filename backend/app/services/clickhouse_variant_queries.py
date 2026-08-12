@@ -2457,9 +2457,59 @@ def _small_native_sample_filter_clauses(
     return clauses, params
 
 
+def _structural_region_filter_condition(
+    regions: Sequence[Region],
+    *,
+    prefix: str,
+    params: dict[str, Any],
+) -> str | None:
+    """SQL for "this SV overlaps any of these regions".
+
+    The small-variant equivalent works off ``e.pos``/``e.ref``; an SV carries an explicit
+    span, so the overlap is between ``e.start``/``e.end`` and the region.
+    """
+    region_chromosomes: list[str] = []
+    region_starts: list[int] = []
+    region_ends: list[int] = []
+    seen: set[tuple[str, int, int]] = set()
+    for region in regions:
+        chrom = _chromosome_match_key(region.chr)
+        if not chrom:
+            continue
+        start = int(region.start)
+        end = int(region.end)
+        if end < start:
+            start, end = end, start
+        key = (chrom, start, end)
+        if key in seen:
+            continue
+        seen.add(key)
+        region_chromosomes.append(chrom)
+        region_starts.append(start)
+        region_ends.append(end)
+    if not region_chromosomes:
+        return None
+
+    chroms_param = f"{prefix}_chromosomes"
+    starts_param = f"{prefix}_starts"
+    ends_param = f"{prefix}_ends"
+    params[chroms_param] = region_chromosomes
+    params[starts_param] = region_starts
+    params[ends_param] = region_ends
+    chrom_expr = _clickhouse_chromosome_match_expr("e.chrom")
+    return (
+        "arrayExists((region_chrom, region_start, region_end) -> "
+        f"{chrom_expr} = region_chrom "
+        "AND e.start <= region_end "
+        "AND e.end >= region_start, "
+        f"%({chroms_param})s, %({starts_param})s, %({ends_param})s)"
+    )
+
+
 def _structural_variant_where_clauses(
     context: FamilyMetadataContext,
     filters: StructuralVariantQueryFilters,
+    include_regions: Sequence[Region] = (),
 ) -> tuple[list[str], dict[str, Any]]:
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
@@ -2486,6 +2536,14 @@ def _structural_variant_where_clauses(
     if filters.end is not None and not (filters.overlap and filters.start is not None):
         where_clauses.append("e.end <= %(end)s")
         params["end"] = filters.end
+    # Gene and panel filters resolve to regions. Pushing them into SQL is what makes a
+    # candidate cap safe: the cap then bounds the ranking of an already-narrowed set
+    # rather than deciding, before the filter runs, which rows the filter gets to see.
+    region_condition = _structural_region_filter_condition(
+        include_regions, prefix="sv_include_region", params=params
+    )
+    if region_condition:
+        where_clauses.append(region_condition)
     return where_clauses, params
 
 

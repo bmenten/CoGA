@@ -179,6 +179,8 @@ export interface NiptClassification {
 export interface SvSecondHit {
   sv_count: number;
   sv_types: string[];
+  // Which of the variant's genes the SV hits — not always the primary symbol.
+  gene?: string | null;
   affected_zygosity?: string | null;
   has_deletion: boolean;
   phase?: string;
