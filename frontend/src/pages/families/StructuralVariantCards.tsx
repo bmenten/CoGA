@@ -100,7 +100,7 @@ export default function StructuralVariantCards({
           assemblyName,
           assemblyVersion,
         });
-        const { locus, igvHref, viewHref } = buildStructuralVariantNavigation({
+        const { locus, igvLocus, igvHref, viewHref } = buildStructuralVariantNavigation({
           familyId,
           linkSearch,
           projectId,
@@ -411,7 +411,7 @@ export default function StructuralVariantCards({
                 <GenomeWorkspaceLink
                   to={igvHref}
                   className="variant-card-resource variant-card-resource--clinical"
-                  label={`Open IGV at ${locus}`}
+                  label={`Open IGV at ${igvLocus}`}
                 >
                   IGV
                 </GenomeWorkspaceLink>

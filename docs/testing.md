@@ -385,7 +385,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/pages/families/__tests__/reportNarrative.test.ts](../frontend/src/pages/families/__tests__/reportNarrative.test.ts) | Narrative report text generation. |
 | [frontend/src/pages/families/__tests__/smallVariantResultUtils.test.ts](../frontend/src/pages/families/__tests__/smallVariantResultUtils.test.ts) | HGVS.g derivation from VCF alleles (substitution, del, ins, delins, shared-suffix trim) and dbSNP link construction. |
 | [frontend/src/pages/families/__tests__/smallVariantSearch.test.ts](../frontend/src/pages/families/__tests__/smallVariantSearch.test.ts) | Small-variant filters, presets, genotype state, search params. |
-| [frontend/src/pages/families/__tests__/structuralVariantNavigation.test.ts](../frontend/src/pages/families/__tests__/structuralVariantNavigation.test.ts) | Structural-variant IGV/chromosome-view window: whole-call span plus flank, point events, clamping. |
+| [frontend/src/pages/families/__tests__/structuralVariantNavigation.test.ts](../frontend/src/pages/families/__tests__/structuralVariantNavigation.test.ts) | Structural-variant windows: the call span reported unpadded, IGV opened on a tight flank, the chromosome view on a wide one, point events, clamping. |
 | [frontend/src/pages/families/__tests__/structuralVariantSearch.test.ts](../frontend/src/pages/families/__tests__/structuralVariantSearch.test.ts) | Structural-variant search state and filters. |
 
 ### Genome views
