@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
-import FamilyRepeatExpansionsPage from '../FamilyRepeatExpansionsPage';
+import FamilyRepeatExpansionsPage, { formatCutoff } from '../FamilyRepeatExpansionsPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 const apiMock = vi.hoisted(() => ({
@@ -222,5 +222,41 @@ describe('FamilyRepeatExpansionsPage', () => {
     fireEvent.click(screen.getByLabelText('Aberrant only'));
     expect(screen.getByText('0 of 2 loci')).toBeInTheDocument();
     expect(screen.getByText(/no repeat expansion loci match/i)).toBeInTheDocument();
+  });
+});
+
+describe('repeat cutoff labels', () => {
+  // A locus that is pathogenic by contraction cannot be stated as a lower bound: VWA1
+  // is normal at exactly 2, and "red ≥ 1" would mark every healthy call.
+  const cases: Array<[string, Parameters<typeof formatCutoff>[0], string]> = [
+    [
+      'VWA1 (normal exactly 2, abnormal 1 or 3)',
+      { warning_min: null, pathogenic_min: 1, benign_min: 2, benign_max: 2, pathogenic_max: 3 },
+      'normal 2 · red 1-3',
+    ],
+    [
+      'MIR7-2 (normal 4, abnormal 3)',
+      { warning_min: null, pathogenic_min: 3, benign_min: 4, benign_max: 4, pathogenic_max: 3 },
+      'normal 4 · red 3',
+    ],
+    [
+      'HTT (expansion, both thresholds)',
+      { warning_min: 27, pathogenic_min: 36, benign_min: 6, benign_max: 26, pathogenic_max: 250 },
+      'orange ≥ 27 · red ≥ 36',
+    ],
+    [
+      'expansion locus with no grey zone',
+      { warning_min: null, pathogenic_min: 40, benign_min: null, benign_max: null, pathogenic_max: null },
+      'red ≥ 40',
+    ],
+    [
+      'uncatalogued locus',
+      { warning_min: null, pathogenic_min: null, benign_min: null, benign_max: null, pathogenic_max: null },
+      'No reference cutoff',
+    ],
+  ];
+
+  it.each(cases)('%s', (_name, row, expected) => {
+    expect(formatCutoff(row)).toBe(expected);
   });
 });

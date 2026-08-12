@@ -35,7 +35,35 @@ const parsePedigree = (pedigree?: string | null): PedRow[] => {
     });
 };
 
-const formatCutoff = (warningMin?: number | null, pathogenicMin?: number | null): string => {
+/**
+ * How the catalog defines abnormal at this locus.
+ *
+ * Almost every locus is pathogenic by expansion, where a lower bound says it all. A
+ * couple are pathogenic by *contraction* — VWA1 is normal at exactly 2 copies and
+ * abnormal at 1 or 3 — and there "red ≥ 1" reads backwards, marking every healthy call.
+ * Those are recognised the same way the classifier does it: a benign count sitting at or
+ * above the pathogenic threshold means count and risk do not rise together.
+ */
+export const formatCutoff = (row: {
+  warning_min?: number | null;
+  pathogenic_min?: number | null;
+  benign_min?: number | null;
+  benign_max?: number | null;
+  pathogenic_max?: number | null;
+}): string => {
+  const { warning_min: warningMin, pathogenic_min: pathogenicMin } = row;
+  const { benign_min: benignMin, benign_max: benignMax, pathogenic_max: pathogenicMax } = row;
+  const hasBenignRange = benignMin != null && benignMax != null;
+
+  if (hasBenignRange && pathogenicMin != null && benignMax >= pathogenicMin) {
+    const normal = benignMin === benignMax ? `${benignMin}` : `${benignMin}-${benignMax}`;
+    const abnormal =
+      pathogenicMax != null && pathogenicMax !== pathogenicMin
+        ? `${pathogenicMin}-${pathogenicMax}`
+        : `${pathogenicMin}`;
+    return `normal ${normal} · red ${abnormal}`;
+  }
+
   if (warningMin != null && pathogenicMin != null) {
     return `orange ≥ ${warningMin} · red ≥ ${pathogenicMin}`;
   }
@@ -434,7 +462,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                     </div>
                   </td>
                   <td className="repeat-cutoff-cell">
-                    <div>{formatCutoff(row.warning_min, row.pathogenic_min)}</div>
+                    <div>{formatCutoff(row)}</div>
                   </td>
                 </tr>
               ))}

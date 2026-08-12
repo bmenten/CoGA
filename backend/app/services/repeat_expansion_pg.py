@@ -377,9 +377,46 @@ def classify_repeat_count(
     repeat_count: int | None,
     warning_min: int | None,
     pathogenic_min: int | None,
+    *,
+    benign_min: int | None = None,
+    benign_max: int | None = None,
+    pathogenic_max: int | None = None,
 ) -> str:
+    """Status for one allele's repeat count.
+
+    Almost every locus is pathogenic by *expansion*: bigger is worse, and "at or above
+    the threshold" is the whole rule. Two catalogued loci are not. VWA1 (normal exactly
+    2, pathogenic 1 or 3) and MIR7-2 (normal 4, pathogenic 3) are pathogenic by
+    *contraction*, so their normal count sits at or above ``pathogenic_min`` and a bare
+    ``>=`` test calls every healthy call pathogenic.
+
+    The two shapes are told apart by the catalog itself — a benign count at or above
+    ``pathogenic_min`` means repeat count and risk do not rise together — rather than by
+    naming genes. ``pathogenic_max`` cannot be that test: 73 of 75 loci record one, as
+    the largest count observed rather than a ceiling on harm, so treating it as a bound
+    would downgrade a 300-repeat HTT allele.
+
+    On a non-monotonic locus a count outside every stated range is ``unknown``, not
+    ``normal``: "further from the threshold is safer" is exactly the assumption that
+    fails there, and the catalog says nothing about those counts.
+    """
     if repeat_count is None:
         return "unknown"
+
+    has_benign_range = benign_min is not None and benign_max is not None
+    in_benign_range = has_benign_range and benign_min <= repeat_count <= benign_max
+    if in_benign_range:
+        return "normal"
+
+    non_monotonic = (
+        has_benign_range and pathogenic_min is not None and benign_max >= pathogenic_min
+    )
+    if non_monotonic:
+        upper = pathogenic_max if pathogenic_max is not None else repeat_count
+        if pathogenic_min <= repeat_count <= upper:
+            return "pathogenic"
+        return "unknown"
+
     if pathogenic_min is not None and repeat_count >= pathogenic_min:
         return "pathogenic"
     if warning_min is not None and repeat_count >= warning_min:
@@ -401,20 +438,30 @@ def _reclassify_repeat_alleles(
     *,
     warning_min: int | None,
     pathogenic_min: int | None,
+    benign_min: int | None = None,
+    benign_max: int | None = None,
+    pathogenic_max: int | None = None,
 ) -> list[dict[str, Any]]:
     if not isinstance(alleles, list):
         return []
+    has_bounds = any(
+        value is not None
+        for value in (warning_min, pathogenic_min, benign_min, benign_max, pathogenic_max)
+    )
     reclassified: list[dict[str, Any]] = []
     for allele in alleles:
         if not isinstance(allele, dict):
             continue
         next_allele = dict(allele)
         repeat_count = next_allele.get("repeat_count")
-        if repeat_count is not None and (warning_min is not None or pathogenic_min is not None):
+        if repeat_count is not None and has_bounds:
             next_allele["status"] = classify_repeat_count(
                 int(repeat_count),
                 warning_min,
                 pathogenic_min,
+                benign_min=benign_min,
+                benign_max=benign_max,
+                pathogenic_max=pathogenic_max,
             )
         reclassified.append(next_allele)
     return reclassified
@@ -657,6 +704,9 @@ def _build_trgt_insert_params(
         motif_index = motif_lookup.get(catalog_motif.upper(), motif_index)
     warning_min = locus_document.get("warning_min")
     pathogenic_min = locus_document.get("pathogenic_min")
+    locus_metadata = locus_document.get("metadata")
+    if not isinstance(locus_metadata, dict):
+        locus_metadata = {}
     interruption_motifs = _known_interruption_motifs(locus_document)
 
     alleles: list[dict[str, Any]] = []
@@ -679,7 +729,14 @@ def _build_trgt_insert_params(
                     int(round(allele_bp_lengths[index] / max(len(motif), 1))),
                     0,
                 )
-        status = classify_repeat_count(repeat_count, warning_min, pathogenic_min)
+        status = classify_repeat_count(
+            repeat_count,
+            warning_min,
+            pathogenic_min,
+            benign_min=_as_int(locus_metadata.get("benign_min")),
+            benign_max=_as_int(locus_metadata.get("benign_max")),
+            pathogenic_max=_as_int(locus_metadata.get("pathogenic_max")),
+        )
         motif_counts = (
             _motif_count_summary(motifs, motif_copy_counts[index])
             if index < len(motif_copy_counts)
@@ -1001,6 +1058,9 @@ async def get_family_repeat_expansion_table_response(
                 COALESCE(catalog.motif, repeat_expansions.motif) AS motif,
                 COALESCE(catalog.warning_min, repeat_expansions.warning_min) AS warning_min,
                 COALESCE(catalog.pathogenic_min, repeat_expansions.pathogenic_min) AS pathogenic_min,
+                catalog.benign_min AS benign_min,
+                catalog.benign_max AS benign_max,
+                catalog.pathogenic_max AS pathogenic_max,
                 repeat_expansions.status,
                 repeat_expansions.genotype,
                 repeat_expansions.allele_count,
@@ -1015,7 +1075,11 @@ async def get_family_repeat_expansion_table_response(
                     repeat_loci.inheritance,
                     repeat_loci.motif,
                     repeat_loci.warning_min,
-                    repeat_loci.pathogenic_min
+                    repeat_loci.pathogenic_min,
+                    -- Not columns: the ranges ride in the catalog metadata.
+                    (repeat_loci.metadata ->> 'benign_min')::int AS benign_min,
+                    (repeat_loci.metadata ->> 'benign_max')::int AS benign_max,
+                    (repeat_loci.metadata ->> 'pathogenic_max')::int AS pathogenic_max
                 FROM repeat_loci
                 WHERE lower(repeat_loci.locus_id) = lower(repeat_expansions.locus_id)
                    OR lower(repeat_loci.gene) = lower(repeat_expansions.gene)
@@ -1065,6 +1129,9 @@ async def get_family_repeat_expansion_table_response(
             row.get("alleles", []),
             warning_min=warning_min,
             pathogenic_min=pathogenic_min,
+            benign_min=row.get("benign_min"),
+            benign_max=row.get("benign_max"),
+            pathogenic_max=row.get("pathogenic_max"),
         )
         row_status = summarize_repeat_status(
             allele.get("status", "unknown") for allele in alleles
@@ -1086,6 +1153,9 @@ async def get_family_repeat_expansion_table_response(
                 "motif": row.get("motif"),
                 "warning_min": warning_min,
                 "pathogenic_min": pathogenic_min,
+                "benign_min": row.get("benign_min"),
+                "benign_max": row.get("benign_max"),
+                "pathogenic_max": row.get("pathogenic_max"),
                 "status": row_status,
                 "calls": {},
             },

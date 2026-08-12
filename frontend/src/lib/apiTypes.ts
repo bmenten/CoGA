@@ -649,6 +649,9 @@ export interface ApiRepeatExpansionRow {
   motif?: string | null;
   warning_min?: number | null;
   pathogenic_min?: number | null;
+  benign_min?: number | null;
+  benign_max?: number | null;
+  pathogenic_max?: number | null;
   status: 'normal' | 'intermediate' | 'pathogenic' | 'unknown';
   calls: Record<string, ApiRepeatExpansionSampleCall>;
 }
