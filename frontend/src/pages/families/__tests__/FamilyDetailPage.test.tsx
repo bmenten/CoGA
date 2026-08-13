@@ -24,6 +24,7 @@ const mockApiState = vi.hoisted(() => ({
   smallVariantTotal: 1,
   structuralVariantTotal: 1,
   hpoAnnotations: [] as unknown[],
+  members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male' }] as unknown[],
 }));
 
 vi.mock('../../../lib/api', () => ({
@@ -34,7 +35,7 @@ vi.mock('../../../lib/api', () => ({
           data: {
             _id: 'fam1',
             family_id: 'F1',
-            members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male' }],
+            members: mockApiState.members,
             pedigree: null,
             projects: ['p1'],
             metadata: { pipeline: { genome: 'GRCh38', snv_caller: 'deepvariant' } },
@@ -219,6 +220,9 @@ describe('FamilyDetailPage', () => {
     mockApiState.smallVariantTotal = 1;
     mockApiState.structuralVariantTotal = 1;
     mockApiState.hpoAnnotations = [];
+    mockApiState.members = [
+      { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
+    ];
     vi.mocked(api.put).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.delete).mockReset();
@@ -500,6 +504,53 @@ describe('FamilyDetailPage', () => {
     for (const name of [/genome/i, /chromosome/i, /circos/i, /igv/i]) {
       expect(screen.getByRole('link', { name })).toHaveClass('workspace-button');
     }
+  });
+
+  it('states the region on the title line and hides ROI markers off a PGT case', async () => {
+    localStorage.setItem('role', 'viewer');
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+
+    // With a region set the card says so beside its own heading rather than below it.
+    const heading = await screen.findByText('Region of interest');
+    const headline = heading.closest('.family-roi-headline') as HTMLElement;
+    expect(headline).not.toBeNull();
+    expect(within(headline).getByRole('link', { name: /GENE1/ })).toBeInTheDocument();
+
+    // This family has no embryo, so there are no phased markers to review.
+    expect(screen.queryByRole('link', { name: /review roi markers/i })).not.toBeInTheDocument();
+  });
+
+  it('offers ROI markers on a PGT case', async () => {
+    localStorage.setItem('role', 'viewer');
+    mockApiState.members = [
+      { sample_id: 'S1', role: 'mother', affected: false, sex: 'female' },
+      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'unknown' },
+    ];
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    expect(await screen.findByRole('link', { name: /review roi markers/i })).toHaveAttribute(
+      'href',
+      '/families/F1/roi-markers?project_id=p1',
+    );
   });
 
   it('shows HPO phenotype annotations in the family members overview', async () => {
