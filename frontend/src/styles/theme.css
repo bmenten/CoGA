@@ -1401,6 +1401,8 @@ tbody tr:hover {
   display: grid;
   gap: 0.85rem;
   overflow-x: auto;
+  /* Label and drawing both sit against the right edge of the card. */
+  justify-items: end;
 }
 
 .page-top-card-pedigree .pedigree-svg {
@@ -1533,31 +1535,40 @@ tbody tr:hover {
   gap: 0.3rem 0.6rem;
 }
 
-/* One button family in the Variants card. The primary entry points were min-height 0
-   while the secondary workspaces came from `.compact-toolbar` at 2.3rem, so the set read
-   as two unrelated groups. They now share height, padding and type; what separates a
-   primary entry point from the rest is tone — filled against outlined — not size. */
-.family-workspace-card--variants .family-variant-link,
-.family-workspace-card--variants .compact-toolbar > .button-secondary {
+/* Every button in the Variants card is the same control: white, dark grey, a rounded
+   rectangle like the visualization buttons. What tells the four rows apart is the border
+   colour alone — small variants, structural variants, the assay-specific analyses, and
+   what you produce from them. */
+.family-workspace-card--variants .family-variant-link {
+  justify-self: start;
   min-height: 1.85rem;
   padding: 0.3rem 0.72rem;
-  border-radius: 999px;
+  border-radius: 4px;
   font-size: 0.66rem;
   letter-spacing: 0.1em;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--color-text);
 }
 
-.family-variant-link {
-  justify-self: start;
+.family-workspace-card--variants .family-variant-link:hover {
+  background: rgba(248, 250, 252, 0.98);
+  color: var(--color-heading);
 }
 
-/* The filled entry points keep the card's own accent, so they read as the way in
-   without shouting over the workspaces beside them. */
-.family-workspace-card--variants .family-variant-link {
-  border-color: rgba(82, 111, 161, 0.75);
+.family-variant-row--small .family-variant-link {
+  border-color: rgba(82, 111, 161, 0.55);
 }
 
-.family-workspace-card--variants .compact-toolbar {
-  gap: 0.35rem;
+.family-variant-row--structural .family-variant-link {
+  border-color: rgba(56, 142, 122, 0.5);
+}
+
+.family-variant-row--assays .family-variant-link {
+  border-color: rgba(176, 132, 54, 0.5);
+}
+
+.family-variant-row--reports .family-variant-link {
+  border-color: rgba(126, 104, 160, 0.45);
 }
 
 /* Compact, single-line ROI editor. */
