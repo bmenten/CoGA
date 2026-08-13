@@ -63,6 +63,8 @@ const FamilyPageHeader: React.FC<{
   children?: React.ReactNode;
   /** Rendered inside the card, below the grid (filter bars and the like). */
   footer?: React.ReactNode;
+  /** Samples whose phenotype ring the pedigree should draw (workspace only). */
+  phenotypeSampleIds?: string[];
 }> = ({
   kicker,
   familyId,
@@ -73,6 +75,7 @@ const FamilyPageHeader: React.FC<{
   actions,
   children,
   footer,
+  phenotypeSampleIds,
 }) => {
   const label = familyId || family?.family_id || '';
   const pedRows = parsePedigree(family?.pedigree);
@@ -87,7 +90,7 @@ const FamilyPageHeader: React.FC<{
       <div className={`page-top-card-grid${hasPedigree ? ' page-top-card-grid--with-visual' : ''}`}>
         <div className="page-top-card-copy">
           <div className="page-header">
-            <div className="space-y-2">
+            <div className="space-y-1">
               <p className="page-kicker">{kicker}</p>
               <h1 className="catalog-card-title">
                 {isWorkspace || !label ? (
@@ -98,10 +101,13 @@ const FamilyPageHeader: React.FC<{
                   </Link>
                 )}
               </h1>
-              {children}
             </div>
             {actions ? <div className="inline-actions">{actions}</div> : null}
           </div>
+          {/* A sibling of the header row, not a child of it: above 768px `.page-header`
+              is a flex row, so anything nested inside it shrinks to its own content and
+              a `repeat(auto-fit, …)` stat grid collapses to a single column. */}
+          {children ? <div className="page-top-card-body">{children}</div> : null}
         </div>
         {hasPedigree && (
           <div className="page-top-card-visual">
@@ -111,6 +117,7 @@ const FamilyPageHeader: React.FC<{
                 rows={pedRows}
                 members={family?.members as never}
                 relationships={family?.relationships as never}
+                phenotypeSampleIds={phenotypeSampleIds}
                 inheritanceModel={
                   (
                     (family?.metadata as Record<string, unknown> | undefined)?.pgt as

@@ -1369,6 +1369,14 @@ tbody tr:hover {
   padding-top: 0.78rem;
 }
 
+/* A page's own summary content, below the title row and spanning the copy column so a
+   stat grid can lay out across it. One rhythm for every page that has one. */
+.page-top-card-body {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
 .page-top-card .space-y-1 > :not([hidden]) ~ :not([hidden]) {
   margin-top: 0.22rem;
 }

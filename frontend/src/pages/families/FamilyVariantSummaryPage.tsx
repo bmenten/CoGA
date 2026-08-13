@@ -1,5 +1,5 @@
 import React from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import Histogram from '../../components/visualizations/Histogram';
