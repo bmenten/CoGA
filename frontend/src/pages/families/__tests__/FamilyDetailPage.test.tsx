@@ -477,6 +477,31 @@ describe('FamilyDetailPage', () => {
     expect(named(rows[2])).toEqual(['Variant summary', 'Sample QC', 'Report']);
   });
 
+  it('gives the visualization links the shared workspace-button look', async () => {
+    mockApiState.smallVariantTotal = 2;
+    localStorage.setItem('role', 'viewer');
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    await waitForVariantWorkspaceReady();
+
+    // Genome, Chromosome, Circos and IGV are the same control as the Variants rows; the
+    // shared look is opted into by class, so unrelated `button-secondary` buttons on
+    // admin and project pages keep theirs.
+    for (const name of [/genome/i, /chromosome/i, /circos/i, /igv/i]) {
+      expect(screen.getByRole('link', { name })).toHaveClass('workspace-button');
+    }
+  });
+
   it('shows HPO phenotype annotations in the family members overview', async () => {
     mockApiState.hpoAnnotations = [
       {

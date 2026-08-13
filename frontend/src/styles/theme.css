@@ -1535,28 +1535,41 @@ tbody tr:hover {
   gap: 0.3rem 0.6rem;
 }
 
-/* Every button in the Variants card is the same control: white, dark grey, a rounded
-   rectangle like the visualization buttons. What tells the four rows apart is the border
-   colour alone — small variants, structural variants, the assay-specific analyses, and
-   what you produce from them. */
-.family-workspace-card--variants .family-variant-link {
+/* One control for every workspace a family page can open — the four Variants rows, the
+   Visualization card, and the Genome/Circos actions in a page's top card. Same size,
+   type, padding and border weight wherever it appears; only the border colour says which
+   group it belongs to. */
+.family-workspace-card--variants .family-variant-link,
+.compact-toolbar > .workspace-button,
+.inline-actions > .workspace-button {
   justify-self: start;
   min-height: 1.85rem;
   padding: 0.3rem 0.72rem;
-  border-radius: 4px;
+  border-radius: 8px;
+  border-width: 2px;
+  border-style: solid;
   font-size: 0.66rem;
   letter-spacing: 0.1em;
   background: rgba(255, 255, 255, 0.96);
   color: var(--color-text);
 }
 
-.family-workspace-card--variants .family-variant-link:hover {
+.family-workspace-card--variants .family-variant-link:hover,
+.compact-toolbar > .workspace-button:hover,
+.inline-actions > .workspace-button:hover {
   background: rgba(248, 250, 252, 0.98);
   color: var(--color-heading);
 }
 
+/* The genome workspaces carry the Visualization card's own green, on the family page and
+   in the analysis pages' top cards alike. */
+.compact-toolbar > .workspace-button,
+.inline-actions > .workspace-button {
+  border-color: rgba(56, 142, 122, 0.5);
+}
+
 .family-variant-row--small .family-variant-link {
-  border-color: rgba(82, 111, 161, 0.55);
+  border-color: rgba(82, 111, 161, 0.5);
 }
 
 .family-variant-row--structural .family-variant-link {
@@ -1568,7 +1581,7 @@ tbody tr:hover {
 }
 
 .family-variant-row--reports .family-variant-link {
-  border-color: rgba(126, 104, 160, 0.45);
+  border-color: rgba(126, 104, 160, 0.42);
 }
 
 /* Compact, single-line ROI editor. */

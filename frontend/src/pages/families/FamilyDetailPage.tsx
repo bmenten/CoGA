@@ -1280,25 +1280,25 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             <div className="compact-toolbar family-toolbar">
               <Link
                 to={`/families/${data.family_id}/genome`}
-                className="button-secondary hover:no-underline"
+                className="button-secondary workspace-button hover:no-underline"
               >
                 Genome view
               </Link>
               <Link
                 to={`/families/${data.family_id}/chromosome/1`}
-                className="button-secondary hover:no-underline"
+                className="button-secondary workspace-button hover:no-underline"
               >
                 Chromosome view
               </Link>
               <Link
                 to={`/families/${data.family_id}/circos`}
-                className="button-secondary hover:no-underline"
+                className="button-secondary workspace-button hover:no-underline"
               >
                 Circos plot
               </Link>
               <Link
                 to={`/families/${data.family_id}/igv`}
-                className="button-secondary hover:no-underline"
+                className="button-secondary workspace-button hover:no-underline"
               >
                 IGV viewer
               </Link>
