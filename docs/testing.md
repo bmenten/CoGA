@@ -299,6 +299,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | Test file | Purpose |
 | --- | --- |
 | [frontend/src/__tests__/serverSecurityHeaders.test.ts](../frontend/src/__tests__/serverSecurityHeaders.test.ts) | SPA security response headers + enforcing CSP (IGV/S3/fonts-aware); HSTS opt-in. |
+| [frontend/src/lib/__tests__/useMeasuredWidth.test.tsx](../frontend/src/lib/__tests__/useMeasuredWidth.test.tsx) | Viewer width measurement: content box (not border box), re-measure when a background tab becomes visible, ignore zero, listener cleanup. |
 | [frontend/src/lib/__tests__/api.test.ts](../frontend/src/lib/__tests__/api.test.ts) | Auth-header attachment and error normalization. |
 | [frontend/src/lib/__tests__/coverageSources.test.ts](../frontend/src/lib/__tests__/coverageSources.test.ts) | CNV-caller display order, labels for known and unknown callers, and when a coverage track names its caller. |
 | [frontend/src/styles/__tests__/controlOverrides.test.ts](../frontend/src/styles/__tests__/controlOverrides.test.ts) | CSS specificity guard: a rule that resizes a form control must actually beat the shared `input:not([type=…])` rule, whose `:not()` arguments make it (0,2,1). |

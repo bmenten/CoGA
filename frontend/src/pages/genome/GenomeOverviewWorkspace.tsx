@@ -290,7 +290,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
   };
 
   return (
-    <main ref={trackAreaRef} className="analysis-main analysis-main--viewer genome-view-main">
+    <main className="analysis-main analysis-main--viewer genome-view-main">
       <section className="surface-card page-top-card">
         <div className="page-header">
           <div className="space-y-2">
@@ -310,7 +310,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
           </div>
         )}
       </section>
-      <section className="surface-card genome-visualization-panel space-y-6">
+      <section ref={trackAreaRef as React.RefObject<HTMLElement>} className="surface-card genome-visualization-panel space-y-6">
         <section className="viz-shell">
           {membersWithData.map((member) => (
             <ViewerMemberSection key={member.sample_id} member={member}>
