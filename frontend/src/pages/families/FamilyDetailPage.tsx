@@ -1139,10 +1139,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           */}
           <div className="family-variant-links">
             {hasSmallVariants && (
-              <div className="family-variant-row">
+              <div className="family-variant-row family-variant-row--small">
                 <Link
                   to={`/families/${data.family_id}/small-variants${variantPageQuerySuffix}`}
-                  className="form-button family-variant-link hover:no-underline"
+                  className="button-secondary family-variant-link hover:no-underline"
                 >
                   Small variants
                 </Link>
@@ -1168,10 +1168,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               </div>
             )}
             {hasVariants && (
-              <div className="family-variant-row">
+              <div className="family-variant-row family-variant-row--structural">
                 <Link
                   to={`/families/${data.family_id}/structural-variants${variantPageQuerySuffix}`}
-                  className="form-button family-variant-link hover:no-underline"
+                  className="button-secondary family-variant-link hover:no-underline"
                 >
                   Structural variants
                 </Link>
@@ -1196,47 +1196,27 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 </div>
               </div>
             )}
-            {(hasAnyVariantData || isMonogenicNipt) && (
-              <div className="compact-toolbar family-toolbar family-variant-secondary">
-                <VariantWorkspaceLink
-                  active={hasSmallVariants || hasVariants}
-                  to={`/families/${data.family_id}/report${variantPageQuerySuffix}`}
-                  className="button-secondary"
-                >
-                  Report
-                </VariantWorkspaceLink>
-                <VariantWorkspaceLink
-                  active={hasSmallVariants}
-                  to={`/families/${data.family_id}/qc`}
-                  className="button-secondary"
-                >
-                  Sample QC
-                </VariantWorkspaceLink>
-                <VariantWorkspaceLink
-                  active={hasVariantSummary}
-                  to={`/families/${data.family_id}/variant-summary`}
-                  className="button-secondary"
-                >
-                  Variant summary
-                </VariantWorkspaceLink>
+            {/* Row 3 — the assay-specific analyses. */}
+            {(hasRepeatExpansions || hasParaphase || hasMitoDna || isMonogenicNipt) && (
+              <div className="family-variant-row family-variant-row--assays">
                 <VariantWorkspaceLink
                   active={hasRepeatExpansions}
                   to={`/families/${data.family_id}/repeat-expansions`}
-                  className="button-secondary"
+                  className="button-secondary family-variant-link"
                 >
                   Repeat expansions
                 </VariantWorkspaceLink>
                 <VariantWorkspaceLink
                   active={hasParaphase}
                   to={`/families/${data.family_id}/paraphase`}
-                  className="button-secondary"
+                  className="button-secondary family-variant-link"
                 >
                   Paraphase
                 </VariantWorkspaceLink>
                 <VariantWorkspaceLink
                   active={hasMitoDna}
                   to={`/families/${data.family_id}/mitochondrial-dna${variantPageQuerySuffix}`}
-                  className="button-secondary"
+                  className="button-secondary family-variant-link"
                 >
                   mtDNA analysis
                 </VariantWorkspaceLink>
@@ -1244,11 +1224,37 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   <VariantWorkspaceLink
                     active
                     to={`/families/${data.family_id}/nipt`}
-                    className="button-secondary"
+                    className="button-secondary family-variant-link"
                   >
                     Monogenic NIPT
                   </VariantWorkspaceLink>
                 )}
+              </div>
+            )}
+            {/* Row 4 — what you produce from the analyses, rather than an analysis. */}
+            {(hasAnyVariantData || isMonogenicNipt) && (
+              <div className="family-variant-row family-variant-row--reports">
+                <VariantWorkspaceLink
+                  active={hasVariantSummary}
+                  to={`/families/${data.family_id}/variant-summary`}
+                  className="button-secondary family-variant-link"
+                >
+                  Variant summary
+                </VariantWorkspaceLink>
+                <VariantWorkspaceLink
+                  active={hasSmallVariants}
+                  to={`/families/${data.family_id}/qc`}
+                  className="button-secondary family-variant-link"
+                >
+                  Sample QC
+                </VariantWorkspaceLink>
+                <VariantWorkspaceLink
+                  active={hasSmallVariants || hasVariants}
+                  to={`/families/${data.family_id}/report${variantPageQuerySuffix}`}
+                  className="button-secondary family-variant-link"
+                >
+                  Report
+                </VariantWorkspaceLink>
               </div>
             )}
           </div>
