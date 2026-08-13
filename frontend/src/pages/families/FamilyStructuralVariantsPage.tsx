@@ -301,14 +301,14 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           <>
             <GenomeWorkspaceLink
               to={`/families/${familyId}/genome${linkSearch}${projectId ? `${linkSearch ? '&' : '?'}project_id=${projectId}` : ''}`}
-              className="button-secondary hover:no-underline"
+              className="button-secondary workspace-button hover:no-underline"
               label="Open the genome overview"
             >
               Genome
             </GenomeWorkspaceLink>
             <GenomeWorkspaceLink
               to={`/families/${familyId}/circos${linkSearch}${projectId ? `${linkSearch ? '&' : '?'}project_id=${projectId}` : ''}`}
-              className="button-secondary hover:no-underline"
+              className="button-secondary workspace-button hover:no-underline"
               label="Open the Circos view"
             >
               Circos
