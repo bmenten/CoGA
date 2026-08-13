@@ -1540,8 +1540,8 @@ tbody tr:hover {
    type, padding and border weight wherever it appears; only the border colour says which
    group it belongs to. */
 .family-workspace-card--variants .family-variant-link,
-.compact-toolbar > .workspace-button,
-.inline-actions > .workspace-button {
+.compact-toolbar > .button-secondary.workspace-button,
+.inline-actions > .button-secondary.workspace-button {
   justify-self: start;
   min-height: 1.85rem;
   padding: 0.3rem 0.72rem;
@@ -1555,16 +1555,16 @@ tbody tr:hover {
 }
 
 .family-workspace-card--variants .family-variant-link:hover,
-.compact-toolbar > .workspace-button:hover,
-.inline-actions > .workspace-button:hover {
+.compact-toolbar > .button-secondary.workspace-button:hover,
+.inline-actions > .button-secondary.workspace-button:hover {
   background: rgba(248, 250, 252, 0.98);
   color: var(--color-heading);
 }
 
 /* The genome workspaces carry the Visualization card's own green, on the family page and
    in the analysis pages' top cards alike. */
-.compact-toolbar > .workspace-button,
-.inline-actions > .workspace-button {
+.compact-toolbar > .button-secondary.workspace-button,
+.inline-actions > .button-secondary.workspace-button {
   border-color: rgba(56, 142, 122, 0.5);
 }
 
