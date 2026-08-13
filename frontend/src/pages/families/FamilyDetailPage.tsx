@@ -380,6 +380,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     inheritanceModel: (data?.metadata?.pgt as { inheritance_model?: string } | undefined)
       ?.inheritance_model,
   });
+  // A PGT case: phased markers across the ROI only exist where embryos were analysed.
+  const hasEmbryos = useMemo(
+    () => (data?.members ?? []).some((m) => String(m.role || '').toLowerCase() === 'embryo'),
+    [data?.members],
+  );
   const hpoAnnotationsBySample = useMemo(() => {
     return hpoAnnotations.reduce<Record<string, ApiHpoAnnotation[]>>((acc, annotation) => {
       acc[annotation.sample_id] = acc[annotation.sample_id] || [];
@@ -1307,39 +1312,41 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
 
           <article className="surface-card-flat family-workspace-card family-workspace-card--roi">
             <div className="family-workspace-card-head">
-              <div className="space-y-1">
+              {/* With a region set the card says so on the title line and stops there —
+                  it is a one-line fact, not a section. */}
+              <div className="family-roi-headline">
                 <h2 className="section-title">Region of interest</h2>
-                <p className="family-workspace-card-subtitle">
-                  {data.roi ? (
-                    <Link
-                      to={`/families/${data.family_id}/chromosome/${data.roi.chr}?start=${Math.max(
-                        0,
-                        data.roi.start - 1_000_000,
-                      )}&end=${data.roi.end + 1_000_000}${
-                        projectId ? `&project_id=${projectId}` : ''
-                      }`}
-                      className="family-roi-link"
-                      title={`Open ${data.roi.label} in chromosome view`}
-                    >
-                      {data.roi.label}
-                      <span className="family-roi-region"> · {formatRegion(data.roi)}</span>
-                    </Link>
-                  ) : (
-                    'No region of interest set'
-                  )}
-                </p>
-                {data.roi && (
-                  <p className="family-workspace-card-subtitle">
-                    <Link
-                      to={`/families/${data.family_id}/roi-markers${
-                        projectId ? `?project_id=${projectId}` : ''
-                      }`}
-                      className="family-roi-link"
-                      title="Review all phased markers across the ROI ± 1 Mb"
-                    >
-                      Review ROI markers →
-                    </Link>
-                  </p>
+                {data.roi ? (
+                  <Link
+                    to={`/families/${data.family_id}/chromosome/${data.roi.chr}?start=${Math.max(
+                      0,
+                      data.roi.start - 1_000_000,
+                    )}&end=${data.roi.end + 1_000_000}${
+                      projectId ? `&project_id=${projectId}` : ''
+                    }`}
+                    className="family-roi-link"
+                    title={`Open ${data.roi.label} in chromosome view`}
+                  >
+                    {data.roi.label}
+                    <span className="family-roi-region"> · {formatRegion(data.roi)}</span>
+                  </Link>
+                ) : (
+                  <span className="family-workspace-card-subtitle">
+                    No region of interest set
+                  </span>
+                )}
+                {/* Phased markers only exist for a PGT case, so the review link only
+                    appears where there is something to review. */}
+                {data.roi && hasEmbryos && (
+                  <Link
+                    to={`/families/${data.family_id}/roi-markers${
+                      projectId ? `?project_id=${projectId}` : ''
+                    }`}
+                    className="family-roi-link family-roi-markers-link"
+                    title="Review all phased markers across the ROI ± 1 Mb"
+                  >
+                    Review ROI markers →
+                  </Link>
                 )}
               </div>
             </div>

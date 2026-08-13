@@ -1692,6 +1692,20 @@ tbody tr:hover {
   margin-top: 0.25rem;
 }
 
+/* Title, region and the markers link on one line: with a region set this card states a
+   fact rather than opening a section, so it should not cost three rows to say it. */
+.family-roi-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.7rem;
+}
+
+.family-roi-markers-link {
+  margin-left: auto;
+  font-size: 0.72rem;
+}
+
 /* The ROI value itself is the link to the chromosome view. */
 .family-roi-link {
   color: var(--color-heading);
