@@ -80,6 +80,24 @@ describe('FamilyPageHeader', () => {
     expect(within(actions as HTMLElement).getByRole('button', { name: 'Genome' })).toBeInTheDocument();
   });
 
+  it('keeps page content out of the header row so wide grids can lay out', () => {
+    // Above 768px `.page-header` is a flex row, so anything nested inside it shrinks to
+    // its own content — which collapsed the family stat grid ("Members", "Assembly", …)
+    // from a row of cards into a single column.
+    const { container } = renderHeader({
+      children: <div className="family-workspace-summary" data-testid="stats" />,
+    });
+    const stats = screen.getByTestId('stats');
+    expect(container.querySelector('.page-header')?.contains(stats)).toBe(false);
+    expect(stats.closest('.page-top-card-body')).not.toBeNull();
+    expect(stats.closest('.page-top-card-copy')).not.toBeNull();
+  });
+
+  it('omits the body wrapper when the page adds no content', () => {
+    const { container } = renderHeader();
+    expect(container.querySelector('.page-top-card-body')).toBeNull();
+  });
+
   it('renders a footer inside the card, below the grid', () => {
     const { container } = renderHeader({ footer: <div data-testid="filters">Filters</div> });
     const card = container.querySelector('.page-top-card') as HTMLElement;

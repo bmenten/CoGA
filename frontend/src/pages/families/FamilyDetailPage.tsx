@@ -19,7 +19,7 @@ import type {
   ApiSmallVariantReviewSummary,
   ApiUserRef,
 } from '../../lib/apiTypes';
-import Pedigree from '../../components/visualizations/Pedigree';
+import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
 import { formatUserRef } from '../../lib/users';
 import { isAdmin } from '../../lib/auth';
@@ -349,7 +349,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     return getReviewSummaryTags(structuralReviewSummary?.tag_counts, structuralVariantTags);
   }, [structuralReviewSummary?.tag_counts, structuralVariantTags]);
   const variantPageQuerySuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
-  const pedRows = useMemo(() => parsePedigree(data?.pedigree), [data?.pedigree]);
   const orderedMembers = useMemo(
     () => sortFamilyMembersProbandFirst(data?.members || []),
     [data?.members],
@@ -1017,13 +1016,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     <div
       className={`family-detail-page space-y-6${embedded ? '' : ' page-shell'}`}
     >
-      <section className="surface-card page-top-card">
-        <div className={`page-top-card-grid${pedRows.length ? ' page-top-card-grid--with-visual' : ''}`}>
-          <div className="page-top-card-copy family-workspace-copy">
-            <div className="space-y-1">
-              <p className="page-kicker">Family Workspace</p>
-              <h1 className="catalog-card-title">Family {data.family_id}</h1>
-            </div>
+      <FamilyPageHeader
+        kicker="Family Workspace"
+        familyId={data.family_id}
+        family={data}
+        isWorkspace
+        phenotypeSampleIds={phenotypeSampleIds}
+      >
             <div className="family-workspace-summary">
               <div className="family-workspace-stat">
                 <span className="stat-label">Members</span>
@@ -1123,25 +1122,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 </span>
               )}
             </div>
-          </div>
-          {pedRows.length > 0 && (
-            <div className="page-top-card-visual">
-              <div className="page-top-card-pedigree family-workspace-pedigree">
-                <p className="stat-label">Pedigree</p>
-                <div className="family-workspace-pedigree-frame overflow-x-auto">
-                  <Pedigree
-                    rows={pedRows}
-                    members={data.members}
-                    relationships={data.relationships}
-                    inheritanceModel={(data.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
-                    phenotypeSampleIds={phenotypeSampleIds}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
+      </FamilyPageHeader>
 
       <section className="family-workspace-grid">
         <article className="surface-card-flat family-workspace-card family-workspace-card--variants">
