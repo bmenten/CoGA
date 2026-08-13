@@ -1404,7 +1404,13 @@ tbody tr:hover {
 }
 
 .page-top-card-pedigree .pedigree-svg {
-  margin: 0;
+  /* Sits against the right edge of the card and drops its frame — the card already
+     provides the surface, so the border drew a box around a drawing that did not need
+     one. */
+  justify-self: end;
+  margin: 0 0 0 auto;
+  border: none;
+  background: transparent;
 }
 
 .family-workspace-copy,
@@ -1515,21 +1521,43 @@ tbody tr:hover {
 
 .family-variant-links {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.45rem;
 }
 
+/* Button and its curation chips on one line rather than stacked, so the two primary
+   rows take the height of two controls instead of four. */
 .family-variant-row {
-  display: grid;
-  gap: 0.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
 }
 
-/* Primary variant entry points stand out as filled buttons, but compact. */
+/* One button family in the Variants card. The primary entry points were min-height 0
+   while the secondary workspaces came from `.compact-toolbar` at 2.3rem, so the set read
+   as two unrelated groups. They now share height, padding and type; what separates a
+   primary entry point from the rest is tone — filled against outlined — not size. */
+.family-workspace-card--variants .family-variant-link,
+.family-workspace-card--variants .compact-toolbar > .button-secondary {
+  min-height: 1.85rem;
+  padding: 0.3rem 0.72rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+}
+
 .family-variant-link {
   justify-self: start;
-  min-height: 0;
-  padding: 0.34rem 0.7rem;
-  font-size: 0.7rem;
-  letter-spacing: 0.1em;
+}
+
+/* The filled entry points keep the card's own accent, so they read as the way in
+   without shouting over the workspaces beside them. */
+.family-workspace-card--variants .family-variant-link {
+  border-color: rgba(82, 111, 161, 0.75);
+}
+
+.family-workspace-card--variants .compact-toolbar {
+  gap: 0.35rem;
 }
 
 /* Compact, single-line ROI editor. */
@@ -1637,7 +1665,7 @@ tbody tr:hover {
 }
 
 .family-variant-secondary {
-  margin-top: 0.1rem;
+  margin-top: 0.25rem;
 }
 
 /* The ROI value itself is the link to the chromosome view. */
