@@ -318,7 +318,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   };
 
   return (
-    <main ref={trackAreaRef} className="analysis-main analysis-main--viewer chromosome-view-main">
+    <main className="analysis-main analysis-main--viewer chromosome-view-main">
       <section className="surface-card page-top-card">
         <div className="page-header">
           <div className="space-y-2">
@@ -478,7 +478,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
         {jumpError && <p className="status-note status-note--error mt-4">{jumpError}</p>}
       </section>
 
-      <section className="surface-card chromosome-visualization-panel space-y-6">
+      <section ref={trackAreaRef as React.RefObject<HTMLElement>} className="surface-card chromosome-visualization-panel space-y-6">
         <section className="viz-panel">
           <div className="overflow-x-auto">
             <ViewerTrackBlock
