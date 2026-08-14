@@ -99,7 +99,6 @@ interface ChromosomeViewWorkspaceProps {
   onResetRange: () => void;
   onPan: (direction: -1 | 1) => void;
   onZoom: (factor: number) => void;
-  onZoomAt: (factor: number, focus: number) => void;
   onRegionSelect: (start: number, end: number) => void;
   onRoiZoom: () => void;
   onJumpToRegion: (chrom: string, region: { start: number; end: number }) => void;
@@ -202,7 +201,6 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   onResetRange,
   onPan,
   onZoom,
-  onZoomAt,
   onRegionSelect,
   onRoiZoom,
   onJumpToRegion,
@@ -229,8 +227,8 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   const [jumpQuery, setJumpQuery] = useState('');
   const [jumpError, setJumpError] = useState<string | null>(null);
   const [jumpLoading, setJumpLoading] = useState(false);
-  // What a plain click-drag over the tracks does. Wheel always zooms; this only
-  // switches the drag gesture between grabbing (pan) and rubber-band (zoom).
+  // What a plain click-drag over the tracks does — the wheel is the page's, so this is
+  // how a region is zoomed.
   const [interactionMode, setInteractionMode] = useState<'pan' | 'zoom'>('pan');
   const trimmedJumpQuery = jumpQuery.trim();
   const parsedJumpRegion = useMemo(() => parseJumpRegion(trimmedJumpQuery), [trimmedJumpQuery]);
@@ -243,7 +241,6 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
         regionEnd: region.end,
         mode: interactionMode,
         onChange: onRegionSelect,
-        onZoomAt,
       }
     : undefined;
   const hasCarrierSegregation = familyMembers.some((member) => member.carrier_status === 'carrier');
@@ -472,7 +469,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
             </button>
           )}
           <span className="analysis-pill analysis-pill--muted">
-            Scroll to zoom · drag to {interactionMode === 'pan' ? 'pan' : 'select region'}
+            Drag to {interactionMode === 'pan' ? 'pan' : 'select region'}
           </span>
         </div>
         {jumpError && <p className="status-note status-note--error mt-4">{jumpError}</p>}

@@ -27,15 +27,9 @@ interface ViewerTrackBlockProps {
     onChange: (start: number, end: number) => void;
     // Wheel zoom, keeping the genomic position under the cursor fixed. focus is a
     // 0..1 fraction of the track width; factor < 1 zooms in, > 1 zooms out.
-    onZoomAt?: (factor: number, focus: number) => void;
   };
 }
 
-// One wheel notch. < 1 zooms in (shrinks the window), its inverse zooms out.
-const WHEEL_ZOOM_FACTOR = 1 / 1.2;
-// How long the wheel must be idle before the accumulated zoom is committed (and
-// the tracks refetch). Until then the zoom is shown as an instant CSS transform.
-const WHEEL_COMMIT_DELAY = 140;
 // Minimum drag travel (px) before a gesture counts as a zoom-select / pan rather
 // than a click.
 const ZOOM_DRAG_THRESHOLD = 5;
@@ -94,12 +88,6 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
   // Cached frame left-edge; refreshed on scroll/resize so hover/drag math avoids
   // a getBoundingClientRect (a forced layout read) on every mouse event.
   const frameLeftRef = useRef<number | null>(null);
-  // Wheel zoom accumulates multiplicatively and shows an instant CSS-transform
-  // preview; the single region commit (and the track refetch) is debounced until
-  // the wheel settles, so a fast scroll no longer fires a refetch per notch.
-  const wheelAccumRef = useRef<number>(1);
-  const wheelFocusRef = useRef<number>(0.5);
-  const wheelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // x within the track frame, derived from the frame's own bounding box rather
   // than event.offsetX. offsetX is relative to whichever child element the event
@@ -136,8 +124,6 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     // A missed mouseup (released off-window, OS dialog stealing focus) could leave
     // a stale drag session with orphaned window listeners; tear it down first.
     if (dragRef.current) endDrag();
-    // Commit any pending wheel zoom before starting a drag so the two don't fight.
-    commitWheelRef.current();
     event.preventDefault();
     frameLeftRef.current = null; // measure the frame fresh for this gesture
     const { x, fraction } = frameMetrics(event.clientX);
@@ -218,49 +204,9 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     surface?.setGuide(null);
   };
 
-  // Native, non-passive wheel listener so preventDefault can stop the page from
-  // scrolling while the cursor zooms. Reads the latest handler through a ref so
-  // the listener stays attached across region changes.
-  // Commit the accumulated wheel zoom once as a real region change; the tracks
-  // refetch here (once), not per notch. Kept in a ref so the debounce timer and
-  // the drag handler always call the latest closure.
-  const commitWheelRef = useRef<() => void>(() => {});
-  commitWheelRef.current = () => {
-    if (wheelTimerRef.current !== null) {
-      clearTimeout(wheelTimerRef.current);
-      wheelTimerRef.current = null;
-    }
-    const factor = wheelAccumRef.current;
-    wheelAccumRef.current = 1;
-    if (factor === 1) return;
-    surface?.setShift(null);
-    viewportInteraction?.onZoomAt?.(factor, wheelFocusRef.current);
-  };
-
-  const wheelHandlerRef = useRef<(event: WheelEvent) => void>(() => {});
-  wheelHandlerRef.current = (event: WheelEvent) => {
-    if (!viewportInteraction?.onZoomAt || event.deltaY === 0) return;
-    event.preventDefault();
-    const { fraction } = frameMetrics(event.clientX);
-    const factor = event.deltaY < 0 ? WHEEL_ZOOM_FACTOR : 1 / WHEEL_ZOOM_FACTOR;
-    wheelAccumRef.current *= factor;
-    wheelFocusRef.current = fraction;
-    // Instant, compositor-only preview: scale the current render around the
-    // cursor. The actual region commit (and refetch) is deferred until the wheel
-    // settles, collapsing a burst of notches into one fetch.
-    const scaleX = 1 / wheelAccumRef.current;
-    surface?.setShift(fraction * width * (1 - scaleX), scaleX);
-    if (wheelTimerRef.current !== null) clearTimeout(wheelTimerRef.current);
-    wheelTimerRef.current = setTimeout(() => commitWheelRef.current(), WHEEL_COMMIT_DELAY);
-  };
-
-  useEffect(() => {
-    const el = frameRef.current;
-    if (!el || !interactive) return undefined;
-    const handler = (event: WheelEvent) => wheelHandlerRef.current(event);
-    el.addEventListener('wheel', handler, { passive: false });
-    return () => el.removeEventListener('wheel', handler);
-  }, [interactive]);
+  // The wheel is left to the page: over a tall viewer, hijacking it to zoom meant a
+  // scroll that began on a track never reached the document. Zooming is the drag
+  // gesture and the zoom controls.
 
   // Invalidate the cached frame position when the layout could have shifted, so
   // hover/drag coordinates stay correct without measuring on every mouse event.
@@ -277,14 +223,8 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     };
   }, [interactive]);
 
-  // Tidy up any in-flight drag listeners / pending wheel commit on unmount.
-  useEffect(
-    () => () => {
-      endDrag();
-      if (wheelTimerRef.current !== null) clearTimeout(wheelTimerRef.current);
-    },
-    [],
-  );
+  // Tidy up any in-flight drag listeners on unmount.
+  useEffect(() => () => endDrag(), []);
 
   const interactiveClassName = interactive
     ? `viewer-track-interactive viewer-track-interactive--${mode}`

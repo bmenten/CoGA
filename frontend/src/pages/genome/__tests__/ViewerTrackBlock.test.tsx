@@ -133,9 +133,8 @@ describe('ViewerTrackBlock', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('zooms toward the cursor on wheel input (coalesced to a frame)', async () => {
+  it('leaves the wheel to the page instead of zooming', async () => {
     const onChange = vi.fn();
-    const onZoomAt = vi.fn();
 
     render(
       <ViewerTrackBlock
@@ -146,7 +145,6 @@ describe('ViewerTrackBlock', () => {
           regionStart: 200,
           regionEnd: 400,
           onChange,
-          onZoomAt,
         }}
       >
         <div style={{ height: 20 }} />
@@ -154,52 +152,17 @@ describe('ViewerTrackBlock', () => {
     );
 
     const track = screen.getByRole('application', { name: /svs viewport/i });
+    const wheel = createEvent.wheel(track, { bubbles: true, cancelable: true, clientX: 100, deltaY: -100 });
+    fireEvent(track, wheel);
 
-    // The commit is deferred to requestAnimationFrame, so assert via waitFor.
-    const zoomIn = createEvent.wheel(track, { bubbles: true, clientX: 100, deltaY: -100 });
-    fireEvent(track, zoomIn);
-    // deltaY < 0 → zoom in (factor < 1), centered at 100/200 = 0.5.
-    await waitFor(() => expect(onZoomAt).toHaveBeenLastCalledWith(1 / 1.2, 0.5));
-
-    const zoomOut = createEvent.wheel(track, { bubbles: true, clientX: 50, deltaY: 100 });
-    fireEvent(track, zoomOut);
-    // deltaY > 0 → zoom out (factor > 1), centered at 50/200 = 0.25.
-    await waitFor(() => expect(onZoomAt).toHaveBeenLastCalledWith(1.2, 0.25));
-
-    // Wheel never commits a region directly; it always routes through onZoomAt.
+    // Not cancelled, so the scroll reaches the document: over a tall viewer, hijacking
+    // the wheel meant a scroll that began on a track never moved the page.
+    expect(wheel.defaultPrevented).toBe(false);
+    // And no region change of any kind comes from a wheel.
+    await new Promise((resolve) => setTimeout(resolve, 200));
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('coalesces a burst of wheel ticks in one frame into a single multiplicative commit', async () => {
-    const onZoomAt = vi.fn();
-
-    render(
-      <ViewerTrackBlock
-        label="SVs"
-        width={200}
-        viewportInteraction={{
-          chromSize: 1000,
-          regionStart: 200,
-          regionEnd: 400,
-          onChange: vi.fn(),
-          onZoomAt,
-        }}
-      >
-        <div style={{ height: 20 }} />
-      </ViewerTrackBlock>,
-    );
-
-    const track = screen.getByRole('application', { name: /svs viewport/i });
-    // Three zoom-in notches fired synchronously (same frame) → one commit whose
-    // factor is the product, focus taken from the last event.
-    for (const clientX of [100, 100, 100]) {
-      fireEvent(track, createEvent.wheel(track, { bubbles: true, clientX, deltaY: -100 }));
-    }
-    await waitFor(() => expect(onZoomAt).toHaveBeenCalledTimes(1));
-    const [factor, focus] = onZoomAt.mock.calls[0];
-    expect(factor).toBeCloseTo((1 / 1.2) ** 3);
-    expect(focus).toBe(0.5);
-  });
 
   it('drives the shared guide and selection band across the surface', () => {
     const onChange = vi.fn();
