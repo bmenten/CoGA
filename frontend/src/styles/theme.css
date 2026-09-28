@@ -10055,6 +10055,11 @@ a.button-danger:hover {
   color: #7f333a;
 }
 
+.status-note--warning {
+  background: var(--color-warning-surface, #fdf1d8);
+  color: var(--color-warning-strong, #92580a);
+}
+
 .auth-inline-status {
   margin-top: 0;
 }
@@ -12406,6 +12411,11 @@ a.button-danger:hover {
 }
 .report-signout-changed .report-signout-line,
 .report-signout-changed .report-signout-status {
+  color: #92400e;
+}
+.report-signout-gaps {
+  margin: 0;
+  font-size: 0.86rem;
   color: #92400e;
 }
 .report-signout-actions {

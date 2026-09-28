@@ -652,6 +652,8 @@ def test_snapshot_freezes_the_cut_offs_the_qc_verdict_was_judged_against(monkeyp
     assert "HG002" in frozen["samples"], "the sample's QC verdict must be frozen too"
     # A sample with no recorded QC contributes nothing rather than a fabricated pass.
     assert "NOQC" not in frozen["samples"]
+    # Only a failed lookup carries the marker, so an ordinary snapshot hashes as before.
+    assert "unavailable" not in frozen
 
 
 def test_snapshot_sequencing_qc_survives_an_unresolvable_profile(monkeypatch) -> None:
@@ -664,13 +666,84 @@ def test_snapshot_sequencing_qc_survives_an_unresolvable_profile(monkeypatch) ->
 
     frozen = asyncio.run(rss._canonical_sequencing_qc(_Session(), _qc_context()))
 
-    # QC display is advisory; it has never been allowed to break sign-out.
+    # QC display is advisory; it has never been allowed to break sign-out. But the
+    # frozen block must say the cut-offs could not be read: empty on its own is the
+    # shape of a family imported without QC outputs (#514).
     assert frozen == {
         "profile_key": None,
         "profile_label": None,
         "thresholds": {},
         "samples": {},
+        "unavailable": "QC thresholds could not be resolved",
     }
+
+
+_QC_GAP = {
+    "section": "sequencing_qc",
+    "item": "Sequencing-QC cut-offs",
+    "reason": "QC thresholds could not be resolved",
+}
+
+
+def test_snapshot_gaps_list_what_the_record_could_not_capture() -> None:
+    snapshot = {
+        "modules": [
+            {"key": "clinvar", "label": "ClinVar", "version": "2026-05"},
+            {"key": "monarch", "label": "Monarch", "version": "unavailable", "detail": "lookup failed"},
+        ],
+        "sequencing_qc": {"thresholds": {}, "samples": {}, "unavailable": "QC thresholds could not be resolved"},
+    }
+    assert rss.snapshot_gaps(snapshot) == [
+        _QC_GAP,
+        {"section": "modules", "item": "Monarch", "reason": "lookup failed"},
+    ]
+    complete = {"modules": [{"key": "clinvar", "version": "2026-05"}], "sequencing_qc": {"thresholds": {}, "samples": {}}}
+    assert rss.snapshot_gaps(complete) == []
+    assert rss.snapshot_gaps(None) == []
+
+
+def _capture_audit(monkeypatch) -> dict:
+    captured: dict = {}
+
+    async def _capture(*args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(rss, "record_clinical_event", _capture)
+    return captured
+
+
+def _patch_qc_thresholds(monkeypatch, resolver) -> None:
+    from backend.app.services import qc_threshold_service as qts
+
+    monkeypatch.setattr(qts, "resolve_family_qc_thresholds", resolver)
+
+
+def test_sign_out_audit_records_what_the_snapshot_could_not_capture(monkeypatch) -> None:
+    async def _explode(session, *, family_uuid):
+        raise RuntimeError("clickhouse is down")
+
+    _patch_common(monkeypatch, drifted_count=0)
+    _patch_qc_thresholds(monkeypatch, _explode)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+
+    # The sign-out still happens, but the trail says the record is incomplete.
+    assert out["snapshot"]["sequencing_qc"]["unavailable"] == "QC thresholds could not be resolved"
+    assert captured["after"]["not_captured"] == [_QC_GAP]
+    assert "1 part(s) not captured" in captured["summary"]
+
+
+def test_a_complete_sign_out_records_no_gaps(monkeypatch) -> None:
+    async def _complete_qc(session, context):
+        return {"profile_key": "wgs", "profile_label": "WGS", "thresholds": {}, "samples": {}}
+
+    _patch_common(monkeypatch, drifted_count=0)
+    monkeypatch.setattr(rss, "_canonical_sequencing_qc", _complete_qc)
+    captured = _capture_audit(monkeypatch)
+    asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+
+    assert captured["after"]["not_captured"] == []
+    assert "not captured" not in captured["summary"]
 
 
 def test_acknowledging_drift_without_a_reason_is_422(monkeypatch) -> None:
@@ -778,6 +851,7 @@ def test_signout_check_without_any_signout(monkeypatch) -> None:
     )
     assert out["version"] is None and out["matches"] is None
     assert out["changed_sections"] == []
+    assert out["not_captured"] == []
 
 
 def test_signout_check_matches_unchanged_content(monkeypatch) -> None:
@@ -795,6 +869,23 @@ def test_signout_check_matches_unchanged_content(monkeypatch) -> None:
     assert out["matches"] is True
     assert out["changed_sections"] == []
     assert out["not_compared"] == []
+    assert out["not_captured"] == []
+
+
+def test_signout_check_names_what_the_signed_record_could_not_capture(monkeypatch) -> None:
+    # #514: QC thresholds could not be read at sign-out, so the signed record froze an
+    # explicit marker. The report page must say so beside the signed banner.
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    signed["sequencing_qc"] = {**signed["sequencing_qc"], "unavailable": "QC thresholds could not be resolved"}
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(
+            _CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()
+        )
+    )
+    assert out["not_captured"] == [_QC_GAP]
+    # The thresholds resolve now, so the live section differs from the signed one.
+    assert out["changed_sections"] == ["sequencing_qc"]
 
 
 def test_signout_check_flags_a_review_changed_after_signout(monkeypatch) -> None:

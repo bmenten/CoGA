@@ -7,12 +7,18 @@ modules); they live here as the single source of truth.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any, Iterable, Sequence
 from uuid import UUID
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
+from pydantic import ValidationError
+
+from ..core.coga_logging import scrub_log
+
+logger = logging.getLogger(__name__)
 
 
 def _require_uuid(value: str, detail: str) -> str:
@@ -29,6 +35,37 @@ def _normalize_tags(tags: Iterable[str]) -> list[str]:
 
 def _json_payload(value: Any) -> str:
     return json.dumps(jsonable_encoder(value if value is not None else {}))
+
+
+def _has_stored_record(value: Any) -> bool:
+    """Is a JSON record stored here at all? Empty values and JSON null are not."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return True  # something is stored, and it is not valid JSON
+    return bool(value)
+
+
+def _log_unreadable_classification(kind: str, exc: BaseException) -> None:
+    """Record that a stored classification could not be read back (#514).
+
+    The review is still served, with the classification marked unreadable rather than
+    failing the page, but never silently: a stored classification dropping out of view
+    is a clinical-data event. Only field paths and error types are logged; the stored
+    values, free-text evidence included, stay out of the log.
+    """
+    if isinstance(exc, ValidationError):
+        problems = [
+            f"{'.'.join(str(part) for part in error['loc']) or '<root>'}: {error['type']}"
+            for error in exc.errors(include_url=False, include_context=False, include_input=False)
+        ]
+        detail = "; ".join(problems[:10])
+    else:
+        detail = type(exc).__name__
+    logger.error(
+        "Stored %s could not be read and is served as unreadable (%s)", kind, scrub_log(detail)
+    )
 
 
 def _merge_tag_metadata(

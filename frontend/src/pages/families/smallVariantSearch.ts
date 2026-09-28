@@ -64,6 +64,9 @@ export interface SmallVariantReview {
   acmg?: AcmgReviewPayload | null;
   // ClinGen CNV classification — only populated for structural-variant reviews.
   cnv_acmg?: CnvAcmgReviewPayload | null;
+  // A classification is stored but could not be read, so acmg / cnv_acmg is empty
+  // although one exists; saving replaces it (#514).
+  acmg_unreadable?: boolean;
 }
 
 export interface SmallVariantReviewTagMetadata {

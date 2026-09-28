@@ -310,7 +310,17 @@ Emit from the classify / tag / note / structure / sign-out service paths. Add a 
 - `POST /families/{id}/report/sign-out`, `GET .../report/sign-outs`,
   `GET .../report/sign-outs/{version}`, and `GET .../report/sign-out-check` (#508), which rebuilds
   the snapshot body and reports, section by section, whether the report as it would be signed
-  now still matches the latest sign-out (`matches`, `changed_sections`, `not_compared`).
+  now still matches the latest sign-out (`matches`, `changed_sections`, `not_compared`), and
+  what the signed record could not capture (`not_captured`, #514).
+- **Nothing is frozen as "empty" by accident (#514).** A lookup that fails while the snapshot is
+  built is frozen as an explicit marker with its reason: unresolvable QC thresholds as
+  `sequencing_qc.unavailable`, a failed reference-assembly or Monarch-release lookup (each run in
+  its own savepoint, so it cannot abort the sign-out transaction, and logged) as module version
+  `unavailable`. Only a failure adds a marker, so an ordinary snapshot hashes as before. The
+  sign-out audit event records the markers as `not_captured`, and the signed-record banner lists
+  them ("Not captured in signed version N: …"). A stored ACMG / CNV-ACMG classification that no
+  longer validates is logged (field paths and error types, never its values) and served with
+  `acmg_unreadable`, so the classification editor warns before it is overwritten.
 - **The report page renders live data.** Since #508 its sign-out record is green only when the
   sign-out check verifies a match; when the content changed after sign-out it turns amber and
   names the changed sections, and when the check cannot be made it is grey and says to treat the

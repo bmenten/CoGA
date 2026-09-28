@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from ..schemas import AcmgClassificationPayload
 from . import acmg_points
-from .review_pg_utils import _json_payload
+from .review_pg_utils import _json_payload, _log_unreadable_classification
 
 
 def _normalize_acmg_payload(
@@ -86,14 +86,23 @@ def build_evidence_snapshot(record: Any, captured_at: datetime) -> dict[str, Any
 
 
 def _deserialize_acmg(value: Any) -> AcmgClassificationPayload | None:
+    """The stored classification, or None when there is none or it cannot be read.
+
+    ``None`` alone cannot tell those apart, so an unreadable record is logged here and
+    the review serializer marks it (``acmg_unreadable``) instead of dropping it (#514).
+    """
     if not value:
         return None
     if isinstance(value, str):
         try:
             value = json.loads(value)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as exc:
+            _log_unreadable_classification("ACMG classification", exc)
+            return None
+        if value is None:  # a stored JSON null is no record, not a broken one
             return None
     try:
         return AcmgClassificationPayload.model_validate(value)
-    except Exception:  # noqa: BLE001 - tolerate legacy/partial blobs
+    except Exception as exc:  # noqa: BLE001 - served as unreadable, never raised
+        _log_unreadable_classification("ACMG classification", exc)
         return None

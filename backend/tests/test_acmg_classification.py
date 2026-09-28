@@ -1,4 +1,5 @@
 import json
+import logging
 
 import pytest
 from fastapi import HTTPException
@@ -132,6 +133,68 @@ def test_blob_round_trips_through_storage_helpers() -> None:
 def test_acmg_json_or_none_returns_none_for_empty() -> None:
     assert _acmg_json_or_none(None) is None
     assert _deserialize_acmg(None) is None
+
+
+# A stored blob that no longer validates: `code` must be a string. The value is free
+# text, the kind of thing that must never be copied into a log.
+_UNREADABLE_ACMG = {"criteria": [{"code": {"note": "private curation text"}, "strength": "strong"}]}
+
+
+def test_an_unreadable_stored_classification_is_logged_without_its_values(caplog) -> None:
+    # #514: this used to become None silently — indistinguishable from "never classified".
+    with caplog.at_level(logging.ERROR):
+        assert _deserialize_acmg(json.dumps(_UNREADABLE_ACMG)) is None
+        assert _deserialize_acmg("{not json") is None
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(messages) == 2
+    assert "criteria.0.code: string_type" in messages[0]
+    assert "JSONDecodeError" in messages[1]
+    assert "private curation text" not in caplog.text
+
+
+def test_a_stored_json_null_is_no_classification_and_not_an_error(caplog) -> None:
+    with caplog.at_level(logging.ERROR):
+        assert _deserialize_acmg("null") is None
+    assert not [r for r in caplog.records if r.levelno == logging.ERROR]
+
+
+def test_the_review_marks_an_unreadable_classification_instead_of_dropping_it(caplog) -> None:
+    from backend.app.services.small_variant_review_pg import _serialize_review
+
+    stored = {"variant_id": "1-2000-C-T", "classification": "acmg_class_4"}
+    with caplog.at_level(logging.ERROR):
+        broken = _serialize_review({**stored, "acmg": json.dumps(_UNREADABLE_ACMG)})
+    assert broken.acmg is None
+    assert broken.acmg_unreadable is True
+    # The editor can warn before an overwrite; the class itself is still served.
+    assert broken.classification == "acmg_class_4"
+
+    never = _serialize_review({**stored, "acmg": None})
+    assert never.acmg is None and never.acmg_unreadable is False
+
+    payload = AcmgClassificationPayload(criteria=[crit("PVS1", "very_strong")])
+    blob, _, _ = _normalize_acmg_payload(payload)
+    readable = _serialize_review({**stored, "acmg": _acmg_json_or_none(blob)})
+    assert readable.acmg is not None and readable.acmg_unreadable is False
+
+
+def test_the_structural_review_marks_an_unreadable_cnv_classification(caplog) -> None:
+    from backend.app.services.structural_variant_review_pg import (
+        _deserialize_cnv_acmg,
+        _serialize_review as _serialize_structural_review,
+    )
+
+    unreadable = {"kind": "sideways", "criteria": [{"code": "1A", "evidence": "private curation text"}]}
+    with caplog.at_level(logging.ERROR):
+        assert _deserialize_cnv_acmg(unreadable) is None
+        review = _serialize_structural_review({"variant_id": "DEL-1-1000-2000", "cnv_acmg": unreadable})
+    assert review.cnv_acmg is None
+    assert review.acmg_unreadable is True
+    assert "kind: literal_error" in caplog.text
+    assert "private curation text" not in caplog.text
+
+    clean = _serialize_structural_review({"variant_id": "DEL-1-1000-2000", "cnv_acmg": {"kind": "loss"}})
+    assert clean.cnv_acmg is not None and clean.acmg_unreadable is False
 
 
 def test_no_accepted_criteria_classifies_as_vus_not_pathogenic_or_benign() -> None:

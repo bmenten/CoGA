@@ -601,12 +601,21 @@ class ReportSignoutListOut(BaseModel):
     signouts: List[ReportSignoutSummary] = Field(default_factory=list)
 
 
+class ReportSnapshotGapOut(BaseModel):
+    """A part of a signed snapshot that was frozen as unavailable, and why (#514)."""
+
+    section: str
+    item: str
+    reason: str
+
+
 class ReportSignoutCheckOut(BaseModel):
     """Whether the report, as it would be signed now, matches the latest sign-out.
 
     ``matches`` is None when the family has never been signed out. ``changed_sections``
     names the snapshot sections whose content differs from the signed one;
-    ``not_compared`` those the signed snapshot predates and so cannot be compared.
+    ``not_compared`` those the signed snapshot predates and so cannot be compared;
+    ``not_captured`` the parts the signed snapshot records as unavailable.
     """
 
     family_id: str
@@ -615,6 +624,7 @@ class ReportSignoutCheckOut(BaseModel):
     matches: Optional[bool] = None
     changed_sections: List[str] = Field(default_factory=list)
     not_compared: List[str] = Field(default_factory=list)
+    not_captured: List[ReportSnapshotGapOut] = Field(default_factory=list)
     checked_at: datetime
 
 
@@ -1661,6 +1671,10 @@ class GeneProfileOut(BaseModel):
 
 class MonarchRefreshSummaryOut(BaseModel):
     release_version: Optional[str] = None
+    # A new Monarch release re-versions the generated Mendeliome panel; a failure there
+    # used to be only a log warning (#514).
+    mendeliome_regenerated: bool = True
+    mendeliome_error: Optional[str] = None
     files_loaded: int = 0
     gene_disease_pairs: int = 0
     genes: int = 0
@@ -2071,6 +2085,10 @@ class SmallVariantReviewOut(BaseModel):
     acmg: Optional[AcmgClassificationPayload] = None
     # CNV (ClinGen) classification — only populated for structural-variant reviews.
     cnv_acmg: Optional[CnvAcmgClassificationPayload] = None
+    # A classification record is stored but no longer validates, so ``acmg`` /
+    # ``cnv_acmg`` is None although one exists — told apart from "never classified" so
+    # the editor can warn before it is overwritten (#514).
+    acmg_unreadable: bool = False
 
 
 class SmallVariantReviewUpdate(BaseModel):

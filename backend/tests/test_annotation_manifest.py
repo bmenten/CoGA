@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import types
 
 from backend.app.services import annotation_manifest_service as ams
@@ -129,3 +130,76 @@ def test_known_modules_keep_their_curated_label() -> None:
     assert _MODULE_LABELS["glnexus"] == "GLnexus"
     assert _MODULE_LABELS["ensemblvep"] == "Ensembl VEP"
     assert _MODULE_LABELS["nf-core/lrsvar"] == "nf-core/lrsvar"
+
+
+class _Savepoint:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False  # a failure inside still propagates, as with a real SAVEPOINT
+
+
+class _ProvenanceResult:
+    def __init__(self, *, row=None, scalar=None):
+        self._row, self._scalar = row, scalar
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self._row
+
+    def scalar(self):
+        return self._scalar
+
+
+class _ProvenanceSession:
+    """Answers the two platform-module lookups, or fails them all."""
+
+    def __init__(self, *, fail: bool) -> None:
+        self.fail = fail
+        self.savepoints = 0
+
+    def begin_nested(self):
+        self.savepoints += 1
+        return _Savepoint()
+
+    async def execute(self, statement, params=None):
+        if self.fail:
+            raise RuntimeError('relation "monarch_gene_disease" does not exist')
+        if "FROM assemblies" in str(statement):
+            return _ProvenanceResult(row={"assembly_name": "GRCh38", "version": "p14", "release_date": None})
+        return _ProvenanceResult(scalar="2026-03-01")
+
+
+_ASSEMBLY_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def test_platform_modules_read_the_reference_versions() -> None:
+    session = _ProvenanceSession(fail=False)
+    modules = asyncio.run(ams._platform_modules(session, _ASSEMBLY_ID))
+    assert modules == {
+        "assembly": {"version": "GRCh38", "detail": "p14"},
+        "monarch": {"version": "2026-03-01"},
+    }
+
+
+def test_a_failed_platform_lookup_is_recorded_not_dropped(caplog) -> None:
+    # #514: these lookups run inside sign-out. A bare `except: pass` left the module
+    # out of the frozen record without a trace — the pattern that once hid a total
+    # failure to write the manifest.
+    session = _ProvenanceSession(fail=True)
+    with caplog.at_level(logging.WARNING, logger=ams.logger.name):
+        modules = asyncio.run(ams._platform_modules(session, _ASSEMBLY_ID))
+
+    marker = {"version": ams.UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
+    assert modules == {"assembly": marker, "monarch": marker}
+    # Each lookup is its own savepoint, so a failed statement cannot abort the
+    # sign-out transaction around it.
+    assert session.savepoints == 2
+    assert "Reference-assembly provenance lookup failed" in caplog.text
+    assert "Monarch-release provenance lookup failed" in caplog.text
+    # The manifest (and so the report footer and the snapshot) shows them as such.
+    listed = {m["key"]: (m["version"], m["detail"]) for m in ams._module_list({}, modules)}
+    assert listed == {"assembly": ("unavailable", "lookup failed"), "monarch": ("unavailable", "lookup failed")}

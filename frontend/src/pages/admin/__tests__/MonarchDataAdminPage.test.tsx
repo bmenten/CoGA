@@ -71,6 +71,41 @@ describe('MonarchDataAdminPage', () => {
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/monarch/refresh'));
     expect(await screen.findByText(/updated to monarch release 2026-04-01/i)).toBeInTheDocument();
+    // A summary from before the Mendeliome outcome was reported is a plain success.
+    expect(screen.getByRole('status')).toHaveClass('status-note--success');
+    expect(screen.queryByText(/not regenerated/)).not.toBeInTheDocument();
+  });
+
+  it('warns when the Mendeliome was not regenerated after the refresh (#514)', async () => {
+    (api.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: {
+        release_version: '2026-04-01',
+        files_loaded: 4,
+        gene_disease_pairs: 13300,
+        genes: 5470,
+        diseases: 8910,
+        causal_pairs: 7250,
+        disease_phenotype_pairs: 246000,
+        phenotype_diseases: 11240,
+        phenotypes: 9010,
+        excluded_phenotype_pairs: 0,
+        completed_at: '2026-04-15T12:00:00Z',
+        duration_seconds: 2.5,
+        mendeliome_regenerated: false,
+        mendeliome_error: 'RuntimeError',
+      },
+    });
+
+    renderPage();
+    await screen.findByText('2026-03-01');
+    fireEvent.click(screen.getByRole('button', { name: /update monarch data/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/updated to monarch release 2026-04-01/i);
+    expect(alert).toHaveTextContent(
+      /The Mendeliome panel was not regenerated \(RuntimeError\) — it still reflects the previous release/,
+    );
+    expect(alert).toHaveClass('status-note--warning');
   });
 
   it('searches diseases and shows linked genes and phenotypes', async () => {

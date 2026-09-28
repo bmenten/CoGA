@@ -68,6 +68,29 @@ describe('CnvAcmgClassificationModal', () => {
     expect(saved?.classification).toBe(acmg?.classification);
   });
 
+  it('warns before an unreadable stored CNV classification is overwritten (#514)', () => {
+    render(
+      <CnvAcmgClassificationModal
+        variant={{
+          ...variant,
+          review: {
+            variant_id: variant._id,
+            tags: [],
+            tag_metadata: {},
+            cnv_acmg: null,
+            acmg_unreadable: true,
+          },
+        }}
+        onClose={vi.fn()}
+        onSave={noop}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /The CNV classification stored for this variant could not be read.*Saving replaces it/,
+    );
+  });
+
   it('calls onClose from Cancel', async () => {
     const onClose = vi.fn();
     render(<CnvAcmgClassificationModal variant={variant} onClose={onClose} onSave={noop} />);
