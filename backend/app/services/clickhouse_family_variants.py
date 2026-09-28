@@ -239,18 +239,24 @@ async def _fetch_panel_constraints(
     for row in gene_result.mappings().all():
         _append_unique(genes, row.get("gene_symbol"))
 
-    region_result = await session.execute(
-        text(
-            """
-            SELECT gene, chr, start, "end"
-            FROM gene_panel_regions
-            WHERE panel_id = CAST(:panel_id AS uuid)
-            ORDER BY gene, chr, start, "end"
-            """
-        ),
-        {"panel_id": panel_id},
-    )
-    region_rows = [dict(row) for row in region_result.mappings().all()]
+    # Stored regions are per assembly: only the family's own assembly's coordinates may
+    # constrain its variants. Without a resolved assembly none can be trusted, and the
+    # panel narrows by gene symbol alone (#515).
+    region_rows: list[dict[str, Any]] = []
+    if assembly_id:
+        region_result = await session.execute(
+            text(
+                """
+                SELECT gene, chr, start, "end"
+                FROM gene_panel_regions
+                WHERE panel_id = CAST(:panel_id AS uuid)
+                  AND assembly_id = CAST(:assembly_id AS uuid)
+                ORDER BY gene, chr, start, "end"
+                """
+            ),
+            {"panel_id": panel_id, "assembly_id": assembly_id},
+        )
+        region_rows = [dict(row) for row in region_result.mappings().all()]
     regions = [
         Region(chr=row["chr"], start=int(row["start"]), end=int(row["end"]))
         for row in region_rows

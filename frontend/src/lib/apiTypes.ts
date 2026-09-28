@@ -933,6 +933,9 @@ export interface GeneLocation {
   chr: string;
   start: number;
   end: number;
+  // The assembly these coordinates belong to: panel regions are stored per assembly (#515).
+  assembly_id?: string | null;
+  assembly?: string | null;
 }
 
 export interface GenePanel {

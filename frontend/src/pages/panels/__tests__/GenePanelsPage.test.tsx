@@ -52,6 +52,39 @@ describe('GenePanelsPage', () => {
     expect(screen.queryByRole('button', { name: /create/i })).not.toBeInTheDocument();
   });
 
+  it('gives the panel size per assembly, not summed across them (#515)', async () => {
+    localStorage.setItem('role', 'viewer');
+    (api.get as any).mockResolvedValueOnce({
+      data: [
+        {
+          _id: '2',
+          name: 'PanelB',
+          genes: ['BRCA1'],
+          gene_count: 1,
+          regions: [
+            { gene: 'BRCA1', chr: '17', start: 0, end: 20000, assembly: 'T2T-CHM13v2.0' },
+            { gene: 'BRCA1', chr: '17', start: 0, end: 10000, assembly: 'GRCh38' },
+          ],
+          created_by: 'admin-id',
+          created_at: '2026-04-28T08:00:00Z',
+          source: 'local',
+        },
+      ],
+    });
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <GenePanelsPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(
+      await screen.findByText('10.00 kb (GRCh38) · 20.00 kb (T2T-CHM13v2.0)'),
+    ).toBeInTheDocument();
+  });
+
   it('shows server message when creation returns warning', async () => {
     localStorage.setItem('role', 'admin');
     (api.post as any).mockResolvedValueOnce({

@@ -51,10 +51,15 @@ async def test_panel_constraints_include_family_assembly_gene_regions() -> None:
         ("2", 100, 200),
     ]
     assert any("FROM genes" in statement for statement in session.statements)
+    # #515: stored regions are read for the family's own assembly only.
+    stored = next(s for s in session.statements if "FROM gene_panel_regions" in s)
+    assert "assembly_id = CAST(:assembly_id AS uuid)" in stored
 
 
 @pytest.mark.asyncio
-async def test_panel_constraints_skip_dynamic_regions_without_assembly() -> None:
+async def test_panel_constraints_use_no_coordinates_without_an_assembly() -> None:
+    # Without a resolved assembly no stored coordinates can be trusted — they belong to
+    # some assembly, not necessarily the family's (#515). The panel narrows by gene alone.
     session = _PanelConstraintSession()
 
     constraints = await _fetch_panel_constraints(
@@ -62,7 +67,7 @@ async def test_panel_constraints_skip_dynamic_regions_without_assembly() -> None
         "d67e635c-7d98-4495-8b3c-153f5007561b",
     )
 
-    assert [(region.chr, region.start, region.end) for region in constraints.regions] == [
-        ("1", 10, 20),
-    ]
+    assert constraints.genes == ("GENE1",)
+    assert constraints.regions == ()
+    assert not any("FROM gene_panel_regions" in statement for statement in session.statements)
     assert not any("FROM genes" in statement for statement in session.statements)

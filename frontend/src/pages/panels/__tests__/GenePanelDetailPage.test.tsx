@@ -95,6 +95,31 @@ describe('GenePanelDetailPage', () => {
     expect(within(regionsTable).getByText('BRCA2')).toBeInTheDocument();
   });
 
+  it('shows which assembly each region belongs to (#515)', async () => {
+    vi.mocked(api.get).mockImplementation((url: string) =>
+      url.endsWith('/versions')
+        ? Promise.resolve({ data: versionsPayload })
+        : Promise.resolve({
+            data: {
+              ...panelData,
+              regions: [
+                { gene: 'BRCA1', chr: '17', start: 43044295, end: 43125483, assembly_id: 'a', assembly: 'GRCh38' },
+                { gene: 'BRCA1', chr: '17', start: 44000000, end: 44100000, assembly_id: 'b', assembly: 'T2T-CHM13v2.0' },
+              ],
+            },
+          }),
+    );
+    renderPage();
+
+    const regionsTable = (await screen.findByPlaceholderText('Filter gene')).closest('table') as HTMLElement;
+    await waitFor(() => expect(within(regionsTable).getByText('GRCh38')).toBeInTheDocument());
+    expect(within(regionsTable).getByText('T2T-CHM13v2.0')).toBeInTheDocument();
+
+    await userEvent.type(screen.getByPlaceholderText('Filter assembly'), 'T2T');
+    expect(within(regionsTable).queryByText('GRCh38')).not.toBeInTheDocument();
+    expect(within(regionsTable).getByText('44000000')).toBeInTheDocument();
+  });
+
   it('shows the version chip and archived version history', async () => {
     renderPage();
 

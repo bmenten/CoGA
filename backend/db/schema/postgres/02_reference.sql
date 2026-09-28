@@ -238,15 +238,59 @@ CREATE TABLE IF NOT EXISTS gene_panel_genes (
 -- ---------------------------------------------------------------------------
 -- gene_panel_regions
 -- ---------------------------------------------------------------------------
+-- A panel's coordinates, one row per gene (or PanelApp region) per assembly. A family's
+-- panel filter reads only its own assembly's rows (#515, TF-06 H12). The mtDNA has the
+-- same coordinates in GRCh38 and T2T, so the assembly is part of the key.
 CREATE TABLE IF NOT EXISTS gene_panel_regions (
     panel_id uuid NOT NULL,
+    assembly_id uuid NOT NULL,
     gene text NOT NULL,
     chr text NOT NULL,
     start bigint NOT NULL,
     "end" bigint NOT NULL,
-    CONSTRAINT gene_panel_regions_pkey PRIMARY KEY (panel_id, gene, chr, start, "end"),
-    CONSTRAINT gene_panel_regions_panel_id_fkey FOREIGN KEY (panel_id) REFERENCES gene_panels(id) ON DELETE CASCADE
+    CONSTRAINT gene_panel_regions_pkey PRIMARY KEY (panel_id, assembly_id, gene, chr, start, "end"),
+    CONSTRAINT gene_panel_regions_panel_id_fkey FOREIGN KEY (panel_id) REFERENCES gene_panels(id) ON DELETE CASCADE,
+    CONSTRAINT gene_panel_regions_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
 );
+
+-- Upgrade a table created before regions were scoped by assembly (#515). A row copied
+-- from the gene reference is attributed to the assembly whose gene record it matches
+-- exactly; a row that matches none (PanelApp's own coordinates) cannot be attributed
+-- safely and is dropped: the panel's gene list is untouched, the family filter resolves
+-- gene loci per assembly at query time, and a re-import restores PanelApp coordinates.
+-- A no-op once the column exists.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'gene_panel_regions'
+          AND column_name = 'assembly_id'
+    ) THEN
+        ALTER TABLE gene_panel_regions ADD COLUMN assembly_id uuid;
+        UPDATE gene_panel_regions r
+        SET assembly_id = (
+            SELECT g.assembly_id
+            FROM genes g
+            WHERE upper(g.hgnc_symbol) = upper(r.gene)
+              AND g.chr = r.chr
+              AND g.start = r.start
+              AND g."end" = r."end"
+            ORDER BY g.assembly_id
+            LIMIT 1
+        );
+        DELETE FROM gene_panel_regions WHERE assembly_id IS NULL;
+        ALTER TABLE gene_panel_regions ALTER COLUMN assembly_id SET NOT NULL;
+        ALTER TABLE gene_panel_regions DROP CONSTRAINT gene_panel_regions_pkey;
+        ALTER TABLE gene_panel_regions
+            ADD CONSTRAINT gene_panel_regions_pkey
+            PRIMARY KEY (panel_id, assembly_id, gene, chr, start, "end");
+        ALTER TABLE gene_panel_regions
+            ADD CONSTRAINT gene_panel_regions_assembly_id_fkey
+            FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE;
+    END IF;
+END
+$$;
 
 -- ---------------------------------------------------------------------------
 -- gene_panel_versions  (034)
