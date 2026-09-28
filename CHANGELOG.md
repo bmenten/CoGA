@@ -155,6 +155,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Frontend production image** — the build toolchain (vite, typescript, `@types/*`) moved to
   devDependencies, so the production image no longer installs it; its `node_modules` drops
   from 119 to 61 MB. No dependency version changed (#553).
+- **Backend runtime: Python 3.12** — the backend image, CI and the lock scripts move from Python
+  3.10, which reaches end of life on 2026-10-31, to Python 3.12 (3.12.14; security fixes until
+  October 2028). No dependency version changed; the lock drops four backports only 3.10 needed
+  (#555).
 
 ### Removed
 

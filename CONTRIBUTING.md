@@ -30,7 +30,7 @@ or identifiable material to a branch, test fixture, issue or PR — including in
 
 ## Getting set up
 
-**Node 22** (floor `22.22.0`, see [`.nvmrc`](.nvmrc)) and **Python 3.10**.
+**Node 22** (floor `22.22.0`, see [`.nvmrc`](.nvmrc)) and **Python 3.12**.
 
 ```bash
 nvm use                      # reads .nvmrc

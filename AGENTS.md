@@ -9,7 +9,7 @@
 
 ## Environment & Setup
 
-- Requires Docker & Docker Compose, Python 3.10 (what CI and the backend image run), and Node.js 22 (at least 22.22.0, the `engines` floor in `frontend/package.json`).
+- Requires Docker & Docker Compose, Python 3.12 (what CI and the backend image run), and Node.js 22 (at least 22.22.0, the `engines` floor in `frontend/package.json`).
 - Copy `.env.example` (which lists every setting with its default) to `.env` and populate the secrets. Outside development the backend **refuses to start on placeholder or weak secrets**: `SECRET_KEY` shorter than 32 characters, a missing or malformed `INTEGRITY_ANCHOR_SIGNING_KEY`, or a placeholder Postgres, ClickHouse or admin password.
 - Start services with `docker compose up --build -d` and access:
   - Backend API: `http://localhost:8000/docs` (served only with `APP_ENV=development`)
