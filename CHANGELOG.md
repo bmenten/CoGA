@@ -237,6 +237,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   captured. A stored ACMG or CNV classification that no longer validates is logged and flagged, and
   the classification editor warns before it is overwritten. A Mendeliome that failed to regenerate
   after a Monarch refresh is reported to the admin instead of only logged (#541).
+- **Validated assembly scope** — a report on a reference assembly outside the validated scope
+  (`VALIDATED_ASSEMBLIES`, default GRCh38; T2T-CHM13 is out of scope) can no longer be signed out,
+  with no override, and every family page and the report label such a family *Not validated for
+  clinical use*. Comma-separated `FAMILY_IMPORT_ROOTS` and `CORS_ORIGINS` values set as real
+  environment variables no longer fail at startup (#542).
 
 ### Security
 
