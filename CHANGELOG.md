@@ -168,6 +168,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   under floors of its own, and runs the browser journeys against the production bundle and server,
   failing on any CSP violation. The unit coverage floors are raised and the Playwright specs are
   catalogued (#567).
+- **API models split by domain** — the 3,000-line `backend/app/schemas.py` is now a `schemas/`
+  package with one module per domain, all re-exported, so imports are unchanged. The OpenAPI
+  document is byte-identical (#571).
 
 ### Removed
 

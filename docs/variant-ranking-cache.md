@@ -144,4 +144,4 @@ its inputs.
   `_serve_subpanel_from_superset`, `precompute_family_ranking_safe`)
 - Warming hooks: `app/routers/families.py`, `app/routers/ped.py`
 - Re-import clear: `app/services/family_package_import.py`
-- Response fields: `VariantPage.ranking_cached` / `ranking_computed_at` in `app/schemas.py`
+- Response fields: `VariantPage.ranking_cached` / `ranking_computed_at` in `app/schemas/variants.py`
