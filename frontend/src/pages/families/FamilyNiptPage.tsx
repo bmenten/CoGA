@@ -13,11 +13,11 @@ import {
   lowCoverageDetail,
   pct,
 } from './niptClassification';
+import { parseCommaSeparatedValues } from '../../lib/sampleFilterState';
 import {
   buildPresetPayload,
   NIPT_BUILT_IN_PRESETS,
   normalizeReviewClassification,
-  parseCommaSeparatedValues,
   parsePedigree,
   useSmallVariantSearchState,
   type GenePanel,

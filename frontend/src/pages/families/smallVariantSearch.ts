@@ -5,7 +5,10 @@ import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { logUiEvent } from '../../lib/telemetry';
 import {
+  describeGenotypeSelection,
   hasNonDefaultGenotypeSelection,
+  joinFilterValues,
+  parseCommaSeparatedValues,
   parseSerializedGenotypeSelection,
 } from '../../lib/sampleFilterState';
 import { parseGeneOrRegionInput } from '../../lib/variantSearch';
@@ -645,15 +648,6 @@ export const MULTI_VALUE_FILTER_KEYS = new Set<
   'category',
 ]);
 
-export const parseCommaSeparatedValues = (value: string) =>
-  value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-export const joinFilterValues = (values: Iterable<string>) =>
-  Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean))).join(', ');
-
 const cloneSingleSampleFilter = (
   filter?: Partial<SmallVariantSampleFilter> | null,
 ): SmallVariantSampleFilter => ({
@@ -1072,13 +1066,7 @@ const hasActiveSampleFilter = (filter: SmallVariantSampleFilter) => {
   return hasNonDefaultGenotypeSelection(filter.gt, ALL_GT_GROUPS);
 };
 
-const describeGenotypeSelection = (selection: string[]) => {
-  const labels: string[] = [];
-  if (HOM_GT_GROUP.every((gt) => selection.includes(gt))) labels.push('Hom');
-  if (HET_GT_GROUP.every((gt) => selection.includes(gt))) labels.push('Het');
-  if (REF_GT_GROUP.every((gt) => selection.includes(gt))) labels.push('WT');
-  return labels.length ? labels.join(' / ') : 'No genotype';
-};
+const SMALL_GT_GROUPS = { hom: HOM_GT_GROUP, het: HET_GT_GROUP, ref: REF_GT_GROUP };
 
 // `members` is expected proband-first (the search-state hook sorts it once via
 // useMemo); this intentionally does not re-sort per variant row.
@@ -1318,7 +1306,7 @@ export const buildActiveFilterChips = (
     if (hasNonDefaultGenotypeSelection(filter.gt, ALL_GT_GROUPS)) {
       chips.push({
         id: `sample:${member.sample_id}:gt`,
-        label: `${member.sample_id}: ${describeGenotypeSelection(filter.gt)}`,
+        label: `${member.sample_id}: ${describeGenotypeSelection(filter.gt, SMALL_GT_GROUPS)}`,
         kind: 'sample-gt',
         sample: member.sample_id,
       });

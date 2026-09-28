@@ -6,7 +6,10 @@ import { compareChromosomes } from '../../lib/chromosomes';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { parseGeneOrRegionInput } from '../../lib/variantSearch';
 import {
+  describeGenotypeSelection,
   hasNonDefaultGenotypeSelection,
+  joinFilterValues,
+  parseCommaSeparatedValues,
   parseSerializedGenotypeSelection,
 } from '../../lib/sampleFilterState';
 import type {
@@ -240,25 +243,10 @@ export const createEmptyStructuralFilters = (): StructuralFilterState => ({
   prioritize: 'true',
 });
 
-const parseCommaSeparatedValues = (value: string) =>
-  value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-const joinFilterValues = (values: Iterable<string>) =>
-  Array.from(new Set(values))
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b))
-    .join(', ');
-
-const describeGenotypeSelection = (selection: string[]) => {
-  const labels: string[] = [];
-  if (STRUCTURAL_HOM_GT_GROUP.every((gt) => selection.includes(gt))) labels.push('Hom');
-  if (STRUCTURAL_HET_GT_GROUP.every((gt) => selection.includes(gt))) labels.push('Het');
-  if (STRUCTURAL_REF_GT_GROUP.every((gt) => selection.includes(gt))) labels.push('WT');
-  return labels.length ? labels.join(' / ') : 'No genotype';
+const STRUCTURAL_GT_GROUPS = {
+  hom: STRUCTURAL_HOM_GT_GROUP,
+  het: STRUCTURAL_HET_GT_GROUP,
+  ref: STRUCTURAL_REF_GT_GROUP,
 };
 
 const buildDefaultSampleFilters = (
@@ -276,12 +264,9 @@ const buildDefaultSampleFilters = (
     ]),
   );
 
-const cloneSampleFilters = (filters: Record<string, StructuralSampleFilter>) =>
+const cloneSampleFilters = (filters: Record<string, Partial<StructuralSampleFilter>>) =>
   Object.fromEntries(
-    Object.entries(filters).map(([sample, filter]) => [
-      sample,
-      { ...filter, gt: [...filter.gt] },
-    ]),
+    Object.entries(filters).map(([sample, filter]) => [sample, cloneSingleSampleFilter(filter)]),
   );
 
 const buildPresetSampleFilters = (
@@ -348,11 +333,18 @@ const hasActiveSampleFilter = (filter: StructuralSampleFilter) => {
   return hasNonDefaultGenotypeSelection(filter.gt, STRUCTURAL_ALL_GT_GROUPS);
 };
 
-const cloneSingleSampleFilter = (filter: StructuralSampleFilter): StructuralSampleFilter => ({
-  gt: [...filter.gt],
-  qual: filter.qual,
-  read_support: filter.read_support,
-  filter: filter.filter,
+// Defensive, like the small-variant clone (#528): a partial filter, e.g. one without `gt`,
+// gets the defaults instead of throwing on the spread.
+export const cloneSingleSampleFilter = (
+  filter?: Partial<StructuralSampleFilter> | null,
+): StructuralSampleFilter => ({
+  gt:
+    filter?.gt && Array.isArray(filter.gt) && filter.gt.length
+      ? filter.gt.map((value) => String(value))
+      : [...STRUCTURAL_ALL_GT_GROUPS],
+  qual: filter?.qual ? String(filter.qual) : '',
+  read_support: filter?.read_support ? String(filter.read_support) : '',
+  filter: filter?.filter ? String(filter.filter) : '',
 });
 
 const serializeStructuralPresetFilters = (filters: StructuralFilterState) =>
@@ -380,14 +372,7 @@ const resolveStructuralSampleFiltersFromPreset = (
   const base = buildDefaultSampleFilters(members);
   Object.entries(preset.sample_filters || {}).forEach(([sample, raw]) => {
     if (!base[sample] || !raw || typeof raw !== 'object') return;
-    const value = raw as Partial<StructuralSampleFilter>;
-    base[sample] = {
-      gt: Array.isArray(value.gt) && value.gt.length ? value.gt.map(String) : base[sample].gt,
-      qual: typeof value.qual === 'string' ? value.qual : base[sample].qual,
-      read_support:
-        typeof value.read_support === 'string' ? value.read_support : base[sample].read_support,
-      filter: typeof value.filter === 'string' ? value.filter : base[sample].filter,
-    };
+    base[sample] = cloneSingleSampleFilter(raw as Partial<StructuralSampleFilter>);
   });
   return base;
 };
@@ -497,7 +482,7 @@ const buildActiveFilterChips = (
     if (hasNonDefaultGenotypeSelection(filter.gt, STRUCTURAL_ALL_GT_GROUPS)) {
       chips.push({
         id: `sample:${member.sample_id}:gt`,
-        label: `${member.sample_id}: ${describeGenotypeSelection(filter.gt)}`,
+        label: `${member.sample_id}: ${describeGenotypeSelection(filter.gt, STRUCTURAL_GT_GROUPS)}`,
         kind: 'sample-gt',
         sample: member.sample_id,
       });
