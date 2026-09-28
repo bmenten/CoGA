@@ -284,6 +284,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   stack could not connect. It now names a `coga` user with a placeholder password (#553).
 - **Frontend server path** — `server.mjs` answered every page with a 404 when installed under a
   path that runs through a dot-directory; it now serves `index.html` from its build directory (#567).
+- **Structural-variant filters** — the structural-variant search now shares the small-variant
+  search's filter-value helpers. A value typed with a stray space no longer appears twice, and a
+  sample filter without a genotype selection gets the defaults instead of throwing (#569).
 
 ### Security
 

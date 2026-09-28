@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ChangeEvent, SyntheticEvent } from 'react';
+import { joinFilterValues, parseCommaSeparatedValues } from '../../lib/sampleFilterState';
 import {
   ALL_GT_GROUPS,
   BUILT_IN_SMALL_PRESETS,
@@ -7,8 +8,6 @@ import {
   REVIEW_CLASSIFICATION_OPTIONS,
   sortTagDefinitions,
   resolveCarrierScreeningCoupleMembers,
-  parseCommaSeparatedValues,
-  joinFilterValues,
   type ActiveSmallFilterChip,
   type FamilyMember,
   type GenePanel,

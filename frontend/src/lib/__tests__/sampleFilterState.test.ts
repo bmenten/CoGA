@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  describeGenotypeSelection,
   hasNonDefaultGenotypeSelection,
+  joinFilterValues,
+  parseCommaSeparatedValues,
   parseExplicitSampleFilterMap,
   parseSerializedGenotypeSelection,
 } from '../sampleFilterState';
@@ -58,5 +61,33 @@ describe('sampleFilterState', () => {
 
   it('returns an empty map when no sample filter is set', () => {
     expect(parseExplicitSampleFilterMap(new URLSearchParams('sample=KID1'))).toEqual({});
+  });
+});
+
+// One implementation for every variant search (#528); the copies had diverged.
+describe('comma-separated filter values', () => {
+  it('parses a list, trimming entries and dropping empty ones', () => {
+    expect(parseCommaSeparatedValues(' HIGH, ,MODERATE ,')).toEqual(['HIGH', 'MODERATE']);
+    expect(parseCommaSeparatedValues('')).toEqual([]);
+  });
+
+  it('joins values in first-seen order, deduplicated after trimming', () => {
+    expect(joinFilterValues(['b', ' a', 'a', 'b ', ''])).toBe('b, a');
+    expect(joinFilterValues(new Set(['pathogenic', 'likely_pathogenic']))).toBe(
+      'pathogenic, likely_pathogenic',
+    );
+  });
+});
+
+describe('describeGenotypeSelection', () => {
+  const groups = { hom: ['1/1'], het: ['0/1', '1/0'], ref: ['0/0'] };
+
+  it('names every group the selection fully covers', () => {
+    expect(describeGenotypeSelection(['1/1', '0/1', '1/0'], groups)).toBe('Hom / Het');
+    expect(describeGenotypeSelection(['0/0'], groups)).toBe('WT');
+  });
+
+  it('says so when no group is fully covered', () => {
+    expect(describeGenotypeSelection(['0/1'], groups)).toBe('No genotype');
   });
 });
