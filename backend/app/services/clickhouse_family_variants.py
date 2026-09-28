@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Sequence
 from uuid import UUID
@@ -2031,9 +2032,11 @@ async def get_family_small_variants_page(
     track_mode: bool = False,
     track_result_limit: int | None = None,
     count_only: bool = False,
+    max_page_size: int = MAX_VARIANT_PAGE_SIZE,
 ) -> VariantPage:
     # Defensive clamp for non-HTTP/internal callers; the routers also bound page_size.
-    page_size = max(0, min(page_size, MAX_VARIANT_PAGE_SIZE))
+    # Only the CSV export lifts it, to its own bounded cap (#512).
+    page_size = max(0, min(page_size, max_page_size))
     # ...and clamp page: the routers declare it as an unbounded `int`, so a huge page would
     # otherwise force a deep-OFFSET scan+skip on the native/track_mode list path. Done
     # before filters is built so filters.page is bounded everywhere it flows. (#333)
@@ -2422,6 +2425,19 @@ async def get_family_small_variants_page(
 _MAX_SMALL_VARIANT_EXPORT_ROWS = 50_000
 
 
+@dataclass(slots=True)
+class VariantExport:
+    """The rows of a CSV export and whether the filtered result was cut at ``limit``.
+
+    A clinical export must never be silently partial (#512): the caller names the file
+    and tells the user when ``truncated`` is set.
+    """
+
+    rows: list[VariantOut]
+    truncated: bool
+    limit: int
+
+
 async def export_family_small_variants(
     session: AsyncSession,
     *,
@@ -2429,13 +2445,19 @@ async def export_family_small_variants(
     limit: int = _MAX_SMALL_VARIANT_EXPORT_ROWS,
     prioritize: bool = False,
     **filters: Any,
-) -> list[VariantOut]:
+) -> VariantExport:
     """Fetch up to ``limit`` filtered small variants for CSV export.
 
     Reuses :func:`get_family_small_variants_page` with the same filters as the
     table so the export always matches what the user sees, but requests a single
     large page instead of paginating. Compound-het pair groups are flattened in
     alongside single variants.
+
+    The page function clamps page_size to MAX_VARIANT_PAGE_SIZE (10,000) for HTTP
+    callers; before #512 that silently cut this export at 10,000 rows. The export lifts
+    the clamp to its own cap and asks for one row more, so a larger result is reported
+    as truncated rather than cut without a trace. A prioritised export is also truncated
+    when the ranking itself only covers the candidate window.
     """
 
     limit = max(1, min(limit, _MAX_SMALL_VARIANT_EXPORT_ROWS))
@@ -2443,16 +2465,18 @@ async def export_family_small_variants(
         session,
         context=context,
         page=1,
-        page_size=limit,
+        page_size=limit + 1,
         prioritize=prioritize,
         track_mode=False,
+        max_page_size=limit + 1,
         **filters,
     )
     rows: list[VariantOut] = []
     for group in page.variant_groups:
         rows.extend(group.variants)
     rows.extend(page.variants)
-    return rows[:limit]
+    truncated = len(rows) > limit or bool(getattr(page, "ranking_truncated", False))
+    return VariantExport(rows=rows[:limit], truncated=truncated, limit=limit)
 
 
 _MAX_STRUCTURAL_VARIANT_EXPORT_ROWS = 50_000
@@ -2465,12 +2489,13 @@ async def export_family_structural_variants(
     limit: int = _MAX_STRUCTURAL_VARIANT_EXPORT_ROWS,
     prioritize: bool = False,
     **filters: Any,
-) -> list[VariantOut]:
+) -> VariantExport:
     """Fetch up to ``limit`` filtered structural variants for CSV export.
 
     Reuses :func:`get_family_structural_variants_page` with the same filters as the
     table (so ``review_tag=report`` exports exactly the reported set), but requests a
-    single large page instead of paginating.
+    single large page instead of paginating. Lifts the page clamp and reports
+    truncation like :func:`export_family_small_variants` (#512).
     """
 
     limit = max(1, min(limit, _MAX_STRUCTURAL_VARIANT_EXPORT_ROWS))
@@ -2478,12 +2503,15 @@ async def export_family_structural_variants(
         session,
         context=context,
         page=1,
-        page_size=limit,
+        page_size=limit + 1,
         prioritize=prioritize,
         track_mode=False,
+        max_page_size=limit + 1,
         **filters,
     )
-    return page.variants[:limit]
+    rows = list(page.variants)
+    truncated = len(rows) > limit or bool(getattr(page, "ranking_truncated", False))
+    return VariantExport(rows=rows[:limit], truncated=truncated, limit=limit)
 
 
 async def _prioritized_structural_variants_page(
@@ -2726,9 +2754,10 @@ async def get_family_structural_variants_page(
     prioritize: bool = False,
     track_mode: bool = False,
     count_only: bool = False,
+    max_page_size: int = MAX_VARIANT_PAGE_SIZE,
 ) -> VariantPage:
     # Defensive clamp for non-HTTP/internal callers; the routers also bound page_size.
-    page_size = max(0, min(page_size, MAX_VARIANT_PAGE_SIZE))
+    page_size = max(0, min(page_size, max_page_size))
     filters = StructuralVariantQueryFilters(
         page=page,
         page_size=page_size,
