@@ -1,7 +1,7 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import FamilyReportPage from '../FamilyReportPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
@@ -15,14 +15,18 @@ vi.mock('../../../lib/api', () => ({
   default: apiMock,
 }));
 
+const GRCH38_REFERENCE = {
+  speciesName: 'Homo sapiens',
+  assemblyName: 'GRCh38',
+  assemblyValidated: true as boolean | undefined,
+  assemblyVersion: 'p14',
+  projectId: undefined,
+  isLoading: false,
+};
+const referenceMock = vi.hoisted(() => ({ value: undefined as unknown }));
+
 vi.mock('../../../lib/reference', () => ({
-  useFamilyReference: () => ({
-    speciesName: 'Homo sapiens',
-    assemblyName: 'GRCh38',
-    assemblyVersion: 'p14',
-    projectId: undefined,
-    isLoading: false,
-  }),
+  useFamilyReference: () => referenceMock.value,
   formatResolvedReferenceLabel: ({ assemblyName }: { assemblyName?: string }) =>
     assemblyName || 'Not linked',
 }));
@@ -133,6 +137,10 @@ const renderPage = () =>
   );
 
 describe('FamilyReportPage', () => {
+  beforeEach(() => {
+    referenceMock.value = GRCH38_REFERENCE;
+  });
+
   it('drafts a report for each reported variant with description, criteria, gene and HPO', async () => {
     mockApi();
     renderPage();
@@ -428,6 +436,51 @@ describe('FamilyReportPage', () => {
       acknowledge_qc: true,
       qc_acknowledgement_reason: 'Repeat genotyping confirms identity',
     });
+  });
+
+  it('labels an off-scope assembly and does not offer sign-out (#515)', async () => {
+    referenceMock.value = {
+      ...GRCH38_REFERENCE,
+      assemblyName: 'T2T-CHM13v2.0',
+      assemblyValidated: false,
+    };
+    mockUnsignedFamily();
+    renderPage();
+
+    expect(await screen.findByText(/Not validated for clinical use/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sign out report/ })).toBeDisabled();
+  });
+
+  it('shows the scope refusal as a refusal, never as the drift override (#515)', async () => {
+    mockUnsignedFamily();
+    apiMock.post.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            gate: 'assembly_scope',
+            message: 'This family is on T2T-CHM13v2.0, which is not validated for clinical use.',
+            assembly: 'T2T-CHM13v2.0',
+            validated_assemblies: ['GRCh38'],
+          },
+        },
+      },
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+
+    expect(await screen.findByText(/Not signed out\./)).toBeInTheDocument();
+    expect(screen.getByText(/T2T-CHM13v2\.0, which is not validated/)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows no scope label for a validated assembly', async () => {
+    mockUnsignedFamily();
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: /Sign out report/ })).toBeEnabled();
+    expect(screen.queryByText(/Not validated for clinical use/)).not.toBeInTheDocument();
   });
 
   it('cancelling the QC override does not sign out', async () => {

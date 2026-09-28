@@ -109,6 +109,7 @@
 | REQ-TRACE-006 | Gate sign-out on unacknowledged evidence drift (reject unless explicitly acknowledged). | C | H8 |
 | REQ-TRACE-007 | Render a signed-out report **from the frozen snapshot**, not by re-querying live stores. | C | H9 |
 | REQ-TRACE-008 | Enforce audit/sign-out immutability at the database (append-only trigger; no UPDATE/DELETE). | C | H9 |
+| REQ-TRACE-009 | Refuse sign-out, without an override, for a family whose reference assembly is outside the configured validated set (default GRCh38) or unresolved; label such a family "not validated for clinical use" on the family and report pages. | C | H12 |
 
 ### 3.7 Access control & security (REQ-SEC)
 

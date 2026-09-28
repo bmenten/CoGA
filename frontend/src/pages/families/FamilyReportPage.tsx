@@ -171,8 +171,14 @@ const FamilyReportPage: React.FC = () => {
     [family],
   );
 
-  const { speciesName, assemblyName, assemblyVersion, projectId, isLoading: referenceLoading } =
-    useFamilyReference(family?.projects as string[] | undefined, preferredProjectId);
+  const {
+    speciesName,
+    assemblyName,
+    assemblyValidated,
+    assemblyVersion,
+    projectId,
+    isLoading: referenceLoading,
+  } = useFamilyReference(family?.projects as string[] | undefined, preferredProjectId);
 
   const referenceLabel = formatResolvedReferenceLabel(
     { speciesName, assemblyName, assemblyVersion },
@@ -392,6 +398,21 @@ const FamilyReportPage: React.FC = () => {
         return;
       }
       const detail = response.data?.detail;
+      // Off the validated assembly scope: a refusal with no override, never the drift
+      // dialog that a plain 409 would open (#515).
+      if (
+        detail &&
+        typeof detail === 'object' &&
+        (detail as { gate?: string }).gate === 'assembly_scope'
+      ) {
+        setDriftGate(null);
+        setQcGate(null);
+        setSignOutError(
+          (detail as { message?: string }).message ||
+            'This family is outside the validated assembly scope.',
+        );
+        return;
+      }
       // A failing Sample QC returns a structured detail (gate discriminator + a failure
       // summary); it needs an acknowledge-WITH-REASON override, so open the dialog.
       if (
@@ -512,6 +533,7 @@ const FamilyReportPage: React.FC = () => {
         <p className="report-print-notice print-only">{printNotice}</p>
       ) : null}
       <FamilyPageHeader
+        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
         kicker="Clinical report"
         familyId={familyId}
         family={family}
@@ -526,7 +548,13 @@ const FamilyReportPage: React.FC = () => {
               type="button"
               className="form-button"
               onClick={handleSignOut}
-              disabled={signOut.isPending}
+              // Off the validated scope the server refuses anyway; do not offer it (#515).
+              disabled={signOut.isPending || assemblyValidated === false}
+              title={
+                assemblyValidated === false
+                  ? 'Not validated for clinical use — this report cannot be signed out'
+                  : undefined
+              }
             >
               {signOut.isPending
                 ? 'Signing out…'

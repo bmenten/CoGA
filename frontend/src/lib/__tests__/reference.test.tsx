@@ -30,6 +30,7 @@ const readReference = () =>
     assemblyName?: string;
     assemblyVersion?: string;
     assemblyId?: string;
+    assemblyValidated?: boolean;
     projectId?: string;
     isLoading: boolean;
     hasLinkedProject: boolean;
@@ -83,6 +84,48 @@ describe('useFamilyReference', () => {
     });
   });
 
+  it('carries whether the linked assembly is inside the validated scope (#515)', async () => {
+    apiGetMock.mockResolvedValue({
+      data: [
+        {
+          _id: 'p1',
+          name: 'T2T project',
+          species_name: 'Homo sapiens',
+          assembly_name: 'T2T-CHM13v2.0',
+          assembly_validated: false,
+          families: [],
+          samples: [],
+        },
+        {
+          _id: 'p2',
+          name: 'GRCh38 project',
+          species_name: 'Homo sapiens',
+          assembly_name: 'GRCh38',
+          assembly_validated: true,
+          families: [],
+          samples: [],
+        },
+      ],
+    });
+
+    const queryClient = createTestQueryClient();
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <ReferenceProbe projectIds={['p1']} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(readReference().projectId).toBe('p1'));
+    expect(readReference().assemblyValidated).toBe(false);
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ReferenceProbe projectIds={['p2']} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(readReference().projectId).toBe('p2'));
+    expect(readReference().assemblyValidated).toBe(true);
+  });
+
   it('returns an explicit unlinked state when the family has no linked projects', () => {
     const queryClient = createTestQueryClient();
 
@@ -99,6 +142,8 @@ describe('useFamilyReference', () => {
     });
     expect(readReference().projectId).toBeUndefined();
     expect(readReference().assemblyName).toBeUndefined();
+    // Unknown, not "off scope": no project means nothing to judge yet.
+    expect(readReference().assemblyValidated).toBeUndefined();
     expect(apiGetMock).not.toHaveBeenCalled();
   });
 });

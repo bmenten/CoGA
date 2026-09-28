@@ -11,6 +11,8 @@ export interface FamilyReferenceContext {
   assemblyName?: string;
   assemblyVersion: string;
   assemblyId?: string;
+  /** Inside the validated scope; undefined until a linked project has loaded (#515). */
+  assemblyValidated?: boolean;
   projectId?: string;
   isLoading: boolean;
   hasLinkedProject: boolean;
@@ -100,6 +102,7 @@ export function useFamilyReference(
       assemblyName: undefined,
       assemblyVersion: '',
       assemblyId: undefined as string | undefined,
+      assemblyValidated: undefined,
       projectId: undefined as string | undefined,
       isLoading: false,
       hasLinkedProject: false,
@@ -111,6 +114,7 @@ export function useFamilyReference(
     assemblyName: project?.assembly_name || undefined,
     assemblyVersion: project?.assembly_version || '',
     assemblyId: project?.assembly_id,
+    assemblyValidated: project ? project.assembly_validated === true : undefined,
     projectId: project?.id,
     isLoading,
     hasLinkedProject: true,

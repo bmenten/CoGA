@@ -62,6 +62,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   const {
     speciesName,
     assemblyName,
+    assemblyValidated,
     assemblyVersion,
     projectId,
   } = useFamilyReference(
@@ -279,6 +280,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   return (
     <div className="page-shell analysis-shell">
       <FamilyPageHeader
+        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
         kicker="Small Variants"
         familyId={familyId}
         family={family}

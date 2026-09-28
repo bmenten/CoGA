@@ -534,6 +534,8 @@ export interface ApiProjectRecord<TFamily = ApiFamilySummary> {
   species_name?: string;
   assembly_name?: string;
   assembly_version?: string;
+  // Inside the validated scope (VALIDATED_ASSEMBLIES)? Sign-out refuses a family that is not.
+  assembly_validated?: boolean;
   user_ids?: string[];
   families: TFamily[];
   samples: string[];

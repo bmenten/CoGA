@@ -35,7 +35,7 @@ trained clinical laboratory professionals only**, in an ISO 15189-accredited lab
 2. **Validated upstream pipeline required** — CoGA processes outputs of separately validated/accredited wet-lab and bioinformatics workflows; it does not detect all errors in its inputs.
 3. **Screening vs diagnosis** — NIPT and carrier-screening results are screening; at-risk findings require confirmatory diagnostic testing.
 4. **Inferred genotypes** — NIPT fetal genotype and PGT embryo haplotype are inferred, not observed; **check the QC signals** (fetal fraction & CI, informative-marker count, Mendel-error rate, recombination proximity) before trusting a call.
-5. **Validated scope only** — use only within the validated panels/assays/assemblies/populations (TF-11); use outside is off-label.
+5. **Validated scope only** — use only within the validated panels/assays/assemblies/populations (TF-11); use outside is off-label. The validated reference assembly is **GRCh38**: a family on any other assembly is labelled *Not validated for clinical use* and its report cannot be signed out.
 6. **Sample identity & data integrity** — **review the Sample QC** (relatedness, sex, Mendelian consistency, maternal-lineage) to confirm sample identity and rule out sample swaps/contamination before sign-out — mandatory for family/trio and combined mtDNA/nuclear (mitochondrial) cases.
 7. **Not for** primary variant calling, somatic/oncology use, patient/home use, or non-accredited settings.
 

@@ -126,7 +126,8 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_vcf_header_provenance.py](../backend/tests/test_vcf_header_provenance.py) | VCF/TRGT header provenance parsing — caller/engine/DB versions (VEP/snpEff/bcftools/GATK/DeepVariant/Sniffles/Spectre/TRGT) and cross-modality merge. |
 | [backend/tests/test_classification_drift.py](../backend/tests/test_classification_drift.py) | Evidence-snapshot build and drift detection across annotation versions. |
 | [backend/tests/test_clinical_audit.py](../backend/tests/test_clinical_audit.py) | Clinical-audit diff generation (classification/tags/notes), one event per change. |
-| [backend/tests/test_report_signout.py](../backend/tests/test_report_signout.py) | Sign-out canonical content-hash (order-independent), drift gate (acknowledgement needs a reason), versioning, reported SV/CNV frozen into the snapshot, and the report-vs-latest-sign-out content check (#508). |
+| [backend/tests/test_report_signout.py](../backend/tests/test_report_signout.py) | Sign-out canonical content-hash (order-independent), drift gate (acknowledgement needs a reason), versioning, reported SV/CNV frozen into the snapshot, the report-vs-latest-sign-out content check (#508), and the assembly-scope gate: an unvalidated or unresolved assembly is refused before anything is built or written, whatever else is acknowledged (#515). |
+| [backend/tests/test_assembly_scope.py](../backend/tests/test_assembly_scope.py) | Validated-assembly scope (TF-06 H12, #515): GRCh38 inside by default, T2T/GRCh37/aliases/unknown outside, the scope follows `VALIDATED_ASSEMBLIES`, an empty scope validates nothing, and the refusal message names the assembly and the scope. |
 | [backend/tests/test_hash_chain.py](../backend/tests/test_hash_chain.py) | Tamper-evidence hash-chain primitives (P1-4): canonical determinism, genesis anchoring, and `verify_chain` flagging content tampering / deletion / reordering. |
 | [backend/tests/test_integrity_anchor.py](../backend/tests/test_integrity_anchor.py) | Signed chain-head anchor (P1-4 follow-up): Ed25519 sign/verify round-trip, unsigned fallback, deterministic head sort + order-independent anchor_root, `signed_core` isoformat. |
 | [backend/tests/test_audit_log_pg.py](../backend/tests/test_audit_log_pg.py) | HTTP audit-log event JSONB serialization/storage. |
@@ -276,7 +277,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_coverage_normalization.py](../backend/tests/test_coverage_normalization.py) | Autosomal-median normaliser and the depth→log2-ratio transform that puts three CNV callers' coverage on one axis. |
 | [backend/tests/test_signal_track_router.py](../backend/tests/test_signal_track_router.py) | Signal-file serving for IGV: recorded-path resolution, containment against crafted family ids and paths, and the per-kind axis spec. |
 | [backend/tests/test_admin_clickhouse_listing.py](../backend/tests/test_admin_clickhouse_listing.py) | Admin ClickHouse listing and variant-count aggregation. |
-| [backend/tests/test_config.py](../backend/tests/test_config.py) | CORS-origins config parsing. |
+| [backend/tests/test_config.py](../backend/tests/test_config.py) | Settings parsing: list settings (`CORS_ORIGINS`, `FAMILY_IMPORT_ROOTS`, `VALIDATED_ASSEMBLIES`) read from the real process environment in comma-separated and JSON form, the GRCh38-only validated-assembly default, and build identity. |
 | [backend/tests/test_small_variant_clinvar_frequency_rescue.py](../backend/tests/test_small_variant_clinvar_frequency_rescue.py) | ClinVar P/LP rescue overriding frequency thresholds, in the Python matcher AND the ClickHouse filter (same terms); ClinVar's `Pathogenic/Likely_pathogenic` aggregate split into its terms (#534). |
 | [backend/tests/test_variant_export_truncation.py](../backend/tests/test_variant_export_truncation.py) | CSV exports lift the page clamp to the export cap, report truncation beyond it (incl. a truncated ranking), flatten compound-het groups, and name a truncated file as such (#512). |
 | [backend/tests/test_small_variant_review_payload.py](../backend/tests/test_small_variant_review_payload.py) | Review payload datetime serialization / bigint truncation. |
@@ -352,6 +353,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 ### Shared UI components
 | Test file | Purpose |
 | --- | --- |
+| [frontend/src/components/__tests__/AssemblyScopeBanner.test.tsx](../frontend/src/components/__tests__/AssemblyScopeBanner.test.tsx) | "Not validated for clinical use" label for an off-scope or unlinked assembly; nothing for a validated assembly or while the scope is still loading (#515). |
 | [frontend/src/components/__tests__/Breadcrumbs.test.tsx](../frontend/src/components/__tests__/Breadcrumbs.test.tsx) | Breadcrumb navigation rendering with router context. |
 | [frontend/src/components/__tests__/InfoTip.test.tsx](../frontend/src/components/__tests__/InfoTip.test.tsx) | Info tooltip show/hide on hover. |
 | [frontend/src/components/__tests__/LoadingBar.test.tsx](../frontend/src/components/__tests__/LoadingBar.test.tsx) | Animated loading-status bar accessibility. |

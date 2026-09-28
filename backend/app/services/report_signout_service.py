@@ -30,6 +30,7 @@ from .annotation_manifest_service import (
     UNAVAILABLE_MODULE_VERSION,
     get_family_annotation_manifest,
 )
+from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
@@ -494,6 +495,20 @@ async def sign_out_report(
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
+    # Off-scope gate (TF-06 H12), first and not overridable: a report on an assembly the
+    # device is not validated on must not become a signed clinical record (#515). The
+    # structured detail keeps the report page from offering the drift override for it.
+    assembly_name = getattr(context, "assembly_name", None)
+    if not is_validated_assembly(assembly_name):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "gate": "assembly_scope",
+                "message": off_scope_message(assembly_name),
+                "assembly": assembly_name,
+                "validated_assemblies": validated_assemblies(),
+            },
+        )
     snapshot_body = await build_report_snapshot(
         session, family_id=family_id, user=user, project_id=project_id
     )

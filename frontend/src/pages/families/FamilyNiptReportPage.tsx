@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
+import AssemblyScopeBanner from '../../components/AssemblyScopeBanner';
 import PageState from '../../components/PageState';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import type { ApiNiptCoverageSummary, ApiNiptSummary } from '../../lib/apiTypes';
@@ -82,8 +83,13 @@ const FamilyNiptReportPage: React.FC = () => {
     [family],
   );
 
-  const { speciesName, assemblyName, assemblyVersion, isLoading: referenceLoading } =
-    useFamilyReference(family?.projects as string[] | undefined, preferredProjectId);
+  const {
+    speciesName,
+    assemblyName,
+    assemblyValidated,
+    assemblyVersion,
+    isLoading: referenceLoading,
+  } = useFamilyReference(family?.projects as string[] | undefined, preferredProjectId);
   const referenceLabel = formatResolvedReferenceLabel(
     { speciesName, assemblyName, assemblyVersion },
     'Reference not linked',
@@ -203,6 +209,7 @@ const FamilyNiptReportPage: React.FC = () => {
           <p className="page-kicker">Monogenic NIPT report</p>
           <h1 className="page-state-title">Family {familyId}</h1>
           <p className="report-header-meta">{referenceLabel}</p>
+          <AssemblyScopeBanner assemblyName={assemblyName} assemblyValidated={assemblyValidated} />
         </div>
         <div className="report-header-actions no-print">
           <Link to={`/families/${familyId}/nipt`} className="button-secondary hover:no-underline">

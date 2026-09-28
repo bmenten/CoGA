@@ -306,6 +306,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
 
   const {
     assemblyName,
+    assemblyValidated,
     assemblyVersion,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
@@ -470,6 +471,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   return (
     <div className="page-shell family-mtdna-page space-y-6">
       <FamilyPageHeader
+        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
         kicker="mtDNA analysis"
         family={family}
         projectId={resolvedProjectId}
