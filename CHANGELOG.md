@@ -223,7 +223,7 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   contraction locus (VWA1, MIR7-2) is now shown as *review* and kept in the aberrant-only view,
   instead of hiding behind a normal allele. Counts on a benign/grey-zone boundary at expansion
   loci (RFC1 11, ATXN8OS 50) read as grey zone again, and a gene catalogued twice resolves to
-  one entry deterministically (#535).
+  one entry deterministically (#540).
 - **CSV exports** — a small-variant or SV export above 10,000 rows is no longer cut there
   silently: it holds every row up to the 50,000-row cap, and one above the cap is saved as
   `…-TRUNCATED-first-50000.csv` and announced in the UI (#538).
@@ -231,6 +231,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   promises, so a ClinVar pathogenic / likely-pathogenic variant above the frequency ceiling is
   kept in every view that has the option on. ClinVar's aggregate `Pathogenic/Likely_pathogenic`
   counts as both terms (#537).
+- **Sign-out and review fallbacks** — a lookup that fails while the sign-out snapshot is frozen
+  (the QC cut-offs, the reference-assembly or Monarch version) is recorded as unavailable with its
+  reason instead of as an empty block, and the signed record and its audit entry say what was not
+  captured. A stored ACMG or CNV classification that no longer validates is logged and flagged, and
+  the classification editor warns before it is overwritten. A Mendeliome that failed to regenerate
+  after a Monarch refresh is reported to the admin instead of only logged (#541).
 
 ### Security
 
