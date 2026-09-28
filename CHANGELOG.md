@@ -318,6 +318,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   confirmation before dropping a typed reason. Closing a dialog gives focus back to where it
   was, also when a control inside took focus as it opened. The SV second-hit badge and the
   genome overview's chromosomes work from the keyboard, and the badge shows a focus ring (#575).
+- **Superuser accounts** — twelve checks tested for the literal role `admin`, so a superuser,
+  an admin everywhere else, was refused when editing variant tags and gene panels, creating
+  families, reading import jobs, reading a gene profile outside its projects and listing
+  accounts. After a superuser's Monarch refresh the Mendeliome was not regenerated. Every check
+  now counts both admin roles (#576).
 
 ### Security
 

@@ -18,7 +18,10 @@ but not yet applied to a live project** · ⛔ not yet done (deployment responsi
 - ✅ **AuthN.** JWT bearer (HS256) with optional Azure AD; local JWT fallback is
   restricted to admins. See `backend/app/dependencies.py`
   (`get_current_user`, `get_current_admin_user`). Roles: `admin`/`superuser` vs
-  `viewer` (`ADMIN_ROLES` in `metadata_service.py`).
+  `viewer` (`ADMIN_ROLES` in `services/access_control.py`). Every admin check goes
+  through `ADMIN_ROLES` (`get_current_admin_user`, `is_admin_user`), so a superuser
+  is an admin everywhere; `test_admin_role_checks.py` fails on any comparison of a
+  role with the literal `"admin"` (CR-053).
 - ✅ **AuthZ is project-scoped.** Every family/sample/variant endpoint resolves
   access through one checkpoint:
   `build_family_metadata_context` → `get_accessible_family_mapping` →
