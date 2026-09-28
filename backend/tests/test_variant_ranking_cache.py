@@ -27,9 +27,16 @@ def _patch_db(monkeypatch):
     async def _monarch(session):
         return "2026-06-08"
 
+    async def _refs(session, context):
+        return dict(REFERENCE_VERSIONS)
+
     monkeypatch.setattr(vrc, "_pedigree_signature", _ped)
     monkeypatch.setattr(vrc, "_panel_version", _panel)
     monkeypatch.setattr(vrc, "_monarch_release", _monarch)
+    monkeypatch.setattr(vrc, "_reference_versions", _refs)
+
+
+REFERENCE_VERSIONS = {"hpo_release": "2026-04-01", "gene_info_updated_at": "2026-06-08T10:00:00"}
 
 
 def _default_filters(**overrides):
@@ -38,7 +45,7 @@ def _default_filters(**overrides):
     return SmallVariantQueryFilters(**base)
 
 
-def _hash(monkeypatch, *, filters=None, hpo=(), rev=None, exc=None, active=False):
+def _hash(monkeypatch, *, filters=None, hpo=(), rev=None, exc=None, active=False, data="1:1"):
     _patch_db(monkeypatch)
     return asyncio.run(
         vrc.compute_inputs_hash(
@@ -46,6 +53,7 @@ def _hash(monkeypatch, *, filters=None, hpo=(), rev=None, exc=None, active=False
             context=_context(),
             filters=filters or _default_filters(),
             patient_terms=list(hpo),
+            variant_data_version=data,
             review_variant_ids=rev,
             excluded_review_variant_ids=exc,
             include_review_filter_active=active,
@@ -87,13 +95,41 @@ def test_hash_changes_with_review_filter(monkeypatch) -> None:
     assert _hash(monkeypatch, exc=["2-2-C-T"]) != _hash(monkeypatch, exc=None)
 
 
-def _hashes(monkeypatch, *, filters):
+def test_hash_changes_when_the_family_variant_data_changes(monkeypatch) -> None:
+    # #509: an insert/delete/re-import moves the storage-level data version, whichever
+    # code path made it — the ranking over the old variants must not be served.
+    assert _hash(monkeypatch, data="1:111") != _hash(monkeypatch, data="2:222")
+    assert _hash(monkeypatch, data="0:0") != _hash(monkeypatch, data="1:111")
+
+
+def test_hash_changes_when_scoring_reference_data_changes(monkeypatch) -> None:
+    before = _hash(monkeypatch)
+    monkeypatch.setitem(REFERENCE_VERSIONS, "hpo_release", "2026-09-01")
+    after_hpo = _hash(monkeypatch)
+    monkeypatch.setitem(REFERENCE_VERSIONS, "gene_info_updated_at", "2026-09-28T09:00:00")
+    after_gene_info = _hash(monkeypatch)
+    assert len({before, after_hpo, after_gene_info}) == 3
+
+
+def _hashes(monkeypatch, *, filters, data="1:1"):
     _patch_db(monkeypatch)
     return asyncio.run(
         vrc.compute_ranking_hashes(
-            None, context=_context(), filters=filters, patient_terms=[]
+            None,
+            context=_context(),
+            filters=filters,
+            patient_terms=[],
+            variant_data_version=data,
         )
     )
+
+
+def test_base_hash_covers_the_variant_data_version(monkeypatch) -> None:
+    # The superset (base_hash) path must not serve a sub-panel from a ranking computed
+    # over different variant data either.
+    _, base_old = _hashes(monkeypatch, filters=_default_filters(), data="1:111")
+    _, base_new = _hashes(monkeypatch, filters=_default_filters(), data="2:222")
+    assert base_old != base_new
 
 
 def test_base_hash_is_panel_independent(monkeypatch) -> None:

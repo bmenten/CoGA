@@ -363,11 +363,12 @@ async def _execute_family_package_import_local(
         if not compensated and session is not None:
             await _clear_family_import_incomplete(session, family_context)
 
-    # (Re)importing variant data changes the prioritised ranking, but the cache's input
-    # hash doesn't cover variant content — drop any cached ranking so it recomputes.
-    # Skip when the family shell was just compensated away (nothing to recache), or when
-    # a failed overwrite was restored to its pre-import state (variant content unchanged,
-    # so any existing cache still matches).
+    # (Re)importing variant data changes the prioritised ranking. The cache's input hash
+    # covers the family's storage-level data version, so an outdated ranking is already
+    # never served (#509); dropping the rows here just frees entries that can no longer
+    # be hit. Skip when the family shell was just compensated away (nothing to recache),
+    # or when a failed overwrite was restored to its pre-import state (the content is
+    # unchanged; the data version still moves, which costs at most one recompute).
     if not compensated and not restored and not dry_run and session is not None:
         from .variant_ranking_cache import clear_family_ranking_cache
         from .sv_gene_index_service import clear_family_sv_gene_index

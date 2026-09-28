@@ -1616,6 +1616,16 @@ async def _serve_subpanel_from_superset(
     return None
 
 
+async def _family_small_variant_data_version(context: FamilyMetadataContext) -> str | None:
+    """The family's storage-level small-variant data version — a ranking-cache input (#509)."""
+    if not context.assembly_name:
+        return None
+    # Local import avoids a circular dependency (storage imports this module).
+    from .clickhouse_variant_storage import get_family_small_variant_data_version
+
+    return await get_family_small_variant_data_version(context.assembly_name, context.family_uuid)
+
+
 async def _prioritized_small_variants_page(
     session: AsyncSession,
     *,
@@ -1642,13 +1652,16 @@ async def _prioritized_small_variants_page(
         ]
 
     # The phenotype-prioritised ranking is expensive (~10s); serve a cached ranking
-    # when the inputs (filters + HPO + pedigree + panel + Monarch release) are unchanged.
+    # when its inputs are unchanged — filters, HPO, pedigree, panel, reference releases and
+    # the family's variant data (the storage-level data version, see #509).
     patient_terms, term_labels = await _affected_present_hpo(session, context)
+    variant_data_version = await _family_small_variant_data_version(context)
     inputs_hash, base_hash = await compute_ranking_hashes(
         session,
         context=context,
         filters=filters,
         patient_terms=patient_terms,
+        variant_data_version=variant_data_version,
         review_variant_ids=review_variant_ids if include_review_filter_active else None,
         excluded_review_variant_ids=excluded_review_variant_ids,
         include_review_filter_active=include_review_filter_active,
