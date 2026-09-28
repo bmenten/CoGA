@@ -49,7 +49,7 @@ Run the same gates CI will. These are the fast ones and they catch most of it:
 cd frontend && npm run tsc && npm run lint && npx vitest run
 
 # backend
-python -m pytest -q
+ruff check . && mypy && python -m pytest -q
 
 # repo gates
 ./scripts/check-test-catalogue.sh        # docs/testing.md lists every test file

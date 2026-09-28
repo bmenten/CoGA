@@ -459,6 +459,11 @@ def _mendelian_check(
     return MendelianCheck(child, parent_ids, informative, errors, rate, status, message)
 
 
+def _pair_key(a: str, b: str) -> tuple[str, str]:
+    """A sample pair in sorted order, the key for expected relationships."""
+    return (a, b) if a <= b else (b, a)
+
+
 def _sibling_pairs(parents_of: dict[str, dict[str, str]]) -> set[tuple[str, str]]:
     pairs: set[tuple[str, str]] = set()
     children = sorted(parents_of)
@@ -664,10 +669,10 @@ def evaluate_sample_integrity(
     for child, parents in spec.parents_of.items():
         for parent in parents.values():
             if parent in autosomal and child in autosomal:
-                expected[tuple(sorted((parent, child)))] = "parent-child"
+                expected[_pair_key(parent, child)] = "parent-child"
     for a, b in _sibling_pairs(spec.parents_of):
         if a in autosomal and b in autosomal:
-            expected.setdefault(tuple(sorted((a, b))), "sibling")
+            expected.setdefault(_pair_key(a, b), "sibling")
 
     # Pairs who are both parents of the same child are expected unrelated; keep
     # them so the matrix confirms "no consanguinity" (or flags it).
@@ -704,9 +709,9 @@ def evaluate_sample_integrity(
         for child, parents in spec.parents_of.items():
             if child not in autosomal:
                 continue
-            check = _mendelian_check(child, parents, autosomal)
-            if check is not None:
-                mendelian_checks.append(check)
+            mendelian = _mendelian_check(child, parents, autosomal)
+            if mendelian is not None:
+                mendelian_checks.append(mendelian)
 
     autosomal_sites = max((len(v) for v in autosomal.values()), default=0)
     genotype_checks_run = profile.run_relatedness or profile.run_mendelian

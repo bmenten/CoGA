@@ -37,7 +37,6 @@ import re
 import sys
 import tempfile
 import time
-import json
 import hashlib
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -475,7 +474,9 @@ def load_clinvar_cnv_support(assembly: str) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
 
-    type_col = first_existing_col(df, ["Type", "VariationType", "variant_type"])
+    # Unused: the loss/gain side below comes from the name only, and should come from this
+    # column first (#566).
+    type_col = first_existing_col(df, ["Type", "VariationType", "variant_type"])  # noqa: F841
     name_col = first_existing_col(df, ["Name"])
     acc_col = first_existing_col(df, ["VariationID", "RCVaccession", "Accession"])
 

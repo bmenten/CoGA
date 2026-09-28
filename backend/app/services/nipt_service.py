@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import bindparam, text
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .clickhouse_family_variants import (
     PanelFilterConstraints,
@@ -457,7 +457,7 @@ async def _fetch_labeled_gene_regions(
         return []
     clauses = ["(upper(hgnc_symbol) IN :terms OR upper(gene_id) IN :terms)"]
     params: dict = {"terms": [term.upper() for term in cleaned]}
-    bind_params = [bindparam("terms", expanding=True)]
+    bind_params: list[Any] = [bindparam("terms", expanding=True)]
     if assembly_id:
         clauses.append("assembly_id = CAST(:assembly_id AS uuid)")
         params["assembly_id"] = assembly_id

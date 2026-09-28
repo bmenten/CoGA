@@ -10,13 +10,13 @@
 # Test-file conventions matched:
 #   backend  — backend/tests/…/test_*.py (the only pytest testpath; a test file under a
 #              top-level tests/ folder is reported, since pytest would never run it)
-#   frontend — frontend/src/**/*.test.ts(x)
+#   frontend — frontend/src/**/*.test.ts(x), and the Playwright journeys in frontend/e2e/*.spec.ts
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 DOC="docs/testing.md"
-PATTERN='^(backend/tests|tests)/.*test_.*\.py$|^frontend/src/.*\.test\.tsx?$'
+PATTERN='^(backend/tests|tests)/.*test_.*\.py$|^frontend/src/.*\.test\.tsx?$|^frontend/e2e/.*\.spec\.ts$'
 
 tree_files="$(mktemp)"
 doc_files="$(mktemp)"

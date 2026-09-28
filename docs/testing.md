@@ -43,11 +43,12 @@ cd frontend && npm run tsc && npm run lint && npm run test
 
 | Job | What it runs | Notes |
 | --- | --- | --- |
-| **backend** | `pip install -r backend/requirements-dev.txt` → `pytest -q` | Self-contained unit suite (no containers). |
-| **smoke** | `pytest backend/tests/integration` against `postgres:16` + `clickhouse/clickhouse-server:26.8` services | Real lifespan: schema init, migrations, admin seed, health probe. |
-| **e2e** | `pytest backend/tests/e2e` against `postgres:16` + `clickhouse/clickhouse-server:26.8` services | Golden-trio pipeline + demo bundles vs documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Runs outside coverage, like `smoke`. |
+| **backend** | `pip install -r backend/requirements-dev.txt` → `ruff check .` → `mypy` → `pytest -q` | Lint (`ruff.toml`), a type check of the clinical-critical modules listed in `mypy.ini`, then the self-contained unit suite (no containers) with its coverage floors (#526). |
+| **smoke** | `pytest backend/tests/integration` against `postgres:16` + `clickhouse/clickhouse-server:26.8` services | Real lifespan: schema init, migrations, admin seed, health probe. Records coverage for the `coverage` job. |
+| **e2e** | `pytest backend/tests/e2e` against `postgres:16` + `clickhouse/clickhouse-server:26.8` services | Golden-trio pipeline + demo bundles vs documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Records coverage for the `coverage` job, like `smoke`. |
+| **coverage** | combines the `backend`, `smoke` and `e2e` coverage data → `scripts/check-coverage-floor.py --combined` | Floors on the combined figure for the modules real datastores exercise (import pipeline, integrity anchors, sign-out), which the unit job under-reports (#526). Not yet a required check. |
 | **frontend** | `npm ci` → `npm run tsc` → `npm run lint` → `npm run test` | Type-check + ESLint + vitest. |
-| **e2e-playwright** | seed golden trio → Playwright drives Chromium against a uvicorn backend + Vite frontend | Browser journeys: login → family workspace → genome overview (see [TF-09d](regulatory/TF-09d-browser-e2e-verification.md), incl. a manual reproduction procedure for auditors). |
+| **e2e-playwright** | seed golden trio → Playwright drives Chromium against a uvicorn backend + the production frontend (built bundle served by `server.mjs`, with its CSP) | Browser journeys: login → family workspace → genome overview (see [TF-09d](regulatory/TF-09d-browser-e2e-verification.md), incl. a manual reproduction procedure for auditors). |
 | **sbom** | CycloneDX SBOM for backend + frontend, uploaded as artifacts | Supply-chain evidence (see [sbom/README.md](../sbom/README.md)). |
 
 All ten checks — `backend`, `frontend`, `smoke`, `e2e`, `e2e-playwright`, `catalogue`
@@ -57,18 +58,24 @@ change cannot merge unless they pass (TF-13 S-6).
 
 ### Browser end-to-end (Playwright)
 
-`frontend/e2e/*.spec.ts` drive a real Chromium against a running stack (uvicorn backend + Vite
-dev server) — the only suite that exercises the actual UI. Run locally with the datastores up:
+`frontend/e2e/*.spec.ts` drive a real Chromium against a running stack: a uvicorn backend and the
+production frontend, i.e. the built bundle served by `server.mjs` with its enforcing CSP and `/api`
+proxy (#526). It is the only suite that exercises the actual UI, and every journey fails if the
+browser reports a CSP violation (`e2e/fixtures.ts`). Run locally with the datastores up:
 
 ```bash
 RUN_INTEGRATION=1 python scripts/seed_playwright_e2e.py   # golden trio + a known e2e user
 cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 ```
 
+`E2E_FRONTEND=dev` runs the journeys against the Vite dev server instead (faster to iterate, but
+no build and no CSP), and `E2E_BACKEND_PORT` moves the backend off port 8000 when it is taken.
+
 | Spec | Journey |
 | --- | --- |
 | [frontend/e2e/auth.spec.ts](../frontend/e2e/auth.spec.ts) | Login form: bad credentials stay on /login; the seeded e2e user logs in and lands authenticated. |
 | [frontend/e2e/family.spec.ts](../frontend/e2e/family.spec.ts) | Open the golden family workspace; render the genome overview (SVG/canvas tracks) — frontend↔backend wiring + viz render. |
+| [frontend/e2e/security-headers.spec.ts](../frontend/e2e/security-headers.spec.ts) | The production frontend server sends its security headers: the CSP (`default-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`), `X-Content-Type-Options` and the `Permissions-Policy`. |
 | [frontend/e2e/signout.spec.ts](../frontend/e2e/signout.spec.ts) | Clinical report sign-out from the browser: the seeded report-tagged variant renders, click sign-out, handle the drift confirm + sample-QC override dialog, and assert the signed-out version advances. |
 
 ---

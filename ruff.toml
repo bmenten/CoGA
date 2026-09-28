@@ -1,0 +1,9 @@
+# Python lint gate (#526), run by the `backend` CI job. Pyflakes, plus the bugbear checks
+# that catch real defects: a closure that captures a loop variable (B023) and a re-raise
+# that loses its cause (B904). The async rules follow once blocking I/O is off the event
+# loop (#527).
+target-version = "py312"
+extend-exclude = ["frontend", "data", "demo", "docs"]
+
+[lint]
+select = ["E9", "F", "B023", "B904"]

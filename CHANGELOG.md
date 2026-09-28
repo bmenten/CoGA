@@ -163,6 +163,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   support since 2026-03-20, to 26.8 LTS (26.8.14.3, supported until 2027-08-27). An existing data
   volume is upgraded in place on first start and cannot be moved back; snapshot it first. A test
   keeps compose, CI and Terraform on the same datastore images (#563).
+- **Verification gates (#526)** — CI lints the backend (ruff), type-checks the clinical-critical
+  modules (mypy), records coverage in the smoke and e2e jobs and combines it with the unit run
+  under floors of its own, and runs the browser journeys against the production bundle and server,
+  failing on any CSP violation. The unit coverage floors are raised and the Playwright specs are
+  catalogued (#567).
 
 ### Removed
 
@@ -277,6 +282,8 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Quick Start ClickHouse login** — `.env.example` gave ClickHouse's built-in `default` user
   no password, which the ClickHouse image refuses for network clients, so the documented
   stack could not connect. It now names a `coga` user with a placeholder password (#553).
+- **Frontend server path** — `server.mjs` answered every page with a 404 when installed under a
+  path that runs through a dot-directory; it now serves `index.html` from its build directory (#567).
 
 ### Security
 
