@@ -23,7 +23,7 @@ from ..schemas import (
     PanelAppImportRequest,
     PanelAppImportResponse,
 )
-from .access_control import CurrentUser
+from .access_control import CurrentUser, is_admin_user
 from .panelapp_service import (
     extract_panelapp_import_content,
     fetch_panelapp_panel,
@@ -40,7 +40,7 @@ def _require_panel_uuid(panel_id: str) -> None:
 
 
 def _ensure_admin(user: CurrentUser) -> None:
-    if user.role != "admin":
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
 

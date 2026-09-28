@@ -63,7 +63,7 @@ Bij het opslaan van een review controleert de backend dat *elke* opgegeven tag o
 
 Custom tags aanmaken/bewerken/verwijderen mag **alleen een admin**. Bovendien controleert `_ensure_projects_visible` dat een niet-admin geen tag koppelt aan een project waartoe hij geen toegang heeft (via `metadata_project_ids`).
 
-**Waar in de code:** `create_small_variant_tag_definition`, `update_small_variant_tag_definition`, `delete_small_variant_tag_definition` in `small_variant_review_tags.py` (elke functie begint met `if user.role != "admin": raise HTTPException(403, …)`). Verwijderen is een *soft delete* (`is_active = FALSE`), geen fysieke verwijdering — belangrijk voor traceerbaarheid.
+**Waar in de code:** `create_small_variant_tag_definition`, `update_small_variant_tag_definition`, `delete_small_variant_tag_definition` in `small_variant_review_tags.py` (elke functie begint met `if not is_admin_user(user): raise HTTPException(403, …)`, zodat ook een `superuser` als admin telt). Verwijderen is een *soft delete* (`is_active = FALSE`), geen fysieke verwijdering — belangrijk voor traceerbaarheid.
 
 ### Filter-presets
 

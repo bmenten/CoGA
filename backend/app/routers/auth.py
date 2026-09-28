@@ -260,11 +260,9 @@ async def delete_my_small_variant_filter_preset(
 
 @router.get("/users", response_model=List[UserRead])
 async def list_users(
-    current: CurrentUser = Depends(get_current_user),
+    current: CurrentUser = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_postgres_session),
 ):
-    if current.role != "admin":
-        raise HTTPException(status_code=403, detail="Not authorized")
     return await list_user_accounts(session)
 
 
