@@ -328,6 +328,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/lib/__tests__/reference.test.tsx](../frontend/src/lib/__tests__/reference.test.tsx) | Family reference-data fetching hook. |
 | [frontend/src/lib/__tests__/reviewConcurrency.test.ts](../frontend/src/lib/__tests__/reviewConcurrency.test.ts) | Review saves carry the loaded version (null for no review); the review-conflict 409 is recognised and other errors are not (#513). |
 | [frontend/src/lib/__tests__/sampleFilterState.test.ts](../frontend/src/lib/__tests__/sampleFilterState.test.ts) | Genotype-selection parse/serialize and default filter state. |
+| [frontend/src/lib/__tests__/useModalDialog.test.tsx](../frontend/src/lib/__tests__/useModalDialog.test.tsx) | Dialog behaviour (#529): Escape and a backdrop click close an untouched dialog; unsaved input is only discarded after confirmation; a press inside released over the backdrop does not close; focus moves in, Tab wraps, and only the topmost of two dialogs answers Escape. |
 | [frontend/src/lib/__tests__/sanitizeHtml.test.ts](../frontend/src/lib/__tests__/sanitizeHtml.test.ts) | HTML render-sink sanitiser: allowlist strips scripts/event-handlers/`javascript:` hrefs and unwraps disallowed tags while keeping safe formatting. |
 | [frontend/src/lib/__tests__/settings.test.ts](../frontend/src/lib/__tests__/settings.test.ts) | UI window/threshold settings storage. |
 | [frontend/src/lib/__tests__/storage.test.ts](../frontend/src/lib/__tests__/storage.test.ts) | localStorage fallback / session persistence. |
@@ -361,6 +362,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | --- | --- |
 | [frontend/src/components/__tests__/AssemblyScopeBanner.test.tsx](../frontend/src/components/__tests__/AssemblyScopeBanner.test.tsx) | "Not validated for clinical use" label for an off-scope or unlinked assembly; nothing for a validated assembly or while the scope is still loading (#515). |
 | [frontend/src/components/__tests__/Breadcrumbs.test.tsx](../frontend/src/components/__tests__/Breadcrumbs.test.tsx) | Breadcrumb navigation rendering with router context. |
+| [frontend/src/components/__tests__/ModalDialog.test.tsx](../frontend/src/components/__tests__/ModalDialog.test.tsx) | Inline dialog shell (#529): a named modal dialog that closes on Escape, can refuse backdrop clicks (acknowledgement dialogs), and asks before Escape discards typed input. |
 | [frontend/src/components/__tests__/InfoTip.test.tsx](../frontend/src/components/__tests__/InfoTip.test.tsx) | Info tooltip show/hide on hover. |
 | [frontend/src/components/__tests__/LoadingBar.test.tsx](../frontend/src/components/__tests__/LoadingBar.test.tsx) | Animated loading-status bar accessibility. |
 | [frontend/src/components/__tests__/RequireAuth.test.tsx](../frontend/src/components/__tests__/RequireAuth.test.tsx) | Auth route-guard: unauthenticated → login (`?next=`). |

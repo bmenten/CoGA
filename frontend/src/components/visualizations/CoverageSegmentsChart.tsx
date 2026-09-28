@@ -5,6 +5,7 @@ import {
   getCoverageLowerThreshold,
   getCoverageRange,
   getCoverageUpperThreshold,
+  hasCustomCoverageThresholds,
 } from '../../lib/settings';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
@@ -505,12 +506,22 @@ const CoverageSegmentsChart: React.FC<Props> = ({
     } as React.CSSProperties;
   }, [dragCurrent]);
 
+  // The gain/loss colouring thresholds are shown on the chart, and marked when they are
+  // this browser's own: they live in browser storage, so the same data could otherwise
+  // be coloured differently on two workstations without anyone seeing why (#529).
+  const upperThreshold = getCoverageUpperThreshold();
+  const lowerThreshold = getCoverageLowerThreshold();
+  const customThresholds = hasCustomCoverageThresholds();
+  const thresholdLegend = `gain > ${upperThreshold >= 0 ? '+' : ''}${upperThreshold} · loss < ${lowerThreshold} (log2)`;
+
   return (
     <div style={{ position: 'relative', width, height }}>
       <canvas
         ref={canvasRef}
         width={width}
         height={height}
+        role="img"
+        aria-label={`Coverage log2 ratio; ${thresholdLegend}${customThresholds ? ', custom thresholds set in this browser' : ''}`}
         data-audit-id="coverage-segments-chart"
         data-audit-label="Coverage chart"
         onMouseDown={handleMouseDown}
@@ -523,6 +534,17 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       {!loading && !isError && hasData === false && (
         <div className="viz-empty-overlay">No coverage data in this region</div>
       )}
+      <div
+        className={`viz-threshold-legend${customThresholds ? ' viz-threshold-legend--custom' : ''}`}
+        title={
+          customThresholds
+            ? 'These colour thresholds were changed in this browser’s settings; other workstations may colour this data differently.'
+            : 'Default colour thresholds (Settings → coverage thresholds).'
+        }
+      >
+        {thresholdLegend}
+        {customThresholds ? ' · custom (this browser)' : ''}
+      </div>
       <div style={rectStyle} />
     </div>
   );

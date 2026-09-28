@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from 'react-router';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import api from '../../lib/api';
+import ModalDialog from '../../components/ModalDialog';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import type {
@@ -577,13 +578,16 @@ const FamilyReportPage: React.FC = () => {
       ) : null}
 
       {driftGate ? (
-        <div
-          className="modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Evidence drift acknowledgement required"
+        <ModalDialog
+          label="Evidence drift acknowledgement required"
+          className="modal-surface surface-card report-qc-ack-modal"
+          closeOnBackdrop={false}
+          discardMessage="Discard the reason you have typed?"
+          onClose={() => {
+            setDriftGate(null);
+            setDriftReason('');
+          }}
         >
-          <div className="modal-surface surface-card report-qc-ack-modal">
             <h2 className="report-paragraph">
               <strong>Evidence drift — acknowledgement required</strong>
             </h2>
@@ -621,18 +625,20 @@ const FamilyReportPage: React.FC = () => {
                 Sign out anyway
               </button>
             </div>
-          </div>
-        </div>
+        </ModalDialog>
       ) : null}
 
       {qcGate ? (
-        <div
-          className="modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Sample-integrity QC acknowledgement required"
+        <ModalDialog
+          label="Sample-integrity QC acknowledgement required"
+          className="modal-surface surface-card report-qc-ack-modal"
+          closeOnBackdrop={false}
+          discardMessage="Discard the reason you have typed?"
+          onClose={() => {
+            setQcGate(null);
+            setQcReason('');
+          }}
         >
-          <div className="modal-surface surface-card report-qc-ack-modal">
             <h2 className="report-paragraph">
               <strong>Sample-integrity QC — acknowledgement required</strong>
             </h2>
@@ -680,8 +686,7 @@ const FamilyReportPage: React.FC = () => {
                 Sign out anyway
               </button>
             </div>
-          </div>
-        </div>
+        </ModalDialog>
       ) : null}
 
       {latestSignout ? (

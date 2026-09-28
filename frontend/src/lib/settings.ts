@@ -63,6 +63,23 @@ export function getCoverageLowerThreshold(): number {
   return readNumericSetting(COV_LOWER_KEY, defaultCoverageLowerThreshold);
 }
 
+/**
+ * True when this browser colours coverage with its own gain/loss thresholds rather than
+ * the defaults. They live in browser storage, so two workstations can colour the same
+ * data differently; the chart says so rather than letting it pass unseen (#529).
+ */
+export function hasCustomCoverageThresholds(): boolean {
+  return (
+    getCoverageUpperThreshold() !== defaultCoverageUpperThreshold ||
+    getCoverageLowerThreshold() !== defaultCoverageLowerThreshold
+  );
+}
+
+export function resetCoverageThresholds(): void {
+  storage.removeItem(COV_UPPER_KEY);
+  storage.removeItem(COV_LOWER_KEY);
+}
+
 export function setCoverageUpperThreshold(val: number): void {
   storage.setItem(COV_UPPER_KEY, String(val));
 }

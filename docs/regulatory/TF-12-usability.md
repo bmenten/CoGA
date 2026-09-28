@@ -46,7 +46,9 @@ cause harm and that the summative evaluation must cover:
 | U4 | Analyst misreads the filter funnel and believes nothing was dropped when variants were filtered out | H1 | Explicit drop counts at each funnel stage |
 | U5 | Analyst signs out the wrong variant / wrong candidate set | H10 | Clear "report"-tagged set, frozen snapshot preview, audit trail |
 | U6 | Analyst misreads a Mendel-error/QC flag indicating sample swap | H4 | Mendel-error rate surfaced per child with guidance |
-| U7 | Analyst acts on data from the wrong assembly/panel/assay scope | H12 | Assembly/assay context displayed; off-scope guard (planned) |
+| U7 | Analyst acts on data from the wrong assembly/panel/assay scope | H12 | Assembly/assay context displayed; off-scope guard (✅ #515: sign-out refused off `VALIDATED_ASSEMBLIES`, "Not validated for clinical use" label on family and report pages; panel coordinates scoped per assembly) |
+| U8 | Analyst loses half-finished review or ACMG input through a stray backdrop click or Escape, or two reviewers overwrite each other's classification | H3, H9 | Clinical dialogs ask before discarding unsaved input, close on Escape, trap focus and ignore a text-selection drag onto the backdrop (#529); a save against a review changed since it was loaded is refused and the current review shown (#513) |
+| U9 | Two workstations colour the same coverage differently (per-browser gain/loss thresholds) and the analyst reads a CNV call from the colour | H1, H7 | The chart always shows the thresholds in use and marks custom (this-browser) values; Settings explains the scope and resets them (#529) |
 
 ## 4. User interface specification & risk controls
 The UI-level risk controls above are requirements (traced in TF-09 RTM). Design principles:
@@ -58,7 +60,7 @@ safety" (TF-15).
 ## 5. Evaluation plan
 
 - **Formative evaluation** (iterative, during development): heuristic review and walkthroughs of the hazard-related scenarios with one or more user reps; findings feed UI changes. ‹Record sessions/findings.›
-- **Summative evaluation** (validation): representative intended users (target **n ≥ 15** per distinct user group, **🔲 confirm**) perform the hazard-related use scenarios (U1–U7) on realistic cases without coaching; **use errors and difficulties are recorded and risk-assessed**. Acceptance: no uncontrolled use error that could lead to a wrong clinical conclusion; residual use-related risk acceptable (TF-06).
+- **Summative evaluation** (validation): representative intended users (target **n ≥ 15** per distinct user group, **🔲 confirm**) perform the hazard-related use scenarios (U1–U9) on realistic cases without coaching; **use errors and difficulties are recorded and risk-assessed**. Acceptance: no uncontrolled use error that could lead to a wrong clinical conclusion; residual use-related risk acceptable (TF-06).
 - Conducted on the release candidate; re-evaluated when a safety-critical UI element changes (TF-18).
 
 ## 6. Known use problems & field feedback
