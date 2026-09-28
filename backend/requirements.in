@@ -3,7 +3,7 @@
 # This file expresses INTENT (the direct dependencies and their version
 # constraints). The fully-pinned, hash-locked install set is the compiled
 # `requirements.txt`, generated from this file with pip-tools against
-# Python 3.10 (the deployed/CI runtime). Do not edit requirements.txt by hand.
+# Python 3.12 (the deployed/CI runtime). Do not edit requirements.txt by hand.
 #
 # Regenerate after changing this file:
 #     ./scripts/compile-requirements.sh

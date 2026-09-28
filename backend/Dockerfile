@@ -1,6 +1,6 @@
 # Pin the base image by digest (tag kept for readability) so builds are reproducible
 # — an IVDR requirement — and don't drift if the upstream tag is repushed.
-FROM python:3.10-slim@sha256:5f9928ea39771e8ddf4fb9a96ab24f65f087793635614405a1dc9384f040852e AS base
+FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

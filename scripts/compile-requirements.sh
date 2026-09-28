@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Regenerate the fully-pinned, hash-locked backend requirements from the
-# human-edited *.in files, using Python 3.10 (the deployed/CI runtime) inside
+# human-edited *.in files, using Python 3.12 (the deployed/CI runtime) inside
 # Docker so the lock is faithful regardless of the host's Python version.
 #
 #   Usage: ./scripts/compile-requirements.sh
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_IMAGE="python:3.10"
+PYTHON_IMAGE="python:3.12"
 # Resolve on the deploy/CI architecture (linux/amd64) so the committed lock is
 # faithful to where it runs, not to the developer's host arch. On Apple Silicon
 # this runs under emulation (slower, but the canonical lock must be amd64).
