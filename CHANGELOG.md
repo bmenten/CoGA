@@ -219,6 +219,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   PGT risk state from the sources that happened to load. The pan fallback no longer paints one
   chromosome's data under another, pedigree edits drop the cached haplotypes, and the error
   screen clears on navigation (#533).
+- **CSV exports** — a small-variant or SV export above 10,000 rows is no longer cut there
+  silently: it holds every row up to the 50,000-row cap, and one above the cap is saved as
+  `…-TRUNCATED-first-50000.csv` and announced in the UI (#538).
 - **ClinVar P/LP frequency override** — the ClickHouse query now applies the rescue the option
   promises, so a ClinVar pathogenic / likely-pathogenic variant above the frequency ceiling is
   kept in every view that has the option on. ClinVar's aggregate `Pathogenic/Likely_pathogenic`
