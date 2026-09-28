@@ -6,6 +6,7 @@ import VizTooltip from './VizTooltip';
 // RepeatExpansionTrack and GenomeRepeatExpansionTrack.
 export const STATUS_COLORS = {
   normal: () => cssVar('--color-repeat-normal'),
+  review: () => cssVar('--color-repeat-review'),
   intermediate: () => cssVar('--color-repeat-intermediate'),
   pathogenic: () => cssVar('--color-repeat-pathogenic'),
   unknown: () => cssVar('--color-repeat-unknown'),

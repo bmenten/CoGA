@@ -219,6 +219,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   PGT risk state from the sources that happened to load. The pan fallback no longer paints one
   chromosome's data under another, pedigree edits drop the cached haplotypes, and the error
   screen clears on navigation (#533).
+- **Repeat status for unclassifiable alleles** — an allele outside every catalogued range at a
+  contraction locus (VWA1, MIR7-2) is now shown as *review* and kept in the aberrant-only view,
+  instead of hiding behind a normal allele. Counts on a benign/grey-zone boundary at expansion
+  loci (RFC1 11, ATXN8OS 50) read as grey zone again, and a gene catalogued twice resolves to
+  one entry deterministically (#535).
 - **CSV exports** — a small-variant or SV export above 10,000 rows is no longer cut there
   silently: it holds every row up to the 50,000-row cap, and one above the cap is saved as
   `…-TRUNCATED-first-50000.csv` and announced in the UI (#538).

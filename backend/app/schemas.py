@@ -2587,7 +2587,7 @@ class RepeatExpansionAlleleOut(BaseModel):
     motif_spans: Optional[str] = None
     interrupted: bool = False
     interruption_label: Optional[str] = None
-    status: Literal["normal", "intermediate", "pathogenic", "unknown"] = "unknown"
+    status: Literal["normal", "review", "intermediate", "pathogenic", "unknown"] = "unknown"
 
 
 class RepeatExpansionSampleCallOut(BaseModel):
@@ -2598,7 +2598,7 @@ class RepeatExpansionSampleCallOut(BaseModel):
     genotype: str
     allele_count: int = 0
     alleles: List[RepeatExpansionAlleleOut] = Field(default_factory=list)
-    status: Literal["normal", "intermediate", "pathogenic", "unknown"] = "unknown"
+    status: Literal["normal", "review", "intermediate", "pathogenic", "unknown"] = "unknown"
 
 
 class RepeatExpansionRowOut(BaseModel):
@@ -2619,7 +2619,7 @@ class RepeatExpansionRowOut(BaseModel):
     benign_min: Optional[int] = None
     benign_max: Optional[int] = None
     pathogenic_max: Optional[int] = None
-    status: Literal["normal", "intermediate", "pathogenic", "unknown"] = "unknown"
+    status: Literal["normal", "review", "intermediate", "pathogenic", "unknown"] = "unknown"
     calls: Dict[str, RepeatExpansionSampleCallOut] = Field(default_factory=dict)
 
 
@@ -2847,7 +2847,7 @@ class RepeatExpansionTrackItemOut(BaseModel):
     motif: Optional[str] = None
     warning_min: Optional[int] = None
     pathogenic_min: Optional[int] = None
-    status: Literal["normal", "intermediate", "pathogenic", "unknown"] = "unknown"
+    status: Literal["normal", "review", "intermediate", "pathogenic", "unknown"] = "unknown"
     allele_repeat_counts: List[int] = Field(default_factory=list)
     allele_bp_lengths: List[int] = Field(default_factory=list)
 

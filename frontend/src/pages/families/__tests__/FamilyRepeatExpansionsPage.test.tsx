@@ -231,6 +231,80 @@ describe('FamilyRepeatExpansionsPage', () => {
   });
 });
 
+describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
+  it('keeps a locus the catalog cannot classify in the aberrant-only view', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
+            projects: [],
+          },
+        });
+      }
+      if (url === '/families/F1/repeat-expansions') {
+        return Promise.resolve({
+          data: {
+            samples: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
+            loci: [
+              {
+                locus_id: 'vwa1',
+                gene: 'VWA1',
+                display_name: 'VWA1',
+                disease: 'Hereditary motor neuropathy',
+                chr: '1',
+                start: 1435798,
+                end: 1435818,
+                motif: 'GGCGCGGAGC',
+                warning_min: null,
+                pathogenic_min: 1,
+                benign_min: 2,
+                benign_max: 2,
+                pathogenic_max: 3,
+                // VWA1 2/5: one normal allele and one outside every catalogued range.
+                status: 'review',
+                calls: {
+                  PROBAND: {
+                    sample: 'PROBAND',
+                    role: 'proband',
+                    affected: true,
+                    sex: 'male',
+                    genotype: '2/5',
+                    allele_count: 2,
+                    status: 'review',
+                    alleles: [
+                      { repeat_count: 2, status: 'normal' },
+                      { repeat_count: 5, status: 'review' },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
+          <Routes>
+            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect((await screen.findAllByText(/Review: outside catalogued ranges/)).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByLabelText('Aberrant only'));
+    // Before #535 this allele ranked below "normal" and the row vanished from the view.
+    expect(screen.getByText('1 of 1 loci')).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /VWA1/ })).toBeInTheDocument();
+  });
+});
+
 describe('repeat cutoff labels', () => {
   // A locus that is pathogenic by contraction cannot be stated as a lower bound: VWA1
   // is normal at exactly 2, and "red ≥ 1" would mark every healthy call.
