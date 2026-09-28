@@ -73,15 +73,15 @@ Faalt de validatie ook maar ergens, dan volgt steeds dezelfde `credentials_excep
 
 ## Schemas: validatie en levende documentatie
 
-Alle request- en response-vormen staan in één centraal bestand, `backend/app/schemas.py` (ruim 260 Pydantic-modellen). Deze modellen doen drie dingen tegelijk:
+Alle request- en response-vormen staan in het pakket `backend/app/schemas/` (ruim 270 Pydantic-modellen), sinds #528 per domein opgesplitst (`families.py`, `variants.py`, `traceability.py`, …). Alles wordt opnieuw geëxporteerd, dus code importeert nog steeds uit `backend.app.schemas`. Deze modellen doen drie dingen tegelijk:
 
 - **Inkomende validatie.** Een `...Update`- of `...Request`-model (bv. `FamilyMetadataUpdate`, `SmallVariantReviewUpdate`, `ReportSignoutRequest`) beschrijft precies welke velden mogen binnenkomen en van welk type. Ongeldige JSON wordt met een 422-fout geweigerd nog vóór de router-code draait.
 - **Uitgaande vorm.** Een `...Out`-model (bv. `FamilyOut`, `VariantPage`, `SmallVariantReviewOut`, `IntegrityAnchorOut`) beschrijft wat de API teruggeeft; via `response_model=` in de decorator dwingt FastAPI die vorm af en filtert het onbedoelde velden weg.
 - **OpenAPI-documentatie.** Uit dezelfde modellen genereert FastAPI de interactieve `/docs` (OpenAPI/Swagger). In productie zijn `/docs`, `/redoc` en `/openapi.json` bewust uitgeschakeld (`_docs_kwargs` in `backend/app/main.py`) om schema-onthulling te beperken; de in-process schema-generatie (`app.openapi()`) blijft wel werken.
 
-Doordat alle schemas op één plek staan, kan een reviewer in één bestand nagaan welke gegevens het systeem in- en uitgaan — nuttig voor de dataflow-analyse die bij een IVDR-dossier hoort.
+Doordat alle schemas in één pakket staan, kan een reviewer op één plek nagaan welke gegevens het systeem in- en uitgaan — nuttig voor de dataflow-analyse die bij een IVDR-dossier hoort.
 
-**Waar in de code:** `backend/app/schemas.py`; de koppeling gebeurt in elke router via `response_model=...` en getypeerde parameters.
+**Waar in de code:** `backend/app/schemas/` (per domein één module, alles geëxporteerd in `__init__.py`); de koppeling gebeurt in elke router via `response_model=...` en getypeerde parameters.
 
 ## Veiligheids-invarianten die overal gelden
 
@@ -212,7 +212,7 @@ De beveiligingsheaders in `backend/app/middleware/security_headers.py` zetten op
 | `backend/app/main.py` | Bouwt de FastAPI-app: monteert alle routers onder `/api`, hangt de middleware-keten op, regelt lifespan, schakelt `/docs` uit in productie. |
 | `backend/app/routers/__init__.py` | Verzamelt alle routers in `all_routers`. |
 | `backend/app/dependencies.py` | Authenticatie-dependencies `get_current_user` / `get_current_admin_user`, wachtwoord- en token-helpers, `ADMIN_ROLES`. |
-| `backend/app/schemas.py` | Alle Pydantic-request/response-modellen; validatie en OpenAPI-documentatie. |
+| `backend/app/schemas/` | Alle Pydantic-request/response-modellen, per domein één module; validatie en OpenAPI-documentatie. |
 | `backend/app/core/sql.py` | SQL-veiligheidshelpers: UUID-bindparameters (`uuid_list_bindparam`), schema-fout-detectie. |
 | `backend/app/core/postgres.py` | Postgres-engine/sessie (`get_postgres_session`), schema-initialisatie. |
 | `backend/app/core/clickhouse.py` | ClickHouse-client, `execute_clickhouse`/`insert_clickhouse` (geparametriseerd), dataset-sleutel-sanitisatie, per-query-begrenzing. |

@@ -2349,14 +2349,14 @@ async def get_family_small_variants(
 <p><strong>Scoping op router-niveau.</strong> Een router kan een dependency op <em>alle</em> endpoints tegelijk leggen. Zo staat er in <code>backend/app/routers/dgv.py</code>: <code>APIRouter(prefix="/dgv", tags=["dgv"], dependencies=[Depends(get_current_user)])</code> — elke DGV-endpoint vereist dan automatisch een geldig token, zonder dat het per functie herhaald hoeft te worden.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/dependencies.py</code> (<code>get_current_user</code>, <code>get_current_admin_user</code>, <code>ADMIN_ROLES</code>) en <code>backend/app/core/postgres.py</code> (<code>get_postgres_session</code>).</p>
 <h2>Schemas: validatie en levende documentatie</h2>
-<p>Alle request- en response-vormen staan in één centraal bestand, <code>backend/app/schemas.py</code> (ruim 260 Pydantic-modellen). Deze modellen doen drie dingen tegelijk:</p>
+<p>Alle request- en response-vormen staan in het pakket <code>backend/app/schemas/</code> (ruim 270 Pydantic-modellen), sinds #528 per domein opgesplitst (<code>families.py</code>, <code>variants.py</code>, <code>traceability.py</code>, …). Alles wordt opnieuw geëxporteerd, dus code importeert nog steeds uit <code>backend.app.schemas</code>. Deze modellen doen drie dingen tegelijk:</p>
 <ul>
 <li><strong>Inkomende validatie.</strong> Een <code>...Update</code>- of <code>...Request</code>-model (bv. <code>FamilyMetadataUpdate</code>, <code>SmallVariantReviewUpdate</code>, <code>ReportSignoutRequest</code>) beschrijft precies welke velden mogen binnenkomen en van welk type. Ongeldige JSON wordt met een 422-fout geweigerd nog vóór de router-code draait.</li>
 <li><strong>Uitgaande vorm.</strong> Een <code>...Out</code>-model (bv. <code>FamilyOut</code>, <code>VariantPage</code>, <code>SmallVariantReviewOut</code>, <code>IntegrityAnchorOut</code>) beschrijft wat de API teruggeeft; via <code>response_model=</code> in de decorator dwingt FastAPI die vorm af en filtert het onbedoelde velden weg.</li>
 <li><strong>OpenAPI-documentatie.</strong> Uit dezelfde modellen genereert FastAPI de interactieve <code>/docs</code> (OpenAPI/Swagger). In productie zijn <code>/docs</code>, <code>/redoc</code> en <code>/openapi.json</code> bewust uitgeschakeld (<code>_docs_kwargs</code> in <code>backend/app/main.py</code>) om schema-onthulling te beperken; de in-process schema-generatie (<code>app.openapi()</code>) blijft wel werken.</li>
 </ul>
-<p>Doordat alle schemas op één plek staan, kan een reviewer in één bestand nagaan welke gegevens het systeem in- en uitgaan — nuttig voor de dataflow-analyse die bij een IVDR-dossier hoort.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/schemas.py</code>; de koppeling gebeurt in elke router via <code>response_model=...</code> en getypeerde parameters.</p>
+<p>Doordat alle schemas in één pakket staan, kan een reviewer op één plek nagaan welke gegevens het systeem in- en uitgaan — nuttig voor de dataflow-analyse die bij een IVDR-dossier hoort.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/schemas/</code> (per domein één module, alles geëxporteerd in <code>__init__.py</code>); de koppeling gebeurt in elke router via <code>response_model=...</code> en getypeerde parameters.</p>
 <h2>Veiligheids-invarianten die overal gelden</h2>
 <p>Dit is voor de auditor het kernstuk van het hoofdstuk. Ongeacht welke endpoint of service u bekijkt, gelden onderstaande regels. Ze zijn niet per feature opnieuw bedacht, maar afgedwongen in enkele gedeelde helpers.</p>
 <h3>1. Alle queries zijn geparametriseerd — geen string-interpolatie</h3>
@@ -2660,8 +2660,8 @@ return f&quot;{query}\n        LIMIT %(limit)s OFFSET %(offset)s&quot;
 <td>Authenticatie-dependencies <code>get_current_user</code> / <code>get_current_admin_user</code>, wachtwoord- en token-helpers, <code>ADMIN_ROLES</code>.</td>
 </tr>
 <tr>
-<td><code>backend/app/schemas.py</code></td>
-<td>Alle Pydantic-request/response-modellen; validatie en OpenAPI-documentatie.</td>
+<td><code>backend/app/schemas/</code></td>
+<td>Alle Pydantic-request/response-modellen, per domein één module; validatie en OpenAPI-documentatie.</td>
 </tr>
 <tr>
 <td><code>backend/app/core/sql.py</code></td>
