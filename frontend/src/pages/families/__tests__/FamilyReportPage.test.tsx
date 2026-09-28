@@ -603,6 +603,36 @@ describe('FamilyReportPage', () => {
     );
   });
 
+  it('names what the signed record could not capture (#514)', async () => {
+    mockSignedFamily(() =>
+      checkResult({
+        matches: true,
+        not_captured: [
+          {
+            section: 'sequencing_qc',
+            item: 'Sequencing-QC cut-offs',
+            reason: 'QC thresholds could not be resolved',
+          },
+          { section: 'modules', item: 'Monarch', reason: 'lookup failed' },
+        ],
+      }),
+    );
+    renderPage();
+
+    const note = await screen.findByText(/Not captured in signed version 2:/);
+    expect(note.closest('p')?.textContent).toMatch(
+      /Sequencing-QC cut-offs \(QC thresholds could not be resolved\); Monarch \(lookup failed\)\./,
+    );
+  });
+
+  it('shows no capture note for a complete signed record', async () => {
+    mockSignedFamily(() => checkResult({ matches: true }));
+    renderPage();
+
+    await screen.findByText(/This page matches signed version 2/);
+    expect(screen.queryByText(/Not captured in signed version/)).not.toBeInTheDocument();
+  });
+
   it('treats the page as unsigned when the check cannot be made', async () => {
     mockSignedFamily(() => Promise.reject({ response: { status: 500, data: {} } }));
     const { container } = renderPage();

@@ -31,11 +31,12 @@ const variant: SmallVariant = {
 
 function renderModal(
   onSave: (payload: SmallVariantReviewSavePayload) => Promise<void> = vi.fn(async () => undefined),
+  shown: SmallVariant = variant,
 ) {
   const client = createTestQueryClient();
   render(
     <QueryClientProvider client={client}>
-      <AcmgClassificationModal variant={variant} familyId="F1" onClose={vi.fn()} onSave={onSave} />
+      <AcmgClassificationModal variant={shown} familyId="F1" onClose={vi.fn()} onSave={onSave} />
     </QueryClientProvider>,
   );
   return onSave;
@@ -60,6 +61,24 @@ describe('AcmgClassificationModal', () => {
         },
       });
     });
+  });
+
+  it('warns before an unreadable stored classification is overwritten (#514)', async () => {
+    renderModal(undefined, {
+      ...variant,
+      review: { variant_id: variant._id, tags: [], tag_metadata: {}, acmg: null, acmg_unreadable: true },
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /The ACMG classification stored for this variant could not be read.*Saving replaces it/,
+    );
+  });
+
+  it('shows no unreadable warning for a variant never classified', async () => {
+    renderModal();
+
+    await screen.findByRole('checkbox', { name: /PVS1/ });
+    expect(screen.queryByText(/could not be read/)).not.toBeInTheDocument();
   });
 
   it('auto-applies supported criteria and flags contraindicated ones', async () => {

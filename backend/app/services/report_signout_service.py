@@ -18,7 +18,7 @@ import dataclasses
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Mapping
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -26,7 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.coga_logging import scrub_log
 from ..core.config import settings
-from .annotation_manifest_service import get_family_annotation_manifest
+from .annotation_manifest_service import (
+    UNAVAILABLE_MODULE_VERSION,
+    get_family_annotation_manifest,
+)
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
@@ -310,7 +313,16 @@ async def _canonical_sequencing_qc(
         resolved = await resolve_family_qc_thresholds(session, family_uuid=context.family_uuid)
     except Exception:  # noqa: BLE001 — see the docstring
         logger.exception("Could not resolve QC thresholds for the report snapshot")
-        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+        # Frozen as explicitly unavailable, so the signed record does not read like a
+        # family imported without QC outputs (#514). The marker appears only on failure,
+        # so the hash of an ordinary snapshot is unchanged.
+        return {
+            "profile_key": None,
+            "profile_label": None,
+            "thresholds": {},
+            "samples": {},
+            "unavailable": "QC thresholds could not be resolved",
+        }
 
     thresholds = resolved.get("thresholds") or {}
     samples: dict[str, Any] = {}
@@ -331,6 +343,37 @@ async def _canonical_sequencing_qc(
         "thresholds": {key: thresholds[key] for key in sorted(thresholds)},
         "samples": {key: samples[key] for key in sorted(samples)},
     }
+
+
+def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
+    """The parts a report snapshot records as unavailable, with the reason (#514).
+
+    A lookup that failed while the snapshot was built is frozen as an explicit marker,
+    never as an empty block that reads like "nothing there". This lists those markers so
+    the audit event and the report page can say what the signed record lacks.
+    """
+    if not isinstance(snapshot, Mapping):
+        return []
+    gaps: list[dict[str, str]] = []
+    sequencing_qc = snapshot.get("sequencing_qc")
+    if isinstance(sequencing_qc, Mapping) and sequencing_qc.get("unavailable"):
+        gaps.append(
+            {
+                "section": "sequencing_qc",
+                "item": "Sequencing-QC cut-offs",
+                "reason": str(sequencing_qc["unavailable"]),
+            }
+        )
+    for module in snapshot.get("modules") or []:
+        if isinstance(module, Mapping) and module.get("version") == UNAVAILABLE_MODULE_VERSION:
+            gaps.append(
+                {
+                    "section": "modules",
+                    "item": str(module.get("label") or module.get("key") or "module"),
+                    "reason": str(module.get("detail") or "version could not be read"),
+                }
+            )
+    return gaps
 
 
 async def build_report_snapshot(
@@ -580,6 +623,7 @@ async def sign_out_report(
             "prev_hash": prev_hash,
         },
     )
+    gaps = snapshot_gaps(snapshot_body)
     await record_clinical_event(
         session,
         family_uuid=context.family_uuid,
@@ -594,6 +638,7 @@ async def sign_out_report(
             f"{len(snapshot_body['reported_structural_variants'])} reported structural "
             f"variant(s){', drift acknowledged' if snapshot['acknowledged_drift'] else ''}"
             f"{', QC override acknowledged' if snapshot['acknowledged_qc'] else ''}"
+            f"{f', {len(gaps)} part(s) not captured' if gaps else ''}"
         ),
         after={
             "version": version,
@@ -608,6 +653,9 @@ async def sign_out_report(
             "acknowledged_qc": snapshot["acknowledged_qc"],
             "qc_acknowledgement_reason": snapshot["qc_acknowledgement_reason"],
             "qc_unverifiable": qc_unverifiable,
+            # What the signed record could not capture (a failed lookup), so the trail
+            # says the record is incomplete rather than leaving it to be noticed (#514).
+            "not_captured": gaps,
         },
     )
     await session.commit()
@@ -781,6 +829,7 @@ async def compare_report_with_latest_signout(
             "matches": None,
             "changed_sections": [],
             "not_compared": [],
+            "not_captured": [],
             "checked_at": checked_at,
         }
     signed = _as_snapshot(row["snapshot"]) or {}
@@ -806,6 +855,7 @@ async def compare_report_with_latest_signout(
         "matches": not changed,
         "changed_sections": changed,
         "not_compared": not_compared,
+        "not_captured": snapshot_gaps(signed),
         "checked_at": checked_at,
     }
 

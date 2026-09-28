@@ -381,6 +381,15 @@ export default function AcmgClassificationModal({
               {errorMessage}
             </div>
           ) : null}
+          {variant.review?.acmg_unreadable ? (
+            <div
+              className="variant-workspace-feedback variant-workspace-feedback--warning"
+              role="alert"
+            >
+              The ACMG classification stored for this variant could not be read, so its criteria are not
+              shown below. Saving replaces it with what you select here.
+            </div>
+          ) : null}
 
           <AcmgScaleBar classification={classification} />
 

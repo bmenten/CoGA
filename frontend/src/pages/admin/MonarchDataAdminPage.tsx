@@ -31,6 +31,10 @@ interface MonarchRefreshSummary {
   excluded_phenotype_pairs: number;
   completed_at: string;
   duration_seconds: number;
+  // The generated Mendeliome panel is re-versioned after each refresh; it can fail
+  // without failing the refresh, and is then reported instead of hidden (#514).
+  mendeliome_regenerated?: boolean;
+  mendeliome_error?: string | null;
 }
 
 interface MonarchSearchGene {
@@ -94,7 +98,10 @@ const formatTimestamp = (value?: string | null) => {
 
 const MonarchDataAdminPage: React.FC = () => {
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [status, setStatus] = useState<{
+    tone: 'success' | 'warning' | 'error';
+    message: string;
+  } | null>(null);
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [selectedMondoId, setSelectedMondoId] = useState<string | null>(null);
@@ -165,13 +172,20 @@ const MonarchDataAdminPage: React.FC = () => {
       return response.data as MonarchRefreshSummary;
     },
     onSuccess: async (summary) => {
-      setStatus({
-        tone: 'success',
-        message: `Updated to Monarch release ${summary.release_version ?? 'latest'} — `
-          + `${formatCount(summary.gene_disease_pairs)} gene–disease and `
-          + `${formatCount(summary.disease_phenotype_pairs)} disease–phenotype pairs `
-          + `in ${summary.duration_seconds.toFixed(1)}s.`,
-      });
+      const updated = `Updated to Monarch release ${summary.release_version ?? 'latest'} — `
+        + `${formatCount(summary.gene_disease_pairs)} gene–disease and `
+        + `${formatCount(summary.disease_phenotype_pairs)} disease–phenotype pairs `
+        + `in ${summary.duration_seconds.toFixed(1)}s.`;
+      setStatus(
+        summary.mendeliome_regenerated === false
+          ? {
+              tone: 'warning',
+              message: `${updated} The Mendeliome panel was not regenerated`
+                + `${summary.mendeliome_error ? ` (${summary.mendeliome_error})` : ''}`
+                + ' — it still reflects the previous release. Update it from Gene panels → Mendeliome.',
+            }
+          : { tone: 'success', message: updated },
+      );
       await queryClient.invalidateQueries({ queryKey: ['admin', 'monarch-status'] });
       await queryClient.invalidateQueries({ queryKey: ['admin', 'monarch', 'search'] });
     },
@@ -288,7 +302,10 @@ const MonarchDataAdminPage: React.FC = () => {
         </div>
 
         {status ? (
-          <div className={`status-note ${status.tone === 'error' ? 'status-note--error' : 'status-note--success'}`}>
+          <div
+            className={`status-note status-note--${status.tone}`}
+            role={status.tone === 'success' ? 'status' : 'alert'}
+          >
             {status.message}
           </div>
         ) : null}

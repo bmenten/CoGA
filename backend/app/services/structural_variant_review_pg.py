@@ -20,7 +20,9 @@ from . import cnv_acmg_points
 from .family_metadata_context import FamilyMetadataContext
 from .metadata_service import CurrentUser
 from .review_pg_utils import (
+    _has_stored_record,
     _json_payload,
+    _log_unreadable_classification,
     _merge_tag_metadata,
     _normalize_tags,
     _require_uuid,
@@ -75,20 +77,30 @@ def _cnv_json_or_none(value: Any) -> str | None:
 
 
 def _deserialize_cnv_acmg(value: Any) -> CnvAcmgClassificationPayload | None:
+    """The stored classification, or None when there is none or it cannot be read.
+
+    ``None`` alone cannot tell those apart, so an unreadable record is logged here and
+    the review serializer marks it (``acmg_unreadable``) instead of dropping it (#514).
+    """
     if not value:
         return None
     if isinstance(value, str):
         try:
             value = json.loads(value)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as exc:
+            _log_unreadable_classification("CNV classification", exc)
+            return None
+        if value is None:  # a stored JSON null is no record, not a broken one
             return None
     try:
         return CnvAcmgClassificationPayload.model_validate(value)
-    except Exception:  # noqa: BLE001 - tolerate legacy/partial blobs
+    except Exception as exc:  # noqa: BLE001 - served as unreadable, never raised
+        _log_unreadable_classification("CNV classification", exc)
         return None
 
 
 def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
+    cnv_acmg = _deserialize_cnv_acmg(document.get("cnv_acmg"))
     return SmallVariantReviewOut(
         variant_id=str(document.get("variant_id") or ""),
         classification=document.get("classification"),
@@ -97,7 +109,8 @@ def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
         note=document.get("note"),
         updated_by=document.get("updated_by"),
         updated_at=document.get("updated_at"),
-        cnv_acmg=_deserialize_cnv_acmg(document.get("cnv_acmg")),
+        cnv_acmg=cnv_acmg,
+        acmg_unreadable=cnv_acmg is None and _has_stored_record(document.get("cnv_acmg")),
     )
 
 

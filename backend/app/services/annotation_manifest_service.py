@@ -146,39 +146,54 @@ async def _family_manifest_row(session: AsyncSession, family_uuid: str) -> dict[
     return dict(row) if row else None
 
 
+# Stands in for a module version the provenance lookup could not read (#514).
+UNAVAILABLE_MODULE_VERSION = "unavailable"
+
+
 async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> dict[str, dict[str, Any]]:
-    """Versions of the reference layer CoGA loaded — best-effort, never fatal."""
+    """Versions of the reference layer CoGA loaded — best-effort, never fatal.
+
+    This runs inside sign-out, so each lookup is a SAVEPOINT: a failed statement cannot
+    poison the caller's transaction. A failure is logged and recorded as an explicit
+    ``unavailable`` module, so the frozen record says the version could not be read
+    instead of silently leaving the module out (#514). A bare ``except: pass`` here is
+    the pattern that once hid a total failure to write the manifest.
+    """
     modules: dict[str, dict[str, Any]] = {}
     if assembly_id:
         try:
-            row = (
-                await session.execute(
-                    text(
-                        "SELECT assembly_name, version, release_date FROM assemblies "
-                        "WHERE id = CAST(:assembly_id AS uuid)"
-                    ),
-                    {"assembly_id": assembly_id},
-                )
-            ).mappings().first()
+            async with session.begin_nested():
+                row = (
+                    await session.execute(
+                        text(
+                            "SELECT assembly_name, version, release_date FROM assemblies "
+                            "WHERE id = CAST(:assembly_id AS uuid)"
+                        ),
+                        {"assembly_id": assembly_id},
+                    )
+                ).mappings().first()
             if row:
                 detail = str(row["release_date"]) if row["release_date"] else (row["version"] or None)
                 modules["assembly"] = {"version": row["assembly_name"], "detail": detail}
-        except Exception:  # noqa: BLE001 — a missing column shouldn't break provenance
-            pass
+        except Exception:  # noqa: BLE001 — provenance must never break sign-out
+            logger.warning("Reference-assembly provenance lookup failed", exc_info=True)
+            modules["assembly"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
     try:
-        release = (
-            await session.execute(
-                text(
-                    "SELECT release_version FROM monarch_gene_disease "
-                    "WHERE release_version IS NOT NULL AND release_version <> '' "
-                    "ORDER BY updated_at DESC NULLS LAST LIMIT 1"
+        async with session.begin_nested():
+            release = (
+                await session.execute(
+                    text(
+                        "SELECT release_version FROM monarch_gene_disease "
+                        "WHERE release_version IS NOT NULL AND release_version <> '' "
+                        "ORDER BY updated_at DESC NULLS LAST LIMIT 1"
+                    )
                 )
-            )
-        ).scalar()
+            ).scalar()
         if release:
             modules["monarch"] = {"version": str(release)}
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception:  # noqa: BLE001 — provenance must never break sign-out
+        logger.warning("Monarch-release provenance lookup failed", exc_info=True)
+        modules["monarch"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
     return modules
 
 

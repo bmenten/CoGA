@@ -103,6 +103,12 @@ signed report, and a printout carries a notice at the top saying so. If the chec
 be made, the record is grey and the page must be treated as unsigned. **Download signed
 version** on the record returns the frozen snapshot itself.
 
+**What the signed record could not capture.** If a lookup fails while the snapshot is
+frozen — the QC cut-offs, or the reference-assembly or Monarch version — sign-out still
+goes ahead, but the snapshot records that part as unavailable rather than as empty, and the
+record says so: *Not captured in signed version 2: Sequencing-QC cut-offs (QC thresholds
+could not be resolved)*. The sign-out entry in the audit trail lists the same parts.
+
 **The drift gate.** If any reported classification has drifted, sign-out is **blocked**
 and you are asked to re-review or **acknowledge** the drift **with a reason**. The
 acknowledgement and its reason are recorded in both the snapshot and the audit trail, so

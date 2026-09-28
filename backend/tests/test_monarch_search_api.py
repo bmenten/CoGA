@@ -1,4 +1,4 @@
-"""Router tests for the admin Monarch disease/phenotype search endpoint."""
+"""Router tests for the admin Monarch search and refresh endpoints."""
 
 from datetime import datetime, timezone
 
@@ -12,8 +12,10 @@ from backend.app.services.metadata_service import CurrentUser
 
 
 class _FakeSession:
-    async def rollback(self) -> None:  # pragma: no cover - defensive only
-        return None
+    rollbacks = 0
+
+    async def rollback(self) -> None:
+        type(self).rollbacks += 1
 
 
 @pytest.fixture()
@@ -120,3 +122,65 @@ def test_monarch_search_rejects_out_of_range_limit(monarch_admin_client) -> None
     response = client.get("/api/admin/monarch/search?q=seizure&limit=500")
 
     assert response.status_code == 422
+
+
+_REFRESH_SUMMARY = {
+    "release_version": "2026-04-01",
+    "files_loaded": 4,
+    "gene_disease_pairs": 13300,
+    "genes": 5470,
+    "diseases": 8910,
+    "causal_pairs": 7250,
+    "disease_phenotype_pairs": 246000,
+    "phenotype_diseases": 11240,
+    "phenotypes": 9010,
+    "excluded_phenotype_pairs": 0,
+    "completed_at": "2026-04-15T12:00:00Z",
+    "duration_seconds": 2.5,
+}
+
+
+def _patch_refresh(monkeypatch, regenerate) -> None:
+    async def fake_refresh(session):
+        return dict(_REFRESH_SUMMARY)
+
+    monkeypatch.setattr(admin_router, "refresh_monarch", fake_refresh)
+    monkeypatch.setattr(admin_router, "regenerate_mendeliome", regenerate)
+
+
+def test_monarch_refresh_reports_the_regenerated_mendeliome(monarch_admin_client) -> None:
+    client, monkeypatch = monarch_admin_client
+
+    async def regenerate(session, user):
+        return None
+
+    _patch_refresh(monkeypatch, regenerate)
+    response = client.post("/api/admin/monarch/refresh")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["release_version"] == "2026-04-01"
+    assert body["mendeliome_regenerated"] is True
+    assert body["mendeliome_error"] is None
+
+
+def test_a_failed_mendeliome_regeneration_is_reported_not_hidden(monarch_admin_client) -> None:
+    # #514: the refresh itself succeeded, so it must not fail — but the generated
+    # Mendeliome panel still reflects the previous release, and the admin is told.
+    client, monkeypatch = monarch_admin_client
+
+    async def regenerate(session, user):
+        raise RuntimeError("gene_info lookup timed out")
+
+    _patch_refresh(monkeypatch, regenerate)
+    _FakeSession.rollbacks = 0
+    response = client.post("/api/admin/monarch/refresh")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["release_version"] == "2026-04-01"
+    assert body["mendeliome_regenerated"] is False
+    # The exception type only: its message can carry SQL or row values.
+    assert body["mendeliome_error"] == "RuntimeError"
+    # The half-built panel version is discarded rather than left on the session.
+    assert _FakeSession.rollbacks == 1

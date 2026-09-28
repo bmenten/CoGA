@@ -870,12 +870,21 @@ async def refresh_monarch_associations(
             detail=f"Failed to download Monarch data: {exc}",
         ) from exc
     # A new Monarch release means a new Mendeliome: re-version the generated panel
-    # (a no-op if the gene set is unchanged). Best-effort — never fail the refresh.
+    # (a no-op if the gene set is unchanged). It never fails the refresh, but the admin
+    # is told when it did not happen, instead of only a log line (#514).
+    mendeliome_error: str | None = None
     try:
         await regenerate_mendeliome(session, user)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.warning("Mendeliome regeneration after Monarch refresh failed", exc_info=True)
-    return MonarchRefreshSummaryOut(**summary)
+        # The Monarch load is already committed; discard the half-built panel version.
+        await session.rollback()
+        mendeliome_error = type(exc).__name__
+    return MonarchRefreshSummaryOut(
+        **summary,
+        mendeliome_regenerated=mendeliome_error is None,
+        mendeliome_error=mendeliome_error,
+    )
 
 
 @router.get("/clinical-cnv-kb/status", response_model=ClinicalCnvKbStatusOut)

@@ -26,6 +26,7 @@ from .metadata_service import CurrentUser
 # Re-exported here so existing `from ...small_variant_review_pg import _json_payload`
 # imports (and a test) keep working.
 from .review_pg_utils import (
+    _has_stored_record,
     _json_payload,  # noqa: F401  (re-exported for import-path compatibility)
     _merge_tag_metadata,
     _normalize_tags,
@@ -98,6 +99,7 @@ def _serialize_compound_het(document: dict[str, Any]) -> SmallVariantCompoundHet
 
 
 def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
+    acmg = _deserialize_acmg(document.get("acmg"))
     return SmallVariantReviewOut(
         variant_id=str(document["variant_id"]),
         classification=document.get("classification"),
@@ -113,7 +115,8 @@ def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
         updated_by=document.get("updated_by"),
         updated_at=document.get("updated_at"),
         compound_het=_serialize_compound_het(document),
-        acmg=_deserialize_acmg(document.get("acmg")),
+        acmg=acmg,
+        acmg_unreadable=acmg is None and _has_stored_record(document.get("acmg")),
     )
 
 

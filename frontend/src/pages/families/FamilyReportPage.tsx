@@ -318,6 +318,12 @@ const FamilyReportPage: React.FC = () => {
           : signoutCheck.matches
             ? 'matches'
             : 'changed';
+  // A lookup that failed while the record was frozen is recorded as such, not as an
+  // empty block; say so wherever the signed record is shown (#514).
+  const signedGaps =
+    latestSignout && signoutCheck?.version === latestSignout.version
+      ? (signoutCheck.not_captured ?? [])
+      : [];
   const printNotice =
     signedState === 'none'
       ? 'Draft — this report has not been signed.'
@@ -703,6 +709,12 @@ const FamilyReportPage: React.FC = () => {
             <p className="report-signout-qc">
               <span className="report-footer-label">Evidence drift</span> override acknowledged:{' '}
               {latestSignout.drift_acknowledgement_reason || 'no reason recorded'}
+            </p>
+          ) : null}
+          {signedGaps.length > 0 ? (
+            <p className="report-signout-gaps" role="note">
+              <strong>Not captured in signed version {latestSignout.version}:</strong>{' '}
+              {signedGaps.map((gap) => `${gap.item} (${gap.reason})`).join('; ')}.
             </p>
           ) : null}
           <p className="report-signout-actions no-print">
