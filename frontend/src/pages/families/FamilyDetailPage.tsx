@@ -6,6 +6,7 @@ import MonarchPhenotypeMatchPanel from './MonarchPhenotypeMatchPanel';
 import { useEmbryoSegregation } from '../../lib/useEmbryoSegregation';
 import { segregationStateLabel } from '../../lib/embryoSegregation';
 import InfoTip from '../../components/InfoTip';
+import ModalDialog from '../../components/ModalDialog';
 import type {
   ApiFamilyRecord,
   ApiFamilyMemberBatchUpdateItem,
@@ -63,10 +64,11 @@ import {
   formatRegion,
   getReviewSummaryTags,
   hpoTooltip,
+  memberDetailDraftFromDetail,
   memberDraftFromFamilyMember,
   parentChildDraftsFromRelationships,
   parentsForSample,
-  parsePedigree,
+  sameMemberDetailDraft,
   sampleKey,
 } from './familyDetailHelpers';
 import VariantWorkspaceLink from './VariantWorkspaceLink';
@@ -466,21 +468,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       setMemberDraft(pending);
       return;
     }
-    setMemberDraft({
-      sample_id: selectedMemberDetail.member.sample_id,
-      sex:
-        selectedMemberDetail.member.sex === 'male' || selectedMemberDetail.member.sex === 'female'
-          ? selectedMemberDetail.member.sex
-          : 'und',
-      role: ROLE_OPTIONS.includes(selectedMemberDetail.member.role as StructureMemberDraft['role'])
-        ? (selectedMemberDetail.member.role as StructureMemberDraft['role'])
-        : 'relative',
-      clinical_status: clinicalStatusForMember(selectedMemberDetail.member),
-      carrier_status: carrierStatusForMember(selectedMemberDetail.member),
-      carrier_type: selectedMemberDetail.member.carrier_type ?? '',
-      father_id: selectedMemberDetail.father_id ?? '',
-      mother_id: selectedMemberDetail.mother_id ?? '',
-    });
+    setMemberDraft(memberDetailDraftFromDetail(selectedMemberDetail));
     setMemberStatus(null);
     setHpoStatus(null);
     setHpoSearchInput('');
@@ -826,6 +814,18 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
 
   const openMemberDetail = (sampleId: string) => {
     setSelectedMemberId(sampleId);
+  };
+
+  // Whether closing the member dialog would lose input: edits not yet applied to the
+  // pending updates, or a phenotype being entered. Applied edits stay pending, so they
+  // do not count.
+  const memberDetailHasUnsavedInput = () => {
+    if (hpoSearchInput.trim() || hpoNote.trim()) return true;
+    if (!selectedMemberDetail || !memberDraft) return false;
+    const applied =
+      pendingMemberUpdates[selectedMemberDetail.member.sample_id] ??
+      memberDetailDraftFromDetail(selectedMemberDetail);
+    return !sameMemberDetailDraft(memberDraft, applied);
   };
 
   const closeMemberDetail = () => {
@@ -1989,359 +1989,359 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       <PipelineSettingsPanel familyId={data.family_id} settings={pipelineSettings} variant="workspace" />
 
       {selectedMemberId && (
-        <div
-          className="modal-backdrop family-member-modal-backdrop"
-          role="presentation"
-          onMouseDown={closeMemberDetail}
+        // ModalDialog: Escape, a focus trap and focus restore, and a check before
+        // unapplied edits or a half-entered phenotype are discarded (#529).
+        <ModalDialog
+          onClose={closeMemberDetail}
+          isDirty={memberDetailHasUnsavedInput}
+          label="Family member details"
+          className="modal-surface surface-card family-member-modal"
+          backdropClassName="modal-backdrop family-member-modal-backdrop"
         >
-          <section
-            className="modal-surface surface-card family-member-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Family member details"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="variant-review-modal-header">
-              <div>
-                <p className="page-kicker">Family Member</p>
-                <h2 className="catalog-card-title">
-                  {selectedMemberDetail?.member.sample_id ?? selectedMemberId}
-                </h2>
+          {(requestClose) => (
+            <>
+              <div className="variant-review-modal-header">
+                <div>
+                  <p className="page-kicker">Family Member</p>
+                  <h2 className="catalog-card-title">
+                    {selectedMemberDetail?.member.sample_id ?? selectedMemberId}
+                  </h2>
+                </div>
+                <button type="button" className="button-secondary" onClick={requestClose}>
+                  Close
+                </button>
               </div>
-              <button type="button" className="button-secondary" onClick={closeMemberDetail}>
-                Close
-              </button>
-            </div>
 
-            {!selectedMemberDetail || !memberDraft ? (
-              <p className="dashboard-link-note">Loading member details.</p>
-            ) : (
-              <>
-                <div className="family-member-modal-grid">
-                  <label className="field-label">
-                    Identifier
-                    <input
-                      type="text"
-                      value={memberDraft.sample_id}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft ? { ...draft, sample_id: event.target.value } : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    />
-                  </label>
-                  <label className="field-label">
-                    Sex
-                    <select
-                      value={memberDraft.sex}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, sex: event.target.value as StructureMemberDraft['sex'] }
-                            : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {SEX_OPTIONS.map((sex) => (
-                        <option key={sex} value={sex}>
-                          {sex}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    Family role
-                    <select
-                      value={memberDraft.role}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, role: event.target.value as StructureMemberDraft['role'] }
-                            : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {ROLE_OPTIONS.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    Phenotype
-                    <select
-                      value={memberDraft.clinical_status}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, clinical_status: event.target.value as ClinicalStatus }
-                            : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {CLINICAL_STATUS_OPTIONS.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    Carrier status
-                    <select
-                      value={memberDraft.carrier_status}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, carrier_status: event.target.value as CarrierStatus }
-                            : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {CARRIER_STATUS_OPTIONS.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {memberDraft.carrier_status === 'carrier' && (
+              {!selectedMemberDetail || !memberDraft ? (
+                <p className="dashboard-link-note">Loading member details.</p>
+              ) : (
+                <>
+                  <div className="family-member-modal-grid">
                     <label className="field-label">
-                      Carrier type
+                      Identifier
+                      <input
+                        type="text"
+                        value={memberDraft.sample_id}
+                        onChange={(event) =>
+                          setMemberDraft((draft) =>
+                            draft ? { ...draft, sample_id: event.target.value } : draft,
+                          )
+                        }
+                        disabled={!userIsAdmin || memberBusy}
+                      />
+                    </label>
+                    <label className="field-label">
+                      Sex
                       <select
-                        value={memberDraft.carrier_type}
+                        value={memberDraft.sex}
                         onChange={(event) =>
                           setMemberDraft((draft) =>
                             draft
-                              ? { ...draft, carrier_type: event.target.value as CarrierType }
+                              ? { ...draft, sex: event.target.value as StructureMemberDraft['sex'] }
                               : draft,
                           )
                         }
                         disabled={!userIsAdmin || memberBusy}
                       >
-                        <option value="">type</option>
-                        {CARRIER_TYPE_OPTIONS.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
+                        {SEX_OPTIONS.map((sex) => (
+                          <option key={sex} value={sex}>
+                            {sex}
                           </option>
                         ))}
                       </select>
                     </label>
-                  )}
-                  <label className="field-label">
-                    Father
-                    <select
-                      value={memberDraft.father_id}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft ? { ...draft, father_id: event.target.value } : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      <option value="">None</option>
-                      {orderedMembers
-                        .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
-                        .map((member) => (
-                          <option key={member.sample_id} value={member.sample_id}>
-                            {member.sample_id}
+                    <label className="field-label">
+                      Family role
+                      <select
+                        value={memberDraft.role}
+                        onChange={(event) =>
+                          setMemberDraft((draft) =>
+                            draft
+                              ? { ...draft, role: event.target.value as StructureMemberDraft['role'] }
+                              : draft,
+                          )
+                        }
+                        disabled={!userIsAdmin || memberBusy}
+                      >
+                        {ROLE_OPTIONS.map((role) => (
+                          <option key={role} value={role}>
+                            {role}
                           </option>
                         ))}
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    Mother
-                    <select
-                      value={memberDraft.mother_id}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft ? { ...draft, mother_id: event.target.value } : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      <option value="">None</option>
-                      {orderedMembers
-                        .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
-                        .map((member) => (
-                          <option key={member.sample_id} value={member.sample_id}>
-                            {member.sample_id}
+                      </select>
+                    </label>
+                    <label className="field-label">
+                      Phenotype
+                      <select
+                        value={memberDraft.clinical_status}
+                        onChange={(event) =>
+                          setMemberDraft((draft) =>
+                            draft
+                              ? { ...draft, clinical_status: event.target.value as ClinicalStatus }
+                              : draft,
+                          )
+                        }
+                        disabled={!userIsAdmin || memberBusy}
+                      >
+                        {CLINICAL_STATUS_OPTIONS.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
                           </option>
                         ))}
-                    </select>
-                  </label>
-                </div>
+                      </select>
+                    </label>
+                    <label className="field-label">
+                      Carrier status
+                      <select
+                        value={memberDraft.carrier_status}
+                        onChange={(event) =>
+                          setMemberDraft((draft) =>
+                            draft
+                              ? { ...draft, carrier_status: event.target.value as CarrierStatus }
+                              : draft,
+                          )
+                        }
+                        disabled={!userIsAdmin || memberBusy}
+                      >
+                        {CARRIER_STATUS_OPTIONS.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {memberDraft.carrier_status === 'carrier' && (
+                      <label className="field-label">
+                        Carrier type
+                        <select
+                          value={memberDraft.carrier_type}
+                          onChange={(event) =>
+                            setMemberDraft((draft) =>
+                              draft
+                                ? { ...draft, carrier_type: event.target.value as CarrierType }
+                                : draft,
+                            )
+                          }
+                          disabled={!userIsAdmin || memberBusy}
+                        >
+                          <option value="">type</option>
+                          {CARRIER_TYPE_OPTIONS.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <label className="field-label">
+                      Father
+                      <select
+                        value={memberDraft.father_id}
+                        onChange={(event) =>
+                          setMemberDraft((draft) =>
+                            draft ? { ...draft, father_id: event.target.value } : draft,
+                          )
+                        }
+                        disabled={!userIsAdmin || memberBusy}
+                      >
+                        <option value="">None</option>
+                        {orderedMembers
+                          .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
+                          .map((member) => (
+                            <option key={member.sample_id} value={member.sample_id}>
+                              {member.sample_id}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label className="field-label">
+                      Mother
+                      <select
+                        value={memberDraft.mother_id}
+                        onChange={(event) =>
+                          setMemberDraft((draft) =>
+                            draft ? { ...draft, mother_id: event.target.value } : draft,
+                          )
+                        }
+                        disabled={!userIsAdmin || memberBusy}
+                      >
+                        <option value="">None</option>
+                        {orderedMembers
+                          .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
+                          .map((member) => (
+                            <option key={member.sample_id} value={member.sample_id}>
+                              {member.sample_id}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  </div>
 
-                <div className="family-member-modal-review-grid">
-                  <div className="variant-review-modal-section family-member-modal-section">
-                    <div className="family-workspace-card-head">
-                      <h3 className="section-title">HPO Phenotypes</h3>
-                      <span className="table-chip">
-                        {selectedMemberDetail.hpo_annotations.length} terms
-                      </span>
-                    </div>
-                    {selectedMemberDetail.hpo_annotations.length ? (
-                      <div className="family-hpo-chip-list">
-                        {selectedMemberDetail.hpo_annotations.map((annotation) => (
-                          <span
-                            key={annotation.id}
-                            className={`table-chip family-hpo-chip family-hpo-chip--${annotation.status}`}
-                            title={hpoTooltip(annotation)}
-                          >
-                            <span>{annotation.hpo_id}</span>
-                            <strong>{annotation.label}</strong>
-                            <em>{annotation.status}</em>
-                            {userIsAdmin && (
-                              <button
-                                type="button"
-                                className="button-ghost"
-                                onClick={() => removeHpoAnnotation(annotation.id)}
+                  <div className="family-member-modal-review-grid">
+                    <div className="variant-review-modal-section family-member-modal-section">
+                      <div className="family-workspace-card-head">
+                        <h3 className="section-title">HPO Phenotypes</h3>
+                        <span className="table-chip">
+                          {selectedMemberDetail.hpo_annotations.length} terms
+                        </span>
+                      </div>
+                      {selectedMemberDetail.hpo_annotations.length ? (
+                        <div className="family-hpo-chip-list">
+                          {selectedMemberDetail.hpo_annotations.map((annotation) => (
+                            <span
+                              key={annotation.id}
+                              className={`table-chip family-hpo-chip family-hpo-chip--${annotation.status}`}
+                              title={hpoTooltip(annotation)}
+                            >
+                              <span>{annotation.hpo_id}</span>
+                              <strong>{annotation.label}</strong>
+                              <em>{annotation.status}</em>
+                              {userIsAdmin && (
+                                <button
+                                  type="button"
+                                  className="button-ghost"
+                                  onClick={() => removeHpoAnnotation(annotation.id)}
+                                  disabled={hpoBusy}
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="dashboard-link-note">No HPO phenotypes linked.</p>
+                      )}
+
+                      {userIsAdmin && (
+                        <>
+                          <div className="family-hpo-controls">
+                            <label className="field-label family-hpo-term-field">
+                              HPO term
+                              <input
+                                type="text"
+                                value={hpoSearchInput}
+                                onChange={(event) => updateHpoSearchInput(event.target.value)}
+                                placeholder="HP:0001250 or seizure"
+                                disabled={hpoBusy}
+                                list={`hpo-term-options-${data.family_id}`}
+                              />
+                              <datalist id={`hpo-term-options-${data.family_id}`}>
+                                {hpoSearchResults.map((term) => (
+                                  <option key={term.hpo_id} value={formatHpoTermOption(term)} />
+                                ))}
+                              </datalist>
+                            </label>
+                            <label className="field-label">
+                              Status
+                              <select
+                                value={hpoAnnotationStatus}
+                                onChange={(event) =>
+                                  setHpoAnnotationStatus(event.target.value as HpoAnnotationStatus)
+                                }
                                 disabled={hpoBusy}
                               >
-                                Remove
-                              </button>
-                            )}
+                                {HPO_STATUS_OPTIONS.map((status) => (
+                                  <option key={status} value={status}>
+                                    {status}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="field-label family-hpo-note-field">
+                              Note
+                              <input
+                                type="text"
+                                value={hpoNote}
+                                onChange={(event) => setHpoNote(event.target.value)}
+                                disabled={hpoBusy}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className="form-button"
+                              onClick={addHpoAnnotation}
+                              disabled={hpoBusy || !selectedHpoTerm}
+                            >
+                              Add phenotype
+                            </button>
+                          </div>
+
+
+                        </>
+                      )}
+                      {hpoStatus && (
+                        <div className={`status-note ${hpoStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'}`}>
+                          {hpoStatus.message}
+                        </div>
+                      )}
+                    </div>
+                    <div className="variant-review-modal-section family-member-modal-section">
+                      <div className="family-workspace-card-head">
+                        <h3 className="section-title">Impact</h3>
+                        {selectedMemberDetail.impact.destructive && (
+                          <span className="table-chip table-chip--critical">Linked data</span>
+                        )}
+                      </div>
+                      {selectedMemberDetail.impact.warnings.length ? (
+                        <ul className="family-member-impact-list">
+                          {selectedMemberDetail.impact.warnings.map((warning) => (
+                            <li key={warning}>{warning}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="dashboard-link-note">No derived-data dependencies detected.</p>
+                      )}
+                      <div className="family-member-impact-chips">
+                        {Object.entries(selectedMemberDetail.impact.pedigree_references).map(([key, count]) => (
+                          <span key={key} className="table-chip">
+                            {key} {count}
+                          </span>
+                        ))}
+                        {Object.entries(selectedMemberDetail.impact.data_counts).map(([key, count]) => (
+                          <span key={key} className="table-chip">
+                            {key} {count}
+                          </span>
+                        ))}
+                        {selectedMemberDetail.impact.stale_analysis_scopes.map((scope) => (
+                          <span key={scope} className="table-chip table-chip--critical">
+                            {scope}
                           </span>
                         ))}
                       </div>
-                    ) : (
-                      <p className="dashboard-link-note">No HPO phenotypes linked.</p>
-                    )}
-
-                    {userIsAdmin && (
-                      <>
-                        <div className="family-hpo-controls">
-                          <label className="field-label family-hpo-term-field">
-                            HPO term
-                            <input
-                              type="text"
-                              value={hpoSearchInput}
-                              onChange={(event) => updateHpoSearchInput(event.target.value)}
-                              placeholder="HP:0001250 or seizure"
-                              disabled={hpoBusy}
-                              list={`hpo-term-options-${data.family_id}`}
-                            />
-                            <datalist id={`hpo-term-options-${data.family_id}`}>
-                              {hpoSearchResults.map((term) => (
-                                <option key={term.hpo_id} value={formatHpoTermOption(term)} />
-                              ))}
-                            </datalist>
-                          </label>
-                          <label className="field-label">
-                            Status
-                            <select
-                              value={hpoAnnotationStatus}
-                              onChange={(event) =>
-                                setHpoAnnotationStatus(event.target.value as HpoAnnotationStatus)
-                              }
-                              disabled={hpoBusy}
-                            >
-                              {HPO_STATUS_OPTIONS.map((status) => (
-                                <option key={status} value={status}>
-                                  {status}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="field-label family-hpo-note-field">
-                            Note
-                            <input
-                              type="text"
-                              value={hpoNote}
-                              onChange={(event) => setHpoNote(event.target.value)}
-                              disabled={hpoBusy}
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            className="form-button"
-                            onClick={addHpoAnnotation}
-                            disabled={hpoBusy || !selectedHpoTerm}
-                          >
-                            Add phenotype
-                          </button>
-                        </div>
-
-
-                      </>
-                    )}
-                    {hpoStatus && (
-                      <div className={`status-note ${hpoStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'}`}>
-                        {hpoStatus.message}
-                      </div>
-                    )}
-                  </div>
-                  <div className="variant-review-modal-section family-member-modal-section">
-                    <div className="family-workspace-card-head">
-                      <h3 className="section-title">Impact</h3>
-                      {selectedMemberDetail.impact.destructive && (
-                        <span className="table-chip table-chip--critical">Linked data</span>
-                      )}
-                    </div>
-                    {selectedMemberDetail.impact.warnings.length ? (
-                      <ul className="family-member-impact-list">
-                        {selectedMemberDetail.impact.warnings.map((warning) => (
-                          <li key={warning}>{warning}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="dashboard-link-note">No derived-data dependencies detected.</p>
-                    )}
-                    <div className="family-member-impact-chips">
-                      {Object.entries(selectedMemberDetail.impact.pedigree_references).map(([key, count]) => (
-                        <span key={key} className="table-chip">
-                          {key} {count}
-                        </span>
-                      ))}
-                      {Object.entries(selectedMemberDetail.impact.data_counts).map(([key, count]) => (
-                        <span key={key} className="table-chip">
-                          {key} {count}
-                        </span>
-                      ))}
-                      {selectedMemberDetail.impact.stale_analysis_scopes.map((scope) => (
-                        <span key={scope} className="table-chip table-chip--critical">
-                          {scope}
-                        </span>
-                      ))}
                     </div>
                   </div>
-                </div>
 
-                {memberStatus && (
-                  <div
-                    className={`status-note ${
-                      memberStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
-                    }`}
-                  >
-                    {memberStatus.message}
-                  </div>
-                )}
-
-                {userIsAdmin && (
-                  <div className="variant-review-modal-actions compact-toolbar">
-                    <button type="button" className="form-button"onClick={applyMemberDetail} disabled={memberBusy}>
-                      Apply to pending
-                    </button>
-                    <button
-                      type="button"
-                      className="button-ghost"
-                      onClick={deleteMemberDetail}
-                      disabled={memberBusy || orderedMembers.length <= 1}
+                  {memberStatus && (
+                    <div
+                      className={`status-note ${
+                        memberStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
+                      }`}
                     >
-                      Remove member
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </section>
-        </div>
+                      {memberStatus.message}
+                    </div>
+                  )}
+
+                  {userIsAdmin && (
+                    <div className="variant-review-modal-actions compact-toolbar">
+                      <button type="button" className="form-button"onClick={applyMemberDetail} disabled={memberBusy}>
+                        Apply to pending
+                      </button>
+                      <button
+                        type="button"
+                        className="button-ghost"
+                        onClick={deleteMemberDetail}
+                        disabled={memberBusy || orderedMembers.length <= 1}
+                      >
+                        Remove member
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </ModalDialog>
       )}
     </div>
   );

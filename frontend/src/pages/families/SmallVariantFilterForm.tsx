@@ -926,6 +926,8 @@ const SmallVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -970,6 +972,8 @@ const SmallVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -1015,6 +1019,8 @@ const SmallVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -1213,6 +1219,8 @@ const SmallVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -1302,6 +1310,8 @@ const SmallVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -1354,6 +1364,8 @@ const SmallVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -1561,6 +1573,8 @@ const SmallVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -1670,6 +1684,8 @@ const SmallVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -1726,6 +1742,8 @@ const SmallVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -1844,6 +1862,8 @@ const SmallVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >

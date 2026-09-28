@@ -37,6 +37,9 @@ interface Props {
   regionEnd: number;
 }
 
+const GENE_HEIGHT = 8;
+const LINE_HEIGHT = GENE_HEIGHT + 4;
+
 const GeneTrack: React.FC<Props> = ({
   assembly,
   chrom,
@@ -84,8 +87,6 @@ const GeneTrack: React.FC<Props> = ({
   }, [panels]);
 
   const regionLength = regionEnd - regionStart;
-  const geneHeight = 8;
-  const lineHeight = geneHeight + 4;
   const geneFill = cssVar("--color-gene-fill");
   const geneStroke = cssVar("--color-gene-stroke");
 
@@ -101,7 +102,7 @@ const GeneTrack: React.FC<Props> = ({
       lines[lineIndex] = end;
       return { g, start, end, lineIndex };
     });
-    return { genesWithLines: withLines, svgHeight: lines.length * lineHeight + 4 };
+    return { genesWithLines: withLines, svgHeight: lines.length * LINE_HEIGHT + 4 };
   }, [genes, regionStart, regionEnd]);
   const hasGenes = (genes?.length || 0) > 0;
   const containerHeight = Math.max(svgHeight, 24);
@@ -118,7 +119,7 @@ const GeneTrack: React.FC<Props> = ({
       .join("g")
       .attr("transform", (d) => {
         const x = ((d.start - regionStart) / regionLength) * width;
-        const y = 2 + d.lineIndex * lineHeight;
+        const y = 2 + d.lineIndex * LINE_HEIGHT;
         return `translate(${x},${y})`;
       })
       .on("mousemove", function (event, d) {
@@ -145,11 +146,11 @@ const GeneTrack: React.FC<Props> = ({
     groups.each(function (d) {
       const g = select(this);
       const geneWidth = Math.max(((d.end - d.start) / regionLength) * width, 1);
-      const midY = geneHeight / 2;
+      const midY = GENE_HEIGHT / 2;
       if (geneWidth < 6) {
         g.append("rect")
           .attr("width", 6)
-          .attr("height", geneHeight)
+          .attr("height", GENE_HEIGHT)
           .attr("fill", geneStroke);
         return;
       }
@@ -165,7 +166,7 @@ const GeneTrack: React.FC<Props> = ({
       if (!showExons) {
         g.append("rect")
           .attr("width", geneWidth)
-          .attr("height", geneHeight)
+          .attr("height", GENE_HEIGHT)
           .attr("fill", geneFill)
           .attr("stroke", geneStroke);
         g.append("path").attr("d", arrowPath).attr("fill", cssVar("--color-gene-stroke"));
@@ -191,7 +192,7 @@ const GeneTrack: React.FC<Props> = ({
           const exonEnd = Math.min(exon.end, regionEnd);
           return Math.max(((exonEnd - exonStart) / regionLength) * width, 1);
         })
-        .attr("height", geneHeight)
+        .attr("height", GENE_HEIGHT)
         .attr("fill", geneStroke);
 
       g.selectAll("line.intron")
@@ -216,7 +217,7 @@ const GeneTrack: React.FC<Props> = ({
 
       g.append("path").attr("d", arrowPath).attr("fill", cssVar("--color-gene-stroke"));
     });
-  }, [genesWithLines, panelMap, width, regionLength, regionStart, regionEnd]);
+  }, [genesWithLines, panelMap, width, regionLength, regionStart, regionEnd, geneFill, geneStroke]);
 
   return (
     <div

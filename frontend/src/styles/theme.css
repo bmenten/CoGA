@@ -4707,6 +4707,13 @@ tbody tr:hover {
   color: var(--color-text-muted);
 }
 
+/* A chromosome in the genome overview's chromosome strip opens with Enter or Space. */
+.genome-overview-chrom:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* "Gene also hit by an SV" cross-type second-hit flag (see docs/snv-sv-compound-het.md). */
 .sv-second-hit-badge {
   display: inline-flex;
@@ -4740,13 +4747,38 @@ tbody tr:hover {
 .sv-second-hit-badge:hover,
 .sv-second-hit-badge:focus-visible {
   filter: brightness(0.97);
-  outline: none;
+}
+
+/* A visible keyboard focus ring (WCAG 2.4.7): the slight darkening alone was not one. */
+.sv-second-hit-badge:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .sv-second-hit-badge--del {
   color: var(--color-danger, #c61f2d);
   background: var(--color-danger-surface, #fdeced);
   border-color: var(--color-danger-border, #efb6bb);
+}
+
+/* Without a link the badge is a <button>, so keyboard users can reach its explanation.
+   Undo the shared button rule: its 3rem height, uppercase tracking, and a hover (dark
+   fill, red text, lift) that would replace the tone. */
+button.sv-second-hit-badge {
+  min-height: auto;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+button.sv-second-hit-badge:hover {
+  color: var(--color-warning-strong, #92580a);
+  background: var(--color-warning-surface, #fdf1d8);
+  transform: none;
+}
+
+button.sv-second-hit-badge--del:hover {
+  color: var(--color-danger, #c61f2d);
+  background: var(--color-danger-surface, #fdeced);
 }
 
 /* A deletion in trans with a het SNV (effectively biallelic) — strongest emphasis. */
