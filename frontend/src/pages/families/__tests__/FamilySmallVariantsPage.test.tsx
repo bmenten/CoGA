@@ -1184,6 +1184,52 @@ describe('FamilySmallVariantsPage', () => {
     const payload = apiMock.put.mock.calls.at(-1)?.[1] as Record<string, unknown> | undefined;
     expect(payload).toBeTruthy();
     expect(payload?.compound_het).toBeUndefined();
+    // #513: the save names the version it was made against.
+    expect(payload?.expected_updated_at).toBe('2026-04-14T10:00:00Z');
+  });
+
+  it('shows a review conflict and reloads instead of overwriting (#513)', async () => {
+    apiMock.put.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: 'review_conflict',
+            message:
+              'This review was changed by bob after you opened it; your changes were not saved. The current review has been loaded.',
+            current: null,
+          },
+        },
+      },
+    });
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
+    await screen.findByRole('columnheader', { name: /Chr/i });
+    const brca2Row = screen.getAllByRole('row').find((row) => within(row).queryByText('BRCA2'));
+    fireEvent.click(within(brca2Row as HTMLElement).getByRole('button', { name: 'Tags & notes' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByLabelText(/Needs RNA/i));
+
+    const variantFetches = () =>
+      apiMock.get.mock.calls.filter(([url]) => String(url).startsWith('/families/F1/small-variants?'))
+        .length;
+    const fetchesBeforeSave = variantFetches();
+    fireEvent.click(within(dialog).getByRole('button', { name: /save review/i }));
+
+    expect((await screen.findAllByText(/changed by bob after you opened it/)).length).toBeGreaterThan(0);
+    // The current review is reloaded rather than the stale copy kept on screen.
+    await waitFor(() => expect(variantFetches()).toBeGreaterThan(fetchesBeforeSave));
   });
 
   it('shows a loading indicator while a filtered/paginated refetch is in flight', async () => {

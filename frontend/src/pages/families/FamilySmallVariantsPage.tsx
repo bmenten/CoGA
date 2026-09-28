@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
 import FamilyPageHeader from './FamilyPageHeader';
 import { useFamilyReference } from '../../lib/reference';
@@ -211,9 +212,10 @@ const FamilySmallVariantsPage: React.FC = () => {
         throw new Error('Family id is required');
       }
       const reviewPath = buildSmallVariantReviewPath(familyId, variant._id);
+      const body = withReviewVersion(payload, variant.review);
       const res = projectId
-        ? await api.put(reviewPath, payload, { params: { project_id: projectId } })
-        : await api.put(reviewPath, payload);
+        ? await api.put(reviewPath, body, { params: { project_id: projectId } })
+        : await api.put(reviewPath, body);
       return { review: res.data as SmallVariantReview, variantId: variant._id };
     },
     onMutate: async ({ variant, payload }) => {
@@ -251,6 +253,10 @@ const FamilySmallVariantsPage: React.FC = () => {
         tone: 'error',
         message: getErrorMessage(error, 'Unable to save the variant review'),
       });
+      // Someone else saved this review meanwhile: show theirs rather than a stale copy.
+      if (isReviewConflict(error)) {
+        void queryClient.invalidateQueries({ queryKey: ['family', familyId, 'small-variants'] });
+      }
     },
   });
 
