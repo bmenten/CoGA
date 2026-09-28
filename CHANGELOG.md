@@ -301,6 +301,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   view and the HPO ontology parse now run in worker threads, so other users' requests are served
   meanwhile on the single worker. `SMTP_HOST`, which was read outside the settings, is now a
   documented setting (#568).
+- **Gene-reference provenance and the variant card (#536)** — when GENCODE cannot be fetched, the
+  fall-back to the UCSC gene table is reported rather than logged only, and each report's manifest
+  records where CoGA's gene loci came from. The variant card's `g.` string is labelled "Genomic
+  change", since it is not HGVS-normalised, and a transcript's CCDS and RefSeq are withheld when the
+  variant names a different transcript version than the gene annotation holds (#573).
 
 ### Security
 

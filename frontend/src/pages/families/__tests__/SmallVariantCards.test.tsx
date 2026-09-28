@@ -158,9 +158,74 @@ describe('SmallVariantCards', () => {
     await userEvent.click(screen.getByRole('button', { name: /ENST00000380152/i }));
     const dialog = await screen.findByRole('dialog', { name: /BRCA2/i });
 
-    // Matched despite the VCF naming the unversioned transcript.
+    // Matched despite the VCF naming the unversioned transcript, and the annotation
+    // version the cross-references come from is named (#536).
     expect(await within(dialog).findByText('CCDS')).toBeInTheDocument();
     expect(within(dialog).getByText('NM_000059.4')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/CCDS\/RefSeq from ENST00000380152\.8 in the gene annotation/),
+    ).toBeInTheDocument();
+  });
+
+  const renderBrca2WithTranscript = (transcriptId: string) =>
+    renderCards(
+      <SmallVariantCards
+        variants={[
+          {
+            _id: 'brca2-var',
+            chr: '13',
+            start: 32316461,
+            end: 32316461,
+            type: 'SNV',
+            gene: 'BRCA2',
+            ref: 'G',
+            alt: 'A',
+            impact: 'MODERATE',
+            effect: 'missense_variant',
+            transcript_id: transcriptId,
+            transcript_biotype: 'protein_coding',
+            canonical: true,
+            genotypes: [],
+          },
+        ]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+  it('shows CCDS and RefSeq without a note for the same transcript version', async () => {
+    mockGeneProfile([
+      { transcript_id: 'ENST00000380152.8', ccds_id: 'CCDS9344.1', refseq_accessions: ['NM_000059.4'] },
+    ]);
+    renderBrca2WithTranscript('ENST00000380152.8');
+    await userEvent.click(screen.getByRole('button', { name: /ENST00000380152\.8/i }));
+    const dialog = await screen.findByRole('dialog', { name: /BRCA2/i });
+
+    expect(await within(dialog).findByText('CCDS')).toBeInTheDocument();
+    expect(within(dialog).getByText('NM_000059.4')).toBeInTheDocument();
+    expect(within(dialog).queryByText(/CCDS\/RefSeq (from|not shown)/)).not.toBeInTheDocument();
+  });
+
+  it('withholds CCDS and RefSeq when the variant names another transcript version', async () => {
+    // The annotation's .8 may not share a CDS with the .7 the variant was annotated on.
+    mockGeneProfile([
+      { transcript_id: 'ENST00000380152.8', ccds_id: 'CCDS9344.1', refseq_accessions: ['NM_000059.4'] },
+    ]);
+    renderBrca2WithTranscript('ENST00000380152.7');
+    await userEvent.click(screen.getByRole('button', { name: /ENST00000380152\.7/i }));
+    const dialog = await screen.findByRole('dialog', { name: /BRCA2/i });
+
+    expect(
+      await within(dialog).findByText('CCDS/RefSeq not shown: the gene annotation has ENST00000380152.8'),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText('CCDS')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('NM_000059.4')).not.toBeInTheDocument();
   });
 
   it('lists Monarch and OMIM associations when the card detail is expanded', async () => {
@@ -290,7 +355,7 @@ describe('SmallVariantCards', () => {
     // Everything the card already states appears exactly once — the disclosure is extra
     // detail, not a second copy of the card.
     for (const label of [
-      'HGVS.g',
+      'Genomic change',
       'HGVS.c',
       'HGVS.p',
       'Alleles',
@@ -306,7 +371,7 @@ describe('SmallVariantCards', () => {
     expect(screen.getByText(/some other field/i)).toBeInTheDocument();
   });
 
-  it('heads the card with HGVS.g and its cytoband instead of a locus', async () => {
+  it('heads the card with the genomic change and its cytoband instead of a locus', async () => {
     renderCards(
         <SmallVariantCards
           variants={[
@@ -343,6 +408,9 @@ describe('SmallVariantCards', () => {
 
     expect(screen.getByText('chr13:g.32316461G>A')).toBeInTheDocument();
     expect(screen.getByText('(13q13.1)')).toBeInTheDocument();
+    // Labelled as a genomic change, not as HGVS, which it is not normalised to (#536).
+    expect(screen.getByText('Genomic change')).toHaveAttribute('title', expect.stringMatching(/Not HGVS-normalised/));
+    expect(screen.queryByText('HGVS.g')).not.toBeInTheDocument();
     // The headline no longer repeats the position as a locus range.
     expect(screen.queryByText(/32,316,461/)).not.toBeInTheDocument();
 

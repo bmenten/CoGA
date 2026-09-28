@@ -84,12 +84,18 @@ export const formatLocus = (variant: Pick<SmallVariant, 'chr' | 'start' | 'end'>
   ).toLocaleString()}`;
 };
 
-// HGVS genomic notation derived from the VCF-style chr/pos/ref/alt the API returns.
-// The reference is named by its UCSC-style chromosome rather than a versioned RefSeq
-// accession, which keeps it consistent with the rest of the UI; the assembly is stated
-// on the analysis page. Duplications are written as insertions because deciding `dup`
-// needs the flanking reference sequence, which the client does not have.
-export const formatHgvsG = (
+// The genomic change in g. notation, derived from the VCF-style chr/pos/ref/alt the API
+// returns. It is *not* HGVS-compliant, and the card does not call it HGVS (#536): the
+// reference is named by its UCSC-style chromosome rather than a versioned RefSeq accession,
+// a change in a repeat is not shifted 3′, and a duplication is written as an insertion,
+// because deciding `dup` or shifting needs the flanking reference sequence the client does
+// not have. The assembly is stated on the analysis page.
+export const GENOMIC_CHANGE_NOTE =
+  'The change in g. notation from the VCF record. Not HGVS-normalised: no 3′ shift, a ' +
+  'duplication is written as an insertion, and the chromosome is named rather than its ' +
+  'RefSeq accession.';
+
+export const formatGenomicChange = (
   variant: Pick<SmallVariant, 'chr' | 'start' | 'ref' | 'alt'>,
 ): string | null => {
   const ref = (variant.ref || '').toUpperCase();
