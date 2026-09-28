@@ -11,10 +11,23 @@ async function currentVersion(page: Page): Promise<number> {
   return match ? Number.parseInt(match[1], 10) : 0;
 }
 
-test('signs out the family report from the browser (with gate handling)', async ({ page }) => {
-  // The evidence-drift gate is a native confirm() — auto-accept if it fires.
-  page.on('dialog', (dialog) => void dialog.accept().catch(() => {}));
+/**
+ * Wait for whichever comes next after a sign-out attempt: the evidence-drift override
+ * dialog, the Sample-QC override dialog, or the signed version advancing past `before`.
+ */
+async function nextStep(page: Page, before: number): Promise<'drift' | 'qc' | 'done'> {
+  const drift = page.locator('#drift-ack-reason');
+  const qc = page.locator('#qc-ack-reason');
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (await drift.isVisible().catch(() => false)) return 'drift';
+    if (await qc.isVisible().catch(() => false)) return 'qc';
+    if ((await currentVersion(page)) > before) return 'done';
+    await page.waitForTimeout(250);
+  }
+  return 'done';
+}
 
+test('signs out the family report from the browser (with gate handling)', async ({ page }) => {
   await login(page);
   await page.goto(`/families/${GOLDEN_FAMILY}/report`);
 
@@ -26,25 +39,29 @@ test('signs out the family report from the browser (with gate handling)', async 
   const before = await currentVersion(page);
   await signOutButton.click();
 
-  // The sample-integrity gate (#330) requires an acknowledgement when an asserted
-  // relationship can't be verified — the seeded trio's sparse genotypes give too few
-  // shared sites, so the acknowledge-with-reason modal appears. WAIT for it (its reason
-  // field is a stable anchor; a plain isVisible() check does not wait and races the
-  // async POST -> 409 -> render), record a reason, and override once the button enables.
-  // Guarded so the test still passes if a denser seed later makes the QC verifiable.
-  const qcReason = page.locator('#qc-ack-reason');
-  const gated = await qcReason
-    .waitFor({ state: 'visible', timeout: 15_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (gated) {
-    await qcReason.fill('e2e QC override — relatedness not assessable on seed data');
+  // Each gate is an acknowledge-with-reason dialog (#508 made the evidence-drift gate one
+  // too; it used to be a native confirm). Evidence drift comes first, then the
+  // sample-integrity gate (#330) — the seeded trio's sparse genotypes leave an asserted
+  // relationship unverifiable. Either may be absent on a different seed, so each is
+  // handled only when it appears.
+  let step = await nextStep(page, before);
+  if (step === 'drift') {
+    await page.locator('#drift-ack-reason').fill('e2e drift override — seeded review has no evidence snapshot');
+    const overrideButton = page.getByRole('button', { name: /sign out anyway/i });
+    await expect(overrideButton).toBeEnabled();
+    await overrideButton.click();
+    step = await nextStep(page, before);
+  }
+  if (step === 'qc') {
+    await page.locator('#qc-ack-reason').fill('e2e QC override — relatedness not assessable on seed data');
     const overrideButton = page.getByRole('button', { name: /sign out anyway/i });
     await expect(overrideButton).toBeEnabled();
     await overrideButton.click();
   }
 
-  // A freshly signed-out version is shown, and the version advanced.
+  // A freshly signed-out version is shown, the version advanced, and the page — straight
+  // after signing — verifies as matching the signed content.
   await expect(page.getByText(/Signed out/i).first()).toBeVisible({ timeout: 20_000 });
   await expect.poll(() => currentVersion(page), { timeout: 20_000 }).toBeGreaterThan(before);
+  await expect(page.getByText(/This page matches signed version/i)).toBeVisible({ timeout: 20_000 });
 });

@@ -363,6 +363,7 @@ def test_report_signout_real_writer_chain_and_read_verification(monkeypatch) -> 
             "sample_qc": {"overall_status": "pass"},
             "software": {"version": "0.0.0-test", "git_sha": "deadbeef"},
             "reported_variants": [],
+            "reported_structural_variants": [],
             "metrics": {"epoch_ns": 1.75e18},
         }
 

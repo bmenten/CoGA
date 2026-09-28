@@ -255,6 +255,44 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     return reported
 
 
+async def _reported_structural_reviews(
+    session: AsyncSession, family_uuid: str
+) -> list[dict[str, Any]]:
+    """Structural variants / CNVs tagged for the report, with their classification.
+
+    The report page renders these beside the small variants, so the signed record must
+    freeze them too — before #508 a reported CNV was printed but never signed.
+    """
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT variant_id, variant_key, classification, cnv_class, cnv_point_total,
+                       cnv_acmg, tags, note
+                FROM structural_variant_reviews
+                WHERE family_id = CAST(:family_uuid AS uuid)
+                  AND tags @> :report_tag
+                ORDER BY variant_id NULLS LAST, variant_key NULLS LAST
+                """
+            ),
+            {"family_uuid": family_uuid, "report_tag": json.dumps([_REPORT_TAG])},
+        )
+    ).mappings().all()
+    return [
+        {
+            "variant_id": row["variant_id"],
+            "variant_key": row["variant_key"],
+            "classification": row["classification"],
+            "cnv_class": row["cnv_class"],
+            "cnv_point_total": row["cnv_point_total"],
+            "cnv_acmg": row["cnv_acmg"],
+            "tags": sorted(row["tags"] or []),
+            "note": row["note"],
+        }
+        for row in rows
+    ]
+
+
 async def _canonical_sequencing_qc(
     session: AsyncSession,
     context: FamilyMetadataContext,
@@ -316,6 +354,7 @@ async def build_report_snapshot(
         session, family_id=family_id, user=user, project_id=project_id
     )
     reported = await _reported_reviews(session, context.family_uuid)
+    reported_structural = await _reported_structural_reviews(session, context.family_uuid)
     sequencing_qc = await _canonical_sequencing_qc(session, context)
     # A reported classification with no frozen evidence snapshot cannot be drift-verified
     # (evaluate_classification_drift only checks reviews that HAVE a snapshot), so it would
@@ -365,6 +404,7 @@ async def build_report_snapshot(
         # say what its own QC display meant at the time.
         "sequencing_qc": sequencing_qc,
         "reported_variants": reported,
+        "reported_structural_variants": reported_structural,
     }
 
 
@@ -390,6 +430,8 @@ def _serialize_signout(row: dict[str, Any]) -> dict[str, Any]:
         "qc_status": row.get("qc_status"),
         "qc_acknowledged": row.get("qc_acknowledged"),
         "qc_acknowledgement_reason": row.get("qc_acknowledgement_reason"),
+        "drift_acknowledged": row.get("drift_acknowledged"),
+        "drift_acknowledgement_reason": row.get("drift_acknowledgement_reason"),
         "verified": row.get("verified"),
         "snapshot": row.get("snapshot"),
     }
@@ -401,6 +443,7 @@ async def sign_out_report(
     family_id: str,
     user: CurrentUser,
     acknowledge_drift: bool = False,
+    drift_acknowledgement_reason: str | None = None,
     acknowledge_qc: bool = False,
     qc_acknowledgement_reason: str | None = None,
     project_id: str | None = None,
@@ -421,6 +464,15 @@ async def sign_out_report(
                 "cannot be verified (no frozen snapshot), since they were made. Re-review, "
                 "or acknowledge the drift to sign out anyway."
             ),
+        )
+    # Overriding the drift gate is attested like the QC override: with a reason that is
+    # frozen into the content hash and the audit event (#508). Before, it was a bare
+    # confirm with nothing recorded about why stale evidence was signed.
+    drift_reason = (drift_acknowledgement_reason or "").strip()
+    if drifted_count and acknowledge_drift and not drift_reason:
+        raise HTTPException(
+            status_code=422,
+            detail="A reason is required to acknowledge evidence drift.",
         )
 
     # Sample-QC gate (after the drift gate; each gate guards an independent concern and
@@ -483,6 +535,9 @@ async def sign_out_report(
         "generated_at": now.isoformat(),
         "signed_out_by": actor,
         "acknowledged_drift": bool(drifted_count) and acknowledge_drift,
+        "drift_acknowledgement_reason": (
+            drift_reason if (drifted_count and acknowledge_drift) else None
+        ),
         "acknowledged_qc": qc_blocks and acknowledge_qc,
         "qc_acknowledgement_reason": qc_reason if (qc_blocks and acknowledge_qc) else None,
     }
@@ -535,7 +590,9 @@ async def sign_out_report(
         action="sign_out",
         summary=(
             f"Report signed out (v{version}) — {len(snapshot_body['reported_variants'])} "
-            f"reported variant(s){', drift acknowledged' if snapshot['acknowledged_drift'] else ''}"
+            f"reported variant(s), "
+            f"{len(snapshot_body['reported_structural_variants'])} reported structural "
+            f"variant(s){', drift acknowledged' if snapshot['acknowledged_drift'] else ''}"
             f"{', QC override acknowledged' if snapshot['acknowledged_qc'] else ''}"
         ),
         after={
@@ -544,7 +601,9 @@ async def sign_out_report(
             "software_version": snapshot_body["software"]["version"],
             "git_sha": snapshot_body["software"]["git_sha"],
             "reported_count": len(snapshot_body["reported_variants"]),
+            "reported_structural_count": len(snapshot_body["reported_structural_variants"]),
             "drifted_count": drifted_count,
+            "drift_acknowledgement_reason": snapshot["drift_acknowledgement_reason"],
             "qc_status": qc_status,
             "acknowledged_qc": snapshot["acknowledged_qc"],
             "qc_acknowledgement_reason": snapshot["qc_acknowledgement_reason"],
@@ -561,6 +620,8 @@ async def sign_out_report(
         # GET list/detail contract (which extracts it from the JSONB snapshot).
         "software_version": snapshot_body["software"]["version"],
         "git_sha": snapshot_body["software"]["git_sha"],
+        "drift_acknowledged": snapshot["acknowledged_drift"],
+        "drift_acknowledgement_reason": snapshot["drift_acknowledgement_reason"],
         "snapshot": snapshot,
     }
 
@@ -584,7 +645,9 @@ async def list_report_signouts(
                        snapshot->'software'->>'git_sha'  AS git_sha,
                        snapshot->'sample_qc'->>'overall_status' AS qc_status,
                        (snapshot->>'acknowledged_qc')::boolean   AS qc_acknowledged,
-                       snapshot->>'qc_acknowledgement_reason'    AS qc_acknowledgement_reason
+                       snapshot->>'qc_acknowledgement_reason'    AS qc_acknowledgement_reason,
+                       (snapshot->>'acknowledged_drift')::boolean AS drift_acknowledged,
+                       snapshot->>'drift_acknowledgement_reason' AS drift_acknowledgement_reason
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid)
                 ORDER BY version DESC
@@ -621,7 +684,9 @@ async def get_report_signout(
                        snapshot->'software'->>'git_sha'  AS git_sha,
                        snapshot->'sample_qc'->>'overall_status' AS qc_status,
                        (snapshot->>'acknowledged_qc')::boolean   AS qc_acknowledged,
-                       snapshot->>'qc_acknowledgement_reason'    AS qc_acknowledgement_reason
+                       snapshot->>'qc_acknowledgement_reason'    AS qc_acknowledgement_reason,
+                       (snapshot->>'acknowledged_drift')::boolean AS drift_acknowledged,
+                       snapshot->>'drift_acknowledgement_reason' AS drift_acknowledgement_reason
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid) AND version = :version
                 """
@@ -648,6 +713,101 @@ async def get_report_signout(
             },
         )
     return _serialize_signout(record)
+
+
+# The snapshot sections that make up the report's clinical content. The build identity
+# ("software") is left out on purpose: a newer build over identical content has not
+# changed what was signed. The per-sign-out fields (version, signer, timestamp,
+# acknowledgements) are not report content either.
+REPORT_CONTENT_SECTIONS = (
+    "assembly",
+    "modules",
+    "reported_variants",
+    "reported_structural_variants",
+    "drift",
+    "sample_qc",
+    "sequencing_qc",
+)
+# A sign-out made before a section was frozen has no value for it. For the reported
+# structural variants that means none were signed — the page could show them but the
+# snapshot could not hold them — so the absent section compares as an empty list. Any
+# other absent section cannot be compared and is reported as such.
+_ABSENT_SECTION_DEFAULTS: dict[str, Any] = {"reported_structural_variants": []}
+
+
+def _section_fingerprint(value: Any) -> str:
+    # Normalise through the JSON encoding the stored snapshot went through, so a value
+    # read back from JSONB and a freshly built one compare equal when unchanged.
+    return _canonical_hash(json.loads(json.dumps(value, default=str)))
+
+
+async def compare_report_with_latest_signout(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    """Does the report, as it would be signed now, still match the latest sign-out?
+
+    The report page renders live data, so a change after sign-out (a review edit, a new
+    report tag, a re-import, a QC cut-off change) would otherwise be printed under the
+    "Signed out" banner as if it were the signed record (#508). This rebuilds the
+    snapshot body and compares it, section by section, with the frozen one.
+    """
+    context = await build_family_metadata_context(
+        session, family_identifier=family_id, user=user, project_id=project_id
+    )
+    checked_at = datetime.now(timezone.utc)
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT version, content_hash, snapshot
+                FROM report_signouts
+                WHERE family_id = CAST(:family_uuid AS uuid)
+                ORDER BY version DESC
+                LIMIT 1
+                """
+            ),
+            {"family_uuid": context.family_uuid},
+        )
+    ).mappings().first()
+    if row is None:
+        return {
+            "family_id": context.family_id,
+            "version": None,
+            "content_hash": None,
+            "matches": None,
+            "changed_sections": [],
+            "not_compared": [],
+            "checked_at": checked_at,
+        }
+    signed = _as_snapshot(row["snapshot"]) or {}
+    current = await build_report_snapshot(
+        session, family_id=family_id, user=user, project_id=project_id
+    )
+    changed: list[str] = []
+    not_compared: list[str] = []
+    for section in REPORT_CONTENT_SECTIONS:
+        if section in signed:
+            signed_value = signed[section]
+        elif section in _ABSENT_SECTION_DEFAULTS:
+            signed_value = _ABSENT_SECTION_DEFAULTS[section]
+        else:
+            not_compared.append(section)
+            continue
+        if _section_fingerprint(signed_value) != _section_fingerprint(current.get(section)):
+            changed.append(section)
+    return {
+        "family_id": context.family_id,
+        "version": row["version"],
+        "content_hash": row["content_hash"],
+        "matches": not changed,
+        "changed_sections": changed,
+        "not_compared": not_compared,
+        "checked_at": checked_at,
+    }
 
 
 async def verify_report_signout_chain(
