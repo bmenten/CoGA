@@ -14,16 +14,11 @@ from typing import Any
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Genotype groupings (mirrors the structural genotype groups used elsewhere).
-_HET_GTS = {"0/1", "1/0", "0|1", "1|0"}
-_HOM_GTS = {"1/1", "1|1"}
+from .genotypes import HET, HOM_ALT, classify_genotype, genotype_has_alt
 
 
 def _gt_has_alt(gt: str | None) -> bool:
-    text_gt = str(gt or "").strip()
-    if not text_gt:
-        return False
-    return any(allele not in {"0", ".", ""} for allele in text_gt.replace("|", "/").split("/"))
+    return genotype_has_alt(str(gt or ""))
 
 
 def _phased_alt_index(gt: str | None) -> int | None:
@@ -84,7 +79,7 @@ def _phase_verdict(
         return "unknown"
 
     snv_het_in_affected = all(
-        str(snv_gt_by_sample.get(sample, "")).strip() in _HET_GTS for sample in affected
+        classify_genotype(str(snv_gt_by_sample.get(sample, ""))) == HET for sample in affected
     )
     sv_in_affected = all(
         any(_gt_has_alt((sv.get("gt") or {}).get(sample)) for sv in svs) for sample in affected
@@ -220,10 +215,10 @@ def summarize_second_hit(
     for sv in svs:
         gt_map = sv.get("gt") or {}
         for sample in affected:
-            gt = str(gt_map.get(sample, "")).strip()
-            if gt in _HOM_GTS:
+            genotype_class = classify_genotype(str(gt_map.get(sample, "")))
+            if genotype_class == HOM_ALT:
                 zygosities.add("hom")
-            elif gt in _HET_GTS:
+            elif genotype_class == HET:
                 zygosities.add("het")
     if "hom" in zygosities and "het" in zygosities:
         affected_zygosity: str | None = "mixed"

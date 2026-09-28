@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import api from '../../lib/api';
+import { genotypeZygosity } from '../../lib/genotypes';
 import {
   COLLABORATION_QUICK_TAGS,
   getTagDefinitionMap,
@@ -851,15 +852,9 @@ export default function SmallVariantCards({
                             .map((value) => (Number.isFinite(value) ? value.toFixed(2) : '-'))
                             .join(',')
                         : '—';
-                      const normalized = gt.replace(/\|/g, '/');
-                      const zygosity =
-                        !gt || gt === '—' || normalized === './.'
-                          ? 'na'
-                          : normalized === '0/0'
-                            ? 'ref'
-                            : normalized === '1/1'
-                              ? 'hom'
-                              : 'het';
+                      // Haploid and multi-allelic calls are classified too (#511):
+                      // '1' reads as hom, '0' as ref, '1/2' as het.
+                      const zygosity = genotypeZygosity(gt === '—' ? '' : gt);
                       const sexSymbol =
                         member.sex === 'male' ? '♂' : member.sex === 'female' ? '♀' : '⚥';
                       return (

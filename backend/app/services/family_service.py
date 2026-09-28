@@ -35,6 +35,7 @@ from .data_scope import normalize_chromosome
 from .family_metadata_context import build_family_metadata_context
 from .phased_marker_service import get_family_phased_markers_response
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
+from .genotypes import genotype_has_alt
 from .metadata_service import (
     CurrentUser,
     get_family_record,
@@ -46,7 +47,6 @@ GENOMIC_REGION_PATTERN = re.compile(
     r"^(?P<chrom>(?:chr)?[A-Za-z0-9_]+):(?P<start>[0-9,]+)(?:-(?P<end>[0-9,]+))?$",
     re.IGNORECASE,
 )
-_REF_GT_VALUES = {"0/0", "0|0", "./.", ".|.", "", "."}
 
 
 def _parse_region_of_interest(query: str) -> tuple[str, int, int] | None:
@@ -617,7 +617,7 @@ async def get_shared_family_structural_variant_counts_for_user(
         present_names = [
             call.sample
             for call in record.calls
-            if call.sample in counts and call.gt not in _REF_GT_VALUES
+            if call.sample in counts and genotype_has_alt(call.gt)
         ]
         if len(present_names) == 1:
             sample_name = present_names[0]

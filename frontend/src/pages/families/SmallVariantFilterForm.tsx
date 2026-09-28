@@ -18,6 +18,7 @@ import {
   type SmallVariantSearchState,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
+import { GENOTYPE_GROUP_HINTS } from '../../lib/genotypes';
 
 type SmallVariantFilterFormProps = Pick<
   SmallVariantSearchState,
@@ -1110,7 +1111,11 @@ const SmallVariantFilterForm = ({
                               group: ['0/0', '0|0', './.', 'absent'],
                             },
                           ].map((option) => (
-                            <label key={option.value} className="analysis-checkbox">
+                            <label
+                              key={option.value}
+                              className="analysis-checkbox"
+                              title={GENOTYPE_GROUP_HINTS[option.value as keyof typeof GENOTYPE_GROUP_HINTS]}
+                            >
                               <input
                                 type="checkbox"
                                 checked={option.group.every((gt) => filter?.gt.includes(gt))}

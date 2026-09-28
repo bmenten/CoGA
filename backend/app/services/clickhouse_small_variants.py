@@ -6,8 +6,10 @@ from typing import Any
 
 from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
 from ..core.config import settings
+from .genotypes import HET, classify_genotype
 
-_HET_GT_VALUES = {"0/1", "1/0", "0|1", "1|0", "HET"}
+# "HET" is what a legacy/non-VCF source may store; VCF genotypes are classified (#511).
+_HET_WORDS = {"HET"}
 
 
 def _table_name(assembly_name: str, suffix: str) -> str:
@@ -153,6 +155,10 @@ def variants_share_gene(
     return bool(_collect_gene_ids(left.annotations).intersection(_collect_gene_ids(right.annotations)))
 
 
+def _is_het_call(gt: str) -> bool:
+    return gt.upper() in _HET_WORDS or classify_genotype(gt) == HET
+
+
 def has_affected_het_call(
     variant: SmallVariantFamilyRecord,
     affected_sample_names: list[str],
@@ -160,6 +166,6 @@ def has_affected_het_call(
     if not affected_sample_names:
         return True
     return any(
-        str(variant.sample_calls.get(sample_name, "")).strip() in _HET_GT_VALUES
+        _is_het_call(str(variant.sample_calls.get(sample_name, "")).strip())
         for sample_name in affected_sample_names
     )

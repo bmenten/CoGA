@@ -21,6 +21,7 @@ import {
   getPresetScopeLabel,
   sortTagDefinitions,
 } from './smallVariantSearch';
+import { GENOTYPE_GROUP_HINTS } from '../../lib/genotypes';
 
 type StructuralVariantFilterFormProps = Pick<
   StructuralVariantSearchState,
@@ -448,7 +449,11 @@ const StructuralVariantFilterForm = ({
                             { value: 'het-group', label: 'Het', group: STRUCTURAL_HET_GT_GROUP },
                             { value: 'ref-group', label: 'WT', group: STRUCTURAL_REF_GT_GROUP },
                           ].map((option) => (
-                            <label key={option.value} className="analysis-checkbox">
+                            <label
+                              key={option.value}
+                              className="analysis-checkbox"
+                              title={GENOTYPE_GROUP_HINTS[option.value as keyof typeof GENOTYPE_GROUP_HINTS]}
+                            >
                               <input
                                 type="checkbox"
                                 checked={option.group.every((gt) => filter?.gt.includes(gt))}

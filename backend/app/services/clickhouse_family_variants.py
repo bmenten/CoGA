@@ -62,7 +62,8 @@ from .structural_variant_review_pg import (
 from .clickhouse_variant_records import _status_filter_terms, _KNOWN_ANNOTATION_KEYS, _coerce_bool, _coerce_float, _coerce_int, _contains_casefold, _flexible_status_match, _normalized_status_term, _nullable_lte, Region, PanelFilterConstraints, SmallVariantCall, SmallVariantRecord, SmallVariantCompoundHetPair, StructuralVariantCall, StructuralVariantRecord, _casefold, _status_terms, _annotation_value, _annotation_terms, _annotation_text, _annotation_float, _annotation_int, _annotation_bool, _annotation_rank, _annotation_population_frequencies, _annotation_extra, _annotation_gene, _annotation_gene_id, _annotation_effect, _annotation_clinvar, _annotation_sift, _annotation_polyphen, _annotation_spliceai_max, _annotation_matches_normal  # noqa: F401
 
 # Re-exported so existing import paths and orig.<name> attribute reads keep resolving.
-from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES, _COMPOUND_HET_INHERITANCE, _DE_NOVO_DOMINANT_INHERITANCE, _DE_NOVO_MIN_PARENT_DP, _GENE_QUERY_SPLIT, _HET_GT_VALUES, _HOM_ALT_GT_VALUES, _HOM_REF_GT_VALUES, _INTERVAL_PATTERN, _PAIR_BASED_SMALL_INHERITANCE, _PANEL_REGION_INLINE_LIMIT, _RECESSIVE_HOMOZYGOUS_INHERITANCE, _RECESSIVE_INHERITANCE, _SMALL_COUNT_LIMIT, _SMALL_INHERITANCE_ALIASES, _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS, _SMALL_INHERITANCE_MIN_CANDIDATE_ROWS, _SMALL_INHERITANCE_PAGE_CANDIDATE_MULTIPLIER, _STRUCTURAL_REGION_FLAG_KEYS, _SUPPORTED_SMALL_INHERITANCE, _X_CHROMOSOME_TOKENS, _X_LINKED_INHERITANCE, _require_clickhouse_identifier, _small_table_name, _small_annotation_table_name, _small_annotation_index_table_name, _small_annotation_gene_index_table_name, _small_summary_table_name, _structural_table_name, _append_unique, _visible_clickhouse_sample_ids, _display_sample_name, _clickhouse_ids_for_sample, _chromosome_options, _chromosome_match_key, _clickhouse_chromosome_match_expr, _xpos, _string_list, _listify, _indexed, _int_list, _float_list, _decode_json_payload, _collect_annotations, _select_primary_annotation, _transcript_source, _small_transcript_annotations, _normalize_gt, _small_type, _split_gene_terms, _parse_interval_regions, _variant_overlaps_regions, _variant_hits_gene_symbols, _small_record_hits_gene_terms, _split_info_terms, _first_float_from_info, _structural_info_payloads, _structural_info_value, _structural_info_terms, _structural_info_text, _structural_info_float, _structural_pli, _structural_region_flags, _structural_population_frequencies, _band_position_contains, _band_name_for_position, _format_cytoband_label, _structural_annotation_extra, _small_annotation_specific_requested, _matches_small_annotations, _small_record_matches_sample_filters, _structural_record_matches_sample_filters, _structural_annotation_contains, _structural_record_matches_annotations, _small_record_matches, _structural_record_matches, _primary_gene_keys, _chromosome_sort_key, _small_record_sort_key, _sample_small_track_records, _resolve_compound_het_pair_gene_labels, _compound_het_gene_keys, _small_call_map, _call_is_het, _call_is_hom_alt, _call_has_alt, _call_is_confident_hom_ref, _child_parent_map, _record_matches_de_novo, _is_x_chromosome, _record_matches_de_novo_dominant, _record_matches_homozygous_recessive, _sample_sex_map, _is_male_sex, _record_matches_x_linked_recessive, _records_form_compound_het_pair, _compound_het_pairs, _compound_het_partner_map, _normalize_small_variant_inheritance, _carrier_partner_names, _has_alt_allele, _filter_expanded_carrier_screening, _coerce_numeric_metric, _extract_nested_metric, _extract_gene_constraint_metrics, _dedupe_regions, _normalize_alpha_missense_class, _small_variant_out, _group_review_for_pair, _variant_gene_keys, _structural_variant_out, _family_affected_unaffected_sample_names, _small_native_inheritance_supported, _small_sample_gt_exists_condition, _small_all_samples_have_gts_condition, _small_no_samples_have_gts_condition, _small_native_inheritance_clauses, _small_variant_where_clauses, _text_contains_any, _small_gene_filter_condition, _small_region_filter_condition, _small_panel_filter_condition, _small_annotation_filter_condition, _small_detail_filter_clauses, _small_annotation_exclude_filter_condition, _small_annotation_scope_clauses, _small_annotation_gene_membership_condition, _small_annotation_key_membership_condition, _small_annotation_row_scope_clauses, _small_annotation_row_membership_condition, _small_native_sample_filter_clauses, _structural_variant_where_clauses, _page_offset, _clamp_small_variant_page, _append_limit_offset, _small_query_filter_parts, _selected_structural_samples, _has_filter_values, _can_use_small_native_page, _small_track_limit_response, _can_use_structural_native_page, _small_pair_inheritance_candidate_limit, _inheritance_item_sort_key, _inheritance_result_items, _segregation_modes_by_variant, _structural_segregation_modes  # noqa: F401
+from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES, _COMPOUND_HET_INHERITANCE, _DE_NOVO_DOMINANT_INHERITANCE, _DE_NOVO_MIN_PARENT_DP, _GENE_QUERY_SPLIT, _INTERVAL_PATTERN, _PAIR_BASED_SMALL_INHERITANCE, _PANEL_REGION_INLINE_LIMIT, _RECESSIVE_HOMOZYGOUS_INHERITANCE, _RECESSIVE_INHERITANCE, _SMALL_COUNT_LIMIT, _SMALL_INHERITANCE_ALIASES, _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS, _SMALL_INHERITANCE_MIN_CANDIDATE_ROWS, _SMALL_INHERITANCE_PAGE_CANDIDATE_MULTIPLIER, _STRUCTURAL_REGION_FLAG_KEYS, _SUPPORTED_SMALL_INHERITANCE, _X_CHROMOSOME_TOKENS, _X_LINKED_INHERITANCE, _require_clickhouse_identifier, _small_table_name, _small_annotation_table_name, _small_annotation_index_table_name, _small_annotation_gene_index_table_name, _small_summary_table_name, _structural_table_name, _append_unique, _visible_clickhouse_sample_ids, _display_sample_name, _clickhouse_ids_for_sample, _chromosome_options, _chromosome_match_key, _clickhouse_chromosome_match_expr, _xpos, _string_list, _listify, _indexed, _int_list, _float_list, _decode_json_payload, _collect_annotations, _select_primary_annotation, _transcript_source, _small_transcript_annotations, _normalize_gt, _small_type, _split_gene_terms, _parse_interval_regions, _variant_overlaps_regions, _variant_hits_gene_symbols, _small_record_hits_gene_terms, _split_info_terms, _first_float_from_info, _structural_info_payloads, _structural_info_value, _structural_info_terms, _structural_info_text, _structural_info_float, _structural_pli, _structural_region_flags, _structural_population_frequencies, _band_position_contains, _band_name_for_position, _format_cytoband_label, _structural_annotation_extra, _small_annotation_specific_requested, _matches_small_annotations, _small_record_matches_sample_filters, _structural_record_matches_sample_filters, _structural_annotation_contains, _structural_record_matches_annotations, _small_record_matches, _structural_record_matches, _primary_gene_keys, _chromosome_sort_key, _small_record_sort_key, _sample_small_track_records, _resolve_compound_het_pair_gene_labels, _compound_het_gene_keys, _small_call_map, _call_is_het, _call_is_hom_alt, _call_has_alt, _call_is_confident_hom_ref, _child_parent_map, _record_matches_de_novo, _is_x_chromosome, _record_matches_de_novo_dominant, _record_matches_homozygous_recessive, _sample_sex_map, _is_male_sex, _record_matches_x_linked_recessive, _records_form_compound_het_pair, _compound_het_pairs, _compound_het_partner_map, _normalize_small_variant_inheritance, _carrier_partner_names, _has_alt_allele, _filter_expanded_carrier_screening, _coerce_numeric_metric, _extract_nested_metric, _extract_gene_constraint_metrics, _dedupe_regions, _normalize_alpha_missense_class, _small_variant_out, _group_review_for_pair, _variant_gene_keys, _structural_variant_out, _family_affected_unaffected_sample_names, _small_native_inheritance_supported, _small_sample_gt_exists_condition, _small_all_samples_have_gts_condition, _small_no_samples_have_gts_condition, _small_native_inheritance_clauses, _small_variant_where_clauses, _text_contains_any, _small_gene_filter_condition, _small_region_filter_condition, _small_panel_filter_condition, _small_annotation_filter_condition, _small_detail_filter_clauses, _small_annotation_exclude_filter_condition, _small_annotation_scope_clauses, _small_annotation_gene_membership_condition, _small_annotation_key_membership_condition, _small_annotation_row_scope_clauses, _small_annotation_row_membership_condition, _small_native_sample_filter_clauses, _structural_variant_where_clauses, _page_offset, _clamp_small_variant_page, _append_limit_offset, _small_query_filter_parts, _selected_structural_samples, _has_filter_values, _can_use_small_native_page, _small_track_limit_response, _can_use_structural_native_page, _small_pair_inheritance_candidate_limit, _inheritance_item_sort_key, _inheritance_result_items, _segregation_modes_by_variant, _structural_segregation_modes  # noqa: F401
+from .genotypes import ALT_CLASSES, HET, HOM_ALT, clickhouse_genotype_condition
 
 logger = logging.getLogger(__name__)
 
@@ -345,8 +346,6 @@ async def _fetch_gene_constraint_metric_map(
     return result_map
 
 
-_INTERNAL_GT_REF_MISSING = ("", ".", "./.", ".|.", "0/0", "0|0")
-_INTERNAL_GT_HOM = ("1/1", "1|1")
 
 
 async def _fetch_internal_cohort_map(
@@ -366,15 +365,17 @@ async def _fetch_internal_cohort_map(
     params: dict[str, Any] = {
         "variant_ids": normalized_ids,
         "project_ids": tuple(context.project_ids),
-        "gt_ref_missing": _INTERNAL_GT_REF_MISSING,
-        "gt_hom": _INTERNAL_GT_HOM,
     }
+    # Carriers are the calls with an ALT allele (#511): a haploid "0" is reference, not a
+    # carrier, and a haploid "1" or a "2/2" is homozygous alt.
+    is_hom = clickhouse_genotype_condition("gt", {HOM_ALT}, param="gt_hom", params=params)
+    is_carrier = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
     rows = await _execute_clickhouse(
         f"""
         SELECT
             variantId,
-            uniqExactIf(sample_id, gt IN %(gt_hom)s) AS hom,
-            uniqExactIf(sample_id, gt NOT IN %(gt_hom)s) AS het,
+            uniqExactIf(sample_id, {is_hom}) AS hom,
+            uniqExactIf(sample_id, NOT {is_hom}) AS het,
             uniqExact(sample_id) AS samples,
             uniqExact(family_guid) AS families
         FROM {entries_table}
@@ -382,7 +383,7 @@ async def _fetch_internal_cohort_map(
         WHERE sign = 1
           AND project_guid IN %(project_ids)s
           AND variantId IN %(variant_ids)s
-          AND gt NOT IN %(gt_ref_missing)s
+          AND {is_carrier}
         GROUP BY variantId
         """,
         params,
@@ -414,12 +415,11 @@ async def fetch_recurrent_small_variant_ids(
     if not assembly_name or min_carrier_samples < 1:
         return []
     entries_table = _small_table_name(assembly_name, "entries")
-    clauses = ["sign = 1", "gt NOT IN %(gt_ref_missing)s"]
     params: dict[str, Any] = {
-        "gt_ref_missing": _INTERNAL_GT_REF_MISSING,
         "min_samples": int(min_carrier_samples),
         "limit": int(limit),
     }
+    clauses = ["sign = 1", clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)]
     if project_ids:
         clauses.append("project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(project_ids)
@@ -915,13 +915,16 @@ async def _fetch_small_variant_summary(
             sample_params["project_ids"] = tuple(context.project_ids)
         sample_where_clauses.append("lowerUTF8(source) NOT IN %(imputed_sources)s")
         sample_params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
+        is_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=sample_params)
+        is_het = clickhouse_genotype_condition("gt", {HET}, param="gt_het", params=sample_params)
+        is_hom = clickhouse_genotype_condition("gt", {HOM_ALT}, param="gt_hom", params=sample_params)
         sample_rows = await _execute_clickhouse(
             f"""
             SELECT
                 sample_id,
-                countDistinctIf(key, gt NOT IN ('', '.', './.', '.|.', '0/0', '0|0')) AS non_ref_count,
-                countDistinctIf(key, gt IN ('0/1', '1/0', '0|1', '1|0')) AS het_count,
-                countDistinctIf(key, gt IN ('1/1', '1|1')) AS hom_alt_count
+                countDistinctIf(key, {is_alt}) AS non_ref_count,
+                countDistinctIf(key, {is_het}) AS het_count,
+                countDistinctIf(key, {is_hom}) AS hom_alt_count
             FROM {entries_table}
             ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
             WHERE {' AND '.join(sample_where_clauses)}
@@ -1181,13 +1184,6 @@ async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[s
     return [str(row[0]) for row in rows if row[0]]
 
 
-# Non-ref small-variant genotypes for track-availability presence (the explicit set the
-# old per-sample probe injected via family_service._small_variant_presence_filters; an
-# EXPLICIT list, not the complement of ref/missing — so multiallelic GTs like '1/2' are
-# excluded, preserving the prior behaviour exactly).
-_NON_REF_SMALL_GT_VALUES = ("0/1", "1/0", "0|1", "1|0", "1/1", "1|1")
-
-
 async def _small_variant_present_sample_names(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -1225,12 +1221,14 @@ async def _small_variant_present_sample_names(
         if entry.split(":", 1)[0] in context.sample_name_to_uuid
     }
     params["track_visible_ids"] = tuple(visible_ids)
-    params["track_nonref_gts"] = _NON_REF_SMALL_GT_VALUES
+    # A sample is present when a matching variant carries an ALT allele for it — haploid
+    # and multi-allelic calls included, so an all-haploid sample is not "empty" (#511).
+    is_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="track_nonref_gts", params=params)
     nonref_query = f"""
         SELECT sid
         FROM ({inner})
         ARRAY JOIN sids AS sid, gts AS gt
-        WHERE sid IN %(track_visible_ids)s AND gt IN %(track_nonref_gts)s
+        WHERE sid IN %(track_visible_ids)s AND {is_alt}
         GROUP BY sid
     """
     present: set[str] = set()

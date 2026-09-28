@@ -53,11 +53,23 @@ from ..schemas import (
     VariantCarriersOut,
     VariantExplorerAssemblyOut,
 )
+from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .metadata_service import CurrentUser, _is_admin_user, _user_metadata_project_ids
 
-# Genotype string buckets (mirrors clickhouse_variant_storage._SMALL_GT_*).
-_GT_REF_MISSING: tuple[str, ...] = ("", ".", "./.", ".|.", "0/0", "0|0")
-_GT_HOM: tuple[str, ...] = ("1/1", "1|1")
+
+# Carrier / homozygous / heterozygous conditions on a genotype column, from the one
+# genotype classification (#511): a carrier has an ALT allele (a haploid "0" is not one),
+# and a haploid "1" or a "2/2" counts as homozygous.
+def _gt_is_carrier(column: str, params: dict[str, Any]) -> str:
+    return clickhouse_genotype_condition(column, ALT_CLASSES, param="gt_alt", params=params)
+
+
+def _gt_is_hom(column: str, params: dict[str, Any]) -> str:
+    return clickhouse_genotype_condition(column, {HOM_ALT}, param="gt_hom", params=params)
+
+
+def _gt_is_het(column: str, params: dict[str, Any]) -> str:
+    return clickhouse_genotype_condition(column, {HET}, param="gt_het", params=params)
 
 # `entries.source` values produced by genotype imputation/phasing tools. These
 # are hidden by default and only included when the caller opts in.
@@ -657,11 +669,11 @@ def _entries_where(
         params[sample_param] = sample_id
         normalized_mode = str(mode or "het_hom").strip().lower()
         if normalized_mode == "hom":
-            genotype_condition = "s_gt IN %(gt_hom)s"
+            genotype_condition = _gt_is_hom("s_gt", params)
         elif normalized_mode == "het":
-            genotype_condition = "s_gt NOT IN %(gt_ref_missing)s AND s_gt NOT IN %(gt_hom)s"
+            genotype_condition = _gt_is_het("s_gt", params)
         else:  # het_hom: any carrier
-            genotype_condition = "s_gt NOT IN %(gt_ref_missing)s"
+            genotype_condition = _gt_is_carrier("s_gt", params)
         # Each sample is its own membership subquery; AND-ing them means the
         # variant must satisfy every per-sample genotype constraint.
         clauses.append(
@@ -754,9 +766,10 @@ async def search_global_small_variants(
 
     entries_table = _small_table_name(scope.assembly_name, "entries")
 
-    params: dict[str, Any] = {"gt_ref_missing": _GT_REF_MISSING, "gt_hom": _GT_HOM}
+    params: dict[str, Any] = {}
     where_clauses = _entries_where(scope, filters, params, tag_variant_ids=tag_variant_ids)
     where_sql = " AND ".join(where_clauses)
+    has_carrier = f"arrayExists(g -> {_gt_is_carrier('g', params)}, `calls.gt`)"
 
     # Distinct variant keys with at least one carrier, counted only up to the cap (one
     # extra row distinguishes "exactly cap" from "more than cap"). The inner GROUP BY key
@@ -768,7 +781,7 @@ async def search_global_small_variants(
             SELECT key
             FROM {entries_table}
             WHERE {where_sql}
-              AND arrayExists(g -> g NOT IN %(gt_ref_missing)s, `calls.gt`)
+              AND {has_carrier}
             GROUP BY key
             LIMIT {_EXPLORER_COUNT_CAP + 1}
         )
@@ -851,6 +864,8 @@ async def _fetch_variant_rows(
 
     page_params = dict(params)
     page_params["limit"] = limit
+    is_hom = _gt_is_hom("gt", page_params)
+    is_carrier = _gt_is_carrier("gt", page_params)
     if seek_params:
         page_params.update(seek_params)
     having_sql = f"HAVING {seek_having}" if seek_having else ""
@@ -884,11 +899,11 @@ async def _fetch_variant_rows(
                 family_guid,
                 gene_symbols,
                 sample_id,
-                (gt IN %(gt_hom)s) AS is_hom
+                ({is_hom}) AS is_hom
             FROM {entries_table}
             ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
             WHERE {where_sql}
-              AND gt NOT IN %(gt_ref_missing)s
+              AND {is_carrier}
         )
         GROUP BY key
         {having_sql}
@@ -1014,7 +1029,7 @@ async def export_global_small_variants(
         tag_variant_ids = list(matched)
 
     entries_table = _small_table_name(scope.assembly_name, "entries")
-    params: dict[str, Any] = {"gt_ref_missing": _GT_REF_MISSING, "gt_hom": _GT_HOM}
+    params: dict[str, Any] = {}
     where_clauses = _entries_where(scope, filters, params, tag_variant_ids=tag_variant_ids)
     where_sql = " AND ".join(where_clauses)
 
@@ -1097,15 +1112,14 @@ async def get_variant_carriers(
     params: dict[str, Any] = {
         "project_guids": tuple(scope.project_ids),
         "key": variant_key,
-        "gt_ref_missing": _GT_REF_MISSING,
-        "gt_hom": _GT_HOM,
     }
+    is_carrier = _gt_is_carrier("gt", params)
     genotype_clause = ""
     normalized_genotype = (genotype or "").strip().lower()
     if normalized_genotype in {"hom", "homozygous"}:
-        genotype_clause = " AND gt IN %(gt_hom)s"
+        genotype_clause = f" AND {_gt_is_hom('gt', params)}"
     elif normalized_genotype in {"het", "heterozygous"}:
-        genotype_clause = " AND gt NOT IN %(gt_hom)s"
+        genotype_clause = f" AND {_gt_is_het('gt', params)}"
     source_clause = ""
     if not include_imputed:
         params["imputed_sources"] = _IMPUTED_SOURCES
@@ -1120,7 +1134,7 @@ async def get_variant_carriers(
         WHERE sign = 1
           AND project_guid IN %(project_guids)s
           AND key = %(key)s
-          AND gt NOT IN %(gt_ref_missing)s{genotype_clause}{source_clause}
+          AND {is_carrier}{genotype_clause}{source_clause}
         ORDER BY family_guid, sample_id
         LIMIT %(carrier_limit)s
         """,
@@ -1138,7 +1152,7 @@ async def get_variant_carriers(
         sample_id = str(sample_id)
         gt = str(gt)
         variant_id = variant_id or (str(row_variant_id) if row_variant_id else None)
-        is_hom = gt in _GT_HOM
+        is_hom = classify_genotype(gt) == HOM_ALT
         existing = carriers.get((family_guid, sample_id))
         if existing is None or (is_hom and not existing["is_hom"]):
             carriers[(family_guid, sample_id)] = {

@@ -4,22 +4,27 @@ from dataclasses import dataclass, field
 import re
 from typing import List
 
+from .genotypes import HET, HOM_ALT, HOM_REF, GenotypeClass, classify_genotype
+
 
 GENOTYPE_TOKEN_PATTERN = re.compile(r"absent|hom_alt|hom_ref|hom|het|ref|wt|\.\/\.|[0-9.][/|][0-9.]")
-GENOTYPE_ALIASES = {
-    "het": ["0/1", "1/0", "0|1", "1|0"],
-    "hom": ["1/1", "1|1"],
-    "hom_alt": ["1/1", "1|1"],
-    "ref": ["0/0", "0|0"],
-    "wt": ["0/0", "0|0"],
-    "hom_ref": ["0/0", "0|0"],
+# A sample filter names genotype *classes* (#511). Words map to their class; a literal
+# genotype such as ``1/1`` stands for its class too, so the UI's Hom group (``1/1|1|1``)
+# also matches a haploid ``1`` or a ``2/2``, and its Het group a ``1/2``.
+GENOTYPE_ALIASES: dict[str, GenotypeClass] = {
+    "het": HET,
+    "hom": HOM_ALT,
+    "hom_alt": HOM_ALT,
+    "ref": HOM_REF,
+    "wt": HOM_REF,
+    "hom_ref": HOM_REF,
 }
 
 
 @dataclass(slots=True)
 class StructuralSampleFilter:
     sample_name: str
-    genotype_values: List[str] = field(default_factory=list)
+    genotype_classes: frozenset[GenotypeClass] = frozenset()
     minimum_quality: float | None = None
     read_support: str | None = None
     filter_text: str | None = None
@@ -29,7 +34,7 @@ class StructuralSampleFilter:
 @dataclass(slots=True)
 class SmallVariantSampleFilter:
     sample_name: str
-    genotype_values: List[str] = field(default_factory=list)
+    genotype_classes: frozenset[GenotypeClass] = frozenset()
     minimum_genotype_quality: float | None = None
     minimum_depth: int | None = None
     minimum_allele_frequency: float | None = None
@@ -130,19 +135,24 @@ def split_filter_entry(entry: str, expected_parts: int) -> List[str]:
     return parts
 
 
-def parse_genotype_filter(raw_value: str | None) -> tuple[List[str], bool]:
+def parse_genotype_filter(raw_value: str | None) -> tuple[frozenset[GenotypeClass], bool]:
+    """The genotype classes a sample filter asks for, and whether "not called" counts.
+
+    Returns ``(classes, include_absent)``; empty classes mean "any genotype". Asking for
+    reference also admits a sample with no call at the site, as before.
+    """
     if not raw_value:
-        return [], False
+        return frozenset(), False
 
     matches = GENOTYPE_TOKEN_PATTERN.findall(raw_value.lower())
-    genotype_values = matches if matches else raw_value.split("|")
-    expanded_values: list[str] = []
-    for genotype in genotype_values:
-        expanded_values.extend(GENOTYPE_ALIASES.get(genotype, [genotype]))
-    include_absent = "absent" in genotype_values or any(
-        genotype in {"0/0", "0|0"} for genotype in expanded_values
-    )
-    return [genotype for genotype in expanded_values if genotype != "absent"], include_absent
+    tokens = matches if matches else raw_value.split("|")
+    classes: set[GenotypeClass] = set()
+    for token in tokens:
+        if token == "absent":
+            continue
+        classes.add(GENOTYPE_ALIASES.get(token) or classify_genotype(token))
+    include_absent = "absent" in tokens or HOM_REF in classes
+    return frozenset(classes), include_absent
 
 
 def parse_structural_sample_filter(entry: str) -> StructuralSampleFilter | None:
@@ -151,10 +161,10 @@ def parse_structural_sample_filter(entry: str) -> StructuralSampleFilter | None:
     if not sample_name:
         return None
 
-    genotype_values, include_absent = parse_genotype_filter(parts[1] or None)
+    genotype_classes, include_absent = parse_genotype_filter(parts[1] or None)
     return StructuralSampleFilter(
         sample_name=sample_name,
-        genotype_values=genotype_values,
+        genotype_classes=genotype_classes,
         minimum_quality=float(parts[2]) if parts[2] else None,
         read_support=parts[3] or None,
         filter_text=parts[4] or None,
@@ -168,7 +178,7 @@ def parse_small_variant_sample_filter(entry: str) -> SmallVariantSampleFilter | 
     if not sample_name:
         return None
 
-    genotype_values, include_absent = parse_genotype_filter(parts[1] or None)
+    genotype_classes, include_absent = parse_genotype_filter(parts[1] or None)
 
     minimum_allele_frequency = None
     if parts[4]:
@@ -186,7 +196,7 @@ def parse_small_variant_sample_filter(entry: str) -> SmallVariantSampleFilter | 
 
     return SmallVariantSampleFilter(
         sample_name=sample_name,
-        genotype_values=genotype_values,
+        genotype_classes=genotype_classes,
         minimum_genotype_quality=float(parts[2]) if parts[2] else None,
         minimum_depth=int(float(parts[3])) if parts[3] else None,
         minimum_allele_frequency=minimum_allele_frequency,

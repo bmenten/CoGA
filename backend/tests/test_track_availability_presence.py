@@ -58,7 +58,9 @@ def test_presence_maps_ids_to_names_and_filters_to_family(monkeypatch):
     assert present == {"PROBAND", "MOTHER"}
     # The query is an ARRAY JOIN aggregate over an inner filtered subquery.
     assert "ARRAY JOIN" in cap["query"] and "GROUP BY sid" in cap["query"]
-    assert cap["params"]["track_nonref_gts"] == ("0/1", "1/0", "0|1", "1|0", "1/1", "1|1")
+    # Presence counts every call with an ALT allele, haploid and multi-allelic too (#511).
+    assert cap["params"]["track_nonref_gts"] == genotype_vocabulary("het", "hom_alt")
+    assert {"1", "1/2", "2/2"} <= set(cap["params"]["track_nonref_gts"])
 
 
 def test_no_explicit_sample_filters_uses_nonref_only(monkeypatch):
@@ -103,6 +105,7 @@ def test_explicit_sample_absent_when_base_does_not_match(monkeypatch):
 # --------------------------------------------------------------------------- #
 from backend.app.services.clickhouse_family_variants import _structural_present_sample_names
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
+from backend.app.services.genotypes import genotype_vocabulary
 
 
 def _sv_filters(**kwargs) -> StructuralVariantQueryFilters:

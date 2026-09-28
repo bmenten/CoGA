@@ -136,7 +136,7 @@ test('requests small variants carried by the displayed sample before pagination'
     '/families/F1/small-variants',
     expect.objectContaining({
       params: expect.objectContaining({
-        sample_filter: 'S1:0/1|1/0|0|1|1|0|1/1|1|1',
+        sample_filter: 'S1:het|hom',
         page_size: 9999,
         track_result_limit: 10000,
       }),

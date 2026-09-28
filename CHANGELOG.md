@@ -247,6 +247,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   could be filtered on T2T coordinates (and PanelApp GRCh37 coordinates on any family), so
   variants outside the panel could be shown as panel hits. The panel pages show each region's
   assembly and the panel size per assembly (#543).
+- **Haploid and multi-allelic genotypes** — genotype filters, the inheritance modes, the
+  per-sample counts and track presence now share one genotype classification. So a hemizygous
+  `1` (chrM, or chrX/chrY in a male) counts as Hom, a `1/2` as Het, and a haploid `0` as
+  reference. Before, these calls matched no genotype group: the X-linked filter dropped a
+  hemizygous son, and an all-haploid sample looked empty (#544).
 
 ### Security
 

@@ -38,6 +38,7 @@ from backend.app.services.family_variant_filters import (
     parse_genotype_filter,
 )
 from backend.app.schemas import SmallVariantSummaryOut
+from backend.app.services.genotypes import genotype_vocabulary
 
 
 @pytest.fixture(autouse=True)
@@ -359,9 +360,12 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
 
 
 def test_parse_genotype_filter_expands_group_aliases() -> None:
-    assert parse_genotype_filter("het") == (["0/1", "1/0", "0|1", "1|0"], False)
-    assert parse_genotype_filter("hom") == (["1/1", "1|1"], False)
-    assert parse_genotype_filter("wt") == (["0/0", "0|0"], True)
+    # Filters name genotype classes (#511); the UI's literal groups mean their class.
+    assert parse_genotype_filter("het") == (frozenset({"het"}), False)
+    assert parse_genotype_filter("hom") == (frozenset({"hom_alt"}), False)
+    assert parse_genotype_filter("wt") == (frozenset({"hom_ref"}), True)
+    assert parse_genotype_filter("1/1|1|1") == (frozenset({"hom_alt"}), False)
+    assert parse_genotype_filter("0/0|0|0|./.|absent") == (frozenset({"hom_ref", "no_call"}), True)
 
 
 @pytest.mark.asyncio
@@ -414,13 +418,16 @@ async def test_get_family_small_variants_page_filters_simple_sample_gt_in_clickh
     assert "NOT arrayExists(sample_id -> sample_id IN %(sample_filter_1_samples)s" in queries[0][0]
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0][0]
     assert queries[0][1]["sample_filter_0_samples"] == ("PROBAND", "sample-proband")
-    assert queries[0][1]["sample_filter_0_gts"] == ("0/1", "1/0", "0|1", "1|0")
+    # The het group matches the het class (#511): the four orientations and a "1/2".
+    assert queries[0][1]["sample_filter_0_gts"] == genotype_vocabulary("het")
+    assert {"0/1", "1/0", "0|1", "1|0", "1/2"} <= set(queries[0][1]["sample_filter_0_gts"])
     assert queries[0][1]["sample_filter_0_min_gq"] == 20.0
     assert queries[0][1]["sample_filter_0_min_dp"] == 10
     assert queries[0][1]["sample_filter_0_min_af"] == 0.2
     assert queries[0][1]["sample_filter_0_min_ad_alt"] == 4
     assert queries[0][1]["sample_filter_1_samples"] == ("MOM", "sample-mom")
-    assert queries[0][1]["sample_filter_1_gts"] == ("0/0", "0|0")
+    assert queries[0][1]["sample_filter_1_gts"] == genotype_vocabulary("hom_ref")
+    assert {"0/0", "0|0", "0"} <= set(queries[0][1]["sample_filter_1_gts"])
 
 
 @pytest.mark.asyncio

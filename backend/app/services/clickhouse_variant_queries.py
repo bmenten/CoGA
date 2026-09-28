@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Sequence
+from typing import Any, Iterable, Sequence
 
 from fastapi import HTTPException
 
@@ -19,6 +19,16 @@ from ..schemas import (
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .variant_annotation_parser import _spliceai_delta
 from .family_metadata_context import FamilyMetadataContext
+from .genotypes import (
+    ALT_CLASSES,
+    HET,
+    HOM_ALT,
+    HOM_REF,
+    GenotypeClass,
+    classify_genotype,
+    clickhouse_genotype_condition,
+    genotype_has_alt,
+)
 from .family_variant_filters import (
     SmallVariantQueryFilters,
     StructuralVariantQueryFilters,
@@ -88,21 +98,12 @@ _INTERVAL_PATTERN = re.compile(
 _GENE_QUERY_SPLIT = re.compile(r"[\s,;]+")
 
 
-_HET_GT_VALUES = {"0/1", "1/0", "0|1", "1|0"}
-
-
 # Phase of a compound-het pair as derived from the caller's own phasing, distinct from
 # the curator's `phase_status` on a saved group review. `cis` never reaches a response:
 # a cis pair is not a compound-het candidate, so it is dropped rather than reported.
 COMPOUND_HET_PHASE_TRANS = "trans"
 COMPOUND_HET_PHASE_CIS = "cis"
 COMPOUND_HET_PHASE_UNKNOWN = "unknown"
-
-
-_HOM_ALT_GT_VALUES = {"1/1", "1|1"}
-
-
-_HOM_REF_GT_VALUES = {"0/0", "0|0"}
 
 
 # Minimum parental depth to trust a homozygous-reference call when calling de novo;
@@ -762,7 +763,10 @@ def _small_record_matches_sample_filters(
             if sample_filter.include_absent:
                 continue
             return False
-        if sample_filter.genotype_values and call.gt not in set(sample_filter.genotype_values):
+        if (
+            sample_filter.genotype_classes
+            and classify_genotype(call.gt) not in sample_filter.genotype_classes
+        ):
             return False
         if sample_filter.minimum_genotype_quality is not None:
             if call.gq is None or call.gq < sample_filter.minimum_genotype_quality:
@@ -794,7 +798,10 @@ def _structural_record_matches_sample_filters(
             if sample_filter.include_absent:
                 continue
             return False
-        if sample_filter.genotype_values and call.gt not in set(sample_filter.genotype_values):
+        if (
+            sample_filter.genotype_classes
+            and classify_genotype(call.gt) not in sample_filter.genotype_classes
+        ):
             return False
         if sample_filter.minimum_quality is not None:
             if call.qual is None or call.qual < sample_filter.minimum_quality:
@@ -1079,16 +1086,18 @@ def _small_call_map(record: SmallVariantRecord) -> dict[str, SmallVariantCall]:
     return {call.sample: call for call in record.calls}
 
 
+# Genotype classes come from services/genotypes.py, so a haploid call (chrM, male
+# chrX/chrY) and a multi-allelic one are judged like any other (#511).
 def _call_is_het(call: SmallVariantCall | None) -> bool:
-    return call is not None and call.gt in _HET_GT_VALUES
+    return call is not None and classify_genotype(call.gt) == HET
 
 
 def _call_is_hom_alt(call: SmallVariantCall | None) -> bool:
-    return call is not None and call.gt in _HOM_ALT_GT_VALUES
+    return call is not None and classify_genotype(call.gt) == HOM_ALT
 
 
 def _call_has_alt(call: SmallVariantCall | None) -> bool:
-    return call is not None and _has_alt_allele(call.gt)
+    return call is not None and genotype_has_alt(call.gt)
 
 
 def _call_is_confident_hom_ref(call: SmallVariantCall | None) -> bool:
@@ -1097,7 +1106,7 @@ def _call_is_confident_hom_ref(call: SmallVariantCall | None) -> bool:
     A missing call (``./.``) is not confident reference, so it does not qualify — we
     cannot rule out an uncalled inherited allele.
     """
-    if call is None or call.gt not in _HOM_REF_GT_VALUES:
+    if call is None or classify_genotype(call.gt) != HOM_REF:
         return False
     return call.dp is None or call.dp >= _DE_NOVO_MIN_PARENT_DP
 
@@ -1438,8 +1447,7 @@ def _carrier_partner_names(
 
 
 def _has_alt_allele(gt: str) -> bool:
-    alleles = gt.replace("|", "/").split("/")
-    return any(allele not in {"", ".", "0"} for allele in alleles)
+    return genotype_has_alt(gt)
 
 
 def _filter_expanded_carrier_screening(
@@ -1729,18 +1737,19 @@ def _small_sample_gt_exists_condition(
     context: FamilyMetadataContext,
     *,
     sample_name: str,
-    gt_values: Sequence[str],
+    classes: Iterable[GenotypeClass],
     prefix: str,
     params: dict[str, Any],
 ) -> str:
     sample_param = f"{prefix}_samples"
-    gt_param = f"{prefix}_gts"
     sample_ids = _clickhouse_ids_for_sample(context, sample_name)
     params[sample_param] = sample_ids or (sample_name,)
-    params[gt_param] = tuple(gt_values)
+    gt_condition = clickhouse_genotype_condition(
+        "gt", classes, param=f"{prefix}_gts", params=params
+    )
     return (
         "arrayExists((sample_id, gt) -> "
-        f"sample_id IN %({sample_param})s AND gt IN %({gt_param})s, "
+        f"sample_id IN %({sample_param})s AND {gt_condition}, "
         "e.calls.sampleId, e.calls.gt)"
     )
 
@@ -1749,7 +1758,7 @@ def _small_all_samples_have_gts_condition(
     context: FamilyMetadataContext,
     *,
     sample_names: Sequence[str],
-    gt_values: Sequence[str],
+    classes: Iterable[GenotypeClass],
     prefix: str,
     params: dict[str, Any],
 ) -> list[str]:
@@ -1757,7 +1766,7 @@ def _small_all_samples_have_gts_condition(
         _small_sample_gt_exists_condition(
             context,
             sample_name=sample_name,
-            gt_values=gt_values,
+            classes=classes,
             prefix=f"{prefix}_{index}",
             params=params,
         )
@@ -1769,7 +1778,7 @@ def _small_no_samples_have_gts_condition(
     context: FamilyMetadataContext,
     *,
     sample_names: Sequence[str],
-    gt_values: Sequence[str],
+    classes: Iterable[GenotypeClass],
     prefix: str,
     params: dict[str, Any],
 ) -> list[str]:
@@ -1778,7 +1787,7 @@ def _small_no_samples_have_gts_condition(
         + _small_sample_gt_exists_condition(
             context,
             sample_name=sample_name,
-            gt_values=gt_values,
+            classes=classes,
             prefix=f"{prefix}_{index}",
             params=params,
         )
@@ -1796,9 +1805,9 @@ def _small_native_inheritance_clauses(
 
     params: dict[str, Any] = {}
     clauses: list[str] = []
-    alt_gt_values = tuple(sorted(_HET_GT_VALUES.union(_HOM_ALT_GT_VALUES)))
-    het_gt_values = tuple(sorted(_HET_GT_VALUES))
-    hom_alt_gt_values = tuple(sorted(_HOM_ALT_GT_VALUES))
+    alt_gt_values = ALT_CLASSES
+    het_gt_values = frozenset({HET})
+    hom_alt_gt_values = frozenset({HOM_ALT})
 
     if filters.expanded_carrier_screening:
         partners = _carrier_partner_names(context.sample_rows, context.relationship_rows)
@@ -1807,7 +1816,7 @@ def _small_native_inheritance_clauses(
         partner_alt_clauses = _small_all_samples_have_gts_condition(
             context,
             sample_names=partners,
-            gt_values=alt_gt_values,
+            classes=alt_gt_values,
             prefix="carrier_screen_partner_alt",
             params=params,
         )
@@ -1826,7 +1835,7 @@ def _small_native_inheritance_clauses(
             _small_all_samples_have_gts_condition(
                 context,
                 sample_names=affected_samples,
-                gt_values=het_gt_values,
+                classes=het_gt_values,
                 prefix="inheritance_affected_het",
                 params=params,
             )
@@ -1835,7 +1844,7 @@ def _small_native_inheritance_clauses(
             _small_no_samples_have_gts_condition(
                 context,
                 sample_names=unaffected_samples,
-                gt_values=alt_gt_values,
+                classes=alt_gt_values,
                 prefix="inheritance_unaffected_alt",
                 params=params,
             )
@@ -1847,7 +1856,7 @@ def _small_native_inheritance_clauses(
             _small_all_samples_have_gts_condition(
                 context,
                 sample_names=affected_samples,
-                gt_values=hom_alt_gt_values,
+                classes=hom_alt_gt_values,
                 prefix="inheritance_affected_hom_alt",
                 params=params,
             )
@@ -1856,7 +1865,7 @@ def _small_native_inheritance_clauses(
             _small_no_samples_have_gts_condition(
                 context,
                 sample_names=unaffected_samples,
-                gt_values=hom_alt_gt_values,
+                classes=hom_alt_gt_values,
                 prefix="inheritance_unaffected_hom_alt",
                 params=params,
             )
@@ -1868,7 +1877,7 @@ def _small_native_inheritance_clauses(
             _small_all_samples_have_gts_condition(
                 context,
                 sample_names=affected_samples,
-                gt_values=alt_gt_values,
+                classes=alt_gt_values,
                 prefix="inheritance_affected_alt",
                 params=params,
             )
@@ -1880,7 +1889,7 @@ def _small_native_inheritance_clauses(
             _small_no_samples_have_gts_condition(
                 context,
                 sample_names=male_unaffected,
-                gt_values=alt_gt_values,
+                classes=alt_gt_values,
                 prefix="inheritance_unaffected_male_alt",
                 params=params,
             )
@@ -1889,7 +1898,7 @@ def _small_native_inheritance_clauses(
             _small_no_samples_have_gts_condition(
                 context,
                 sample_names=other_unaffected,
-                gt_values=hom_alt_gt_values,
+                classes=hom_alt_gt_values,
                 prefix="inheritance_unaffected_hom_alt",
                 params=params,
             )
@@ -1899,7 +1908,7 @@ def _small_native_inheritance_clauses(
             _small_all_samples_have_gts_condition(
                 context,
                 sample_names=affected_samples,
-                gt_values=het_gt_values,
+                classes=het_gt_values,
                 prefix="inheritance_affected_het",
                 params=params,
             )
@@ -1909,7 +1918,7 @@ def _small_native_inheritance_clauses(
             _small_all_samples_have_gts_condition(
                 context,
                 sample_names=affected_samples,
-                gt_values=alt_gt_values,
+                classes=alt_gt_values,
                 prefix="inheritance_affected_alt",
                 params=params,
             )
@@ -2437,10 +2446,12 @@ def _small_native_sample_filter_clauses(
             continue
         conditions = [f"sample_id IN %({sample_param})s"]
         params[sample_param] = sample_ids
-        if parsed.genotype_values:
-            gt_param = f"sample_filter_{index}_gts"
-            conditions.append(f"gt IN %({gt_param})s")
-            params[gt_param] = tuple(parsed.genotype_values)
+        if parsed.genotype_classes:
+            conditions.append(
+                clickhouse_genotype_condition(
+                    "gt", parsed.genotype_classes, param=f"sample_filter_{index}_gts", params=params
+                )
+            )
         if parsed.minimum_genotype_quality is not None:
             gq_param = f"sample_filter_{index}_min_gq"
             conditions.append(f"gq >= %({gq_param})s")

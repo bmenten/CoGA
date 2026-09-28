@@ -4,6 +4,7 @@ import pytest
 
 from backend.app.services.clickhouse_family_variants import SmallVariantCall, SmallVariantRecord
 from backend.app.services import clickhouse_variant_storage
+from backend.app.services.genotypes import genotype_vocabulary
 
 
 @pytest.mark.asyncio
@@ -115,6 +116,8 @@ async def test_count_family_small_variants_by_sample_counts_non_reference_calls(
         "family_guid": "family-1",
         "sample_ids": ("embryo-1",),
         "project_ids": ("project-1",),
+        # Non-reference means "carries an ALT allele" (#511): a haploid "0" is not counted.
+        "gt_alt": genotype_vocabulary("het", "hom_alt"),
     }
 
 
@@ -456,8 +459,9 @@ async def test_refresh_family_small_variant_summaries_rebuilds_family_and_sample
     # Per-project scoping: both summaries must group by project_guid so per-project
     # counts never aggregate across the projects a family belongs to.
     assert "GROUP BY family_guid, project_guid" in executed[2][0]
-    assert "countDistinctIf(key, gt NOT IN ('', '.', './.', '.|.', '0/0', '0|0'))" in executed[3][0]
-    assert "countDistinctIf(key, gt IN ('0/1', '1/0', '0|1', '1|0'))" in executed[3][0]
+    assert "countDistinctIf(key, (gt IN %(gt_alt)s" in executed[3][0]
+    assert "countDistinctIf(key, (gt IN %(gt_het)s" in executed[3][0]
+    assert "countDistinctIf(key, (gt IN %(gt_hom)s" in executed[3][0]
     assert "GROUP BY family_guid, project_guid, sample_id" in executed[3][0]
     assert "project_guid" in executed[3][0]
     # The summary is a diagnostic count, so both rebuild queries exclude imputed
