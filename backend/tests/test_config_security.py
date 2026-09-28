@@ -136,6 +136,7 @@ def test_a_complete_production_configuration_starts() -> None:
         ("SECRET_KEY", "short-but-not-a-default", "SECRET_KEY"),  # under 32 characters
         ("SECRET_KEY", "change-me", "SECRET_KEY"),
         ("CLICKHOUSE_PASSWORD", "", "CLICKHOUSE_PASSWORD"),
+        ("CLICKHOUSE_PASSWORD", "change-me", "CLICKHOUSE_PASSWORD"),  # the .env.example placeholder
         ("INTEGRITY_ANCHOR_SIGNING_KEY", "", "INTEGRITY_ANCHOR_SIGNING_KEY"),
         ("INTEGRITY_ANCHOR_SIGNING_KEY", "not-base64!", "INTEGRITY_ANCHOR_SIGNING_KEY"),
         ("INTEGRITY_ANCHOR_SIGNING_KEY", base64.b64encode(b"abc").decode(), "INTEGRITY_ANCHOR_SIGNING_KEY"),

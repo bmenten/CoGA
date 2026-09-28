@@ -8,7 +8,8 @@
 #   Usage: ./scripts/check-test-catalogue.sh
 #
 # Test-file conventions matched:
-#   backend  — (backend/tests|tests)/…/test_*.py
+#   backend  — backend/tests/…/test_*.py (the only pytest testpath; a test file under a
+#              top-level tests/ folder is reported, since pytest would never run it)
 #   frontend — frontend/src/**/*.test.ts(x)
 set -euo pipefail
 
@@ -31,6 +32,8 @@ grep -oE '\]\(\.\./[^)]+\)' "$DOC" \
 
 missing="$(comm -23 "$tree_files" "$doc_files")"
 stale="$(comm -13 "$tree_files" "$doc_files")"
+# pytest.ini collects backend tests from backend/tests only (#530).
+stray="$(grep -E '^tests/' "$tree_files" || true)"
 status=0
 
 if [ -n "$missing" ]; then
@@ -41,6 +44,11 @@ fi
 if [ -n "$stale" ]; then
   echo "❌ $DOC references test files that no longer exist — remove/rename the row:"
   printf '%s\n' "$stale" | sed 's/^/   - /'
+  status=1
+fi
+if [ -n "$stray" ]; then
+  echo "❌ Test files outside backend/tests are never collected by pytest — move them under backend/tests/:"
+  printf '%s\n' "$stray" | sed 's/^/   - /'
   status=1
 fi
 if [ "$status" -eq 0 ]; then

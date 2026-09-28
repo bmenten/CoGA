@@ -33,8 +33,9 @@ but not yet applied to a live project** · ⛔ not yet done (deployment responsi
   before issuing presigned URLs (`routers/cram.py`).
 - ✅ **No default or weak secrets in prod.** `Settings.validate_security_defaults`
   refuses to start outside dev/test if `SECRET_KEY` / `POSTGRES_PASSWORD` /
-  `ADMIN_PASSWORD` are still placeholders, if `SECRET_KEY` (the HS256 signing key) is
-  shorter than 32 characters, if `CLICKHOUSE_PASSWORD` is empty, or if
+  `CLICKHOUSE_PASSWORD` / `ADMIN_PASSWORD` are still placeholders (#530 added ClickHouse),
+  if `SECRET_KEY` (the HS256 signing key) is shorter than 32 characters, if
+  `CLICKHOUSE_PASSWORD` is empty, or if
   `INTEGRITY_ANCHOR_SIGNING_KEY` is not the base64 of a 32-byte Ed25519 seed (#522); an
   unsigned integrity anchor is also refused at write time there. Passwords are
   bcrypt-hashed.

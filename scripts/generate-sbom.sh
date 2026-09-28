@@ -31,7 +31,8 @@ echo "Generating frontend SBOM from frontend/package-lock.json ..."
 docker run --rm --platform="${PLATFORM}" -v "${REPO_ROOT}:/repo" -w /repo/frontend \
   "${NODE_IMAGE}" bash -euo pipefail -c "
     npx --yes '@cyclonedx/cyclonedx-npm@${CYCLONEDX_NPM_VERSION}' \
-      --package-lock-only --output-format json --output-file /repo/sbom/frontend.cdx.json
+      --package-lock-only --output-format json --output-reproducible --ignore-npm-errors \
+      --output-file /repo/sbom/frontend.cdx.json
   "
 
 echo "Wrote sbom/backend.cdx.json and sbom/frontend.cdx.json (CycloneDX 1.6)."

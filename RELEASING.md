@@ -77,11 +77,17 @@ gh release create v0.1.0-beta.1 \
 Do this **before** the artifacts expire — the SBOM is deleted after 90 days.
 
 ```bash
-RUN=$(gh run list --workflow build.yml --limit 1 --json databaseId --jq '.[0].databaseId')
-
-# SBOMs (CycloneDX 1.6, backend + frontend)
+# SBOMs (CycloneDX 1.6, backend + frontend). build.yml makes none: the `sbom` job of
+# ci.yml uploads them on every push to main, so take the CI run of the tagged commit.
+SHA=$(git rev-list -n 1 v0.1.0-beta.1)
+RUN=$(gh run list --workflow ci.yml --commit "$SHA" --event push --limit 1 \
+  --json databaseId --jq '.[0].databaseId')
 gh run download "$RUN" --name sbom-cyclonedx --dir release-evidence/
 shasum -a 256 release-evidence/*.cdx.json
+# No run for that commit (a later push cancels an in-progress one), or its artifact
+# has expired: check out the tag and run ./scripts/generate-sbom.sh (needs Docker). It
+# uses CI's generators and flags, so it lists the same components, though the file
+# hashes can differ (the backend SBOM carries a fresh serial number and timestamp).
 
 # Image digests — NOT captured automatically; resolve the tag to its digest
 REG=europe-west1-docker.pkg.dev/<registry-project>/gen-ghreg-shared-gbl
@@ -139,8 +145,9 @@ Stated here so nobody discovers them mid-release:
   literally `main`, so Cloud Run may not roll a new revision at all. Verify with
   `/api/version` rather than assuming a green deploy shipped your code.
 - **No digest is captured automatically** — step 4 resolves them by hand.
-- **The SBOM artifact expires after 90 days** and CI does not run on `release: published`
-  for the SBOM job, so archiving it into the technical file is a manual step. Miss it and
+- **The SBOM artifact expires after 90 days** and comes from the CI run of the tagged commit,
+  not from `build.yml` (which runs on `release: published` and makes no SBOM), so archiving
+  it into the technical file is a manual step. Miss it and
   the dependency evidence for that build is gone.
 - **`deploy` skips entirely when GCP is not configured** (no `GCP_WIF_PROVIDER` secret). The
   run goes green having deployed nothing. Check the job actually ran.

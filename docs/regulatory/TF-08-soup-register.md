@@ -69,18 +69,26 @@ each release; it is not maintained by hand. **Reconciled with the lockfile on 20
 
 ### A.2 Frontend (Node 22 / TypeScript 6)
 
-| SOUP item | Version | Function | Risk |
-| --- | --- | --- | --- |
-| react / react-dom | ^19.2 | UI runtime | H |
-| react-router | ^8.3 | Routing | M |
-| @tanstack/react-query | ^5.101 | Server-state fetching/caching | H |
-| axios | ^1.18 | HTTP client (JWT) | H (security) |
-| d3 / @types/d3 | ^7.9 | Visualizations | M |
-| igv | ^3.8 | Embedded genome browser | M |
-| react-markdown / remark-gfm | ^10 / ^4 | In-app docs rendering | L |
-| vite | ^8.1 | Build/dev server | M (build) |
-| express | ^5.2 | Static serving (prod) | M |
-| typescript | ^6.0 | Type system (build-time) | M |
+Versions as locked in `frontend/package-lock.json`.
+
+| SOUP item | Version | Function | Where it runs | Risk |
+| --- | --- | --- | --- | --- |
+| react / react-dom | 19.3.0 | UI runtime | Browser bundle | H |
+| react-router | 8.4.0 | Routing | Browser bundle | M |
+| @tanstack/react-query | 5.103.2 | Server-state fetching/caching | Browser bundle | H |
+| axios | 1.20.0 | HTTP client (JWT) | Browser bundle | H (security) |
+| d3 | 7.9.0 | Visualizations | Browser bundle | M |
+| igv | 3.8.9 | Embedded genome browser | Browser bundle | M |
+| react-markdown / remark-gfm | 10.1.0 / 4.0.1 | In-app docs rendering | Browser bundle | L |
+| express | 5.2.1 | Static serving and API proxy (`server.mjs`) | Production web server | M |
+| vite | 8.3.1 | Build and dev server | Build only | M (build) |
+| typescript / @types/* | 6.0.3 | Type system | Build only | M |
+
+The `dependencies` of `frontend/package.json` are exactly the browser-bundle libraries and
+express, so the blocking production audit (`scripts/audit-frontend-prod.mjs`) covers everything
+that reaches a user's browser or serves it. The build-only items are `devDependencies`: they
+are not installed in the production image, and the non-blocking dev-tree audit reports them
+(#530).
 
 ### A.3 Datastores & base images (configuration-controlled)
 

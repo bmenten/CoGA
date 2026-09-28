@@ -86,7 +86,7 @@ workstation. It is the controlled, citable form of "examining the e2e validation
 
 ### 4.0 Prerequisites
 
-- **Docker** (for the datastores), **Node.js 20+**, and a **Python** interpreter with the backend
+- **Docker** (for the datastores), **Node.js 22** (at least 22.22.0), and a **Python** interpreter with the backend
   dependencies installed (`pip install -r backend/requirements-dev.txt`). If those deps live in a
   specific interpreter, point Playwright at it with `E2E_PYTHON=/path/to/python` (used in §4.1).
 - Run all commands from the **repository root** unless noted.

@@ -33,7 +33,7 @@ jobs:
       - name: Run tests with coverage
         # The suite is self-contained (Postgres/ClickHouse access is mocked), so
         # no service containers are required. Honours pytest.ini testpaths
-        # (tests + backend/tests). --cov-fail-under is the global floor (P2-7).
+        # (backend/tests). --cov-fail-under is the global floor (P2-7).
         run: >
           python -m pytest -q
           --cov=backend/app

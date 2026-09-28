@@ -13,7 +13,7 @@
 > Forward and backward traceability per IEC 62304 §5.1.6 / IVDR Annex I §16. Each requirement
 > from the [SRS](TF-09a-software-requirements-specification.md) maps to its implementation and
 > its verifying test(s). Backend code is under `backend/app/` (`services/`, `routers/`); backend
-> tests under `backend/tests/` and `tests/`; frontend under `frontend/src/`. This matrix was
+> tests under `backend/tests/`; frontend under `frontend/src/`. This matrix was
 > built from a point-in-time code/test inventory and is maintained under change control
 > ([TF-18](TF-18-change-configuration-management.md)).
 
@@ -111,7 +111,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | --- | --- | --- | --- | --- |
 | REQ-DATA-001 | `services/variant_upload_service.py::upload_family_small_variant_file` | `test_variant_upload_service.py` (GT/DP/AF/AD, QUAL) | H1 | ✅ |
 | REQ-DATA-002 | `services/variant_upload_service.py`; `clickhouse_family_variants.py` | `test_variant_upload_service.py` (PS block); `test_clickhouse_family_variants.py` (phasing) | H5 | ✅ |
-| REQ-DATA-003 | `services/structural_variant_ingest.py::iter_structural_variant_records` | `test_structural_variant_ingest.py`; `test_variant_upload_service.py` | — | ✅ |
+| REQ-DATA-003 | `services/structural_variant_ingest.py::iter_structural_variant_records` | `test_structural_variant_ingest.py`; `test_structural_variant_breakends.py` (BND remote partner); `test_variant_upload_service.py` | — | ✅ |
 | REQ-DATA-004 | `services/raw_import_files_pg.py::verify_raw_import_file` | `test_raw_import_file_verify.py` (verified / mismatch / missing / unverifiable) | H4 | ✅ |
 | REQ-DATA-005 | `services/family_package_import.py` | `test_family_package_import.py` (25); `test_nipt_package_import.py` | H4,H12 | ✅ |
 | REQ-DATA-006 | `services/clickhouse_variant_storage.py` | `test_clickhouse_variant_storage_ops.py`; `test_clickhouse_integrity.py` | H9 | ✅ |
@@ -158,7 +158,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 
 ## 2. Coverage summary
 
-- **Requirements:** **88 across 13 areas** (incl. the combined mtDNA + nuclear mitochondrial app, REQ-MITO) — counted from the distinct `REQ-*` identifiers in [TF-09a](TF-09a-software-requirements-specification.md); every one has a row here. Test suites at the revision this was reconciled (2026-09-28, #517): **backend 163 test files, 1333 passing / 79 skipped** (the skipped ones are the integration tests, which CI runs against real datastores); **frontend 124 test files, 663 tests**. The live totals are in CI.
+- **Requirements:** **88 across 13 areas** (incl. the combined mtDNA + nuclear mitochondrial app, REQ-MITO) — counted from the distinct `REQ-*` identifiers in [TF-09a](TF-09a-software-requirements-specification.md); every one has a row here. Test suites at the revision this was last reconciled (2026-09-28, #517 and #530): **backend 162 test files, 1334 passing / 79 skipped** (the skipped ones are the integration tests, which CI runs against real datastores); **frontend 124 test files, 663 tests**. The live totals are in CI.
 - **Directly verified (✅):** the large majority of Class C backend logic — NIPT FF/classification, haplotype lineage + phased-marker QC, ACMG/CNV scoring, trio/de-novo/compound-het, repeat/Paraphase/mtDNA, the full traceability stack (manifest/evidence/drift/audit/sign-out/immutability), and access control.
 - **Partial/pending (◐):** items whose **clinical** performance is established in TF-10 rather than a unit test (carrier panel scoping, >10 Mb SV), or verified by integration rather than unit test (render-from-snapshot, content-hash reproducibility).
 - **Gaps (⚠):** see §3. Most remaining actions are **clinical** — couple-level carrier, SV detection limit, and the combined mtDNA+nuclear assay concordance — and are established by the TF-10 study. **One unit-testable gap remains open:** REQ-PGT-008 (aneuploidy) has no dedicated detection test.

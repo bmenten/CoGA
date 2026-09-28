@@ -2,7 +2,7 @@ from pathlib import Path
 import sys
 
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
+sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from backend.app.services.structural_variant_ingest import iter_structural_variant_records
 
