@@ -30,3 +30,29 @@ def csv_safe_cell(value: str) -> str:
     if value and value[0] in _FORMULA_TRIGGERS:
         return "'" + value
     return value
+
+
+# Response headers an export sets so the UI can say when a file was cut at the export cap
+# (#512). Exposed through CORS in main.py for split-origin deployments.
+EXPORT_ROWS_HEADER = "X-CoGA-Export-Rows"
+EXPORT_TRUNCATED_HEADER = "X-CoGA-Export-Truncated"
+EXPORT_LIMIT_HEADER = "X-CoGA-Export-Limit"
+EXPORT_HEADERS = ("Content-Disposition", EXPORT_ROWS_HEADER, EXPORT_TRUNCATED_HEADER, EXPORT_LIMIT_HEADER)
+
+
+def export_response_headers(filename_stem: str, *, rows: int, truncated: bool, limit: int) -> dict[str, str]:
+    """Headers for a CSV export response.
+
+    A truncated export says so in the file name as well as in the headers, so the file
+    itself — once saved, forwarded or attached — cannot pass for the complete result.
+    """
+
+    filename = (
+        f"{filename_stem}-TRUNCATED-first-{limit}.csv" if truncated else f"{filename_stem}.csv"
+    )
+    return {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        EXPORT_ROWS_HEADER: str(rows),
+        EXPORT_TRUNCATED_HEADER: "true" if truncated else "false",
+        EXPORT_LIMIT_HEADER: str(limit),
+    }
