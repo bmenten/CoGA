@@ -10,7 +10,7 @@ from app.schemas import (
     FamilyStructureUpdate,
 )
 from app.services import family_structure_service as service
-from app.services.metadata_service import CurrentUser
+from app.services.access_control import CurrentUser
 
 
 def _user() -> CurrentUser:

@@ -33,7 +33,8 @@ from .family_structure_service import (
     update_family_structure_for_admin,
 )
 from .hpo_service import list_family_hpo_annotations
-from .metadata_service import CurrentUser, get_accessible_family_mapping, get_family_record
+from .metadata_service import get_accessible_family_mapping, get_family_record
+from .access_control import CurrentUser
 
 GENOMIC_DATA_KEYS = {
     "small_variants",

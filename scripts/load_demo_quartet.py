@@ -90,7 +90,8 @@ from backend.app.services.family_metadata_context import (
     SampleMetadataContext,
     build_family_metadata_context,
 )
-from backend.app.services.metadata_service import CurrentUser, update_family_project_assignments
+from backend.app.services.metadata_service import update_family_project_assignments
+from backend.app.services.access_control import CurrentUser
 from backend.app.services.ped_service import create_manual_family_data
 from backend.app.services.repeat_expansion_pg import (
     clear_sample_repeat_expansions,

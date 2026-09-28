@@ -11,12 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .core.azure import verify_azure_token
 from .core.config import settings
 from .core.postgres import get_postgres_session
-from .services.metadata_service import CurrentUser, get_current_user_by_email
+from .services.access_control import ADMIN_ROLES, CurrentUser
+from .services.metadata_service import get_current_user_by_email
 
 logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
-ADMIN_ROLES = {"admin", "superuser"}
 
 # bcrypt reads at most the first 72 bytes of a password. passlib, which made the stored
 # hashes, passed longer passwords through and bcrypt truncated them silently; bcrypt 5

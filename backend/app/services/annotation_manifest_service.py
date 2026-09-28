@@ -21,7 +21,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .family_metadata_context import build_family_metadata_context
-from .metadata_service import CurrentUser, get_family_record
+from .metadata_service import get_family_record
+from .access_control import CurrentUser
 
 logger = logging.getLogger(__name__)
 

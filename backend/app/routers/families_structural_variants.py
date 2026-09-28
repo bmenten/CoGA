@@ -24,7 +24,7 @@ from ..services.clickhouse_family_variants import (
     get_family_structural_variants_page as get_family_structural_variants_clickhouse,
 )
 from ..services.family_metadata_context import build_family_metadata_context
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.structural_variant_review_pg import (
     delete_structural_variant_filter_preset as delete_structural_variant_filter_preset_record,
     get_structural_variant_review_summary,

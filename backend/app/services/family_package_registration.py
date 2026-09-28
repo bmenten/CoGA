@@ -32,7 +32,7 @@ from .family_metadata_context import (
     SampleMetadataContext,
     build_family_metadata_context,
 )
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import record_raw_import_file
 

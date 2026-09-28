@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
 from .clickhouse_variant_storage import delete_family_small_variants, delete_family_structural_variants
 from .upload_safety import decode_upload_text
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser
 
 INHERITANCE_MODELS = {"AD", "AR", "XLD", "XLR", "mitochondrial"}
 

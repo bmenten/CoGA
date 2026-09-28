@@ -14,9 +14,9 @@ CoGA kent exact drie rollen. Ze liggen als *databank-constraint* vast (een regel
 | `admin` | Beheerder | Alles wat een viewer mag, plus alle scoping-*bypass* en alle beheeracties (projecttoewijzing, verwijderen, referentiedata, audit-logs) |
 | `superuser` | Beheerder (gelijkgesteld) | Idem als `admin` in de generieke admin-poort `get_current_admin_user` |
 
-**Waar in de code:** de toegestane rollen staan als CHECK-constraint in `backend/db/schema/postgres/001_metadata.sql` (`role TEXT NOT NULL CHECK (role IN ('admin', 'superuser', 'viewer'))`, in de `users`-tabel) en worden in `backend/db/schema/postgres/016_superuser_role.sql` herbevestigd (die migratie dropt en herzet de constraint met dezelfde drie waarden). In de backend zijn `admin` en `superuser` samengevoegd tot één begrip "beheerder" via de constante `ADMIN_ROLES = {"admin", "superuser"}` in `backend/app/dependencies.py` en in `backend/app/services/metadata_service.py` (helper `_is_admin_user`).
+**Waar in de code:** de toegestane rollen staan als CHECK-constraint in `backend/db/schema/postgres/01_access.sql` (`role TEXT NOT NULL CHECK (role IN ('admin', 'superuser', 'viewer'))`, in de `users`-tabel). In de backend zijn `admin` en `superuser` samengevoegd tot één begrip "beheerder" via de constante `ADMIN_ROLES = {"admin", "superuser"}` in `backend/app/services/access_control.py` (helper `is_admin_user`), die ook `backend/app/dependencies.py` gebruikt.
 
-Er is geen aparte rechten-tabel per gebruiker: het onderscheid "mag deze data zien" volgt volledig uit **projectlidmaatschap**. Dat lidmaatschap is de koppeltabel `project_users` (kolommen `project_id`, `user_id`) in `001_metadata.sql`. Een family hangt via `family_projects` aan een of meer projecten, een sample via `sample_projects`. Een `viewer` ziet dus precies de families waarvan minstens één project ook in zijn `project_users`-rijen staat.
+Er is geen aparte rechten-tabel per gebruiker: het onderscheid "mag deze data zien" volgt volledig uit **projectlidmaatschap**. Dat lidmaatschap is de koppeltabel `project_users` (kolommen `project_id`, `user_id`) in `01_access.sql`. Een family hangt via `family_projects` aan een of meer projecten, een sample via `sample_projects`. Een `viewer` ziet dus precies de families waarvan minstens één project ook in zijn `project_users`-rijen staat.
 
 **Waar in de code:** de rol staat óók in het JWT-token — bij het inloggen zet `_authenticate_and_issue_token` in `backend/app/routers/auth.py` de rol in het `Token`-antwoord (`Token(access_token=..., role=user["role"])`), en `create_access_token` (in `dependencies.py`) codeert de gebruiker — het e-mailadres, als veld `sub` — in het ondertekende token. Belangrijk: de **projectenlijst zit niet in het token**. Bij elk verzoek wordt de actuele gebruiker vers uit Postgres geladen door `get_current_user_by_email` (in `metadata_service.py`), inclusief zijn `metadata_project_ids` (de projecten waartoe hij behoort). Zo werkt intrekken onmiddellijk: een gedeactiveerde of uit een project verwijderde gebruiker verliest toegang bij het eerstvolgende verzoek, zonder op tokenverval te wachten.
 
@@ -36,19 +36,19 @@ EXISTS (
 
 Families buiten de scope worden dus nooit uit de databank gehaald — ze kunnen niet "per ongeluk" lekken door een vergeten filter in de applicatiecode. Merk ook op: als de projectlijst leeg is, geeft `_fetch_family_rows` meteen een lege lijst terug (een viewer zonder projecten ziet niets).
 
-**Object-endpoints controleren bij het ophalen.** Vraagt iemand één specifieke family op via id, dan draait `get_accessible_family_mapping` (in `metadata_service.py`). Die haalt de family op en roept meteen `_ensure_user_can_access_metadata_projects(project_ids, user)` aan. Die helper laat admins door en gooit voor een viewer een `HTTP 403` als er géén overlap is tussen de projecten van de family en de projecten van de gebruiker:
+**Object-endpoints controleren bij het ophalen.** Vraagt iemand één specifieke family op via id, dan draait `get_accessible_family_mapping` (in `metadata_service.py`). Die haalt de family op en roept meteen `ensure_user_can_access_metadata_projects(project_ids, user)` aan (sinds #528 in `access_control.py`, samen met `CurrentUser` en de andere toegangsregels). Die helper laat admins door en gooit voor een viewer een `HTTP 403` als er géén overlap is tussen de projecten van de family en de projecten van de gebruiker:
 
 ```python
-def _ensure_user_can_access_metadata_projects(project_ids, user):
-    if _is_admin_user(user):
+def ensure_user_can_access_metadata_projects(project_ids, user):
+    if is_admin_user(user):
         return
-    if not set(project_ids).intersection(_user_metadata_project_ids(user)):
+    if not set(project_ids).intersection(user_metadata_project_ids(user)):
         raise HTTPException(status_code=403, detail="Not authorized")
 ```
 
 Deze twee lagen komen samen in `build_family_metadata_context` (in `backend/app/services/family_metadata_context.py`), het gedeelde "toegangspoortje" dat vrijwel elke family-gebonden view (varianten, tracks, rapport) eerst passeert: het roept `get_accessible_family_mapping` aan en reduceert vervolgens de zichtbare projecten met `_visible_project_ids` tot enkel wat de gebruiker mag zien. De sample-tegenhanger hiervan is `build_sample_metadata_context` / `get_accessible_sample_mapping`.
 
-**Waar in de code:** `backend/app/services/metadata_service.py` (functies `get_accessible_family_mapping`, `_ensure_user_can_access_metadata_projects`, `_visible_metadata_project_ids`, `list_family_records`, `_fetch_family_rows`) en `backend/app/services/family_metadata_context.py` (`build_family_metadata_context`, `build_sample_metadata_context`, `_visible_project_ids`).
+**Waar in de code:** `backend/app/services/access_control.py` (`CurrentUser`, `ADMIN_ROLES`, `is_admin_user`, `ensure_user_can_access_metadata_projects`, `visible_metadata_project_ids`), `backend/app/services/metadata_service.py` (`get_accessible_family_mapping`, `list_family_records`, `_fetch_family_rows`) en `backend/app/services/family_metadata_context.py` (`build_family_metadata_context`, `build_sample_metadata_context`, `_visible_project_ids`).
 
 > Let op: het bestand `backend/app/services/data_scope.py` gaat *niet* over toegangsscoping (ondanks de naam) maar over chromosoom-normalisatie (`normalize_chromosome`, `is_primary_chromosome`). De echte data-scoping zit in `metadata_service.py` en `family_metadata_context.py` zoals hierboven.
 
@@ -146,7 +146,8 @@ Elke onderdrukking van een security-scan (dependency-audit, secret-scan, SAST) i
 | Bestand | Rol |
 | --- | --- |
 | `backend/app/dependencies.py` | Authenticatie-dependencies `get_current_user` / `get_current_admin_user`, JWT-uitgifte, `ADMIN_ROLES` |
-| `backend/app/services/metadata_service.py` | Project-scoped RBAC: `get_accessible_family_mapping`, `_ensure_user_can_access_metadata_projects`, SQL-filter in `list_family_records`/`_fetch_family_rows` |
+| `backend/app/services/access_control.py` | `CurrentUser`, `ADMIN_ROLES` en de toegangsregels (`ensure_user_can_access_metadata_projects`, `visible_metadata_project_ids`) |
+| `backend/app/services/metadata_service.py` | Project-scoped RBAC in de queries: `get_accessible_family_mapping`, SQL-filter in `list_family_records`/`_fetch_family_rows` |
 | `backend/app/services/family_metadata_context.py` | Gedeeld toegangs-checkpoint `build_family_metadata_context` / `build_sample_metadata_context`, `_visible_project_ids` |
 | `backend/app/services/family_service.py` | `get_family_for_user` / `list_families_for_user` — dunne laag die de scoping in `metadata_service` aanroept |
 | `backend/app/routers/families.py` | Family-endpoints (`get_family`, `list_families`) achter `get_current_user`, scoping in de service-laag |
@@ -160,8 +161,8 @@ Elke onderdrukking van een security-scan (dependency-audit, secret-scan, SAST) i
 | `backend/app/middleware/request_logging.py` | Audit-trail naar `audit_log_events` met PII-minimalisatie |
 | `backend/app/services/upload_safety.py` | Begrensd lezen/decomprimeren van uploads (anti-DoS) |
 | `backend/app/core/html_sanitize.py` | Allowlist-HTML-sanitizer tegen opgeslagen XSS |
-| `backend/db/schema/postgres/001_metadata.sql` | `users`-tabel + rol-constraint, koppeltabellen `project_users` / `family_projects` / `sample_projects` |
-| `backend/db/schema/postgres/016_superuser_role.sql` | Bevestigt de toegestane rollen (`admin`/`superuser`/`viewer`) |
+| `backend/db/schema/postgres/01_access.sql` | `users`-tabel + rol-constraint (`admin`/`superuser`/`viewer`), koppeltabel `project_users` |
+| `backend/db/schema/postgres/03_assay.sql` | Koppeltabellen `family_projects` / `sample_projects` |
 | `backend/db/schema/postgres/040_app_runtime_role_privileges.sql` | Least-privilege runtime-rol `coga_app` + revoke op append-only tabellen |
 | `backend/db/schema/postgres/010_auth_login_attempts.sql` | Tabel achter de login-/signup-throttling |
 | `frontend/src/components/RequireAuth.tsx` · `RequireAdmin.tsx` · `SessionRedirect.tsx` | Frontend-guards (UX/defense-in-depth, geen echte poort) |

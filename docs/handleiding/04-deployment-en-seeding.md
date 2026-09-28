@@ -49,14 +49,14 @@ Het `.env.example`-bestand levert de sjabloonwaarden (met `APP_ENV=production` e
 
 ### Postgres: genummerde schemabestanden, in volgorde
 
-De Postgres-structuur zit niet in code maar in losse SQL-bestanden onder `backend/db/schema/postgres/`, genummerd van `001_metadata.sql` tot en met `042_gene_search_indexes.sql`. De functie `init_postgres_schema` (in `backend/app/core/postgres.py`) haalt die bestanden op via de helper `_schema_files`, die ze **numeriek/alfabetisch sorteert** (`sorted(schema_dir.glob("*.sql"))`), splitst elk bestand in losse statements en voert ze uit binnen één transactie.
+De Postgres-structuur zit niet in code maar in vijf SQL-baseline-bestanden onder `backend/db/schema/postgres/`, `01_access.sql` tot en met `05_grants.sql` (sinds #373; daarvoor 43 genummerde migratiebestanden). De functie `init_postgres_schema` (in `backend/app/core/postgres.py`) haalt die bestanden op via de helper `_schema_files`, die ze **numeriek/alfabetisch sorteert** (`sorted(schema_dir.glob("*.sql"))`), splitst elk bestand in losse statements en voert ze uit binnen één transactie.
 
 Twee subtiliteiten:
 
 - De splitser `_split_sql_script` is bewust "dollar-quote-bewust": een puntkomma binnen een PL/pgSQL-functielichaam (`$$ ... $$` of `$tag$ ... $tag$`, bijvoorbeeld in de append-only audit-trigger) breekt een statement niet voortijdig af.
-- Alle DDL in `001_metadata.sql` gebruikt `CREATE TABLE IF NOT EXISTS`, dus het opnieuw draaien is idempotent — het schema wordt bij élke opstart opnieuw toegepast en dat is veilig.
+- Alle DDL in de baseline-bestanden gebruikt `CREATE TABLE IF NOT EXISTS`, dus het opnieuw draaien is idempotent — het schema wordt bij élke opstart opnieuw toegepast en dat is veilig.
 
-Het eerste bestand `001_metadata.sql` legt de kern vast: onder meer de tabellen `users`, `species`, `assemblies`, `projects`, `families`, `samples`, `chromosomes`, `genes` en `gene_info`. (De databankstructuren zelf worden in detail behandeld in [hoofdstuk 3](03-databankstructuren.md).)
+Het eerste bestand `01_access.sql` legt de kern vast: `species`, `assemblies` en `chromosomes`, plus `users`, `projects` en `project_users`; `families`, `samples`, `genes` en `gene_info` volgen in `02_reference.sql` en `03_assay.sql`. (De databankstructuren zelf worden in detail behandeld in [hoofdstuk 3](03-databankstructuren.md).)
 
 **Waar in de code:** `init_postgres_schema`, `_schema_files` en `_split_sql_script` in `backend/app/core/postgres.py`; de SQL-bronbestanden in `backend/db/schema/postgres/`.
 

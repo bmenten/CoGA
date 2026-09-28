@@ -99,10 +99,10 @@ Dit is het hart van het hoofdstuk voor een auditor. Elke aanvraag wordt hard beg
 De scope wordt centraal opgelost in `resolve_scope`, dat steunt op `_accessible_project_rows`. Die functie splitst expliciet op rol:
 
 ```python
-if _is_admin_user(user):
+if is_admin_user(user):
     result = await session.execute(text(base_query))          # admin -> alle projecten
 else:
-    project_ids = _user_metadata_project_ids(user)
+    project_ids = user_metadata_project_ids(user)
     if not project_ids:
         return []                                              # geen projecten -> leeg
     result = await session.execute(... WHERE p.id IN :project_ids ...)
@@ -111,7 +111,7 @@ else:
 - **Admins** (rol in `ADMIN_ROLES`, d.w.z. `admin` of `superuser`) zien alle projecten.
 - **Overige gebruikers** zien uitsluitend hun `metadata_project_ids`. Hebben ze er geen, dan is het resultaat gegarandeerd leeg: `_accessible_project_rows` geeft een lege lijst terug, `resolve_scope` geeft `None`, en de caller rendert dat als een leeg resultaat.
 
-**Waar in de code:** `resolve_scope` en `_accessible_project_rows` in `variant_explorer_service.py`, met de rolhelpers `_is_admin_user` (`ADMIN_ROLES = {"admin", "superuser"}`) en `_user_metadata_project_ids` uit `backend/app/services/metadata_service.py`.
+**Waar in de code:** `resolve_scope` en `_accessible_project_rows` in `variant_explorer_service.py`, met de rolhelpers `is_admin_user` (`ADMIN_ROLES = {"admin", "superuser"}`) en `user_metadata_project_ids` uit `backend/app/services/access_control.py`.
 
 De uit deze scope afgeleide project-GUID's worden vervolgens in **iedere** ClickHouse-query verplicht meegegeven. De eerste twee clausules in `_entries_where` zijn altijd:
 
@@ -149,7 +149,7 @@ De Explorer bevraagt varianten over mogelijk vele projecten en miljoenen genotyp
 | `backend/app/services/clickhouse_variant_ids.py` | Opbouw van variant-ID's/keys en `xpos` (`build_small_variant_id`, `small_variant_key`, `_xpos`) |
 | `backend/app/services/clickhouse_variant_rows.py` | Opbouw van de `entries`- en annotatie-index-rijen die bij import naar ClickHouse worden geschreven (leescontract van de Explorer) |
 | `backend/app/services/clickhouse_variant_storage.py` | DDL van de `entries`-tabel (`CollapsingMergeTree`, partitie op `project_guid`); opruimen legacy `gt_stats` |
-| `backend/app/services/metadata_service.py` | Rol-/toegangshelpers `_is_admin_user` (`ADMIN_ROLES`), `_user_metadata_project_ids` die de scope voeden |
+| `backend/app/services/access_control.py` | Rol-/toegangshelpers `is_admin_user` (`ADMIN_ROLES`), `user_metadata_project_ids` die de scope voeden |
 | `backend/app/services/data_scope.py` | Chromosoom-normalisatie (let op: géén projectafscherming ondanks de naam) |
 | `backend/app/core/clickhouse.py` | `execute_clickhouse` met server-side parameterbinding (`%(...)s`) |
 | `frontend/src/pages/variant-explorer/GlobalSmallVariantExplorerPage.tsx` | Hoofdpagina: assembly-keuze, genotypefilter, resultaattabel, CSV-download |

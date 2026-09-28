@@ -27,7 +27,7 @@ from ..services.family_package_import import (
     validate_family_package,
     write_family_package_manifest,
 )
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 
 router = APIRouter(prefix="/family-imports", tags=["family_imports"])
 

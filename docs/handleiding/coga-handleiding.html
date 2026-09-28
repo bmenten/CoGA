@@ -464,7 +464,7 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </tr>
 </tbody>
 </table></div>
-<p>Het databank-schema staat naast <code>app/</code> in <code>backend/db/schema/</code>: <code>postgres/</code> (genummerde <code>.sql</code>-bestanden, bv. <code>001_metadata.sql</code>) en <code>clickhouse/</code> (<code>001_coga_variant_storage.sql</code>).</p>
+<p>Het databank-schema staat naast <code>app/</code> in <code>backend/db/schema/</code>: <code>postgres/</code> (vijf baseline-bestanden per domein, <code>01_access.sql</code> t/m <code>05_grants.sql</code>) en <code>clickhouse/</code> (<code>001_coga_variant_storage.sql</code>).</p>
 <h3>Frontend — <code>frontend/src/</code></h3>
 <div class="scroll"><table>
 <thead>
@@ -787,8 +787,8 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </tr>
 </tbody>
 </table></div>
-<p class="waar"><strong>Waar in de code:</strong> de toegestane rollen staan als CHECK-constraint in <code>backend/db/schema/postgres/001_metadata.sql</code> (<code>role TEXT NOT NULL CHECK (role IN ('admin', 'superuser', 'viewer'))</code>, in de <code>users</code>-tabel) en worden in <code>backend/db/schema/postgres/016_superuser_role.sql</code> herbevestigd (die migratie dropt en herzet de constraint met dezelfde drie waarden). In de backend zijn <code>admin</code> en <code>superuser</code> samengevoegd tot één begrip "beheerder" via de constante <code>ADMIN_ROLES = {"admin", "superuser"}</code> in <code>backend/app/dependencies.py</code> en in <code>backend/app/services/metadata_service.py</code> (helper <code>_is_admin_user</code>).</p>
-<p>Er is geen aparte rechten-tabel per gebruiker: het onderscheid "mag deze data zien" volgt volledig uit <strong>projectlidmaatschap</strong>. Dat lidmaatschap is de koppeltabel <code>project_users</code> (kolommen <code>project_id</code>, <code>user_id</code>) in <code>001_metadata.sql</code>. Een family hangt via <code>family_projects</code> aan een of meer projecten, een sample via <code>sample_projects</code>. Een <code>viewer</code> ziet dus precies de families waarvan minstens één project ook in zijn <code>project_users</code>-rijen staat.</p>
+<p class="waar"><strong>Waar in de code:</strong> de toegestane rollen staan als CHECK-constraint in <code>backend/db/schema/postgres/01_access.sql</code> (<code>role TEXT NOT NULL CHECK (role IN ('admin', 'superuser', 'viewer'))</code>, in de <code>users</code>-tabel). In de backend zijn <code>admin</code> en <code>superuser</code> samengevoegd tot één begrip "beheerder" via de constante <code>ADMIN_ROLES = {"admin", "superuser"}</code> in <code>backend/app/services/access_control.py</code> (helper <code>is_admin_user</code>), die ook <code>backend/app/dependencies.py</code> gebruikt.</p>
+<p>Er is geen aparte rechten-tabel per gebruiker: het onderscheid "mag deze data zien" volgt volledig uit <strong>projectlidmaatschap</strong>. Dat lidmaatschap is de koppeltabel <code>project_users</code> (kolommen <code>project_id</code>, <code>user_id</code>) in <code>01_access.sql</code>. Een family hangt via <code>family_projects</code> aan een of meer projecten, een sample via <code>sample_projects</code>. Een <code>viewer</code> ziet dus precies de families waarvan minstens één project ook in zijn <code>project_users</code>-rijen staat.</p>
 <p class="waar"><strong>Waar in de code:</strong> de rol staat óók in het JWT-token — bij het inloggen zet <code>_authenticate_and_issue_token</code> in <code>backend/app/routers/auth.py</code> de rol in het <code>Token</code>-antwoord (<code>Token(access_token=..., role=user["role"])</code>), en <code>create_access_token</code> (in <code>dependencies.py</code>) codeert de gebruiker — het e-mailadres, als veld <code>sub</code> — in het ondertekende token. Belangrijk: de <strong>projectenlijst zit niet in het token</strong>. Bij elk verzoek wordt de actuele gebruiker vers uit Postgres geladen door <code>get_current_user_by_email</code> (in <code>metadata_service.py</code>), inclusief zijn <code>metadata_project_ids</code> (de projecten waartoe hij behoort). Zo werkt intrekken onmiddellijk: een gedeactiveerde of uit een project verwijderde gebruiker verliest toegang bij het eerstvolgende verzoek, zonder op tokenverval te wachten.</p>
 <h2>Project-scoped RBAC: hoe elk data-verzoek wordt ingeperkt</h2>
 <p>De kern van het model is dat <em>elk</em> verzoek naar een family, sample of variant door één afschermings-checkpoint gaat. Er zijn twee complementaire mechanismen, afhankelijk van of het om een lijst of om één specifiek object gaat.</p>
@@ -800,15 +800,15 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 )
 </code></pre></div>
 <p>Families buiten de scope worden dus nooit uit de databank gehaald — ze kunnen niet "per ongeluk" lekken door een vergeten filter in de applicatiecode. Merk ook op: als de projectlijst leeg is, geeft <code>_fetch_family_rows</code> meteen een lege lijst terug (een viewer zonder projecten ziet niets).</p>
-<p><strong>Object-endpoints controleren bij het ophalen.</strong> Vraagt iemand één specifieke family op via id, dan draait <code>get_accessible_family_mapping</code> (in <code>metadata_service.py</code>). Die haalt de family op en roept meteen <code>_ensure_user_can_access_metadata_projects(project_ids, user)</code> aan. Die helper laat admins door en gooit voor een viewer een <code>HTTP 403</code> als er géén overlap is tussen de projecten van de family en de projecten van de gebruiker:</p>
-<div class="scroll"><pre><code class="language-python">def _ensure_user_can_access_metadata_projects(project_ids, user):
-    if _is_admin_user(user):
+<p><strong>Object-endpoints controleren bij het ophalen.</strong> Vraagt iemand één specifieke family op via id, dan draait <code>get_accessible_family_mapping</code> (in <code>metadata_service.py</code>). Die haalt de family op en roept meteen <code>ensure_user_can_access_metadata_projects(project_ids, user)</code> aan (sinds #528 in <code>access_control.py</code>, samen met <code>CurrentUser</code> en de andere toegangsregels). Die helper laat admins door en gooit voor een viewer een <code>HTTP 403</code> als er géén overlap is tussen de projecten van de family en de projecten van de gebruiker:</p>
+<div class="scroll"><pre><code class="language-python">def ensure_user_can_access_metadata_projects(project_ids, user):
+    if is_admin_user(user):
         return
-    if not set(project_ids).intersection(_user_metadata_project_ids(user)):
+    if not set(project_ids).intersection(user_metadata_project_ids(user)):
         raise HTTPException(status_code=403, detail=&quot;Not authorized&quot;)
 </code></pre></div>
 <p>Deze twee lagen komen samen in <code>build_family_metadata_context</code> (in <code>backend/app/services/family_metadata_context.py</code>), het gedeelde "toegangspoortje" dat vrijwel elke family-gebonden view (varianten, tracks, rapport) eerst passeert: het roept <code>get_accessible_family_mapping</code> aan en reduceert vervolgens de zichtbare projecten met <code>_visible_project_ids</code> tot enkel wat de gebruiker mag zien. De sample-tegenhanger hiervan is <code>build_sample_metadata_context</code> / <code>get_accessible_sample_mapping</code>.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/metadata_service.py</code> (functies <code>get_accessible_family_mapping</code>, <code>_ensure_user_can_access_metadata_projects</code>, <code>_visible_metadata_project_ids</code>, <code>list_family_records</code>, <code>_fetch_family_rows</code>) en <code>backend/app/services/family_metadata_context.py</code> (<code>build_family_metadata_context</code>, <code>build_sample_metadata_context</code>, <code>_visible_project_ids</code>).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/access_control.py</code> (<code>CurrentUser</code>, <code>ADMIN_ROLES</code>, <code>is_admin_user</code>, <code>ensure_user_can_access_metadata_projects</code>, <code>visible_metadata_project_ids</code>), <code>backend/app/services/metadata_service.py</code> (<code>get_accessible_family_mapping</code>, <code>list_family_records</code>, <code>_fetch_family_rows</code>) en <code>backend/app/services/family_metadata_context.py</code> (<code>build_family_metadata_context</code>, <code>build_sample_metadata_context</code>, <code>_visible_project_ids</code>).</p>
 <blockquote>
 <p>Let op: het bestand <code>backend/app/services/data_scope.py</code> gaat <em>niet</em> over toegangsscoping (ondanks de naam) maar over chromosoom-normalisatie (<code>normalize_chromosome</code>, <code>is_primary_chromosome</code>). De echte data-scoping zit in <code>metadata_service.py</code> en <code>family_metadata_context.py</code> zoals hierboven.</p>
 </blockquote>
@@ -884,8 +884,12 @@ async def get_family(
 <td>Authenticatie-dependencies <code>get_current_user</code> / <code>get_current_admin_user</code>, JWT-uitgifte, <code>ADMIN_ROLES</code></td>
 </tr>
 <tr>
+<td><code>backend/app/services/access_control.py</code></td>
+<td><code>CurrentUser</code>, <code>ADMIN_ROLES</code> en de toegangsregels (<code>ensure_user_can_access_metadata_projects</code>, <code>visible_metadata_project_ids</code>)</td>
+</tr>
+<tr>
 <td><code>backend/app/services/metadata_service.py</code></td>
-<td>Project-scoped RBAC: <code>get_accessible_family_mapping</code>, <code>_ensure_user_can_access_metadata_projects</code>, SQL-filter in <code>list_family_records</code>/<code>_fetch_family_rows</code></td>
+<td>Project-scoped RBAC in de queries: <code>get_accessible_family_mapping</code>, SQL-filter in <code>list_family_records</code>/<code>_fetch_family_rows</code></td>
 </tr>
 <tr>
 <td><code>backend/app/services/family_metadata_context.py</code></td>
@@ -940,12 +944,12 @@ async def get_family(
 <td>Allowlist-HTML-sanitizer tegen opgeslagen XSS</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/001_metadata.sql</code></td>
-<td><code>users</code>-tabel + rol-constraint, koppeltabellen <code>project_users</code> / <code>family_projects</code> / <code>sample_projects</code></td>
+<td><code>backend/db/schema/postgres/01_access.sql</code></td>
+<td><code>users</code>-tabel + rol-constraint (<code>admin</code>/<code>superuser</code>/<code>viewer</code>), koppeltabel <code>project_users</code></td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/016_superuser_role.sql</code></td>
-<td>Bevestigt de toegestane rollen (<code>admin</code>/<code>superuser</code>/<code>viewer</code>)</td>
+<td><code>backend/db/schema/postgres/03_assay.sql</code></td>
+<td>Koppeltabellen <code>family_projects</code> / <code>sample_projects</code></td>
 </tr>
 <tr>
 <td><code>backend/db/schema/postgres/040_app_runtime_role_privileges.sql</code></td>
@@ -1253,13 +1257,13 @@ async def get_family(
 <p class="waar"><strong>Waar in de code:</strong> <code>Settings.validate_security_defaults</code> en <code>Settings.validate_cors_origin_regex</code> in <code>backend/app/core/config.py</code>; sjabloon in <code>.env.example</code>.</p>
 <h2>De databankstructuren aanmaken bij opstart</h2>
 <h3>Postgres: genummerde schemabestanden, in volgorde</h3>
-<p>De Postgres-structuur zit niet in code maar in losse SQL-bestanden onder <code>backend/db/schema/postgres/</code>, genummerd van <code>001_metadata.sql</code> tot en met <code>042_gene_search_indexes.sql</code>. De functie <code>init_postgres_schema</code> (in <code>backend/app/core/postgres.py</code>) haalt die bestanden op via de helper <code>_schema_files</code>, die ze <strong>numeriek/alfabetisch sorteert</strong> (<code>sorted(schema_dir.glob("*.sql"))</code>), splitst elk bestand in losse statements en voert ze uit binnen één transactie.</p>
+<p>De Postgres-structuur zit niet in code maar in vijf SQL-baseline-bestanden onder <code>backend/db/schema/postgres/</code>, <code>01_access.sql</code> tot en met <code>05_grants.sql</code> (sinds #373; daarvoor 43 genummerde migratiebestanden). De functie <code>init_postgres_schema</code> (in <code>backend/app/core/postgres.py</code>) haalt die bestanden op via de helper <code>_schema_files</code>, die ze <strong>numeriek/alfabetisch sorteert</strong> (<code>sorted(schema_dir.glob("*.sql"))</code>), splitst elk bestand in losse statements en voert ze uit binnen één transactie.</p>
 <p>Twee subtiliteiten:</p>
 <ul>
 <li>De splitser <code>_split_sql_script</code> is bewust "dollar-quote-bewust": een puntkomma binnen een PL/pgSQL-functielichaam (<code>$$ ... $$</code> of <code>$tag$ ... $tag$</code>, bijvoorbeeld in de append-only audit-trigger) breekt een statement niet voortijdig af.</li>
-<li>Alle DDL in <code>001_metadata.sql</code> gebruikt <code>CREATE TABLE IF NOT EXISTS</code>, dus het opnieuw draaien is idempotent — het schema wordt bij élke opstart opnieuw toegepast en dat is veilig.</li>
+<li>Alle DDL in de baseline-bestanden gebruikt <code>CREATE TABLE IF NOT EXISTS</code>, dus het opnieuw draaien is idempotent — het schema wordt bij élke opstart opnieuw toegepast en dat is veilig.</li>
 </ul>
-<p>Het eerste bestand <code>001_metadata.sql</code> legt de kern vast: onder meer de tabellen <code>users</code>, <code>species</code>, <code>assemblies</code>, <code>projects</code>, <code>families</code>, <code>samples</code>, <code>chromosomes</code>, <code>genes</code> en <code>gene_info</code>. (De databankstructuren zelf worden in detail behandeld in <a href="#hs-3">hoofdstuk 3</a>.)</p>
+<p>Het eerste bestand <code>01_access.sql</code> legt de kern vast: <code>species</code>, <code>assemblies</code> en <code>chromosomes</code>, plus <code>users</code>, <code>projects</code> en <code>project_users</code>; <code>families</code>, <code>samples</code>, <code>genes</code> en <code>gene_info</code> volgen in <code>02_reference.sql</code> en <code>03_assay.sql</code>. (De databankstructuren zelf worden in detail behandeld in <a href="#hs-3">hoofdstuk 3</a>.)</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>init_postgres_schema</code>, <code>_schema_files</code> en <code>_split_sql_script</code> in <code>backend/app/core/postgres.py</code>; de SQL-bronbestanden in <code>backend/db/schema/postgres/</code>.</p>
 <h3>ClickHouse: het variant-schema</h3>
 <p>De ClickHouse-structuur werkt analoog via <code>init_clickhouse_schema</code> in <code>backend/app/core/clickhouse.py</code>, die het bestand onder <code>backend/db/schema/clickhouse/</code> (momenteel enkel <code>001_coga_variant_storage.sql</code>) inleest. Twee verschillen met het Postgres-pad: de splitser hier is eenvoudig (splitsen op <code>;</code>, geen dollar-quote-logica nodig), en de databanknaam is niet hard gecodeerd. De helper <code>_render_sql</code> vervangt <code>CREATE DATABASE IF NOT EXISTS coga</code> en de <code>coga.</code>-tabelverwijzingen door de geconfigureerde <code>CLICKHOUSE_DATABASE</code>, zodat dezelfde SQL tegen een aangepaste databanknaam kan draaien.</p>
@@ -1746,7 +1750,7 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 <li><strong>viewer:</strong> kan de families/projecten bekijken en beoordelen waar die aan gekoppeld is; ziet niets buiten die projecten.</li>
 <li><strong>admin / superuser:</strong> beheerdersrechten (o.a. gebruikers activeren via <code>/auth/users</code>, projectbeheer) en toegang die niet tot specifieke projecten beperkt is.</li>
 </ul>
-<p>De feitelijke afscherming gebeurt niet in dit hoofdstuk maar in de service-laag, die queries filtert op de projecten van de gebruiker (zie o.a. de <code>metadata_project_ids</code>-logica en <code>_visible_metadata_project_ids</code> in <code>backend/app/services/metadata_service.py</code>). Het volledige rollen- en rechtenmodel, inclusief hoe project-afscherming wordt afgedwongen, staat in <a href="#hs-2">hoofdstuk 2 — Gebruikersrollen, machtigingen &amp; afscherming</a>.</p>
+<p>De feitelijke afscherming gebeurt niet in dit hoofdstuk maar in de service-laag, die queries filtert op de projecten van de gebruiker (zie o.a. de <code>metadata_project_ids</code>-logica en <code>visible_metadata_project_ids</code> in <code>backend/app/services/access_control.py</code>). Het volledige rollen- en rechtenmodel, inclusief hoe project-afscherming wordt afgedwongen, staat in <a href="#hs-2">hoofdstuk 2 — Gebruikersrollen, machtigingen &amp; afscherming</a>.</p>
 <h2>Veiligheid &amp; traceerbaarheid</h2>
 <p>Voor een IVD-platform moet elke poging tot toegang navolgbaar zijn. De maatregelen rond authenticatie:</p>
 <ul>
@@ -1792,7 +1796,7 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 <td>Tabel <code>auth_login_attempts</code> voor mislukte-pogingtellers en lockouts</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/001_metadata.sql</code></td>
+<td><code>backend/db/schema/postgres/01_access.sql</code></td>
 <td>Tabel <code>users</code> (o.a. <code>hashed_password</code>, <code>role</code>, <code>is_active</code>)</td>
 </tr>
 <tr>
@@ -5052,10 +5056,10 @@ uniqExact(sample_id)                      AS total_samples
 <h2>Veiligheid: cross-project-scoping (geen lekkage mogelijk)</h2>
 <p>Dit is het hart van het hoofdstuk voor een auditor. Elke aanvraag wordt hard begrensd tot de projecten waartoe de gebruiker toegang heeft.</p>
 <p>De scope wordt centraal opgelost in <code>resolve_scope</code>, dat steunt op <code>_accessible_project_rows</code>. Die functie splitst expliciet op rol:</p>
-<div class="scroll"><pre><code class="language-python">if _is_admin_user(user):
+<div class="scroll"><pre><code class="language-python">if is_admin_user(user):
     result = await session.execute(text(base_query))          # admin -&gt; alle projecten
 else:
-    project_ids = _user_metadata_project_ids(user)
+    project_ids = user_metadata_project_ids(user)
     if not project_ids:
         return []                                              # geen projecten -&gt; leeg
     result = await session.execute(... WHERE p.id IN :project_ids ...)
@@ -5064,7 +5068,7 @@ else:
 <li><strong>Admins</strong> (rol in <code>ADMIN_ROLES</code>, d.w.z. <code>admin</code> of <code>superuser</code>) zien alle projecten.</li>
 <li><strong>Overige gebruikers</strong> zien uitsluitend hun <code>metadata_project_ids</code>. Hebben ze er geen, dan is het resultaat gegarandeerd leeg: <code>_accessible_project_rows</code> geeft een lege lijst terug, <code>resolve_scope</code> geeft <code>None</code>, en de caller rendert dat als een leeg resultaat.</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>resolve_scope</code> en <code>_accessible_project_rows</code> in <code>variant_explorer_service.py</code>, met de rolhelpers <code>_is_admin_user</code> (<code>ADMIN_ROLES = {"admin", "superuser"}</code>) en <code>_user_metadata_project_ids</code> uit <code>backend/app/services/metadata_service.py</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>resolve_scope</code> en <code>_accessible_project_rows</code> in <code>variant_explorer_service.py</code>, met de rolhelpers <code>is_admin_user</code> (<code>ADMIN_ROLES = {"admin", "superuser"}</code>) en <code>user_metadata_project_ids</code> uit <code>backend/app/services/access_control.py</code>.</p>
 <p>De uit deze scope afgeleide project-GUID's worden vervolgens in <strong>iedere</strong> ClickHouse-query verplicht meegegeven. De eerste twee clausules in <code>_entries_where</code> zijn altijd:</p>
 <div class="scroll"><pre><code class="language-python">clauses = [&quot;sign = 1&quot;, &quot;project_guid IN %(project_guids)s&quot;]
 </code></pre></div>
@@ -5114,8 +5118,8 @@ else:
 <td>DDL van de <code>entries</code>-tabel (<code>CollapsingMergeTree</code>, partitie op <code>project_guid</code>); opruimen legacy <code>gt_stats</code></td>
 </tr>
 <tr>
-<td><code>backend/app/services/metadata_service.py</code></td>
-<td>Rol-/toegangshelpers <code>_is_admin_user</code> (<code>ADMIN_ROLES</code>), <code>_user_metadata_project_ids</code> die de scope voeden</td>
+<td><code>backend/app/services/access_control.py</code></td>
+<td>Rol-/toegangshelpers <code>is_admin_user</code> (<code>ADMIN_ROLES</code>), <code>user_metadata_project_ids</code> die de scope voeden</td>
 </tr>
 <tr>
 <td><code>backend/app/services/data_scope.py</code></td>

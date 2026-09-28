@@ -12,7 +12,7 @@ from backend.app.services import family_package_import as package_import
 from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageManifestBuildRequest
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services.metadata_service import CurrentUser
+from backend.app.services.access_control import CurrentUser
 
 
 @pytest.fixture(autouse=True)

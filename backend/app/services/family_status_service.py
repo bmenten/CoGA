@@ -26,11 +26,8 @@ from ..schemas import (
     FamilyStatusUpdate,
     UserRefOut,
 )
-from .metadata_service import (
-    CurrentUser,
-    get_accessible_family_mapping,
-    get_family_record,
-)
+from .metadata_service import get_accessible_family_mapping, get_family_record
+from .access_control import CurrentUser
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _DEFAULT_STATUS_COLOR = "#5b6b79"

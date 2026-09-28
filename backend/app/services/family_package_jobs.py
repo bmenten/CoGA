@@ -14,7 +14,7 @@ from ..schemas import (
     FamilyPackageImportJobOut,
     FamilyPackageValidationOut,
 )
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser
 
 from .family_package_source import package_folder_path
 from .family_package_common import _dataset_summary_list, _issue_list, _json_dict, _json_list, _model_list_json  # noqa: F401

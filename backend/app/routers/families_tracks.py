@@ -24,7 +24,7 @@ from ..services.family_service import (
     get_family_track_availability_for_user,
     get_shared_family_structural_variant_counts_for_user,
 )
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.paraphase_pg import get_family_paraphase_table_response
 from ..services.repeat_expansion_pg import (

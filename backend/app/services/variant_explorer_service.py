@@ -54,7 +54,7 @@ from ..schemas import (
     VariantExplorerAssemblyOut,
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
-from .metadata_service import CurrentUser, _is_admin_user, _user_metadata_project_ids
+from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
 
 
 # Carrier / homozygous / heterozygous conditions on a genotype column, from the one
@@ -307,10 +307,10 @@ async def _accessible_project_rows(session: AsyncSession, user: CurrentUser) -> 
         JOIN assemblies a ON a.id = p.assembly_id
         LEFT JOIN species sp ON sp.id = p.species_id
     """
-    if _is_admin_user(user):
+    if is_admin_user(user):
         result = await session.execute(text(base_query))
     else:
-        project_ids = _user_metadata_project_ids(user)
+        project_ids = user_metadata_project_ids(user)
         if not project_ids:
             return []
         result = await session.execute(

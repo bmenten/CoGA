@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
-from ..services.metadata_service import CurrentUser, create_species_record, list_species_records
+from ..services.metadata_service import create_species_record, list_species_records
+from ..services.access_control import CurrentUser
 from ..schemas import SpeciesCreate, SpeciesOut
 
 router = APIRouter(prefix="/species", tags=["species"])
