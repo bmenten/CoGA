@@ -547,6 +547,14 @@ gcloud compute disks create coga-clickhouse-data-restored \
   --source-snapshot=<SNAPSHOT_NAME> --zone="$REGION-b" --type=pd-ssd
 ```
 
+**Upgrading ClickHouse** (a new `clickhouse_image`, e.g. 25.3 → 26.8 LTS in #524). The server
+upgrades its data directory in place the first time the new version starts, and the previous
+version is not guaranteed to read it afterwards, so switching the image back is not a rollback.
+Take a snapshot of the data disk first (above); to roll back, restore that snapshot. The
+25.3 → 26.8 step was verified on a data volume written by 25.3: every table attached with the
+same row counts and content hashes, `CHECK TABLE` and the integrity sweep passed, and the e2e
+suite ran against it.
+
 > **Run a restore drill** before go-live (IVDR item P1-13): actually restore into a
 > throwaway instance/VM and confirm the data is intact. A backup you've never
 > restored is not a backup.

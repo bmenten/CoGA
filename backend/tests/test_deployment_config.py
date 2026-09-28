@@ -40,6 +40,24 @@ def test_ci_service_images_are_pinned_by_digest() -> None:
     assert re.search(r"pip install markdown==\d", workflow), "the handleiding generator's markdown is unpinned"
 
 
+def test_every_environment_runs_the_same_datastore_images() -> None:
+    # The suites verify the device against the CI service images, so compose, every CI job
+    # and the Terraform VM must run exactly those (#524). A Dependabot digest bump in
+    # compose fails here until CI and Terraform move with it.
+    compose = _compose()["services"]
+    workflow = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+    ci_images = set(re.findall(r"image:\s*(\S+)", workflow))
+    terraform = (REPO / "terraform" / "variables.tf").read_text()
+    tf_clickhouse = re.search(r'variable "clickhouse_image"\s*\{[^}]*default\s*=\s*"([^"]+)"', terraform)
+    assert tf_clickhouse, "no clickhouse_image default in variables.tf"
+
+    clickhouse = compose["clickhouse"]["image"]
+    postgres = compose["postgres"]["image"]
+    assert {i for i in ci_images if i.startswith("clickhouse/")} == {clickhouse}
+    assert {i for i in ci_images if i.startswith("postgres:")} == {postgres}
+    assert tf_clickhouse.group(1) == clickhouse
+
+
 def test_terraform_mounts_reference_data_read_only_and_requires_modern_tls() -> None:
     cloudrun = (REPO / "terraform" / "cloudrun.tf").read_text()
     volume = re.search(r'volumes\s*\{\s*name\s*=\s*"refdata"\s*gcs\s*\{([^}]*)\}', cloudrun)

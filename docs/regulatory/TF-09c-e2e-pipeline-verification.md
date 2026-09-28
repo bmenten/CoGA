@@ -14,7 +14,7 @@
 > Controlled companion to [TF-09](TF-09-verification-validation.md). Defines the **system-level
 > end-to-end verification** of CoGA: a small, hand-curated **golden dataset** with **documented
 > expected results** is driven through the *real* pipeline — ingestion → ClickHouse/Postgres →
-> query/API → clinical review/audit → signed report — against live Postgres 16 + ClickHouse 25.3.
+> query/API → clinical review/audit → signed report — against live Postgres 16 + ClickHouse 26.8.
 >
 > It exercises the device boundary from [TF-02](TF-02-device-description.md) — **annotated
 > VCF (+ tracks) → signed clinical report** — as one deterministic, repeatable run, complementing
@@ -68,7 +68,7 @@ A consolidated catalogue of these is in [docs/testing.md](../testing.md) ("End-t
 
 ## 3. Acceptance criteria
 
-The verification **passes** when, on a clean Postgres 16 + ClickHouse 25.3:
+The verification **passes** when, on a clean Postgres 16 + ClickHouse 26.8:
 
 - the golden-trio package imports with every enabled dataset `imported`;
 - every per-stage assertion in §2 matches `EXPECTED.yaml`;
@@ -87,7 +87,7 @@ Any deviation is a verification finding handled per [TF-09 §5](TF-09-verificati
 - **Locally:** bring up the datastores (`docker compose up -d postgres clickhouse`) and run
   `RUN_INTEGRATION=1 python -m pytest backend/tests/e2e`.
 - **CI:** the **`e2e`** job in `.github/workflows/ci.yml` provisions `postgres:16` +
-  `clickhouse/clickhouse-server:25.3`, runs the suite on every PR and on push to `main`, and (like
+  `clickhouse/clickhouse-server:26.8`, runs the suite on every PR and on push to `main`, and (like
   `smoke`) runs outside the coverage-measured job. It is a **required status check** on `main`
   with strict (up-to-date-before-merge) enforcement, so a failing golden-trio run blocks the
   merge (see [TF-09 §1](TF-09-verification-validation.md)).
