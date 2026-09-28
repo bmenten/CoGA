@@ -66,6 +66,22 @@ async def _collect_api_responses(root: Path) -> dict:
         r["small_full"] = _cap(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 100}))
         r["small_paged"] = _cap(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 2}))
         r["comp_het"] = _cap(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"inheritance": "compound_het"}))
+        # #534: a frequency ceiling below the ClinVar-pathogenic GENE_PATH variant
+        # (gnomAD AF 1e-5). With the override the variant must survive the ClickHouse
+        # filter, not only the Python matcher; without it, it must not.
+        freq_ceiling = {"page": 1, "page_size": 100, "max_gnomad_af": 0.000001}
+        r["freq_rescue_on"] = _cap(
+            await ac.get(
+                f"/api/families/{FAMILY}/small-variants",
+                params={**freq_ceiling, "clinvar_overrides_frequency": "true"},
+            )
+        )
+        r["freq_rescue_off"] = _cap(
+            await ac.get(
+                f"/api/families/{FAMILY}/small-variants",
+                params={**freq_ceiling, "clinvar_overrides_frequency": "false"},
+            )
+        )
 
         r["sv"] = _cap(await ac.get(f"/api/families/{FAMILY}/structural-variants"))
         r["sv_track"] = _cap(await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"track_mode": "true"}))
@@ -298,3 +314,20 @@ def test_explorer_keyset_pagination(api):
     seen = api["responses"]["keyset_seen"]
     # GENE_CH has exactly the two compound-het variants; each seen once.
     assert len(seen) == len(set(seen)) == 2, seen
+
+
+def _page_ids(resp: dict) -> set[str]:
+    assert resp["status"] == 200, resp["text"]
+    return {v["_id"] for v in resp["json"]["variants"]}
+
+
+def test_clinvar_pathogenic_survives_the_frequency_ceiling_in_clickhouse(api):
+    # #534: "ClinVar P/LP overrides frequency" used to exist only in the Python matcher;
+    # the ClickHouse fetch dropped the variant first.
+    rescued = _page_ids(_resp(api, "freq_rescue_on"))
+    strict = _page_ids(_resp(api, "freq_rescue_off"))
+    assert "1-2000-C-T" in rescued, rescued
+    assert "1-2000-C-T" not in strict, strict
+    # The rescue is ClinVar-scoped: the common benign GENE_BENIGN variant (AF 0.42, no
+    # ClinVar) stays filtered either way.
+    assert "1-1000-A-G" not in rescued

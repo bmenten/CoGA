@@ -189,7 +189,21 @@ def _normalized_status_term(value: Any) -> str:
     return " ".join(_casefold(value).replace("_", " ").split())
 
 
+# ClinVar significances that "rescue" a variant past the gnomAD frequency ceilings when
+# the caller opts in (``clinvar_overrides_frequency``). Shared by the Python matcher and
+# the ClickHouse filter so the two paths cannot disagree (#534).
+CLINVAR_FREQUENCY_RESCUE_TERMS: tuple[str, ...] = ("Pathogenic", "Likely_pathogenic")
+
+
 def _status_terms(value: Any) -> set[str]:
+    """Normalised status terms of a ClinVar / SIFT / PolyPhen value.
+
+    Multiple values are separated by ``,`` ``;`` ``&`` ``|`` or ``/``. The ``/`` is
+    ClinVar's own aggregate form (``Pathogenic/Likely_pathogenic``,
+    ``Benign/Likely_benign``) as carried in CLNSIG: without splitting it, such a variant
+    matched neither a "Pathogenic" / "Likely pathogenic" filter nor the frequency
+    rescue (#534).
+    """
     if isinstance(value, (list, tuple, set)):
         terms: set[str] = set()
         for item in value:
@@ -197,7 +211,7 @@ def _status_terms(value: Any) -> set[str]:
         return terms
     return {
         normalized
-        for part in re.split(r"[,;&|]+", str(value or ""))
+        for part in re.split(r"[,;&|/]+", str(value or ""))
         if (normalized := _normalized_status_term(part))
     }
 
@@ -416,7 +430,7 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
     # frequency thresholds when the caller opts in — a recurrent pathogenic allele
     # may sit above the rarity cut-off yet must not be filtered out.
     clinvar_rescue = filters.clinvar_overrides_frequency and _flexible_status_match(
-        _annotation_clinvar(annotation), ("Pathogenic", "Likely_pathogenic")
+        _annotation_clinvar(annotation), CLINVAR_FREQUENCY_RESCUE_TERMS
     )
     if not clinvar_rescue:
         if not _nullable_lte(_annotation_float(annotation, "gnomad_af", "gnomadAf"), filters.max_gnomad_af):
