@@ -254,11 +254,11 @@ CREATE TABLE IF NOT EXISTS gene_panel_regions (
 );
 
 -- Upgrade a table created before regions were scoped by assembly (#515). A row copied
--- from the gene reference is attributed to the assembly whose gene record it matches
--- exactly; a row that matches none (PanelApp's own coordinates) cannot be attributed
--- safely and is dropped: the panel's gene list is untouched, the family filter resolves
--- gene loci per assembly at query time, and a re-import restores PanelApp coordinates.
--- A no-op once the column exists.
+-- from the gene reference is kept once for every assembly whose gene record it matches
+-- exactly (the mtDNA matches in both GRCh38 and T2T); a row that matches none
+-- (PanelApp's own coordinates) cannot be attributed safely and is dropped: the panel's
+-- gene list is untouched, the family filter resolves gene loci per assembly at query
+-- time, and a re-import restores PanelApp coordinates. A no-op once the column exists.
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -268,20 +268,18 @@ BEGIN
           AND column_name = 'assembly_id'
     ) THEN
         ALTER TABLE gene_panel_regions ADD COLUMN assembly_id uuid;
-        UPDATE gene_panel_regions r
-        SET assembly_id = (
-            SELECT g.assembly_id
-            FROM genes g
-            WHERE upper(g.hgnc_symbol) = upper(r.gene)
-              AND g.chr = r.chr
-              AND g.start = r.start
-              AND g."end" = r."end"
-            ORDER BY g.assembly_id
-            LIMIT 1
-        );
+        ALTER TABLE gene_panel_regions DROP CONSTRAINT gene_panel_regions_pkey;
+        INSERT INTO gene_panel_regions (panel_id, assembly_id, gene, chr, start, "end")
+        SELECT DISTINCT r.panel_id, g.assembly_id, r.gene, r.chr, r.start, r."end"
+        FROM gene_panel_regions r
+        JOIN genes g
+          ON upper(g.hgnc_symbol) = upper(r.gene)
+         AND g.chr = r.chr
+         AND g.start = r.start
+         AND g."end" = r."end"
+        WHERE r.assembly_id IS NULL;
         DELETE FROM gene_panel_regions WHERE assembly_id IS NULL;
         ALTER TABLE gene_panel_regions ALTER COLUMN assembly_id SET NOT NULL;
-        ALTER TABLE gene_panel_regions DROP CONSTRAINT gene_panel_regions_pkey;
         ALTER TABLE gene_panel_regions
             ADD CONSTRAINT gene_panel_regions_pkey
             PRIMARY KEY (panel_id, assembly_id, gene, chr, start, "end");

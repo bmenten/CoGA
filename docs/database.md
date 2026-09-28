@@ -89,8 +89,9 @@ Gene-panel coordinates:
   assembly, plus the loci of the panel's genes resolved in that assembly at query time; with
   no resolved assembly it narrows by gene symbol alone (#515). PanelApp's own coordinates are
   stored for the assembly they were requested for, and only when it is loaded. A table from
-  before #515 is upgraded in place on the next schema load: rows copied from the gene
-  reference get their assembly, and rows that match no gene record are dropped (a PanelApp
+  before #515 is upgraded in place on the next schema load: a row copied from the gene
+  reference is kept once for every assembly whose gene record it matches exactly (chrM loci
+  match in both GRCh38 and T2T), and rows that match no gene record are dropped (a PanelApp
   re-import restores them).
 
 Import jobs:

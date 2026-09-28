@@ -24,8 +24,11 @@ from sqlalchemy import text
 
 pytestmark = pytest.mark.integration
 
-_GENE = "ZQXPANEL1"
-_ONLY_IN_B = "ZQXPANEL2"
+def _symbols() -> tuple[str, str]:
+    # Unique per test: the integration database is shared, and the schema upgrade
+    # matches regions to gene records by symbol and coordinates across all assemblies.
+    tag = uuid4().hex[:8].upper()
+    return f"ZQX{tag}A", f"ZQX{tag}B"
 
 # The table exactly as it was before #515.
 _PRE_515_TABLE = """
@@ -42,7 +45,7 @@ CREATE TABLE gene_panel_regions (
 """
 
 
-async def _seed(session) -> dict[str, str]:
+async def _seed(session, gene: str, only_in_b: str) -> dict[str, str]:
     tax = uuid4().int % 2_000_000_000
     species = (
         await session.execute(
@@ -86,9 +89,9 @@ async def _seed(session) -> dict[str, str]:
         )
 
     # Same gene, different coordinates per assembly; a second gene only in B.
-    await _gene(assembly_a, _GENE, "1", 1_000, 2_000)
-    await _gene(assembly_b, _GENE, "1", 5_000, 6_500)
-    await _gene(assembly_b, _ONLY_IN_B, "2", 10_000, 11_000)
+    await _gene(assembly_a, gene, "1", 1_000, 2_000)
+    await _gene(assembly_b, gene, "1", 5_000, 6_500)
+    await _gene(assembly_b, only_in_b, "2", 10_000, 11_000)
 
     user = (
         await session.execute(
@@ -113,7 +116,7 @@ async def _seed(session) -> dict[str, str]:
             "INSERT INTO gene_panel_genes (panel_id, gene_symbol) "
             "VALUES (CAST(:p AS uuid), :g1), (CAST(:p AS uuid), :g2)"
         ),
-        {"p": panel, "g1": _GENE, "g2": _ONLY_IN_B},
+        {"p": panel, "g1": gene, "g2": only_in_b},
     )
     await session.commit()
     return {"a": assembly_a, "b": assembly_b, "panel": panel}
@@ -131,23 +134,25 @@ def test_panel_regions_are_resolved_stored_and_read_per_assembly() -> None:
         _resolve_gene_regions,
     )
 
+    gene, only_in_b = _symbols()
+
     async def _run() -> None:
         try:
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
             async with sm() as s:
-                ids = await _seed(s)
+                ids = await _seed(s, gene, only_in_b)
             async with sm() as s:
-                regions, missing = await _resolve_gene_regions(s, [_GENE, _ONLY_IN_B, "ZQXNOWHERE"])
+                regions, missing = await _resolve_gene_regions(s, [gene, only_in_b, "ZQXNOWHERE"])
                 assert missing == ["ZQXNOWHERE"]
                 by_key = {(r.gene, r.assembly_id): (r.chr, r.start, r.end) for r in regions}
                 assert by_key == {
-                    (_GENE, ids["a"]): ("1", 1_000, 2_000),
-                    (_GENE, ids["b"]): ("1", 5_000, 6_500),
-                    (_ONLY_IN_B, ids["b"]): ("2", 10_000, 11_000),
+                    (gene, ids["a"]): ("1", 1_000, 2_000),
+                    (gene, ids["b"]): ("1", 5_000, 6_500),
+                    (only_in_b, ids["b"]): ("2", 10_000, 11_000),
                 }
                 await _replace_panel_members(
-                    s, panel_id=ids["panel"], genes=[_GENE, _ONLY_IN_B], regions=regions
+                    s, panel_id=ids["panel"], genes=[gene, only_in_b], regions=regions
                 )
                 await s.commit()
             async with sm() as s:
@@ -163,7 +168,7 @@ def test_panel_regions_are_resolved_stored_and_read_per_assembly() -> None:
                 # Without a resolved assembly no coordinates can be trusted.
                 unscoped = await _fetch_panel_constraints(s, ids["panel"], assembly_id=None)
                 assert not unscoped.regions
-                assert set(unscoped.genes) == {_GENE, _ONLY_IN_B}
+                assert set(unscoped.genes) == {gene, only_in_b}
         finally:
             await close_postgres_engine()
 
@@ -177,12 +182,26 @@ def test_a_pre_515_region_table_is_upgraded_in_place() -> None:
         init_postgres_schema,
     )
 
+    gene, only_in_b = _symbols()
+
     async def _run() -> None:
         try:
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
             async with sm() as s:
-                ids = await _seed(s)
+                ids = await _seed(s, gene, only_in_b)
+                # A second gene whose locus is identical in both assemblies, as the
+                # mtDNA genes are in GRCh38 and T2T.
+                await s.execute(
+                    text(
+                        'INSERT INTO genes (assembly_id, gene_id, hgnc_symbol, chr, start, "end", '
+                        "strand, biotype, description, source) VALUES "
+                        "(CAST(:a AS uuid), :gid_a, :sym, 'MT', 3307, 4262, 1, 'protein_coding', 't', 't'), "
+                        "(CAST(:b AS uuid), :gid_b, :sym, 'MT', 3307, 4262, 1, 'protein_coding', 't', 't')"
+                    ),
+                    {"a": ids["a"], "b": ids["b"], "gid_a": f"MT-{uuid4()}", "gid_b": f"MT-{uuid4()}", "sym": only_in_b + "MT"},
+                )
+                await s.commit()
             async with sm() as s:
                 await s.execute(text("DROP TABLE gene_panel_regions"))
                 await s.execute(text(_PRE_515_TABLE))
@@ -191,10 +210,12 @@ def test_a_pre_515_region_table_is_upgraded_in_place() -> None:
                         'INSERT INTO gene_panel_regions (panel_id, gene, chr, start, "end") VALUES '
                         # copied from assembly B's gene record
                         "(CAST(:p AS uuid), :g, '1', 5000, 6500), "
+                        # identical in both assemblies: kept for each
+                        "(CAST(:p AS uuid), :mt, 'MT', 3307, 4262), "
                         # PanelApp's own coordinates: no gene record matches them
                         "(CAST(:p AS uuid), 'ISCA-REGION', '3', 100, 900)"
                     ),
-                    {"p": ids["panel"], "g": _GENE},
+                    {"p": ids["panel"], "g": gene, "mt": only_in_b + "MT"},
                 )
                 await s.commit()
 
@@ -211,7 +232,11 @@ def test_a_pre_515_region_table_is_upgraded_in_place() -> None:
                         {"p": ids["panel"]},
                     )
                 ).mappings().all()
-                assert [dict(r) for r in rows] == [{"gene": _GENE, "assembly_id": ids["b"]}]
+                assert {(r["gene"], r["assembly_id"]) for r in rows} == {
+                    (gene, ids["b"]),
+                    (only_in_b + "MT", ids["a"]),
+                    (only_in_b + "MT", ids["b"]),
+                }
                 nullable = (
                     await s.execute(
                         text(
