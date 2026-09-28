@@ -617,3 +617,36 @@ def test_ensure_authorized_hpo_ontology_path_rejects_traversal_escape() -> None:
     traversal = _authorized_candidate().parent / ".." / ".." / ".." / "etc" / "passwd"
     with pytest.raises(ValueError):
         hpo_service.ensure_authorized_hpo_ontology_path(traversal)
+
+
+def test_the_bootstrap_download_falls_back_to_a_writable_directory(monkeypatch, tmp_path) -> None:
+    # Cloud Run mounts /data/ref-data read-only (#520); the ontology is only needed until
+    # it is imported, so the download lands in a temporary directory instead.
+    import io
+    import tempfile
+
+    from backend.app.services import hpo_service as svc
+
+    assert svc.hpo_ontology_candidate_paths()[-1] == Path(tempfile.gettempdir()) / "coga-ref-data" / "hpo" / "hp.obo"
+
+    class _Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    payload = b"format-version: 1.2\n\n[Term]\nid: HP:0000001\nname: All\n"
+    monkeypatch.setattr(svc, "urlopen", lambda request, timeout=60: _Response(payload))
+    read_only = tmp_path / "ref-data"
+    read_only.mkdir()
+    read_only.chmod(0o500)
+    writable = tmp_path / "tmp" / "hp.obo"
+    try:
+        written = svc._download_hpo_ontology_file(
+            "https://purl.obolibrary.org/obo/hp.obo",
+            [read_only / "hpo" / "hp.obo", writable],
+        )
+    finally:
+        read_only.chmod(0o700)
+    assert written == writable and writable.read_bytes() == payload

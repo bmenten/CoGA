@@ -64,7 +64,8 @@ def gcs_endpoint():
         [
             "docker", "run", "-d", "--name", name,
             "-p", f"{_PORT}:{_PORT}",
-            "fsouza/fake-gcs-server",
+            # The same pinned image CI starts (#520).
+            "fsouza/fake-gcs-server:1.56.1@sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef",
             "-scheme", "http",
             "-port", str(_PORT),
             "-public-host", f"127.0.0.1:{_PORT}",

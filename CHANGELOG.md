@@ -296,6 +296,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   key, and never writes an unsigned anchor. The species list needs a signed-in user. The HPO
   ontology download is HTTPS-only, bounded and checked, and the knowledgebase build script no
   longer inherits the backend's secrets (#549).
+- **Deployment configuration (#520)** — behind the load balancer the backend records the real
+  client address, not one a client can set. The HTTPS load balancer requires TLS 1.2+.
+  Reference data is mounted read-only, gs:// package imports are configured, only one event
+  deploys to the single environment, and Terraform variables persist across deploys. CI
+  pins its service images, and docker compose keeps the databases on loopback and the
+  backend secrets out of the frontend container (#550).
 
 ### Documentation
 

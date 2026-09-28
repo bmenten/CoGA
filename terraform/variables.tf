@@ -205,9 +205,26 @@ variable "run_db_schema_migrations_on_startup" {
 }
 
 variable "forwarded_allow_ips" {
-  description = "Peers uvicorn trusts X-Forwarded-For from (FORWARDED_ALLOW_IPS). Cloud Run terminates the connection at Google's managed front end, so the immediate peer is a Google-internal IP that varies and the container gets no direct external ingress — '*' is the safe, standard value there and is required for the real client IP to reach the signup rate-limiter and audit log. Narrow to a specific CIDR only if you front the service with your own reverse proxy."
+  description = "Peers uvicorn trusts X-Forwarded-For from (FORWARDED_ALLOW_IPS). Cloud Run terminates the connection at Google's managed front end, so the immediate peer is a Google-internal IP that varies and the container gets no direct external ingress, so '*' is the standard value there. With '*' uvicorn would take the left-most X-Forwarded-For entry, which a client sets itself; the backend therefore re-derives the client from the right using trusted_proxy_hops (#520), and uvicorn is only relied on for the scheme."
   type        = string
   default     = "*"
+}
+
+variable "trusted_proxy_hops" {
+  description = "Proxies in front of the backend that each append to X-Forwarded-For (TRUSTED_PROXY_HOPS). The external Application Load Balancer appends '<client-ip>,<lb-ip>', so the client is 2 entries from the right. The audit log remoteIp and the signup/login throttles use it. After the first deploy, check that your own request's remoteIp is your public address; adjust if another proxy is added in front."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.trusted_proxy_hops >= 0 && var.trusted_proxy_hops <= 5
+    error_message = "trusted_proxy_hops must be between 0 and 5."
+  }
+}
+
+variable "family_import_roots" {
+  description = "Locations Package Import may read family folders from (FAMILY_IMPORT_ROOTS). Empty = 'gs://<phi bucket>/imports' when storage_backend is gcs, otherwise the application default. Upload packages under that prefix (#520)."
+  type        = list(string)
+  default     = []
 }
 
 # ---------------------------------------------------------------------------

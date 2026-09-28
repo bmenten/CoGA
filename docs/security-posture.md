@@ -207,6 +207,25 @@ run — so everything below is *written and reviewable, without deployed evidenc
   `CSP_CONNECT_SRC` (a source list; a value containing `;` is refused). `style-src`
   keeps `'unsafe-inline'` because IGV injects inline styles.
 
+## 4b. Pre-deployment configuration (#520)
+
+- ✅ **Client address.** Behind the load balancer the backend takes the client
+  `TRUSTED_PROXY_HOPS` entries from the right of `X-Forwarded-For` (Terraform: 2),
+  instead of uvicorn's left-most entry under `FORWARDED_ALLOW_IPS="*"`, which a client
+  sets itself; the audit `remoteIp` and the signup/login throttles use it.
+- ✅ **TLS policy.** The HTTPS load balancer has an SSL policy: TLS 1.2+, `MODERN` profile.
+- ✅ **Reference data read-only** in Cloud Run, as in the image and compose.
+- ✅ **gs:// imports configured.** `FAMILY_IMPORT_ROOTS` defaults to `gs://<phi>/imports`
+  when `storage_backend = "gcs"`.
+- ✅ **Deploys.** Only one trigger applies to the single environment and state
+  (`COGA_DEPLOY_TRIGGER`), and Terraform variables beyond the five CI passes live in
+  `COGA_TFVARS`, so a manual value is not reverted by the next deploy.
+- ✅ **CI supply chain.** The Postgres, ClickHouse and fake-GCS service images are pinned
+  by digest, and the handleiding generator's `markdown` by version.
+- ✅ **docker compose.** Postgres, ClickHouse and the backend API are published on
+  loopback only; the frontend container gets only the settings its server reads, not the
+  backend `.env`.
+
 ## 5. CI enforcement of the gates
 
 Two workflows enforce the gates on every PR and push to `main`:

@@ -430,7 +430,10 @@ Day-to-day you don't run Terraform by hand — GitHub Actions does it. The workf
   (no credentials, no changes). Safe to review.
 - **On push to `main` (or a release):** it builds both images (stamping
   `APP_VERSION`/`GIT_SHA`), pushes them to Artifact Registry, then runs `terraform
-  init/plan/apply` to deploy.
+  init/plan/apply` to deploy. Only **one** trigger applies (#520): pushes to `main` by
+  default, or published releases when the repository variable `COGA_DEPLOY_TRIGGER` is
+  `release`. There is one environment and one state, so a later `main` push must not
+  overwrite a release deployment.
 
 Set these **GitHub repository secrets** (Settings → Secrets and variables → Actions):
 
@@ -443,8 +446,13 @@ Set these **GitHub repository secrets** (Settings → Secrets and variables → 
 | `GCP_COGA_TF_STATE_BUCKET` | The state bucket from 5.1 |
 | `GCP_COGA_CMEK_KEY_SELF_LINK` | The KMS key from 5.2 |
 
-And one **repository variable**: `GCP_REGION_SHORT` (e.g. `euw1`), used in the SA
-names.
+And these **variables**:
+
+| Variable | Where | What |
+|----------|-------|------|
+| `GCP_REGION_SHORT` | repository | e.g. `euw1`, used in the SA names |
+| `COGA_DEPLOY_TRIGGER` | repository | `main` (default) or `release`: which event deploys (#520) |
+| `COGA_TFVARS` | `gcp-deploy` environment | Every other Terraform variable, as HCL (for example `storage_backend = "gcs"`, `app_domain = "..."`). CI writes it to `ci.auto.tfvars` before planning, so a value set once is not reverted by the next deploy; the five values CI passes with `-var` still win. No secrets here: they live in Secret Manager. |
 
 Once configured, merging to `main` deploys automatically.
 
@@ -472,9 +480,22 @@ it on is a two-step flip:
    ```
 
 The backend then serves IGV alignments as short-lived **signed URLs** (keyless, via
-IAM `SignBlob`) and can stage family-package imports from `gs://` paths. The
-**reference-data** bucket (`refdata`) is always mounted into the backend at
-`/data/ref-data`, regardless of this setting.
+IAM `SignBlob`) and can stage family-package imports from `gs://` paths. Package Import
+reads from `gs://<phi bucket>/imports` unless the `family_import_roots` variable names
+other locations (`FAMILY_IMPORT_ROOTS`, #520); upload package folders under that prefix.
+
+The **reference-data** bucket (`refdata`) is always mounted into the backend at
+`/data/ref-data`, regardless of this setting, and **read-only** (#520): load the
+reference files into the bucket out of band, e.g.
+`gcloud storage cp dbNSFP5.4_gene.gz STRchive-loci.json "gs://$(terraform output -raw refdata_bucket)/"`.
+The HPO bootstrap downloads its ontology to a temporary directory when that path is not
+writable, so an empty `hpo/` folder is fine.
+
+**Client addresses.** The load balancer appends `<client-ip>,<lb-ip>` to
+`X-Forwarded-For`, and the backend takes the client `trusted_proxy_hops` (default 2)
+entries from the right, never the client-settable left-most one (#520). After the first
+deploy, check that the audit log's `remoteIp` for your own request is your public
+address. The HTTPS load balancer enforces TLS 1.2+ with the `MODERN` profile.
 
 ---
 

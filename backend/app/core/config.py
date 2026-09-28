@@ -381,6 +381,10 @@ class Settings(BaseSettings):
         default_factory=lambda: ["/data/families"], alias="FAMILY_IMPORT_ROOTS"
     )
     family_import_worker_count: int = Field(default=1, ge=1, le=8, alias="FAMILY_IMPORT_WORKER_COUNT")
+    # Reverse proxies in front of the backend that each append to X-Forwarded-For; the
+    # client address is taken that many entries from the right (#520). 0 leaves it to
+    # uvicorn. Google's external Application Load Balancer appends two (client, LB).
+    trusted_proxy_hops: int = Field(default=0, ge=0, le=5, alias="TRUSTED_PROXY_HOPS")
     trgt_strchive_loci_path: str | None = Field(
         default="/data/ref-data/STRchive-loci.json",
         alias="TRGT_STRCHIVE_LOCI_PATH",

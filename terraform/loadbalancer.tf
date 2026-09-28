@@ -91,10 +91,19 @@ resource "google_compute_managed_ssl_certificate" "cert" {
   }
 }
 
+# TLS 1.2+ with the MODERN cipher profile; without a policy Google's default applies,
+# which still accepts TLS 1.0 (#520).
+resource "google_compute_ssl_policy" "https" {
+  name            = "${local.name_prefix}-ssl-policy"
+  profile         = "MODERN"
+  min_tls_version = "TLS_1_2"
+}
+
 resource "google_compute_target_https_proxy" "https" {
   name             = "${local.name_prefix}-https-proxy"
   url_map          = google_compute_url_map.https.id
   ssl_certificates = [google_compute_managed_ssl_certificate.cert.id]
+  ssl_policy       = google_compute_ssl_policy.https.id
 }
 
 resource "google_compute_global_address" "lb_ip" {

@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:fe03a7605299a34ddf5e4f285dff78c3d7190a576b3c6b46f2fcff69f4bffd54
         env:
           POSTGRES_USER: coga
           POSTGRES_PASSWORD: coga
@@ -65,7 +65,7 @@ jobs:
           --health-cmd "pg_isready -U coga -d coga"
           --health-interval 5s --health-timeout 5s --health-retries 20
       clickhouse:
-        image: clickhouse/clickhouse-server:25.3
+        image: clickhouse/clickhouse-server:25.3@sha256:b627d7a9bc0e0c1bac26cdbe9d2fc6316faa29c5d8a174f28f5abd57d0fa6ba2
         env:
           # 25.3 rejects the empty-password default user; provision a real one
           # (matching the app env below) so authentication succeeds.
@@ -113,7 +113,7 @@ jobs:
         run: pip install -r backend/requirements-dev.txt
       - name: Start fake-gcs-server (GCS storage backend integration test)
         run: |
-          docker run -d --name fake-gcs -p 4443:4443 fsouza/fake-gcs-server \
+          docker run -d --name fake-gcs -p 4443:4443 fsouza/fake-gcs-server:1.56.1@sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef \
             -scheme http -port 4443 -public-host 127.0.0.1:4443
       - name: Boot the app against real datastores and probe health
         # Runs the real lifespan (Postgres + ClickHouse schema init, admin seed)
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:fe03a7605299a34ddf5e4f285dff78c3d7190a576b3c6b46f2fcff69f4bffd54
         env:
           POSTGRES_USER: coga
           POSTGRES_PASSWORD: coga
@@ -137,7 +137,7 @@ jobs:
           --health-cmd "pg_isready -U coga -d coga"
           --health-interval 5s --health-timeout 5s --health-retries 20
       clickhouse:
-        image: clickhouse/clickhouse-server:25.3
+        image: clickhouse/clickhouse-server:25.3@sha256:b627d7a9bc0e0c1bac26cdbe9d2fc6316faa29c5d8a174f28f5abd57d0fa6ba2
         env:
           # 25.3 rejects the empty-password default user; provision a real one
           # (matching the app env below) so authentication succeeds.
@@ -223,7 +223,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:fe03a7605299a34ddf5e4f285dff78c3d7190a576b3c6b46f2fcff69f4bffd54
         env:
           POSTGRES_USER: coga
           POSTGRES_PASSWORD: coga
@@ -234,7 +234,7 @@ jobs:
           --health-cmd "pg_isready -U coga -d coga"
           --health-interval 5s --health-timeout 5s --health-retries 20
       clickhouse:
-        image: clickhouse/clickhouse-server:25.3
+        image: clickhouse/clickhouse-server:25.3@sha256:b627d7a9bc0e0c1bac26cdbe9d2fc6316faa29c5d8a174f28f5abd57d0fa6ba2
         env:
           CLICKHOUSE_DB: coga
           CLICKHOUSE_USER: coga
@@ -352,7 +352,9 @@ jobs:
         with:
           python-version: "3.10"
       - name: Install the handleiding generator's dependency
-        run: pip install markdown
+        # Pinned (#520): the newest release this job's Python 3.10 can install, and the
+        # version the committed HTML is checked against.
+        run: pip install markdown==3.10.3
       - name: Check the handleiding page matches its Markdown
         # The HTML is generated but committed (it is what the review board opens), so a
         # chapter edit can land without a rebuild — as in #387, where the page kept a
