@@ -252,6 +252,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   `1` (chrM, or chrX/chrY in a male) counts as Hom, a `1/2` as Het, and a haploid `0` as
   reference. Before, these calls matched no genotype group: the X-linked filter dropped a
   hemizygous son, and an all-haploid sample looked empty (#544).
+- **Concurrent review saves** — saving a variant review that another reviewer changed after you
+  opened it is refused, and the page shows their review instead of overwriting it. Before, the
+  last save won silently (#546).
 
 ### Security
 
