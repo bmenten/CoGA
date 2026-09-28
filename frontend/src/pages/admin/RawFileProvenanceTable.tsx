@@ -7,6 +7,7 @@ import {
   type RawImportFile,
   type RawFileVerifyResult,
 } from './dataManagementTypes';
+import { apiPath } from '../../lib/apiPath';
 
 interface RawFileProvenanceTableProps {
   familyId: string;
@@ -41,7 +42,7 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
   } = useQuery<FamilyRawFiles>({
     queryKey: ['admin', 'data-inventory', 'family', familyId, 'files'],
     queryFn: async () => {
-      const response = await api.get(`/admin/data/families/${familyId}/files`);
+      const response = await api.get(apiPath`/admin/data/families/${familyId}/files`);
       return response.data as FamilyRawFiles;
     },
     enabled: Boolean(familyId),
@@ -52,7 +53,7 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
     setActionError(null);
     setBusyFileId(`download:${file.id}`);
     try {
-      const response = await api.get(`/admin/data/files/${file.id}/download`, {
+      const response = await api.get(apiPath`/admin/data/files/${file.id}/download`, {
         responseType: 'blob',
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -76,7 +77,7 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
     setActionError(null);
     setBusyFileId(`verify:${file.id}`);
     try {
-      const response = await api.post(`/admin/data/files/${file.id}/verify`);
+      const response = await api.post(apiPath`/admin/data/files/${file.id}/verify`);
       setVerifyResults((current) => ({
         ...current,
         [file.id]: response.data as RawFileVerifyResult,

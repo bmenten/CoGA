@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
+import { apiPath } from '../../lib/apiPath';
 
 interface PhenotypeTermRef {
   hpo_id: string;
@@ -96,7 +97,7 @@ export default function MonarchPhenotypeMatchPanel({ familyId, projectId }: Prop
     enabled: Boolean(familyId) && enabled,
     staleTime: 1000 * 60 * 30,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/phenotype-match`, {
+      const res = await api.get(apiPath`/families/${familyId}/phenotype-match`, {
         params: { group: 'Human Genes', limit: GENE_LIMIT },
       });
       return res.data as FamilyPhenotypeMatch;

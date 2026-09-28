@@ -1,6 +1,7 @@
 import { useState, type FC } from 'react';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { apiPath } from '../../lib/apiPath';
 
 const SampleUpload: FC = () => {
   const [familyFile, setFamilyFile] = useState<File | null>(null);
@@ -35,7 +36,7 @@ const SampleUpload: FC = () => {
     setFamilyLoading(true);
 
     const runUpload = async (overwrite: boolean) =>
-      api.post(`/families/${familyId.trim()}/small-variants/upload`, formData, {
+      api.post(apiPath`/families/${familyId.trim()}/small-variants/upload`, formData, {
         params: {
           overwrite,
           source_format: familyFormat,
@@ -82,7 +83,7 @@ const SampleUpload: FC = () => {
     setVariantLoading(true);
 
     const runUpload = async (overwrite: boolean) =>
-      api.post(`/structural-variants/upload/${variantSample.trim()}`, formData, {
+      api.post(apiPath`/structural-variants/upload/${variantSample.trim()}`, formData, {
         params: {
           overwrite,
           source_format: variantFormat,
@@ -128,7 +129,7 @@ const SampleUpload: FC = () => {
     setBedStatus('');
     setBedLoading(true);
     try {
-      const { data } = await api.post(`/bed/upload/${bedSample.trim()}/${bedType}`, formData, {
+      const { data } = await api.post(apiPath`/bed/upload/${bedSample.trim()}/${bedType}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setBedStatus(`Uploaded ${data.inserted} ${bedType} record(s).`);
@@ -140,7 +141,7 @@ const SampleUpload: FC = () => {
         if (overwrite) {
           try {
             const { data } = await api.post(
-              `/bed/upload/${bedSample.trim()}/${bedType}?overwrite=true`,
+              apiPath`/bed/upload/${bedSample.trim()}/${bedType}?overwrite=true`,
               formData,
               {
                 headers: { 'Content-Type': 'multipart/form-data' },
@@ -170,7 +171,7 @@ const SampleUpload: FC = () => {
     setRepeatLoading(true);
 
     const runUpload = async (overwrite: boolean) =>
-      api.post(`/repeat-expansions/upload/${repeatSample.trim()}`, formData, {
+      api.post(apiPath`/repeat-expansions/upload/${repeatSample.trim()}`, formData, {
         params: { overwrite },
         headers: { 'Content-Type': 'multipart/form-data' },
       });

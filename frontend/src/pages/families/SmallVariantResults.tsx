@@ -15,6 +15,7 @@ import SmallVariantCards from './SmallVariantCards';
 import SmallVariantPairCards from './SmallVariantPairCards';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import SmallVariantTable from './SmallVariantTable';
+import { apiPath, raw } from '../../lib/apiPath';
 
 type ResultViewMode = 'auto' | 'table' | 'cards';
 
@@ -96,7 +97,7 @@ export default function SmallVariantResults({
     setIsExporting(true);
     try {
       const res = await api.get(
-        `/families/${familyId}/small-variants/export?${requestQueryString}`,
+        apiPath`/families/${familyId}/small-variants/export?${raw(requestQueryString)}`,
         { responseType: 'blob' },
       );
       const info = describeCsvExport(res, `family-${familyId}-small-variants`);

@@ -6,6 +6,7 @@ import PageState from '../../components/PageState';
 import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { useFamilyReference } from '../../lib/reference';
+import { apiPath } from '../../lib/apiPath';
 
 interface GeneSuggestion {
   symbol: string;
@@ -740,7 +741,7 @@ const GeneInfoPage: React.FC = () => {
     queryKey: ['family', familyId],
     enabled: !!familyId,
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}`);
+      const response = await api.get(apiPath`/families/${familyId}`);
       return response.data as Pick<ApiFamilyRecord, 'projects'>;
     },
   });

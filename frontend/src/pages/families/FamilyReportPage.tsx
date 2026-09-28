@@ -39,6 +39,7 @@ import {
   describeStructuralFrequency,
   joinWithAnd,
 } from './reportNarrative';
+import { apiPath, raw } from '../../lib/apiPath';
 
 interface GeneHpoTerm {
   hpo_id?: string | null;
@@ -162,7 +163,7 @@ const FamilyReportPage: React.FC = () => {
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}`);
+      const res = await api.get(apiPath`/families/${familyId}`);
       return res.data as SmallVariantFamily;
     },
   });
@@ -206,7 +207,7 @@ const FamilyReportPage: React.FC = () => {
     queryKey: ['family', familyId, 'report-variants', reportQueryString],
     enabled: variantQueryReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variants?${reportQueryString}`);
+      const res = await api.get(apiPath`/families/${familyId}/small-variants?${raw(reportQueryString)}`);
       return res.data as SmallVariantPage;
     },
   });
@@ -217,7 +218,7 @@ const FamilyReportPage: React.FC = () => {
     queryKey: ['family', familyId, 'report-structural-variants', reportQueryString],
     enabled: variantQueryReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/structural-variants?${reportQueryString}`);
+      const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(reportQueryString)}`);
       return res.data as { variants: StructuralVariant[] };
     },
   });
@@ -259,7 +260,7 @@ const FamilyReportPage: React.FC = () => {
     queryKey: ['family', familyId, 'hpo'],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/hpo`);
+      const res = await api.get(apiPath`/families/${familyId}/hpo`);
       return res.data as FamilyHpoAnnotation[];
     },
   });
@@ -269,7 +270,7 @@ const FamilyReportPage: React.FC = () => {
     queryKey: ['family', familyId, 'annotation-manifest'],
     enabled: Boolean(familyId),
     queryFn: async () =>
-      (await api.get(`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
+      (await api.get(apiPath`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
   });
   // The moment the report was produced (becomes the frozen sign-out time in Phase 3).
   const generatedAt = useMemo(() => new Date(), []);
@@ -280,7 +281,7 @@ const FamilyReportPage: React.FC = () => {
     queryKey: ['family', familyId, 'classification-drift'],
     enabled: Boolean(familyId),
     queryFn: async () =>
-      (await api.get(`/families/${familyId}/classification-drift`)).data as ApiClassificationDrift,
+      (await api.get(apiPath`/families/${familyId}/classification-drift`)).data as ApiClassificationDrift,
   });
 
   // Immutable clinical audit trail (who classified / tagged / annotated what, when).
@@ -288,7 +289,7 @@ const FamilyReportPage: React.FC = () => {
     queryKey: ['family', familyId, 'clinical-audit'],
     enabled: Boolean(familyId),
     queryFn: async () =>
-      (await api.get(`/families/${familyId}/clinical-audit`)).data as ApiClinicalAudit,
+      (await api.get(apiPath`/families/${familyId}/clinical-audit`)).data as ApiClinicalAudit,
   });
 
   // Case sign-out: the frozen, versioned, content-hashed report record.
@@ -297,7 +298,7 @@ const FamilyReportPage: React.FC = () => {
     queryKey: ['family', familyId, 'report-signouts'],
     enabled: Boolean(familyId),
     queryFn: async () =>
-      (await api.get(`/families/${familyId}/report/sign-outs`)).data as ApiReportSignoutList,
+      (await api.get(apiPath`/families/${familyId}/report/sign-outs`)).data as ApiReportSignoutList,
   });
 
   // Does the live content below still match the frozen, signed record? The page renders
@@ -310,7 +311,7 @@ const FamilyReportPage: React.FC = () => {
     staleTime: 0,
     refetchOnMount: 'always',
     queryFn: async () =>
-      (await api.get(`/families/${familyId}/report/sign-out-check`))
+      (await api.get(apiPath`/families/${familyId}/report/sign-out-check`))
         .data as ApiReportSignoutCheck,
   });
   const signedState: SignedState = !latestSignout
@@ -364,7 +365,7 @@ const FamilyReportPage: React.FC = () => {
   const signOut = useMutation({
     mutationFn: async (vars: SignOutVars) =>
       (
-        await api.post(`/families/${familyId}/report/sign-out`, {
+        await api.post(apiPath`/families/${familyId}/report/sign-out`, {
           acknowledge_drift: vars.acknowledgeDrift,
           drift_acknowledgement_reason: vars.driftReason,
           acknowledge_qc: vars.acknowledgeQc ?? false,
@@ -473,7 +474,7 @@ const FamilyReportPage: React.FC = () => {
     setDownloadError(null);
     try {
       const res = await api.get(
-        `/families/${familyId}/report/sign-outs/${latestSignout.version}`,
+        apiPath`/families/${familyId}/report/sign-outs/${latestSignout.version}`,
       );
       const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

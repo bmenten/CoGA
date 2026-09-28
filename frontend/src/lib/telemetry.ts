@@ -82,8 +82,17 @@ export const logUiEvent = (event: UiEventInput): void => {
 
 const takeBatch = (): QueuedUiEvent[] => queue.splice(0, Math.min(MAX_BATCH, queue.length));
 
-// Best-effort flush via axios. Drops events if the user is not authenticated
-// (the endpoint requires a token and would only 401).
+// A failure worth retrying on the next flush: no response (network) or a server-side
+// error. A 4xx will not succeed on retry, so that batch is dropped.
+const isTransientFailure = (error: unknown): boolean => {
+  const status = (error as { response?: { status?: number } })?.response?.status;
+  return status === undefined || status === 429 || status >= 500;
+};
+
+// Best-effort flush via axios. Without a token nothing can be attributed to a user,
+// so the queue is dropped; logout flushes it first (`flushUiEventsNow`). A batch that
+// fails transiently goes back to the front of the queue for the next flush instead of
+// being lost (#521); the queue stays bounded by MAX_QUEUE.
 const flush = async (): Promise<void> => {
   if (flushInFlight || !queue.length) return;
   if (!getAuthToken()) {
@@ -96,9 +105,12 @@ const flush = async (): Promise<void> => {
       const events = takeBatch();
       try {
         await api.post('/ui-events', { events });
-      } catch {
-        // Network/transport failure: drop this batch rather than retrying
-        // forever. Telemetry must never disrupt the app.
+      } catch (error) {
+        if (isTransientFailure(error)) {
+          queue = [...events, ...queue].slice(-MAX_QUEUE);
+        }
+        // Retry on the next interval rather than looping; telemetry must never
+        // disrupt the app.
         break;
       }
     }
@@ -185,6 +197,18 @@ const handleDocumentClick = (event: MouseEvent): void => {
  * Start global UI telemetry. Idempotent — safe to call from a React effect that
  * may run more than once. Returns a cleanup function.
  */
+/**
+ * Send everything queued now, with the current session's token, surviving a
+ * navigation. Called on logout before the session is cleared, so the logout click
+ * and the events before it are recorded under the user who made them (#521).
+ */
+export const flushUiEventsNow = (): void => {
+  flushKeepalive();
+};
+
+/** Flush the queue through the API client now (what the interval timer does). */
+export const flushUiEvents = (): Promise<void> => flush();
+
 export const startUiTelemetry = (): (() => void) => {
   if (started || typeof document === 'undefined') {
     return () => {};

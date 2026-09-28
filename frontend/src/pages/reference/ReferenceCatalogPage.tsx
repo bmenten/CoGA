@@ -6,6 +6,7 @@ import AdminModal from '../../components/AdminModal';
 import { isAdmin } from '../../lib/auth';
 import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { apiPath } from '../../lib/apiPath';
 
 interface Species {
   id: string;
@@ -391,7 +392,7 @@ const ReferenceCatalogPage: React.FC = () => {
 
     const runUpload = async (overwrite: boolean) =>
       api.post(
-        `/assemblies/${referenceUpload.assembly_id}/reference-upload/${referenceUpload.dataset_type}`,
+        apiPath`/assemblies/${referenceUpload.assembly_id}/reference-upload/${referenceUpload.dataset_type}`,
         formData,
         {
           params: { overwrite },

@@ -20,6 +20,7 @@ import {
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
+import { apiPath } from '../../lib/apiPath';
 
 interface Segment {
   start: number;
@@ -235,7 +236,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   } = useQuery<HaplotypeResponse>({
     queryKey: ['haplotypes', familyId, chrom, regionStart, regionEnd],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/haplotypes`, {
+      const res = await api.get(apiPath`/families/${familyId}/haplotypes`, {
         params: { chr: chrom, start: regionStart, end: regionEnd },
       });
       return res.data as HaplotypeResponse;
@@ -250,7 +251,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   const { data: rawPhasedData, isError: markersError } = useQuery<PhasedMarkerResponse>({
     queryKey: ['phased-markers', familyId, chrom, regionStart, regionEnd],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/phased-markers`, {
+      const res = await api.get(apiPath`/families/${familyId}/phased-markers`, {
         params: { chr: chrom, start: regionStart, end: regionEnd },
       });
       return res.data as PhasedMarkerResponse;

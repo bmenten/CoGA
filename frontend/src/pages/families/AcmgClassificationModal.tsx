@@ -38,6 +38,7 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import type { AcmgFamilyContext } from '../../lib/acmg';
+import { apiPath } from '../../lib/apiPath';
 
 type AcmgClassificationModalProps = {
   familyId?: string;
@@ -173,7 +174,7 @@ export default function AcmgClassificationModal({
     queryKey: ['acmg-family-hpo', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}/hpo`);
+      const response = await api.get(apiPath`/families/${familyId}/hpo`);
       return response.data as HpoAnnotationLite[];
     },
   });

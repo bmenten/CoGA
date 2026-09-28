@@ -6,6 +6,7 @@ import { getStainColor } from "../../lib/stainColors";
 import { getAcenDirection, getBandGradientStops, niceTickInterval } from "../../lib/ideogram";
 import VizTooltip from "./VizTooltip";
 import VizErrorOverlay from "./VizErrorOverlay";
+import { apiPath } from '../../lib/apiPath';
 
 interface IdeogramBand {
   name: string;
@@ -49,7 +50,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
   const { data, isError, refetch } = useQuery<Chromosome>({
     queryKey: ["chromosome", assembly, chrom],
     queryFn: async () => {
-      const res = await api.get(`/chromosomes/${assembly}/${chrom}`);
+      const res = await api.get(apiPath`/chromosomes/${assembly}/${chrom}`);
       return res.data as Chromosome;
     },
     staleTime: Infinity,

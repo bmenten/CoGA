@@ -17,6 +17,7 @@ import type {
   ApiSampleIntegritySexCheck,
   QcStatus,
 } from '../../lib/apiTypes';
+import { apiPath } from '../../lib/apiPath';
 
 const OVERALL_COPY: Record<QcStatus, string> = {
   pass: 'All sample-integrity checks passed. No swaps or mislabelled relationships detected.',
@@ -356,7 +357,7 @@ const FamilySampleQcPage: React.FC = () => {
     queryKey: ['family', familyId, 'sample-integrity-qc'],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/qc/sample-integrity`);
+      const res = await api.get(apiPath`/families/${familyId}/qc/sample-integrity`);
       return res.data as ApiSampleIntegrityQc;
     },
   });
@@ -366,7 +367,7 @@ const FamilySampleQcPage: React.FC = () => {
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}`);
+      const res = await api.get(apiPath`/families/${familyId}`);
       return res.data as ApiFamilyRecord;
     },
   });

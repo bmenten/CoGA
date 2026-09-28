@@ -2,6 +2,7 @@ import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
+import { apiPath } from '../../lib/apiPath';
 
 interface User {
   id: string;
@@ -61,7 +62,7 @@ const UserListPage: React.FC = () => {
 
   const toggleActiveMutation = useMutation({
     mutationFn: async (user: User) => {
-      const response = await api.patch(`/auth/users/${user.id}`, {
+      const response = await api.patch(apiPath`/auth/users/${user.id}`, {
         is_active: !user.is_active,
       });
       return response.data as User;

@@ -14,6 +14,7 @@ import PageState from '../../components/PageState';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
+import { apiPath } from '../../lib/apiPath';
 
 
 
@@ -158,7 +159,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
   const { data: family, isLoading: familyLoading } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}`);
+      const response = await api.get(apiPath`/families/${familyId}`);
       return response.data as ApiFamilyRecord;
     },
   });
@@ -174,7 +175,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
   const { data: repeatTable, isLoading: repeatLoading } = useQuery<ApiFamilyRepeatExpansionTable>({
     queryKey: ['family', familyId, 'repeat-expansions', resolvedProjectId],
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}/repeat-expansions`, {
+      const response = await api.get(apiPath`/families/${familyId}/repeat-expansions`, {
         params: resolvedProjectId ? { project_id: resolvedProjectId } : undefined,
       });
       return response.data as ApiFamilyRepeatExpansionTable;

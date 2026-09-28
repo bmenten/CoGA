@@ -12,6 +12,7 @@ import type {
 import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { isAdmin } from '../../lib/auth';
+import { apiPath } from '../../lib/apiPath';
 
 type Project = ApiProjectRecord<ApiFamilyBase<ApiFamilyMemberRef>>;
 type Species = ApiSpeciesRecord;
@@ -293,7 +294,7 @@ const ProjectsPage: React.FC = () => {
     setBusy(`save:${selectedProject.id}`);
     setStatus(null);
     try {
-      await api.put(`/projects/${selectedProject.id}`, {
+      await api.put(apiPath`/projects/${selectedProject.id}`, {
         name: editForm.name,
         description: editForm.description,
         species_id: editForm.speciesId,
@@ -313,7 +314,7 @@ const ProjectsPage: React.FC = () => {
     setBusy(`delete:${projectId}`);
     setStatus(null);
     try {
-      await api.delete(`/projects/${projectId}`);
+      await api.delete(apiPath`/projects/${projectId}`);
       await refetchProjects();
       setStatus({ tone: 'success', message: 'Project deleted.' });
     } catch (error) {

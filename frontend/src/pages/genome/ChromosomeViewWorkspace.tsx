@@ -521,10 +521,10 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       >
                         <CoverageSegmentsChart
                           coverageUrls={[
-                            `${api.defaults.baseURL}/bed/${member.sample_id}/coverage?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&source=${coverageSource}&format=json`,
+                            `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/coverage?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&source=${coverageSource}&format=json`,
                           ]}
                           segmentsUrls={[
-                            `${api.defaults.baseURL}/bed/${member.sample_id}/segments?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${coverageSource}&format=json`,
+                            `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/segments?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${coverageSource}&format=json`,
                           ]}
                           width={trackWidth}
                           height={TRACK_HEIGHT}
@@ -548,12 +548,12 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       <ApcadChart
                         maxValue={apcadAxisMax(availability[member.sample_id]?.apcadSources)}
                         apcadUrls={[
-                          `${api.defaults.baseURL}/bed/${member.sample_id}/apcad?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${apcadPointLimit}&format=json`,
+                          `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${apcadPointLimit}&format=json`,
                         ]}
                         pcfUrls={
                           availability[member.sample_id]?.apcadPcf
                             ? [
-                                `${api.defaults.baseURL}/bed/${member.sample_id}/apcad_pcf?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&format=json`,
+                                `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad_pcf?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&format=json`,
                               ]
                             : undefined
                         }

@@ -9,6 +9,7 @@ import { cssVar } from '../../lib/colors';
 import { getTrackVariantLimit } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizTooltip from './VizTooltip';
+import { apiPath } from '../../lib/apiPath';
 
 interface Genotype {
   sample: string;
@@ -110,7 +111,7 @@ const VariantTrack: React.FC<Props> = ({
         sample: sampleId,
         ...(filters || {}),
       };
-      const res = await api.get(`/families/${familyId}/structural-variants`, { params });
+      const res = await api.get(apiPath`/families/${familyId}/structural-variants`, { params });
       return res.data as ApiVariantPage<Variant>;
     },
     enabled: regionEnd > regionStart,

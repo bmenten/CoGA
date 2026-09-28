@@ -4,6 +4,7 @@ import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
+import { apiPath } from '../../lib/apiPath';
 
 interface SegmentalDuplication {
   start: number;
@@ -31,7 +32,7 @@ const SegmentalDuplicationTrack: React.FC<Props> = ({
   const { data: rawData, isError, refetch } = useQuery<SegmentalDuplication[]>({
     queryKey: ['segmental-duplications', assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
-      const res = await api.get(`/segmental-duplications/${assembly}/${chrom}`, {
+      const res = await api.get(apiPath`/segmental-duplications/${assembly}/${chrom}`, {
         params: { start: regionStart, end: regionEnd },
       });
       return res.data as SegmentalDuplication[];

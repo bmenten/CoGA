@@ -22,6 +22,7 @@ import {
   type SmallVariantFamily,
   type SmallVariantPage,
 } from './smallVariantSearch';
+import { apiPath } from '../../lib/apiPath';
 
 const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
 const REPORT_PAGE_SIZE = 500;
@@ -69,7 +70,7 @@ const FamilyNiptReportPage: React.FC = () => {
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}`);
+      const res = await api.get(apiPath`/families/${familyId}`);
       return res.data as SmallVariantFamily;
     },
   });
@@ -101,7 +102,7 @@ const FamilyNiptReportPage: React.FC = () => {
     queryKey: ['family', familyId, 'nipt', 'summary'],
     enabled: queryReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/nipt/summary`);
+      const res = await api.get(apiPath`/families/${familyId}/nipt/summary`);
       return res.data as ApiNiptSummary;
     },
   });
@@ -113,7 +114,7 @@ const FamilyNiptReportPage: React.FC = () => {
       const params: Record<string, string> = {};
       if (panelId) params.panel_id = panelId;
       if (gene) params.gene = gene;
-      const res = await api.get(`/families/${familyId}/nipt/coverage`, { params });
+      const res = await api.get(apiPath`/families/${familyId}/nipt/coverage`, { params });
       return res.data as ApiNiptCoverageSummary;
     },
   });
@@ -129,7 +130,7 @@ const FamilyNiptReportPage: React.FC = () => {
       const params: Record<string, string | number> = { page: 1, page_size: REPORT_PAGE_SIZE };
       if (panelId) params.panel_id = panelId;
       if (gene) params.gene = gene;
-      const res = await api.get(`/families/${familyId}/nipt/variants`, { params });
+      const res = await api.get(apiPath`/families/${familyId}/nipt/variants`, { params });
       return res.data as SmallVariantPage;
     },
   });

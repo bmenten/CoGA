@@ -14,6 +14,7 @@ import {
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
+import { apiPath } from '../../lib/apiPath';
 
 interface Genotype {
   sample: string;
@@ -240,7 +241,7 @@ const SmallVariantTrack: React.FC<Props> = ({
         track_result_limit: SMALL_VARIANT_TRACK_RESULT_LIMIT,
         ...requestFilters,
       };
-      const res = await api.get(`/families/${familyId}/small-variants`, {
+      const res = await api.get(apiPath`/families/${familyId}/small-variants`, {
         params,
       });
       return res.data as ApiVariantPage<Variant>;
@@ -255,7 +256,7 @@ const SmallVariantTrack: React.FC<Props> = ({
   const { data: tagDefinitions = [] } = useQuery<TagDefinition[]>({
     queryKey: ['small-variant-track-tags', familyId],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variant-tags`);
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`);
       return res.data as TagDefinition[];
     },
     enabled: canRequestSmallVariants,

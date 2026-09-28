@@ -12,6 +12,7 @@ import {
   type FamilyData,
   type ProjectOption,
 } from './dataManagementTypes';
+import { apiPath } from '../../lib/apiPath';
 
 type StatusTone = 'success' | 'error';
 
@@ -35,7 +36,7 @@ const DataManagementPage: React.FC = () => {
   } = useQuery<FamilyData>({
     queryKey: ['admin', 'data-inventory', 'family', selectedFamilyId],
     queryFn: async () => {
-      const response = await api.get(`/admin/data/families/${selectedFamilyId}`);
+      const response = await api.get(apiPath`/admin/data/families/${selectedFamilyId}`);
       return response.data as FamilyData;
     },
     enabled: Boolean(selectedFamilyId),
@@ -106,7 +107,7 @@ const DataManagementPage: React.FC = () => {
     setBusyKey(`family:${selectedFamilyId}`);
     setStatus(null);
     try {
-      await api.delete(`/admin/families/${selectedFamilyId}`, { params: { confirm: true } });
+      await api.delete(apiPath`/admin/families/${selectedFamilyId}`, { params: { confirm: true } });
       const deletedId = selectedFamilyId;
       setDeleteDialogOpen(false);
       setSelectedFamilyId(null);
@@ -130,7 +131,7 @@ const DataManagementPage: React.FC = () => {
     setStatus(null);
 
     try {
-      await api.put(`/admin/families/${familyId}/projects`, {
+      await api.put(apiPath`/admin/families/${familyId}/projects`, {
         project_ids: normalizeProjectIds(familyProjectDrafts[familyId] ?? []),
       });
       await refreshInventory(familyId);

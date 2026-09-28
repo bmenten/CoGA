@@ -11,6 +11,7 @@ import {
   phenotypeLabel,
   roleLabel,
 } from './dataManagementTypes';
+import { apiPath } from '../../lib/apiPath';
 
 interface DataInventoryDetailProps {
   selectedFamilyId: string;
@@ -91,7 +92,7 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
   const unassignedProjectCount = projects.length - assignedProjects.length;
 
   const downloadPedigree = async () => {
-    const response = await api.get(`/admin/families/${selectedFamily.family_id}/ped`, {
+    const response = await api.get(apiPath`/admin/families/${selectedFamily.family_id}/ped`, {
       responseType: 'blob',
     });
     const url = window.URL.createObjectURL(response.data as Blob);
@@ -305,7 +306,7 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
                                     actionKey,
                                     `Delete ${TRACK_LABELS[trackType].toLowerCase()} for sample ${sample.sample_id}? This permanently removes the stored ${TRACK_LABELS[trackType].toLowerCase()} track for this sample.`,
                                     () =>
-                                      api.delete(`/admin/data/samples/${sample.sample_id}/${trackType}`, {
+                                      api.delete(apiPath`/admin/data/samples/${sample.sample_id}/${trackType}`, {
                                         params: { confirm: true },
                                       }),
                                     `Deleted ${TRACK_LABELS[trackType].toLowerCase()} for sample ${sample.sample_id}.`,
@@ -330,7 +331,7 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
                               `sample:${selectedFamily.family_id}:${sample.sample_id}`,
                               `Delete sample ${sample.sample_id}, all of its tracks, and remove it from family ${selectedFamily.family_id}? This permanently deletes every track and variant record for this sample.`,
                               () =>
-                                api.delete(`/admin/samples/${sample.sample_id}`, {
+                                api.delete(apiPath`/admin/samples/${sample.sample_id}`, {
                                   params: { confirm: true },
                                 }),
                               `Deleted sample ${sample.sample_id} and removed it from ${selectedFamily.family_id}.`,

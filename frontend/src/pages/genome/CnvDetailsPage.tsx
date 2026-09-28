@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import type { ApiChromosome, ApiClinicalCnv } from '../../lib/apiTypes';
 import PageState from '../../components/PageState';
 import { sanitizeHtml } from '../../lib/sanitizeHtml';
+import { apiPath } from '../../lib/apiPath';
 
 const formatBp = (bp: number) => bp.toLocaleString();
 
@@ -47,7 +48,7 @@ const CnvDetailsPage: React.FC = () => {
   } = useQuery<ApiClinicalCnv>({
     queryKey: ['clinical-cnv', cnvId],
     queryFn: async () => {
-      const res = await api.get(`/cnvs/entry/${cnvId}`);
+      const res = await api.get(apiPath`/cnvs/entry/${cnvId}`);
       return res.data as ApiClinicalCnv;
     },
     enabled: Boolean(cnvId),
@@ -56,7 +57,7 @@ const CnvDetailsPage: React.FC = () => {
   const { data: chromosome } = useQuery<ApiChromosome>({
     queryKey: ['chromosome', cnv?.assembly, cnv?.chr],
     queryFn: async () => {
-      const res = await api.get(`/chromosomes/${cnv?.assembly}/${cnv?.chr}`);
+      const res = await api.get(apiPath`/chromosomes/${cnv?.assembly}/${cnv?.chr}`);
       return res.data as ApiChromosome;
     },
     enabled: Boolean(cnv?.assembly && cnv?.chr),

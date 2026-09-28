@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
+import { apiPath } from '../../lib/apiPath';
 
 interface Cnv {
   _id: string;
@@ -40,7 +41,7 @@ const CnvTrack: React.FC<Props> = ({
   const { data: rawData, isError, refetch } = useQuery<Cnv[]>({
     queryKey: ['cnvs', assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
-      const res = await api.get(`/cnvs/${assembly}/${chrom}`, {
+      const res = await api.get(apiPath`/cnvs/${assembly}/${chrom}`, {
         params: { start: regionStart, end: regionEnd },
       });
       return res.data as Cnv[];

@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import Breadcrumbs from './Breadcrumbs';
 import ErrorBoundary from './ErrorBoundary';
 import ModalDialog from './ModalDialog';
@@ -7,6 +8,7 @@ import PageState from './PageState';
 import { clearSession, getStoredUsername } from '../lib/auth';
 import { githubIssuesUrl, githubRepositoryUrl } from '../lib/githubLinks';
 import { useUiTelemetry } from '../lib/useUiTelemetry';
+import { flushUiEventsNow } from '../lib/telemetry';
 
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
 
@@ -15,10 +17,16 @@ const Layout: React.FC = () => {
   const location = useLocation();
   const username = getStoredUsername();
   const [showSettings, setShowSettings] = useState(false);
+  const queryClient = useQueryClient();
 
   useUiTelemetry();
 
   const handleLogout = () => {
+    // The logout click and anything still queued go out under this session first,
+    // then nothing of this user's may stay behind for the next person at this tab:
+    // the query cache held their family data for up to ten minutes (#521).
+    flushUiEventsNow();
+    queryClient.clear();
     clearSession();
     navigate('/login?logged_out=1', { replace: true });
   };

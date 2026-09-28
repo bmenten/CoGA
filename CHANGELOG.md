@@ -286,6 +286,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   which limits merge-key CPU use (#499).
 - Dependabot bumps whose release notes include security fixes: axios 1.19.0, which raises the
   form-data floor (#406), and PyJWT 2.14.0 (#506).
+- **Session and web tier (#521)** — logging out now clears the data the app had cached, so the next
+  person at the same browser tab cannot see the previous user's families. API paths encode the
+  identifiers they carry. The frontend server's `/api` proxy survives a backend reset
+  mid-response, times out a backend that never answers, and no longer reveals the backend
+  address (#548).
 
 ### Documentation
 

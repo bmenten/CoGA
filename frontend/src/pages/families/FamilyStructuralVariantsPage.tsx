@@ -27,6 +27,7 @@ import {
 import {
   normalizeReviewClassification,
 } from './smallVariantSearch';
+import { apiPath, raw } from '../../lib/apiPath';
 
 type StructuralVariantPage = {
   variants: StructuralVariant[];
@@ -85,7 +86,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   const { data: familyData } = useQuery<StructuralVariantFamily>({
     queryKey: ['family', familyId],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}`);
+      const res = await api.get(apiPath`/families/${familyId}`);
       return res.data as StructuralVariantFamily;
     },
   });
@@ -160,7 +161,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     queryKey: ['family', familyId, 'structural-variant-filter-presets'],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/structural-variant-filter-presets`);
+      const res = await api.get(apiPath`/families/${familyId}/structural-variant-filter-presets`);
       return res.data as StructuralVariantFilterPreset[];
     },
   });
@@ -171,7 +172,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     queryFn: async () => {
       // Structural and small-variant tags share the same store (small_variant_tag_definitions);
       // there is no separate structural endpoint.
-      const res = await api.get(`/families/${familyId}/small-variant-tags`, {
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
         params: projectId ? { project_id: projectId } : undefined,
       });
       return res.data as StructuralVariantTagDefinition[];
@@ -181,7 +182,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   const { data, isLoading, isFetching } = useQuery<StructuralVariantPage>({
     queryKey: ['family', familyId, 'structural-variants', requestQueryString],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/structural-variants?${requestQueryString}`);
+      const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(requestQueryString)}`);
       return res.data as StructuralVariantPage;
     },
     // Keep the previous page's results on screen while the next page/filter loads
@@ -193,7 +194,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     queryKey: ['family', familyId, 'structural-variants', 'total'],
     queryFn: async () => {
       const params = new URLSearchParams({ page: '1', page_size: '1' });
-      const res = await api.get(`/families/${familyId}/structural-variants?${params.toString()}`);
+      const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(params.toString())}`);
       return { total: res.data.total };
     },
   });
@@ -205,7 +206,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   const savePresetMutation = useMutation({
     mutationFn: async (payload: { name: string; description?: string; scope: 'family' | 'global' }) => {
       if (!familyId) throw new Error('Family id is required');
-      const res = await api.post(`/families/${familyId}/structural-variant-filter-presets`, {
+      const res = await api.post(apiPath`/families/${familyId}/structural-variant-filter-presets`, {
         ...payload,
         ...buildStructuralPresetPayload({
           filters,

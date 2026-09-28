@@ -4,6 +4,7 @@ import api from './api';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from './apiTypes';
 import { classifyEmbryosAtRoi, type EmbryoClassification } from './embryoSegregation';
 import type { HaplotypeMemberLike, HaplotypeSampleLike } from './haplotypeRisk';
+import { apiPath } from './apiPath';
 
 // Fetch a window around the ROI (shared query cache with the ROI marker page) so
 // the relatives' IBD lineage resolves robustly, then classify AT the ROI itself.
@@ -50,7 +51,7 @@ export const useEmbryoSegregation = ({
     staleTime: Infinity,
     queryFn: async () =>
       (
-        await api.get(`/families/${familyId}/haplotypes`, {
+        await api.get(apiPath`/families/${familyId}/haplotypes`, {
           params: { chr: roi!.chr, start: winStart, end: winEnd },
         })
       ).data as HaplotypeResponse,

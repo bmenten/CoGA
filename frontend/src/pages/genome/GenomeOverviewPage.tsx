@@ -18,6 +18,7 @@ import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
 import GenomeOverviewSidebar, { type GenomeTrackKey, type GenomeTrackVisibility } from './GenomeOverviewSidebar';
 import GenomeOverviewWorkspace from './GenomeOverviewWorkspace';
 import { CHROMS, DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING, normalizeChrom } from './viewerShared';
+import { apiPath, raw } from '../../lib/apiPath';
 
 interface Layout {
   offsets: Record<string, number>;
@@ -40,7 +41,7 @@ const GenomeOverviewPage: React.FC = () => {
   >({
     queryKey: ['family', familyId],
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}`);
+      const response = await api.get(apiPath`/families/${familyId}`);
       return response.data as Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>;
     },
   });
@@ -171,7 +172,7 @@ const GenomeOverviewPage: React.FC = () => {
   const { data: chromSizes, isLoading: chromSizesLoading } = useQuery<Record<string, number>>({
     queryKey: ['chromosome-sizes', assemblyName],
     queryFn: async () => {
-      const response = await api.get(`/chromosomes/${assemblyName}`);
+      const response = await api.get(apiPath`/chromosomes/${assemblyName}`);
       const lengths: Record<string, number> = {};
       (response.data as Array<{ chr: string; size: number }>).forEach((entry) => {
         lengths[normalizeChrom(entry.chr)] = entry.size;
@@ -211,7 +212,7 @@ const GenomeOverviewPage: React.FC = () => {
   const haplotypeUrls = useMemo(() => {
     const params = new URLSearchParams();
     chroms.forEach((chrom) => params.append('chr', chrom));
-    return [`${api.defaults.baseURL}/families/${familyId}/haplotypes/batch?${params.toString()}`];
+    return [`${api.defaults.baseURL}/families/${encodeURIComponent(familyId ?? '')}/haplotypes/batch?${params.toString()}`];
   }, [chroms, familyId]);
 
   const urlMaps = useMemo(() => {
@@ -234,7 +235,7 @@ const GenomeOverviewPage: React.FC = () => {
       chroms.forEach((chrom) => params.append('chrom', chrom));
       params.set('format', 'json');
       Object.entries(extra).forEach(([key, value]) => params.set(key, value));
-      return `${api.defaults.baseURL}/bed/${sampleId}/${bedType}/batch?${params.toString()}`;
+      return `${api.defaults.baseURL}/bed/${encodeURIComponent(sampleId)}/${encodeURIComponent(bedType)}/batch?${params.toString()}`;
     };
 
     const apcad: Record<string, string[]> = {};
@@ -264,7 +265,7 @@ const GenomeOverviewPage: React.FC = () => {
       const svSampleFilter = sampleFilterMap[member.sample_id];
       if (svSampleFilter) svParams.append('sample_filter', svSampleFilter);
       sv[member.sample_id] =
-        `${api.defaults.baseURL}/families/${familyId}/structural-variants?${svParams.toString()}`;
+        `${api.defaults.baseURL}/families/${encodeURIComponent(familyId ?? '')}/structural-variants?${svParams.toString()}`;
     });
 
     // A builder rather than a prebuilt map: which callers a sample has comes from
@@ -323,7 +324,7 @@ const GenomeOverviewPage: React.FC = () => {
   } = useQuery<ApiTrackAvailabilityResponse<ApiGenomeTrackAvailability>>({
     queryKey: ['family', familyId, 'track-availability', availabilitySearch],
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}/track-availability?${availabilitySearch}`);
+      const response = await api.get(apiPath`/families/${familyId}/track-availability?${raw(availabilitySearch)}`);
       return response.data as ApiTrackAvailabilityResponse<ApiGenomeTrackAvailability>;
     },
     enabled: !!familyId && !!data,

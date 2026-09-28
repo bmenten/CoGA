@@ -26,6 +26,7 @@ import ChromosomeViewSidebar, {
 } from './ChromosomeViewSidebar';
 import ChromosomeViewWorkspace from './ChromosomeViewWorkspace';
 import { DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING, formatChromosomeLabel, normalizeChrom } from './viewerShared';
+import { apiPath, raw } from '../../lib/apiPath';
 
 interface ChromInfo {
   chr: string;
@@ -90,7 +91,7 @@ const ChromosomeViewPage: React.FC = () => {
   >({
     queryKey: ['family', familyId],
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}`);
+      const response = await api.get(apiPath`/families/${familyId}`);
       return response.data as Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>;
     },
   });
@@ -220,7 +221,7 @@ const ChromosomeViewPage: React.FC = () => {
   const { data: chromInfo, isLoading: chromInfoLoading } = useQuery<ChromInfo>({
     queryKey: ['chrom-info', assemblyName, chrom],
     queryFn: async () => {
-      const response = await api.get(`/chromosomes/${assemblyName}/${chrom}`);
+      const response = await api.get(apiPath`/chromosomes/${assemblyName}/${chrom}`);
       return response.data as ChromInfo;
     },
     enabled: Boolean(assemblyName),
@@ -287,7 +288,7 @@ const ChromosomeViewPage: React.FC = () => {
   } = useQuery<ApiTrackAvailabilityResponse<ApiChromosomeTrackAvailability>>({
     queryKey: ['family', familyId, 'track-availability', availabilitySearch],
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}/track-availability?${availabilitySearch}`);
+      const response = await api.get(apiPath`/families/${familyId}/track-availability?${raw(availabilitySearch)}`);
       return response.data as ApiTrackAvailabilityResponse<ApiChromosomeTrackAvailability>;
     },
     enabled: !!familyId && !!data && region.end > region.start,

@@ -162,6 +162,36 @@ run — so everything below is *written and reviewable, without deployed evidenc
   still an `.example`. This is what would close the byte-level audit gap in §2, and it
   remains open.
 
+## 4a. Web tier — the SPA and its `/api` proxy (#521)
+
+- ✅ **Logout leaves nothing behind.** Logout flushes the pending UI telemetry under the
+  current token, clears the React Query cache (which held family data for up to ten
+  minutes) and only then clears the session; login starts with an empty cache too.
+- ✅ **Encoded path segments.** API paths are built with `apiPath\`…\`` (`lib/apiPath.ts`),
+  which percent-encodes every interpolated identifier, so an imported id such as
+  `../families/F1` cannot redirect a call (`DELETE /admin/samples/${id}`). Deliberate
+  query strings go through `raw()`.
+- ✅ **Escaped tooltips.** The d3 tooltips that are built as HTML escape their values
+  (`lib/escapeHtml.ts`).
+- ✅ **Proxy robustness (`server.mjs`).** The upstream body is piped with
+  `stream.pipeline`, so a reset mid-stream ends that response instead of raising an
+  unhandled error; the backend must start answering within `API_PROXY_TIMEOUT_MS`
+  (default 10 min, else 504); a client that goes away aborts the upstream request; the
+  502/504 body no longer names the internal backend address.
+- ✅ **Forwarded headers.** The proxy sends the backend one clean `X-Forwarded-For` —
+  its socket peer when it is the edge (`TRUSTED_PROXY_HOPS=0`, the default), or the
+  address the trusted proxy in front of it appended — plus `X-Forwarded-Proto` and
+  `-Host`. A browser can no longer choose the address the backend throttles and audits
+  through this path. (On Cloud Run the load balancer sends `/api` straight to the backend,
+  so this proxy is the path for docker compose and local runs.)
+- ✅ **`Permissions-Policy`** denies camera, microphone, geolocation, payment, USB and
+  the other device APIs.
+- 🟡 **CSP `connect-src`** stays `'self' https:` by default: IGV loads its hosted genomes
+  from a changing set of hosts and a presigned CRAM URL points at whichever object
+  store the backend uses. A deployment that knows its hosts narrows it with
+  `CSP_CONNECT_SRC` (a source list; a value containing `;` is refused). `style-src`
+  keeps `'unsafe-inline'` because IGV injects inline styles.
+
 ## 5. CI enforcement of the gates
 
 Two workflows enforce the gates on every PR and push to `main`:

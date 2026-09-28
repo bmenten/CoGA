@@ -4,6 +4,7 @@ import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
+import { apiPath } from '../../lib/apiPath';
 
 interface Region {
   start: number;
@@ -31,7 +32,7 @@ const BlacklistTrack: React.FC<Props> = ({
   const { data: rawData, isError, refetch } = useQuery<Region[]>({
     queryKey: ["blacklist", assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
-      const res = await api.get(`/blacklist/${assembly}/${chrom}`, {
+      const res = await api.get(apiPath`/blacklist/${assembly}/${chrom}`, {
         params: { start: regionStart, end: regionEnd },
       });
       return res.data as Region[];

@@ -18,6 +18,7 @@ import {
   type StructuralVariantReviewSavePayload,
   type StructuralVariantTagDefinition,
 } from './structuralVariantSearch';
+import { apiPath, raw } from '../../lib/apiPath';
 
 type ResultViewMode = 'auto' | 'table' | 'cards';
 
@@ -137,7 +138,7 @@ export default function StructuralVariantResults({
       const separator = exportSearch ? '&' : '?';
       const projectSuffix = projectId ? `${separator}project_id=${projectId}` : '';
       const res = await api.get(
-        `/families/${familyId}/structural-variants/export${exportSearch}${projectSuffix}`,
+        apiPath`/families/${familyId}/structural-variants/export${raw(exportSearch)}${raw(projectSuffix)}`,
         { responseType: 'blob' },
       );
       const info = describeCsvExport(res, `family-${familyId}-structural-variants`);

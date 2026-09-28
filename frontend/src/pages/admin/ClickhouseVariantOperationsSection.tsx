@@ -7,6 +7,7 @@ import {
   type ClickHouseVariantAssemblyStatus,
   type ClickHouseVariantIntegrity,
 } from './dataManagementTypes';
+import { apiPath } from '../../lib/apiPath';
 
 const INTEGRITY_LABELS: Record<ClickHouseVariantIntegrity['status'], string> = {
   ok: 'Healthy',
@@ -126,7 +127,7 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
                       onRunAction(
                         `clickhouse-ensure:${assembly.assembly_name}`,
                         `Ensure the ClickHouse variant tables for assembly ${assembly.assembly_name}?`,
-                        () => api.post(`/admin/clickhouse/variants/${assembly.assembly_name}/ensure`),
+                        () => api.post(apiPath`/admin/clickhouse/variants/${assembly.assembly_name}/ensure`),
                         `Ensured ClickHouse variant tables for ${assembly.assembly_name}.`,
                       )
                     }
@@ -151,7 +152,7 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
                         `Rebuild the small variant gene index for assembly ${assembly.assembly_name}?`,
                         () =>
                           api.post(
-                            `/admin/clickhouse/variants/${assembly.assembly_name}/rebuild-small-variant-gene-index`,
+                            apiPath`/admin/clickhouse/variants/${assembly.assembly_name}/rebuild-small-variant-gene-index`,
                           ),
                         `Rebuilt small variant gene index for ${assembly.assembly_name}.`,
                       )
@@ -167,7 +168,7 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
                       onRunAction(
                         `clickhouse-optimize:${assembly.assembly_name}`,
                         `Optimize the ClickHouse variant tables for assembly ${assembly.assembly_name}?`,
-                        () => api.post(`/admin/clickhouse/variants/${assembly.assembly_name}/optimize`),
+                        () => api.post(apiPath`/admin/clickhouse/variants/${assembly.assembly_name}/optimize`),
                         `Optimized ClickHouse variant tables for ${assembly.assembly_name}.`,
                       )
                     }

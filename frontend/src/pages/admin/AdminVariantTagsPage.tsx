@@ -11,6 +11,7 @@ import {
   type SmallVariantTagDefinition,
 } from '../families/smallVariantSearch';
 import { formatCount, type StatusTone } from './dataManagementTypes';
+import { apiPath } from '../../lib/apiPath';
 
 type EditableTagDraft = {
   label: string;
@@ -130,7 +131,7 @@ const AdminVariantTagsPage: React.FC = () => {
     mutationFn: async () => {
       if (!editingTagKey) throw new Error('Tag context is required');
       const response = await api.put(
-        `/admin/variant-tags/${editingTagKey}`,
+        apiPath`/admin/variant-tags/${editingTagKey}`,
         {
           label: editingTagDraft.label.trim(),
           description: editingTagDraft.description.trim() || null,
@@ -169,7 +170,7 @@ const AdminVariantTagsPage: React.FC = () => {
 
   const deleteTagMutation = useMutation({
     mutationFn: async (tagKey: string) => {
-      await api.delete(`/admin/variant-tags/${tagKey}`);
+      await api.delete(apiPath`/admin/variant-tags/${tagKey}`);
       return tagKey;
     },
     onSuccess: async (tagKey) => {
