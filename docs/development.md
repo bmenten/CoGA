@@ -119,7 +119,7 @@ The frontend is the only Node package in the repository. Run npm commands from `
 | `TRUSTED_PROXY_HOPS` (backend) | Proxies in front of the backend that each append to `X-Forwarded-For`; the client address is taken that many entries from the right (#520). 0 (default) leaves it to uvicorn. docker compose sets it to 1 (`BACKEND_TRUSTED_PROXY_HOPS`) because the backend sits behind the frontend's `/api` proxy; Terraform sets 2 for the load balancer |
 | `VITE_API_BASE_URL` | Frontend API base URL; defaults to same-origin `/api`, proxied to the backend |
 | `API_PROXY_TIMEOUT_MS` | Frontend server: how long the backend has to start answering a proxied `/api` request before a 504; default 600000 (10 min) |
-| `TRUSTED_PROXY_HOPS` | Frontend server: reverse proxies in front of it that append to `X-Forwarded-For`; 0 (default) when the frontend is the edge, so client-sent values are ignored |
+| `TRUSTED_PROXY_HOPS` (frontend) | Frontend server: reverse proxies in front of it that append to `X-Forwarded-For`; 0 (default) when the frontend is the edge, so client-sent values are ignored. In docker compose set it as `FRONTEND_TRUSTED_PROXY_HOPS` in `.env`, so it is not confused with the backend's |
 | `CSP_CONNECT_SRC` | Frontend server: narrows the CSP `connect-src` source list (default `'self' https:`), e.g. `'self' https://storage.googleapis.com https://*.igv.org`; a value containing `;` is refused |
 
 ## Troubleshooting
