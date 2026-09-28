@@ -305,6 +305,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Sign-out authority** — the instructions for use and the user documentation state that only
+  authorised signatories may sign out a report. CoGA does not check signing authority itself;
+  this is recorded as an accepted residual risk (TF-06 H15) (#551).
 - Licensed under **Apache-2.0** with a regulatory `NOTICE` recording that CoGA is an in-house
   IVD under IVDR Article 5(5), is not CE-marked, and that its validation does not transfer
   with the source (#394).

@@ -103,6 +103,7 @@ control, residual risk, and V&V reference.
 | H12 | **Wrong assembly / off-scope panel/assay used** | All | S4 | Assembly-scoped storage; **off-scope assembly guard** (✅ #515: `VALIDATED_ASSEMBLIES`, default GRCh38 — sign-out refused for any other or unresolved assembly, not overridable; "not validated for clinical use" label on the family and report pages; REQ-TRACE-009); **gene-panel coordinates scoped per assembly** (✅ #515: stored per assembly, and a family's panel filter reads only its own assembly's coordinates, never another's; REQ-CARR-004); IFU |
 | H13 | **Incorrect mtDNA heteroplasmy / maternal-inheritance interpretation** | mito (3.5) | S4 | Heteroplasmy quantification + maternal-transmission logic with QC; Sample QC for maternal-lineage integrity (H4); ACMG review/sign-out; verification in TF-10 (`test_mitochondrial_analysis.py`) |
 | H14 | **Interpretation of a sequencing run of inadequate quality** — a false negative is reported from a run with too little depth, too short reads or too little aligned yield to support it | All | S4 | Per-sample sequencing QC captured at import and evaluated against admin-set acceptance limits per assay profile; the worst state is shown in the family members table, distinguishable **without relying on colour alone**, with the breaching metric and the limit it crossed named on inspection. A metric with **no configured limit is reported as not assessed, never as a pass**, so an unconfigured gate cannot read as a green one. Residual risk: the limits are lab configuration — with none entered nothing is gated, and the analyst-at-sign-out control is the only barrier (cf. §6 acceptability). |
+| H15 | **Report signed out by a person without signing authority** — any authenticated project member, the `viewer` role included, can sign out a report; RBAC has global roles only and no signer role | All | S4 | **Procedural control** (accepted residual, #519): only personnel the laboratory has authorised as signatories sign out reports (CMGG SOP; TF-15 IFU condition 7). **Detective controls:** every sign-out records the signer's identity in the append-only, hash-chained `report_signouts` record and the clinical audit trail, is versioned (an amendment is a new version) and shows the signer on the report. See §7 for the acceptance rationale. |
 
 ## 6a. IVDR Annex I software risk table (H11.1-F12.2 / H14.4-OP1)
 
@@ -132,6 +133,18 @@ After controls, each residual risk is re-estimated in the RMF; overall residual 
 benefit-risk balance (the clinical value of faster, reproducible, traceable interpretation
 vs. residual interpretive risk under professional oversight) are evaluated and signed off by
 the lab director. Inputs: TF-11 performance results, PMS data.
+
+**Accepted residual — sign-out authority (H15, decision of 2026-09-28, #519).** The software
+does not separate the authority to sign out a report from project membership. The laboratory
+keeps that authority procedural: only personnel it has authorised as signatories sign out,
+which is how signing authority is already governed for the laboratory's other reports under
+ISO 15189. The residual risk is accepted because (a) a sign-out cannot be anonymous or
+silent: the signer's identity is frozen into the append-only, hash-chained sign-out record
+and the audit trail, and shown on the report; (b) a wrongly issued sign-out is detectable in
+that record and correctable by an amendment, which is a new version and never overwrites the
+old; and (c) sign-out is a deliberate, gated action (drift, Sample-QC and assembly-scope gates),
+not a side effect. **Re-evaluate** if an unauthorised sign-out is ever found through PMS
+(TF-16), or when a signer role is added to RBAC. Pending lab-director confirmation.
 
 ## 8. Production & post-production information
 
