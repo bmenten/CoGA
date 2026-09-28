@@ -85,7 +85,7 @@ Three limits are stated so the artifact is not overread:
   artifact expires after 90 days if not archived.
 
 ## 6. Vulnerability management
-- **Monitoring:** Dependabot (in use) + CVE feeds for layer-A SOUP, especially security-critical items (`python-jose`, `passlib`/`bcrypt`, `axios`, FastAPI/Starlette, drivers).
+- **Monitoring:** Dependabot (in use) + CVE feeds for layer-A SOUP, especially security-critical items (`PyJWT`/`cryptography`, `passlib`/`bcrypt`, `axios`, FastAPI/Starlette, drivers); `python-jose` was replaced by PyJWT and is no longer a dependency.
 - **Triage:** assess each advisory for exploitability in CoGA's deployment and impact on safety/PHI; severity-rank.
 - **Remediation:** patch under change control (TF-18) with CI + review; emergency path for actively-exploited criticals.
 - **Receiving reports:** a public [`SECURITY.md`](../../SECURITY.md) states the intake route — GitHub **private vulnerability reporting** (enabled on the repository), which keeps a report confidential to the maintainers until an advisory is published. It also fixes scope (the device boundary vs. the UZ Gent/CMGG-operated environment), forbids attaching real patient data to a report, and directs suspected patient-safety incidents to the vigilance route (TF-17) rather than a GitHub advisory.

@@ -305,6 +305,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Technical-file consistency** — requirement counts, a duplicate requirement ID
+  (REQ-TRACE-008 → REQ-TRACE-011 for the provenance requirement), the SOUP register reconciled
+  with the lockfile and runtime end-of-life dates, and the hosting and processor statements for
+  the Google Cloud deployment (#552).
 - **Sign-out authority** — the instructions for use and the user documentation state that only
   authorised signatories may sign out a report. CoGA does not check signing authority itself;
   this is recorded as an accepted residual risk (TF-06 H15) (#551).
