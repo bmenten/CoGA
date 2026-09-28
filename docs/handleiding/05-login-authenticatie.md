@@ -52,23 +52,31 @@ Zo kost de "geen-zulke-account"-tak ongeveer evenveel tijd als de "verkeerd-wach
 
 **Waar in de code:** de constante `_DUMMY_LOGIN_PASSWORD_HASH` en de `if user is None`-tak in `_authenticate_and_issue_token` (`backend/app/routers/auth.py`).
 
-## Wachtwoord-hashing: bcrypt via passlib
+## Wachtwoord-hashing: bcrypt
 
-Wachtwoorden worden nooit in leesbare vorm bewaard. De hashing gebeurt centraal met de bibliotheek **passlib** en het algoritme **bcrypt**:
+Wachtwoorden worden nooit in leesbare vorm bewaard. De hashing gebeurt centraal met de bibliotheek **bcrypt**, die de backend rechtstreeks aanroept:
 
 ```python
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+_BCRYPT_MAX_PASSWORD_BYTES = 72
+
+def _bcrypt_secret(password: str) -> bytes:
+    return password.encode("utf-8")[:_BCRYPT_MAX_PASSWORD_BYTES]
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_bcrypt_secret(password), bcrypt.gensalt()).decode("ascii")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(_bcrypt_secret(plain_password), hashed_password.encode("ascii"))
+    except (AttributeError, UnicodeEncodeError, ValueError):
+        return False
 ```
 
-Bcrypt is een bewust *trage* hash (met een "work factor") zodat een aanvaller die de databank buitmaakt niet snel miljoenen wachtwoorden kan raden. De hash wordt opgeslagen in de kolom `hashed_password` van de tabel `users` (zie `backend/db/schema/postgres/001_metadata.sql`); het echte wachtwoord verlaat het geheugen van de server nooit.
+Bcrypt is een bewust *trage* hash (met een "work factor") zodat een aanvaller die de databank buitmaakt niet snel miljoenen wachtwoorden kan raden. De hash wordt opgeslagen in de kolom `hashed_password` van de tabel `users` (zie `backend/db/schema/postgres/01_access.sql`); het echte wachtwoord verlaat het geheugen van de server nooit.
 
-**Waar in de code:** `pwd_context`, `get_password_hash`, `verify_password` in `backend/app/dependencies.py`; kolom `hashed_password` in `backend/db/schema/postgres/001_metadata.sql`.
+Tot #525 liep dit via **passlib**, dat niet meer onderhouden wordt en bcrypt op versie 3.2.0 vasthield. Het formaat is ongewijzigd (`$2b$`, kost 12), dus bestaande hashes blijven werken. Bcrypt leest alleen de eerste 72 bytes van een wachtwoord. passlib liet de rest stilzwijgend vallen, bcrypt 5 weigert zo'n wachtwoord. Daarom kapt de backend zelf af op 72 bytes, zodat een lang wachtwoord dat vroeger werkte, blijft werken. Een opgeslagen waarde die geen bcrypt-hash is, geeft gewoon "geen match".
+
+**Waar in de code:** `get_password_hash`, `verify_password` in `backend/app/dependencies.py`; kolom `hashed_password` in `backend/db/schema/postgres/01_access.sql`; tests in `backend/tests/test_password_hashing.py`.
 
 ## JWT: token maken en controleren
 

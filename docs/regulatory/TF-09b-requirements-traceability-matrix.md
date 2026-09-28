@@ -100,7 +100,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | --- | --- | --- | --- | --- |
 | REQ-SEC-001 | `services/metadata_service.py` (`build_family_metadata_context`) | `test_access_control.py` (cross-user/project) | H11 | ✅ |
 | REQ-SEC-002 | `dependencies.py::get_current_admin_user` | `test_access_control.py` (admin-only family replacement) | H11 | ✅ |
-| REQ-SEC-003 | `routers/auth.py`, `dependencies.py` | `test_auth_swagger_token.py` | H11 | ✅ |
+| REQ-SEC-003 | `routers/auth.py`, `dependencies.py` | `test_auth_swagger_token.py`; `test_password_hashing.py` (local passwords: bcrypt hashes stored by passlib still verify, #525) | H11 | ✅ |
 | REQ-SEC-004 | `services/audit_log_pg.py`; `middleware/request_logging.py` | `test_audit_log_pg.py`; `test_request_logging.py` | H11 | ✅ |
 | REQ-SEC-005 | `services/auth_rate_limit_pg.py` | `test_auth_rate_limit_pg.py` | H11 | ✅ |
 | REQ-SEC-006 | `core` settings `validate_security_defaults` | `test_config_security.py`; `test_config.py` | H11 | ✅ |

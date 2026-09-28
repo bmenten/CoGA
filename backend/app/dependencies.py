@@ -2,10 +2,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .core.azure import verify_azure_token
@@ -15,17 +15,30 @@ from .services.metadata_service import CurrentUser, get_current_user_by_email
 
 logger = logging.getLogger(__name__)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 ADMIN_ROLES = {"admin", "superuser"}
 
+# bcrypt reads at most the first 72 bytes of a password. passlib, which made the stored
+# hashes, passed longer passwords through and bcrypt truncated them silently; bcrypt 5
+# refuses them instead. Truncating here keeps every stored hash verifiable and makes new
+# hashes the same way (#525).
+_BCRYPT_MAX_PASSWORD_BYTES = 72
+
+
+def _bcrypt_secret(password: str) -> bytes:
+    return password.encode("utf-8")[:_BCRYPT_MAX_PASSWORD_BYTES]
+
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_bcrypt_secret(password), bcrypt.gensalt()).decode("ascii")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(_bcrypt_secret(plain_password), hashed_password.encode("ascii"))
+    except (AttributeError, UnicodeEncodeError, ValueError):
+        # Not a bcrypt hash, e.g. an account without a local password: no match.
+        return False
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

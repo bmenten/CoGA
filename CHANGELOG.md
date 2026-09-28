@@ -314,6 +314,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   backend secrets out of the frontend container (#550).
 - **ClickHouse placeholder password** — outside development the backend also refuses
   `change-me` as the ClickHouse password, as it already did for Postgres and admin (#553).
+- **SOUP maintenance (#525)** — password hashing calls bcrypt 5.0.0 directly instead of the
+  unmaintained passlib 1.7.4, which had held bcrypt at 3.2.0. Stored hashes verify unchanged,
+  including passwords longer than bcrypt's 72-byte limit. Dependabot now also refreshes the
+  digests of the pinned container images (#554).
 
 ### Documentation
 
