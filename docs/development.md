@@ -111,6 +111,7 @@ The frontend is the only Node package in the repository. Run npm commands from `
 | `GENE_REFERENCE_HGNC_COMPLETE_SET_URL` | HGNC complete set; defines which human genes the reference sync caches and resolves renamed symbols onto their current name |
 | `REFERENCE_GENCODE_GTF_URL` | GENCODE GTF supplying human GRCh38 gene loci, biotypes, Ensembl/HGNC ids and MANE tags; pinned by release, falls back to the UCSC track when unset or unreachable |
 | `REFERENCE_GENCODE_REFSEQ_METADATA_URL` | GENCODE transcript → RefSeq accession map, so lookups naming an `NM_`/`NR_` accession keep resolving |
+| `HPO_ONTOLOGY_SHA256` | Optional SHA-256 (hex) the HPO bootstrap download must match; unset, the digest of the downloaded file is logged. `HPO_ONTOLOGY_URL` must be HTTPS |
 | `REFERENCE_BOOTSTRAP_T2T` | Import T2T-CHM13v2.0 as a second human assembly on startup; off by default, since a second assembly roughly doubles the reference footprint |
 | `VALIDATED_ASSEMBLIES` | Comma-separated reference assemblies inside the validated scope (default `GRCh38`). A family on any other assembly is labelled "not validated for clinical use" and cannot be signed out; extend it only through change control (TF-18), after validation |
 | `REFERENCE_T2T_GTF_URL` | T2T gene loci (UCSC `hs1.ncbiRefSeq.gtf.gz`); RefSeq-derived, so coordinates but no biotypes, Ensembl ids or MANE tags |

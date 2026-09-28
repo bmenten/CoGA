@@ -291,6 +291,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   identifiers they carry. The frontend server's `/api` proxy survives a backend reset
   mid-response, times out a backend that never answers, and no longer reveals the backend
   address (#548).
+- **Backend configuration (#522)** — outside development the backend refuses to start with a
+  short `SECRET_KEY`, without a ClickHouse password or without an integrity-anchor signing
+  key, and never writes an unsigned anchor. The species list needs a signed-in user. The HPO
+  ontology download is HTTPS-only, bounded and checked, and the knowledgebase build script no
+  longer inherits the backend's secrets (#549).
 
 ### Documentation
 

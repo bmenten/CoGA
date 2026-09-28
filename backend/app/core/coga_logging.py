@@ -76,6 +76,35 @@ class CoGALogger:
         self._log(logging.ERROR, message, user, **kwargs)
 
 
+# A link token in a query string (the QC-report link, #522). The access log records
+# the full request line; the token is a bearer credential for a few minutes.
+_QUERY_TOKEN_RE = re.compile(r"(?i)([?&](?:token|access_token)=)[^&\s\"]+")
+
+
+def redact_query_tokens(value: str) -> str:
+    return _QUERY_TOKEN_RE.sub(r"\1***", value)
+
+
+class RedactQueryTokenFilter(logging.Filter):
+    """Mask link tokens in log records, e.g. uvicorn's access-log request line."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = redact_query_tokens(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                redact_query_tokens(arg) if isinstance(arg, str) else arg for arg in record.args
+            )
+        return True
+
+
+def install_access_log_redaction() -> None:
+    """Keep QC-report link tokens out of uvicorn's access log (#522)."""
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(existing, RedactQueryTokenFilter) for existing in access_logger.filters):
+        access_logger.addFilter(RedactQueryTokenFilter())
+
+
 def configure_json_logging(level: int = logging.INFO) -> None:
     """Install JSON logging on the root logger if not configured yet."""
 

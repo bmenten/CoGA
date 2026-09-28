@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import scrub_log
 from ..core.config import settings
 from ..schemas import (
     ReferenceAutoImportResult,
@@ -558,7 +559,13 @@ async def _download_gencode_genes(
         )
         return rows, url, f"{source_label} {release.label}" if release.label else source_label
     except Exception as exc:  # pragma: no cover - network shape varies
-        logger.warning("GTF gene import failed for %s (%s); falling back to UCSC", ucsc_genome, exc)
+        # Values from the request and the upstream error are scrubbed of control
+        # characters so they cannot forge log lines (CodeQL py/log-injection, #522).
+        logger.warning(
+            "GTF gene import failed for %s (%s); falling back to UCSC",
+            scrub_log(ucsc_genome),
+            scrub_log(exc),
+        )
         return None
 
 
