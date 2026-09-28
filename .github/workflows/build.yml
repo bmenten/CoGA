@@ -171,9 +171,12 @@ jobs:
 
   deploy:
     needs: [prepare, build-backend, build-frontend]
-    # Apply only when GCP is configured, and only on push to main/master or a
-    # published release — never on a branch push or PR.
-    if: ${{ needs.prepare.outputs.gcp_configured == 'true' && (github.event_name == 'release' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'))) }}
+    # Apply only when GCP is configured, and from ONE trigger (#520): pushes to
+    # main/master (COGA_DEPLOY_TRIGGER unset or 'main', the documented default) or
+    # published releases (COGA_DEPLOY_TRIGGER=release). There is one environment and one
+    # state, so letting both apply would have a main push overwrite a release deployment.
+    # Never on a branch push or PR.
+    if: ${{ needs.prepare.outputs.gcp_configured == 'true' && ((github.event_name == 'release' && vars.COGA_DEPLOY_TRIGGER == 'release') || (github.event_name == 'push' && (vars.COGA_DEPLOY_TRIGGER || 'main') == 'main' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'))) }}
     runs-on: ubuntu-latest
     # Gate every infrastructure apply behind a protected GitHub Environment. Configure
     # required reviewers on the `gcp-deploy` environment (Settings → Environments) so a
@@ -206,6 +209,15 @@ jobs:
           terraform init \
             -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
             -backend-config="prefix=coga/${{ env.GCP_ENV }}"
+      - name: Terraform variables kept in the environment
+        # Every variable beyond the five passed below lives in the gcp-deploy
+        # environment's COGA_TFVARS variable (HCL, no secrets), so a value set once is not
+        # reverted to its default by the next deploy (#520). The -var flags still win.
+        if: ${{ vars.COGA_TFVARS != '' }}
+        working-directory: terraform
+        env:
+          COGA_TFVARS: ${{ vars.COGA_TFVARS }}
+        run: printf '%s\n' "$COGA_TFVARS" > ci.auto.tfvars
       - name: Terraform Plan
         working-directory: terraform
         run: |

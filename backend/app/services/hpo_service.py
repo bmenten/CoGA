@@ -11,6 +11,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import tempfile
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -505,6 +506,9 @@ def hpo_ontology_candidate_paths(ontology_path: str | Path | None = None) -> lis
         Path("/data/ref-data/hpo/hp.obo"),
         repo_root / "data" / "ref-data" / "hpo" / "hpo.obo",
         repo_root / "data" / "ref-data" / "hpo" / "hp.obo",
+        # Last resort for the bootstrap download when the reference-data mount is
+        # read-only (Cloud Run, #520): the file is only needed until it is imported.
+        Path(tempfile.gettempdir()) / "coga-ref-data" / "hpo" / "hp.obo",
     ]
     resolved: list[Path] = []
     seen: set[str] = set()

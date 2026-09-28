@@ -19,6 +19,7 @@ from .core.postgres import (
 from .core.coga_logging import configure_json_logging, install_access_log_redaction
 from .core.csv_export import EXPORT_HEADERS
 from .db_migrate import init_postgres_admin_user
+from .middleware.client_ip import TrustedProxyClientMiddleware
 from .middleware.request_logging import log_request_response
 from .middleware.security_headers import security_headers_middleware
 from .routers import all_routers
@@ -190,3 +191,7 @@ async def normalize_api_collection_root_paths(request, call_next):
 
 # Registered last → outermost: stamp the hardening headers onto every response.
 app.middleware("http")(security_headers_middleware)
+
+# Outermost of all: resolve the client address before logging, throttling or audit
+# read it (#520). A no-op unless TRUSTED_PROXY_HOPS is set.
+app.add_middleware(TrustedProxyClientMiddleware, hops=settings.trusted_proxy_hops)

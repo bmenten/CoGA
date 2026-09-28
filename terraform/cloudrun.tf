@@ -7,6 +7,12 @@
 # frontend. Same-origin, so no CORS hop and the backend is never publicly
 # reachable on its run.app URL.
 
+locals {
+  family_import_roots = length(var.family_import_roots) > 0 ? var.family_import_roots : (
+    var.storage_backend == "gcs" ? ["gs://${google_storage_bucket.phi.name}/imports"] : []
+  )
+}
+
 # ---- Backend API ----------------------------------------------------------
 
 resource "google_cloud_run_v2_service" "backend" {
@@ -89,6 +95,12 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "FORWARDED_ALLOW_IPS"
         value = var.forwarded_allow_ips
       }
+      # The client address is taken this many X-Forwarded-For entries from the right,
+      # past the load balancer, rather than uvicorn's client-settable left-most (#520).
+      env {
+        name  = "TRUSTED_PROXY_HOPS"
+        value = tostring(var.trusted_proxy_hops)
+      }
 
       # --- Object storage (PHI family data) ---
       # Defaults to local; flip var.storage_backend to "gcs" once the PHI bucket is
@@ -102,6 +114,15 @@ resource "google_cloud_run_v2_service" "backend" {
       env {
         name  = "GCS_BUCKET"
         value = google_storage_bucket.phi.name
+      }
+      # Where Package Import may read family folders from. Without it, gs:// imports
+      # were refused although section 11 of docs/deployment-gcp.md enables them (#520).
+      dynamic "env" {
+        for_each = length(local.family_import_roots) > 0 ? [1] : []
+        content {
+          name  = "FAMILY_IMPORT_ROOTS"
+          value = join(",", local.family_import_roots)
+        }
       }
 
       # --- Postgres ---
@@ -259,11 +280,14 @@ resource "google_cloud_run_v2_service" "backend" {
       }
     }
 
+    # Read-only, like the image and compose treat reference data (#520): it is loaded
+    # into the bucket out of band. The HPO bootstrap downloads to a temporary directory
+    # when this path is not writable.
     volumes {
       name = "refdata"
       gcs {
         bucket    = google_storage_bucket.refdata.name
-        read_only = false
+        read_only = true
       }
     }
   }

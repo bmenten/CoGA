@@ -14,8 +14,9 @@ services:
       retries: 30
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Loopback only (#520): reachable from this machine's tools (psql), not the network.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   clickhouse:
     image: clickhouse/clickhouse-server:25.3@sha256:b627d7a9bc0e0c1bac26cdbe9d2fc6316faa29c5d8a174f28f5abd57d0fa6ba2
@@ -44,9 +45,10 @@ services:
       # cap) so the Chromosome View's concurrent coverage/segment/SV query burst
       # degrades gracefully instead of hitting the server memory cap.
       - ./clickhouse/users.d/memory-guards.xml:/etc/clickhouse-server/users.d/memory-guards.xml:ro
+    # Loopback only (#520), like Postgres.
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
 
   backend:
     restart: unless-stopped
@@ -70,8 +72,13 @@ services:
       POSTGRES_HOST: postgres
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_HTTP_PORT: 8123
+      # The backend sits behind the frontend's /api proxy, which sends one clean
+      # X-Forwarded-For: take the client from there (#520).
+      TRUSTED_PROXY_HOPS: ${BACKEND_TRUSTED_PROXY_HOPS:-1}
+    # Loopback only (#520): the UI reaches the API through the frontend's /api proxy;
+    # this port is for local tools and the /docs page.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/data
     healthcheck:
@@ -103,10 +110,16 @@ services:
         VITE_GITHUB_REPOSITORY_URL: ${VITE_GITHUB_REPOSITORY_URL:-}
         VITE_GITHUB_RELEASES_URL: ${VITE_GITHUB_RELEASES_URL:-}
         VITE_GITHUB_ISSUES_URL: ${VITE_GITHUB_ISSUES_URL:-}
-    env_file:
-      - .env
+    # Only what the frontend server reads (#520): passing the whole .env handed the
+    # backend's database passwords and signing keys to a container that needs none.
     environment:
       BACKEND_URL: http://backend:8000
+      ENABLE_HSTS: ${ENABLE_HSTS:-false}
+      API_PROXY_TIMEOUT_MS: ${API_PROXY_TIMEOUT_MS:-}
+      # Proxies in front of the frontend; 0 when it is the edge. Its own name in .env, so
+      # it cannot be confused with the backend's hop count below.
+      TRUSTED_PROXY_HOPS: ${FRONTEND_TRUSTED_PROXY_HOPS:-0}
+      CSP_CONNECT_SRC: ${CSP_CONNECT_SRC:-}
     ports:
       - "3000:3000"
     depends_on:

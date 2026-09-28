@@ -116,6 +116,7 @@ The frontend is the only Node package in the repository. Run npm commands from `
 | `VALIDATED_ASSEMBLIES` | Comma-separated reference assemblies inside the validated scope (default `GRCh38`). A family on any other assembly is labelled "not validated for clinical use" and cannot be signed out; extend it only through change control (TF-18), after validation |
 | `REFERENCE_T2T_GTF_URL` | T2T gene loci (UCSC `hs1.ncbiRefSeq.gtf.gz`); RefSeq-derived, so coordinates but no biotypes, Ensembl ids or MANE tags |
 | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP` | Queue the first dbNSFP-backed human gene reference sync on startup when GRCh38 genes exist and `gene_info` is still empty; defaults to `true` |
+| `TRUSTED_PROXY_HOPS` (backend) | Proxies in front of the backend that each append to `X-Forwarded-For`; the client address is taken that many entries from the right (#520). 0 (default) leaves it to uvicorn. docker compose sets it to 1 (`BACKEND_TRUSTED_PROXY_HOPS`) because the backend sits behind the frontend's `/api` proxy; Terraform sets 2 for the load balancer |
 | `VITE_API_BASE_URL` | Frontend API base URL; defaults to same-origin `/api`, proxied to the backend |
 | `API_PROXY_TIMEOUT_MS` | Frontend server: how long the backend has to start answering a proxied `/api` request before a 504; default 600000 (10 min) |
 | `TRUSTED_PROXY_HOPS` | Frontend server: reverse proxies in front of it that append to `X-Forwarded-For`; 0 (default) when the frontend is the edge, so client-sent values are ignored |
