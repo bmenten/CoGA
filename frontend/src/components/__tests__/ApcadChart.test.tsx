@@ -4,6 +4,14 @@ import { type ReactElement, type ReactNode } from 'react';
 import { createTestQueryClient } from '../../test/createTestQueryClient';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ApcadChart from '../visualizations/ApcadChart';
+import { serveTrackFetchFrom } from '../../test/trackFetchMock';
+
+// The charts fetch through lib/trackFetch (the shared API client); serve it from the
+// fetch-shaped fixtures below.
+vi.mock('../../lib/trackFetch', async () => {
+  const { fetchTrackJsonMock } = await import('../../test/trackFetchMock');
+  return { fetchTrackJson: fetchTrackJsonMock };
+});
 
 const createCanvasContext = (): CanvasRenderingContext2D =>
   ({
@@ -51,7 +59,7 @@ describe('ApcadChart', () => {
         }),
       }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    serveTrackFetchFrom(fetchMock);
 
     const { rerender, container } = renderWithClient(
       <ApcadChart
@@ -92,7 +100,7 @@ describe('ApcadChart', () => {
         }),
       }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    serveTrackFetchFrom(fetchMock);
 
     renderWithClient(
       <ApcadChart

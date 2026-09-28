@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizErrorOverlay from './VizErrorOverlay';
 import { RepeatLocusTooltip, STATUS_COLORS } from './repeatExpansionHelpers';
 
 interface Layout {
@@ -31,7 +32,7 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
   height,
   projectId,
 }) => {
-  const { data, isLoading } = useQuery<ApiRepeatExpansionTrackResponse>({
+  const { data, isLoading, isError, refetch } = useQuery<ApiRepeatExpansionTrackResponse>({
     queryKey: ['genome-repeat-expansions', familyId, sampleId, chroms.join(','), projectId],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -112,7 +113,8 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
         })}
       </svg>
       {isLoading && <VizLoadingOverlay message="Loading repeat expansions" />}
-      {!isLoading && items.length === 0 && (
+      {isError && <VizErrorOverlay what="repeat expansions" onRetry={() => void refetch()} />}
+      {!isLoading && !isError && items.length === 0 && (
         <div className="viz-empty-overlay">No repeat loci for this sample</div>
       )}
       {tooltip && (

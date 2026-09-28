@@ -302,6 +302,8 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/__tests__/serverSecurityHeaders.test.ts](../frontend/src/__tests__/serverSecurityHeaders.test.ts) | SPA security response headers + enforcing CSP (IGV/S3/fonts-aware); HSTS opt-in. |
 | [frontend/src/lib/__tests__/useMeasuredWidth.test.tsx](../frontend/src/lib/__tests__/useMeasuredWidth.test.tsx) | Viewer width measurement: content box (not border box), re-measure when a background tab becomes visible, ignore zero, listener cleanup. |
 | [frontend/src/lib/__tests__/api.test.ts](../frontend/src/lib/__tests__/api.test.ts) | Auth-header attachment and error normalization. |
+| [frontend/src/lib/__tests__/trackFetch.test.ts](../frontend/src/lib/__tests__/trackFetch.test.ts) | Track payload fetch through the shared API client without re-prefixing the base; a "no data" 404 is empty only where allowed, every other failure throws (#510). |
+| [frontend/src/lib/__tests__/useSameSpanFallbackData.test.ts](../frontend/src/lib/__tests__/useSameSpanFallbackData.test.ts) | Pan fallback holds data only for the same span AND scope — never one chromosome's data under another (#510). |
 | [frontend/src/lib/__tests__/coverageSources.test.ts](../frontend/src/lib/__tests__/coverageSources.test.ts) | CNV-caller display order, labels for known and unknown callers, and when a coverage track names its caller. |
 | [frontend/src/styles/__tests__/controlOverrides.test.ts](../frontend/src/styles/__tests__/controlOverrides.test.ts) | CSS specificity guard: a rule that resizes a form control must actually beat the shared `input:not([type=…])` rule, whose `:not()` arguments make it (0,2,1). |
 | [frontend/src/lib/__tests__/auth.test.ts](../frontend/src/lib/__tests__/auth.test.ts) | Session persistence; token/role/username storage; admin/auth checks. |
@@ -328,17 +330,19 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 ### Visualization components
 | Test file | Purpose |
 | --- | --- |
-| [frontend/src/components/__tests__/ApcadChart.test.tsx](../frontend/src/components/__tests__/ApcadChart.test.tsx) | APCAD chart rendering / canvas context. |
+| [frontend/src/components/__tests__/ApcadChart.test.tsx](../frontend/src/components/__tests__/ApcadChart.test.tsx) | APCAD chart rendering / canvas context (fetch via the shared track client). |
 | [frontend/src/components/__tests__/CircosPlot.test.tsx](../frontend/src/components/__tests__/CircosPlot.test.tsx) | Circos plot rendering (bands, telomere/centromere geometry). |
 | [frontend/src/components/__tests__/CnvTrack.test.tsx](../frontend/src/components/__tests__/CnvTrack.test.tsx) | CNV track rendering and query integration. |
-| [frontend/src/components/__tests__/CoverageSegmentsChart.test.tsx](../frontend/src/components/__tests__/CoverageSegmentsChart.test.tsx) | Coverage-segments chart rendering. |
+| [frontend/src/components/__tests__/CoverageSegmentsChart.test.tsx](../frontend/src/components/__tests__/CoverageSegmentsChart.test.tsx) | Coverage-segments chart rendering; a "no data" 404 source is empty while any other failed source fails the chart (#510). |
 | [frontend/src/components/__tests__/DgvTrack.test.tsx](../frontend/src/components/__tests__/DgvTrack.test.tsx) | DGV background track rendering. |
-| [frontend/src/components/__tests__/HaplotypePhasedTrack.test.tsx](../frontend/src/components/__tests__/HaplotypePhasedTrack.test.tsx) | Phased-haplotype track + raw-marker overlay rendering. |
+| [frontend/src/components/__tests__/ErrorBoundary.test.tsx](../frontend/src/components/__tests__/ErrorBoundary.test.tsx) | Render-error screen clears when the route changes, stays on the same route (#510). |
+| [frontend/src/components/__tests__/TrackErrorStates.test.tsx](../frontend/src/components/__tests__/TrackErrorStates.test.tsx) | Failed track requests show a failure (with retry), never an empty-region message: genome haplotype track fails whole instead of computing risk from partial sources (risk state `unavailable`), SV and blacklist tracks; a genuinely empty region still reads as empty (#510). |
+| [frontend/src/components/__tests__/HaplotypePhasedTrack.test.tsx](../frontend/src/components/__tests__/HaplotypePhasedTrack.test.tsx) | Phased-haplotype track + raw-marker overlay rendering; a failed haplotype request shows the failure (risk state `unavailable`), a failed marker request is flagged over the drawn blocks (#510). |
 | [frontend/src/components/__tests__/Histogram.test.tsx](../frontend/src/components/__tests__/Histogram.test.tsx) | Histogram rendering with large datasets. |
 | [frontend/src/components/__tests__/IgvViewer.test.tsx](../frontend/src/components/__tests__/IgvViewer.test.tsx) | IGV browser init, genome search, track loading, cleanup. |
 | [frontend/src/components/__tests__/Pedigree.test.tsx](../frontend/src/components/__tests__/Pedigree.test.tsx) | Pedigree diagram: affected/carrier status, per-sample QC ring. |
 | [frontend/src/components/__tests__/RepeatExpansionTrack.test.tsx](../frontend/src/components/__tests__/RepeatExpansionTrack.test.tsx) | Repeat-expansion track rendering. |
-| [frontend/src/components/__tests__/SmallVariantTrack.test.tsx](../frontend/src/components/__tests__/SmallVariantTrack.test.tsx) | Small-variant track rendering with query/API mocks. |
+| [frontend/src/components/__tests__/SmallVariantTrack.test.tsx](../frontend/src/components/__tests__/SmallVariantTrack.test.tsx) | Small-variant track rendering with query/API mocks; a failed request shows the failure with retry, never "no small variants" (#510). |
 | [frontend/src/components/__tests__/VariantTrack.test.tsx](../frontend/src/components/__tests__/VariantTrack.test.tsx) | Base variant-track rendering. |
 | [frontend/src/components/visualizations/__tests__/VizTooltip.test.tsx](../frontend/src/components/visualizations/__tests__/VizTooltip.test.tsx) | Floating tooltip portal rendering. |
 | [frontend/src/components/visualizations/__tests__/ApcadChart.test.tsx](../frontend/src/components/visualizations/__tests__/ApcadChart.test.tsx) | APCAD track draws whatever the server sent, unphased (`und`) points included, and still reports a genuinely empty region. |

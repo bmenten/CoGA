@@ -472,3 +472,26 @@ test('shows a hover tooltip with the gene and variant', async () => {
   expect(tooltip?.textContent).toContain('G>A');
   expect(tooltip?.textContent).toContain('c.7007G>A');
 });
+
+test('a failed request shows the failure, never "no small variants" (#510)', () => {
+  const refetch = vi.fn();
+  useQueryMock.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch });
+  render(
+    <SmallVariantTrack
+      familyId="F1"
+      sampleId="S1"
+      chrom="1"
+      regionStart={0}
+      regionEnd={100}
+      width={100}
+      height={20}
+    />
+  );
+
+  expect(
+    screen.getByText(/Could not load small variants — this is not an empty result/),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/no small variants for this region/i)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(refetch).toHaveBeenCalled();
+});

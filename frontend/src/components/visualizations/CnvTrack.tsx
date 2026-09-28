@@ -1,6 +1,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
+import VizErrorOverlay from './VizErrorOverlay';
 import { useNavigate } from 'react-router';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
@@ -36,7 +37,7 @@ const CnvTrack: React.FC<Props> = ({
   const [tooltip, setTooltip] = React.useState<{ x: number; y: number; label: string } | null>(
     null,
   );
-  const { data: rawData } = useQuery<Cnv[]>({
+  const { data: rawData, isError, refetch } = useQuery<Cnv[]>({
     queryKey: ['cnvs', assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(`/cnvs/${assembly}/${chrom}`, {
@@ -48,7 +49,21 @@ const CnvTrack: React.FC<Props> = ({
     staleTime: Infinity,
     gcTime: Infinity,
   });
-  const data = useSameSpanFallbackData(rawData, (regionEnd ?? 0) - (regionStart ?? 0));
+  const data = useSameSpanFallbackData(
+    isError ? null : rawData,
+    (regionEnd ?? 0) - (regionStart ?? 0),
+    `${assembly}|${chrom}`,
+  );
+
+  // A failed request must never read as an empty region (#510).
+  if (isError) {
+    return (
+      <div className="relative" style={{ width, height }}>
+        <svg width={width} height={height} />
+        <VizErrorOverlay what="clinical CNV regions" onRetry={() => void refetch()} />
+      </div>
+    );
+  }
 
   if (!data) return <svg width={width} height={height} />;
 

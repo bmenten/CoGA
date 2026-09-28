@@ -7,10 +7,11 @@ import {
   getCoverageUpperThreshold,
 } from '../../lib/settings';
 import { cssVar } from '../../lib/colors';
-import { storage } from '../../lib/storage';
+import { fetchTrackJson } from '../../lib/trackFetch';
 import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizErrorOverlay from './VizErrorOverlay';
 
 const DEFAULT_CHROMS = [
   ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
@@ -55,25 +56,6 @@ interface BedRecordPayload<T> {
 }
 
 type BedRecordResponse<T> = BedRecordPayload<T> | T[];
-
-const fetchJsonOrNull = async <T,>(
-  url: string,
-  headers: Record<string, string>,
-  signal: AbortSignal,
-): Promise<BedRecordResponse<T> | null> => {
-  try {
-    const response = await fetch(url, { headers, signal });
-    if (!response.ok) {
-      return null;
-    }
-    return (await response.json()) as BedRecordResponse<T>;
-  } catch {
-    if (signal.aborted) {
-      throw new DOMException('Aborted', 'AbortError');
-    }
-    return null;
-  }
-};
 
 const splitKey = (key: string): string[] => (key ? key.split('\n').filter(Boolean) : []);
 
@@ -163,19 +145,31 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   // React Query caches/dedupes by URL across re-renders and navigation (was a raw
   // fetch in useEffect that re-ran on every mount/resize). The data is static per
   // family, so it is held indefinitely.
-  const { data: trackData = null, isLoading } = useQuery<CoverageTrackData>({
+  const {
+    data: trackData = null,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<CoverageTrackData>({
     queryKey: ['genome-coverage', coverageUrlKey, segmentUrlKey, chromKey],
     enabled: stableCoverageUrls.length > 0,
     staleTime: Infinity,
     gcTime: Infinity,
     queryFn: async ({ signal }) => {
-      const headers: Record<string, string> = {};
-      const token = storage.getItem('token');
-      if (token) headers.Authorization = `Bearer ${token}`;
       const allowedChroms = new Set(stableChroms.map(normalizeChrom));
+      // A 404 is the BED endpoints' "no data" answer; any other failure fails the chart
+      // rather than drawing (and caching) a partial track (#510).
       const [coveragePayloads, segmentPayloads] = await Promise.all([
-        Promise.all(stableCoverageUrls.map((url) => fetchJsonOrNull<CoverageBin>(url, headers, signal))),
-        Promise.all(stableSegmentsUrls.map((url) => fetchJsonOrNull<Segment>(url, headers, signal))),
+        Promise.all(
+          stableCoverageUrls.map((url) =>
+            fetchTrackJson<BedRecordResponse<CoverageBin>>(url, { signal, emptyOn404: true }),
+          ),
+        ),
+        Promise.all(
+          stableSegmentsUrls.map((url) =>
+            fetchTrackJson<BedRecordResponse<Segment>>(url, { signal, emptyOn404: true }),
+          ),
+        ),
       ]);
       const bins: CoverageBin[] = [];
       coveragePayloads.forEach((payload) => {
@@ -200,7 +194,11 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   });
   // Keep the previous window painted across a pan (same span) so the track glides
   // instead of blanking; on a zoom the stale data is dropped (see the hook).
-  const displayData = useSameSpanFallbackData(trackData, (regionEnd ?? 0) - (regionStart ?? 0));
+  const displayData = useSameSpanFallbackData(
+    isError ? null : trackData,
+    (regionEnd ?? 0) - (regionStart ?? 0),
+    `${coverageUrlKey}|${segmentUrlKey}|${chromKey}`,
+  );
   const loading = isLoading && stableCoverageUrls.length > 0 && displayData === null;
   // null while loading (don't blank the chart), false when there are no URLs or the
   // payloads are empty, true when either track has data.
@@ -521,7 +519,8 @@ const CoverageSegmentsChart: React.FC<Props> = ({
         onClick={handleClick}
       />
       {loading && <VizLoadingOverlay message="Loading coverage" />}
-      {!loading && hasData === false && (
+      {isError && <VizErrorOverlay what="coverage" onRetry={() => void refetch()} />}
+      {!loading && !isError && hasData === false && (
         <div className="viz-empty-overlay">No coverage data in this region</div>
       )}
       <div style={rectStyle} />

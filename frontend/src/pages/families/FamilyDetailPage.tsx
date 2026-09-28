@@ -103,6 +103,16 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   // available from the family dashboard for admins regardless of `editable`.
   const canEditRoi = userIsAdmin;
   const queryClient = useQueryClient();
+  // Haplotype lineage colours and embryo segregation depend on the pedigree roles and
+  // affected status. Those queries never go stale on their own (staleTime: Infinity), so
+  // a structure or member edit must drop them — otherwise embryo classification pairs
+  // the new roles with pre-edit haplotypes until a reload (#510).
+  const invalidatePedigreeDependentQueries = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['haplotypes', familyId] }),
+      queryClient.invalidateQueries({ queryKey: ['phased-markers', familyId] }),
+      queryClient.invalidateQueries({ queryKey: ['genome-haplotypes'] }),
+    ]);
   const [roiInput, setRoiInput] = useState('');
   const [roiBusy, setRoiBusy] = useState(false);
   const [roiStatus, setRoiStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(
@@ -783,6 +793,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       };
       queryClient.setQueryData(['family', familyId], payload.family);
       await queryClient.invalidateQueries({ queryKey: ['families'] });
+      await invalidatePedigreeDependentQueries();
       setStructureStatus({
         tone: 'success',
         message: payload.warnings?.length
@@ -906,6 +917,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       queryClient.setQueryData(['family', familyId], payload.family);
       setPendingMemberUpdates({});
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
+      await invalidatePedigreeDependentQueries();
       setPendingMembersStatus({
         tone: 'success',
         message: payload.warnings?.length
@@ -952,6 +964,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       queryClient.setQueryData(['family', familyId], payload.family);
       await queryClient.invalidateQueries({ queryKey: ['families'] });
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
+      await invalidatePedigreeDependentQueries();
       closeMemberDetail();
     } catch (error) {
       setMemberStatus({

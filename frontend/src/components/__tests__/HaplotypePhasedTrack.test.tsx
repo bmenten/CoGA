@@ -184,3 +184,35 @@ test('does not fetch phased markers when the overlay is off', () => {
   );
   expect((phasedCall?.[0] as { enabled?: boolean } | undefined)?.enabled).toBe(false);
 });
+
+test('a failed haplotype request shows the failure, not "no haplotype data" or a risk state (#510)', () => {
+  const refetch = vi.fn();
+  useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
+    queryKey[0] === 'haplotypes'
+      ? { data: undefined, isLoading: false, isError: true, refetch }
+      : { data: undefined, isLoading: false, isError: false },
+  );
+  const { container, getByRole } = renderTrack(false);
+
+  expect(container.textContent).toContain('Could not load haplotypes — this is not an empty result');
+  expect(container.textContent).not.toContain('No haplotype data in this region');
+  expect(container.querySelector('[data-risk-state]')?.getAttribute('data-risk-state')).toBe('unavailable');
+  fireEvent.click(getByRole('button', { name: 'Retry' }));
+  expect(refetch).toHaveBeenCalled();
+});
+
+test('a failed marker request is flagged while the blocks stay drawn (#510)', () => {
+  useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
+    queryKey[0] === 'phased-markers'
+      ? { data: undefined, isLoading: false, isError: true }
+      : {
+          data: { samples: members.map((m) => ({ sample: m.sample_id, segments })) },
+          isLoading: false,
+          isError: false,
+        },
+  );
+  const { container } = renderTrack(true);
+
+  expect(container.textContent).toContain('Phased markers could not load');
+  expect(container.textContent).not.toContain('Could not load haplotypes');
+});

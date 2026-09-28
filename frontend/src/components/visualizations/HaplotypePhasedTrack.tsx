@@ -18,6 +18,7 @@ import {
   type HaplotypeRiskRegion,
 } from '../../lib/haplotypeRisk';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
 
 interface Segment {
@@ -226,7 +227,12 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
 
   const hasRegion = regionEnd > regionStart;
 
-  const { data: rawHaplotypeData, isLoading: haplotypeLoading } = useQuery<HaplotypeResponse>({
+  const {
+    data: rawHaplotypeData,
+    isLoading: haplotypeLoading,
+    isError: haplotypeError,
+    refetch: refetchHaplotypes,
+  } = useQuery<HaplotypeResponse>({
     queryKey: ['haplotypes', familyId, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/haplotypes`, {
@@ -241,7 +247,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
 
   // Raw per-marker phasing (computed server-side, returned per member). Only
   // fetched when we are overlaying markers.
-  const { data: rawPhasedData } = useQuery<PhasedMarkerResponse>({
+  const { data: rawPhasedData, isError: markersError } = useQuery<PhasedMarkerResponse>({
     queryKey: ['phased-markers', familyId, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/phased-markers`, {
@@ -255,8 +261,20 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   });
 
   // Keep the previous window painted across a pan (same span); dropped on zoom.
-  const haplotypeData = useSameSpanFallbackData(rawHaplotypeData, (regionEnd ?? 0) - (regionStart ?? 0));
-  const phasedData = useSameSpanFallbackData(rawPhasedData, (regionEnd ?? 0) - (regionStart ?? 0));
+  // Scoped to the family + chromosome: a jump to another chromosome at the same zoom must
+  // not keep painting the previous chromosome's blocks, and a failed request never falls
+  // back to stale data (#510).
+  const fallbackScope = `${familyId}|${chrom}`;
+  const haplotypeData = useSameSpanFallbackData(
+    haplotypeError ? null : rawHaplotypeData,
+    (regionEnd ?? 0) - (regionStart ?? 0),
+    fallbackScope,
+  );
+  const phasedData = useSameSpanFallbackData(
+    markersError ? null : rawPhasedData,
+    (regionEnd ?? 0) - (regionStart ?? 0),
+    fallbackScope,
+  );
   const isLoading = haplotypeLoading && haplotypeData === null;
 
   const effectiveInheritanceModel = inheritanceModel || (disorder === 'recessive' ? 'AR' : 'AD');
@@ -711,22 +729,33 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     });
   };
 
+  // A failed load has no risk state — not "uninformative", which is a real outcome.
+  const shownRiskState = haplotypeError ? 'unavailable' : riskState;
+
   return (
     <div
-      className={`relative haplotype-track haplotype-track--${riskState}`}
-      data-risk-state={riskState}
+      className={`relative haplotype-track haplotype-track--${shownRiskState}`}
+      data-risk-state={shownRiskState}
       style={{ width, height }}
     >
       <canvas
         ref={canvasRef}
         className={showMarkers && !markersTruncated ? 'cursor-pointer' : undefined}
-        aria-label={`Haplotype risk state: ${riskState}`}
+        aria-label={`Haplotype risk state: ${shownRiskState}`}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setTooltip(null)}
       />
       {isLoading && <VizLoadingOverlay message="Loading haplotypes" />}
-      {!isLoading && !hasSegments && (
+      {haplotypeError && (
+        <VizErrorOverlay what="haplotypes" onRetry={() => void refetchHaplotypes()} />
+      )}
+      {!isLoading && !haplotypeError && !hasSegments && (
         <div className="viz-empty-overlay">No haplotype data in this region</div>
+      )}
+      {showMarkers && markersError && !haplotypeError && (
+        <div className="viz-marker-truncated viz-marker-error" role="alert">
+          Phased markers could not load
+        </div>
       )}
       {/* Too many per-site markers to fetch fully: the overlay would be partial, so
           we suppress the dots and prompt the user to zoom in. Unobtrusive, top-right,
