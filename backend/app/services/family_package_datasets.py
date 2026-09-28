@@ -353,7 +353,10 @@ async def _import_wisecondorx_dataset(
             continue
         sample_results[sample_id] = {}
 
-        async def report_track(role: str, stats: dict[str, int]) -> None:
+        # sample_id is bound now, so the callback reports the sample it was made for.
+        async def report_track(
+            role: str, stats: dict[str, int], *, sample_id: str = sample_id
+        ) -> None:
             sample_results.setdefault(sample_id, {})[role] = stats
             if progress is not None:
                 await progress(
@@ -424,7 +427,10 @@ async def _import_qdnaseq_dataset(
             continue
         sample_results[sample_id] = {}
 
-        async def report_track(role: str, stats: dict[str, int]) -> None:
+        # sample_id is bound now, so the callback reports the sample it was made for.
+        async def report_track(
+            role: str, stats: dict[str, int], *, sample_id: str = sample_id
+        ) -> None:
             sample_results.setdefault(sample_id, {})[role] = stats
             if progress is not None:
                 await progress(

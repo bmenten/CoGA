@@ -47,6 +47,6 @@
 ## Security & Testing
 
 - Follow the posture in `docs/security-posture.md`: project-scoped RBAC, append-only audit, encryption/TLS, rate limiting, and the CI gates (dependency-audit, secret-scan, SAST, SBOM).
-- **Backend:** run `python -m pytest` (from the repository root or `backend/`; both collect `backend/tests/`, the only test root). **Frontend:** run `npx vitest run` from `frontend/`. The catalogue gate enforces every test file is listed in `docs/testing.md` — keep that catalogue current. `tsc`/`eslint`/`build` do **not** catch component-test regressions, so run vitest for any frontend change.
+- **Backend:** run `ruff check .`, `mypy` (the clinical-critical modules in `mypy.ini`) and `python -m pytest` (from the repository root or `backend/`; both collect `backend/tests/`, the only test root). **Frontend:** run `npx vitest run` from `frontend/`. The catalogue gate enforces every test file is listed in `docs/testing.md` — keep that catalogue current. `tsc`/`eslint`/`build` do **not** catch component-test regressions, so run vitest for any frontend change.
 - An end-to-end harness (API-contract, import, sign-out, and Playwright browser journeys) backs the IVDR verification records — see `docs/regulatory/TF-09c`/`TF-09d`.
 - Run the relevant suites before committing.

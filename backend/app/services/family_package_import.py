@@ -243,7 +243,9 @@ async def _execute_family_package_import_local(
         if progress is not None:
             await progress(validation, datasets, logs, family_context.family_id)
         try:
-            async def dataset_progress(partial_summary: FamilyImportDatasetSummary) -> None:
+            async def dataset_progress(
+                partial_summary: FamilyImportDatasetSummary, *, index: int = index
+            ) -> None:
                 datasets[index] = partial_summary
                 if progress is not None:
                     await progress(validation, datasets, logs, family_context.family_id)

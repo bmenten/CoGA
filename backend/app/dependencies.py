@@ -68,7 +68,7 @@ async def get_current_user(
                 token, settings.azure_tenant_id, settings.azure_client_id
             )
             email = payload.get("preferred_username") or payload.get("email")
-        except Exception:
+        except Exception as azure_exc:
             if settings.azure_admin_override:
                 try:
                     payload = jwt.decode(
@@ -79,7 +79,7 @@ async def get_current_user(
                 except jwt.PyJWTError as exc:
                     raise credentials_exception from exc
             else:
-                raise credentials_exception
+                raise credentials_exception from azure_exc
     else:
         try:
             payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])

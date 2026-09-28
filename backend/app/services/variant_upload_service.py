@@ -193,7 +193,7 @@ def _iter_upload_text_lines(file: UploadFile, *, kind: str):
     try:
         raw.seek(0)
     except (AttributeError, OSError):
-        raise HTTPException(status_code=400, detail=f"{kind} file is not seekable")
+        raise HTTPException(status_code=400, detail=f"{kind} file is not seekable") from None
 
     magic = raw.read(2)
     raw.seek(0)

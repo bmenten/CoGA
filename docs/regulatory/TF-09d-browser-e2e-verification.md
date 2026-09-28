@@ -17,7 +17,10 @@
 > **headless pipeline/API level** (ingestion → datastores → query/API → review/audit → signed
 > report), TF-09d verifies that **same boundary through the actual graphical user interface a
 > clinician uses** — a real **Chromium** browser driving the deployed React UI against a *live*
-> backend (uvicorn) and *live* Postgres 16 + ClickHouse 26.8.
+> backend (uvicorn) and *live* Postgres 16 + ClickHouse 26.8. Since #526 the UI is the **production
+> build** served by the production frontend server (`server.mjs`, with its enforcing
+> Content-Security-Policy and `/api` proxy), not the development server, and every journey fails if
+> the browser reports a CSP violation.
 >
 > It documents two things an external reviewer or auditor needs: **(1)** the automated browser
 > verification (the Playwright suite + CI `e2e-playwright` job), and **(2)** a **step-by-step
@@ -108,8 +111,9 @@ cd frontend && npx playwright install chromium
 
 ### 4.2 Option A — Watch the automated journeys run in a real browser *(recommended)*
 
-Playwright starts the backend (uvicorn :8000) and the Vite dev server (:5173) itself, then drives
-Chromium through the journeys of §3. From `frontend/`:
+Playwright starts the backend (uvicorn :8000) and the production frontend itself: it builds the
+bundle (`npm run build`) and serves it with `node server.mjs` on :4173, the server the frontend
+image runs. It then drives Chromium through the journeys of §3. From `frontend/`:
 
 ```bash
 # Interactive UI: pick a journey, watch the live browser, time-travel each step
@@ -121,6 +125,10 @@ E2E_PYTHON=/path/to/python npx playwright test --headed
 # …or step through one journey under the inspector
 E2E_PYTHON=/path/to/python npx playwright test signout --debug
 ```
+
+`E2E_FRONTEND=dev` swaps the production server for the Vite dev server (:5173), which is quicker
+when iterating on a journey but sends no CSP, so it is not the verification run.
+`E2E_BACKEND_PORT` moves the backend off :8000 when that port is taken.
 
 After a run, open the recorded evidence (§5):
 
@@ -139,12 +147,11 @@ APP_ENV=test REFERENCE_BOOTSTRAP_ENABLED=false HPO_BOOTSTRAP_ON_STARTUP=false \
   GENE_REFERENCE_BOOTSTRAP_ON_STARTUP=false \
   python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 
-# Terminal 2 — frontend (proxies /api to the backend)
-cd frontend && VITE_DEV_API_PROXY_TARGET=http://127.0.0.1:8000 \
-  npm run dev -- --port 5173 --host 127.0.0.1
+# Terminal 2 — the production frontend (built bundle, CSP, proxies /api to the backend)
+cd frontend && npm run build && PORT=4173 BACKEND_URL=http://127.0.0.1:8000 node server.mjs
 ```
 
-Then open **http://127.0.0.1:5173** and reproduce §3 by hand:
+Then open **http://127.0.0.1:4173** and reproduce §3 by hand:
 
 | Step | Action | Expected observation (acceptance) |
 | --- | --- | --- |

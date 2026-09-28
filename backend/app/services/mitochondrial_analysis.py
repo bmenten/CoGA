@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Literal, Protocol, Sequence
 from urllib.parse import quote
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
-    FamilyMemberOut,
     FamilyMitoDNAAnalysisOut,
     MitoDNACoverageOut,
     MitoDNAQcOut,
@@ -434,10 +433,30 @@ def _has_alt_call(call: MitoDNAVariantSampleCallOut | None) -> bool:
     return call is not None and call.zygosity in {"homoplasmic", "heteroplasmic", "low_level"}
 
 
+class _MemberWithRole(Protocol):
+    """What the transmission check reads: a family member and a mito-sample row both fit."""
+
+    @property
+    def sample_id(self) -> str: ...
+
+    @property
+    def role(self) -> str | None: ...
+
+
+MaternalTransmission = Literal[
+    "maternal_shared",
+    "maternal_not_observed",
+    "maternal_only",
+    "father_only",
+    "family_private",
+    "no_alt_calls",
+]
+
+
 def _maternal_transmission(
     calls: dict[str, MitoDNAVariantSampleCallOut],
-    samples: Sequence[FamilyMemberOut],
-) -> str:
+    samples: Sequence[_MemberWithRole],
+) -> MaternalTransmission:
     mothers = {sample.sample_id for sample in samples if sample.role == "mother"}
     fathers = {sample.sample_id for sample in samples if sample.role == "father"}
     children = {
@@ -466,7 +485,7 @@ def _variant_out(
     record: SmallVariantRecord,
     *,
     member_by_sample: dict[str, dict[str, Any]],
-    samples: Sequence[FamilyMemberOut],
+    samples: Sequence[_MemberWithRole],
 ) -> MitoDNAVariantOut:
     calls = {
         call.sample: _call_out(call, member_by_sample=member_by_sample)
@@ -484,7 +503,7 @@ def _variant_out(
         rsid=record.rsid,
         annotation=_annotation_for_record(record),
         calls=calls,
-        maternal_transmission=_maternal_transmission(calls, samples),  # type: ignore[arg-type]
+        maternal_transmission=_maternal_transmission(calls, samples),
     )
 
 
