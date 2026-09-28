@@ -1141,6 +1141,12 @@ const guideSections: GuideSection[] = [
           signed record can never change.
         </p>
         <p>
+          <strong>Only authorised signatories sign out.</strong> CoGA lets any member of the
+          project sign out a report and does not check signing authority itself; the laboratory
+          decides who may sign, and CoGA records who signed each version in the signed record and
+          the audit trail.
+        </p>
+        <p>
           The report page itself always shows the <em>current</em> data, and checks it against the
           latest signed version. The record is green —{' '}
           <em>“✓ Signed out — version 2 by … · This page matches signed version 2”</em> — only while

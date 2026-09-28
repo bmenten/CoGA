@@ -119,6 +119,10 @@ and you are asked to re-review or **acknowledge** the drift **with a reason**. T
 acknowledgement and its reason are recorded in both the snapshot and the audit trail, so
 "signed out over known drift, and why" is itself part of the permanent record.
 
+**Who may sign out.** Only people the laboratory has authorised as signatories. CoGA lets
+any member of the project press *Sign out* and does not check signing authority itself; it
+records who signed each version, in the signed record and the audit trail.
+
 **Amendments.** Signing out again creates a **new version** (v2, v3, …) — the previous
 versions are never overwritten. The button reads *Amend sign-out* once a case has been
 signed out.
