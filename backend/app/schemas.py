@@ -557,10 +557,11 @@ class ReportSignoutRequest(BaseModel):
     """Sign out the current report.
 
     Evidence drift and a failing sample-integrity QC must each be explicitly
-    acknowledged; acknowledging a failing QC additionally requires a reason.
+    acknowledged, and each acknowledgement requires a reason.
     """
 
     acknowledge_drift: bool = False
+    drift_acknowledgement_reason: Optional[str] = None
     acknowledge_qc: bool = False
     qc_acknowledgement_reason: Optional[str] = None
 
@@ -579,6 +580,10 @@ class ReportSignoutSummary(BaseModel):
     qc_status: Optional[str] = None
     qc_acknowledged: Optional[bool] = None
     qc_acknowledgement_reason: Optional[str] = None
+    # Frozen evidence-drift override and its reason (NULL for sign-outs made before a
+    # drift override needed a reason).
+    drift_acknowledged: Optional[bool] = None
+    drift_acknowledgement_reason: Optional[str] = None
     # Re-verification of the stored content hash against the snapshot, done on detail
     # reads (None when not checked, e.g. in list views). False ⇒ snapshot was tampered.
     verified: Optional[bool] = None
@@ -594,6 +599,23 @@ class ReportSignoutListOut(BaseModel):
     family_id: str
     latest: Optional[ReportSignoutSummary] = None
     signouts: List[ReportSignoutSummary] = Field(default_factory=list)
+
+
+class ReportSignoutCheckOut(BaseModel):
+    """Whether the report, as it would be signed now, matches the latest sign-out.
+
+    ``matches`` is None when the family has never been signed out. ``changed_sections``
+    names the snapshot sections whose content differs from the signed one;
+    ``not_compared`` those the signed snapshot predates and so cannot be compared.
+    """
+
+    family_id: str
+    version: Optional[int] = None
+    content_hash: Optional[str] = None
+    matches: Optional[bool] = None
+    changed_sections: List[str] = Field(default_factory=list)
+    not_compared: List[str] = Field(default_factory=list)
+    checked_at: datetime
 
 
 class IntegrityVerifyOut(BaseModel):

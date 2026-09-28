@@ -160,12 +160,29 @@ async def _collect(root: Path) -> dict:
             as_json=False,
         )
 
-        signout_body = {"acknowledge_drift": True, "acknowledge_qc": True, "qc_acknowledgement_reason": "e2e validation"}
+        signout_body = {
+            "acknowledge_drift": True,
+            "drift_acknowledgement_reason": "e2e validation",
+            "acknowledge_qc": True,
+            "qc_acknowledgement_reason": "e2e validation",
+        }
         r["signout1"] = _cap(await ac.post(f"/api/families/{FAMILY}/report/sign-out", json=signout_body))
         r["signout2"] = _cap(await ac.post(f"/api/families/{FAMILY}/report/sign-out", json=signout_body))
         r["integrity_signouts"] = _cap(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
         )
+        # #508: the report page asks whether its live content still matches the latest
+        # sign-out. Straight after signing it must — through the real JSONB round-trip —
+        # and after a reported review is edited it must not.
+        check_url = f"/api/families/{FAMILY}/report/sign-out-check"
+        r["check_after_signout"] = _cap(await ac.get(check_url))
+        r["review_edit"] = _cap(
+            await ac.put(
+                f"/api/families/{FAMILY}/small-variants/{PLP_VARIANT_ID}/review",
+                json={**review_payload, "note": "E2E: note edited after sign-out"},
+            )
+        )
+        r["check_after_edit"] = _cap(await ac.get(check_url))
 
     out["tamper"] = await _tamper_checks()
     return out
@@ -264,3 +281,19 @@ def test_audit_chain_is_tamper_evident(snap):
 
 def test_audit_table_is_append_only(snap):
     assert snap["tamper"]["append_only_enforced"] is True, snap["tamper"]
+
+
+def test_signout_check_matches_right_after_signout(snap):
+    # #508: identical content compares equal through the real JSONB round-trip.
+    resp = _resp(snap, "check_after_signout")
+    signout2 = _resp(snap, "signout2")
+    assert resp["json"]["version"] == signout2["json"]["version"]
+    assert resp["json"]["matches"] is True, resp["json"]
+    assert resp["json"]["changed_sections"] == []
+
+
+def test_signout_check_flags_a_review_edited_after_signout(snap):
+    assert _resp(snap, "review_edit")["status"] == 200
+    resp = _resp(snap, "check_after_edit")
+    assert resp["json"]["matches"] is False, resp["json"]
+    assert "reported_variants" in resp["json"]["changed_sections"]

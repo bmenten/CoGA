@@ -78,8 +78,13 @@ def _patch_common(monkeypatch, *, drifted_count: int, qc_status: str = "pass"):
     monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
     monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
     monkeypatch.setattr(rss, "_reported_reviews", _reviews)
+    monkeypatch.setattr(rss, "_reported_structural_reviews", _no_structural_reviews)
     monkeypatch.setattr(rss, "record_clinical_event", _audit)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
+
+
+async def _no_structural_reviews(session, family_uuid):
+    return []
 
 
 def test_sign_out_blocks_unacknowledged_drift(monkeypatch) -> None:
@@ -107,10 +112,20 @@ def test_sign_out_proceeds_when_clean(monkeypatch) -> None:
 def test_sign_out_proceeds_with_acknowledged_drift(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=1)
     out = asyncio.run(
-        rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), acknowledge_drift=True)
+        rss.sign_out_report(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_drift=True,
+            drift_acknowledgement_reason="  ClinVar update reviewed; class unchanged.  ",
+        )
     )
     assert out["version"] == 1
     assert out["snapshot"]["acknowledged_drift"] is True
+    # The reason is trimmed and frozen into the hashed snapshot and surfaced at top level.
+    assert out["snapshot"]["drift_acknowledgement_reason"] == "ClinVar update reviewed; class unchanged."
+    assert out["drift_acknowledged"] is True
+    assert out["drift_acknowledgement_reason"] == "ClinVar update reviewed; class unchanged."
     assert out["snapshot"]["drift"]["drifted_count"] == 1
 
 
@@ -131,7 +146,13 @@ def test_reported_variant_without_snapshot_gates_sign_out(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0)
     monkeypatch.setattr(rss, "_reported_reviews", _reviews_no_snapshot)
     out = asyncio.run(
-        rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), acknowledge_drift=True)
+        rss.sign_out_report(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_drift=True,
+            drift_acknowledgement_reason="Legacy classification re-read.",
+        )
     )
     assert out["snapshot"]["drift"]["drifted_count"] == 1
     assert out["snapshot"]["drift"]["drifted"][0]["status"] == "no_snapshot"
@@ -230,6 +251,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
         monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
         monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
         monkeypatch.setattr(rss, "_reported_reviews", _reviews)
+        monkeypatch.setattr(rss, "_reported_structural_reviews", _no_structural_reviews)
         monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
 
     _patch(rows)
@@ -313,7 +335,11 @@ def test_drift_and_qc_gates_are_independent(monkeypatch) -> None:
     with pytest.raises(HTTPException) as qc_exc:
         asyncio.run(
             rss.sign_out_report(
-                _Session(), family_id="FAM1", user=_user(), acknowledge_drift=True
+                _Session(),
+                family_id="FAM1",
+                user=_user(),
+                acknowledge_drift=True,
+                drift_acknowledgement_reason="drift reviewed",
             )
         )
     assert qc_exc.value.status_code == 409
@@ -326,6 +352,7 @@ def test_drift_and_qc_gates_are_independent(monkeypatch) -> None:
             family_id="FAM1",
             user=_user(),
             acknowledge_drift=True,
+            drift_acknowledgement_reason="drift reviewed",
             acknowledge_qc=True,
             qc_acknowledgement_reason="override reason",
         )
@@ -644,3 +671,164 @@ def test_snapshot_sequencing_qc_survives_an_unresolvable_profile(monkeypatch) ->
         "thresholds": {},
         "samples": {},
     }
+
+
+def test_acknowledging_drift_without_a_reason_is_422(monkeypatch) -> None:
+    # #508: overriding the evidence-drift gate is attested like the QC override.
+    _patch_common(monkeypatch, drifted_count=1)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(
+            rss.sign_out_report(
+                _Session(),
+                family_id="FAM1",
+                user=_user(),
+                acknowledge_drift=True,
+                drift_acknowledgement_reason="   ",  # whitespace-only == empty
+            )
+        )
+    assert excinfo.value.status_code == 422
+    assert "reason" in str(excinfo.value.detail)
+
+
+def test_no_drift_needs_no_drift_reason(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    out = asyncio.run(
+        rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), acknowledge_drift=True)
+    )
+    assert out["snapshot"]["acknowledged_drift"] is False
+    assert out["snapshot"]["drift_acknowledgement_reason"] is None
+
+
+def test_reported_structural_variants_are_frozen_and_hashed(monkeypatch) -> None:
+    # #508: the report page renders structural variants tagged for reporting, so the
+    # signed snapshot must hold them — before, a reported CNV was printed but not signed.
+    def _body(structural):
+        async def _sv_reviews(session, family_uuid):
+            return structural
+
+        _patch_common(monkeypatch, drifted_count=0)
+        monkeypatch.setattr(rss, "_reported_structural_reviews", _sv_reviews)
+        return asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+
+    cnv = {
+        "variant_id": "DEL-1-1000-2000",
+        "variant_key": 7,
+        "classification": "pathogenic",
+        "cnv_class": "Pathogenic",
+        "cnv_point_total": 1.0,
+        "cnv_acmg": {"criteria": []},
+        "tags": ["report"],
+        "note": None,
+    }
+    with_cnv = _body([cnv])
+    without = _body([])
+    assert with_cnv["reported_structural_variants"] == [cnv]
+    assert without["reported_structural_variants"] == []
+    assert rss._canonical_hash(with_cnv) != rss._canonical_hash(without)
+
+
+class _CheckResult:
+    def __init__(self, row):
+        self._row = row
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self._row
+
+
+class _CheckSession:
+    """Answers the latest-sign-out lookup with a fixed row (or none)."""
+
+    def __init__(self, row) -> None:
+        self._row = row
+
+    async def execute(self, *args, **kwargs):
+        return _CheckResult(self._row)
+
+
+def _signed_row(snapshot: dict) -> dict:
+    import json as _json
+
+    # Stored the way sign_out_report stores it: JSON-encoded, read back from JSONB.
+    return {"version": 3, "content_hash": "h" * 64, "snapshot": _json.loads(_json.dumps(snapshot, default=str))}
+
+
+def _patch_check(monkeypatch, *, reviews):
+    _patch_common(monkeypatch, drifted_count=0)
+
+    async def _reviews(session, family_uuid):
+        return reviews
+
+    async def _sequencing_qc(session, context):
+        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+
+    monkeypatch.setattr(rss, "_reported_reviews", _reviews)
+    monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
+
+
+_REVIEW = {"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}
+
+
+def test_signout_check_without_any_signout(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(None), family_id="FAM1", user=_user())
+    )
+    assert out["version"] is None and out["matches"] is None
+    assert out["changed_sections"] == []
+
+
+def test_signout_check_matches_unchanged_content(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    # Per-sign-out fields and a newer build identity are not report content.
+    signed = {**signed, "version": 3, "signed_out_by": "someone", "generated_at": "2026-09-01T10:00:00+00:00"}
+    signed["software"] = {"version": "0.0.9", "git_sha": "old"}
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(
+            _CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()
+        )
+    )
+    assert out["version"] == 3
+    assert out["matches"] is True
+    assert out["changed_sections"] == []
+    assert out["not_compared"] == []
+
+
+def test_signout_check_flags_a_review_changed_after_signout(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    # After sign-out, the analyst reclassifies the reported variant.
+    _patch_check(monkeypatch, reviews=[{**_REVIEW, "acmg_class": "acmg_class_5"}])
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(
+            _CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()
+        )
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["reported_variants"]
+
+
+def test_signout_check_older_snapshot_sections(monkeypatch) -> None:
+    # A sign-out made before sections were frozen: absent reported SVs mean none were
+    # signed (so a CNV reported since then is a change); other absent sections are not
+    # comparable rather than "changed".
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    for key in ("reported_structural_variants", "sequencing_qc"):
+        signed.pop(key)
+    row = _signed_row(signed)
+
+    out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
+    assert out["matches"] is True
+    assert out["not_compared"] == ["sequencing_qc"]
+
+    async def _one_cnv(session, family_uuid):
+        return [{"variant_id": "DEL-1-1000-2000", "tags": ["report"]}]
+
+    monkeypatch.setattr(rss, "_reported_structural_reviews", _one_cnv)
+    out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["reported_structural_variants"]

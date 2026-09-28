@@ -300,13 +300,25 @@ Emit from the classify / tag / note / structure / sign-out service paths. Add a 
 
 - `report_signouts` append-only table + immutability trigger (`033_…`). `report_signout_service.py`
   freezes the manifest + reported variant list + each classification & its evidence snapshot +
-  the drift state, SHA-256 content-hashes a canonical encoding, and stores it as the next
-  **version**; the sign-out is recorded in the audit trail.
+  the reported structural variants / CNVs with their classification (since #508 — before, a
+  reported CNV was printed but not frozen) + the drift state, SHA-256 content-hashes a canonical
+  encoding, and stores it as the next **version**; the sign-out is recorded in the audit trail.
 - **Drift gate:** sign-out returns `409` if any classification has drifted, unless
-  `acknowledge_drift` is set (baked into the snapshot + audit event).
+  `acknowledge_drift` is set **with a `drift_acknowledgement_reason`** (`422` without one, since
+  #508 — like the Sample-QC override); the acknowledgement and reason are baked into the
+  snapshot + audit event.
 - `POST /families/{id}/report/sign-out`, `GET .../report/sign-outs`,
-  `GET .../report/sign-outs/{version}`. The report carries a green frozen sign-out record
-  (version · who · when · content hash) and a "Sign out / Amend sign-out" action.
+  `GET .../report/sign-outs/{version}`, and `GET .../report/sign-out-check` (#508), which rebuilds
+  the snapshot body and reports, section by section, whether the report as it would be signed
+  now still matches the latest sign-out (`matches`, `changed_sections`, `not_compared`).
+- **The report page renders live data.** Since #508 its sign-out record is green only when the
+  sign-out check verifies a match; when the content changed after sign-out it turns amber and
+  names the changed sections, and when the check cannot be made it is grey and says to treat the
+  page as unsigned. Any page that is not the verified signed record prints with a notice at the
+  top ("Draft …", "Not the signed report …", "Not verified …"), and the frozen record can be
+  downloaded as JSON. Rendering the report *from* the frozen snapshot (§D) remains open: the
+  snapshot does not yet hold the narrative inputs (gene profiles, HGVS, frequencies) the page
+  draws. The report carries a "Sign out / Amend sign-out" action.
 - **Tests:** `backend/tests/test_report_signout.py` (canonical hash stable + order-independent;
   drift gate 409 / acknowledged; clean sign-out) + the sign-out-record test; immutability proven
   live.

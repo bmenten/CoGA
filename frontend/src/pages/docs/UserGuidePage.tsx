@@ -1134,18 +1134,27 @@ const guideSections: GuideSection[] = [
 
         <h3>4 · Case sign-out — freeze the result</h3>
         <p>
-          <strong>Sign out report</strong> freezes the manifest, the reported variant list (each
-          classification with its frozen evidence snapshot) and the drift state into a{' '}
+          <strong>Sign out report</strong> freezes the manifest, the reported small variants
+          (each classification with its frozen evidence snapshot), the reported structural
+          variants and CNVs with their classification, and the drift state into a{' '}
           <strong>versioned, SHA-256 content-hashed</strong> snapshot, stored append-only — a
-          signed-out report can never change. A green record appears on the report:{' '}
-          <em>“✓ Signed out — version 2 by … · Content hash …”</em>.
+          signed record can never change.
+        </p>
+        <p>
+          The report page itself always shows the <em>current</em> data, and checks it against the
+          latest signed version. The record is green —{' '}
+          <em>“✓ Signed out — version 2 by … · This page matches signed version 2”</em> — only while
+          the two match. If anything changed after sign-out (a review, a report tag, a re-import, a
+          QC cut-off), the record turns amber and names what changed: the page is then{' '}
+          <strong>not</strong> the signed report, and it prints with a notice saying so. Sign out
+          again to issue a new version, or download the frozen signed version from the record.
         </p>
         <div className="user-guide-callout">
           <strong>The drift gate.</strong> If any reported classification has drifted, sign-out is
-          blocked until you re-review or explicitly <strong>acknowledge</strong> the drift — and
-          the acknowledgement is itself recorded in the snapshot and the audit trail. Signing out
-          again creates a new version (the button reads <em>Amend sign-out</em>); earlier versions
-          are never overwritten.
+          blocked until you re-review or <strong>acknowledge</strong> the drift with a reason — the
+          acknowledgement and its reason are recorded in the snapshot and the audit trail, as for a
+          Sample-QC override. Signing out again creates a new version (the button reads{' '}
+          <em>Amend sign-out</em>); earlier versions are never overwritten.
         </div>
 
         <FurtherReading

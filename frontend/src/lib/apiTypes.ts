@@ -474,6 +474,10 @@ export interface ApiReportSignout {
   qc_status?: string | null;
   qc_acknowledged?: boolean | null;
   qc_acknowledgement_reason?: string | null;
+  // Frozen evidence-drift override and its reason (null for sign-outs made before a drift
+  // override needed a reason).
+  drift_acknowledged?: boolean | null;
+  drift_acknowledgement_reason?: string | null;
   snapshot?: Record<string, unknown> | null;
 }
 
@@ -481,6 +485,19 @@ export interface ApiReportSignoutList {
   family_id: string;
   latest: ApiReportSignout | null;
   signouts: ApiReportSignout[];
+}
+
+// Whether the report, as it would be signed now, matches the latest sign-out (#508).
+// `matches` is null when the family has never been signed out; `changed_sections` names
+// the snapshot sections that differ, `not_compared` those an older snapshot predates.
+export interface ApiReportSignoutCheck {
+  family_id: string;
+  version: number | null;
+  content_hash: string | null;
+  matches: boolean | null;
+  changed_sections: string[];
+  not_compared: string[];
+  checked_at: string;
 }
 
 export interface ApiSampleIntegrityQc {
