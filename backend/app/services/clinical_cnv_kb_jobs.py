@@ -229,7 +229,7 @@ async def _run_job(job_id: str) -> None:
             )
             return
 
-        tsv_text = Path(out_path).read_text(encoding="utf-8")
+        tsv_text = await asyncio.to_thread(Path(out_path).read_text, encoding="utf-8")
         async with sessionmaker() as session:
             result = await apply_reference_dataset_text(
                 session,

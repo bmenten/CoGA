@@ -151,6 +151,9 @@ class Settings(BaseSettings):
     admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
     admin_password: str = Field(default="change-me", alias="ADMIN_PASSWORD")
     admin_email: str = Field(default="admin@example.com", alias="ADMIN_EMAIL")
+    # The SMTP relay (port 25, no authentication) that sends the new-signup notification
+    # to ADMIN_EMAIL; the notification is only sent when ADMIN_EMAIL is configured.
+    smtp_host: str = Field(default="localhost", alias="SMTP_HOST")
     login_rate_limit_window_seconds: int = Field(default=900, ge=60, alias="LOGIN_RATE_LIMIT_WINDOW_SECONDS")
     login_rate_limit_threshold: int = Field(default=5, ge=1, alias="LOGIN_RATE_LIMIT_THRESHOLD")
     login_rate_limit_base_backoff_seconds: int = Field(

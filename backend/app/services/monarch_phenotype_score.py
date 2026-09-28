@@ -266,9 +266,19 @@ async def score_genes_for_hpo(
         all_terms.update(terms)
     ancestors = await _term_ancestors(session, all_terms)
 
-    results: dict[str, GenePhenotypeScore] = {}
-    for symbol, terms in capped.items():
-        results[symbol] = phenomizer_score(
-            patient, terms, ancestors=ancestors, ic=ic, max_ic=max_ic
-        )
-    return results
+    # The per-gene similarity is what makes a prioritised ranking take seconds; it is pure
+    # CPU work, so it runs in a worker thread and other requests are served meanwhile (#527).
+    return await asyncio.to_thread(_score_gene_terms, patient, capped, ancestors, ic, max_ic)
+
+
+def _score_gene_terms(
+    patient: list[str],
+    gene_terms: dict[str, list[str]],
+    ancestors: Any,
+    ic: Any,
+    max_ic: float,
+) -> dict[str, GenePhenotypeScore]:
+    return {
+        symbol: phenomizer_score(patient, terms, ancestors=ancestors, ic=ic, max_ic=max_ic)
+        for symbol, terms in gene_terms.items()
+    }

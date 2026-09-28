@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from pathlib import Path
 from typing import Dict, List
@@ -426,7 +427,7 @@ async def download_raw_import_file(
 ) -> FileResponse:
     record = await get_raw_import_file_record(session, file_id=file_id)
     storage_path = record.get("storage_path") or ""
-    if not storage_path or not Path(storage_path).is_file():
+    if not storage_path or not await asyncio.to_thread(Path(storage_path).is_file):
         raise HTTPException(
             status_code=410,
             detail="The source file is no longer available at its storage path.",
