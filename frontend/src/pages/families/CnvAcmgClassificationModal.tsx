@@ -1,4 +1,5 @@
 import { useMemo, useState, type MouseEvent } from 'react';
+import { useModalDialog } from '../../lib/useModalDialog';
 
 import {
   buildInitialCnvSelections,
@@ -122,18 +123,27 @@ export default function CnvAcmgClassificationModal({
     await onSave(payload);
   };
 
+  // Escape, focus trap, and a check before unsaved input is discarded (#529).
+  const dialog = useModalDialog({
+    onClose,
+    discardMessage: 'Discard your unsaved changes to this CNV classification?',
+  });
+
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+    <div className="modal-backdrop" role="presentation" {...dialog.backdropProps}>
       <div
         className="modal-surface surface-card variant-review-modal acmg-modal cnv-acmg-modal"
         role="dialog"
         aria-modal="true"
-        onClick={(event) => event.stopPropagation()}
+        aria-labelledby="cnv-acmg-classification-title"
+        ref={dialog.dialogRef}
+        tabIndex={-1}
+        {...dialog.surfaceProps}
       >
         <div className="variant-review-modal-header">
           <div className="variant-review-modal-summary">
             <p className="page-kicker">ClinGen CNV classification</p>
-            <h2 className="section-title">
+            <h2 id="cnv-acmg-classification-title" className="section-title">
               {variant.type || 'SV'} · {variant.chr}:{variant.start.toLocaleString()}-
               {variant.end.toLocaleString()}
               {variant.gene ? ` · ${variant.gene}` : ''}
@@ -252,7 +262,7 @@ export default function CnvAcmgClassificationModal({
         </div>
 
         <div className="variant-search-actions variant-review-modal-actions">
-          <button type="button" className="button-secondary" onClick={onClose}>
+          <button type="button" className="button-secondary" onClick={dialog.requestClose}>
             Cancel
           </button>
           <button type="button" className="form-button" disabled={isPending} onClick={handleSave}>

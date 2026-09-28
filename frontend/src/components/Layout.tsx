@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router';
 import Breadcrumbs from './Breadcrumbs';
 import ErrorBoundary from './ErrorBoundary';
+import ModalDialog from './ModalDialog';
 import PageState from './PageState';
 import { clearSession, getStoredUsername } from '../lib/auth';
 import { githubIssuesUrl, githubRepositoryUrl } from '../lib/githubLinks';
@@ -123,8 +124,12 @@ const Layout: React.FC = () => {
         </div>
       </footer>
       {showSettings && (
-        <div className="modal-backdrop">
-          <div className="modal-surface surface-card">
+        // A real dialog now (#529): named, Escape closes it, focus stays inside.
+        <ModalDialog
+          label="User settings"
+          confirmDiscard={false}
+          onClose={() => setShowSettings(false)}
+        >
             <button
               type="button"
               onClick={() => setShowSettings(false)}
@@ -144,8 +149,7 @@ const Layout: React.FC = () => {
             >
               <SettingsPage />
             </Suspense>
-          </div>
-        </div>
+        </ModalDialog>
       )}
     </div>
   );

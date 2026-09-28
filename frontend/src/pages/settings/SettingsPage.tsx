@@ -14,6 +14,7 @@ import {
   setCoverageRange,
   setCoverageUpperThreshold,
   setGenomeWindow,
+  resetCoverageThresholds,
 } from '../../lib/settings';
 import type { SmallVariantFilterPreset } from '../families/smallVariantSearch';
 
@@ -94,6 +95,11 @@ const SettingsPage: React.FC = () => {
               onChange={(event) => setChromosomeWindowState(Number(event.target.value))}
             />
           </label>
+          <p className="field-hint">
+            The coverage thresholds below decide which bins are coloured as gain or loss. They
+            are stored in this browser only; the chart shows the values in use, and marks them
+            when they differ from the defaults.
+          </p>
           <label className="field-label">
             Coverage upper threshold
             <input
@@ -121,7 +127,22 @@ const SettingsPage: React.FC = () => {
               onChange={(event) => setCoverageRangeState(Number(event.target.value))}
             />
           </label>
-          <button type="submit">Save</button>
+          <div className="inline-actions">
+            <button type="submit">Save</button>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => {
+                resetCoverageThresholds();
+                setCoverageUpperState(getCoverageUpperThreshold());
+                setCoverageLowerState(getCoverageLowerThreshold());
+                setStatus('Coverage thresholds reset to the defaults');
+                setTimeout(() => setStatus(''), 3000);
+              }}
+            >
+              Reset coverage thresholds
+            </button>
+          </div>
         </form>
         {status ? <p className="form-status">{status}</p> : null}
       </section>

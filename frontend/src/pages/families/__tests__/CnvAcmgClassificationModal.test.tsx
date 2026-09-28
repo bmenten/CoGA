@@ -3,7 +3,7 @@
 // (loss/gain) drives the applicable criteria, the classification recomputes from
 // the selections, and Save emits a payload reflecting them.
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -89,6 +89,32 @@ describe('CnvAcmgClassificationModal', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       /The CNV classification stored for this variant could not be read.*Saving replaces it/,
     );
+  });
+
+  it('asks before a backdrop click discards changed criteria (#529)', () => {
+    const onClose = vi.fn();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const { container } = render(
+      <CnvAcmgClassificationModal variant={variant} onClose={onClose} onSave={noop} />,
+    );
+    expect(screen.getByRole('dialog', { name: /DEL · chr1/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+    const backdrop = container.querySelector('.modal-backdrop') as HTMLElement;
+    fireEvent.mouseDown(backdrop);
+    fireEvent.click(backdrop);
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(onClose).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('closes an untouched dialog on Escape', () => {
+    const onClose = vi.fn();
+    render(<CnvAcmgClassificationModal variant={variant} onClose={onClose} onSave={noop} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('calls onClose from Cancel', async () => {

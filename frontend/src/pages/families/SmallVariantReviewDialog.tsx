@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useModalDialog } from '../../lib/useModalDialog';
 import {
   ACMG_CLASSIFICATION_TAGS,
   getClassificationLabelFromTagKey,
@@ -200,14 +201,22 @@ export default function SmallVariantReviewDialog({
     }
   };
 
+  // Escape, focus trap, and a check before unsaved input is discarded (#529).
+  const dialog = useModalDialog({
+    onClose,
+    discardMessage: 'Discard your unsaved changes to this review?',
+  });
+
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+    <div className="modal-backdrop" role="presentation" {...dialog.backdropProps}>
       <div
         className="modal-surface surface-card variant-review-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="small-variant-review-title"
-        onClick={(event) => event.stopPropagation()}
+        ref={dialog.dialogRef}
+        tabIndex={-1}
+        {...dialog.surfaceProps}
       >
         <div className="variant-review-modal-header">
           <div className="variant-review-modal-summary">
@@ -219,7 +228,7 @@ export default function SmallVariantReviewDialog({
               {formatLocus(variant)} · {variant.hgvsp || variant.hgvsc || variant.effect || variant.type}
             </p>
           </div>
-          <button type="button" className="button-secondary" onClick={onClose}>
+          <button type="button" className="button-secondary" onClick={dialog.requestClose}>
             Close
           </button>
         </div>

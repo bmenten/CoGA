@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useModalDialog } from '../../lib/useModalDialog';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
@@ -336,14 +337,22 @@ export default function AcmgClassificationModal({
     }
   };
 
+  // Escape, focus trap, and a check before unsaved input is discarded (#529).
+  const dialog = useModalDialog({
+    onClose,
+    discardMessage: 'Discard your unsaved changes to this ACMG classification?',
+  });
+
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+    <div className="modal-backdrop" role="presentation" {...dialog.backdropProps}>
       <div
         className="modal-surface surface-card variant-review-modal acmg-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="acmg-classification-title"
-        onClick={(event) => event.stopPropagation()}
+        ref={dialog.dialogRef}
+        tabIndex={-1}
+        {...dialog.surfaceProps}
       >
         <div className="variant-review-modal-header">
           <div className="variant-review-modal-summary">
@@ -370,7 +379,7 @@ export default function AcmgClassificationModal({
               </div>
             ) : null}
           </div>
-          <button type="button" className="button-secondary" onClick={onClose}>
+          <button type="button" className="button-secondary" onClick={dialog.requestClose}>
             Close
           </button>
         </div>

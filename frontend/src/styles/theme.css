@@ -9309,6 +9309,24 @@ button.table-link:hover {
   border-width: 3px;
 }
 
+/* The coverage chart's gain/loss thresholds, always on screen (#529). */
+.viz-threshold-legend {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--color-text-muted, #64748b);
+  font-size: 10px;
+  line-height: 14px;
+  pointer-events: auto;
+}
+.viz-threshold-legend--custom {
+  color: var(--color-warning-strong, #92580a);
+  font-weight: 600;
+}
+
 .viz-empty-overlay {
   position: absolute;
   left: 0.75rem;

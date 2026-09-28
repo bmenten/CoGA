@@ -119,6 +119,30 @@ describe('CoverageSegmentsChart', () => {
     await waitFor(() => expect(canvasContext.arc).toHaveBeenCalled());
   });
 
+  it('shows the gain/loss thresholds in use, and marks this browser’s own (#529)', async () => {
+    serveTrackFetchFrom(
+      vi.fn(() => Promise.resolve({ ok: true, json: async () => [{ chr: '1', start: 0, end: 100, value: 0.2 }] })),
+    );
+    storage.removeItem('coverageUpperThreshold');
+    storage.removeItem('coverageLowerThreshold');
+    const { unmount } = renderWithClient(
+      <CoverageSegmentsChart coverageUrls={['https://example.test/coverage']} chroms={['1']} width={320} height={120} />,
+    );
+    expect(screen.getByText('gain > +0.35 · loss < -0.35 (log2)')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Coverage log2 ratio; gain > \+0\.35/ })).toBeInTheDocument();
+    unmount();
+
+    storage.setItem('coverageUpperThreshold', '0.5');
+    try {
+      renderWithClient(
+        <CoverageSegmentsChart coverageUrls={['https://example.test/coverage']} chroms={['1']} width={320} height={120} />,
+      );
+      expect(screen.getByText(/gain > \+0\.5 · loss < -0\.35 \(log2\) · custom \(this browser\)/)).toBeInTheDocument();
+    } finally {
+      storage.removeItem('coverageUpperThreshold');
+    }
+  });
+
   // Regression: with no stored coverageRange, getCoverageRange() used to return 0,
   // collapsing the y-scale so every coverage point was drawn at a non-finite
   // coordinate (invisible) even though the data loaded correctly.
