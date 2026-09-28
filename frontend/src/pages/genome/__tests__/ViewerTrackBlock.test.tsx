@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import ViewerTrackBlock from '../ViewerTrackBlock';
 import ViewerInteractionSurface from '../ViewerInteractionSurface';

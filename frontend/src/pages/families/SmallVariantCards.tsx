@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
+import ModalDialog from '../../components/ModalDialog';
 import api from '../../lib/api';
 import { genotypeZygosity } from '../../lib/genotypes';
 import {
@@ -402,120 +403,117 @@ const TranscriptPopup = ({
   const variantLabel = `${formatLocus(variant)} · ${variant.ref || '—'} → ${variant.alt || '—'}`;
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <div
-        className="modal-surface surface-card variant-transcript-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="small-variant-transcript-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="variant-review-modal-header">
-          <div className="variant-review-modal-summary">
-            <p className="page-kicker">Transcripts</p>
-            <h2 id="small-variant-transcript-title" className="catalog-card-title">
-              {geneName}
-            </h2>
-            <p className="variant-review-modal-subtitle">{variantLabel}</p>
-          </div>
-          <button type="button" className="button-secondary" onClick={onClose}>
-            Close
-          </button>
+    // ModalDialog: Escape, a focus trap and focus restore (#529).
+    <ModalDialog
+      onClose={onClose}
+      labelledBy="small-variant-transcript-title"
+      className="modal-surface surface-card variant-transcript-modal"
+    >
+      <div className="variant-review-modal-header">
+        <div className="variant-review-modal-summary">
+          <p className="page-kicker">Transcripts</p>
+          <h2 id="small-variant-transcript-title" className="catalog-card-title">
+            {geneName}
+          </h2>
+          <p className="variant-review-modal-subtitle">{variantLabel}</p>
         </div>
+        <button type="button" className="button-secondary" onClick={onClose}>
+          Close
+        </button>
+      </div>
 
-        <div className="variant-transcript-summary-grid">
-          <div>
-            <span>Gene</span>
-            <strong>{geneName}</strong>
-          </div>
-          <div>
-            <span>Variant</span>
-            <strong>{variant.hgvsp || variant.hgvsc || variantLabel}</strong>
-          </div>
-          <div>
-            <span>Transcript effects</span>
-            <strong>{transcripts.length}</strong>
-          </div>
+      <div className="variant-transcript-summary-grid">
+        <div>
+          <span>Gene</span>
+          <strong>{geneName}</strong>
         </div>
-
-        <div className="data-table-shell variant-transcript-table-shell">
-          <table className="analysis-table variant-transcript-table">
-            <thead>
-              <tr>
-                <th>Transcript</th>
-                <th>HGVS</th>
-                <th>Effect</th>
-                <th>Impact</th>
-                <th>Exon / intron</th>
-                <th>Flags</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transcripts.map((transcript, index) => {
-                const match = matchTranscriptDetail(transcriptDetails, transcript.transcript_id);
-                const detail = match && match.kind !== 'different_version' ? match.detail : undefined;
-                const badges = transcriptBadges(transcript, detail);
-                // The VCF names one transcript; the annotation knows which RefSeq
-                // accessions correspond to it.
-                const refseq = (detail?.refseq_accessions ?? []).filter(
-                  (accession) => transcriptKey(accession) !== transcriptKey(transcript.transcript_id),
-                );
-                const xrefNote =
-                  match?.kind === 'unversioned' && (detail?.ccds_id || refseq.length)
-                    ? `CCDS/RefSeq from ${match.annotationId} in the gene annotation; the variant names no version`
-                    : match?.kind === 'different_version'
-                      ? `CCDS/RefSeq not shown: the gene annotation has ${match.annotationId}`
-                      : null;
-                return (
-                  <tr key={`${transcript.transcript_id || 'transcript'}-${index}`}>
-                    <td>
-                      <div className="variant-transcript-id">
-                        <strong>{transcript.transcript_id || '—'}</strong>
-                        <span>
-                          {transcript.transcript_source ||
-                            transcriptSourceFor(transcript.transcript_id) ||
-                            'Transcript'}
-                          {transcript.transcript_biotype ? ` · ${transcript.transcript_biotype}` : ''}
-                        </span>
-                        {refseq.length ? (
-                          <span className="variant-transcript-refseq">{refseq.join(', ')}</span>
-                        ) : null}
-                        {xrefNote ? <span className="variant-transcript-xref-note">{xrefNote}</span> : null}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="variant-transcript-hgvs">
-                        <span>{transcript.hgvsc || '—'}</span>
-                        <span>{transcript.hgvsp || '—'}</span>
-                      </div>
-                    </td>
-                    <td>{formatTokenLabel(transcript.effect || undefined)}</td>
-                    <td>{transcript.impact || '—'}</td>
-                    <td>{transcriptRegionLabel(transcript)}</td>
-                    <td>
-                      {badges.length ? (
-                        <div className="variant-transcript-badges">
-                          {badges.map((badge) => (
-                            <span
-                              key={badge.label}
-                              className={`variant-card-chip variant-card-chip--${badge.tone}`}
-                            >
-                              {badge.label}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="table-empty">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div>
+          <span>Variant</span>
+          <strong>{variant.hgvsp || variant.hgvsc || variantLabel}</strong>
+        </div>
+        <div>
+          <span>Transcript effects</span>
+          <strong>{transcripts.length}</strong>
         </div>
       </div>
-    </div>
+
+      <div className="data-table-shell variant-transcript-table-shell">
+        <table className="analysis-table variant-transcript-table">
+          <thead>
+            <tr>
+              <th>Transcript</th>
+              <th>HGVS</th>
+              <th>Effect</th>
+              <th>Impact</th>
+              <th>Exon / intron</th>
+              <th>Flags</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transcripts.map((transcript, index) => {
+              const match = matchTranscriptDetail(transcriptDetails, transcript.transcript_id);
+              const detail = match && match.kind !== 'different_version' ? match.detail : undefined;
+              const badges = transcriptBadges(transcript, detail);
+              // The VCF names one transcript; the annotation knows which RefSeq
+              // accessions correspond to it.
+              const refseq = (detail?.refseq_accessions ?? []).filter(
+                (accession) => transcriptKey(accession) !== transcriptKey(transcript.transcript_id),
+              );
+              const xrefNote =
+                match?.kind === 'unversioned' && (detail?.ccds_id || refseq.length)
+                  ? `CCDS/RefSeq from ${match.annotationId} in the gene annotation; the variant names no version`
+                  : match?.kind === 'different_version'
+                    ? `CCDS/RefSeq not shown: the gene annotation has ${match.annotationId}`
+                    : null;
+              return (
+                <tr key={`${transcript.transcript_id || 'transcript'}-${index}`}>
+                  <td>
+                    <div className="variant-transcript-id">
+                      <strong>{transcript.transcript_id || '—'}</strong>
+                      <span>
+                        {transcript.transcript_source ||
+                          transcriptSourceFor(transcript.transcript_id) ||
+                          'Transcript'}
+                        {transcript.transcript_biotype ? ` · ${transcript.transcript_biotype}` : ''}
+                      </span>
+                      {refseq.length ? (
+                        <span className="variant-transcript-refseq">{refseq.join(', ')}</span>
+                      ) : null}
+                      {xrefNote ? <span className="variant-transcript-xref-note">{xrefNote}</span> : null}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="variant-transcript-hgvs">
+                      <span>{transcript.hgvsc || '—'}</span>
+                      <span>{transcript.hgvsp || '—'}</span>
+                    </div>
+                  </td>
+                  <td>{formatTokenLabel(transcript.effect || undefined)}</td>
+                  <td>{transcript.impact || '—'}</td>
+                  <td>{transcriptRegionLabel(transcript)}</td>
+                  <td>
+                    {badges.length ? (
+                      <div className="variant-transcript-badges">
+                        {badges.map((badge) => (
+                          <span
+                            key={badge.label}
+                            className={`variant-card-chip variant-card-chip--${badge.tone}`}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="table-empty">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </ModalDialog>
   );
 };
 

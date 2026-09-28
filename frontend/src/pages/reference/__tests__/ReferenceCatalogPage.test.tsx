@@ -423,4 +423,26 @@ describe('ReferenceCatalogPage', () => {
     ).not.toBeInTheDocument();
     expect(api.post).toHaveBeenCalledTimes(1);
   });
+
+  it('closes only the overwrite confirmation on Escape, then the upload dialog (#529)', async () => {
+    (api.post as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
+      response: { status: 409 },
+    });
+
+    await startConflictingUpload();
+    expect(
+      await screen.findByText(/already exist for the selected assembly/i)
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(await screen.findByText(/reference upload cancelled/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Overwrite' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Upload reference data' })).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(
+      screen.queryByRole('heading', { name: 'Upload reference data' })
+    ).not.toBeInTheDocument();
+  });
 });

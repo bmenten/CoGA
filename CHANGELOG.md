@@ -177,6 +177,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Tests for the thinly tested review and job modules (#526)** — structural-variant reviews and
   their CNV classification, variant tag definitions and the clinical CNV knowledgebase rebuild job
   now have unit tests and coverage floors (#574).
+- **Frontend lint rules (#526)** — ESLint enforces the React hooks rules and the jsx-a11y
+  accessibility rules. `any` is now a warning, and `npm run lint` fails when the warning count
+  rises above its budget of 67 (#575).
 
 ### Removed
 
@@ -309,6 +312,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   records where CoGA's gene loci came from. The variant card's `g.` string is labelled "Genomic
   change", since it is not HGVS-normalised, and a transcript's CCDS and RefSeq are withheld when the
   variant names a different transcript version than the gene annotation holds (#573).
+- **Dialogs and keyboard access (#529)** — the family-member, QC cut-off, family-deletion,
+  transcript, carrier and reference-data dialogs close on Escape and keep keyboard focus inside.
+  The family-member dialog asks before dropping edits not yet applied, and the QC cut-off
+  confirmation before dropping a typed reason. Closing a dialog gives focus back to where it
+  was, also when a control inside took focus as it opened. The SV second-hit badge and the
+  genome overview's chromosomes work from the keyboard, and the badge shows a focus ring (#575).
 
 ### Security
 

@@ -7,6 +7,7 @@ import InfoTip from '../../components/InfoTip';
 import { getErrorMessage } from '../../lib/errorMessage';
 import type { ApiQcThresholdCatalogue } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
+import ModalDialog from '../../components/ModalDialog';
 
 type StatusTone = 'success' | 'error';
 
@@ -348,74 +349,76 @@ const AdminQcThresholdsPage: React.FC = () => {
       </section>
 
       {pendingMetric && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setPendingMetric(null)}>
-          <section
-            className="modal-surface surface-card"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Confirm threshold change"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <h2 className="section-title">Confirm QC cut-off change</h2>
-            <p className="section-copy">
-              {(() => {
-                const metric = (data?.metrics ?? []).find((entry) => entry.key === pendingMetric);
-                const draft = draftFor(pendingMetric);
-                const stored = storedByMetric[pendingMetric];
-                const shown = (value: string) => (value.trim() ? value : 'none');
-                return (
-                  <>
-                    <strong>{metric?.label ?? pendingMetric}</strong> in the{' '}
-                    <strong>{activeProfile?.label}</strong> profile:{' '}
-                    warning {shown(stored?.warn ?? '')} → {shown(draft.warn)}, error{' '}
-                    {shown(stored?.error ?? '')} → {shown(draft.error)}.
-                  </>
-                );
-              })()}
-            </p>
-            <p className="report-disclaimer">
-              This changes what the interface flags as an inadequate run for every sample using
-              this profile. It is advisory — nothing is withheld from a report — but the change is
-              recorded permanently with your account.
-            </p>
-            <label className="form-field">
-              <span>Reason for the change</span>
-              {/* Required. The values either side are recorded automatically; what they
-                  cannot say is whether a limit moved because a validation study supported
-                  it or because a run was inconvenient. */}
-              <textarea
-                rows={2}
-                value={pendingReason}
-                onChange={(event) => setPendingReason(event.target.value)}
-                placeholder="e.g. per VAL-P07 opvolgvalidatie, 2026-07"
-              />
-            </label>
-            <div className="compact-toolbar family-toolbar">
-              <button
-                type="button"
-                className="form-button"
-                disabled={saveMutation.isPending || !pendingReason.trim()}
-                onClick={() => {
-                  const metricKey = pendingMetric;
-                  setPendingMetric(null);
-                  saveMutation.mutate(metricKey);
-                }}
-              >
-                Confirm change
-              </button>
-              <button
-                type="button"
-                className="button-ghost"
-                onClick={() => {
-                  setPendingMetric(null);
-                  setPendingReason('');
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </section>
-        </div>
+        // ModalDialog: Escape, a focus trap and focus restore, and a check before a
+        // typed reason is discarded (#529).
+        <ModalDialog
+          onClose={() => {
+            setPendingMetric(null);
+            setPendingReason('');
+          }}
+          label="Confirm threshold change"
+          discardMessage="Discard the reason you have typed?"
+        >
+          {(requestClose) => (
+            <>
+              <h2 className="section-title">Confirm QC cut-off change</h2>
+              <p className="section-copy">
+                {(() => {
+                  const metric = (data?.metrics ?? []).find((entry) => entry.key === pendingMetric);
+                  const draft = draftFor(pendingMetric);
+                  const stored = storedByMetric[pendingMetric];
+                  const shown = (value: string) => (value.trim() ? value : 'none');
+                  return (
+                    <>
+                      <strong>{metric?.label ?? pendingMetric}</strong> in the{' '}
+                      <strong>{activeProfile?.label}</strong> profile:{' '}
+                      warning {shown(stored?.warn ?? '')} → {shown(draft.warn)}, error{' '}
+                      {shown(stored?.error ?? '')} → {shown(draft.error)}.
+                    </>
+                  );
+                })()}
+              </p>
+              <p className="report-disclaimer">
+                This changes what the interface flags as an inadequate run for every sample using
+                this profile. It is advisory — nothing is withheld from a report — but the change is
+                recorded permanently with your account.
+              </p>
+              <label className="form-field">
+                <span>Reason for the change</span>
+                {/* Required. The values either side are recorded automatically; what they
+                    cannot say is whether a limit moved because a validation study supported
+                    it or because a run was inconvenient. */}
+                <textarea
+                  rows={2}
+                  value={pendingReason}
+                  onChange={(event) => setPendingReason(event.target.value)}
+                  placeholder="e.g. per VAL-P07 opvolgvalidatie, 2026-07"
+                />
+              </label>
+              <div className="compact-toolbar family-toolbar">
+                <button
+                  type="button"
+                  className="form-button"
+                  disabled={saveMutation.isPending || !pendingReason.trim()}
+                  onClick={() => {
+                    const metricKey = pendingMetric;
+                    setPendingMetric(null);
+                    saveMutation.mutate(metricKey);
+                  }}
+                >
+                  Confirm change
+                </button>
+                <button
+                  type="button"
+                  className="button-ghost"
+                  onClick={requestClose}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+        </ModalDialog>
       )}
 
       <section className="surface-card space-y-3">

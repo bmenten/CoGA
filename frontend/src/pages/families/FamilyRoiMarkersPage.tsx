@@ -137,6 +137,9 @@ const mendelianConsistent = (parents: number[][], child: number[]): boolean => {
   return child.some((allele) => parentAlleles.has(allele));
 };
 
+// One empty list, so the memos below see a stable value before data arrive.
+const NO_SITES: PhasedSite[] = [];
+
 const FamilyRoiMarkersPage: React.FC = () => {
   const { familyId = '' } = useParams();
   const [searchParams] = useSearchParams();
@@ -216,7 +219,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
     return set;
   }, [phased?.samples, roleBySample]);
 
-  const allSites = phased?.sites ?? [];
+  const allSites = phased?.sites ?? NO_SITES;
   const informativeSites = useMemo(
     () => allSites.filter((s) => embryoInformativePos.has(s.pos)),
     [allSites, embryoInformativePos],

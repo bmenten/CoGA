@@ -1228,6 +1228,9 @@ const ReferenceCatalogPage: React.FC = () => {
                 className="button-ghost"
                 onClick={dismissConfirm}
                 disabled={confirmBusy}
+                // The confirmation opens on its safe choice, as the WAI-ARIA dialog
+                // pattern advises before a destructive action (here: overwrite).
+                // eslint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
               >
                 Cancel

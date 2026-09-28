@@ -705,6 +705,40 @@ describe('FamilyDetailPage', () => {
     expect(await screen.findByText(/Pending updates saved/i)).toBeInTheDocument();
   });
 
+  it('asks before closing member details over unapplied edits, not once applied (#529)', async () => {
+    localStorage.setItem('role', 'admin');
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+    fireEvent.change(await screen.findByLabelText('Carrier status'), {
+      target: { value: 'carrier' },
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('dialog', { name: /family member details/i })).toBeInTheDocument();
+
+    // Applied edits wait among the pending updates, so closing now loses nothing.
+    fireEvent.click(screen.getByRole('button', { name: /apply to pending/i }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog', { name: /family member details/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/1 pending/i)).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
   it('preserves the selected project in variant workspace links', async () => {
     localStorage.setItem('role', 'viewer');
     const queryClient = createTestQueryClient();

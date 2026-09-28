@@ -186,6 +186,15 @@ describe('GenomeOverviewWorkspace', () => {
 
     fireEvent.click(screen.getByText('1'));
     expect(navigateToChromosome).toHaveBeenCalledWith('1');
+
+    // The keyboard opens a chromosome too (#529).
+    navigateToChromosome.mockClear();
+    const chromosome = screen.getByRole('button', { name: 'Open chromosome 1' });
+    expect(chromosome).toHaveAttribute('tabindex', '0');
+    fireEvent.keyDown(chromosome, { key: 'Enter' });
+    fireEvent.keyDown(chromosome, { key: ' ' });
+    fireEvent.keyDown(chromosome, { key: 'a' });
+    expect(navigateToChromosome.mock.calls).toEqual([['1'], ['1']]);
   });
 
   it('draws one labelled coverage track per CNV caller', () => {

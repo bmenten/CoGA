@@ -64,6 +64,10 @@ Two gates surprise people:
 - **`handleiding`** fails if you edit a chapter under `docs/handleiding/` without rerunning
   `python docs/handleiding/build_site.py`. It rebuilds the file for you — just commit it.
 
+`npm run lint` also fails when ESLint's warnings exceed the `--max-warnings` budget in
+`frontend/package.json` (today: the remaining `no-explicit-any` hits). When you type one of
+them, lower the budget to match; it never goes up.
+
 ### Branches and commits
 
 Branch from `main` as `type/short-description` (`fix/…`, `feat/…`, `chore/…`, `docs/…`,

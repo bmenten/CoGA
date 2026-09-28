@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ModalDialog from '../../components/ModalDialog';
 
 interface DeleteFamilyDialogProps {
   familyId: string;
@@ -30,93 +31,96 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
   const nameMatches = typedName.trim() === familyId;
 
   return (
-    <div
-      className="modal-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Delete family ${familyId}`}
+    // ModalDialog: Escape cancels, except while the deletion runs, with a focus trap and
+    // focus restore (#529). Focus starts in the name field, the first control. A click
+    // on the backdrop does nothing in a destructive confirmation.
+    <ModalDialog
+      onClose={() => {
+        if (!busy) onCancel();
+      }}
+      label={`Delete family ${familyId}`}
+      className="modal-surface surface-card admin-delete-family-modal"
+      closeOnBackdrop={false}
+      confirmDiscard={false}
     >
-      <div className="modal-surface surface-card admin-delete-family-modal">
-        <div className="space-y-2">
-          <p className="page-kicker page-kicker--danger">Permanent deletion</p>
-          <h2 className="section-title">Delete family {familyId}</h2>
-        </div>
-
-        {step === 'warn' ? (
-          <>
-            <div className="admin-delete-family-warning">
-              <p>This action permanently deletes:</p>
-              <ul>
-                <li>Family metadata</li>
-                <li>Samples</li>
-                <li>Variant data</li>
-                <li>Annotations</li>
-                <li>Imported files linked to this family</li>
-              </ul>
-              <p className="admin-delete-family-warning-strong">
-                This operation cannot be undone.
-              </p>
-            </div>
-
-            <label className="field-label">
-              Type the family name <strong>{familyId}</strong> to continue
-              <input
-                type="text"
-                value={typedName}
-                onChange={(event) => setTypedName(event.target.value)}
-                placeholder={familyId}
-                autoFocus
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </label>
-
-            <div className="inline-actions modal-actions">
-              <button type="button" className="button-secondary" onClick={onCancel}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="button-danger"
-                disabled={!nameMatches}
-                onClick={() => setStep('final')}
-              >
-                Continue
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="admin-delete-family-warning">
-              <p className="admin-delete-family-warning-strong">
-                Final confirmation: permanently delete {familyId} and every linked
-                record and file?
-              </p>
-              <p>There is no recovery after this step.</p>
-            </div>
-
-            <div className="inline-actions modal-actions">
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => setStep('warn')}
-                disabled={busy}
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                className="button-danger"
-                disabled={!nameMatches || busy}
-                onClick={onConfirm}
-              >
-                {busy ? 'Deleting…' : `Permanently delete ${familyId}`}
-              </button>
-            </div>
-          </>
-        )}
+      <div className="space-y-2">
+        <p className="page-kicker page-kicker--danger">Permanent deletion</p>
+        <h2 className="section-title">Delete family {familyId}</h2>
       </div>
-    </div>
+
+      {step === 'warn' ? (
+        <>
+          <div className="admin-delete-family-warning">
+            <p>This action permanently deletes:</p>
+            <ul>
+              <li>Family metadata</li>
+              <li>Samples</li>
+              <li>Variant data</li>
+              <li>Annotations</li>
+              <li>Imported files linked to this family</li>
+            </ul>
+            <p className="admin-delete-family-warning-strong">
+              This operation cannot be undone.
+            </p>
+          </div>
+
+          <label className="field-label">
+            Type the family name <strong>{familyId}</strong> to continue
+            <input
+              type="text"
+              value={typedName}
+              onChange={(event) => setTypedName(event.target.value)}
+              placeholder={familyId}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+
+          <div className="inline-actions modal-actions">
+            <button type="button" className="button-secondary" onClick={onCancel}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button-danger"
+              disabled={!nameMatches}
+              onClick={() => setStep('final')}
+            >
+              Continue
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="admin-delete-family-warning">
+            <p className="admin-delete-family-warning-strong">
+              Final confirmation: permanently delete {familyId} and every linked
+              record and file?
+            </p>
+            <p>There is no recovery after this step.</p>
+          </div>
+
+          <div className="inline-actions modal-actions">
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => setStep('warn')}
+              disabled={busy}
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              className="button-danger"
+              disabled={!nameMatches || busy}
+              onClick={onConfirm}
+            >
+              {busy ? 'Deleting…' : `Permanently delete ${familyId}`}
+            </button>
+          </div>
+        </>
+      )}
+    </ModalDialog>
   );
 };
 

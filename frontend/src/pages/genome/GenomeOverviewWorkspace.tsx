@@ -188,6 +188,9 @@ const GenomeRegionSelectionSurface: React.FC<{
   };
 
   return (
+    // Drag-to-select is a pointer shortcut. The keyboard route to the same region is the
+    // chromosome strip below the tracks: each chromosome opens with Enter.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       data-testid={testId}
       className="relative"
@@ -530,11 +533,20 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                   const width = (layout.lengths[chrom] / layout.total) * trackWidth;
                   const left = (layout.offsets[chrom] / layout.total) * trackWidth;
                   return (
+                    // A button to the keyboard as well as the pointer (#529).
                     <div
                       key={chrom}
-                      className="absolute cursor-pointer"
+                      className="absolute cursor-pointer genome-overview-chrom"
                       style={{ width, left }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open chromosome ${chrom}`}
                       onClick={() => handleChromosomeClick(chrom)}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        navigateToChromosome(chrom);
+                      }}
                     >
                       <Ideogram
                         assembly={assembly}

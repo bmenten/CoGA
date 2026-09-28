@@ -47,7 +47,7 @@ cd frontend && npm run tsc && npm run lint && npm run test
 | **smoke** | `pytest backend/tests/integration` against `postgres:16` + `clickhouse/clickhouse-server:26.8` services | Real lifespan: schema init, migrations, admin seed, health probe. Records coverage for the `coverage` job. |
 | **e2e** | `pytest backend/tests/e2e` against `postgres:16` + `clickhouse/clickhouse-server:26.8` services | Golden-trio pipeline + demo bundles vs documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Records coverage for the `coverage` job, like `smoke`. |
 | **coverage** | combines the `backend`, `smoke` and `e2e` coverage data → `scripts/check-coverage-floor.py --combined` | Floors on the combined figure for the modules real datastores exercise (import pipeline, integrity anchors, sign-out), which the unit job under-reports (#526). Not yet a required check. |
-| **frontend** | `npm ci` → `npm run tsc` → `npm run lint` → `npm run test` | Type-check + ESLint + vitest. |
+| **frontend** | `npm ci` → `npm run tsc` → `npm run lint` → `npm run test` | Type-check + ESLint + vitest. The React hooks and jsx-a11y rules are errors; `npm run lint` also fails above its `--max-warnings` budget, which counts the remaining `any`s (#526). |
 | **e2e-playwright** | seed golden trio → Playwright drives Chromium against a uvicorn backend + the production frontend (built bundle served by `server.mjs`, with its CSP) | Browser journeys: login → family workspace → genome overview (see [TF-09d](regulatory/TF-09d-browser-e2e-verification.md), incl. a manual reproduction procedure for auditors). |
 | **sbom** | CycloneDX SBOM for backend + frontend, uploaded as artifacts | Supply-chain evidence (see [sbom/README.md](../sbom/README.md)). |
 

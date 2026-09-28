@@ -264,7 +264,10 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
       // Remove all mount nodes to ensure no lingering DOM
       removeStaleMountNodes();
     };
-    // Depend on content of sampleIds to avoid identity noise
+    // Rebuild the browser only when what it shows changes: the sample ids by content, as
+    // a caller may pass a new array holding the same ids. The helpers it calls act on
+    // refs, so their identity does not matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyId, genome, locus, retrySeq, JSON.stringify(sampleIds)]);
 
   return (

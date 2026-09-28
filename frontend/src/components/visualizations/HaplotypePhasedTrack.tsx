@@ -323,10 +323,11 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     () => haplotypeData?.samples.find((entry) => entry.sample === sampleId)?.segments || [],
     [haplotypeData?.samples, sampleId],
   );
-  const markersFor = (id: string | null): PhasedMarker[] =>
-    id ? phasedData?.samples.find((entry) => entry.sample === id)?.markers || [] : [];
   const markers = useMemo(
-    () => (showMarkers ? markersFor(sampleId) : []),
+    (): PhasedMarker[] =>
+      showMarkers && sampleId
+        ? phasedData?.samples.find((entry) => entry.sample === sampleId)?.markers || []
+        : [],
     [showMarkers, phasedData?.samples, sampleId],
   );
   // Positions the hover tooltip can anchor on: the UNION of every member's marker

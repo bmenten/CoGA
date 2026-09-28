@@ -80,6 +80,9 @@ const previewLabels: Record<string, string> = {
   removed_from_release: 'Missing from new release',
 };
 
+// One empty list, so the memo and effect below see a stable value before data arrive.
+const NO_TERMS: HpoAdminTerm[] = [];
+
 const HpoTerminologyAdminPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -132,7 +135,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
     retry: false,
   });
 
-  const terms = termsQuery.data ?? [];
+  const terms = termsQuery.data ?? NO_TERMS;
   const selectedTerm = useMemo(
     () => terms.find((term) => term.hpo_id === selectedTermId) ?? terms[0] ?? null,
     [selectedTermId, terms]

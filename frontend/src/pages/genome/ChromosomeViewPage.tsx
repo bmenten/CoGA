@@ -162,11 +162,6 @@ const ChromosomeViewPage: React.FC = () => {
     });
     return filters;
   }, [location.search]);
-  const hasSmallVariantUserFilters = useMemo(() => {
-    const hasVariantFilters = Object.values(variantFilters).some((value) => value.trim());
-    const hasSampleFilters = Object.values(sampleFilterMap).some((value) => value.trim());
-    return hasVariantFilters || hasSampleFilters;
-  }, [sampleFilterMap, variantFilters]);
 
   const projectIdParam = new URLSearchParams(location.search).get('project_id') || undefined;
   const {
@@ -273,7 +268,6 @@ const ChromosomeViewPage: React.FC = () => {
     return params.toString();
   }, [
     chrom,
-    hasSmallVariantUserFilters,
     resolvedProjectId,
     region.end,
     region.start,
