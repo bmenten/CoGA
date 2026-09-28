@@ -64,10 +64,9 @@ interface Props {
   maternalSampleId?: string | null;
 }
 
-const NON_REFERENCE_GENOTYPES = ['0/1', '1/0', '0|1', '1|0', '1/1', '1|1'];
-
-const samplePresenceFilter = (sampleId: string) =>
-  `${sampleId}:${NON_REFERENCE_GENOTYPES.join('|')}`;
+// Any call with an ALT allele — the backend reads these as genotype classes, so haploid
+// and multi-allelic calls count as present too (#511).
+const samplePresenceFilter = (sampleId: string) => `${sampleId}:het|hom`;
 
 const hasActiveFilterValue = (value: unknown): boolean => {
   if (Array.isArray(value)) return value.some(hasActiveFilterValue);

@@ -139,6 +139,7 @@
 | REQ-DATA-009 | Ingest mitochondrial (chrM) calls with their heteroplasmy level and mtDNA-specific annotation, stored separately from the nuclear callset. | C | H1 |
 | REQ-DATA-010 | Capture the analysis pipeline's tool versions and run parameters per family for report traceability. | B | H4 |
 | REQ-DATA-011 | Record per-sample sequencing QC (read metrics, depth) and the location of the pipeline's QC report and aligned reads. | B | H4 |
+| REQ-DATA-012 | Classify every stored genotype — haploid, multi-allelic and half calls included — into exactly one of hom-alt, het, hom-ref or no-call, and apply that one classification in every genotype filter, inheritance check, count and presence check (backend SQL and Python, and the UI). | C | H1, H2 |
 
 ### 3.9 Sample QC (REQ-QC)
 

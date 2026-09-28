@@ -143,8 +143,10 @@ def test_sample_genotype_filters_build_per_sample_subqueries() -> None:
     assert where_sql.count("key IN (SELECT key FROM") == 2
     assert "s_id = %(sample_gt_0)s" in where_sql
     assert "s_id = %(sample_gt_1)s" in where_sql
-    assert "s_gt IN %(gt_hom)s" in where_sql  # S1 hom
-    assert "s_gt NOT IN %(gt_ref_missing)s AND s_gt NOT IN %(gt_hom)s" in where_sql  # S2 het
+    assert "(s_gt IN %(gt_hom)s" in where_sql  # S1 hom
+    assert "(s_gt IN %(gt_het)s" in where_sql  # S2 het
+    # Classes, not literals (#511): hom includes a haploid "1", het a "1/2".
+    assert "1" in params["gt_hom"] and "1/2" in params["gt_het"]
     assert params["sample_gt_0"] == "S1"
     assert params["sample_gt_1"] == "S2"
 

@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { formatGt } from '../../lib/genotypes';
+import { formatGt, genotypeZygosity } from '../../lib/genotypes';
 import {
   buildGnomadSvRegionHref,
   buildReviewTagTooltip,
@@ -57,14 +57,6 @@ const buildHpoHref = (terms: string[], familyId?: string) => {
   return `/hpo?${params.toString()}`;
 };
 
-const genotypeZygosity = (gt?: string): 'na' | 'ref' | 'hom' | 'het' => {
-  if (!gt) return 'na';
-  const normalized = gt.replace(/\|/g, '/');
-  if (normalized === './.' || normalized === 'absent') return 'na';
-  if (normalized === '0/0') return 'ref';
-  if (normalized === '1/1') return 'hom';
-  return 'het';
-};
 
 export default function StructuralVariantCards({
   familyId,

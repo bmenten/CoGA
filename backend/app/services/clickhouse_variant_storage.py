@@ -17,9 +17,8 @@ from .clickhouse_family_variants import (
 # staying functions resolve these (pure) helpers in this module's namespace.
 from .clickhouse_variant_ids import build_small_variant_id, build_structural_variant_id, small_variant_key, structural_variant_key, _xpos, _stable_uint64, _require_clickhouse_identifier, _small_table_name, _structural_table_name, _expected_clickhouse_variant_tables  # noqa: F401
 from .clickhouse_variant_rows import _normalized_project_ids, _small_variant_entry_rows, _structural_variant_entry_rows  # noqa: F401
+from .genotypes import ALT_CLASSES, HET, HOM_ALT, clickhouse_genotype_condition
 
-_SMALL_GT_REF = {"0/0", "0|0"}
-_SMALL_GT_MISSING = {"./.", ".|.", "", "."}
 _SMALL_VARIANT_DETAIL_INSERT_ROWS = 1_000
 _SMALL_VARIANT_ENTRY_INSERT_ROWS = 2_000
 _SMALL_VARIANT_ANNOTATION_INSERT_ROWS = 5_000
@@ -27,10 +26,6 @@ _SMALL_VARIANT_INDEX_INSERT_ROWS = 2_000
 _SMALL_VARIANT_GENE_INDEX_INSERT_ROWS = 10_000
 _ensured_variant_table_assemblies: set[str] = set()
 _ensure_variant_tables_lock = asyncio.Lock()
-
-
-def _small_genotype_tuple(values: Iterable[str]) -> str:
-    return "(" + ", ".join(repr(value) for value in values) + ")"
 
 
 async def _execute(query: str, params: dict[str, Any] | None = None, data: Sequence[tuple[Any, ...]] | None = None) -> Any:
@@ -771,9 +766,11 @@ async def refresh_family_small_variant_summaries(
     # callsets (glimpse2/shapeit) — matching the live-fallback query in
     # _fetch_small_variant_summary and the default of the per-family variant list.
     params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
-    ref_or_missing_gts = _small_genotype_tuple(sorted(_SMALL_GT_REF | _SMALL_GT_MISSING))
-    het_gts = _small_genotype_tuple(("0/1", "1/0", "0|1", "1|0"))
-    hom_alt_gts = _small_genotype_tuple(("1/1", "1|1"))
+    # Per-sample counts from the one genotype classification (#511): a haploid "1" or a
+    # "2/2" is homozygous alt, a "1/2" heterozygous, and a haploid "0" is not a variant.
+    is_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
+    is_het = clickhouse_genotype_condition("gt", {HET}, param="gt_het", params=params)
+    is_hom = clickhouse_genotype_condition("gt", {HOM_ALT}, param="gt_hom", params=params)
 
     await _execute(
         f"""
@@ -812,9 +809,9 @@ async def refresh_family_small_variant_summaries(
             family_guid,
             project_guid,
             sample_id,
-            countDistinctIf(key, gt NOT IN {ref_or_missing_gts}) AS non_ref_count,
-            countDistinctIf(key, gt IN {het_gts}) AS het_count,
-            countDistinctIf(key, gt IN {hom_alt_gts}) AS hom_alt_count
+            countDistinctIf(key, {is_alt}) AS non_ref_count,
+            countDistinctIf(key, {is_het}) AS het_count,
+            countDistinctIf(key, {is_hom}) AS hom_alt_count
         FROM {_small_table_name(assembly_name, 'entries')}
         ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
         WHERE family_guid = %(family_guid)s
@@ -1050,10 +1047,10 @@ async def count_family_small_variants_by_sample(
     if project_ids:
         clauses.append("project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(_normalized_project_ids(project_ids))
-    ref_or_missing_gts = tuple(sorted([*_SMALL_GT_REF, *_SMALL_GT_MISSING]))
+    is_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
     rows = await _execute(
         f"""
-        SELECT sample_id, countDistinctIf(key, gt NOT IN {ref_or_missing_gts})
+        SELECT sample_id, countDistinctIf(key, {is_alt})
         FROM {_small_table_name(assembly_name, 'entries')}
         ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
         WHERE {' AND '.join(clauses)}

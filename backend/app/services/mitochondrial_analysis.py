@@ -26,6 +26,7 @@ from .clickhouse_family_variants import (
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters
+from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype, genotype_has_alt
 from .qc_threshold_service import evaluate_metric, resolve_family_qc_thresholds
 from .small_variant_review_pg import get_small_variant_review_map
 
@@ -362,8 +363,7 @@ def _allele_fraction(call: SmallVariantCall) -> float | None:
 
 
 def _gt_has_alt(gt: str) -> bool:
-    normalized = str(gt or "").replace("|", "/")
-    return any(part not in {"", ".", "0"} for part in normalized.split("/"))
+    return genotype_has_alt(gt)
 
 
 def _zygosity(call: SmallVariantCall) -> str:
@@ -376,12 +376,12 @@ def _zygosity(call: SmallVariantCall) -> str:
         if af > 0:
             return "low_level"
         return "reference"
-    gt = str(call.gt or "")
-    if gt in {"", ".", "./.", ".|."}:
+    genotype_class = classify_genotype(call.gt)
+    if genotype_class == NO_CALL:
         return "no_call"
-    if gt.replace("|", "/") in {"1/1", "1"}:
+    if genotype_class == HOM_ALT:  # "1", "1/1", and a "2/2" at a multi-allelic site
         return "homoplasmic"
-    if _gt_has_alt(gt):
+    if genotype_class == HET:
         return "heteroplasmic"
     return "reference"
 

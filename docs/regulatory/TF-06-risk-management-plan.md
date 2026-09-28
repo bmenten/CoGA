@@ -89,7 +89,7 @@ control, residual risk, and V&V reference.
 
 | # | Hazard / failure mode | Application(s) | Sev | Existing/needed control |
 | --- | --- | --- | --- | --- |
-| H1 | **Missed pathogenic variant** (over-aggressive filter; variant dropped by QUAL/artifact/frequency filter) | All | S4–S5 | Filter funnels with drop counts; configurable, reviewable filters; verification of filter logic (TF-09); IFU on filter limitations |
+| H1 | **Missed pathogenic variant** (over-aggressive filter; variant dropped by QUAL/artifact/frequency filter) | All | S4–S5 | Filter funnels with drop counts; configurable, reviewable filters; verification of filter logic (TF-09); one genotype classification for every filter, inheritance check, count and presence check, so haploid (chrM, male chrX/chrY) and multi-allelic calls are not invisible (✅ #511, REQ-DATA-012); IFU on filter limitations |
 | H2 | **False-positive / mis-prioritized variant** drives wrong conclusion | All | S3–S4 | ACMG decision support overridable; review/sign-out; internal/external frequency context |
 | H3 | **Wrong ACMG class** from incorrect criterion auto-positioning | All | S3–S4 | Overridable criteria, server recompute, evidence snapshot, drift surfacing; classifier verification vs reference set (TF-10/11) |
 | H4 | **Sample/pedigree swap, contamination or wrong inheritance model** → wrong segregation/interpretation | PGT, WGS, NIPT, mito (3.5) | S5 | **Sample QC module** — relatedness, sex check, Mendelian consistency, heterozygosity ratio, per-mode variant counts (`sample_integrity_service`; family Sample-QC view; REQ-QC-001/002) — **mandatory review before sign-out** (TF-01 §4 cond. 7); per-child Mendel-error rate; mtDNA maternal-haplogroup consistency (3.5); verified by `test_sample_integrity_qc.py` |

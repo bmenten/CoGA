@@ -157,6 +157,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | --- | --- |
 | [backend/tests/test_clickhouse.py](../backend/tests/test_clickhouse.py) | ClickHouse client query/command/insert dispatch and recording. |
 | [backend/tests/test_clickhouse_dataset_key.py](../backend/tests/test_clickhouse_dataset_key.py) | Dataset-key normalization and injection-safe handling. |
+| [backend/tests/test_genotypes.py](../backend/tests/test_genotypes.py) | One genotype classification (#511): every genotype in exactly one of hom-alt / het / hom-ref / no-call (haploid, multi-allelic, half calls, malformed), the short vocabulary is exhaustive and partitioned, the SQL condition shape (no-call as the complement), and sample filters and inheritance (X-linked hemizygous son, multi-allelic homozygote, haploid carrier ruling out dominant, X-linked SQL params) on haploid chrM/chrX and multi-allelic calls. |
 | [backend/tests/test_clickhouse_family_variants.py](../backend/tests/test_clickhouse_family_variants.py) | Small-variant query, genotype/phasing parsing, inheritance + compound-het. |
 | [backend/tests/test_compound_het_phasing.py](../backend/tests/test_compound_het_phasing.py) | Read-backed compound-het phase: cis pairs dropped, trans labelled, haplotypes compared only within a phase set, hom/multi-allelic/unphased calls left unresolved. |
 | [backend/tests/test_clickhouse_integrity.py](../backend/tests/test_clickhouse_integrity.py) | ClickHouse table-integrity / detached-parts checks. |
@@ -238,6 +239,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | Test file | Purpose |
 | --- | --- |
 | [backend/tests/integration/test_app_startup.py](../backend/tests/integration/test_app_startup.py) | Boots the app against real Postgres + ClickHouse (schema init, admin seed) and asserts it serves. |
+| [backend/tests/integration/test_genotype_classes_clickhouse.py](../backend/tests/integration/test_genotype_classes_clickhouse.py) | #511 on real ClickHouse: every short genotype string and a set of long/malformed ones land in exactly the class `classify_genotype` gives them, through the SQL set lookup and its allele-by-allele fallback. |
 | [backend/tests/integration/test_clickhouse_integrity.py](../backend/tests/integration/test_clickhouse_integrity.py) | Validates integrity-check SQL against a real ClickHouse server. |
 | [backend/tests/integration/test_append_only_triggers.py](../backend/tests/integration/test_append_only_triggers.py) | Fires the append-only triggers on `audit_log_events`/`clinical_audit_events`/`report_signouts`: UPDATE/DELETE rejected; the FK→NULL unlink carve-out allowed (and nothing else); signed report frozen. |
 | [backend/tests/integration/test_hash_chain_integration.py](../backend/tests/integration/test_hash_chain_integration.py) | End-to-end per-family hash chains (P1-4): real writers produce a chain `verify_*_chain` accepts; a privileged trigger-bypass UPDATE/DELETE is detected & localised; the FK→NULL carve-out does not break the chain. |
@@ -317,7 +319,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/lib/__tests__/embryoSegregation.test.ts](../frontend/src/lib/__tests__/embryoSegregation.test.ts) | Embryo classification at ROI and recombination inference. |
 | [frontend/src/lib/__tests__/errorMessage.test.ts](../frontend/src/lib/__tests__/errorMessage.test.ts) | Error-message extraction and fallback formatting. |
 | [frontend/src/lib/__tests__/familyMembers.test.ts](../frontend/src/lib/__tests__/familyMembers.test.ts) | Proband-first family-member ordering. |
-| [frontend/src/lib/__tests__/genotypes.test.ts](../frontend/src/lib/__tests__/genotypes.test.ts) | Genotype formatting and alt-allele detection. |
+| [frontend/src/lib/__tests__/genotypes.test.ts](../frontend/src/lib/__tests__/genotypes.test.ts) | Genotype classification matching the backend (#511), formatting, alt-allele detection and card zygosity, including haploid and multi-allelic calls. |
 | [frontend/src/lib/__tests__/haplotypeRisk.test.ts](../frontend/src/lib/__tests__/haplotypeRisk.test.ts) | Disease-haplotype inference + embryo risk states; donor/empty → uninformative. |
 | [frontend/src/lib/__tests__/igvLoader.test.ts](../frontend/src/lib/__tests__/igvLoader.test.ts) | IGV library dynamic loading. |
 | [frontend/src/lib/__tests__/proxyLocation.test.ts](../frontend/src/lib/__tests__/proxyLocation.test.ts) | Proxy URL rewriting to same-origin paths. |
