@@ -36,6 +36,7 @@ from .variant_prioritization import (
 # Re-exported so existing import paths and orig.<name> attribute reads keep resolving.
 
 from .clickhouse_variant_records import (
+    CLINVAR_FREQUENCY_RESCUE_TERMS,
     Region,
     PanelFilterConstraints,
     SmallVariantCall,
@@ -2205,6 +2206,12 @@ def _small_annotation_filter_condition(
     if filters.lof_only:
         conditions.append("a.lof NOT IN ('', '.', 'na', 'n/a')")
 
+    # The population-frequency block. It is one unit because a ClinVar P/LP call can
+    # "rescue" a variant past all of it — the same block the Python matcher skips
+    # (clickhouse_variant_records._annotation_matches_normal). Before #534 this SQL
+    # applied the ceilings unconditionally, so a recurrent pathogenic allele above the
+    # cut-off was dropped here, before the rescue could keep it.
+    frequency_conditions: list[str] = []
     max_float_filters = [
         ("detail_max_gnomad_af", filters.max_gnomad_af, "gnomad_af"),
         ("detail_max_gnomad_exomes_af", filters.max_gnomad_exomes_af, "gnomad_exomes_af"),
@@ -2216,7 +2223,7 @@ def _small_annotation_filter_condition(
         if maximum is None:
             continue
         params[param] = maximum
-        conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
+        frequency_conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
 
     max_int_filters = [
         ("detail_max_gnomad_ac", filters.max_gnomad_ac, "gnomad_ac"),
@@ -2227,7 +2234,22 @@ def _small_annotation_filter_condition(
         if maximum is None:
             continue
         params[param] = maximum
-        conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
+        frequency_conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
+
+    if frequency_conditions:
+        frequency_block = " AND ".join(frequency_conditions)
+        if filters.clinvar_overrides_frequency:
+            # clinvar_terms holds the same normalised terms the Python matcher compares.
+            # Rows stored before "/" was a separator keep ClinVar's aggregate form as
+            # one term, so match that too until the family is re-imported.
+            rescue_terms = list(_status_filter_terms(CLINVAR_FREQUENCY_RESCUE_TERMS))
+            rescue_terms.append("/".join(rescue_terms))
+            params["detail_clinvar_rescue_terms"] = rescue_terms
+            conditions.append(
+                f"(({frequency_block}) OR hasAny(a.clinvar_terms, %(detail_clinvar_rescue_terms)s))"
+            )
+        else:
+            conditions.extend(frequency_conditions)
 
     in_silico_conditions: list[str] = []
     if filters.min_cadd is not None:
