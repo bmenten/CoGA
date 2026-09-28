@@ -3,9 +3,19 @@
 The prioritised default view (Phenotype-priority preset + Mendeliome panel) costs ~10s
 to compute, dominated by per-gene phenotype scoring against Monarch. This caches the
 ranked order keyed by an ``inputs_hash`` — a digest of the query filters plus the mutable
-inputs that change the ranking (affected HPO terms, pedigree/affected status, gene-panel
-version, Monarch release, scoring-algorithm version). Any change flips the hash, so a
-stale ranking is never served. See docs / the small-variant page.
+inputs that change the ranking:
+
+- the family's small-variant data, as the storage-level data version the caller reads
+  from ClickHouse (``get_family_small_variant_data_version``) — every insert, delete or
+  re-import of the family's variants changes it, whatever code path made the change;
+- affected HPO terms, pedigree/affected status and the gene-panel version;
+- the reference data the scores read: Monarch release, HPO ontology release and the
+  gene-constraint table (gene_info) for the family's assembly;
+- the scoring-algorithm version.
+
+Any change flips the hash, so a stale ranking is never served. Before the data version
+was part of the hash, only the package import invalidated the cache, and a direct upload
+or an admin delete left an outdated ranking in place (#509).
 
 This module owns only the hash + Postgres cache rows; the (de)serialisation of variant
 records is done by the caller (clickhouse_family_variants) which holds those helpers.
@@ -99,6 +109,37 @@ async def _monarch_release(session: AsyncSession) -> str | None:
     return str(release) if release else None
 
 
+async def _reference_versions(session: AsyncSession, context: Any) -> dict[str, Any]:
+    """The reference data the scores read, beyond Monarch.
+
+    Phenotype similarity uses the HPO ontology (information content, ancestors), and the
+    variant score uses gene constraint (pLI / missense-Z) from ``gene_info``. A refresh of
+    either can reorder the ranking without any family input changing.
+    """
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    (SELECT max(release_version) FROM hpo_term) AS hpo_release,
+                    (
+                        SELECT max(updated_at)
+                        FROM gene_info
+                        WHERE assembly_id = CAST(:assembly_id AS uuid)
+                    ) AS gene_info_updated_at
+                """
+            ),
+            {"assembly_id": getattr(context, "assembly_id", None)},
+        )
+    ).mappings().first()
+    if not row:
+        return {"hpo_release": None, "gene_info_updated_at": None}
+    return {
+        "hpo_release": row["hpo_release"],
+        "gene_info_updated_at": row["gene_info_updated_at"],
+    }
+
+
 def _digest(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -110,6 +151,7 @@ async def compute_ranking_hashes(
     context: Any,
     filters: Any,
     patient_terms: Any,
+    variant_data_version: str | None = None,
     review_variant_ids: Any = None,
     excluded_review_variant_ids: Any = None,
     include_review_filter_active: bool = False,
@@ -119,6 +161,10 @@ async def compute_ranking_hashes(
     ``inputs_hash`` is the exact cache key. ``base_hash`` digests every input EXCEPT the
     gene panel, so all panels over the same family/phenotype/filters share it — that lets
     a narrower panel be served from a broader cached (superset) ranking.
+
+    ``variant_data_version`` is the family's small-variant data version from storage
+    (``get_family_small_variant_data_version``); both hashes cover it, so a ranking over
+    different variant data is never a hit, exact or superset.
     """
     # Review-tag filters are resolved to variant-id sets outside the filter object, so
     # they must be folded into the hash or two otherwise-identical queries would collide.
@@ -132,10 +178,12 @@ async def compute_ranking_hashes(
     common = {
         "algorithm": _ALGORITHM_VERSION,
         "assembly": getattr(context, "assembly_name", None),
+        "variant_data": variant_data_version,
         "review": review_signature,
         "hpo": sorted({str(term) for term in (patient_terms or [])}),
         "pedigree": await _pedigree_signature(session, context),
         "monarch_release": await _monarch_release(session),
+        "reference": await _reference_versions(session, context),
     }
     panel_version = await _panel_version(session, getattr(filters, "panel_id", None))
     inputs_hash = _digest({**common, "filters": canonical, "panel_version": panel_version})
@@ -149,6 +197,7 @@ async def compute_inputs_hash(
     context: Any,
     filters: Any,
     patient_terms: Any,
+    variant_data_version: str | None = None,
     review_variant_ids: Any = None,
     excluded_review_variant_ids: Any = None,
     include_review_filter_active: bool = False,
@@ -158,6 +207,7 @@ async def compute_inputs_hash(
         context=context,
         filters=filters,
         patient_terms=patient_terms,
+        variant_data_version=variant_data_version,
         review_variant_ids=review_variant_ids,
         excluded_review_variant_ids=excluded_review_variant_ids,
         include_review_filter_active=include_review_filter_active,
