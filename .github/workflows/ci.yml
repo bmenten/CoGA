@@ -352,8 +352,9 @@ jobs:
         with:
           python-version: "3.10"
       - name: Install the handleiding generator's dependency
-        # Pinned: the committed HTML was generated with this version (#520).
-        run: pip install markdown==3.11
+        # Pinned (#520): the newest release this job's Python 3.10 can install, and the
+        # version the committed HTML is checked against.
+        run: pip install markdown==3.10.3
       - name: Check the handleiding page matches its Markdown
         # The HTML is generated but committed (it is what the review board opens), so a
         # chapter edit can land without a rebuild — as in #387, where the page kept a
