@@ -323,6 +323,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   families, reading import jobs, reading a gene profile outside its projects and listing
   accounts. After a superuser's Monarch refresh the Mendeliome was not regenerated. Every check
   now counts both admin roles (#576).
+- **Colour-only displays (#529)** — the pedigree's sample-QC verdict is a ring with a ✓, ! or
+  ✕ badge, and no longer recolours the symbol, which had replaced the black affected fill and
+  the carrier-type colour. Small variants are marked by shape as well as colour (a diamond for
+  ClinVar P/LP, a triangle for HIGH impact, a hollow square for ClinVar B/LB), a review tag rings
+  the mark instead of recolouring it, and the track has a legend. The risk-haplotype line is
+  solid for an affected and dashed for a carrier haplotype, set off from the band (#577).
 
 ### Security
 

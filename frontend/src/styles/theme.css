@@ -8895,6 +8895,15 @@ button.table-link:hover {
   color: var(--color-text-muted);
 }
 
+/* A track's filter summary and its mark legend, side by side on the right. */
+.viewer-track-meta-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+}
+
 .viewer-track-meta {
   font-size: 0.62rem;
   letter-spacing: 0.06em;
@@ -8902,7 +8911,8 @@ button.table-link:hover {
   text-align: right;
 }
 
-.haplotype-legend {
+.haplotype-legend,
+.small-variant-legend {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -8912,7 +8922,8 @@ button.table-link:hover {
   color: var(--color-text-muted);
 }
 
-.haplotype-legend-item {
+.haplotype-legend-item,
+.small-variant-legend-item {
   display: inline-flex;
   align-items: center;
   gap: 0.22rem;

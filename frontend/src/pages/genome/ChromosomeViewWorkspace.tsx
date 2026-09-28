@@ -17,6 +17,7 @@ import CnvTrack from '../../components/visualizations/CnvTrack';
 import DgvTrack from '../../components/visualizations/DgvTrack';
 import SegmentalDuplicationTrack from '../../components/visualizations/SegmentalDuplicationTrack';
 import SmallVariantTrack from '../../components/visualizations/SmallVariantTrack';
+import SmallVariantLegend from '../../components/visualizations/SmallVariantLegend';
 import RepeatExpansionTrack from '../../components/visualizations/RepeatExpansionTrack';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
 import { getErrorMessage } from '../../lib/errorMessage';
@@ -611,10 +612,13 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                         label="Small variants"
                         width={trackWidth}
                         meta={
-                          <TrackMeta
-                            variantFilters={variantFilters}
-                            sampleFilter={sampleFilterMap[member.sample_id]}
-                          />
+                          <span className="viewer-track-meta-group">
+                            <TrackMeta
+                              variantFilters={variantFilters}
+                              sampleFilter={sampleFilterMap[member.sample_id]}
+                            />
+                            <SmallVariantLegend />
+                          </span>
                         }
                         frameClassName={originRows ? 'h-[45px]' : 'h-[20px]'}
                         roiRange={regionRoiRange}
