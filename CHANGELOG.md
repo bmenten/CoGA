@@ -255,6 +255,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Concurrent review saves** — saving a variant review that another reviewer changed after you
   opened it is refused, and the page shows their review instead of overwriting it. Before, the
   last save won silently (#546).
+- **Clinical dialogs** — the review and ACMG dialogs no longer drop half-finished input on a
+  stray click: they ask first, close on Escape, and keep keyboard focus inside. The coverage
+  chart shows the gain/loss colour thresholds in use and marks thresholds changed in this
+  browser (#547).
 
 ### Security
 
