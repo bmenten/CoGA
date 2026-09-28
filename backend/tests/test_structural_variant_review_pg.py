@@ -16,7 +16,7 @@ from fastapi import HTTPException
 
 from backend.app.schemas import CnvAcmgClassificationPayload, CnvAcmgCriterion, SmallVariantReviewUpdate
 from backend.app.services import structural_variant_review_pg as svr
-from backend.app.services.metadata_service import CurrentUser
+from backend.app.services.access_control import CurrentUser
 
 FAMILY = "00000000-0000-0000-0000-00000000f001"
 CONTEXT = types.SimpleNamespace(family_uuid=FAMILY, project_ids=["p1"])

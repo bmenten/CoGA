@@ -14,7 +14,7 @@ from fastapi import HTTPException
 
 from backend.app.schemas import SmallVariantTagDefinitionCreate
 from backend.app.services import small_variant_review_tags as tags
-from backend.app.services.metadata_service import CurrentUser
+from backend.app.services.access_control import CurrentUser
 
 P1 = "00000000-0000-0000-0000-0000000000p1".replace("p", "a")
 P2 = "00000000-0000-0000-0000-0000000000p2".replace("p", "b")
