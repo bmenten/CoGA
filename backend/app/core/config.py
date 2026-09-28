@@ -233,8 +233,6 @@ class Settings(BaseSettings):
         alias="CORS_ORIGIN_REGEX",
     )
     reference_fasta_path: str | None = None
-    reference_alias_path: str | None = None
-    reference_cytoband_path: str | None = None
     gene_reference_clingen_validity_url: str = Field(
         default="https://search.clinicalgenome.org/kb/gene-validity/download",
         alias="GENE_REFERENCE_CLINGEN_VALIDITY_URL",
@@ -541,8 +539,9 @@ class Settings(BaseSettings):
         secret_key = self.secret_key.strip()
         if secret_key in _INSECURE_SECRET_VALUES or len(secret_key) < _MIN_SECRET_KEY_LENGTH:
             insecure_fields.append("SECRET_KEY")
-        # A real environment's ClickHouse holds every genotype; it must have a password.
-        if not self.clickhouse_password.strip():
+        # A real environment's ClickHouse holds every genotype; it must have a password,
+        # and not the .env.example placeholder (#530).
+        if self.clickhouse_password.strip() in {"", *_INSECURE_PASSWORD_VALUES}:
             insecure_fields.append("CLICKHOUSE_PASSWORD")
         # Without it, integrity anchors are unsigned and give no tamper-evidence against a
         # database owner (#522); it must be the base64 of a 32-byte Ed25519 seed.

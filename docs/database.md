@@ -98,11 +98,31 @@ Import jobs:
 
 - `family_import_jobs`
 
+Family structure, curation catalogues and job state:
+
+| Table | What it holds |
+| --- | --- |
+| `family_statuses` | The admin-managed catalogue of family workflow statuses (key, label, colour, sort order); `families.status_id` references it. Seeded with `solved`, `strong_candidate`, `reviewed_no_candidate`, `closed`, `analysis_in_progress`, `data_ready`, `waiting_for_data` and `loading_failed`. |
+| `family_relationships` | Explicit links between two samples of a family: `parent_child` (with the role at each end) or `couple`. `source` records whether a PED import or a manual edit made the link; `active = false` retires it. |
+| `family_structure_versions` | One row per pedigree or phenotype change: the version number, a `structure_hash` over roles, parentage and affected status, and the full snapshot. The prioritised-ranking cache keys on the latest hash, so a ranking computed under an earlier pedigree is not served. |
+| `family_sv_gene_index_status` | Records that a family's structural-variant-to-gene index (`family_sv_gene_index`) has been built, with its SV and gene counts and build time. It is cleared together with the index. |
+| `structural_variant_filter_presets` | Saved structural-variant filter sets per user (`owner`), for one family (`scope = 'family'`) or for all families (`scope = 'global'`). The small-variant equivalent is `small_variant_filter_presets`. |
+| `gene_panel_versions` | An immutable snapshot of each version of a panel: genes, regions, source, external version and author. A row is written when a panel is created, edited or imported from PanelApp, and never overwritten; `(panel_id, version)` is unique. The panel version-history endpoints read it. |
+| `nipt_artifact_variants` | The recurrent-artifact (panel-of-normals) list for monogenic NIPT, per assembly and assay (`assay_key`). Rows are curated by an admin (`source = 'curated'`) or seeded from variants carried by at least a set number of samples in the cohort (`source = 'auto'`). The analysis excludes and counts listed variants; see [monogenic-nipt.md](monogenic-nipt.md). |
+| `clinical_cnv_kb_jobs` | Progress of admin-triggered rebuilds of the clinical CNV knowledgebase, per assembly (`queued`, `running`, `completed` or `failed`), with the number of rows inserted, the error and the tail of the build log. |
+
+Ontology and gene–disease reference (loaded by the HPO and Monarch imports):
+
+- `hpo_term`, `hpo_edge` (`is_a` links), `hpo_synonym` and `hpo_closure` (every ancestor of a
+  term with its distance), from one HPO release
+- `monarch_gene_disease` (gene to MONDO disease, with the predicate, sources and whether it is
+  causal) and `monarch_disease_phenotype` (disease to HPO term, including negated annotations)
+
 Canonical schema files:
 
 - [01_access.sql](../backend/db/schema/postgres/01_access.sql) — pgcrypto extension + genome foundation (`species`, `assemblies`, `chromosomes`) + identity/authorization (`users`, `projects`, `project_users`, `auth_login_attempts`)
-- [02_reference.sql](../backend/db/schema/postgres/02_reference.sql) — reference/annotation data (`genes`, `gene_info`, `blacklist`, `clinical_cnvs`, `dgv_variants`, `segmental_duplications`, `gene_panels` and children, `hpo_*`, `monarch_*`, `repeat_loci`, `reference_dataset_imports`)
-- [03_assay.sql](../backend/db/schema/postgres/03_assay.sql) — families/samples + per-sample assay data + review/curation (`families`, `samples`, `family_members`, `family_projects`, `sample_projects`, `individual_hpo`, `repeat_expansions`, `sample_paraphase_results`, `sample_interval_track_sources`, `small_variant_reviews`, `structural_variant_reviews`, tag/preset tables, `family_sv_gene_index`, `family_variant_ranking_cache`, `family_import_jobs`, `qc_threshold_profiles`, `qc_thresholds`, `qc_threshold_changes`)
+- [02_reference.sql](../backend/db/schema/postgres/02_reference.sql) — reference/annotation data (`genes`, `gene_info`, `blacklist`, `clinical_cnvs`, `dgv_variants`, `segmental_duplications`, `gene_panels` and children incl. `gene_panel_versions`, `hpo_*`, `monarch_*`, `repeat_loci`, `reference_dataset_imports`, `clinical_cnv_kb_jobs`)
+- [03_assay.sql](../backend/db/schema/postgres/03_assay.sql) — families/samples + per-sample assay data + review/curation (`family_statuses`, `families`, `samples`, `family_members`, `family_relationships`, `family_structure_versions`, `family_projects`, `sample_projects`, `individual_hpo`, `repeat_expansions`, `sample_paraphase_results`, `sample_interval_track_sources`, `small_variant_reviews`, `structural_variant_reviews`, tag/preset tables (incl. `structural_variant_filter_presets`), `nipt_artifact_variants`, `family_sv_gene_index`, `family_sv_gene_index_status`, `family_variant_ranking_cache`, `family_import_jobs`, `qc_threshold_profiles`, `qc_thresholds`, `qc_threshold_changes`)
 - [04_traceability.sql](../backend/db/schema/postgres/04_traceability.sql) — import provenance + append-only hash-chained clinical audit + integrity (`audit_log_events`, `ui_events`, `raw_import_files`, `family_annotation_manifest`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`) plus the immutability trigger functions/triggers, including the append-only guard on `qc_threshold_changes`
 - [05_grants.sql](../backend/db/schema/postgres/05_grants.sql) — the restricted `coga_app` runtime role + grants/revokes
 

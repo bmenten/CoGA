@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-sys.path.append(str(Path(__file__).resolve().parents[1] / "scripts"))
+sys.path.append(str(Path(__file__).resolve().parents[2] / "scripts"))
 import load_demo_quartet as script  # noqa: E402
 from backend.app.schemas import ManualPedMemberCreate  # noqa: E402
 

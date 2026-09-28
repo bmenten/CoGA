@@ -7,11 +7,11 @@ requirement → its verifying test), see the Requirements Traceability Matrix
 
 | Suite | Files | Tests | Runner |
 | --- | --- | --- | --- |
-| Backend (Python) | 139 | ~1054 | `pytest` |
-| Frontend (TypeScript/React) | 100 | 433 | `vitest` |
+| Backend (Python) | 162 | 1413, of which 79 are integration/e2e tests that only the `smoke` and `e2e` jobs run | `pytest` |
+| Frontend (TypeScript/React) | 124 | 663 | `vitest` |
 
-> Counts are point-in-time; the test tree is the source of truth. Regenerate the inventory
-> with the commands in [§ Keeping this current](#keeping-this-current).
+> Counts as of 2026-09-28 (#530); the test tree is the source of truth. Regenerate the
+> inventory with the commands in [§ Keeping this current](#keeping-this-current).
 
 ---
 
@@ -21,7 +21,7 @@ requirement → its verifying test), see the Requirements Traceability Matrix
 - **Integration smoke.** A small integration suite boots the real app against **Postgres + ClickHouse** (schema init, admin seed, health probe) to catch startup/schema failures the unit suite cannot.
 - **Frontend component + logic.** `vitest` + Testing Library cover pure `lib/` logic, visualization components (canvas mocked), and page behaviour; safety-relevant UI (route guards, ACMG/CNV/NIPT readouts, sign-out/drift) is explicitly covered.
 - **Fail-safe / degraded input.** Across NIPT, ACMG, CNV and haplotype, degraded/empty input must abstain (low-confidence / VUS / uninformative), never silently mis-call.
-- **Two backend test roots.** Tests live in both the top-level `tests/` and `backend/tests/` (both are on `pytest.ini` `testpaths`). A few filenames exist in **both** directories as distinct suites.
+- **One backend test root.** Every backend test lives under `backend/tests/`, the only `pytest.ini` `testpaths` entry, so `pytest` collects the same suite whether it is run from the repository root or from `backend/`. The former top-level `tests/` folder was merged into it (#530); `scripts/check-test-catalogue.sh` fails if a test file appears there again.
 
 ## How to run
 
@@ -101,7 +101,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_haplotype_lineage_service.py](../backend/tests/test_haplotype_lineage_service.py) | Pedigree-aware IBD haplotype colouring, homolog assignment, relative greying. |
 | [backend/tests/test_phased_marker_service.py](../backend/tests/test_phased_marker_service.py) | Phased-marker retrieval, parent resolution, Mendel-error/informative-site QC. |
 | [backend/tests/test_bed_service_lineage_precompute.py](../backend/tests/test_bed_service_lineage_precompute.py) | Genome-overview lineage precompute: fingerprint, origin-packed intervals, hash-guarded reads. |
-| [tests/test_bed_service.py](../tests/test_bed_service.py) | Interval-track / lineage retrieval and sample-context handling. |
+| [backend/tests/test_bed_service.py](../backend/tests/test_bed_service.py) | Interval-track / lineage retrieval and sample-context handling. |
 
 ### Rare-disorder diagnostics (trio, SV, repeats, Paraphase, mtDNA)
 | Test file | Purpose |
@@ -109,10 +109,10 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_de_novo_detection.py](../backend/tests/test_de_novo_detection.py) | Trio de-novo detection with confident hom-ref matching and full-trio requirement. |
 | [backend/tests/test_sv_gene_index.py](../backend/tests/test_sv_gene_index.py) | SV→gene index and SV second-hit (compound-het) summarization. |
 | [backend/tests/test_mitochondrial_analysis.py](../backend/tests/test_mitochondrial_analysis.py) | mtDNA variant collection, heteroplasmy, maternal transmission, review attachment. |
-| [tests/test_paraphase_pg.py](../tests/test_paraphase_pg.py) | Paraphase SMN metrics (copy number, read counts, haplotype groups). |
-| [tests/test_repeat_expansion_pg.py](../tests/test_repeat_expansion_pg.py) | Repeat-expansion family table storage/retrieval (TRGT). |
-| [tests/test_presence_count_only.py](../tests/test_presence_count_only.py) | `count_only` presence mode for repeat/Paraphase tables. |
-| [tests/test_structural_variant_ingest.py](../tests/test_structural_variant_ingest.py) | Manual SV record parsing incl. remote breakend partners. |
+| [backend/tests/test_paraphase_pg.py](../backend/tests/test_paraphase_pg.py) | Paraphase SMN metrics (copy number, read counts, haplotype groups). |
+| [backend/tests/test_repeat_expansion_pg.py](../backend/tests/test_repeat_expansion_pg.py) | Repeat-expansion family table storage/retrieval (TRGT). |
+| [backend/tests/test_presence_count_only.py](../backend/tests/test_presence_count_only.py) | `count_only` presence mode for repeat/Paraphase tables. |
+| [backend/tests/test_structural_variant_breakends.py](../backend/tests/test_structural_variant_breakends.py) | Manual SV record parsing incl. remote breakend partners. |
 
 ### Variant classification (ACMG / CNV)
 | Test file | Purpose |
@@ -134,7 +134,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_integrity_anchor.py](../backend/tests/test_integrity_anchor.py) | Signed chain-head anchor (P1-4 follow-up): Ed25519 sign/verify round-trip, unsigned fallback, deterministic head sort + order-independent anchor_root, `signed_core` isoformat. |
 | [backend/tests/test_audit_log_pg.py](../backend/tests/test_audit_log_pg.py) | HTTP audit-log event JSONB serialization/storage. |
 | [backend/tests/test_event_pipeline.py](../backend/tests/test_event_pipeline.py) | Audit/UI-event durability (TF-13 S-5): backpressure + synchronous fallback on a full queue, bounded batch-write retry, and never-silent drop accounting. |
-| [tests/test_small_variant_review_pg.py](../tests/test_small_variant_review_pg.py) | Small-variant review persistence and payload serialization. |
+| [backend/tests/test_small_variant_review_pg.py](../backend/tests/test_small_variant_review_pg.py) | Small-variant review persistence and payload serialization. |
 
 ### Access control & security
 | Test file | Purpose |
@@ -174,15 +174,15 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_raw_import_file_verify.py](../backend/tests/test_raw_import_file_verify.py) | File SHA-256 verification: verified / mismatch / missing / unverifiable. |
 | [backend/tests/test_variant_upload_service.py](../backend/tests/test_variant_upload_service.py) | VCF/VEP parsing → ClickHouse ingestion; phased-block (PS) preservation. |
 | [backend/tests/test_upload_safety.py](../backend/tests/test_upload_safety.py) | Bounded upload decode: read/decompressed size caps reject oversized uploads and gzip bombs (413); corrupt gzip / non-UTF-8 → 400. |
-| [tests/test_variant_upload_service.py](../tests/test_variant_upload_service.py) | Variant-upload parsing/ingestion (top-level suite). |
-| [tests/test_clickhouse_variant_storage.py](../tests/test_clickhouse_variant_storage.py) | Family-scoped variant counting and query building; every small-variant mutation stamps a new family data version (#509). |
-| [tests/test_raw_import_files_pg.py](../tests/test_raw_import_files_pg.py) | Raw-import file-size limits and SHA-256 verification. |
+| [backend/tests/test_variant_upload_gene_lookup.py](../backend/tests/test_variant_upload_gene_lookup.py) | Gene lookup during variant upload: distinct sorted overlaps per window; one grouped query per chromosome set, none for empty input. |
+| [backend/tests/test_clickhouse_variant_storage.py](../backend/tests/test_clickhouse_variant_storage.py) | Family-scoped variant counting and query building; every small-variant mutation stamps a new family data version (#509). |
+| [backend/tests/test_raw_import_files_pg.py](../backend/tests/test_raw_import_files_pg.py) | Raw-import file-size limits and SHA-256 verification. |
 
 ### Gene / HPO / panel / Monarch / reference
 | Test file | Purpose |
 | --- | --- |
 | [backend/tests/test_bounded_download.py](../backend/tests/test_bounded_download.py) | Bounded outbound download + gunzip for reference/gene/Monarch fetches (#336): gunzip roundtrip / oversized-output / invalid-stream / a real decompression bomb halted at the cap; streamed size-cap abort, optional-404, and 5xx paths. |
-| [backend/tests/test_gene_info_bulk_sources.py](../backend/tests/test_gene_info_bulk_sources.py) | Gene-reference bulk-source parsing; dbNSFP constraint metrics. |
+| [backend/tests/test_gene_info_bulk_sources.py](../backend/tests/test_gene_info_bulk_sources.py) | Gene-reference bulk sources: ClinGen validity and dosage rows (download banner skipped), GenCC and ClinVar gene–condition rows, dbNSFP constraint metrics (scientific notation kept) and OMIM, the HGNC set and symbol history, dbNSFP-first bundle with online fallback, per-source release labels and consulted status. |
 | [backend/tests/test_gene_info_external.py](../backend/tests/test_gene_info_external.py) | Outbound gene-lookup URL encoding (#336): quote(safe='') escapes '/' so an injected identifier stays in one path segment on the fixed external hosts; legitimate ids unchanged. |
 | [backend/tests/test_gene_locus_primary_chromosome.py](../backend/tests/test_gene_locus_primary_chromosome.py) | Primary-chromosome / multi-contig gene-locus resolution. |
 | [backend/tests/test_hpo_api.py](../backend/tests/test_hpo_api.py) | HPO router and family HPO-term attachment. |
@@ -190,13 +190,12 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_monarch_ingest.py](../backend/tests/test_monarch_ingest.py) | Monarch gene-disease/phenotype association parsing. |
 | [backend/tests/test_monarch_search_api.py](../backend/tests/test_monarch_search_api.py) | Monarch disease/phenotype search endpoint. |
 | [backend/tests/test_monarch_semsim.py](../backend/tests/test_monarch_semsim.py) | Monarch semantic-similarity phenotype matching/normalization. |
-| [tests/test_hpo_service.py](../tests/test_hpo_service.py) | HPO annotation import and session-state tracking. |
-| [tests/test_gene_info_bulk_sources.py](../tests/test_gene_info_bulk_sources.py) | ClinGen validity parsing and gene-symbol grouping. |
-| [tests/test_gene_info_jobs_pg.py](../tests/test_gene_info_jobs_pg.py) | Gene-reference background refresh job (queue/run/state). |
-| [tests/test_reference_metadata_service.py](../tests/test_reference_metadata_service.py) | Reference metadata aggregation and transcript resolution. |
-| [tests/test_gencode_import.py](../tests/test_gencode_import.py) | GENCODE GTF → gene rows: release preamble, per-transcript rows, biotypes/identifiers, MANE tags, exon grouping, RefSeq accessions. |
-| [tests/test_gene_metadata_transcripts.py](../tests/test_gene_metadata_transcripts.py) | Transcript MANE / Ensembl-canonical flags read from the annotation's own tags. |
-| [tests/test_reference_source_service.py](../tests/test_reference_source_service.py) | Reference import-source management and assembly metadata. |
+| [backend/tests/test_hpo_family_annotation_import.py](../backend/tests/test_hpo_family_annotation_import.py) | Family HPO annotation import: batched inserts, duplicate conflict keys collapsed, unknown terms skipped without an insert. |
+| [backend/tests/test_gene_info_jobs_pg.py](../backend/tests/test_gene_info_jobs_pg.py) | Gene-reference background refresh job (queue/run/state). |
+| [backend/tests/test_reference_metadata_service.py](../backend/tests/test_reference_metadata_service.py) | Reference metadata aggregation and transcript resolution. |
+| [backend/tests/test_gencode_import.py](../backend/tests/test_gencode_import.py) | GENCODE GTF → gene rows: release preamble, per-transcript rows, biotypes/identifiers, MANE tags, exon grouping, RefSeq accessions. |
+| [backend/tests/test_gene_metadata_transcripts.py](../backend/tests/test_gene_metadata_transcripts.py) | Transcript MANE / Ensembl-canonical flags read from the annotation's own tags. |
+| [backend/tests/test_reference_source_service.py](../backend/tests/test_reference_source_service.py) | Reference import-source management and assembly metadata. |
 
 ### Variant prioritization & explorer
 | Test file | Purpose |
@@ -205,14 +204,14 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_variant_ranking_cache.py](../backend/tests/test_variant_ranking_cache.py) | Ranking-cache invalidation keyed by family/filters, the family's variant-data version and the scoring reference releases (HPO, gene_info) (#509). |
 | [backend/tests/test_variant_explorer_service.py](../backend/tests/test_variant_explorer_service.py) | Cross-project variant aggregation, ranking, carrier pagination. |
 | [backend/tests/test_variant_explorer_router.py](../backend/tests/test_variant_explorer_router.py) | Variant-explorer export column formatting. |
-| [tests/test_variant_explorer_service.py](../tests/test_variant_explorer_service.py) | Variant-explorer scope resolution and global query (top-level suite). |
+| [backend/tests/test_variant_explorer_carriers.py](../backend/tests/test_variant_explorer_carriers.py) | Variant-explorer carrier lists (truncation flag, exact count under the cap) and annotation display mapping. |
 
 ### Sample QC
 | Test file | Purpose |
 | --- | --- |
 | [backend/tests/test_sample_integrity_qc.py](../backend/tests/test_sample_integrity_qc.py) | Relatedness, paternity, sex inference, Mendelian consistency, QC aggregation (sample-swap/data-integrity). |
 | [backend/tests/test_sample_integrity_service.py](../backend/tests/test_sample_integrity_service.py) | Family-scoped sample-integrity report generation. |
-| [tests/test_family_structure_validation.py](../tests/test_family_structure_validation.py) | Pedigree-graph validation and parent-sex consistency. |
+| [backend/tests/test_family_structure_validation.py](../backend/tests/test_family_structure_validation.py) | Pedigree-graph validation and parent-sex consistency. |
 
 ### SQL / driver contracts
 | Test file | Purpose |
@@ -234,10 +233,10 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_family_structure_update_dirty.py](../backend/tests/test_family_structure_update_dirty.py) | Family-structure update with member dirty-tracking. |
 | [backend/tests/test_manual_family_metadata.py](../backend/tests/test_manual_family_metadata.py) | Manual family creation and pedigree threading. |
 | [backend/tests/test_families_export.py](../backend/tests/test_families_export.py) | Family export cell formatting (reviews/genotypes). |
-| [tests/test_family_metadata_context.py](../tests/test_family_metadata_context.py) | Family-metadata context building (top-level suite). |
-| [tests/test_family_package_import.py](../tests/test_family_package_import.py) | Package discovery, validation, manifest loading. |
-| [tests/test_family_service.py](../tests/test_family_service.py) | Family ROI payload gene-query ordering (top-level suite). |
-| [tests/test_ped_service.py](../tests/test_ped_service.py) | Pedigree service parsing/standardization. |
+| [backend/tests/test_family_metadata_context_queries.py](../backend/tests/test_family_metadata_context_queries.py) | Family-metadata context queries: distinct-sample ordering by the selected column; UUID project filter for visible samples. |
+| [backend/tests/test_family_package_import.py](../backend/tests/test_family_package_import.py) | Package discovery, validation, manifest loading. |
+| [backend/tests/test_family_service.py](../backend/tests/test_family_service.py) | Family ROI payload gene-query ordering. |
+| [backend/tests/test_ped_service.py](../backend/tests/test_ped_service.py) | Pedigree service parsing/standardization. |
 
 ### Integration / smoke
 | Test file | Purpose |
@@ -296,11 +295,11 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_repeat_contraction_loci.py](../backend/tests/test_repeat_contraction_loci.py) | Repeat loci pathogenic by contraction (VWA1, MIR7-2): a benign count is never flagged, expansion loci keep their thresholds, and pathogenic_max is not treated as a ceiling. |
 | [backend/tests/test_sv_filter_before_cap.py](../backend/tests/test_sv_filter_before_cap.py) | SV region push-down: gene/panel regions reach the SQL so the candidate cap bounds the ranking rather than deciding what the filter sees; span overlap, coordinate normalisation, dedupe. |
 | [backend/tests/test_variant_cytoband_labels.py](../backend/tests/test_variant_cytoband_labels.py) | Cytoband lookup shared by small and structural variants: band per position, multi-band spans, chromosome aliases. |
-| [tests/test_variant_annotation_parser.py](../tests/test_variant_annotation_parser.py) | VCF CSQ annotation header parsing (top-level suite). |
-| [tests/test_admin_inventory.py](../tests/test_admin_inventory.py) | Data-inventory admin endpoint, assembly-scoped counting. |
-| [tests/test_admin_service.py](../tests/test_admin_service.py) | Admin service listing and family-count aggregation. |
-| [tests/test_backend_hotpath_cleanups.py](../tests/test_backend_hotpath_cleanups.py) | Hot-path cleanups: DDL memoization, HPO table-probe caching. |
-| [tests/test_load_demo_quartet.py](../tests/test_load_demo_quartet.py) | Demo-bundle loading and family-definition manifest parsing. |
+| [backend/tests/test_variant_annotation_extraction.py](../backend/tests/test_variant_annotation_extraction.py) | Small-variant annotation extraction from the VEP `CSQ` field, the INFO fallback and VEP TSV entries. |
+| [backend/tests/test_admin_inventory.py](../backend/tests/test_admin_inventory.py) | Data-inventory admin endpoint, assembly-scoped counting. |
+| [backend/tests/test_admin_service.py](../backend/tests/test_admin_service.py) | Admin service listing and family-count aggregation. |
+| [backend/tests/test_backend_hotpath_cleanups.py](../backend/tests/test_backend_hotpath_cleanups.py) | Hot-path cleanups: DDL memoization, HPO table-probe caching. |
+| [backend/tests/test_load_demo_quartet.py](../backend/tests/test_load_demo_quartet.py) | Demo-bundle loading and family-definition manifest parsing. |
 
 ---
 
@@ -487,11 +486,14 @@ To regenerate the file list + per-file test counts when adding/removing tests:
 
 ```bash
 # backend
-for f in $(git ls-files 'tests/*.py' 'backend/tests/**/*.py' 'backend/tests/*.py' | grep -E 'test_.*\.py$' | sort); do
+for f in $(git ls-files 'backend/tests/*.py' 'backend/tests/**/*.py' | grep -E 'test_.*\.py$' | sort); do
   printf '%s\t%s\n' "$(grep -cE '^\s*(async )?def test_' "$f")" "$f"; done
 # frontend
 for f in $(git ls-files 'frontend/src/**/*.test.ts' 'frontend/src/**/*.test.tsx' | sort); do
   printf '%s\t%s\n' "$(grep -cE '\b(it|test)\(' "$f")" "$f"; done
+# suite totals (a parametrized test counts once per case)
+python -m pytest -q --co | tail -1
+(cd frontend && npx vitest run | grep -E 'Test Files|Tests ')
 ```
 
 When a test file is added, add a row to the relevant section here and (if it verifies a

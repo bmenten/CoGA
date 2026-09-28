@@ -38,22 +38,22 @@ CoGA is organized around three areas: a family workspace, cross-cohort discovery
 - `frontend/`: React, TypeScript, Vite, Tailwind.
 - `backend/`: FastAPI, SQLAlchemy async, ClickHouse client.
 - `Postgres`: users, projects, families, samples, review state, repeat expansions, Paraphase results, NIPT artifacts, gene cache, panels, HPO, the annotation/reference-version manifest, and the append-only hash-chained clinical audit + report sign-out trail.
-- `ClickHouse`: small variants, structural variants, and interval tracks (coverage/segments/APCAD/haplotypes) per assembly, plus cross-project genotype aggregates used by the variant explorer.
+- `ClickHouse`: small variants, structural variants, and interval tracks (coverage/segments/APCAD/haplotypes), in one set of tables per assembly. The cross-project variant explorer aggregates those tables at query time.
 
 ## Quick Start
 
 1. Copy `.env.example` to `.env`.
-  The production-style stack now refuses to start with placeholder secrets. Replace `SECRET_KEY`, `POSTGRES_PASSWORD`, and `ADMIN_PASSWORD` before using `docker compose up`.
+  The production-style stack refuses to start with placeholder or weak secrets. Set `SECRET_KEY` (at least 32 characters), `INTEGRITY_ANCHOR_SIGNING_KEY` (base64 of a 32-byte Ed25519 seed), `POSTGRES_PASSWORD`, `CLICKHOUSE_PASSWORD` and `ADMIN_PASSWORD` before using `docker compose up`; `.env.example` shows how to generate the first two. For local-only work, use the dev stack below, which runs with `APP_ENV=development`.
 2. Start the production-style local stack:
 
 ```bash
 docker compose up --build -d
 ```
 
-1. Open:
+3. Open:
 
 - Frontend: `http://localhost:3000`
-- Backend docs: `http://localhost:8000/docs`
+- Backend API docs: `http://localhost:8000/docs` (served only with `APP_ENV=development`, e.g. the dev stack)
 - Postgres: `localhost:5432`
 - ClickHouse HTTP: `localhost:8123`
 - ClickHouse native: `localhost:9000`
@@ -108,12 +108,16 @@ Required:
 - `CLICKHOUSE_USER`
 - `CLICKHOUSE_PASSWORD`
 
-Optional:
+Required outside development (the backend refuses to start without them):
+
+- `INTEGRITY_ANCHOR_SIGNING_KEY`
+- `ADMIN_PASSWORD`
+
+Optional (`.env.example` lists every setting with its default):
 
 - `CORS_ORIGINS`
 - `CORS_ORIGIN_REGEX`
 - `ADMIN_USERNAME`
-- `ADMIN_PASSWORD`
 - `ADMIN_EMAIL`
 - `VITE_API_BASE_URL` for pointing the frontend at a non-default API host; defaults to `/api`
 - `GITHUB_REPOSITORY`
@@ -136,8 +140,6 @@ Optional:
 - `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, defaulting to `true` to queue the first dbNSFP-backed human gene reference sync when a clean GRCh38 database has no cached gene info
 - `READS_PATH`
 - `REFERENCE_FASTA_PATH`
-- `REFERENCE_ALIAS_PATH`
-- `REFERENCE_CYTOBAND_PATH`
 - `AZURE_TENANT_ID`
 - `AZURE_CLIENT_ID`
 - `AZURE_ADMIN_OVERRIDE`
@@ -148,18 +150,22 @@ Optional:
 
 Reference data is loaded through admin API endpoints:
 
-- `POST /assemblies/{assembly_id}/reference-upload/cytobands`
-- `POST /assemblies/{assembly_id}/reference-upload/genes`
-- `POST /assemblies/{assembly_id}/reference-upload/blacklist`
-- `POST /assemblies/{assembly_id}/reference-upload/clinical_cnvs`
+- `POST /api/assemblies/{assembly_id}/reference-upload/cytobands`
+- `POST /api/assemblies/{assembly_id}/reference-upload/genes`
+- `POST /api/assemblies/{assembly_id}/reference-upload/blacklist`
+- `POST /api/assemblies/{assembly_id}/reference-upload/clinical_cnvs`
+- `POST /api/assemblies/{assembly_id}/reference-upload/segmental_duplications`
+- `POST /api/assemblies/{assembly_id}/reference-upload/dgv`
 
 Pedigree and assay data are loaded through API uploads:
 
-- `POST /ped/upload`
-- `POST /families/{family_id}/small-variants/upload`
-- `POST /repeat-expansions/upload/{sample_id}`
-- `POST /bed/upload/{sample_id}/{bed_type}`
-- `POST /structural-variants/upload/{sample_id}`
+- `POST /api/ped/upload`
+- `POST /api/families/{family_id}/small-variants/upload`
+- `POST /api/repeat-expansions/upload/{sample_id}`
+- `POST /api/bed/upload/{sample_id}/{bed_type}`
+- `POST /api/structural-variants/upload/{sample_id}`
+
+Whole family packages (VCFs, pedigree, QC and alignments in the pipeline's folder layout) are imported from the admin Package Import page.
 
 See [docs/data-import.md](docs/data-import.md) for the current flow.
 
@@ -200,9 +206,9 @@ npm run build
 ## Notes
 
 - Variant IDs exposed by the API are storage-agnostic strings. Metadata IDs are UUIDs.
-- Startup ensures Homo sapiens GRCh38 is present, imports missing GRCh38 cytobands/genes from UCSC when available, seeds built-in hg38 tracks, queues the first dbNSFP-backed human gene-reference sync when the local dbNSFP gene file is present, and starts the gene-reference refresh worker.
-- Admin users can inspect and repair ClickHouse variant tables from the data-management page or via `/admin/clickhouse/variants`, `/admin/clickhouse/variants/{assembly_name}/ensure`, and `/admin/clickhouse/variants/{assembly_name}/optimize`.
-- The in-app `New features` page reads GitHub releases through `/product/releases`; private repositories require `GITHUB_API_TOKEN` on the backend to keep that page synced.
+- Startup ensures Homo sapiens GRCh38 is present, imports missing GRCh38 cytobands from UCSC and gene loci from GENCODE (falling back to the UCSC gene track when GENCODE cannot be fetched), seeds built-in hg38 tracks, queues the first dbNSFP-backed human gene-reference sync when the local dbNSFP gene file is present, and starts the gene-reference refresh worker.
+- Admin users can inspect and repair ClickHouse variant tables from the data-management page or via `/api/admin/clickhouse/variants`, `/api/admin/clickhouse/variants/{assembly_name}/ensure`, and `/api/admin/clickhouse/variants/{assembly_name}/optimize`.
+- The in-app `New features` page reads GitHub releases through `/api/product/releases`; private repositories require `GITHUB_API_TOKEN` on the backend to keep that page synced.
 
 ## Licence
 

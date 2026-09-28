@@ -149,6 +149,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
     Playwright 1.63.0 and typescript-eslint 8.70.1 (#408, #441, #502, #505).
   - GitHub Actions: setup-python 7 and setup-node 7 (#404, #405), CodeQL action 4.37.7 (#433,
     #480).
+- **One backend test root** — the top-level `tests/` folder is merged into `backend/tests/`,
+  so `pytest` runs the whole suite from the repository root or from `backend/`, and the
+  catalogue check fails on a test file outside it (#553).
+- **Frontend production image** — the build toolchain (vite, typescript, `@types/*`) moved to
+  devDependencies, so the production image no longer installs it; its `node_modules` drops
+  from 119 to 61 MB. No dependency version changed (#553).
 
 ### Removed
 
@@ -157,6 +163,7 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Per-gene HGNC, Ensembl, Ensembl-homology and ClinGen-page lookups** in the gene-reference
   sync. The bulk HGNC set and GENCODE now supply what they did, and NCBI is the only per-gene
   call left (#447).
+- **`REFERENCE_ALIAS_PATH` and `REFERENCE_CYTOBAND_PATH`** — settings nothing read (#553).
 
 ### Fixed
 
@@ -259,6 +266,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   stray click: they ask first, close on Escape, and keep keyboard focus inside. The coverage
   chart shows the gain/loss colour thresholds in use and marks thresholds changed in this
   browser (#547).
+- **Quick Start ClickHouse login** — `.env.example` gave ClickHouse's built-in `default` user
+  no password, which the ClickHouse image refuses for network clients, so the documented
+  stack could not connect. It now names a `coga` user with a placeholder password (#553).
 
 ### Security
 
@@ -302,9 +312,16 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   deploys to the single environment, and Terraform variables persist across deploys. CI
   pins its service images, and docker compose keeps the databases on loopback and the
   backend secrets out of the frontend container (#550).
+- **ClickHouse placeholder password** — outside development the backend also refuses
+  `change-me` as the ClickHouse password, as it already did for Postgres and admin (#553).
 
 ### Documentation
 
+- **Docs and repo hygiene (#530)** — AGENTS.md, the README, `.env.example` (now every backend
+  setting with its default), `docs/database.md` (eight undocumented tables, plus the HPO and
+  Monarch tables), TF-08 §A.2 (locked frontend versions and where each runs), RELEASING.md
+  step 4 (the SBOM comes from the CI run of the tagged commit) and the `docs/testing.md` counts
+  now match the code (#553).
 - **Technical-file consistency** — requirement counts, a duplicate requirement ID
   (REQ-TRACE-008 → REQ-TRACE-011 for the provenance requirement), the SOUP register reconciled
   with the lockfile and runtime end-of-life dates, and the hosting and processor statements for

@@ -105,8 +105,6 @@ The frontend is the only Node package in the repository. Run npm commands from `
 | `CORS_ORIGIN_REGEX` | Optional regex for local/dev frontend origins |
 | `READS_PATH` | BAM/CRAM directory |
 | `REFERENCE_FASTA_PATH` | Reference FASTA for sequence/CRAM lookups |
-| `REFERENCE_ALIAS_PATH` | Optional chromosome alias map |
-| `REFERENCE_CYTOBAND_PATH` | Optional cytoband fallback file |
 | `GENE_REFERENCE_DBNSFP_GENE_PATH` | Local dbNSFP gene file for gene reference sync; defaults to `/data/ref-data/dbNSFP5.4_gene.gz` and online sources are used as fallback |
 | `GENE_REFERENCE_HGNC_COMPLETE_SET_URL` | HGNC complete set; defines which human genes the reference sync caches and resolves renamed symbols onto their current name |
 | `REFERENCE_GENCODE_GTF_URL` | GENCODE GTF supplying human GRCh38 gene loci, biotypes, Ensembl/HGNC ids and MANE tags; pinned by release, falls back to the UCSC track when unset or unreachable |
