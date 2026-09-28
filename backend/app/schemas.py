@@ -1215,6 +1215,9 @@ class ProjectDashboardOut(ProjectOut):
     species_name: Optional[str] = None
     assembly_name: Optional[str] = None
     assembly_version: Optional[str] = None
+    # Inside the validated scope (VALIDATED_ASSEMBLIES)? Drives the "not validated for
+    # clinical use" label on family and report pages (TF-06 H12, #515).
+    assembly_validated: bool = False
     families: List[FamilyOut] = Field(default_factory=list)
     samples: List[str] = Field(default_factory=list)
 

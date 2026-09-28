@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router';
+import AssemblyScopeBanner from '../../components/AssemblyScopeBanner';
 import Pedigree from '../../components/visualizations/Pedigree';
 
 /**
@@ -65,6 +66,8 @@ const FamilyPageHeader: React.FC<{
   footer?: React.ReactNode;
   /** Samples whose phenotype ring the pedigree should draw (workspace only). */
   phenotypeSampleIds?: string[];
+  /** The family's reference assembly and whether it is inside the validated scope. */
+  assemblyScope?: { name?: string; validated?: boolean };
 }> = ({
   kicker,
   familyId,
@@ -76,6 +79,7 @@ const FamilyPageHeader: React.FC<{
   children,
   footer,
   phenotypeSampleIds,
+  assemblyScope,
 }) => {
   const label = familyId || family?.family_id || '';
   const pedRows = parsePedigree(family?.pedigree);
@@ -108,6 +112,10 @@ const FamilyPageHeader: React.FC<{
               is a flex row, so anything nested inside it shrinks to its own content and
               a `repeat(auto-fit, …)` stat grid collapses to a single column. */}
           {children ? <div className="page-top-card-body">{children}</div> : null}
+          <AssemblyScopeBanner
+            assemblyName={assemblyScope?.name}
+            assemblyValidated={assemblyScope?.validated}
+          />
         </div>
         {hasPedigree && (
           <div className="page-top-card-visual">

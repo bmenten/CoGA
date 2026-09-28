@@ -303,6 +303,11 @@ Emit from the classify / tag / note / structure / sign-out service paths. Add a 
   the reported structural variants / CNVs with their classification (since #508 — before, a
   reported CNV was printed but not frozen) + the drift state, SHA-256 content-hashes a canonical
   encoding, and stores it as the next **version**; the sign-out is recorded in the audit trail.
+- **Assembly-scope gate (#515, TF-06 H12):** before anything else, sign-out returns `409` with
+  `detail.gate = "assembly_scope"` when the family's reference assembly is not in
+  `VALIDATED_ASSEMBLIES` (default `GRCh38`), or no assembly is linked. It cannot be acknowledged
+  away. Every family page and the report page label such a family "not validated for clinical
+  use", and the report page does not offer sign-out.
 - **Drift gate:** sign-out returns `409` if any classification has drifted, unless
   `acknowledge_drift` is set **with a `drift_acknowledgement_reason`** (`422` without one, since
   #508 — like the Sample-QC override); the acknowledgement and reason are baked into the

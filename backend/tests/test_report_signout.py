@@ -51,7 +51,7 @@ class _Session:
 
 def _patch_common(monkeypatch, *, drifted_count: int, qc_status: str = "pass"):
     async def _ctx(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1")
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
 
     async def _manifest(session, *, family_id, user, project_id=None):
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
@@ -85,6 +85,77 @@ def _patch_common(monkeypatch, *, drifted_count: int, qc_status: str = "pass"):
 
 async def _no_structural_reviews(session, family_uuid):
     return []
+
+
+# ---------------------------------------------------------------------------
+# Off-scope assembly gate (TF-06 H12, #515)
+# ---------------------------------------------------------------------------
+
+
+def _patch_off_scope(monkeypatch, assembly_name):
+    _patch_common(monkeypatch, drifted_count=0)
+
+    async def _ctx(session, *, family_identifier, user, project_id=None):
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name=assembly_name)
+
+    async def _must_not_build(*args, **kwargs):
+        raise AssertionError("an off-scope family must be refused before its snapshot is built")
+
+    monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
+    monkeypatch.setattr(rss, "build_report_snapshot", _must_not_build)
+
+
+def _sign_out_with_every_override(session):
+    # Every other gate acknowledged: the scope gate must not be one more thing to waive.
+    return rss.sign_out_report(
+        session,
+        family_id="FAM1",
+        user=_user(),
+        acknowledge_drift=True,
+        drift_acknowledgement_reason="reviewed",
+        acknowledge_qc=True,
+        qc_acknowledgement_reason="reviewed",
+    )
+
+
+def test_sign_out_refuses_a_family_on_an_unvalidated_assembly(monkeypatch) -> None:
+    _patch_off_scope(monkeypatch, "T2T-CHM13v2.0")
+    session = _Session()
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(_sign_out_with_every_override(session))
+
+    assert excinfo.value.status_code == 409
+    detail = excinfo.value.detail
+    # Structured, so the report page shows a refusal rather than the drift override.
+    assert detail["gate"] == "assembly_scope"
+    assert detail["assembly"] == "T2T-CHM13v2.0"
+    assert detail["validated_assemblies"] == ["GRCh38"]
+    assert "not validated for clinical use" in detail["message"]
+    assert session.executed == [], "nothing may be written for a refused sign-out"
+
+
+def test_sign_out_refuses_a_family_without_a_resolved_assembly(monkeypatch) -> None:
+    _patch_off_scope(monkeypatch, None)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(_sign_out_with_every_override(_Session()))
+    assert excinfo.value.detail["gate"] == "assembly_scope"
+    assert "no reference assembly linked" in excinfo.value.detail["message"]
+
+
+def test_a_validated_assembly_is_configured_not_hard_coded(monkeypatch) -> None:
+    # Extending the scope is a change-controlled configuration step (TF-18), once the
+    # assembly has been validated; the gate follows the configuration.
+    from backend.app.core.config import settings
+
+    monkeypatch.setattr(settings, "validated_assemblies", ["GRCh38", "T2T-CHM13v2.0"])
+    _patch_common(monkeypatch, drifted_count=0)
+
+    async def _ctx(session, *, family_identifier, user, project_id=None):
+        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="T2T-CHM13v2.0")
+
+    monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["version"] == 1
 
 
 def test_sign_out_blocks_unacknowledged_drift(monkeypatch) -> None:
@@ -226,7 +297,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
 
     def _patch(drift_rows):
         async def _ctx(session, *, family_identifier, user, project_id=None):
-            return types.SimpleNamespace(family_uuid="u1", family_id="FAM1")
+            return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
 
         async def _manifest(session, *, family_id, user, project_id=None):
             return {

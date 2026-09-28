@@ -139,6 +139,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   const {
     speciesName,
     assemblyName,
+    assemblyValidated,
     assemblyVersion,
     projectId,
     isLoading: referenceLoading,
@@ -292,6 +293,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   return (
     <div className="page-shell analysis-shell">
       <FamilyPageHeader
+        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
         kicker="Structural Variants"
         familyId={familyId}
         family={familyData}

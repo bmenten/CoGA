@@ -165,6 +165,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
 
   const {
     assemblyName,
+    assemblyValidated,
     assemblyVersion,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
@@ -237,6 +238,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
   return (
     <div className="page-shell family-repeat-page space-y-6">
       <FamilyPageHeader
+        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
         kicker="Repeat expansions"
         family={family}
         projectId={resolvedProjectId}

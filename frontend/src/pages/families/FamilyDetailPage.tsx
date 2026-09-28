@@ -182,6 +182,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
 
   const {
     assemblyName,
+    assemblyValidated,
     assemblyVersion,
     projectId,
     isLoading: referenceLoading,
@@ -1035,6 +1036,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       className={`family-detail-page space-y-6${embedded ? '' : ' page-shell'}`}
     >
       <FamilyPageHeader
+        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
         kicker="Family Workspace"
         familyId={data.family_id}
         family={data}

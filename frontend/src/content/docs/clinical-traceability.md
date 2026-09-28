@@ -109,6 +109,11 @@ goes ahead, but the snapshot records that part as unavailable rather than as emp
 record says so: *Not captured in signed version 2: Sequencing-QC cut-offs (QC thresholds
 could not be resolved)*. The sign-out entry in the audit trail lists the same parts.
 
+**The assembly scope.** CoGA is validated on **GRCh38**. A family on another reference
+assembly (such as T2T-CHM13) can be analysed, but every family page and the report carry a
+*Not validated for clinical use* label, and the report **cannot be signed out** — there is no
+override. The validated assemblies are set by the laboratory under change control.
+
 **The drift gate.** If any reported classification has drifted, sign-out is **blocked**
 and you are asked to re-review or **acknowledge** the drift **with a reason**. The
 acknowledgement and its reason are recorded in both the snapshot and the audit trail, so

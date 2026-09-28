@@ -1,10 +1,11 @@
 from pathlib import Path
 import json
 import re
+from typing import Annotated
 from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import URL
 
 # Every application router is mounted under this prefix (see ``app/main.py``). Kept here
@@ -203,7 +204,7 @@ class Settings(BaseSettings):
     # while clinical identifiers stay out of the audit trail. Override with
     # "none" to disable or "sanitized" to keep masked values.
     audit_log_query_string_mode: str = Field(default="keys", alias="AUDIT_LOG_QUERY_STRING_MODE")
-    cors_origins: list[str] = Field(
+    cors_origins: Annotated[list[str], NoDecode] = Field(
         default=[
             "http://localhost:3000",
             "http://127.0.0.1:3000",
@@ -274,6 +275,13 @@ class Settings(BaseSettings):
     # Off by default: a second assembly roughly doubles the reference footprint and not
     # every deployment reports on T2T. The gene page's T2T rows stay empty until it is on.
     reference_bootstrap_t2t: bool = Field(default=False, alias="REFERENCE_BOOTSTRAP_T2T")
+    # The reference assemblies CoGA is validated on (TF-01 §4 item 6, TF-06 H12). A family
+    # on any other assembly can be analysed, but its report cannot be signed out and the
+    # family and report pages say it is not validated for clinical use. Adding an assembly
+    # here is a change-controlled step (TF-18) that follows its validation, not a switch.
+    validated_assemblies: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["GRCh38"], alias="VALIDATED_ASSEMBLIES"
+    )
     github_repository: str = Field(default="bmenten/coga", alias="GITHUB_REPOSITORY")
     github_repository_url: str = Field(
         default="https://github.com/bmenten/coga",
@@ -352,7 +360,7 @@ class Settings(BaseSettings):
     # Roots that Package Import may read family folders from. Defaults to the
     # local /data/families; cloud deployments (Terraform, etc.) override this
     # with an s3:// bucket prefix via FAMILY_IMPORT_ROOTS.
-    family_import_roots: list[str] = Field(
+    family_import_roots: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["/data/families"], alias="FAMILY_IMPORT_ROOTS"
     )
     family_import_worker_count: int = Field(default=1, ge=1, le=8, alias="FAMILY_IMPORT_WORKER_COUNT")
@@ -418,6 +426,9 @@ class Settings(BaseSettings):
             )
         return value
 
+    # List settings are annotated ``NoDecode``: pydantic-settings would otherwise JSON-decode
+    # an environment value before these validators see it, and reject the documented
+    # comma-separated form (``FAMILY_IMPORT_ROOTS=/data/families`` failed at startup).
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: object) -> object:
@@ -430,7 +441,7 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in stripped.split(",") if origin.strip()]
         return value
 
-    @field_validator("family_import_roots", mode="before")
+    @field_validator("family_import_roots", "validated_assemblies", mode="before")
     @classmethod
     def parse_family_import_roots(cls, value: object) -> object:
         if isinstance(value, str):

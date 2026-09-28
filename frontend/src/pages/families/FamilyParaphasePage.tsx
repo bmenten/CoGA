@@ -447,6 +447,7 @@ const FamilyParaphasePage: React.FC = () => {
 
   const {
     assemblyName,
+    assemblyValidated,
     assemblyVersion,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
@@ -530,6 +531,7 @@ const FamilyParaphasePage: React.FC = () => {
   return (
     <div className="page-shell family-paraphase-page space-y-6">
       <FamilyPageHeader
+        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
         kicker="Paraphase"
         family={family}
         projectId={resolvedProjectId}

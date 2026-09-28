@@ -26,6 +26,7 @@ from ..schemas import (
     UserRead,
     UserRefOut,
 )
+from .assembly_scope import is_validated_assembly
 
 logger = logging.getLogger(__name__)
 
@@ -964,6 +965,7 @@ async def list_project_dashboards(
                 species_name=row.get("species_name"),
                 assembly_name=row.get("assembly_name"),
                 assembly_version=row.get("assembly_version"),
+                assembly_validated=is_validated_assembly(row.get("assembly_name")),
                 families=linked_families,
                 samples=linked_samples,
             )
