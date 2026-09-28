@@ -1,0 +1,229 @@
+"""Structural-variant reviews and their CNV (ClinGen 2019) classification (#526).
+
+The client sends the criteria it applied; the server validates them and recomputes the
+points and the class, so a stored classification cannot drift from its criteria.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import types
+from datetime import datetime, timezone
+
+import pytest
+from fastapi import HTTPException
+
+from backend.app.schemas import CnvAcmgClassificationPayload, CnvAcmgCriterion, SmallVariantReviewUpdate
+from backend.app.services import structural_variant_review_pg as svr
+from backend.app.services.metadata_service import CurrentUser
+
+FAMILY = "00000000-0000-0000-0000-00000000f001"
+CONTEXT = types.SimpleNamespace(family_uuid=FAMILY, project_ids=["p1"])
+USER = CurrentUser(
+    id="u1",
+    username="reviewer",
+    email="reviewer@example.org",
+    role="viewer",
+    created_at=datetime(2026, 9, 29, tzinfo=timezone.utc),
+)
+
+
+def _payload(kind: str, *criteria: tuple[str, float, bool], **derived) -> CnvAcmgClassificationPayload:
+    return CnvAcmgClassificationPayload(
+        kind=kind,
+        criteria=[CnvAcmgCriterion(code=code, points=points, accepted=accepted) for code, points, accepted in criteria],
+        **derived,
+    )
+
+
+# --- the classification is recomputed server-side -----------------------------------------
+
+
+def test_the_client_total_and_class_are_ignored_and_recomputed() -> None:
+    blob, total, class_key = svr._normalize_cnv_acmg_payload(
+        _payload("loss", ("2A", 1.0, True), point_total=-2.0, classification="Benign - class 1")
+    )
+    assert (total, class_key) == (1.0, "cnv_class_5")
+    assert blob["point_total"] == 1.0
+    assert blob["classification"] == "Pathogenic - class 5"
+
+
+def test_points_are_clamped_to_the_criterion_range() -> None:
+    # 2B (partial overlap of an HI region) allows 0 to 0.90 points.
+    blob, total, class_key = svr._normalize_cnv_acmg_payload(_payload("loss", ("2B", 5.0, True)))
+    assert blob["criteria"][0]["points"] == 0.9
+    assert (total, class_key) == (0.9, "cnv_class_4")
+
+
+def test_only_accepted_criteria_count_but_all_are_kept() -> None:
+    blob, total, class_key = svr._normalize_cnv_acmg_payload(
+        _payload("loss", ("2A", 1.0, False), ("3B", 0.45, True))
+    )
+    assert (total, class_key) == (0.45, "cnv_class_3")
+    assert [c["code"] for c in blob["criteria"]] == ["2A", "3B"]
+
+
+def test_a_gain_is_scored_on_the_gain_criteria() -> None:
+    # Gain 2C (identical to an established benign gain) is worth -1.0: benign.
+    _blob, total, class_key = svr._normalize_cnv_acmg_payload(_payload("gain", ("2C", -1.0, True)))
+    assert (total, class_key) == (-1.0, "cnv_class_1")
+
+
+def test_an_unknown_criterion_code_is_refused() -> None:
+    with pytest.raises(HTTPException) as refused:
+        svr._normalize_cnv_acmg_payload(_payload("loss", ("9Z", 1.0, True)))
+    assert refused.value.status_code == 400
+
+
+def test_an_unknown_kind_is_refused_even_past_the_schema() -> None:
+    payload = CnvAcmgClassificationPayload.model_construct(
+        kind="duplication", criteria=[CnvAcmgCriterion(code="2A", points=1.0, accepted=True)]
+    )
+    with pytest.raises(HTTPException) as refused:
+        svr._normalize_cnv_acmg_payload(payload)
+    assert refused.value.status_code == 400
+
+
+def test_no_criteria_clears_the_classification() -> None:
+    assert svr._normalize_cnv_acmg_payload(None) == (None, None, None)
+    assert svr._normalize_cnv_acmg_payload(_payload("loss")) == (None, None, None)
+
+
+# --- stored classifications are read back, or flagged ---------------------------------------
+
+
+def test_an_unreadable_stored_classification_is_flagged_not_dropped() -> None:
+    review = svr._serialize_review({"variant_id": "sv1", "cnv_acmg": "{not json"})
+    assert review.cnv_acmg is None
+    assert review.acmg_unreadable is True
+
+
+def test_a_stored_json_null_is_no_classification() -> None:
+    review = svr._serialize_review({"variant_id": "sv1", "cnv_acmg": "null"})
+    assert review.cnv_acmg is None
+    assert review.acmg_unreadable is False
+
+
+# --- the save path ----------------------------------------------------------------------------
+
+
+class _Result:
+    def __init__(self, row=None):
+        self._row = row
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self._row
+
+
+class _ReviewTable:
+    """An in-memory structural_variant_reviews table behind the queries the service runs."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict] = {}
+        self.statements: list[str] = []
+
+    async def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        params = params or {}
+        self.statements.append(sql.split(" ")[0] + (" LOCK" if "pg_advisory_xact_lock" in sql else ""))
+        if sql.startswith("SELECT id::text AS id"):
+            return _Result(self.rows.get(params["variant_id"]))
+        if sql.startswith("INSERT INTO structural_variant_reviews"):
+            self.rows[params["variant_id"]] = self._row(params, review_id=f"r-{len(self.rows) + 1}")
+        elif sql.startswith("UPDATE structural_variant_reviews"):
+            existing = next(r for r in self.rows.values() if r["id"] == params["review_id"])
+            self.rows[existing["variant_id"]] = self._row(params, review_id=existing["id"])
+        elif sql.startswith("DELETE FROM structural_variant_reviews"):
+            self.rows = {k: r for k, r in self.rows.items() if r["id"] != params["review_id"]}
+        return _Result()
+
+    @staticmethod
+    def _row(params: dict, *, review_id: str) -> dict:
+        return {
+            "id": review_id,
+            "variant_key": None,
+            "variant_id": params["variant_id"],
+            "classification": params["classification"],
+            "tags": json.loads(params["tags_json"]),
+            "tag_metadata": json.loads(params["tag_metadata_json"]),
+            "note": params["note"],
+            "cnv_acmg": json.loads(params["cnv_acmg_json"]) if params["cnv_acmg_json"] else None,
+            "cnv_point_total": params["cnv_point_total"],
+            "cnv_class": params["cnv_class"],
+            "updated_by": params["updated_by"],
+            "updated_at": params["updated_at"],
+        }
+
+    async def commit(self) -> None:
+        return None
+
+
+def _save(table: _ReviewTable, payload: SmallVariantReviewUpdate, variant_id: str = "sv1"):
+    return asyncio.run(
+        svr.upsert_structural_variant_review(
+            table, context=CONTEXT, variant_id=variant_id, payload=payload, user=USER
+        )
+    )
+
+
+def test_a_new_review_stores_the_recomputed_classification() -> None:
+    table = _ReviewTable()
+    review = _save(table, SmallVariantReviewUpdate(cnv_acmg=_payload("loss", ("2A", 1.0, True), point_total=0.0)))
+
+    stored = table.rows["sv1"]
+    assert (stored["cnv_point_total"], stored["cnv_class"]) == (1.0, "cnv_class_5")
+    assert review.cnv_acmg is not None and review.cnv_acmg.classification == "Pathogenic - class 5"
+    # The save is serialised on an advisory lock taken before the current review is read (#513).
+    assert table.statements[:2] == ["SELECT LOCK", "SELECT"]
+
+
+def test_a_second_save_updates_the_review_in_place() -> None:
+    table = _ReviewTable()
+    _save(table, SmallVariantReviewUpdate(note="first look"))
+    review = _save(table, SmallVariantReviewUpdate(note="second look", classification="likely_pathogenic"))
+
+    assert len(table.rows) == 1
+    assert "UPDATE" in table.statements
+    assert (review.note, review.classification) == ("second look", "likely_pathogenic")
+
+
+def test_an_empty_save_deletes_the_review() -> None:
+    table = _ReviewTable()
+    _save(table, SmallVariantReviewUpdate(note="to be cleared"))
+    review = _save(table, SmallVariantReviewUpdate(note="  "))
+
+    assert table.rows == {}
+    assert (review.variant_id, review.tags, review.note) == ("sv1", [], None)
+
+
+def test_a_save_against_a_changed_review_is_refused_and_writes_nothing() -> None:
+    table = _ReviewTable()
+    _save(table, SmallVariantReviewUpdate(note="another reviewer's note"))
+    stale = SmallVariantReviewUpdate(
+        note="mine", expected_updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc)
+    )
+    with pytest.raises(HTTPException) as refused:
+        _save(table, stale)
+    assert refused.value.status_code == 409
+    assert table.rows["sv1"]["note"] == "another reviewer's note"
+
+
+def test_an_unknown_tag_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def definitions(session, *, family_uuid, project_ids):
+        return [types.SimpleNamespace(key="candidate")]
+
+    monkeypatch.setattr(svr, "list_small_variant_tag_definitions", definitions)
+    with pytest.raises(HTTPException) as refused:
+        _save(_ReviewTable(), SmallVariantReviewUpdate(tags=["candidate", "not-a-tag"]))
+    assert refused.value.status_code == 400
+    assert "not-a-tag" in refused.value.detail
+
+
+def test_a_blank_variant_id_is_refused() -> None:
+    with pytest.raises(HTTPException) as refused:
+        _save(_ReviewTable(), SmallVariantReviewUpdate(note="x"), variant_id="  ")
+    assert refused.value.status_code == 400
