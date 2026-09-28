@@ -640,7 +640,7 @@ export interface ApiRepeatExpansionAllele {
   motif_spans?: string | null;
   interrupted?: boolean;
   interruption_label?: string | null;
-  status: 'normal' | 'intermediate' | 'pathogenic' | 'unknown';
+  status: 'normal' | 'review' | 'intermediate' | 'pathogenic' | 'unknown';
 }
 
 export interface ApiRepeatExpansionSampleCall {
@@ -651,7 +651,7 @@ export interface ApiRepeatExpansionSampleCall {
   genotype: string;
   allele_count: number;
   alleles: ApiRepeatExpansionAllele[];
-  status: 'normal' | 'intermediate' | 'pathogenic' | 'unknown';
+  status: 'normal' | 'review' | 'intermediate' | 'pathogenic' | 'unknown';
 }
 
 export interface ApiRepeatExpansionRow {
@@ -669,7 +669,7 @@ export interface ApiRepeatExpansionRow {
   benign_min?: number | null;
   benign_max?: number | null;
   pathogenic_max?: number | null;
-  status: 'normal' | 'intermediate' | 'pathogenic' | 'unknown';
+  status: 'normal' | 'review' | 'intermediate' | 'pathogenic' | 'unknown';
   calls: Record<string, ApiRepeatExpansionSampleCall>;
 }
 
@@ -885,7 +885,7 @@ export interface ApiRepeatExpansionTrackItem {
   motif?: string | null;
   warning_min?: number | null;
   pathogenic_min?: number | null;
-  status: 'normal' | 'intermediate' | 'pathogenic' | 'unknown';
+  status: 'normal' | 'review' | 'intermediate' | 'pathogenic' | 'unknown';
   allele_repeat_counts: number[];
   allele_bp_lengths: number[];
 }

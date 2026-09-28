@@ -76,12 +76,16 @@ const formatAlleleMotifLabels = (alleles: ApiRepeatExpansionAllele[]): string[] 
 
 const isAbnormalStatus = (
   status: ApiRepeatExpansionRow['status'] | ApiRepeatExpansionSampleCall['status'],
-): boolean => status === 'intermediate' || status === 'pathogenic';
+): boolean => status === 'review' || status === 'intermediate' || status === 'pathogenic';
 
 const repeatStatusLabel = (
   status: ApiRepeatExpansionRow['status'] | ApiRepeatExpansionSampleCall['status'],
 ): string => {
   switch (status) {
+    case 'review':
+      // A count outside every catalogued range at a contraction locus: the catalog
+      // cannot classify it, so it is surfaced rather than read as normal (#535).
+      return 'Review: outside catalogued ranges';
     case 'intermediate':
       return 'Grey zone';
     case 'pathogenic':

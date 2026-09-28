@@ -55,6 +55,7 @@
   --color-haplotype-deleted-fill: rgba(72, 84, 96, 0.10);
   --color-haplotype-deleted-stroke: rgba(78, 91, 103, 0.6);
   --color-repeat-normal: #9ca3af;
+  --color-repeat-review: #7c3aed;
   --color-repeat-intermediate: #d97706;
   --color-repeat-pathogenic: #b42318;
   --color-repeat-unknown: #c6ccd3;
@@ -7227,6 +7228,16 @@ button.table-link:hover {
 
 .family-repeat-table tbody tr.family-repeat-table-row--intermediate > td:first-child {
   border-left: 3px solid var(--color-repeat-intermediate);
+}
+
+/* An allele the catalog cannot classify (#535): its own rail colour, so it reads as
+   "needs a look" rather than as grey zone or pathogenic. */
+.family-repeat-table tbody tr.family-repeat-table-row--review > td {
+  border-top: 2px solid var(--color-repeat-review);
+}
+
+.family-repeat-table tbody tr.family-repeat-table-row--review > td:first-child {
+  border-left: 3px solid var(--color-repeat-review);
 }
 
 .family-repeat-table tbody tr.family-repeat-table-row--pathogenic > td {

@@ -396,26 +396,31 @@ def classify_repeat_count(
     the largest count observed rather than a ceiling on harm, so treating it as a bound
     would downgrade a 300-repeat HTT allele.
 
-    On a non-monotonic locus a count outside every stated range is ``unknown``, not
+    On a non-monotonic locus a count outside every stated range is ``review``, not
     ``normal``: "further from the threshold is safer" is exactly the assumption that
-    fails there, and the catalog says nothing about those counts.
+    fails there, and the catalog says nothing about those counts. ``review`` ranks above
+    ``normal`` so such an allele can never hide behind a normal one (#535); ``unknown``
+    is kept for a no-call.
+
+    On a monotonic locus the thresholds alone decide, as they always have: the benign
+    range is not consulted. Where the catalog's benign range shares its upper endpoint
+    with the grey zone (RFC1 11, SCA8/ATXN8OS 50), that count therefore reads as
+    ``intermediate`` — the conservative reading of an ambiguous boundary.
     """
     if repeat_count is None:
         return "unknown"
 
     has_benign_range = benign_min is not None and benign_max is not None
-    in_benign_range = has_benign_range and benign_min <= repeat_count <= benign_max
-    if in_benign_range:
-        return "normal"
-
     non_monotonic = (
         has_benign_range and pathogenic_min is not None and benign_max >= pathogenic_min
     )
     if non_monotonic:
+        if benign_min <= repeat_count <= benign_max:
+            return "normal"
         upper = pathogenic_max if pathogenic_max is not None else repeat_count
         if pathogenic_min <= repeat_count <= upper:
             return "pathogenic"
-        return "unknown"
+        return "review"
 
     if pathogenic_min is not None and repeat_count >= pathogenic_min:
         return "pathogenic"
@@ -424,11 +429,16 @@ def classify_repeat_count(
     return "normal"
 
 
+# How much attention a status calls for; the row / locus shows its most severe allele.
+# "review" (a count the catalog cannot classify) outranks "normal" so it surfaces in the
+# aberrant-only view; "unknown" (no call) ranks lowest (#535).
+REPEAT_STATUS_RANK = {"unknown": 0, "normal": 1, "review": 2, "intermediate": 3, "pathogenic": 4}
+
+
 def summarize_repeat_status(statuses: Iterable[str]) -> str:
-    ranking = {"unknown": 0, "normal": 1, "intermediate": 2, "pathogenic": 3}
     best = "unknown"
     for status in statuses:
-        if ranking.get(status, 0) > ranking[best]:
+        if REPEAT_STATUS_RANK.get(status, 0) > REPEAT_STATUS_RANK[best]:
             best = status
     return best
 
@@ -1099,7 +1109,13 @@ async def get_family_repeat_expansion_table_response(
                         WHEN lower(repeat_loci.locus_id) = lower(repeat_expansions.locus_id) THEN 0
                         WHEN lower(repeat_loci.gene) = lower(repeat_expansions.gene) THEN 1
                         ELSE 2
-                    END
+                    END,
+                    -- A gene can be catalogued twice (built-in ATXN8OS and STRchive
+                    -- SCA8_ATXN8OS). Without a tie-breaker the call's thresholds depended
+                    -- on row order (#535): prefer the entry that carries the catalogued
+                    -- ranges, then a stable id.
+                    ((repeat_loci.metadata ->> 'benign_max') IS NOT NULL) DESC,
+                    repeat_loci.locus_id
                 LIMIT 1
             ) AS catalog ON TRUE
             WHERE repeat_expansions.family_id = CAST(:family_id AS uuid)
@@ -1160,12 +1176,7 @@ async def get_family_repeat_expansion_table_response(
                 "calls": {},
             },
         )
-        if row_status == "pathogenic":
-            locus["status"] = "pathogenic"
-        elif row_status == "intermediate" and locus["status"] != "pathogenic":
-            locus["status"] = "intermediate"
-        elif locus["status"] == "unknown":
-            locus["status"] = row_status
+        locus["status"] = summarize_repeat_status((locus["status"], row_status))
         sample_name = context.sample_uuid_to_name.get(row["sample_uuid"], row["sample_uuid"])
         meta = member_meta.get(row["sample_uuid"], {})
         locus["calls"][sample_name] = RepeatExpansionSampleCallOut(

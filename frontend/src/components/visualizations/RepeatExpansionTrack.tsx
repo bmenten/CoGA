@@ -96,6 +96,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
   const statusColors = useMemo(
     () => ({
       normal: STATUS_COLORS.normal(),
+      review: STATUS_COLORS.review(),
       intermediate: STATUS_COLORS.intermediate(),
       pathogenic: STATUS_COLORS.pathogenic(),
       unknown: STATUS_COLORS.unknown(),
