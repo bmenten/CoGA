@@ -115,7 +115,7 @@ Deze configuratie doet meteen ook aan **veiligheidsafdwinging**. In de `model_va
 
 De volledige stack draait via Docker Compose als vier services: `postgres`, `clickhouse`, `backend` en `frontend`. Belangrijke details:
 
-- De databank-images zijn *digest-pinned* (vastgezet op een exacte hash met `@sha256:…`, bv. `postgres:16` en `clickhouse/clickhouse-server:25.3`) voor reproduceerbaarheid — belangrijk voor IVDR.
+- De databank-images zijn *digest-pinned* (vastgezet op een exacte hash met `@sha256:…`, bv. `postgres:16` en `clickhouse/clickhouse-server:26.8`) voor reproduceerbaarheid — belangrijk voor IVDR.
 - De `backend` start pas als `postgres` én `clickhouse` "healthy" zijn (`depends_on … condition: service_healthy`); de `frontend` start pas als de `backend` healthy is. Zo krijgt de gebruiker nooit een half-opgestarte API te zien.
 - ClickHouse heeft een `stop_grace_period: 5m`, omdat een te vroege `SIGKILL` variant-parts kan beschadigen (een gedocumenteerd incident van 2026-06-11).
 

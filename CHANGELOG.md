@@ -159,6 +159,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   3.10, which reaches end of life on 2026-10-31, to Python 3.12 (3.12.14; security fixes until
   October 2028). No dependency version changed; the lock drops four backports only 3.10 needed
   (#555).
+- **ClickHouse 26.8 LTS** — compose, CI and the Terraform VM move from ClickHouse 25.3 LTS, out of
+  support since 2026-03-20, to 26.8 LTS (26.8.14.3, supported until 2027-08-27). An existing data
+  volume is upgraded in place on first start and cannot be moved back; snapshot it first. A test
+  keeps compose, CI and Terraform on the same datastore images (#563).
 
 ### Removed
 

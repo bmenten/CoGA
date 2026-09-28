@@ -17,7 +17,7 @@
 > **headless pipeline/API level** (ingestion → datastores → query/API → review/audit → signed
 > report), TF-09d verifies that **same boundary through the actual graphical user interface a
 > clinician uses** — a real **Chromium** browser driving the deployed React UI against a *live*
-> backend (uvicorn) and *live* Postgres 16 + ClickHouse 25.3.
+> backend (uvicorn) and *live* Postgres 16 + ClickHouse 26.8.
 >
 > It documents two things an external reviewer or auditor needs: **(1)** the automated browser
 > verification (the Playwright suite + CI `e2e-playwright` job), and **(2)** a **step-by-step
@@ -96,7 +96,7 @@ workstation. It is the controlled, citable form of "examining the e2e validation
 ### 4.1 Bring up the stack and seed the data
 
 ```bash
-# 1. Start the datastores (same images as CI: postgres:16, clickhouse-server:25.3)
+# 1. Start the datastores (same images as CI: postgres:16, clickhouse-server:26.8)
 docker compose up -d postgres clickhouse
 
 # 2. Seed the synthetic golden trio + the known e2e login user (idempotent)
@@ -188,7 +188,7 @@ Any deviation is a verification finding handled per [TF-09 §5](TF-09-verificati
 - **Locally / for audit:** the §4 procedure (`npx playwright test`, with the datastores up and the
   data seeded).
 - **CI:** the **`e2e-playwright`** job in `.github/workflows/ci.yml` provisions `postgres:16` +
-  `clickhouse/clickhouse-server:25.3`, seeds the golden trio + e2e user, installs Chromium, runs the
+  `clickhouse/clickhouse-server:26.8`, seeds the golden trio + e2e user, installs Chromium, runs the
   journeys on every PR and push to `main`, and uploads the report (§5). It is a **required status
   check** on `main` with strict enforcement — a failing browser journey blocks the merge. Browser
   e2e is inherently the **flakiest** gate, so the promotion this section previously proposed was

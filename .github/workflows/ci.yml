@@ -65,10 +65,10 @@ jobs:
           --health-cmd "pg_isready -U coga -d coga"
           --health-interval 5s --health-timeout 5s --health-retries 20
       clickhouse:
-        image: clickhouse/clickhouse-server:25.3@sha256:b627d7a9bc0e0c1bac26cdbe9d2fc6316faa29c5d8a174f28f5abd57d0fa6ba2
+        image: clickhouse/clickhouse-server:26.8@sha256:4769eec6a9b9842a7d102c8bdfca0400128bc6edf65dec4e19a7d3a2b25f32db
         env:
-          # 25.3 rejects the empty-password default user; provision a real one
-          # (matching the app env below) so authentication succeeds.
+          # ClickHouse rejects the empty-password default user for network clients;
+          # provision a real one (matching the app env below) so authentication succeeds.
           CLICKHOUSE_DB: coga
           CLICKHOUSE_USER: coga
           CLICKHOUSE_PASSWORD: coga
@@ -137,10 +137,10 @@ jobs:
           --health-cmd "pg_isready -U coga -d coga"
           --health-interval 5s --health-timeout 5s --health-retries 20
       clickhouse:
-        image: clickhouse/clickhouse-server:25.3@sha256:b627d7a9bc0e0c1bac26cdbe9d2fc6316faa29c5d8a174f28f5abd57d0fa6ba2
+        image: clickhouse/clickhouse-server:26.8@sha256:4769eec6a9b9842a7d102c8bdfca0400128bc6edf65dec4e19a7d3a2b25f32db
         env:
-          # 25.3 rejects the empty-password default user; provision a real one
-          # (matching the app env below) so authentication succeeds.
+          # ClickHouse rejects the empty-password default user for network clients;
+          # provision a real one (matching the app env below) so authentication succeeds.
           CLICKHOUSE_DB: coga
           CLICKHOUSE_USER: coga
           CLICKHOUSE_PASSWORD: coga
@@ -234,7 +234,7 @@ jobs:
           --health-cmd "pg_isready -U coga -d coga"
           --health-interval 5s --health-timeout 5s --health-retries 20
       clickhouse:
-        image: clickhouse/clickhouse-server:25.3@sha256:b627d7a9bc0e0c1bac26cdbe9d2fc6316faa29c5d8a174f28f5abd57d0fa6ba2
+        image: clickhouse/clickhouse-server:26.8@sha256:4769eec6a9b9842a7d102c8bdfca0400128bc6edf65dec4e19a7d3a2b25f32db
         env:
           CLICKHOUSE_DB: coga
           CLICKHOUSE_USER: coga

@@ -31,7 +31,7 @@
 | --- | --- | --- | --- |
 | Unit | pytest (backend), vitest (frontend) | `backend/tests`, `frontend/src/**/*.test.tsx` | CI `backend`, `frontend` jobs |
 | Static analysis | TypeScript `tsc`, ESLint | frontend | CI `frontend` job |
-| Integration | Real-startup smoke against Postgres 16 + ClickHouse 25.3 (schema init, admin seed, health probe) | `backend/tests/integration` | CI `smoke` job |
+| Integration | Real-startup smoke against Postgres 16 + ClickHouse 26.8 (schema init, admin seed, health probe) | `backend/tests/integration` | CI `smoke` job |
 | End-to-end (system) | Golden-dataset pipeline run (ingest → query/API → review/audit/sign-out) + realistic demo bundles, checked vs documented expected results — see **[TF-09c](TF-09c-e2e-pipeline-verification.md)** | `backend/tests/e2e` | CI `e2e` job |
 | Browser / GUI end-to-end | Real Chromium driving the UI (login → family workspace → genome render → in-browser sign-out) against a live backend + datastores. The UI is served by the **Vite dev server**, not the production `server.mjs` build: the journeys verify the application, not the production static-serving and `/api` proxy layer, which has its own tests (`frontend/src/__tests__/serverProxy.test.ts`, `serverSecurityHeaders.test.ts`) (#517); incl. a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job (required status check) |
 | System / clinical | Concordance vs validated assays | [TF-10](TF-10-performance-evaluation-plan.md) | Performance report TF-11 |
