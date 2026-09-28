@@ -5852,6 +5852,14 @@ tbody tr:hover {
   overflow-wrap: anywhere;
 }
 
+/* Which annotation version the CCDS/RefSeq came from, or why they are withheld (#536). */
+.variant-transcript-xref-note {
+  font-size: 0.68rem;
+  font-style: italic;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1180px) {
   .variant-card-body {
     grid-template-columns: minmax(0, 1fr);

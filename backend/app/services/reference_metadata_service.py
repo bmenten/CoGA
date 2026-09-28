@@ -680,6 +680,7 @@ async def apply_reference_dataset_text(
     commit: bool = True,
     performed_by: str | None = None,
     source: str | None = None,
+    source_url: str | None = None,
 ) -> ReferenceUploadResult:
     assembly = await _get_assembly_by_id(session, assembly_id)
 
@@ -1106,8 +1107,8 @@ async def apply_reference_dataset_text(
         text(
             """
             INSERT INTO reference_dataset_imports
-                (assembly_id, dataset_type, inserted, replaced, source, performed_by)
-            VALUES (CAST(:assembly_id AS uuid), :dataset_type, :inserted, :replaced, :source, :performed_by)
+                (assembly_id, dataset_type, inserted, replaced, source, source_url, performed_by)
+            VALUES (CAST(:assembly_id AS uuid), :dataset_type, :inserted, :replaced, :source, :source_url, :performed_by)
             """
         ),
         {
@@ -1116,6 +1117,7 @@ async def apply_reference_dataset_text(
             "inserted": inserted,
             "replaced": replaced,
             "source": source,
+            "source_url": source_url,
             "performed_by": performed_by,
         },
     )
@@ -1158,6 +1160,7 @@ async def apply_reference_gene_rows(
     commit: bool = True,
     performed_by: str | None = None,
     source: str | None = None,
+    source_url: str | None = None,
 ) -> ReferenceUploadResult:
     """Import gene rows that are already structured, rather than via the 12-column text.
 
@@ -1198,8 +1201,8 @@ async def apply_reference_gene_rows(
         text(
             """
             INSERT INTO reference_dataset_imports
-                (assembly_id, dataset_type, inserted, replaced, source, performed_by)
-            VALUES (CAST(:assembly_id AS uuid), 'genes', :inserted, :replaced, :source, :performed_by)
+                (assembly_id, dataset_type, inserted, replaced, source, source_url, performed_by)
+            VALUES (CAST(:assembly_id AS uuid), 'genes', :inserted, :replaced, :source, :source_url, :performed_by)
             """
         ),
         {
@@ -1207,6 +1210,7 @@ async def apply_reference_gene_rows(
             "inserted": inserted,
             "replaced": replaced,
             "source": source,
+            "source_url": source_url,
             "performed_by": performed_by,
         },
     )

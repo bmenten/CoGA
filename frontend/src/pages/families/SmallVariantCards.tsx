@@ -19,7 +19,8 @@ import {
   buildSvSecondHitHref,
   formatFrequency,
   formatCompoundHetPhaseStatus,
-  formatHgvsG,
+  GENOMIC_CHANGE_NOTE,
+  formatGenomicChange,
   formatLocus,
   formatPredictionScore,
   formatScore,
@@ -242,24 +243,65 @@ const useGeneProfileSlice = (symbol?: string | null) => {
   return data;
 };
 
-// VEP writes ENST00000357654, the annotation stores ENST00000357654.9. Compare on the
-// accession, not the version, or nothing ever matches.
+// VEP may write ENST00000357654 while the annotation stores ENST00000357654.9, so the
+// lookup is on the accession stem; the version then decides whether the cross-reference
+// may be shown (#536).
 const transcriptKey = (id?: string | null) => (id || '').trim().toUpperCase().split('.')[0];
+const normalizedTranscriptId = (id?: string | null) => (id || '').trim().toUpperCase();
+const hasVersion = (id?: string | null) => normalizedTranscriptId(id).includes('.');
+
+interface TranscriptDetailEntry {
+  detail: GeneTranscriptDetail;
+  // The identifier the entry was found under: the transcript itself or a RefSeq accession.
+  matchedId: string;
+}
+
+/**
+ * How the variant's transcript relates to the annotation's cross-references.
+ *
+ * - `exact`: the same versioned transcript, so CCDS and RefSeq apply as they stand.
+ * - `unversioned`: the variant names the transcript without a version, so the version
+ *   cannot be checked; the cross-references are shown with the annotation's version.
+ * - `different_version`: the variant names another version than the annotation holds.
+ *   CCDS and RefSeq are then not shown, since they may describe a different CDS.
+ */
+type TranscriptMatch =
+  | { kind: 'exact' | 'unversioned'; detail: GeneTranscriptDetail; annotationId: string }
+  | { kind: 'different_version'; annotationId: string };
+
+const matchTranscriptDetail = (
+  byKey: Map<string, TranscriptDetailEntry[]>,
+  transcriptId?: string | null,
+): TranscriptMatch | null => {
+  const entries = byKey.get(transcriptKey(transcriptId)) ?? [];
+  if (!entries.length) return null;
+  const wanted = normalizedTranscriptId(transcriptId);
+  const exact = entries.find((entry) => normalizedTranscriptId(entry.matchedId) === wanted);
+  if (exact) return { kind: 'exact', detail: exact.detail, annotationId: exact.matchedId };
+  const [first] = entries;
+  if (!hasVersion(transcriptId)) {
+    return { kind: 'unversioned', detail: first.detail, annotationId: first.matchedId };
+  }
+  return { kind: 'different_version', annotationId: first.matchedId };
+};
 
 const useGeneTranscriptDetails = (symbol?: string | null) => {
   const data = useGeneProfileSlice(symbol);
 
   return useMemo(() => {
-    const byKey = new Map<string, GeneTranscriptDetail>();
+    const byKey = new Map<string, TranscriptDetailEntry[]>();
+    const add = (id: string | null | undefined, detail: GeneTranscriptDetail) => {
+      const key = transcriptKey(id);
+      if (!key || !id) return;
+      const list = byKey.get(key) ?? [];
+      list.push({ detail, matchedId: id });
+      byKey.set(key, list);
+    };
     for (const transcript of data?.transcripts ?? []) {
-      const key = transcriptKey(transcript.transcript_id);
-      if (key) byKey.set(key, transcript);
+      add(transcript.transcript_id, transcript);
       // A RefSeq-named transcript in the VCF resolves through the accessions the
       // annotation maps onto its Ensembl transcript.
-      for (const accession of transcript.refseq_accessions ?? []) {
-        const accessionKey = transcriptKey(accession);
-        if (accessionKey && !byKey.has(accessionKey)) byKey.set(accessionKey, transcript);
-      }
+      for (const accession of transcript.refseq_accessions ?? []) add(accession, transcript);
     }
     return byKey;
   }, [data]);
@@ -410,13 +452,20 @@ const TranscriptPopup = ({
             </thead>
             <tbody>
               {transcripts.map((transcript, index) => {
-                const detail = transcriptDetails.get(transcriptKey(transcript.transcript_id));
+                const match = matchTranscriptDetail(transcriptDetails, transcript.transcript_id);
+                const detail = match && match.kind !== 'different_version' ? match.detail : undefined;
                 const badges = transcriptBadges(transcript, detail);
                 // The VCF names one transcript; the annotation knows which RefSeq
                 // accessions correspond to it.
                 const refseq = (detail?.refseq_accessions ?? []).filter(
                   (accession) => transcriptKey(accession) !== transcriptKey(transcript.transcript_id),
                 );
+                const xrefNote =
+                  match?.kind === 'unversioned' && (detail?.ccds_id || refseq.length)
+                    ? `CCDS/RefSeq from ${match.annotationId} in the gene annotation; the variant names no version`
+                    : match?.kind === 'different_version'
+                      ? `CCDS/RefSeq not shown: the gene annotation has ${match.annotationId}`
+                      : null;
                 return (
                   <tr key={`${transcript.transcript_id || 'transcript'}-${index}`}>
                     <td>
@@ -431,6 +480,7 @@ const TranscriptPopup = ({
                         {refseq.length ? (
                           <span className="variant-transcript-refseq">{refseq.join(', ')}</span>
                         ) : null}
+                        {xrefNote ? <span className="variant-transcript-xref-note">{xrefNote}</span> : null}
                       </div>
                     </td>
                     <td>
@@ -598,7 +648,7 @@ export default function SmallVariantCards({
         const consequenceLabel = formatTokenLabel(variant.effect);
         // Replaces the locus that used to sit in the headline: it carries the same
         // position, in the notation a report is written in.
-        const hgvsG = formatHgvsG(variant);
+        const genomicChange = formatGenomicChange(variant);
         const variantIds = parseVariantIds(variant.rsid);
         const popFreq = variant.population_frequencies || {};
         // AlphaMissense arrives as two first-class fields. Reading it out of
@@ -765,9 +815,11 @@ export default function SmallVariantCards({
                 ) : null}
                 <dl className="variant-card-mini-dl">
                   <div>
-                    <dt>HGVS.g</dt>
+                    <dt>
+                      <abbr title={GENOMIC_CHANGE_NOTE}>Genomic change</abbr>
+                    </dt>
                     <dd>
-                      {hgvsG || '—'}
+                      {genomicChange || '—'}
                       {variant.cytoband ? (
                         <span className="variant-card-cytoband">({variant.cytoband})</span>
                       ) : null}
