@@ -21,6 +21,8 @@ from .family_metadata_context import FamilyMetadataContext
 from .metadata_service import CurrentUser
 from .review_pg_utils import (
     _has_stored_record,
+    _lock_review,
+    _raise_on_stale_review,
     _json_payload,
     _log_unreadable_classification,
     _merge_tag_metadata,
@@ -318,11 +320,17 @@ async def upsert_structural_variant_review(
     normalized_note = (payload.note or "").strip() or None
     normalized_classification = (payload.classification or "").strip() or None
     cnv_blob, cnv_point_total, cnv_class = _normalize_cnv_acmg_payload(payload.cnv_acmg)
+    # One save of this variant's review at a time, checked against the version the
+    # client loaded (#513).
+    await _lock_review(
+        session, scope="strv", family_uuid=context.family_uuid, variant_id=normalized_variant_id
+    )
     existing = await _fetch_review_row(
         session,
         family_uuid=context.family_uuid,
         variant_id=normalized_variant_id,
     )
+    _raise_on_stale_review(payload, existing, _serialize_review)
     now = datetime.now(timezone.utc)
 
     if (

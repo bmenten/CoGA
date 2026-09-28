@@ -2099,6 +2099,11 @@ class SmallVariantReviewOut(BaseModel):
 
 
 class SmallVariantReviewUpdate(BaseModel):
+    # Optimistic concurrency (#513): the review's ``updated_at`` as the client loaded it,
+    # or null when it loaded no review. On a mismatch the save is refused with 409 and
+    # the current review, instead of silently overwriting another reviewer's edit. A
+    # client that leaves the field out keeps the unconditional write.
+    expected_updated_at: Optional[datetime] = None
     classification: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     note: Optional[str] = None

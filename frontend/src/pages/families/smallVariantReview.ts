@@ -27,7 +27,9 @@ export const buildOptimisticReview = (
     tag_metadata: variant.review?.tag_metadata || {},
     note: payload.note ?? null,
     updated_by: variant.review?.updated_by ?? null,
-    updated_at: new Date().toISOString(),
+    // The version the save was made against, not a client clock: a following save sends
+    // it back, and a made-up timestamp would read as someone else's edit (#513).
+    updated_at: variant.review?.updated_at ?? null,
     compound_het: variant.review?.compound_het ?? null,
   };
 

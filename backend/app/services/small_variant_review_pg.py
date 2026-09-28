@@ -27,6 +27,8 @@ from .metadata_service import CurrentUser
 # imports (and a test) keep working.
 from .review_pg_utils import (
     _has_stored_record,
+    _lock_review,
+    _raise_on_stale_review,
     _json_payload,  # noqa: F401  (re-exported for import-path compatibility)
     _merge_tag_metadata,
     _normalize_tags,
@@ -324,11 +326,15 @@ async def upsert_small_variant_review(
     normalized_note = (payload.note or "").strip() or None
     normalized_classification = (payload.classification or "").strip() or None
     now = datetime.now(timezone.utc)
+    # One save of this variant's review at a time; the version check below then sees
+    # every earlier save, so two reviewers can no longer overwrite each other (#513).
+    await _lock_review(session, scope="svr", family_uuid=context.family_uuid, variant_id=variant_id)
     existing = await _fetch_review_row(
         session,
         family_uuid=context.family_uuid,
         variant_id=variant_id,
     )
+    _raise_on_stale_review(payload, existing, _serialize_review)
     compound_het_data: dict[str, Any] | None = None
     compound_het_requested = "compound_het" in payload.model_fields_set
     compound_het_payload: SmallVariantCompoundHetReviewUpdate | None = (

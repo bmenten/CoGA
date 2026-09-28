@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import type {
   ApiFamilyMitoDNAAnalysis,
@@ -405,9 +406,11 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   const reviewMutation = useMutation({
     mutationFn: async ({
       variantId,
+      review,
       payload,
     }: {
       variantId: string;
+      review?: SmallVariantReview | null;
       payload: SmallVariantReviewSavePayload;
     }) => {
       if (!familyId) {
@@ -416,9 +419,10 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
       const path = `/families/${encodeURIComponent(familyId)}/small-variants/${encodeURIComponent(
         variantId,
       )}/review`;
+      const body = withReviewVersion(payload, review);
       const res = resolvedProjectId
-        ? await api.put(path, payload, { params: { project_id: resolvedProjectId } })
-        : await api.put(path, payload);
+        ? await api.put(path, body, { params: { project_id: resolvedProjectId } })
+        : await api.put(path, body);
       return res.data as SmallVariantReview;
     },
     onSuccess: () => {
@@ -438,14 +442,24 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
       if (!acmgVariant) return;
       setReviewError(null);
       try {
-        await reviewMutation.mutateAsync({ variantId: acmgVariant.variant_id, payload });
+        await reviewMutation.mutateAsync({
+          variantId: acmgVariant.variant_id,
+          review: acmgVariant.review,
+          payload,
+        });
         setAcmgVariant(null);
       } catch (error) {
         setReviewError(getErrorMessage(error, 'Unable to save the ACMG classification.'));
+        // Someone else saved this review meanwhile: reload so the current one is shown.
+        if (isReviewConflict(error)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['family', familyId, 'mitochondrial-dna', resolvedProjectId],
+          });
+        }
         throw error;
       }
     },
-    [acmgVariant, reviewMutation],
+    [acmgVariant, reviewMutation, queryClient, familyId, resolvedProjectId],
   );
 
   if (familyLoading || mtDNALoading || (family?.projects?.length && referenceLoading)) {

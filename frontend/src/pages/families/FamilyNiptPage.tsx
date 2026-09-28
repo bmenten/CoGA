@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
 import type { ApiNiptCoverageSummary, ApiNiptSummary } from '../../lib/apiTypes';
@@ -298,9 +299,10 @@ const FamilyNiptPage: React.FC = () => {
         throw new Error('Family id is required');
       }
       const reviewPath = buildSmallVariantReviewPath(familyId, variant._id);
+      const body = withReviewVersion(payload, variant.review);
       const res = projectId
-        ? await api.put(reviewPath, payload, { params: { project_id: projectId } })
-        : await api.put(reviewPath, payload);
+        ? await api.put(reviewPath, body, { params: { project_id: projectId } })
+        : await api.put(reviewPath, body);
       return res.data as SmallVariantReview;
     },
     onMutate: async ({ variant, payload }) => {
@@ -322,10 +324,14 @@ const FamilyNiptPage: React.FC = () => {
       });
       void queryClient.invalidateQueries({ queryKey: niptVariantsKey });
     },
-    onError: (_error, _variables, context) => {
+    onError: (error, _variables, context) => {
       context?.snapshots.forEach(([key, snapshot]) => {
         queryClient.setQueryData(key, snapshot);
       });
+      // Someone else saved this review meanwhile: show theirs rather than a stale copy.
+      if (isReviewConflict(error)) {
+        void queryClient.invalidateQueries({ queryKey: niptVariantsKey });
+      }
     },
   });
 

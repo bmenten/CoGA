@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
 import FamilyPageHeader from './FamilyPageHeader';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
@@ -50,7 +51,8 @@ const buildOptimisticReview = (
     tag_metadata: variant.review?.tag_metadata || {},
     note: payload.note ?? null,
     updated_by: variant.review?.updated_by ?? null,
-    updated_at: new Date().toISOString(),
+    // The loaded version, not a client clock: it is sent back with the next save (#513).
+    updated_at: variant.review?.updated_at ?? null,
     compound_het: null,
   };
   return hasReviewContent(nextReview) ? nextReview : null;
@@ -237,9 +239,10 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     }) => {
       if (!familyId) throw new Error('Family id is required');
       const reviewPath = buildStructuralVariantReviewPath(familyId, variant._id);
+      const body = withReviewVersion(payload, variant.review);
       const res = projectId
-        ? await api.put(reviewPath, payload, { params: { project_id: projectId } })
-        : await api.put(reviewPath, payload);
+        ? await api.put(reviewPath, body, { params: { project_id: projectId } })
+        : await api.put(reviewPath, body);
       return { review: res.data as StructuralVariantReview, variantId: variant._id };
     },
     onMutate: async ({ variant, payload }) => {
@@ -276,6 +279,10 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         type: 'error',
         message: getErrorMessage(error, 'Unable to save the variant review'),
       });
+      // Someone else saved this review meanwhile: show theirs rather than a stale copy.
+      if (isReviewConflict(error)) {
+        void queryClient.invalidateQueries({ queryKey: ['family', familyId, 'structural-variants'] });
+      }
     },
   });
 

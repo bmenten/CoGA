@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
-from typing import Any, Iterable, Sequence
+from datetime import datetime, timezone
+from typing import Any, Callable, Iterable, Sequence
 from uuid import UUID
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import ValidationError
+from sqlalchemy import text
 
 from ..core.coga_logging import scrub_log
 
@@ -35,6 +36,57 @@ def _normalize_tags(tags: Iterable[str]) -> list[str]:
 
 def _json_payload(value: Any) -> str:
     return json.dumps(jsonable_encoder(value if value is not None else {}))
+
+
+async def _lock_review(session: Any, *, scope: str, family_uuid: str, variant_id: str) -> None:
+    """Serialize concurrent saves of one variant's review until this transaction ends."""
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": f"{scope}:{family_uuid}:{variant_id}"},
+    )
+
+
+def _as_utc(value: Any) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _raise_on_stale_review(
+    payload: Any,
+    existing: dict[str, Any] | None,
+    serialize: Callable[[dict[str, Any]], Any],
+) -> None:
+    """Refuse a save made against a review that has changed since the client loaded it.
+
+    Two reviewers saving the same variant used to be last-write-wins, without either
+    being told (#513). The client sends the ``updated_at`` it loaded (null for "no
+    review yet"); anything else now stored means someone saved in between, and the
+    409 carries the current review so the client can show it instead of overwriting.
+    """
+    if "expected_updated_at" not in payload.model_fields_set:
+        return
+    expected = _as_utc(payload.expected_updated_at)
+    current = _as_utc((existing or {}).get("updated_at")) if existing else None
+    if existing is None and expected is None:
+        return
+    if existing is not None and expected is not None and current == expected:
+        return
+    current_review = serialize(existing) if existing is not None else None
+    who = (existing or {}).get("updated_by") or "someone"
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "review_conflict",
+            "message": (
+                f"This review was changed by {who} after you opened it; your changes were not "
+                "saved. The current review has been loaded."
+                if existing is not None
+                else "This review was removed after you opened it; your changes were not saved."
+            ),
+            "current": jsonable_encoder(current_review, by_alias=True) if current_review else None,
+        },
+    )
 
 
 def _has_stored_record(value: Any) -> bool:

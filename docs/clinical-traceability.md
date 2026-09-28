@@ -293,8 +293,18 @@ Emit from the classify / tag / note / structure / sign-out service paths. Add a 
   ACMG class + criteria, tags added/removed, note lifecycle) and writes them **in the same
   transaction** as the review save (`upsert_small_variant_review`).
   `GET /families/{id}/clinical-audit`; a "Classification audit trail" section on the report.
+- **Concurrent saves (#513).** A review save carries `expected_updated_at`, the review's
+  `updated_at` as the client loaded it (null for "no review yet"). Saves of one variant are
+  serialized by a transaction-scoped advisory lock, and a save against a review that has changed
+  since is refused with `409` `{code: "review_conflict", message, current}`: nothing is written,
+  and the page shows the message and reloads the current review. Before, the last write won
+  silently: the audit trail recorded both writes, but the first reviewer was never told. A client
+  that omits the field keeps the unconditional write. The compound-het fields written onto a
+  *partner* variant's row are not version-checked.
 - **Tests:** `backend/tests/test_clinical_audit.py` (diff logic, one insert per change) + the
-  audit-timeline test; immutability proven live (raw UPDATE/DELETE rejected).
+  audit-timeline test; immutability proven live (raw UPDATE/DELETE rejected);
+  `backend/tests/test_review_concurrency.py` (stale save refused before any write, first-write
+  race, lock before read).
 
 ### Phase 3 — Case sign-out & frozen report snapshot — ✅ #223
 
