@@ -83,19 +83,30 @@ snapshot**:
 - the annotation/reference **manifest** (the footer versions),
 - the **reported variant list** (every variant tagged `report`) with each
   classification, its ACMG criteria, tags, note, and its frozen **evidence snapshot**,
-- the **drift state** at the moment of sign-out.
+- the **reported structural variants and CNVs** (tagged `report`) with their
+  classification, CNV-ACMG criteria, tags and note,
+- the **drift state** at the moment of sign-out, and the Sample-QC and sequencing-QC
+  verdicts with the cut-offs they were judged against.
 
 The snapshot is hashed with **SHA-256** over a canonical encoding, so any later
-tampering is detectable, and stored **append-only** — a signed-out report can never
-change. A green record appears on the report:
+tampering is detectable, and stored **append-only** — a signed record can never change.
 
-> ✓ **Signed out — version 2 by bjorn on 2026-06-25 10:00 UTC** · Content hash
-> `a1b2c3…`
+**Is this page the signed report?** The report page always shows the *current* data and
+checks it against the latest signed version. Only while they match is the record green:
+
+> ✓ **Signed out — version 2 by bjorn on 2026-06-25 10:00 UTC** · This page matches
+> signed version 2 · Content hash `a1b2c3…`
+
+If anything changed after sign-out — a review, a report tag, a re-import, a QC cut-off —
+the record turns **amber** and names the changed parts; the page is then *not* the
+signed report, and a printout carries a notice at the top saying so. If the check cannot
+be made, the record is grey and the page must be treated as unsigned. **Download signed
+version** on the record returns the frozen snapshot itself.
 
 **The drift gate.** If any reported classification has drifted, sign-out is **blocked**
-and you are asked to re-review or explicitly **acknowledge** the drift. Acknowledging
-is recorded in both the snapshot and the audit trail, so "signed out over known drift"
-is itself part of the permanent record.
+and you are asked to re-review or **acknowledge** the drift **with a reason**. The
+acknowledgement and its reason are recorded in both the snapshot and the audit trail, so
+"signed out over known drift, and why" is itself part of the permanent record.
 
 **Amendments.** Signing out again creates a **new version** (v2, v3, …) — the previous
 versions are never overwritten. The button reads *Amend sign-out* once a case has been

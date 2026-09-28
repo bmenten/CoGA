@@ -9,6 +9,7 @@ import type {
   ApiAnnotationManifest,
   ApiClassificationDrift,
   ApiClinicalAudit,
+  ApiReportSignoutCheck,
   ApiReportSignoutList,
 } from '../../lib/apiTypes';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
@@ -119,6 +120,34 @@ const modesOfInheritance = (profile?: GeneProfileResponse): string[] =>
         .filter((value): value is string => Boolean(value)),
     ),
   );
+
+// Snapshot sections the sign-out check can report as changed (report_signout_service
+// REPORT_CONTENT_SECTIONS), in words a reviewer reads.
+const REPORT_SECTION_LABELS: Record<string, string> = {
+  assembly: 'reference assembly',
+  modules: 'annotation and pipeline versions',
+  reported_variants: 'reported small variants',
+  reported_structural_variants: 'reported structural variants',
+  drift: 'evidence drift',
+  sample_qc: 'sample-integrity QC',
+  sequencing_qc: 'sequencing QC cut-offs',
+};
+
+const describeSections = (sections: string[]): string =>
+  joinWithAnd(sections.map((section) => REPORT_SECTION_LABELS[section] ?? section));
+
+// How the page relates to the latest signed record. Only "matches" may present the page as
+// the signed report; every other state must say it is not (#508).
+type SignedState = 'none' | 'checking' | 'matches' | 'changed' | 'unverified';
+
+const apiErrorMessage = (error: unknown, fallback: string): string => {
+  const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
+    .response;
+  const detail = response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim()) return detail;
+  if (response?.status) return `${fallback} (the server returned ${response.status}).`;
+  return `${fallback} (the server could not be reached).`;
+};
 
 const FamilyReportPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -264,40 +293,84 @@ const FamilyReportPage: React.FC = () => {
       (await api.get(`/families/${familyId}/report/sign-outs`)).data as ApiReportSignoutList,
   });
 
-  // Sample-QC gate dialog state (acknowledge-with-reason override of a failing QC).
+  // Does the live content below still match the frozen, signed record? The page renders
+  // live data, so without this a change made after sign-out would print under the
+  // "Signed out" banner as if it were the signed report (#508).
+  const latestSignout = signouts?.latest ?? null;
+  const { data: signoutCheck, isError: signoutCheckFailed } = useQuery<ApiReportSignoutCheck>({
+    queryKey: ['family', familyId, 'report-signout-check', latestSignout?.version ?? null],
+    enabled: Boolean(familyId && latestSignout),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    queryFn: async () =>
+      (await api.get(`/families/${familyId}/report/sign-out-check`))
+        .data as ApiReportSignoutCheck,
+  });
+  const signedState: SignedState = !latestSignout
+    ? 'none'
+    : signoutCheckFailed
+      ? 'unverified'
+      : !signoutCheck
+        ? 'checking'
+        : signoutCheck.version !== latestSignout.version ||
+            typeof signoutCheck.matches !== 'boolean'
+          ? 'unverified'
+          : signoutCheck.matches
+            ? 'matches'
+            : 'changed';
+  const printNotice =
+    signedState === 'none'
+      ? 'Draft — this report has not been signed.'
+      : signedState === 'changed'
+        ? `Not the signed report — the content differs from signed version ${latestSignout?.version}.`
+        : signedState === 'matches'
+          ? null
+          : `Not verified against signed version ${latestSignout?.version} — do not use as the signed report.`;
+
+  // Override dialogs. Each gate is acknowledged with a reason that is frozen into the
+  // signed record: evidence drift first, then a failing / unverifiable Sample QC.
+  const [driftGate, setDriftGate] = useState<{ message: string } | null>(null);
+  const [driftReason, setDriftReason] = useState('');
   const [qcGate, setQcGate] = useState<{
     message: string;
     acknowledgeDrift: boolean;
+    driftReason?: string;
     summary?: { overall_status?: string; messages?: string[] };
   } | null>(null);
   const [qcReason, setQcReason] = useState('');
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  type SignOutVars = {
+    acknowledgeDrift: boolean;
+    driftReason?: string;
+    acknowledgeQc?: boolean;
+    qcReason?: string;
+  };
 
   const signOut = useMutation({
-    mutationFn: async (vars: {
-      acknowledgeDrift: boolean;
-      acknowledgeQc?: boolean;
-      qcReason?: string;
-    }) =>
+    mutationFn: async (vars: SignOutVars) =>
       (
         await api.post(`/families/${familyId}/report/sign-out`, {
           acknowledge_drift: vars.acknowledgeDrift,
+          drift_acknowledgement_reason: vars.driftReason,
           acknowledge_qc: vars.acknowledgeQc ?? false,
           qc_acknowledgement_reason: vars.qcReason,
         })
       ).data,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['family', familyId, 'report-signouts'] });
+      queryClient.invalidateQueries({ queryKey: ['family', familyId, 'report-signout-check'] });
       queryClient.invalidateQueries({ queryKey: ['family', familyId, 'clinical-audit'] });
     },
   });
 
-  const attemptSignOut = async (vars: {
-    acknowledgeDrift: boolean;
-    acknowledgeQc?: boolean;
-    qcReason?: string;
-  }) => {
+  const attemptSignOut = async (vars: SignOutVars) => {
+    setSignOutError(null);
     try {
       await signOut.mutateAsync(vars);
+      setDriftGate(null);
+      setDriftReason('');
       setQcGate(null);
       setQcReason('');
     } catch (error) {
@@ -305,7 +378,12 @@ const FamilyReportPage: React.FC = () => {
         error as { response?: { status?: number; data?: { detail?: unknown } } }
       ).response;
       if (response?.status !== 409) {
-        throw error;
+        // Anything but a gate is a failure the reviewer must see: the report was NOT
+        // signed out.
+        setDriftGate(null);
+        setQcGate(null);
+        setSignOutError(apiErrorMessage(error, 'The report could not be signed out'));
+        return;
       }
       const detail = response.data?.detail;
       // A failing Sample QC returns a structured detail (gate discriminator + a failure
@@ -319,25 +397,34 @@ const FamilyReportPage: React.FC = () => {
           message?: string;
           qc_summary?: { overall_status?: string; messages?: string[] };
         };
+        setDriftGate(null);
         setQcGate({
           message: qc.message || 'Sample-integrity QC failed.',
           summary: qc.qc_summary,
           acknowledgeDrift: vars.acknowledgeDrift,
+          driftReason: vars.driftReason,
         });
         return;
       }
-      // Evidence-drift gate (plain string detail) — acknowledge-only confirm (unchanged).
-      const message =
-        typeof detail === 'string'
-          ? detail
-          : 'Evidence has changed since some classifications were made.';
-      if (window.confirm(`${message}\n\nSign out anyway?`)) {
-        await attemptSignOut({ ...vars, acknowledgeDrift: true });
-      }
+      // Evidence-drift gate (plain string detail): acknowledge WITH a reason, like QC.
+      setDriftGate({
+        message:
+          typeof detail === 'string'
+            ? detail
+            : 'Evidence has changed since some classifications were made.',
+      });
     }
   };
 
   const handleSignOut = () => attemptSignOut({ acknowledgeDrift: false, acknowledgeQc: false });
+
+  const submitDriftAcknowledgement = async () => {
+    const reason = driftReason.trim();
+    if (!reason || !driftGate) {
+      return;
+    }
+    await attemptSignOut({ acknowledgeDrift: true, driftReason: reason, acknowledgeQc: false });
+  };
 
   const submitQcAcknowledgement = async () => {
     const reason = qcReason.trim();
@@ -346,9 +433,32 @@ const FamilyReportPage: React.FC = () => {
     }
     await attemptSignOut({
       acknowledgeDrift: qcGate.acknowledgeDrift,
+      driftReason: qcGate.driftReason,
       acknowledgeQc: true,
       qcReason: reason,
     });
+  };
+
+  // The frozen record itself, as stored at sign-out.
+  const downloadSignedVersion = async () => {
+    if (!latestSignout) return;
+    setDownloadError(null);
+    try {
+      const res = await api.get(
+        `/families/${familyId}/report/sign-outs/${latestSignout.version}`,
+      );
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${familyId}-signed-report-v${latestSignout.version}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setDownloadError(apiErrorMessage(error, 'The signed version could not be downloaded'));
+    }
   };
 
   const presentHpoTerms = useMemo(() => {
@@ -390,6 +500,11 @@ const FamilyReportPage: React.FC = () => {
 
   return (
     <div className="page-shell report-page space-y-6">
+      {printNotice ? (
+        // Printed at the top of every page that is not the verified signed record, so a
+        // printout can never pass for the signed report (#508).
+        <p className="report-print-notice print-only">{printNotice}</p>
+      ) : null}
       <FamilyPageHeader
         kicker="Clinical report"
         familyId={familyId}
@@ -418,6 +533,63 @@ const FamilyReportPage: React.FC = () => {
       >
         <p className="report-header-meta">{referenceLabel}</p>
       </FamilyPageHeader>
+
+      {signOutError ? (
+        <section className="surface-card report-signout-error no-print" role="alert">
+          <p className="report-paragraph">
+            <strong>Not signed out.</strong> {signOutError}
+          </p>
+        </section>
+      ) : null}
+
+      {driftGate ? (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Evidence drift acknowledgement required"
+        >
+          <div className="modal-surface surface-card report-qc-ack-modal">
+            <h2 className="report-paragraph">
+              <strong>Evidence drift — acknowledgement required</strong>
+            </h2>
+            <p className="report-paragraph">{driftGate.message}</p>
+            <p className="report-paragraph">
+              To sign out anyway you must record a reason — it is frozen into the signed record.
+            </p>
+            <label className="report-footer-label" htmlFor="drift-ack-reason">
+              Reason for signing out despite the evidence drift (required)
+            </label>
+            <textarea
+              id="drift-ack-reason"
+              className="variant-review-textarea"
+              rows={3}
+              value={driftReason}
+              onChange={(event) => setDriftReason(event.target.value)}
+            />
+            <div className="inline-actions modal-actions">
+              <button
+                type="button"
+                className="form-button"
+                onClick={() => {
+                  setDriftGate(null);
+                  setDriftReason('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="form-button"
+                disabled={!driftReason.trim() || signOut.isPending}
+                onClick={submitDriftAcknowledgement}
+              >
+                Sign out anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {qcGate ? (
         <div
@@ -478,35 +650,72 @@ const FamilyReportPage: React.FC = () => {
         </div>
       ) : null}
 
-      {signouts?.latest ? (
-        <section className="surface-card report-signout">
+      {latestSignout ? (
+        <section
+          className={`surface-card report-signout report-signout-${signedState}`}
+          role={signedState === 'changed' || signedState === 'unverified' ? 'alert' : undefined}
+        >
           <p className="report-signout-line">
-            ✓ Signed out — version {signouts.latest.version} by{' '}
-            <strong>{signouts.latest.signed_out_by}</strong> on{' '}
-            {signouts.latest.signed_out_at.replace('T', ' ').slice(0, 16)} UTC
+            {signedState === 'matches' ? '✓ ' : ''}Signed out — version {latestSignout.version} by{' '}
+            <strong>{latestSignout.signed_out_by}</strong> on{' '}
+            {latestSignout.signed_out_at.replace('T', ' ').slice(0, 16)} UTC
+          </p>
+          <p className="report-signout-status">
+            {signedState === 'checking' ? 'Checking this page against the signed content…' : null}
+            {signedState === 'matches'
+              ? `This page matches signed version ${latestSignout.version}.`
+              : null}
+            {signedState === 'changed' ? (
+              <>
+                <strong>⚠ Changed since sign-out:</strong>{' '}
+                {describeSections(signoutCheck?.changed_sections ?? [])}. This page shows the
+                current state, not signed version {latestSignout.version} — sign out again to
+                issue a new version.
+              </>
+            ) : null}
+            {signedState === 'unverified'
+              ? `This page could not be checked against signed version ${latestSignout.version} — treat it as unsigned.`
+              : null}
           </p>
           <p className="report-signout-hash">
-            <span className="report-footer-label">Content hash</span> {signouts.latest.content_hash}
+            <span className="report-footer-label">Content hash</span> {latestSignout.content_hash}
           </p>
-          {signouts.latest.software_version ? (
+          {latestSignout.software_version ? (
             <p className="report-signout-software">
               <span className="report-footer-label">Software</span>{' '}
-              {`CoGA ${signouts.latest.software_version}${
-                signouts.latest.git_sha && signouts.latest.git_sha !== 'unknown'
-                  ? ` (${signouts.latest.git_sha.slice(0, 7)})`
+              {`CoGA ${latestSignout.software_version}${
+                latestSignout.git_sha && latestSignout.git_sha !== 'unknown'
+                  ? ` (${latestSignout.git_sha.slice(0, 7)})`
                   : ''
               }`}
             </p>
           ) : null}
-          {signouts.latest.qc_status ? (
+          {latestSignout.qc_status ? (
             <p className="report-signout-qc">
               <span className="report-footer-label">Sample QC</span>{' '}
-              {signouts.latest.qc_status}
-              {signouts.latest.qc_acknowledged ? (
-                <> — override acknowledged: {signouts.latest.qc_acknowledgement_reason}</>
+              {latestSignout.qc_status}
+              {latestSignout.qc_acknowledged ? (
+                <> — override acknowledged: {latestSignout.qc_acknowledgement_reason}</>
               ) : null}
             </p>
           ) : null}
+          {latestSignout.drift_acknowledged ? (
+            <p className="report-signout-qc">
+              <span className="report-footer-label">Evidence drift</span> override acknowledged:{' '}
+              {latestSignout.drift_acknowledgement_reason || 'no reason recorded'}
+            </p>
+          ) : null}
+          <p className="report-signout-actions no-print">
+            <button type="button" className="button-secondary" onClick={downloadSignedVersion}>
+              Download signed version {latestSignout.version} (JSON)
+            </button>
+            {downloadError ? (
+              <span className="report-signout-download-error" role="alert">
+                {' '}
+                {downloadError}
+              </span>
+            ) : null}
+          </p>
         </section>
       ) : null}
 

@@ -37,7 +37,7 @@ Deze drie zijn tegelijk de *ingrediënten* die bij aftekenen worden bevroren (zi
 
 Aftekenen gebeurt via **`POST /families/{id}/report/sign-out`** (endpoint `sign_out_family_report_endpoint`), dat delegeert aan **`sign_out_report`** in `backend/app/services/report_signout_service.py`. De kern van die functie:
 
-1. **Snapshot samenstellen** — `build_report_snapshot` verzamelt: de familiecontext, het annotatie-manifest, de drift-evaluatie, de Sample-integrity-QC, en de gerapporteerde reviews (`_reported_reviews`: alle rijen uit `small_variant_reviews` met de tag `report`, elk met hun ACMG-klasse, criteria, notitie en het bevroren `acmg_evidence_snapshot`).
+1. **Snapshot samenstellen** — `build_report_snapshot` verzamelt: de familiecontext, het annotatie-manifest, de drift-evaluatie, de Sample-integrity-QC, de sequencing-QC met de afkapwaarden, de gerapporteerde reviews (`_reported_reviews`: alle rijen uit `small_variant_reviews` met de tag `report`, elk met hun ACMG-klasse, criteria, notitie en het bevroren `acmg_evidence_snapshot`) en de gerapporteerde structurele varianten en CNV's (`_reported_structural_reviews`: alle rijen uit `structural_variant_reviews` met de tag `report`, met classificatie, CNV-ACMG-criteria, tags en notitie — sinds #508; daarvoor werd een gerapporteerde CNV wel afgedrukt maar niet bevroren).
 2. **Gate 1 — drift** (zie hieronder).
 3. **Gate 2 — Sample-QC** (zie hieronder).
 4. **Versie + hash-keten bepalen onder een per-familie advisory lock** (`pg_advisory_xact_lock`) — een tijdelijk slot in de databank per familie, zodat versiekeuze, ketenkop-lezing en insert atomair (als één ondeelbaar geheel) gebeuren; gelijktijdige aftekeningen kunnen elkaar niet in de wielen rijden.
@@ -57,7 +57,7 @@ Drift betekent: de *evidence* (het bewijs) achter een ACMG-classificatie is vera
 - Ontbreekt een van beide hashes, dan is de binding *niet* verifieerbaar-ongewijzigd → status **`unknown`**, die door de gate als drift telt (in plaats van stilzwijgend "current"). Zonder deze fail-safe zou een classificatie zonder hash ongehinderd door de gate glippen.
 - Een gerapporteerde classificatie **zonder** bevroren snapshot kan niet drift-geverifieerd worden; `build_report_snapshot` markeert die apart als **`no_snapshot`** zodat de gate ook die dwingt te erkennen (#332).
 
-In `sign_out_report` geldt: als `drifted_count > 0` en de aanroeper heeft `acknowledge_drift` niet gezet → **HTTP 409** (statuscode voor "conflict"). Pas met expliciete erkenning gaat aftekenen door; die erkenning (`acknowledged_drift: true`) wordt in het snapshot en dus in de content-hash gebakken. De classificatie-evidence en drift-logica zelf horen bij hoofdstuk [10-tagging-en-acmg-classificatie.md](10-tagging-en-acmg-classificatie.md).
+In `sign_out_report` geldt: als `drifted_count > 0` en de aanroeper heeft `acknowledge_drift` niet gezet → **HTTP 409** (statuscode voor "conflict"). Pas met expliciete erkenning **én een reden** (`drift_acknowledgement_reason`; zonder reden → **HTTP 422**, net als bij de Sample-QC-override — sinds #508) gaat aftekenen door; die erkenning (`acknowledged_drift: true`) en de reden worden in het snapshot en dus in de content-hash gebakken, en in het audit-event vastgelegd. De classificatie-evidence en drift-logica zelf horen bij hoofdstuk [10-tagging-en-acmg-classificatie.md](10-tagging-en-acmg-classificatie.md).
 
 **Waar in de code:** `report_signout_service.sign_out_report` (de 409-check op `drifted_count`); `classification_drift_service.evaluate_classification_drift` en `_diff`.
 
@@ -83,9 +83,11 @@ Blokkeert de gate en is `acknowledge_qc` niet gezet → **HTTP 409** met een ges
 | `software` | `{version: settings.app_version, git_sha: settings.git_sha}` — de **exacte softwarebuild** die het snapshot maakte |
 | `drift` | `checked`, `drifted_count` en de gesorteerde `drifted`-lijst (incl. `no_snapshot`-gevallen) |
 | `sample_qc` | de volledige, deterministische Sample-integrity-QC (`_canonical_sample_qc`) |
+| `sequencing_qc` | de sequencing-QC-verdicten per staal én de afkapwaarden waartegen ze beoordeeld werden |
 | `reported_variants` | elke gerapporteerde variant met ACMG-klasse, criteria, tags, notitie én zijn bevroren `evidence_snapshot` |
+| `reported_structural_variants` | elke gerapporteerde structurele variant/CNV met classificatie, CNV-ACMG-criteria, tags en notitie |
 
-Bij het feitelijke aftekenen worden hier nog `version`, `generated_at`, `signed_out_by` en de erkennings-vlaggen (`acknowledged_drift`, `acknowledged_qc`, `qc_acknowledgement_reason`) aan toegevoegd. Zo is het snapshot gebonden aan **drie versie-assen tegelijk**:
+Bij het feitelijke aftekenen worden hier nog `version`, `generated_at`, `signed_out_by` en de erkennings-vlaggen met hun redenen (`acknowledged_drift`, `drift_acknowledgement_reason`, `acknowledged_qc`, `qc_acknowledgement_reason`) aan toegevoegd. Zo is het snapshot gebonden aan **drie versie-assen tegelijk**:
 
 - **Software** — via `software.version` + `git_sha` (build-time constanten, dus deterministisch, altijd hetzelfde voor dezelfde build).
 - **Annotatie/pipeline** — via het bevroren `modules`-manifest én, per classificatie, de annotation-set-hash in het evidence-snapshot.
@@ -93,9 +95,11 @@ Bij het feitelijke aftekenen worden hier nog `version`, `generated_at`, `signed_
 
 **Waarom herproduceerbaar.** De content-hash wordt berekend met `canonical_hash` (een SHA-256 over een *canonieke*, op sleutel gesorteerde JSON-codering, `hash_chain.canonical_json`). Alle bevroren waarden zijn zuivere functies van deterministisch-geordende input (geen tijdstempels-in-de-inhoud, geen toevalsgetallen), dus identieke klinische inhoud levert altijd dezelfde hash. Lijsten worden expliciet gesorteerd op stabiele sleutels (bv. `drifted` op `variant_id`) omdat `sort_keys` in de JSON-codering alleen dict-sleutels (veldnamen) ordent, geen lijstvolgorde.
 
-**Ontkoppeling van ClickHouse.** Het snapshot *embed* (bevat een ingebedde kopie van) de variant- en evidence-waarden die het nodig heeft. Een latere ClickHouse-herbouw of `annotation_version`-wissel kan een ondertekend rapport dus niet veranderen; bij het tonen van een ondertekend rapport wordt ClickHouse niet opnieuw bevraagd.
+**Ontkoppeling van ClickHouse.** Het snapshot *embed* (bevat een ingebedde kopie van) de variant- en evidence-waarden die het nodig heeft. Een latere ClickHouse-herbouw of `annotation_version`-wissel kan het ondertekende record dus niet veranderen.
 
-**Waar in de code:** `report_signout_service.build_report_snapshot`; canonicalisatie in `backend/app/services/hash_chain.py` (`canonical_json`, `canonical_hash`). Schema van de tabel: `backend/db/schema/postgres/033_report_signouts.sql` (kolommen `version`, `content_hash`, `snapshot`, `UNIQUE(family_id, version)`); evidence-snapshot: `031_classification_evidence_snapshot.sql`.
+**Toont de rapportpagina het ondertekende rapport?** Niet vanzelf: de rapportpagina toont altijd de *huidige* data (en bevraagt daarvoor ClickHouse). Sinds #508 vergelijkt `GET /families/{id}/report/sign-out-check` (`compare_report_with_latest_signout`) het snapshot zoals het nu zou worden bevroren, sectie per sectie, met de laatste ondertekende versie. Alleen bij een geverifieerde overeenkomst is het sign-out-record groen ("This page matches signed version N"); is er na het aftekenen iets gewijzigd (een review, een rapport-tag, een herimport, een QC-afkapwaarde), dan kleurt het record oranje en noemt het de gewijzigde onderdelen, en kan de check niet worden uitgevoerd, dan is het grijs. Elke pagina die niet het geverifieerde ondertekende record is, wordt afgedrukt met een melding bovenaan ("Draft …", "Not the signed report …", "Not verified …"), en het bevroren record zelf kan als JSON worden gedownload. Het rapport volledig *uit* het snapshot opbouwen is nog niet gerealiseerd: het snapshot bevat de verhalende invoer (genprofielen, HGVS, frequenties) nog niet.
+
+**Waar in de code:** `report_signout_service.build_report_snapshot`; canonicalisatie in `backend/app/services/hash_chain.py` (`canonical_json`, `canonical_hash`). Schema van de tabel: `backend/db/schema/postgres/04_traceability.sql` (`report_signouts`: kolommen `version`, `content_hash`, `snapshot`, `UNIQUE(family_id, version)`); evidence-snapshot: kolom `acmg_evidence_snapshot` van `small_variant_reviews` in `03_assay.sql`.
 
 ## Append-only, hash-geketende audit- en sign-out-trail
 

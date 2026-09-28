@@ -530,4 +530,213 @@ describe('FamilyReportPage', () => {
       screen.getByText(/override acknowledged: Repeat genotyping confirms identity/),
     ).toBeInTheDocument();
   });
+
+  // #508 — the report page must only present itself as the signed record when its live
+  // content still matches the latest sign-out.
+  const SIGNED_LATEST = {
+    version: 2,
+    signed_out_by: 'bjorn',
+    signed_out_at: '2026-06-25T10:00:00Z',
+    content_hash: 'abc123def456',
+  };
+
+  function mockSignedFamily(check: () => Promise<unknown>) {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({ data: { family_id: 'F1', latest: SIGNED_LATEST, signouts: [] } });
+      }
+      if (url === '/families/F1/report/sign-out-check') {
+        return check();
+      }
+      if (url === '/families/F1/report/sign-outs/2') {
+        return Promise.resolve({ data: { version: 2, snapshot: { reported_variants: [] } } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  }
+
+  const checkResult = (overrides: Record<string, unknown>) =>
+    Promise.resolve({
+      data: {
+        family_id: 'F1',
+        version: 2,
+        content_hash: 'abc123def456',
+        matches: true,
+        changed_sections: [],
+        not_compared: [],
+        checked_at: '2026-09-28T10:00:00Z',
+        ...overrides,
+      },
+    });
+
+  it('presents the page as signed only when it matches the latest sign-out', async () => {
+    mockSignedFamily(() => checkResult({ matches: true }));
+    const { container } = renderPage();
+
+    expect(await screen.findByText(/This page matches signed version 2/)).toBeInTheDocument();
+    expect(screen.getByText(/✓ Signed out — version 2 by/)).toBeInTheDocument();
+    // A verified match prints without any "not the signed report" notice.
+    expect(container.querySelector('.report-print-notice')).toBeNull();
+  });
+
+  it('warns — on screen and in print — when the content changed after sign-out', async () => {
+    mockSignedFamily(() =>
+      checkResult({ matches: false, changed_sections: ['reported_variants', 'sequencing_qc'] }),
+    );
+    const { container } = renderPage();
+
+    expect(
+      await screen.findByText(/reported small variants and sequencing QC cut-offs/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Changed since sign-out/)).toBeInTheDocument();
+    // No check mark: the record line no longer claims the page is the signed report.
+    expect(screen.queryByText(/✓ Signed out/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Signed out — version 2 by/)).toBeInTheDocument();
+    expect(container.querySelector('.report-print-notice')?.textContent).toMatch(
+      /Not the signed report — the content differs from signed version 2/,
+    );
+  });
+
+  it('treats the page as unsigned when the check cannot be made', async () => {
+    mockSignedFamily(() => Promise.reject({ response: { status: 500, data: {} } }));
+    const { container } = renderPage();
+
+    expect(
+      await screen.findByText(/could not be checked against signed version 2 — treat it as unsigned/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/✓ Signed out/)).not.toBeInTheDocument();
+    expect(container.querySelector('.report-print-notice')?.textContent).toMatch(/Not verified/);
+  });
+
+  it('marks an unsigned report as a draft in print', async () => {
+    mockUnsignedFamily();
+    const { container } = renderPage();
+
+    await screen.findByRole('button', { name: /Sign out report/ });
+    expect(container.querySelector('.report-print-notice')?.textContent).toMatch(
+      /Draft — this report has not been signed/,
+    );
+  });
+
+  it('downloads the frozen signed version', async () => {
+    mockSignedFamily(() => checkResult({ matches: true }));
+    const createObjectURL = vi.fn(() => 'blob:signed');
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    // jsdom cannot navigate to a blob: URL; the click itself is what we need.
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Download signed version 2/ }));
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    expect(apiMock.get).toHaveBeenCalledWith('/families/F1/report/sign-outs/2');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:signed');
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    clickSpy.mockRestore();
+  });
+
+  const DRIFT_409 = {
+    response: {
+      status: 409,
+      data: { detail: '1 classification(s) have evidence that changed since they were made.' },
+    },
+  };
+
+  it('requires a reason to override the evidence-drift gate (no bare confirm)', async () => {
+    mockUnsignedFamily();
+    const confirmSpy = vi.spyOn(window, 'confirm');
+    const posts: Array<Record<string, unknown>> = [];
+    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      posts.push(body);
+      return posts.length === 1
+        ? Promise.reject(DRIFT_409)
+        : Promise.resolve({ data: { version: 1 } });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    expect(
+      await screen.findByRole('dialog', { name: /Evidence drift acknowledgement required/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/evidence that changed since they were made/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sign out anyway/ })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/despite the evidence drift/), {
+      target: { value: 'ClinVar update reviewed; classification unchanged' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
+
+    await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts[1]).toMatchObject({
+      acknowledge_drift: true,
+      drift_acknowledgement_reason: 'ClinVar update reviewed; classification unchanged',
+      acknowledge_qc: false,
+    });
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('carries the drift reason through a following Sample-QC override', async () => {
+    mockUnsignedFamily();
+    const posts: Array<Record<string, unknown>> = [];
+    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      posts.push(body);
+      if (posts.length === 1) return Promise.reject(DRIFT_409);
+      if (posts.length === 2) return Promise.reject(QC_409);
+      return Promise.resolve({ data: { version: 1 } });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    fireEvent.change(await screen.findByLabelText(/despite the evidence drift/), {
+      target: { value: 'drift reviewed' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
+
+    fireEvent.change(await screen.findByLabelText(/despite the QC concern/), {
+      target: { value: 'identity confirmed' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
+
+    await waitFor(() => expect(posts).toHaveLength(3));
+    expect(posts[2]).toMatchObject({
+      acknowledge_drift: true,
+      drift_acknowledgement_reason: 'drift reviewed',
+      acknowledge_qc: true,
+      qc_acknowledgement_reason: 'identity confirmed',
+    });
+  });
+
+  it('shows a sign-out failure instead of failing silently', async () => {
+    mockUnsignedFamily();
+    apiMock.post.mockRejectedValue({
+      response: { status: 500, data: { detail: 'database unavailable' } },
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Not signed out\. database unavailable/);
+  });
+
+  it('shows the frozen drift-override reason on the signed record', async () => {
+    mockSignedFamily(() => checkResult({ matches: true }));
+    const signed = { ...SIGNED_LATEST, drift_acknowledged: true, drift_acknowledgement_reason: 'reviewed' };
+    const base = apiMock.get.getMockImplementation();
+    apiMock.get.mockImplementation((url: string) =>
+      url === '/families/F1/report/sign-outs'
+        ? Promise.resolve({ data: { family_id: 'F1', latest: signed, signouts: [] } })
+        : base!(url),
+    );
+    renderPage();
+
+    expect(await screen.findByText(/override acknowledged:\s*reviewed/)).toBeInTheDocument();
+    expect(screen.getByText('Evidence drift')).toBeInTheDocument();
+  });
 });

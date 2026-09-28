@@ -12332,6 +12332,55 @@ a.button-danger:hover {
   word-break: break-all;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
+.report-signout-status {
+  margin: 0;
+  font-size: 0.86rem;
+}
+/* Only a verified match is presented as the signed record (green). Anything else —
+   still checking, changed since sign-out, or not verifiable — must not look signed. */
+.report-signout-checking,
+.report-signout-unverified {
+  border-left-color: #94a3b8;
+  background: #f8fafc;
+}
+.report-signout-checking .report-signout-line,
+.report-signout-unverified .report-signout-line {
+  color: #334155;
+}
+.report-signout-changed {
+  border-left-color: #d97706;
+  background: #fffbeb;
+}
+.report-signout-changed .report-signout-line,
+.report-signout-changed .report-signout-status {
+  color: #92400e;
+}
+.report-signout-actions {
+  margin: 0.25rem 0 0;
+}
+.report-signout-download-error {
+  font-size: 0.8rem;
+  color: #b91c1c;
+}
+.report-signout-error {
+  border-left: 4px solid #dc2626;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+/* Printed at the top of any report page that is not the verified signed record. */
+.print-only {
+  display: none;
+}
+.report-print-notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid #111827;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+}
 
 /* Immutable clinical audit trail: who classified / tagged / annotated what, when. */
 .report-audit {
@@ -12492,6 +12541,10 @@ a.button-danger:hover {
 @media print {
   .no-print {
     display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
   }
 
   .report-page {

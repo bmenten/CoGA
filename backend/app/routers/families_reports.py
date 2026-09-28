@@ -13,6 +13,7 @@ from ..schemas import (
     AnnotationManifestUpdate,
     ClassificationDriftOut,
     ClinicalAuditOut,
+    ReportSignoutCheckOut,
     ReportSignoutDetail,
     ReportSignoutListOut,
     ReportSignoutRequest,
@@ -29,6 +30,7 @@ from ..services.annotation_manifest_service import (
 from ..services.classification_drift_service import evaluate_classification_drift
 from ..services.clinical_audit_service import list_clinical_audit
 from ..services.report_signout_service import (
+    compare_report_with_latest_signout,
     get_report_signout,
     list_report_signouts,
     sign_out_report,
@@ -112,6 +114,9 @@ async def sign_out_family_report_endpoint(
             family_id=family_id,
             user=user,
             acknowledge_drift=bool(payload and payload.acknowledge_drift),
+            drift_acknowledgement_reason=(
+                payload.drift_acknowledgement_reason if payload else None
+            ),
             acknowledge_qc=bool(payload and payload.acknowledge_qc),
             qc_acknowledgement_reason=(
                 payload.qc_acknowledgement_reason if payload else None
@@ -130,6 +135,21 @@ async def list_family_report_signouts_endpoint(
 ) -> ReportSignoutListOut:
     return ReportSignoutListOut.model_validate(
         await list_report_signouts(
+            session, family_id=family_id, user=user, project_id=project_id
+        )
+    )
+
+
+@router.get("/{family_id}/report/sign-out-check", response_model=ReportSignoutCheckOut)
+async def check_family_report_against_signout_endpoint(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportSignoutCheckOut:
+    """Whether the report as it would be signed now matches the latest sign-out (#508)."""
+    return ReportSignoutCheckOut.model_validate(
+        await compare_report_with_latest_signout(
             session, family_id=family_id, user=user, project_id=project_id
         )
     )
