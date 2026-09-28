@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
@@ -17,6 +16,7 @@ from ..schemas import (
 )
 from .metadata_service import CurrentUser
 
+from .family_package_source import package_folder_path
 from .family_package_common import _dataset_summary_list, _issue_list, _json_dict, _json_list, _model_list_json  # noqa: F401
 
 
@@ -106,7 +106,7 @@ async def queue_family_import_job(
             """
         ),
         {
-            "submitted_path": str(Path(folder_path).expanduser()),
+            "submitted_path": package_folder_path(folder_path),
             "project_id": project_id or "",
             "dry_run": dry_run,
             "metadata": json.dumps(metadata),

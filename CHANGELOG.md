@@ -287,6 +287,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Structural-variant filters** — the structural-variant search now shares the small-variant
   search's filter-value helpers. A value typed with a stray space no longer appears twice, and a
   sample filter without a genotype selection gets the defaults instead of throwing (#569).
+- **Package imports from a bucket** — a Package Import queued from a `gs://` or `s3://` folder
+  was stored as `gs:/bucket/…`, no longer a bucket URI, so the worker looked for a local folder
+  and the import failed. The URI is now stored unchanged (#570).
 
 ### Security
 
