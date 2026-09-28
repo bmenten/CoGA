@@ -24,6 +24,7 @@
 | Data subjects | Patients, pregnant individuals + partner, prospective parents/couples, embryos (and, via family/pedigree, relatives). |
 | Categories of data | **Special category:** genetic data (variants, genotypes, haplotypes), health/clinical status, phenotype (HPO), reproductive/pregnancy data; identifiers/pedigree metadata; user account data (staff). |
 | Processing operations | Ingestion of validated genomic files, storage (Postgres + ClickHouse + file/object store), filtering/analysis/visualization, classification, reporting, audit logging. |
+| Hosting / processors | **On premises** (Docker Compose within CMGG/UZ Gent): no processor. **Google Cloud** (codified in `terraform/`, not yet applied): Google Cloud stores and processes the data as a **processor** — Cloud SQL, a ClickHouse VM and CMEK-encrypted storage buckets in the configured region, served through an internet-facing HTTPS load balancer. **🔲 OWNER/DPO (#518):** confirm the production target; for Google Cloud, the data-processing agreement, the region (EU), any sub-processors and transfers, and network restriction of the load balancer (#364). |
 | Scale & duration | All CMGG cases across the five applications; retention per clinical/legal record requirements. |
 
 ## 2. Lawful basis & special-category condition
@@ -57,6 +58,7 @@ PHI download scoping, refuse-to-start on default secrets; **plus the open deploy
 | Incidental findings / familial implications | Clinical governance, reporting policy ‹CMGG SOP› | ‹…› |
 | Data integrity / wrong record | Immutable audit, content-hash, provenance | ‹…› |
 | Breach (confidentiality) | TF-13 controls + incident process (TF-17) + breach notification per GDPR Art. 33/34 | ‹…› |
+| Processing by a cloud provider (Google Cloud deployment only) | Data-processing agreement, EU region, CMEK encryption at rest, TLS in transit, least-privilege service accounts, audit logging (TF-13; `terraform/`) | ‹… — owner/DPO, #518› |
 
 ## 7. Consultation & sign-off
 - **UZ Gent DPO opinion:** ‹to be recorded›. Per the governing SOP **H11.1-OP5 §4.2**, the DPO's advice is obtained during the **functional-analysis** phase whenever personal data is processed — so DPO consultation is a standing step of CoGA's lifecycle, not a one-off.

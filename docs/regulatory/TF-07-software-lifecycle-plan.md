@@ -27,9 +27,9 @@
 
 | | |
 | --- | --- |
-| **Proposed class** | **Class C** — a software failure (e.g. a missed pathogenic variant, a wrong embryo segregation call, a wrong fetal-risk category) could, if not caught, contribute to a serious clinical decision (embryo transfer/discard, reproductive decision, missed diagnosis). |
+| **Class** | **Class C** — a software failure (e.g. a missed pathogenic variant, a wrong embryo segregation call, a wrong fetal-risk category) could, if not caught, contribute to a serious clinical decision (embryo transfer/discard, reproductive decision, missed diagnosis). |
 | Justification | Per IEC 62304, classification reflects the *worst-case* harm if the software fails and external risk controls are insufficient. Although a qualified professional signs out every result (a strong control), professional review alone is not treated as sufficient to downgrade below C for the safety-critical calls (TF-06). |
-| Effect | Class C requires the full set of 62304 development, architecture, detailed-design, integration, system-test, and maintenance activities, with documented traceability. **🔲 INPUT NEEDED:** confirm classification with CMGG quality; a documented decomposition could assign lower classes to non-safety items (e.g. cosmetic UI) if justified. |
+| Effect | Class C requires the full set of 62304 development, architecture, detailed-design, integration, system-test, and maintenance activities, with documented traceability. **Confirmed:** Class C, with no lower-class decomposition claimed ([INPUTS-QUESTIONNAIRE](INPUTS-QUESTIONNAIRE.md) D1). |
 
 ## 2. Lifecycle model
 

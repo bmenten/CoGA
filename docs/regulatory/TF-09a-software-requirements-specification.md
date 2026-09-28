@@ -112,6 +112,7 @@
 | REQ-TRACE-008 | Enforce audit/sign-out immutability at the database (append-only trigger; no UPDATE/DELETE). | C | H9 |
 | REQ-TRACE-009 | Refuse sign-out, without an override, for a family whose reference assembly is outside the configured validated set (default GRCh38) or unresolved; label such a family "not validated for clinical use" on the family and report pages. | C | H12 |
 | REQ-TRACE-010 | Refuse a variant-review save made against a review that has changed since the client loaded it (409 with the current review), rather than overwrite another reviewer's classification, criteria, tags or note; serialize concurrent saves of one variant. | C | H9, H3 |
+| REQ-TRACE-011 | Record, per family, the analysis pipeline and engine version and the version of every tool and reference database behind its callset, and present them with the run configuration. | C | H8 |
 
 ### 3.7 Access control & security (REQ-SEC)
 
@@ -153,7 +154,6 @@
 | REQ-QC-005 | Show each sample's worst sequencing-QC state in the family members table, distinguishable without relying on colour alone, and name the breaching metrics with their values and the limits they crossed on inspection. | C | H14, H10 |
 | REQ-QC-006 | Apply the same admin-managed limits to the mitochondrial QC verdict (chrM mean depth, contamination); no QC acceptance limit is fixed in code. | C | H14, H13 |
 | REQ-QC-007 | Record every acceptance-limit change in an append-only history holding the replaced value, the new value and the acting user, and require the change to be confirmed against a restatement of both sides before it is committed. | C | H14, H9 |
-| REQ-TRACE-008 | Record, per family, the analysis pipeline and engine version and the version of every tool and reference database behind its callset, and present them with the run configuration. | C | H8 |
 
 ### 3.10 Mitochondrial disease — combined mtDNA + nuclear (REQ-MITO)
 

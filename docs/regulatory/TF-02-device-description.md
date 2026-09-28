@@ -132,9 +132,20 @@ governed by **TF-18**.
 
 ## 10. Operating environment & deployment
 
-- Server deployment within the CMGG/UZ Gent managed environment; containerized (Docker Compose today; production deployment topology **🔲 INPUT NEEDED** — managed Postgres/ClickHouse, TLS, secrets manager, encryption at rest per [security-posture.md](../security-posture.md) open items).
+- Containerized, with two deployment targets:
+  - **On premises** — Docker Compose within the CMGG/UZ Gent managed environment (current). The
+    databases and the API are bound to the host's loopback; only the web UI is published.
+  - **Google Cloud** — codified in `terraform/` but **not yet applied**: Cloud Run services behind
+    an external HTTPS load balancer (TLS 1.2+, Cloud Armor), Cloud SQL, a ClickHouse VM and
+    CMEK-encrypted buckets in the configured region. The load balancer is **internet-facing by
+    default**; restricting it to institutional networks is tracked in #364.
 - Authentication via JWT (HS256), optional Azure AD; project-scoped RBAC; admin-gated mutations.
-- No internet exposure of PHI beyond the institution; not transferred to any other legal entity (Art. 5(5)(a)).
+- The **device** is not transferred to any other legal entity (Art. 5(5)(a)). **PHI:** in the
+  on-premises deployment it stays within the institution; in the Google Cloud deployment it is
+  stored and processed by Google Cloud as a **processor** on the institution's behalf. **🔲 OWNER
+  DECISION (#518):** confirm the production target, the data-processing agreement and region
+  for Google Cloud, and whether the load balancer is restricted to institutional networks
+  (#364). Until then the technical file describes both.
 
 ## 11. Standards & common specifications applied
 

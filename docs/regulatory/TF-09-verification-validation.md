@@ -33,7 +33,7 @@
 | Static analysis | TypeScript `tsc`, ESLint | frontend | CI `frontend` job |
 | Integration | Real-startup smoke against Postgres 16 + ClickHouse 25.3 (schema init, admin seed, health probe) | `backend/tests/integration` | CI `smoke` job |
 | End-to-end (system) | Golden-dataset pipeline run (ingest → query/API → review/audit/sign-out) + realistic demo bundles, checked vs documented expected results — see **[TF-09c](TF-09c-e2e-pipeline-verification.md)** | `backend/tests/e2e` | CI `e2e` job |
-| Browser / GUI end-to-end | Real Chromium driving the deployed UI (login → family workspace → genome render → in-browser sign-out) against a live backend + datastores; incl. a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job (required status check) |
+| Browser / GUI end-to-end | Real Chromium driving the UI (login → family workspace → genome render → in-browser sign-out) against a live backend + datastores. The UI is served by the **Vite dev server**, not the production `server.mjs` build: the journeys verify the application, not the production static-serving and `/api` proxy layer, which has its own tests (`frontend/src/__tests__/serverProxy.test.ts`, `serverSecurityHeaders.test.ts`) (#517); incl. a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job (required status check) |
 | System / clinical | Concordance vs validated assays | [TF-10](TF-10-performance-evaluation-plan.md) | Performance report TF-11 |
 | Regression | Full suite re-run on every PR & push to main | CI | Required checks |
 
@@ -73,7 +73,7 @@ thorough testing across all levels plus clinical opvolgvalidatie.
 
 The SRS is maintained as the controlled companion document
 **[TF-09a — Software Requirements Specification](TF-09a-software-requirements-specification.md)**:
-73 requirements with stable IDs across 13 areas (functional per application, performance,
+88 requirements with stable IDs across 13 areas (functional per application, performance,
 interface/input, risk-control, security, usability, reporting), each with a 62304 safety class
 and a link to its TF-06 hazard. It is derived from the per-feature design docs and the
 implementation/test inventory, and revised under change control (TF-18).
