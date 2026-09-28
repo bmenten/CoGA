@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 from typing import Any, Iterable, Sequence
 
 from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse  # noqa: F401  (clickhouse_dataset_key re-exported for admin_service)
@@ -304,6 +305,19 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         PRIMARY KEY (family_guid, project_guid, sample_id)
         ORDER BY (family_guid, project_guid, sample_id)
         """,
+        # One row per mutation of a family's small variants (see
+        # bump_family_small_variant_data_version). Plain MergeTree on purpose: the rows are
+        # never collapsed, so the (count, sum) fingerprint changes on every write.
+        f"""
+        CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/family_data_version`
+        (
+            `family_guid` String,
+            `token` UInt64,
+            `bumped_at` DateTime64(3) DEFAULT now64(3)
+        )
+        ENGINE = MergeTree
+        ORDER BY (family_guid, bumped_at)
+        """,
         f"""
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SV/variants/details`
         (
@@ -445,6 +459,43 @@ async def _drop_legacy_gt_stats_aggregates(database: str, dataset: str) -> None:
         )
 
 
+async def bump_family_small_variant_data_version(assembly_name: str, family_uuid: str) -> None:
+    """Record that a family's small-variant data changed.
+
+    Called by every storage-level mutation below (insert, delete, summary refresh — the
+    last also covers a snapshot restore), after the mutation has completed, so a ranking
+    computed while the data was changing is keyed to a version that no longer exists.
+    Doing it here, rather than asking each import/upload/delete path to invalidate the
+    ranking cache, is the point: only the package import used to, so a direct upload or
+    an admin delete left a stale prioritised ranking behind (#509).
+    """
+    await ensure_clickhouse_variant_tables(assembly_name)
+    await _execute(
+        f"INSERT INTO {_small_table_name(assembly_name, 'family_data_version')} "
+        "(family_guid, token) VALUES",
+        data=[(family_uuid, secrets.randbits(63))],
+    )
+
+
+async def get_family_small_variant_data_version(assembly_name: str, family_uuid: str) -> str:
+    """A fingerprint that changes whenever the family's small-variant data changes.
+
+    The token count and sum over the family's rows in ``family_data_version``: each bump
+    appends a random token, so both move on every write. A family written before this
+    table existed reads ``0:0`` until its next write.
+    """
+    await ensure_clickhouse_variant_tables(assembly_name)
+    rows = await _execute(
+        f"SELECT count(), sum(token) FROM {_small_table_name(assembly_name, 'family_data_version')} "
+        "WHERE family_guid = %(family_guid)s",
+        {"family_guid": family_uuid},
+    )
+    if not rows:
+        return "0:0"
+    count, total = rows[0]
+    return f"{int(count or 0)}:{int(total or 0)}"
+
+
 async def delete_family_small_variants(
     assembly_name: str,
     family_uuid: str,
@@ -466,6 +517,7 @@ async def delete_family_small_variants(
             "SETTINGS mutations_sync = 1",
             params,
         )
+        await bump_family_small_variant_data_version(assembly_name, family_uuid)
         return
     for suffix in (
         "entries",
@@ -476,6 +528,7 @@ async def delete_family_small_variants(
             f"ALTER TABLE {_small_table_name(assembly_name, suffix)} DELETE WHERE family_guid = %(family_guid)s SETTINGS mutations_sync = 1",
             params,
         )
+    await bump_family_small_variant_data_version(assembly_name, family_uuid)
 
 
 async def delete_family_structural_variants(
@@ -678,6 +731,8 @@ async def insert_small_variant_records(
             annotation_gene_index_rows,
             chunk_size=_SMALL_VARIANT_GENE_INDEX_INSERT_ROWS,
         )
+    if entry_rows:
+        await bump_family_small_variant_data_version(assembly_name, family_uuid)
 
 
 async def replace_family_small_variants(
@@ -769,6 +824,9 @@ async def refresh_family_small_variant_summaries(
         """,
         params,
     )
+    # A refresh follows every re-insert and is the one storage call the snapshot restore
+    # makes after rewriting `entries` directly, so it also stands for that write.
+    await bump_family_small_variant_data_version(assembly_name, family_uuid)
 
 
 async def insert_structural_variant_records(

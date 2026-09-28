@@ -2137,11 +2137,15 @@ async def test_prioritized_small_variants_tie_order_is_deterministic(
     async def _empty(*_a, **_k):
         return {}
 
+    async def _version(*_a, **_k):
+        return "1:1"
+
     async def _run(order):
         async def _fetch(*_a, **_k):
             return list(order)
 
         monkeypatch.setattr(m + "_affected_present_hpo", _no_hpo)
+        monkeypatch.setattr(m + "_family_small_variant_data_version", _version)
         monkeypatch.setattr(m + "compute_ranking_hashes", _hashes)
         monkeypatch.setattr(m + "get_cached_ranking", _none)
         monkeypatch.setattr(m + "_serve_subpanel_from_superset", _none)
@@ -2177,6 +2181,115 @@ async def test_prioritized_small_variants_tie_order_is_deterministic(
     # reverse=True applies to the whole key tuple, so equal-score ties order by
     # DESCENDING variant id.
     assert forward == ["1-200-A-G", "1-100-A-G"]
+
+
+@pytest.mark.asyncio
+async def test_prioritized_ranking_cache_misses_after_the_family_variant_data_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # #509: the ranking cache is keyed on the family's storage-level data version, so a
+    # write that no import path invalidated (a direct upload, an admin delete) can no
+    # longer leave the prioritised view serving a ranking over the old variants. Drives
+    # the real hash computation against an in-memory cache.
+    from backend.app.services import variant_ranking_cache as vrc
+
+    calls = [_small_call("PROBAND", "0/1")]
+    rec_a = _small_variant("1-100-A-G", "GENE1", calls=calls, start=100)
+    rec_b = _small_variant("1-200-A-G", "GENE2", calls=calls, start=200)
+    data = {"version": "1:111", "records": [rec_a]}
+    cache: dict[str, dict] = {}
+
+    m = "backend.app.services.clickhouse_family_variants."
+
+    async def _no_hpo(*_a, **_k):
+        return (set(), {})
+
+    async def _version(*_a, **_k):
+        return data["version"]
+
+    async def _fetch(*_a, include_variant_ids=None, **_k):
+        records = list(data["records"])
+        if include_variant_ids is not None:
+            wanted = {str(variant_id) for variant_id in include_variant_ids}
+            records = [record for record in records if record.variant_id in wanted]
+        return records
+
+    async def _get_cached(_session, *, family_uuid, inputs_hash):
+        return cache.get(inputs_hash)
+
+    async def _store(_session, *, inputs_hash, total, ranking, **_k):
+        cache[inputs_hash] = {
+            "total": total,
+            "total_is_estimated": False,
+            "ranking_truncated": False,
+            "ranking": ranking,
+            "computed_at": None,
+        }
+
+    async def _none(*_a, **_k):
+        return None
+
+    async def _empty(*_a, **_k):
+        return {}
+
+    async def _ped(*_a, **_k):
+        return {"structure_hash": "ped-1"}
+
+    async def _refs(*_a, **_k):
+        return {"hpo_release": "2026-04-01", "gene_info_updated_at": "2026-06-08"}
+
+    monkeypatch.setattr(vrc, "_pedigree_signature", _ped)
+    monkeypatch.setattr(vrc, "_panel_version", _none)
+    monkeypatch.setattr(vrc, "_monarch_release", _none)
+    monkeypatch.setattr(vrc, "_reference_versions", _refs)
+    monkeypatch.setattr(m + "_affected_present_hpo", _no_hpo)
+    monkeypatch.setattr(m + "_family_small_variant_data_version", _version)
+    monkeypatch.setattr(m + "get_cached_ranking", _get_cached)
+    monkeypatch.setattr(m + "store_ranking", _store)
+    monkeypatch.setattr(m + "_serve_subpanel_from_superset", _none)
+    monkeypatch.setattr(m + "_fetch_small_variant_rows", _fetch)
+    monkeypatch.setattr(m + "_fetch_gene_constraint_metric_map", _empty)
+    monkeypatch.setattr(m + "_segregation_modes_by_variant", lambda *a, **k: {})
+    monkeypatch.setattr(m + "_hydrate_small_variant_outs", _none)
+    monkeypatch.setattr(m + "_small_record_matches", lambda *a, **k: True)
+
+    async def _open():
+        return await _prioritized_small_variants_page(
+            None,  # type: ignore[arg-type]
+            context=_family_context(),
+            filters=SmallVariantQueryFilters(page=1, page_size=50),
+            page=1,
+            page_size=50,
+            panel_constraints=PanelFilterConstraints(),
+            review_variant_ids=None,
+            excluded_review_variant_ids=set(),
+            include_review_filter_active=False,
+            include_regions=[],
+            exclude_regions=[],
+            exclude_gene_regions=[],
+            exclude_gene_terms=[],
+            small_variant_summary=None,
+        )
+
+    first = await _open()
+    assert first.ranking_cached is False
+    assert [str(variant.id) for variant in first.variants] == ["1-100-A-G"]
+
+    again = await _open()
+    assert again.ranking_cached is True
+
+    # New variant data under the SAME data version: the cached order still wins. This is
+    # exactly the pre-fix behaviour, so it shows the version is what invalidates.
+    data["records"] = [rec_a, rec_b]
+    stale = await _open()
+    assert stale.ranking_cached is True
+    assert [str(variant.id) for variant in stale.variants] == ["1-100-A-G"]
+
+    # The storage write moves the version: the next open recomputes and ranks both.
+    data["version"] = "2:222"
+    fresh = await _open()
+    assert fresh.ranking_cached is False
+    assert sorted(str(variant.id) for variant in fresh.variants) == ["1-100-A-G", "1-200-A-G"]
 
 
 @pytest.mark.asyncio

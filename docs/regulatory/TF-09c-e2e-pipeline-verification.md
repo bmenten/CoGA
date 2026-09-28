@@ -62,6 +62,7 @@ Each suite drives the real stack and asserts against `EXPECTED.yaml`. Skipped un
 | Failure/degradation handling + job lifecycle (fail-clean) | [test_e2e_failure_modes.py](../../backend/tests/e2e/test_e2e_failure_modes.py) |
 | Realistic demo bundles through their real ingestion paths | [test_e2e_demo_smoke.py](../../backend/tests/e2e/test_e2e_demo_smoke.py) |
 | Haplotype / lineage stage against the real stack (PGT segregation) | [test_e2e_haplotypes.py](../../backend/tests/e2e/test_e2e_haplotypes.py) |
+| Prioritised-ranking cache invalidated by a variant-data change on a non-import path (#509) | [test_e2e_ranking_cache.py](../../backend/tests/e2e/test_e2e_ranking_cache.py) |
 
 A consolidated catalogue of these is in [docs/testing.md](../testing.md) ("End-to-end (golden pipeline)").
 

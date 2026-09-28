@@ -445,6 +445,9 @@ async def test_refresh_family_small_variant_summaries_rebuilds_family_and_sample
         "family-1",
     )
 
+    # The last statement stamps the family's new data version (#509).
+    *executed, bump = executed
+    assert "SNV_INDEL/family_data_version" in bump[0]
     assert len(executed) == 4
     assert "family_variant_summary" in executed[0][0]
     assert "DELETE WHERE family_guid = %(family_guid)s" in executed[0][0]
@@ -491,7 +494,10 @@ async def test_delete_family_small_variants_scopes_entries_to_source(
 
     # Source-scoped: exactly one DELETE, against entries only, filtered by source, so
     # re-importing glimpse2 cannot touch the clair3 rows. The summary tables are left
-    # for the caller's refresh to rebuild from the surviving entries.
+    # for the caller's refresh to rebuild from the surviving entries. The delete is
+    # followed by the data-version stamp (#509).
+    *executed, bump = executed
+    assert "SNV_INDEL/family_data_version" in bump[0]
     assert len(executed) == 1
     query, params = executed[0]
     assert "entries" in query
@@ -520,7 +526,10 @@ async def test_delete_family_small_variants_without_source_clears_all_tables(
 
     await clickhouse_variant_storage.delete_family_small_variants("GRCh38", "family-1")
 
-    # Unscoped: clears entries and both summary tables, with no source filter.
+    # Unscoped: clears entries and both summary tables, with no source filter, then
+    # stamps the data version (#509).
+    *executed, bump = executed
+    assert "SNV_INDEL/family_data_version" in bump[0]
     assert len(executed) == 3
     assert "entries" in executed[0][0]
     assert "family_variant_summary" in executed[1][0]
