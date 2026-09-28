@@ -243,6 +243,7 @@ no build and no CSP), and `E2E_BACKEND_PORT` moves the backend off port 8000 whe
 | [backend/tests/test_families_export.py](../backend/tests/test_families_export.py) | Family export cell formatting (reviews/genotypes). |
 | [backend/tests/test_family_metadata_context_queries.py](../backend/tests/test_family_metadata_context_queries.py) | Family-metadata context queries: distinct-sample ordering by the selected column; UUID project filter for visible samples. |
 | [backend/tests/test_family_package_import.py](../backend/tests/test_family_package_import.py) | Package discovery, validation, manifest loading. |
+| [backend/tests/test_family_package_remote_paths.py](../backend/tests/test_family_package_remote_paths.py) | A queued import from a bucket keeps its `gs://` / `s3://` URI (`Path` used to collapse it to `gs:/…`, which the worker then ran as a local path); local folders still expand `~`. |
 | [backend/tests/test_family_service.py](../backend/tests/test_family_service.py) | Family ROI payload gene-query ordering. |
 | [backend/tests/test_ped_service.py](../backend/tests/test_ped_service.py) | Pedigree service parsing/standardization. |
 
