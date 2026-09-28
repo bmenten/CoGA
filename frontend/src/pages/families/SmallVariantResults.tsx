@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../../lib/api';
+import { describeCsvExport, saveCsvBlob, truncatedExportMessage } from '../../lib/csvExport';
 import {
   CARD_VIEW_THRESHOLD,
   type FamilyMember,
@@ -80,6 +81,7 @@ export default function SmallVariantResults({
   const [acmgVariant, setAcmgVariant] = useState<SmallVariant | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportWarning, setExportWarning] = useState<string | null>(null);
   const pairGroups = data?.variant_groups || [];
   const hasFlatVariants = Boolean(data?.variants.length);
   const hasGroupedPairs = Boolean(pairGroups.length);
@@ -90,20 +92,16 @@ export default function SmallVariantResults({
       return;
     }
     setExportError(null);
+    setExportWarning(null);
     setIsExporting(true);
     try {
       const res = await api.get(
         `/families/${familyId}/small-variants/export?${requestQueryString}`,
         { responseType: 'blob' },
       );
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `family-${familyId}-small-variants.csv`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+      const info = describeCsvExport(res, `family-${familyId}-small-variants`);
+      saveCsvBlob(res.data, info.filename);
+      if (info.truncated) setExportWarning(truncatedExportMessage(info));
     } catch {
       setExportError('Could not export variants. Try narrowing your filters and retry.');
     } finally {
@@ -173,6 +171,12 @@ export default function SmallVariantResults({
         {exportError ? (
           <div className="variant-workspace-feedback variant-workspace-feedback--error">
             {exportError}
+          </div>
+        ) : null}
+
+        {exportWarning ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--warning" role="alert">
+            {exportWarning}
           </div>
         ) : null}
 

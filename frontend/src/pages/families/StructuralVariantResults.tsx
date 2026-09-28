@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../../lib/api';
+import { describeCsvExport, saveCsvBlob, truncatedExportMessage } from '../../lib/csvExport';
 import ResultsPagination from './ResultsPagination';
 import StructuralVariantCards from './StructuralVariantCards';
 import StructuralVariantColumnControls from './StructuralVariantColumnControls';
@@ -70,6 +71,7 @@ export default function StructuralVariantResults({
   const [cnvAcmgVariant, setCnvAcmgVariant] = useState<StructuralVariant | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportWarning, setExportWarning] = useState<string | null>(null);
   const [visible, setVisible] = useState({
     chr: true,
     start: true,
@@ -128,6 +130,7 @@ export default function StructuralVariantResults({
   const handleDownloadCsv = async () => {
     if (!familyId) return;
     setExportError(null);
+    setExportWarning(null);
     setIsExporting(true);
     try {
       const exportSearch = linkSearch || '';
@@ -137,14 +140,9 @@ export default function StructuralVariantResults({
         `/families/${familyId}/structural-variants/export${exportSearch}${projectSuffix}`,
         { responseType: 'blob' },
       );
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `family-${familyId}-structural-variants.csv`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+      const info = describeCsvExport(res, `family-${familyId}-structural-variants`);
+      saveCsvBlob(res.data, info.filename);
+      if (info.truncated) setExportWarning(truncatedExportMessage(info));
     } catch {
       setExportError('Could not export structural variants. Try narrowing your filters and retry.');
     } finally {
@@ -197,6 +195,12 @@ export default function StructuralVariantResults({
         {exportError ? (
           <div className="variant-workspace-feedback variant-workspace-feedback--error">
             {exportError}
+          </div>
+        ) : null}
+
+        {exportWarning ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--warning" role="alert">
+            {exportWarning}
           </div>
         ) : null}
 

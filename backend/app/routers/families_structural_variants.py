@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.csv_export import csv_safe_cell
+from ..core.csv_export import csv_safe_cell, export_response_headers
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import (
@@ -229,7 +229,11 @@ async def export_family_structural_variants_csv(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> StreamingResponse:
-    """Download every filtered structural variant for this family as a CSV file."""
+    """Download the filtered structural variants for this family as a CSV file.
+
+    Up to the export cap (50,000 rows). A larger result is not cut silently: the
+    file name says TRUNCATED and the X-CoGA-Export-* headers report it (#512).
+    """
 
     context = await build_family_metadata_context(
         session,
@@ -237,7 +241,7 @@ async def export_family_structural_variants_csv(
         user=user,
         project_id=project_id,
     )
-    rows = await export_family_structural_variants(
+    export = await export_family_structural_variants(
         session,
         context=context,
         prioritize=prioritize,
@@ -277,14 +281,18 @@ async def export_family_structural_variants_csv(
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow([label for _, label in columns])
-    for variant in rows:
+    for variant in export.rows:
         writer.writerow([csv_safe_cell(_family_sv_export_cell(variant, field)) for field, _ in columns])
 
-    filename = f"family-{family_id}-structural-variants.csv"
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=export_response_headers(
+            f"family-{family_id}-structural-variants",
+            rows=len(export.rows),
+            truncated=export.truncated,
+            limit=export.limit,
+        ),
     )
 
 

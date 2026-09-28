@@ -17,6 +17,7 @@ from .core.postgres import (
     wait_for_postgres,
 )
 from .core.coga_logging import configure_json_logging
+from .core.csv_export import EXPORT_HEADERS
 from .db_migrate import init_postgres_admin_user
 from .middleware.request_logging import log_request_response
 from .middleware.security_headers import security_headers_middleware
@@ -134,6 +135,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # The CSV exports report truncation in headers the UI reads (#512).
+    expose_headers=list(EXPORT_HEADERS),
 )
 
 app.middleware("http")(log_request_response)

@@ -278,6 +278,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_admin_clickhouse_listing.py](../backend/tests/test_admin_clickhouse_listing.py) | Admin ClickHouse listing and variant-count aggregation. |
 | [backend/tests/test_config.py](../backend/tests/test_config.py) | CORS-origins config parsing. |
 | [backend/tests/test_small_variant_clinvar_frequency_rescue.py](../backend/tests/test_small_variant_clinvar_frequency_rescue.py) | ClinVar P/LP rescue overriding frequency thresholds. |
+| [backend/tests/test_variant_export_truncation.py](../backend/tests/test_variant_export_truncation.py) | CSV exports lift the page clamp to the export cap, report truncation beyond it (incl. a truncated ranking), flatten compound-het groups, and name a truncated file as such (#512). |
 | [backend/tests/test_small_variant_review_payload.py](../backend/tests/test_small_variant_review_payload.py) | Review payload datetime serialization / bigint truncation. |
 | [backend/tests/test_structural_panel_gene_match.py](../backend/tests/test_structural_panel_gene_match.py) | SV gene-overlap matching and panel-filter constraints. |
 | [backend/tests/test_structural_variant_track_slim.py](../backend/tests/test_structural_variant_track_slim.py) | SV track slimming (annotations dropped in track mode). |
@@ -304,6 +305,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/lib/__tests__/api.test.ts](../frontend/src/lib/__tests__/api.test.ts) | Auth-header attachment and error normalization. |
 | [frontend/src/lib/__tests__/trackFetch.test.ts](../frontend/src/lib/__tests__/trackFetch.test.ts) | Track payload fetch through the shared API client without re-prefixing the base; a "no data" 404 is empty only where allowed, every other failure throws (#510). |
 | [frontend/src/lib/__tests__/useSameSpanFallbackData.test.ts](../frontend/src/lib/__tests__/useSameSpanFallbackData.test.ts) | Pan fallback holds data only for the same span AND scope — never one chromosome's data under another (#510). |
+| [frontend/src/lib/__tests__/csvExport.test.ts](../frontend/src/lib/__tests__/csvExport.test.ts) | Export headers → file name and warning: a capped export is saved as TRUNCATED and announced (#512). |
 | [frontend/src/lib/__tests__/coverageSources.test.ts](../frontend/src/lib/__tests__/coverageSources.test.ts) | CNV-caller display order, labels for known and unknown callers, and when a coverage track names its caller. |
 | [frontend/src/styles/__tests__/controlOverrides.test.ts](../frontend/src/styles/__tests__/controlOverrides.test.ts) | CSS specificity guard: a rule that resizes a form control must actually beat the shared `input:not([type=…])` rule, whose `:not()` arguments make it (0,2,1). |
 | [frontend/src/lib/__tests__/auth.test.ts](../frontend/src/lib/__tests__/auth.test.ts) | Session persistence; token/role/username storage; admin/auth checks. |
