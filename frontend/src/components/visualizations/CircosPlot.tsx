@@ -7,6 +7,7 @@ import {
   getBandGradientStops,
 } from '../../lib/ideogram';
 import { getStainColor } from '../../lib/stainColors';
+import { escapeHtml } from '../../lib/escapeHtml';
 
 interface IdeogramBand {
   name: string;
@@ -720,7 +721,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
               .style('opacity', 1)
               .style('left', `${event.pageX + 8}px`)
               .style('top', `${event.pageY + 8}px`)
-              .html(`<strong>${render.type}</strong><br/>${coords}`);
+              .html(`<strong>${escapeHtml(render.type)}</strong><br/>${escapeHtml(coords)}`);
             d3.select(event.currentTarget)
               .attr('stroke-width', render.strokeWidth + 2)
               .raise();

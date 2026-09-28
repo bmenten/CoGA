@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 
 import api from '../../lib/api';
 import type { CarrierModalMode, GlobalVariantRow, VariantCarriers } from './types';
+import { apiPath } from '../../lib/apiPath';
 
 interface VariantCarrierModalProps {
   variant: GlobalVariantRow;
@@ -46,7 +47,7 @@ const VariantCarrierModal = ({
       if (assemblyId) params.assembly_id = assemblyId;
       if (genotypeParam) params.genotype = genotypeParam;
       if (includeImputed) params.include_imputed = 'true';
-      const res = await api.get(`/variant-explorer/small-variants/${variant.key}/carriers`, {
+      const res = await api.get(apiPath`/variant-explorer/small-variants/${variant.key}/carriers`, {
         params,
       });
       return res.data as VariantCarriers;

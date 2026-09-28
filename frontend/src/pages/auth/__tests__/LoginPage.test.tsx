@@ -1,9 +1,17 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
+import type { ReactElement } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, it, vi } from 'vitest';
 import LoginPage from '../LoginPage';
 import api from '../../../lib/api';
 import { clearSession } from '../../../lib/auth';
+import { createTestQueryClient } from '../../../test/createTestQueryClient';
+
+// LoginPage clears the query cache when a session starts (#521), so it needs a client.
+let queryClient: QueryClient;
+const render = (ui: ReactElement) =>
+  rtlRender(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 
 vi.mock('../../../lib/api');
 
@@ -12,6 +20,7 @@ describe('LoginPage', () => {
     vi.resetAllMocks();
     clearSession();
     localStorage.clear();
+    queryClient = createTestQueryClient();
   });
 
   it('renders login form inputs and button', () => {
@@ -158,6 +167,25 @@ describe('LoginPage', () => {
     );
     expect(localStorage.getItem('token')).toBe('token-123');
     expect(localStorage.getItem('role')).toBe('admin');
+  });
+
+  it('starts the new session with an empty query cache (#521)', async () => {
+    // Data an earlier session loaded in this tab must not be shown to the next user.
+    queryClient.setQueryData(['family', 'F1'], { family_id: 'F1', members: ['someone else'] });
+    (api.post as any).mockResolvedValue({ data: { access_token: 'token-456' } });
+    (api.get as any).mockResolvedValue({ data: { email: 'next@example.com', role: 'viewer' } });
+
+    render(
+      <MemoryRouter>
+        <LoginPage />
+      </MemoryRouter>
+    );
+    fireEvent.change(screen.getByPlaceholderText(/email/i), { target: { value: 'next@example.com' } });
+    fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+
+    await waitFor(() => expect(localStorage.getItem('token')).toBe('token-456'));
+    expect(queryClient.getQueryData(['family', 'F1'])).toBeUndefined();
   });
 
   it('continues to the requested protected page after login', async () => {

@@ -40,6 +40,7 @@ import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
+import { apiPath } from '../../lib/apiPath';
 
 const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
 const PAGE_SIZE = 50;
@@ -156,7 +157,7 @@ const FamilyNiptPage: React.FC = () => {
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}`);
+      const res = await api.get(apiPath`/families/${familyId}`);
       return res.data as SmallVariantFamily;
     },
   });
@@ -208,7 +209,7 @@ const FamilyNiptPage: React.FC = () => {
     queryKey: ['family', familyId, 'nipt', 'summary'],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/nipt/summary`);
+      const res = await api.get(apiPath`/families/${familyId}/nipt/summary`);
       return res.data as ApiNiptSummary;
     },
   });
@@ -217,7 +218,7 @@ const FamilyNiptPage: React.FC = () => {
     queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variant-tags`, {
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
         params: projectId ? { project_id: projectId } : undefined,
       });
       return res.data as SmallVariantTagDefinition[];
@@ -230,7 +231,7 @@ const FamilyNiptPage: React.FC = () => {
     queryKey: ['family', familyId, 'small-variant-filter-presets'],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variant-filter-presets`);
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-filter-presets`);
       return res.data as SmallVariantFilterPreset[];
     },
   });
@@ -240,7 +241,7 @@ const FamilyNiptPage: React.FC = () => {
       if (!familyId) {
         throw new Error('Family id is required');
       }
-      const res = await api.post(`/families/${familyId}/small-variant-filter-presets`, {
+      const res = await api.post(apiPath`/families/${familyId}/small-variant-filter-presets`, {
         ...payload,
         scope: 'global',
         ...buildPresetPayload({ filters, members, sampleFilters }),
@@ -268,7 +269,7 @@ const FamilyNiptPage: React.FC = () => {
       const params: Record<string, string> = {};
       if (filters.panel_id) params.panel_id = filters.panel_id;
       if (filters.gene.trim()) params.gene = filters.gene.trim();
-      const res = await api.get(`/families/${familyId}/nipt/coverage`, { params });
+      const res = await api.get(apiPath`/families/${familyId}/nipt/coverage`, { params });
       return res.data as ApiNiptCoverageSummary;
     },
   });
@@ -278,7 +279,7 @@ const FamilyNiptPage: React.FC = () => {
     queryKey: [...niptVariantsKey, JSON.stringify(filters), page],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/nipt/variants`, {
+      const res = await api.get(apiPath`/families/${familyId}/nipt/variants`, {
         params: buildVariantParams(filters, page),
         paramsSerializer: niptParamsSerializer,
       });

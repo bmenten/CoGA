@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Navigate, useNavigate, Link, useLocation } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { isAuthenticated, persistSession } from '../../lib/auth';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
@@ -27,6 +28,7 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   if (isAuthenticated()) {
     return <Navigate to={nextPath} replace />;
@@ -47,6 +49,9 @@ const LoginPage: React.FC = () => {
           Authorization: `Bearer ${accessToken}`,
         },
       });
+      // Start the session with an empty cache: nothing loaded under an earlier session
+      // in this tab may be shown to this user (#521).
+      queryClient.clear();
       persistSession(accessToken, me.data.email ?? email, me.data.role);
       navigate(nextPath, { replace: true });
     } catch (err: unknown) {

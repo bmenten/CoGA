@@ -1728,7 +1728,9 @@ export const useSmallVariantSearchState = ({
       event_type: 'query',
       category: 'small-variant-filter',
       detail: {
-        filter_keys: activeFilterKeys(draftFilters),
+        // A comma-separated string: the event store keeps scalars only, and stored an
+        // array as the placeholder "[list]" (#521).
+        filter_keys: activeFilterKeys(draftFilters).join(','),
         active_filter_count: countActiveFilters(draftFilters, nextSampleFilters),
       },
     });

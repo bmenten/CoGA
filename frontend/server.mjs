@@ -1,9 +1,10 @@
 import express from 'express';
 import path from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { rewriteProxyLocation } from './proxyLocation.mjs';
+import { PROXY_OWNED_HEADERS, forwardedHeaders, proxyTimeoutMs } from './proxyRequest.mjs';
 import { securityHeaders } from './securityHeaders.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,7 +32,8 @@ app.use('/api', async (req, res) => {
   const headers = new Headers();
 
   for (const [name, value] of Object.entries(req.headers)) {
-    if (!value || hopByHopHeaders.has(name.toLowerCase())) {
+    const lowered = name.toLowerCase();
+    if (!value || hopByHopHeaders.has(lowered) || PROXY_OWNED_HEADERS.has(lowered)) {
       continue;
     }
     if (Array.isArray(value)) {
@@ -40,12 +42,30 @@ app.use('/api', async (req, res) => {
       headers.set(name, value);
     }
   }
+  // One clean client address for the backend's throttling and audit log (#521).
+  for (const [name, value] of Object.entries(forwardedHeaders(req))) {
+    if (value) headers.set(name, value);
+  }
+
+  // A backend that never answers must not hold the request open forever, and a
+  // client that goes away should not leave the backend working for nobody (#521).
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, proxyTimeoutMs());
+  res.on('close', () => {
+    clearTimeout(timer);
+    if (!res.writableFinished) controller.abort();
+  });
 
   try {
     const requestInit = {
       method: req.method,
       headers,
       redirect: 'manual',
+      signal: controller.signal,
     };
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       requestInit.body = req;
@@ -53,6 +73,8 @@ app.use('/api', async (req, res) => {
     }
 
     const upstream = await fetch(targetUrl, requestInit);
+    // The time limit is on the backend starting to answer; a long download may stream.
+    clearTimeout(timer);
     res.status(upstream.status);
     upstream.headers.forEach((value, name) => {
       if (hopByHopHeaders.has(name.toLowerCase())) {
@@ -72,11 +94,29 @@ app.use('/api', async (req, res) => {
       res.end();
       return;
     }
-    Readable.fromWeb(upstream.body).pipe(res);
+    // pipeline, not pipe: an upstream reset mid-stream used to be an unhandled stream
+    // error that could take the whole server down (#521). Now it ends this response.
+    pipeline(Readable.fromWeb(upstream.body), res, (error) => {
+      if (error && !controller.signal.aborted) {
+        console.error(`API proxy stream failed for ${req.method} ${req.originalUrl}`, error);
+      }
+    });
   } catch (error) {
-    console.error(`API proxy failed for ${targetUrl}`, error);
-    res.status(502).json({
-      detail: `Unable to reach backend API at ${BACKEND_URL}.`,
+    clearTimeout(timer);
+    if (res.headersSent || res.writableEnded) {
+      res.destroy();
+      return;
+    }
+    if (controller.signal.aborted && !timedOut) {
+      // The client went away; there is no one to answer.
+      return;
+    }
+    console.error(`API proxy failed for ${req.method} ${req.originalUrl}`, error);
+    // The backend address stays in the server log; the browser needs only the outcome.
+    res.status(timedOut ? 504 : 502).json({
+      detail: timedOut
+        ? 'The backend API did not respond in time.'
+        : 'Unable to reach the backend API.',
     });
   }
 });

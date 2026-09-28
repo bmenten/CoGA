@@ -59,6 +59,8 @@ function createMockCanvasContext(): CanvasRenderingContext2D {
 }
 
 function installCanvasMock(): void {
+  // Server-side tests (the Node proxy in server.mjs) run with `@vitest-environment node`.
+  if (typeof HTMLCanvasElement === 'undefined') return;
   HTMLCanvasElement.prototype.getContext = (() =>
     createMockCanvasContext()) as unknown as typeof HTMLCanvasElement.prototype.getContext;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { CSP, securityHeaders } from '../../securityHeaders.mjs';
+import { CSP, buildCsp, securityHeaders } from '../../securityHeaders.mjs';
 
 function mockRes() {
   const headers: Record<string, string> = {};
@@ -45,5 +45,24 @@ describe('SPA securityHeaders middleware', () => {
     securityHeaders({}, res, () => {});
     expect(res.headers['Strict-Transport-Security']).toContain('max-age=');
     vi.unstubAllEnvs();
+  });
+});
+
+describe('SPA hardening added for #521', () => {
+  it('denies unused browser features with a Permissions-Policy', () => {
+    const res = mockRes();
+    securityHeaders({}, res, () => {});
+    expect(res.headers['Permissions-Policy']).toContain('camera=()');
+    expect(res.headers['Permissions-Policy']).toContain('geolocation=()');
+  });
+
+  it('lets a deployment narrow connect-src, but not add directives', () => {
+    expect(buildCsp({ CSP_CONNECT_SRC: "'self' https://storage.googleapis.com" })).toContain(
+      "connect-src 'self' https://storage.googleapis.com;",
+    );
+    expect(buildCsp({})).toContain("connect-src 'self' https:;");
+    // A ';' would smuggle in another directive, so the value is refused.
+    expect(buildCsp({ CSP_CONNECT_SRC: "'self'; script-src *" })).toContain("connect-src 'self' https:;");
+    expect(buildCsp({ CSP_CONNECT_SRC: "'self'; script-src *" })).not.toContain('script-src *');
   });
 });

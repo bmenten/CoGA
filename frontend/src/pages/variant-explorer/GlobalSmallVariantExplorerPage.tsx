@@ -21,6 +21,7 @@ import type {
   GlobalVariantRow,
   VariantExplorerAssembly,
 } from './types';
+import { apiPath, raw } from '../../lib/apiPath';
 
 const EMPTY_PANELS: GenePanel[] = [];
 const EMPTY_PRESETS: SmallVariantFilterPreset[] = [];
@@ -67,7 +68,7 @@ const GlobalSmallVariantExplorerPage = () => {
     setExportError(null);
     setIsExporting(true);
     try {
-      const res = await api.get(`/variant-explorer/small-variants/export?${requestQueryString}`, {
+      const res = await api.get(apiPath`/variant-explorer/small-variants/export?${raw(requestQueryString)}`, {
         responseType: 'blob',
       });
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
@@ -159,7 +160,7 @@ const GlobalSmallVariantExplorerPage = () => {
     queryKey: ['variant-explorer', 'small-variants', requestQueryString],
     enabled: Boolean(assemblyId),
     queryFn: async () => {
-      const res = await api.get(`/variant-explorer/small-variants?${requestQueryString}`);
+      const res = await api.get(apiPath`/variant-explorer/small-variants?${raw(requestQueryString)}`);
       return res.data as GlobalVariantPage;
     },
     // Keep the current page on screen while the next page/filter loads (the `isFetching`

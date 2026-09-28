@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 
 import api from '../../lib/api';
 import type { ApiAssemblyRecord, ApiClinicalCnv } from '../../lib/apiTypes';
+import { apiPath } from '../../lib/apiPath';
 
 const formatBp = (bp: number) => bp.toLocaleString();
 
@@ -32,7 +33,7 @@ const ClinicalCnvExplorerPage = () => {
   const { data: cnvs, isLoading } = useQuery<ApiClinicalCnv[]>({
     queryKey: ['cnv-catalog', assembly, appliedSearch],
     queryFn: async () => {
-      const res = await api.get(`/cnvs/${assembly}/catalog`, {
+      const res = await api.get(apiPath`/cnvs/${assembly}/catalog`, {
         params: { search: appliedSearch || undefined, limit: 1000 },
       });
       return res.data as ApiClinicalCnv[];

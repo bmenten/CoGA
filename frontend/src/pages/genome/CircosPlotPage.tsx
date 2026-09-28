@@ -6,6 +6,7 @@ import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import CircosPlot, { Chromosome, Variant, CHROMS } from '../../components/visualizations/CircosPlot';
 import PageState from '../../components/PageState';
 import { useFamilyReference } from '../../lib/reference';
+import { apiPath, raw } from '../../lib/apiPath';
 
 const ASSEMBLY = 'GRCh38';
 
@@ -22,7 +23,7 @@ const CircosPlotPage: FC = () => {
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}`);
+      const response = await api.get(apiPath`/families/${familyId}`);
       return response.data as Pick<ApiFamilyRecord, 'projects'>;
     },
   });
@@ -60,7 +61,7 @@ const CircosPlotPage: FC = () => {
   const { data: chromData } = useQuery<Chromosome[]>({
     queryKey: ['circos-chromosomes', ASSEMBLY],
     queryFn: async () => {
-      const response = await api.get(`/chromosomes/${ASSEMBLY}/details`);
+      const response = await api.get(apiPath`/chromosomes/${ASSEMBLY}/details`);
       const chromosomes = new Map<string, Chromosome>();
       (response.data as Chromosome[]).forEach((entry) => {
         const chrom = entry.chr.replace(/^chr/i, '');
@@ -74,7 +75,7 @@ const CircosPlotPage: FC = () => {
     queryKey: ['family-circos', familyId, queryParams.toString()],
     queryFn: async () => {
       const res = await api.get(
-        `/families/${familyId}/structural-variants?${queryParams.toString()}`
+        apiPath`/families/${familyId}/structural-variants?${raw(queryParams.toString())}`
       );
       const all = res.data.variants as Variant[];
       return all.filter((v) => v.type);

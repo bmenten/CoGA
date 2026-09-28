@@ -11,6 +11,7 @@ import {
   useFamilyReference,
 } from '../../lib/reference';
 import PageState from '../../components/PageState';
+import { apiPath } from '../../lib/apiPath';
 
 const FamilyIgvPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -23,7 +24,7 @@ const FamilyIgvPage: React.FC = () => {
   const { data, isLoading } = useQuery<Pick<ApiFamilyRecord, 'members' | 'projects'>>({
     queryKey: ['family', familyId],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}`);
+      const res = await api.get(apiPath`/families/${familyId}`);
       return res.data as Pick<ApiFamilyRecord, 'members' | 'projects'>;
     },
     enabled: !!familyId,

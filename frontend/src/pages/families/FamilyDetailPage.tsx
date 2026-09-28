@@ -72,6 +72,7 @@ import {
 import VariantWorkspaceLink from './VariantWorkspaceLink';
 import SampleQcCell from './SampleQcCell';
 import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
+import { apiPath, raw } from '../../lib/apiPath';
 
 interface FamilyDetailPageProps {
   editable?: boolean;
@@ -156,7 +157,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const { data, isLoading } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}`);
+      const res = await api.get(apiPath`/families/${familyId}`);
       return res.data as ApiFamilyRecord;
     },
   });
@@ -207,7 +208,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'structural-variants', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/structural-variants${buildPresenceParams()}`);
+      const res = await api.get(apiPath`/families/${familyId}/structural-variants${raw(buildPresenceParams())}`);
       return res.data as ApiPaginatedTotalResponse;
     },
   });
@@ -216,7 +217,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'small-variants', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variants${buildPresenceParams()}`);
+      const res = await api.get(apiPath`/families/${familyId}/small-variants${raw(buildPresenceParams())}`);
       return res.data as ApiPaginatedTotalResponse;
     },
   });
@@ -225,7 +226,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'repeat-expansions', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/repeat-expansions${buildPresenceParams()}`);
+      const res = await api.get(apiPath`/families/${familyId}/repeat-expansions${raw(buildPresenceParams())}`);
       return res.data as { loci_count?: number };
     },
   });
@@ -234,7 +235,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'paraphase', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/paraphase${buildPresenceParams()}`);
+      const res = await api.get(apiPath`/families/${familyId}/paraphase${raw(buildPresenceParams())}`);
       return res.data as { genes_count?: number };
     },
   });
@@ -243,7 +244,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'mitochondrial-dna', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/mitochondrial-dna${buildPresenceParams()}`);
+      const res = await api.get(apiPath`/families/${familyId}/mitochondrial-dna${raw(buildPresenceParams())}`);
       return res.data as { variant_count?: number; has_coverage?: boolean };
     },
   });
@@ -276,7 +277,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'small-variant-review-summary'],
     enabled: Boolean(familyId && hasSmallVariants),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variant-review-summary`);
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-review-summary`);
       return res.data as ApiSmallVariantReviewSummary;
     },
   });
@@ -284,7 +285,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'small-variant-tags', 'summary', projectId || null],
     enabled: Boolean(familyId && hasSmallVariants),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variant-tags`, {
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
         params: projectId ? { project_id: projectId } : undefined,
       });
       return res.data as SmallVariantTagDefinition[];
@@ -294,7 +295,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'structural-variant-review-summary'],
     enabled: Boolean(familyId && hasVariants),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/structural-variant-review-summary`);
+      const res = await api.get(apiPath`/families/${familyId}/structural-variant-review-summary`);
       return res.data as ApiSmallVariantReviewSummary;
     },
   });
@@ -304,7 +305,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryFn: async () => {
       // Structural and small-variant tags share the same store; there is no
       // separate structural endpoint.
-      const res = await api.get(`/families/${familyId}/small-variant-tags`, {
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
         params: projectId ? { project_id: projectId } : undefined,
       });
       return res.data as SmallVariantTagDefinition[];
@@ -314,7 +315,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'hpo'],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/hpo`);
+      const res = await api.get(apiPath`/families/${familyId}/hpo`);
       return res.data as ApiHpoAnnotation[];
     },
   });
@@ -334,7 +335,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     enabled: Boolean(familyId && selectedMemberId),
     queryFn: async () => {
       const res = await api.get(
-        `/families/${familyId}/members/${encodeURIComponent(selectedMemberId!)}`,
+        apiPath`/families/${familyId}/members/${selectedMemberId!}`,
       );
       return res.data as ApiFamilyMemberDetail;
     },
@@ -519,7 +520,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     setRoiBusy(true);
     setRoiStatus(null);
     try {
-      const response = await api.put(`/families/${familyId}/roi`, {
+      const response = await api.put(apiPath`/families/${familyId}/roi`, {
         query: clear ? '' : roiInput,
         project_id: projectId,
       });
@@ -554,7 +555,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     setMetadataBusy(true);
     setMetadataStatus(null);
     try {
-      const response = await api.put(`/families/${familyId}/metadata`, patch);
+      const response = await api.put(apiPath`/families/${familyId}/metadata`, patch);
       const updatedFamily = response.data as ApiFamilyRecord;
       queryClient.setQueryData(['family', familyId], updatedFamily);
       // The dashboard's nested table is fed by the project catalog (['projects']),
@@ -775,7 +776,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           context: relationship.context.trim() || null,
           metadata: {},
         }));
-      const response = await api.put(`/families/${familyId}/structure`, {
+      const response = await api.put(apiPath`/families/${familyId}/structure`, {
         expected_structure_version: data.structure_version?.version ?? null,
         change_reason: 'family_detail_page',
         clear_existing_genomic_data: false,
@@ -907,7 +908,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
         return;
       }
       const response = await api.put(
-        `/families/${familyId}/members/batch`,
+        apiPath`/families/${familyId}/members/batch`,
         {
           expected_structure_version: data.structure_version?.version ?? null,
           change_reason: 'family_member_batch_update',
@@ -954,7 +955,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     setMemberStatus(null);
     try {
       const response = await api.delete(
-        `/families/${familyId}/members/${encodeURIComponent(selectedMemberDetail.member.sample_id)}`,
+        apiPath`/families/${familyId}/members/${selectedMemberDetail.member.sample_id}`,
         {
           params: {
             confirm: true,
@@ -986,7 +987,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     setHpoStatus(null);
     try {
       await api.post(
-        `/families/${familyId}/members/${encodeURIComponent(selectedMemberDetail.member.sample_id)}/hpo`,
+        apiPath`/families/${familyId}/members/${selectedMemberDetail.member.sample_id}/hpo`,
         {
           hpo_id: selectedHpoTerm.hpo_id,
           status: hpoAnnotationStatus,
@@ -1017,7 +1018,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     setHpoBusy(true);
     setHpoStatus(null);
     try {
-      await api.delete(`/families/${familyId}/hpo/${annotationId}`);
+      await api.delete(apiPath`/families/${familyId}/hpo/${annotationId}`);
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'member'] });
       setHpoStatus({ tone: 'success', message: 'Phenotype annotation removed.' });

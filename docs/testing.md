@@ -307,6 +307,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | Test file | Purpose |
 | --- | --- |
 | [frontend/src/__tests__/serverSecurityHeaders.test.ts](../frontend/src/__tests__/serverSecurityHeaders.test.ts) | SPA security response headers + enforcing CSP (IGV/S3/fonts-aware); HSTS opt-in. |
+| [frontend/src/__tests__/serverProxy.test.ts](../frontend/src/__tests__/serverProxy.test.ts) | The `/api` proxy against a local backend (#521): survives an upstream reset mid-stream, answers 504 when the backend hangs, sends one clean client address rather than a client-supplied `X-Forwarded-For`, and does not name the backend address in its 502; forwarded-header resolution with and without trusted proxy hops. |
 | [frontend/src/lib/__tests__/useMeasuredWidth.test.tsx](../frontend/src/lib/__tests__/useMeasuredWidth.test.tsx) | Viewer width measurement: content box (not border box), re-measure when a background tab becomes visible, ignore zero, listener cleanup. |
 | [frontend/src/lib/__tests__/api.test.ts](../frontend/src/lib/__tests__/api.test.ts) | Auth-header attachment and error normalization. |
 | [frontend/src/lib/__tests__/trackFetch.test.ts](../frontend/src/lib/__tests__/trackFetch.test.ts) | Track payload fetch through the shared API client without re-prefixing the base; a "no data" 404 is empty only where allowed, every other failure throws (#510). |
@@ -324,6 +325,9 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [frontend/src/lib/__tests__/haplotypeRisk.test.ts](../frontend/src/lib/__tests__/haplotypeRisk.test.ts) | Disease-haplotype inference + embryo risk states; donor/empty → uninformative. |
 | [frontend/src/lib/__tests__/igvLoader.test.ts](../frontend/src/lib/__tests__/igvLoader.test.ts) | IGV library dynamic loading. |
 | [frontend/src/lib/__tests__/proxyLocation.test.ts](../frontend/src/lib/__tests__/proxyLocation.test.ts) | Proxy URL rewriting to same-origin paths. |
+| [frontend/src/lib/__tests__/apiPath.test.ts](../frontend/src/lib/__tests__/apiPath.test.ts) | API path segments are percent-encoded so an imported id cannot redirect a call; `raw()` passes a deliberate query string through (#521). |
+| [frontend/src/lib/__tests__/escapeHtml.test.ts](../frontend/src/lib/__tests__/escapeHtml.test.ts) | HTML escaping for the d3 tooltips built from imported strings (#521). |
+| [frontend/src/lib/__tests__/telemetry.test.ts](../frontend/src/lib/__tests__/telemetry.test.ts) | UI telemetry durability (#521): a transiently failed batch is retried on the next flush, a rejected (4xx) batch is dropped, and the logout flush sends the queue with the current token. |
 | [frontend/src/lib/__tests__/queryClient.test.ts](../frontend/src/lib/__tests__/queryClient.test.ts) | React-Query client cache/refetch defaults. |
 | [frontend/src/lib/__tests__/reference.test.tsx](../frontend/src/lib/__tests__/reference.test.tsx) | Family reference-data fetching hook. |
 | [frontend/src/lib/__tests__/reviewConcurrency.test.ts](../frontend/src/lib/__tests__/reviewConcurrency.test.ts) | Review saves carry the loaded version (null for no review); the review-conflict 409 is recognised and other errors are not (#513). |
@@ -362,6 +366,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | --- | --- |
 | [frontend/src/components/__tests__/AssemblyScopeBanner.test.tsx](../frontend/src/components/__tests__/AssemblyScopeBanner.test.tsx) | "Not validated for clinical use" label for an off-scope or unlinked assembly; nothing for a validated assembly or while the scope is still loading (#515). |
 | [frontend/src/components/__tests__/Breadcrumbs.test.tsx](../frontend/src/components/__tests__/Breadcrumbs.test.tsx) | Breadcrumb navigation rendering with router context. |
+| [frontend/src/components/__tests__/Layout.test.tsx](../frontend/src/components/__tests__/Layout.test.tsx) | Logout flushes telemetry, then clears the query cache and the session before navigating to login (#521). |
 | [frontend/src/components/__tests__/ModalDialog.test.tsx](../frontend/src/components/__tests__/ModalDialog.test.tsx) | Inline dialog shell (#529): a named modal dialog that closes on Escape, can refuse backdrop clicks (acknowledgement dialogs), and asks before Escape discards typed input. |
 | [frontend/src/components/__tests__/InfoTip.test.tsx](../frontend/src/components/__tests__/InfoTip.test.tsx) | Info tooltip show/hide on hover. |
 | [frontend/src/components/__tests__/LoadingBar.test.tsx](../frontend/src/components/__tests__/LoadingBar.test.tsx) | Animated loading-status bar accessibility. |

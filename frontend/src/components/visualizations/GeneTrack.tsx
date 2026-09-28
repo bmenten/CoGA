@@ -6,6 +6,8 @@ import VizErrorOverlay from './VizErrorOverlay';
 import { select } from "d3-selection";
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
+import { apiPath } from '../../lib/apiPath';
+import { escapeHtml } from "../../lib/escapeHtml";
 
 interface GeneExon {
   start: number;
@@ -48,7 +50,7 @@ const GeneTrack: React.FC<Props> = ({
   const { data: rawGenes, isError, refetch } = useQuery<Gene[]>({
     queryKey: ["genes", assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
-      const res = await api.get(`/genes/${assembly}/${chrom}`, {
+      const res = await api.get(apiPath`/genes/${assembly}/${chrom}`, {
         params: { start: regionStart, end: regionEnd },
       });
       return res.data as Gene[];
@@ -134,8 +136,8 @@ const GeneTrack: React.FC<Props> = ({
           .style("left", `${left}px`)
           .style("top", `${event.clientY + offset}px`)
           .html(
-            `<div>${d.g.hgnc_symbol}</div>` +
-              (panels.length ? `<div>Panels: ${panels.join(", ")}</div>` : "")
+            `<div>${escapeHtml(d.g.hgnc_symbol)}</div>` +
+              (panels.length ? `<div>Panels: ${escapeHtml(panels.join(", "))}</div>` : "")
           );
       })
       .on("mouseout", () => tooltip.style("display", "none"));

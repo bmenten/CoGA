@@ -7,6 +7,7 @@ import PageState from '../../components/PageState';
 import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import VizTooltip from '../../components/visualizations/VizTooltip';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
+import { apiPath } from '../../lib/apiPath';
 
 // Floor on the zoomed-in window so the view can't collapse to nothing.
 const MIN_SPAN = 2_000;
@@ -145,7 +146,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
 
   const { data: family, isLoading: familyLoading } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
-    queryFn: async () => (await api.get(`/families/${familyId}`)).data as ApiFamilyRecord,
+    queryFn: async () => (await api.get(apiPath`/families/${familyId}`)).data as ApiFamilyRecord,
   });
 
   const roi = family?.roi ?? null;
@@ -170,7 +171,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
     placeholderData: keepPreviousData,
     queryFn: async () =>
       (
-        await api.get(`/families/${familyId}/phased-markers`, {
+        await api.get(apiPath`/families/${familyId}/phased-markers`, {
           params: { chr: window!.chr, start: window!.start, end: window!.end },
         })
       ).data as PhasedMarkerResponse,
@@ -182,7 +183,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
     placeholderData: keepPreviousData,
     queryFn: async () =>
       (
-        await api.get(`/families/${familyId}/haplotypes`, {
+        await api.get(apiPath`/families/${familyId}/haplotypes`, {
           params: { chr: window!.chr, start: window!.start, end: window!.end },
         })
       ).data as HaplotypeResponse,

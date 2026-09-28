@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
 import type { GeneLocation, GenePanel } from '../../lib/apiTypes';
+import { apiPath } from '../../lib/apiPath';
 
 interface PanelAppPanelSummary {
   panelapp_id: number;
@@ -111,7 +112,7 @@ const GenePanelsPage: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      await api.delete(`/panels/${id}`);
+      await api.delete(apiPath`/panels/${id}`);
       setStatus('Panel deleted');
       refetch();
     } catch (err: any) {

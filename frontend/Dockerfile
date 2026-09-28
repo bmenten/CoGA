@@ -31,6 +31,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.mjs ./server.mjs
 COPY --from=build /app/proxyLocation.mjs ./proxyLocation.mjs
+COPY --from=build /app/proxyRequest.mjs ./proxyRequest.mjs
 COPY --from=build /app/securityHeaders.mjs ./securityHeaders.mjs
 # Drop to the unprivileged built-in node user (least privilege). The frontend
 # container serves static assets + proxies the API and has no writable bind mounts,

@@ -24,6 +24,7 @@ import type {
   SmallVariantReview,
   SmallVariantReviewSavePayload,
 } from './smallVariantSearch';
+import { apiPath } from '../../lib/apiPath';
 
 // gnomAD allele-frequency cut-offs offered in the "common variant" filter.
 const GNOMAD_AF_OPTIONS: Array<{ value: string; label: string }> = [
@@ -300,7 +301,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   const { data: family, isLoading: familyLoading } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}`);
+      const response = await api.get(apiPath`/families/${familyId}`);
       return response.data as ApiFamilyRecord;
     },
   });
@@ -316,7 +317,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   const { data: mtDNA, isLoading: mtDNALoading } = useQuery<ApiFamilyMitoDNAAnalysis>({
     queryKey: ['family', familyId, 'mitochondrial-dna', resolvedProjectId],
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}/mitochondrial-dna`, {
+      const response = await api.get(apiPath`/families/${familyId}/mitochondrial-dna`, {
         params: resolvedProjectId ? { project_id: resolvedProjectId } : undefined,
       });
       return response.data as ApiFamilyMitoDNAAnalysis;

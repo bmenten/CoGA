@@ -5,6 +5,7 @@ import VizErrorOverlay from './VizErrorOverlay';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
+import { apiPath } from '../../lib/apiPath';
 
 type DgvClass = 'gain' | 'loss' | 'mixed' | 'other';
 
@@ -108,7 +109,7 @@ const DgvTrack: React.FC<Props> = ({
   const { data: rawData, isError, refetch } = useQuery<DgvTrackData>({
     queryKey: ['dgv', assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
-      const res = await api.get(`/dgv/${assembly}/${chrom}`, {
+      const res = await api.get(apiPath`/dgv/${assembly}/${chrom}`, {
         params: { start: regionStart, end: regionEnd },
       });
       return res.data as DgvTrackData;

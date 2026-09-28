@@ -6,6 +6,7 @@ import api from '../../lib/api';
 import type { ApiFamilySummary } from '../../lib/apiTypes';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useProjectCatalog } from '../../lib/reference';
+import { apiPath } from '../../lib/apiPath';
 
 type ImportStatus = 'queued' | 'validating' | 'running' | 'completed' | 'failed';
 type PackageTargetMode = 'new' | 'existing';
@@ -180,7 +181,7 @@ const FamilyPackageImportPanel: React.FC = () => {
   const jobQuery = useQuery<FamilyImportJob>({
     queryKey: ['family-import-job', jobId],
     queryFn: async () => {
-      const response = await api.get(`/family-imports/${jobId}`);
+      const response = await api.get(apiPath`/family-imports/${jobId}`);
       return response.data as FamilyImportJob;
     },
     enabled: Boolean(jobId),

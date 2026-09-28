@@ -6,6 +6,7 @@ import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import { RepeatLocusTooltip, STATUS_COLORS } from './repeatExpansionHelpers';
+import { apiPath, raw } from '../../lib/apiPath';
 
 interface Layout {
   offsets: Record<string, number>;
@@ -39,7 +40,7 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
       chroms.forEach((chrom) => params.append('chr', chrom));
       if (projectId) params.set('project_id', projectId);
       const response = await api.get(
-        `/families/${familyId}/repeat-expansions/sample/${sampleId}?${params.toString()}`,
+        apiPath`/families/${familyId}/repeat-expansions/sample/${sampleId}?${raw(params.toString())}`,
       );
       return response.data as ApiRepeatExpansionTrackResponse;
     },

@@ -6,6 +6,7 @@ import Histogram from '../../components/visualizations/Histogram';
 import { compareChromosomes } from '../../lib/chromosomes';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
+import { apiPath } from '../../lib/apiPath';
 
 const VARIANT_LIMIT = 100000;
 
@@ -48,14 +49,14 @@ const FamilyVariantSummaryPage: React.FC = () => {
   const { data: family } = useQuery<{ pedigree?: string | null; members?: unknown[] }>({
     queryKey: ['family', familyId],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}`);
+      const res = await api.get(apiPath`/families/${familyId}`);
       return res.data;
     },
   });
   const { data, isLoading } = useQuery<VariantLength[]>({
     queryKey: ['family', familyId, 'structural-variant-lengths'],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/structural-variant-lengths`, {
+      const res = await api.get(apiPath`/families/${familyId}/structural-variant-lengths`, {
         params: { limit: VARIANT_LIMIT },
       });
       return res.data as VariantLength[];
@@ -67,7 +68,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
       queryKey: ['family', familyId, 'shared-structural-variant-counts'],
       queryFn: async () => {
         const res = await api.get(
-          `/families/${familyId}/shared-structural-variant-counts`
+          apiPath`/families/${familyId}/shared-structural-variant-counts`
         );
         return res.data as SharedVariantCounts;
       },

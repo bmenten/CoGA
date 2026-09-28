@@ -13,6 +13,7 @@ import PageState from '../../components/PageState';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
+import { apiPath } from '../../lib/apiPath';
 
 
 
@@ -440,7 +441,7 @@ const FamilyParaphasePage: React.FC = () => {
   const { data: family, isLoading: familyLoading } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => {
-      const response = await api.get(`/families/${familyId}`);
+      const response = await api.get(apiPath`/families/${familyId}`);
       return response.data as ApiFamilyRecord;
     },
   });
@@ -457,7 +458,7 @@ const FamilyParaphasePage: React.FC = () => {
     useQuery<ApiFamilyParaphaseTable>({
       queryKey: ['family', familyId, 'paraphase', resolvedProjectId],
       queryFn: async () => {
-        const response = await api.get(`/families/${familyId}/paraphase`, {
+        const response = await api.get(apiPath`/families/${familyId}/paraphase`, {
           params: resolvedProjectId ? { project_id: resolvedProjectId } : undefined,
         });
         return response.data as ApiFamilyParaphaseTable;

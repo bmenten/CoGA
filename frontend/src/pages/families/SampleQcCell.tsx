@@ -8,6 +8,7 @@ import {
   formatSequencingQcSummary,
   sequencingQcForMember,
 } from './familyDetailHelpers';
+import { apiPath } from '../../lib/apiPath';
 
 interface SampleQcCellProps {
   familyId: string;
@@ -88,7 +89,7 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
     setError(null);
     try {
       const response = await api.get(
-        `/families/${encodeURIComponent(familyId)}/qc-report/${encodeURIComponent(member.sample_id)}/link`,
+        apiPath`/families/${familyId}/qc-report/${member.sample_id}/link`,
       );
       const url = response.data?.url;
       if (!url) {

@@ -9,6 +9,7 @@ import type {
   GenePanel,
   GenePanelVersionList,
 } from '../../lib/apiTypes';
+import { apiPath } from '../../lib/apiPath';
 
 const GenePanelDetailPage: React.FC = () => {
   const { panelId } = useParams();
@@ -17,7 +18,7 @@ const GenePanelDetailPage: React.FC = () => {
   const { data: panel } = useQuery<GenePanel>({
     queryKey: ['panel', panelId],
     queryFn: async () => {
-      const res = await api.get(`/panels/${panelId}`);
+      const res = await api.get(apiPath`/panels/${panelId}`);
       return res.data as GenePanel;
     },
   });
@@ -26,7 +27,7 @@ const GenePanelDetailPage: React.FC = () => {
     queryKey: ['panel', panelId, 'versions'],
     enabled: Boolean(panelId),
     queryFn: async () =>
-      (await api.get(`/panels/${panelId}/versions`)).data as GenePanelVersionList,
+      (await api.get(apiPath`/panels/${panelId}/versions`)).data as GenePanelVersionList,
   });
 
   const [editing, setEditing] = useState(false);
@@ -60,7 +61,7 @@ const GenePanelDetailPage: React.FC = () => {
     setSaving(true);
     setEditStatus('');
     try {
-      const res = await api.put(`/panels/${panelId}`, {
+      const res = await api.put(apiPath`/panels/${panelId}`, {
         genes: editGenes
           .split(/[\s,]+/)
           .map((g) => g.trim())

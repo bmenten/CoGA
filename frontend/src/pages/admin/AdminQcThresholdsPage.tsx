@@ -6,6 +6,7 @@ import PageState from '../../components/PageState';
 import InfoTip from '../../components/InfoTip';
 import { getErrorMessage } from '../../lib/errorMessage';
 import type { ApiQcThresholdCatalogue } from '../../lib/apiTypes';
+import { apiPath } from '../../lib/apiPath';
 
 type StatusTone = 'success' | 'error';
 
@@ -87,7 +88,7 @@ const AdminQcThresholdsPage: React.FC = () => {
       if (warn === undefined || errorBound === undefined) {
         throw new Error('Thresholds must be numbers, or blank to clear.');
       }
-      await api.put(`/admin/qc-thresholds/${encodeURIComponent(activeProfileKey ?? '')}`, {
+      await api.put(apiPath`/admin/qc-thresholds/${activeProfileKey ?? ''}`, {
         metric_key: metricKey,
         warn_value: warn,
         error_value: errorBound,

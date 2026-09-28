@@ -7,6 +7,7 @@ import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } fro
 import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import { RepeatLocusTooltip, STATUS_COLORS } from './repeatExpansionHelpers';
+import { apiPath } from '../../lib/apiPath';
 
 interface Props {
   familyId: string;
@@ -56,7 +57,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
         params.end = regionEnd;
       }
       const response = await api.get(
-        `/families/${familyId}/repeat-expansions/sample/${sampleId}`,
+        apiPath`/families/${familyId}/repeat-expansions/sample/${sampleId}`,
         {
           params,
         },

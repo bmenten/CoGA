@@ -30,6 +30,7 @@ import {
   hasReviewContent,
   updateSmallVariantPageReview,
 } from './smallVariantReview';
+import { apiPath, raw } from '../../lib/apiPath';
 
 const formatVariantTotal = (total: number | undefined, estimated?: boolean): string => {
   const safeTotal = Math.max(total ?? 0, 0);
@@ -55,7 +56,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   const { data: family } = useQuery<SmallVariantFamily>({
     queryKey: ['family', familyId],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}`);
+      const res = await api.get(apiPath`/families/${familyId}`);
       return res.data as SmallVariantFamily;
     },
   });
@@ -127,7 +128,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     queryKey: ['family', familyId, 'small-variant-filter-presets'],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variant-filter-presets`);
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-filter-presets`);
       return res.data as SmallVariantFilterPreset[];
     },
   });
@@ -136,7 +137,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
     enabled: variantQueryReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variant-tags`, {
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
         params: projectId ? { project_id: projectId } : undefined,
       });
       return res.data as SmallVariantTagDefinition[];
@@ -147,7 +148,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     queryKey: ['family', familyId, 'small-variants', requestQueryString],
     enabled: variantQueryReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variants?${requestQueryString}`);
+      const res = await api.get(apiPath`/families/${familyId}/small-variants?${raw(requestQueryString)}`);
       return res.data as SmallVariantPage;
     },
     // Keep the previous page's results on screen while the next page/filter loads
@@ -172,7 +173,7 @@ const FamilySmallVariantsPage: React.FC = () => {
       if (!familyId) {
         throw new Error('Family id is required');
       }
-      const res = await api.post(`/families/${familyId}/small-variant-filter-presets`, {
+      const res = await api.post(apiPath`/families/${familyId}/small-variant-filter-presets`, {
         ...payload,
         scope: 'global',
         ...buildPresetPayload({

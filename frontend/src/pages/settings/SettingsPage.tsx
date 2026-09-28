@@ -17,6 +17,7 @@ import {
   resetCoverageThresholds,
 } from '../../lib/settings';
 import type { SmallVariantFilterPreset } from '../families/smallVariantSearch';
+import { apiPath } from '../../lib/apiPath';
 
 const SettingsPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -41,7 +42,7 @@ const SettingsPage: React.FC = () => {
 
   const deletePresetMutation = useMutation({
     mutationFn: async (preset: SmallVariantFilterPreset) => {
-      await api.delete(`/auth/small-variant-filter-presets/${preset._id}`);
+      await api.delete(apiPath`/auth/small-variant-filter-presets/${preset._id}`);
       return preset._id;
     },
     onSuccess: async () => {

@@ -6,6 +6,7 @@ import PageState from '../../components/PageState';
 import FamilyStatusBadge from '../../components/FamilyStatusBadge';
 import { getErrorMessage } from '../../lib/errorMessage';
 import type { ApiFamilyStatusDefinition } from '../../lib/apiTypes';
+import { apiPath } from '../../lib/apiPath';
 
 type StatusTone = 'success' | 'error';
 
@@ -63,7 +64,7 @@ const AdminFamilyStatusesPage: React.FC = () => {
 
   const updateMutation = useMutation({
     mutationFn: async (key: string) => {
-      const response = await api.put(`/admin/family-statuses/${key}`, {
+      const response = await api.put(apiPath`/admin/family-statuses/${key}`, {
         label: editingDraft.label.trim(),
         description: editingDraft.description.trim() || null,
         color: editingDraft.color || undefined,
@@ -82,7 +83,7 @@ const AdminFamilyStatusesPage: React.FC = () => {
 
   const toggleActiveMutation = useMutation({
     mutationFn: async (target: ApiFamilyStatusDefinition) => {
-      const response = await api.put(`/admin/family-statuses/${target.key}`, {
+      const response = await api.put(apiPath`/admin/family-statuses/${target.key}`, {
         is_active: !target.is_active,
       });
       return response.data as ApiFamilyStatusDefinition;
@@ -100,7 +101,7 @@ const AdminFamilyStatusesPage: React.FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: async (key: string) => {
-      await api.delete(`/admin/family-statuses/${key}`);
+      await api.delete(apiPath`/admin/family-statuses/${key}`);
       return key;
     },
     onSuccess: async (key) => {
