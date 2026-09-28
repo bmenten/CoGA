@@ -147,6 +147,7 @@ no build and no CSP), and `E2E_BACKEND_PORT` moves the backend off port 8000 whe
 | Test file | Purpose |
 | --- | --- |
 | [backend/tests/test_access_control.py](../backend/tests/test_access_control.py) | Project-scoped RBAC: viewer/admin access, cross-project visibility. |
+| [backend/tests/test_access_rules.py](../backend/tests/test_access_rules.py) | The project-scoped access rules in `services/access_control.py` (#528): which roles are admins, the projects an admin or a member may see, and the 403 for a non-member. |
 | [backend/tests/test_auth_rate_limit_pg.py](../backend/tests/test_auth_rate_limit_pg.py) | Failed-login throttling and reset; per-IP signup throttling (independent bucket). |
 | [backend/tests/test_signup_throttle.py](../backend/tests/test_signup_throttle.py) | /auth/signup is rate-limited per IP (429 + Retry-After before any hash/create) and returns an identical generic 202 for new vs. already-registered emails (no account enumeration). |
 | [backend/tests/test_auth_login_timing.py](../backend/tests/test_auth_login_timing.py) | Login runs a dummy bcrypt verify on the no-such-account path so response time doesn't leak account existence; the equalizer hash is a valid bcrypt hash. |

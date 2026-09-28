@@ -37,7 +37,8 @@ from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_variant_filters import SmallVariantQueryFilters
-from .metadata_service import CurrentUser, get_family_record
+from .metadata_service import get_family_record
+from .access_control import CurrentUser
 from .nipt import NiptTrio, nipt_assay_key, resolve_nipt_trio
 from .nipt_artifact_pg import load_nipt_artifact_ids
 from .nipt_coverage import (

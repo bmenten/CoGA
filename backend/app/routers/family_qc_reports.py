@@ -36,7 +36,8 @@ from ..dependencies import get_current_user
 from ..schemas import FamilyQcReportLinkOut
 from ..services.family_package_common import _metadata_dict, _resolve_package_path
 from ..services.family_package_source import _ensure_authorized_package_path
-from ..services.metadata_service import CurrentUser, get_family_record
+from ..services.metadata_service import get_family_record
+from ..services.access_control import CurrentUser
 
 
 logger = logging.getLogger(__name__)

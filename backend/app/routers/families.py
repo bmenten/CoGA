@@ -59,7 +59,7 @@ from ..services.monarch_semsim import (
     MonarchSemsimError,
     semsim_search,
 )
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.bed_service import precompute_family_lineage_safe
 from ..services.clickhouse_family_variants import precompute_family_ranking_safe
 

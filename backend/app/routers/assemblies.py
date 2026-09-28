@@ -20,11 +20,8 @@ from ..schemas import (
     AssemblyReferenceStatusOut,
     ReferenceUploadResult,
 )
-from ..services.metadata_service import (
-    CurrentUser,
-    create_assembly_record,
-    list_assembly_records,
-)
+from ..services.metadata_service import create_assembly_record, list_assembly_records
+from ..services.access_control import CurrentUser
 from ..services.reference_metadata_service import (
     list_recent_reference_imports,
     list_reference_statuses,

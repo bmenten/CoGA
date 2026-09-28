@@ -171,6 +171,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **API models split by domain** — the 3,000-line `backend/app/schemas.py` is now a `schemas/`
   package with one module per domain, all re-exported, so imports are unchanged. The OpenAPI
   document is byte-identical (#571).
+- **Access rules in their own module** — `CurrentUser`, `ADMIN_ROLES` (defined twice until now)
+  and the project-visibility rules move from `metadata_service` to `services/access_control.py`,
+  so the 64 modules that needed only them no longer import the metadata layer (#572).
 
 ### Removed
 

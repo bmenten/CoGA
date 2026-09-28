@@ -12,7 +12,7 @@ from backend.app.schemas import (
     FamilyStructureUpdateOut,
 )
 from backend.app.services import family_member_management_service as service
-from backend.app.services.metadata_service import CurrentUser
+from backend.app.services.access_control import CurrentUser
 
 
 def _family_record() -> FamilyOut:

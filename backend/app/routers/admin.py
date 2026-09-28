@@ -115,10 +115,10 @@ from ..services.hpo_service import (
     sync_hpo_ontology,
 )
 from ..services.metadata_service import (
-    CurrentUser,
     list_family_project_assignments,
     update_family_project_assignments,
 )
+from ..services.access_control import CurrentUser
 from ..services.nipt_artifact_pg import (
     add_nipt_artifact,
     auto_seed_nipt_artifacts,

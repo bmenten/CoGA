@@ -23,7 +23,7 @@ from ..schemas import (
     PanelAppImportRequest,
     PanelAppImportResponse,
 )
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser
 from .panelapp_service import (
     extract_panelapp_import_content,
     fetch_panelapp_panel,

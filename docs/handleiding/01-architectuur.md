@@ -70,7 +70,7 @@ De repository-root bevat de twee applicatiemappen (`backend/`, `frontend/`), de 
 | `main.py` | Het startpunt: bouwt de FastAPI-app, mount de routers, configureert CORS/middleware en de `lifespan`-opstartroutine |
 | `dependencies.py` | Authenticatie- en autorisatiehulp (`create_access_token`, `get_current_user`, `get_current_admin_user`) |
 
-Het databank-schema staat naast `app/` in `backend/db/schema/`: `postgres/` (genummerde `.sql`-bestanden, bv. `001_metadata.sql`) en `clickhouse/` (`001_coga_variant_storage.sql`).
+Het databank-schema staat naast `app/` in `backend/db/schema/`: `postgres/` (vijf baseline-bestanden per domein, `01_access.sql` t/m `05_grants.sql`) en `clickhouse/` (`001_coga_variant_storage.sql`).
 
 ### Frontend — `frontend/src/`
 

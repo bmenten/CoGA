@@ -8,12 +8,12 @@ from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import ProjectCreate, ProjectDashboardOut, ProjectOut, ProjectUpdate
 from ..services.metadata_service import (
-    CurrentUser,
     create_project_record,
     delete_project_record,
     list_project_dashboards,
     update_project_record,
 )
+from ..services.access_control import CurrentUser
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 

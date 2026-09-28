@@ -21,7 +21,8 @@ from ..schemas import (
 from .family_metadata_context import (
     build_family_metadata_context,
 )
-from .metadata_service import CurrentUser, get_current_user_by_email
+from .metadata_service import get_current_user_by_email
+from .access_control import CurrentUser
 from . import ped_service
 from .bed_service import precompute_family_haplotype_lineage
 from .clickhouse_family_snapshot import (

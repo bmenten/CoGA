@@ -22,7 +22,7 @@ from .clickhouse_small_variants import (
 )
 from .clinical_audit_service import record_review_changes
 from .family_metadata_context import FamilyMetadataContext
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser
 # Re-exported here so existing `from ...small_variant_review_pg import _json_payload`
 # imports (and a test) keep working.
 from .review_pg_utils import (

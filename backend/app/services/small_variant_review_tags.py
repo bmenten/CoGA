@@ -14,7 +14,7 @@ from ..schemas import (
     SmallVariantTagDefinitionOut,
     SmallVariantTagDefinitionUpdate,
 )
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser
 
 
 DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [

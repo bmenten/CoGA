@@ -10,7 +10,7 @@ from backend.app.services.family_metadata_context import (
     _resolve_family_assembly,
     build_family_metadata_context,
 )
-from backend.app.services.metadata_service import CurrentUser
+from backend.app.services.access_control import CurrentUser
 
 
 class _FakeResult:

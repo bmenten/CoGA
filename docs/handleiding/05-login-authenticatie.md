@@ -251,7 +251,7 @@ Na een geslaagde login draagt de gebruiker een rol (`admin`, `superuser` of `vie
 - **viewer:** kan de families/projecten bekijken en beoordelen waar die aan gekoppeld is; ziet niets buiten die projecten.
 - **admin / superuser:** beheerdersrechten (o.a. gebruikers activeren via `/auth/users`, projectbeheer) en toegang die niet tot specifieke projecten beperkt is.
 
-De feitelijke afscherming gebeurt niet in dit hoofdstuk maar in de service-laag, die queries filtert op de projecten van de gebruiker (zie o.a. de `metadata_project_ids`-logica en `_visible_metadata_project_ids` in `backend/app/services/metadata_service.py`). Het volledige rollen- en rechtenmodel, inclusief hoe project-afscherming wordt afgedwongen, staat in [hoofdstuk 2 — Gebruikersrollen, machtigingen & afscherming](02-beveiliging-rollen-rechten.md).
+De feitelijke afscherming gebeurt niet in dit hoofdstuk maar in de service-laag, die queries filtert op de projecten van de gebruiker (zie o.a. de `metadata_project_ids`-logica en `visible_metadata_project_ids` in `backend/app/services/access_control.py`). Het volledige rollen- en rechtenmodel, inclusief hoe project-afscherming wordt afgedwongen, staat in [hoofdstuk 2 — Gebruikersrollen, machtigingen & afscherming](02-beveiliging-rollen-rechten.md).
 
 ## Veiligheid & traceerbaarheid
 
@@ -276,7 +276,7 @@ Voor een IVD-platform moet elke poging tot toegang navolgbaar zijn. De maatregel
 | `backend/app/core/azure.py` | Azure AD-tokenvalidatie (JWKS ophalen, RS256, issuer/audience-controle) |
 | `backend/app/services/auth_rate_limit_pg.py` | Rate limiting / lockout-logica (back-off, scopes email/IP/signup) |
 | `backend/db/schema/postgres/010_auth_login_attempts.sql` | Tabel `auth_login_attempts` voor mislukte-pogingtellers en lockouts |
-| `backend/db/schema/postgres/001_metadata.sql` | Tabel `users` (o.a. `hashed_password`, `role`, `is_active`) |
+| `backend/db/schema/postgres/01_access.sql` | Tabel `users` (o.a. `hashed_password`, `role`, `is_active`) |
 | `backend/app/services/metadata_service.py` | Gebruiker opzoeken, aanmaken (viewer/inactief) en activeren; project-scoping |
 | `backend/app/middleware/request_logging.py` | Audittrail van elke aanvraag, met maskering van wachtwoorden/tokens |
 | `frontend/src/pages/auth/LoginPage.tsx` | Inlogformulier, tokenopslag, veilige `next`-redirect |

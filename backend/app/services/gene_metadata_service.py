@@ -23,7 +23,8 @@ from ..schemas import (
     MonarchPhenotypeMatchOut,
 )
 from .data_scope import is_primary_chromosome
-from .metadata_service import CurrentUser, get_accessible_family_mapping
+from .metadata_service import get_accessible_family_mapping
+from .access_control import CurrentUser
 from .monarch_ingest import (
     family_observed_phenotype_closure,
     list_monarch_gene_disease,

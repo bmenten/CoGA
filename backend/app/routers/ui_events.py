@@ -12,7 +12,7 @@ from ..schemas import (
     UiEventIn,
     UiEventIngestResult,
 )
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.ui_event_pg import UiEventPayload, write_ui_event
 
 router = APIRouter(prefix="/ui-events", tags=["ui-events"])

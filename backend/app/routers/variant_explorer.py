@@ -22,7 +22,7 @@ from ..schemas import (
     VariantCarriersOut,
     VariantExplorerAssemblyOut,
 )
-from ..services.metadata_service import CurrentUser, _is_admin_user
+from ..services.access_control import CurrentUser, is_admin_user
 from ..services.panel_metadata_service import _fetch_panel_genes
 from ..services.small_variant_review_pg import list_small_variant_tag_definitions
 from ..services.variant_explorer_service import (
@@ -81,7 +81,7 @@ async def list_explorer_tag_definitions(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> List[SmallVariantTagDefinitionOut]:
-    if _is_admin_user(user):
+    if is_admin_user(user):
         return await list_small_variant_tag_definitions(
             session, family_uuid="", project_ids=[], include_all_project_tags=True
         )

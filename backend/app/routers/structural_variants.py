@@ -9,7 +9,7 @@ from ..services.clickhouse_family_variants import (
     get_family_structural_variants_page as get_family_structural_variants_clickhouse,
 )
 from ..services.family_metadata_context import build_family_metadata_context, build_sample_metadata_context
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.raw_import_files_pg import record_upload_file_obj
 from ..services.variant_upload_service import upload_structural_variant_file
 

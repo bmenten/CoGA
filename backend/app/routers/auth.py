@@ -28,12 +28,12 @@ from ..schemas import (
     UserUpdate,
 )
 from ..services.metadata_service import (
-    CurrentUser,
     create_user_account,
     get_auth_user_mapping_by_email,
     list_user_accounts,
     update_user_account,
 )
+from ..services.access_control import CurrentUser
 from ..services.auth_rate_limit_pg import (
     clear_login_failures,
     get_login_throttle_state,
