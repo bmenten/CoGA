@@ -127,6 +127,14 @@ The `source` column on both `entries` tables scopes deletes and re-imports, so o
 can hold several independent callsets side by side: `clair3` (primary nuclear SNVs),
 `glimpse2` (imputed), `mito` (chrM), `needlr` and `hificnv` (SVs/CNVs).
 
+`…/SNV_INDEL/family_data_version` (`family_guid`, `token`, `bumped_at`; plain `MergeTree`) is
+not variant data: every storage-level mutation of a family's small variants — insert, full or
+source-scoped delete, and the summary refresh that also follows a snapshot restore — appends
+one row with a random token once the write has completed. The family's token count and sum
+are its small-variant *data version*, which the prioritised-ranking cache folds into its key so
+a ranking over changed data is never served (#509, TF-18 CR-023). Rows are never collapsed,
+so the version cannot return to an earlier value.
+
 ## Identifier Rules
 
 - Metadata rows use UUID primary keys.
