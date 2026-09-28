@@ -45,6 +45,10 @@ class GeneLocation(BaseModel):
     chr: str
     start: int
     end: int
+    # The assembly these coordinates belong to. A panel region is stored per assembly and
+    # a family's filter reads only its own assembly's (#515); None where no assembly applies.
+    assembly_id: Optional[str] = None
+    assembly: Optional[str] = None
 
 
 class UserCreate(BaseModel):

@@ -81,6 +81,19 @@ Sequencing-QC acceptance limits (admin-managed):
   through from that catalogue so a stored row stays interpretable without the code version
   that wrote it.
 
+Gene-panel coordinates:
+
+- `gene_panel_regions` — a panel's coordinates, **one row per gene (or PanelApp region) per
+  assembly**, keyed on `(panel_id, assembly_id, gene, chr, start, end)`. The panel itself is
+  the gene list in `gene_panel_genes`. A family's panel filter reads only the rows of its own
+  assembly, plus the loci of the panel's genes resolved in that assembly at query time; with
+  no resolved assembly it narrows by gene symbol alone (#515). PanelApp's own coordinates are
+  stored for the assembly they were requested for, and only when it is loaded. A table from
+  before #515 is upgraded in place on the next schema load: a row copied from the gene
+  reference is kept once for every assembly whose gene record it matches exactly (chrM loci
+  match in both GRCh38 and T2T), and rows that match no gene record are dropped (a PanelApp
+  re-import restores them).
+
 Import jobs:
 
 - `family_import_jobs`
@@ -144,7 +157,7 @@ so the version cannot return to an earlier value.
 ## Relationships
 
 - `species -> assemblies`
-- `assemblies -> chromosomes / genes / blacklist / clinical_cnvs / segmental_duplications`
+- `assemblies -> chromosomes / genes / blacklist / clinical_cnvs / segmental_duplications / gene_panel_regions`
 - `projects -> species + assemblies`
 - `families <-> projects`
 - `samples -> families`

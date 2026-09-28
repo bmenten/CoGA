@@ -69,12 +69,22 @@ const GenePanelsPage: React.FC = () => {
     return parsed.toLocaleString();
   };
 
+  const formatSpan = (total: number) =>
+    total >= 1_000_000 ? `${(total / 1_000_000).toFixed(2)} Mb` : `${(total / 1000).toFixed(2)} kb`;
+  // Regions are stored per assembly (#515): one total over all of them would count each
+  // gene once per loaded assembly, so the size is given per assembly, GRCh38 first.
   const formatSize = (regions: GeneLocation[]) => {
-    const total = regions.reduce((sum, r) => sum + (r.end - r.start), 0);
-    if (total >= 1_000_000) {
-      return `${(total / 1_000_000).toFixed(2)} Mb`;
-    }
-    return `${(total / 1000).toFixed(2)} kb`;
+    const byAssembly = new Map<string, number>();
+    regions.forEach((r) => {
+      const key = r.assembly || '';
+      byAssembly.set(key, (byAssembly.get(key) ?? 0) + (r.end - r.start));
+    });
+    if (byAssembly.size <= 1) return formatSpan([...byAssembly.values()][0] ?? 0);
+    const rank = (name: string) => (name === 'GRCh38' ? 0 : name.startsWith('T2T-CHM13') ? 1 : 9);
+    return [...byAssembly.entries()]
+      .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+      .map(([assembly, total]) => `${formatSpan(total)} (${assembly || 'unknown'})`)
+      .join(' · ');
   };
   const formatSource = (panel: GenePanel) => {
     if (panel.source === 'panelapp') return 'PanelApp';

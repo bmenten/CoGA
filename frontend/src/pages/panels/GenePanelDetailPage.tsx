@@ -38,6 +38,7 @@ const GenePanelDetailPage: React.FC = () => {
   const [sortAsc, setSortAsc] = useState(true);
   const [filters, setFilters] = useState({
     gene: '',
+    assembly: '',
     chr: '',
     start: '',
     end: '',
@@ -103,14 +104,16 @@ const GenePanelDetailPage: React.FC = () => {
       .filter((r) =>
         (!filters.gene ||
           r.gene.toLowerCase().includes(filters.gene.toLowerCase())) &&
+        (!filters.assembly ||
+          (r.assembly ?? '').toLowerCase().includes(filters.assembly.toLowerCase())) &&
         (!filters.chr ||
           r.chr.toLowerCase().includes(filters.chr.toLowerCase())) &&
         (!filters.start || String(r.start).includes(filters.start)) &&
         (!filters.end || String(r.end).includes(filters.end)),
       )
       .sort((a, b) => {
-        const aVal = a[sortKey];
-        const bVal = b[sortKey];
+        const aVal = a[sortKey] ?? '';
+        const bVal = b[sortKey] ?? '';
         if (aVal < bVal) return sortAsc ? -1 : 1;
         if (aVal > bVal) return sortAsc ? 1 : -1;
         return 0;
@@ -257,6 +260,12 @@ const GenePanelDetailPage: React.FC = () => {
             </th>
             <th
               className="table-sortable"
+              onClick={() => handleSort('assembly')}
+            >
+              Assembly {sortKey === 'assembly' && (sortAsc ? '▲' : '▼')}
+            </th>
+            <th
+              className="table-sortable"
               onClick={() => handleSort('chr')}
             >
               Chromosome {sortKey === 'chr' && (sortAsc ? '▲' : '▼')}
@@ -284,6 +293,13 @@ const GenePanelDetailPage: React.FC = () => {
             </th>
             <th>
               <input
+                placeholder="Filter assembly"
+                value={filters.assembly}
+                onChange={(e) => handleFilterChange(e, 'assembly')}
+              />
+            </th>
+            <th>
+              <input
                 placeholder="Filter chr"
                 value={filters.chr}
                 onChange={(e) => handleFilterChange(e, 'chr')}
@@ -307,8 +323,10 @@ const GenePanelDetailPage: React.FC = () => {
         </thead>
         <tbody>
           {regions.map((r) => (
-            <tr key={`${r.gene}:${r.chr}:${r.start}-${r.end}`}>
+            // The assembly is part of the key: chrM loci are identical in GRCh38 and T2T.
+            <tr key={`${r.assembly_id ?? ''}:${r.gene}:${r.chr}:${r.start}-${r.end}`}>
               <td>{r.gene}</td>
+              <td>{r.assembly || '—'}</td>
               <td>{r.chr}</td>
               <td>{r.start}</td>
               <td>{r.end}</td>

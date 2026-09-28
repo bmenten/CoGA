@@ -44,15 +44,21 @@ def _ensure_admin(user: CurrentUser) -> None:
         raise HTTPException(status_code=403, detail="Not authorized")
 
 
-_ASSEMBLY_PRIORITY_SQL = """
-CASE
-    WHEN a.assembly_name = 'GRCh38' THEN 0
-    WHEN a.assembly_name IN ('T2T-CHM13', 'T2T-CHM13v2.0')
-         OR a.assembly_name LIKE 'T2T-CHM13%' THEN 1
-    WHEN a.assembly_name IN ('GRCh37', 'hg19') THEN 2
-    ELSE 9
-END
-""".strip()
+def _assembly_display_rank(assembly_name: str | None) -> int:
+    """Display order of a gene's per-assembly regions: GRCh38, then T2T, then the rest."""
+    name = assembly_name or ""
+    if name == "GRCh38":
+        return 0
+    if name.startswith("T2T-CHM13"):
+        return 1
+    if name in ("GRCh37", "hg19"):
+        return 2
+    return 9
+
+
+def _resolved_gene_count(regions: list[GeneLocation]) -> int:
+    """Genes with coordinates in at least one assembly (regions are per gene per assembly)."""
+    return len({region.gene.upper() for region in regions})
 
 
 def _panel_out_from_rows(
@@ -78,6 +84,8 @@ def _panel_out_from_rows(
                 chr=row["chr"],
                 start=int(row["start"]),
                 end=int(row["end"]),
+                assembly_id=row.get("assembly_id"),
+                assembly=row.get("assembly"),
             )
             for row in region_rows
         ],
@@ -185,10 +193,12 @@ async def _fetch_panel_regions(
     result = await session.execute(
         text(
             """
-            SELECT panel_id::text AS panel_id, gene, chr, start, "end"
-            FROM gene_panel_regions
-            WHERE panel_id IN :panel_ids
-            ORDER BY gene, chr, start, "end"
+            SELECT r.panel_id::text AS panel_id, r.gene, r.chr, r.start, r."end",
+                   r.assembly_id::text AS assembly_id, a.assembly_name AS assembly
+            FROM gene_panel_regions r
+            JOIN assemblies a ON a.id = r.assembly_id
+            WHERE r.panel_id IN :panel_ids
+            ORDER BY r.gene, a.assembly_name, r.chr, r.start, r."end"
             """
         ).bindparams(uuid_list_bindparam("panel_ids")),
         {"panel_ids": uuid_values(panel_ids)},
@@ -227,15 +237,24 @@ async def _resolve_gene_regions(
     session: AsyncSession,
     symbols: list[str],
 ) -> tuple[list[GeneLocation], list[str]]:
+    """Each gene's locus in every loaded assembly that has it, tagged with that assembly.
+
+    A panel is a gene list; its coordinates depend on the assembly. This used to keep one
+    region per gene across all assemblies (GRCh38 first, else T2T) in an assembly-less
+    table, and every family's panel filter unioned them — so a GRCh38 family could be
+    filtered on T2T coordinates, and a T2T family on GRCh38 ones (#515). A gene is
+    "missing" only when no loaded assembly has it.
+    """
     deduped_symbols = list(dict.fromkeys(symbol.strip() for symbol in symbols if symbol and symbol.strip()))
     if not deduped_symbols:
         return [], []
     result = await session.execute(
         text(
-            f"""
-            SELECT DISTINCT ON (upper(g.hgnc_symbol))
+            """
+            SELECT DISTINCT ON (upper(g.hgnc_symbol), g.assembly_id)
                 upper(g.hgnc_symbol) AS symbol_key,
-                g.hgnc_symbol,
+                g.assembly_id::text AS assembly_id,
+                a.assembly_name,
                 g.chr,
                 g.start,
                 g."end" AS "end"
@@ -244,33 +263,48 @@ async def _resolve_gene_regions(
             WHERE upper(g.hgnc_symbol) IN :symbols
             ORDER BY
                 upper(g.hgnc_symbol),
-                {_ASSEMBLY_PRIORITY_SQL},
+                g.assembly_id,
                 (g."end" - g.start) DESC,
-                a.release_date DESC NULLS LAST,
-                a.version DESC NULLS LAST,
                 g.start,
                 g."end"
             """
         ).bindparams(bindparam("symbols", expanding=True)),
         {"symbols": [symbol.upper() for symbol in deduped_symbols]},
     )
-    grouped_regions = {str(row["symbol_key"]): dict(row) for row in result.mappings().all()}
+    by_symbol: dict[str, list[dict[str, Any]]] = {}
+    for row in result.mappings().all():
+        by_symbol.setdefault(str(row["symbol_key"]), []).append(dict(row))
     missing_genes: list[str] = []
     regions: list[GeneLocation] = []
     for symbol in deduped_symbols:
-        match = grouped_regions.get(symbol.upper())
-        if match is None:
+        matches = by_symbol.get(symbol.upper())
+        if not matches:
             missing_genes.append(symbol)
             continue
-        regions.append(
-            GeneLocation(
-                gene=symbol,
-                chr=match["chr"],
-                start=int(match["start"]),
-                end=int(match["end"]),
+        for match in sorted(
+            matches,
+            key=lambda row: (_assembly_display_rank(row["assembly_name"]), str(row["assembly_name"])),
+        ):
+            regions.append(
+                GeneLocation(
+                    gene=symbol,
+                    chr=match["chr"],
+                    start=int(match["start"]),
+                    end=int(match["end"]),
+                    assembly_id=match["assembly_id"],
+                    assembly=match["assembly_name"],
+                )
             )
-        )
     return regions, missing_genes
+
+
+async def _assembly_id_by_name(session: AsyncSession, assembly_name: str) -> str | None:
+    """The loaded assembly of this name, if any."""
+    result = await session.execute(
+        text("SELECT id::text FROM assemblies WHERE assembly_name = :name ORDER BY id LIMIT 1"),
+        {"name": assembly_name},
+    )
+    return result.scalar_one_or_none()
 
 
 async def _ensure_panel_name_available(
@@ -334,23 +368,27 @@ async def _replace_panel_members(
             ),
             [{"panel_id": panel_id, "gene_symbol": symbol} for symbol in genes],
         )
-    if regions:
+    # Coordinates without an assembly cannot be scoped to one, so they are not stored;
+    # the resolvers only produce such regions for an assembly that is not loaded.
+    scoped = [region for region in regions if region.assembly_id]
+    if scoped:
         await session.execute(
             text(
                 """
-                INSERT INTO gene_panel_regions (panel_id, gene, chr, start, "end")
-                VALUES (CAST(:panel_id AS uuid), :gene, :chr, :start, :end)
+                INSERT INTO gene_panel_regions (panel_id, assembly_id, gene, chr, start, "end")
+                VALUES (CAST(:panel_id AS uuid), CAST(:assembly_id AS uuid), :gene, :chr, :start, :end)
                 """
             ),
             [
                 {
                     "panel_id": panel_id,
+                    "assembly_id": region.assembly_id,
                     "gene": region.gene,
                     "chr": region.chr,
                     "start": region.start,
                     "end": region.end,
                 }
-                for region in regions
+                for region in scoped
             ],
         )
 
@@ -393,7 +431,13 @@ async def _snapshot_panel_version(
             "genes": json.dumps(genes),
             "regions": json.dumps(
                 [
-                    {"gene": region.gene, "chr": region.chr, "start": region.start, "end": region.end}
+                    {
+                        "gene": region.gene,
+                        "chr": region.chr,
+                        "start": region.start,
+                        "end": region.end,
+                        "assembly": region.assembly,
+                    }
                     for region in regions
                 ]
             ),
@@ -469,17 +513,9 @@ async def create_panel_data(
     panel_out = _panel_out_from_rows(
         panel_row,
         deduped_symbols,
-        [
-            {
-                "gene": region.gene,
-                "chr": region.chr,
-                "start": region.start,
-                "end": region.end,
-            }
-            for region in regions
-        ],
+        [region.model_dump() for region in regions],
     )
-    message = f"Panel created with {len(regions)} of {len(deduped_symbols)} genes"
+    message = f"Panel created with {_resolved_gene_count(regions)} of {len(deduped_symbols)} genes"
     if missing_genes:
         message += f"; missing genes: {', '.join(missing_genes)}"
     return GenePanelCreateResponse(
@@ -572,7 +608,10 @@ async def update_panel_data(
     )
     await session.commit()
     panel_out = await get_panel_or_404(session, panel_id)
-    message = f"Panel updated to version {version}: {len(regions)} of {len(normalized)} genes"
+    message = (
+        f"Panel updated to version {version}: {_resolved_gene_count(regions)} of "
+        f"{len(normalized)} genes"
+    )
     if missing_genes:
         message += f"; unresolved: {', '.join(missing_genes)}"
     return GenePanelCreateResponse(panel=panel_out, message=message, missing_genes=missing_genes)
@@ -596,15 +635,30 @@ async def import_panelapp_panel_data(
         assembly=request.assembly,
     )
     genes = content.genes
-    region_keys = {region.gene.upper() for region in content.regions}
-    unresolved_symbols = [symbol for symbol in genes if symbol.upper() not in region_keys]
-    fallback_regions, missing_genes = await _resolve_gene_regions(session, unresolved_symbols)
-    regions = content.regions + [
+    # PanelApp's own coordinates are for the requested assembly. They are stored for that
+    # assembly when it is loaded; otherwise they apply to no family and are not kept (#515).
+    requested_assembly_id = await _assembly_id_by_name(session, request.assembly)
+    panelapp_regions = (
+        [
+            region.model_copy(
+                update={"assembly_id": requested_assembly_id, "assembly": request.assembly}
+            )
+            for region in content.regions
+        ]
+        if requested_assembly_id
+        else []
+    )
+    # Every gene is also resolved in every loaded assembly; PanelApp's coordinates win for
+    # the genes and the assembly they cover.
+    covered = {(region.gene.upper(), region.assembly_id) for region in panelapp_regions}
+    reference_regions, unresolved = await _resolve_gene_regions(session, genes)
+    regions = panelapp_regions + [
         region
-        for region in fallback_regions
-        if (region.gene.upper(), region.chr, region.start, region.end)
-        not in {(row.gene.upper(), row.chr, row.start, row.end) for row in content.regions}
+        for region in reference_regions
+        if (region.gene.upper(), region.assembly_id) not in covered
     ]
+    panelapp_genes = {region.gene.upper() for region in panelapp_regions}
+    missing_genes = [symbol for symbol in unresolved if symbol.upper() not in panelapp_genes]
     if not genes and not regions:
         raise HTTPException(status_code=400, detail="No PanelApp entities matched the selected import options")
 
@@ -740,19 +794,7 @@ async def import_panelapp_panel_data(
         panel_row = panel_rows[0]
     await session.commit()
 
-    panel_out = _panel_out_from_rows(
-        panel_row,
-        genes,
-        [
-            {
-                "gene": region.gene,
-                "chr": region.chr,
-                "start": region.start,
-                "end": region.end,
-            }
-            for region in regions
-        ],
-    )
+    panel_out = _panel_out_from_rows(panel_row, genes, [region.model_dump() for region in regions])
     action = "updated" if existing_panel_id else "imported"
     message = (
         f"PanelApp panel {action} with {len(genes)} genes and {len(regions)} regions"
@@ -761,6 +803,11 @@ async def import_panelapp_panel_data(
     )
     if missing_genes:
         message += f"; no coordinates for: {', '.join(missing_genes)}"
+    if content.regions and not requested_assembly_id:
+        message += (
+            f"; PanelApp's {request.assembly} coordinates were not kept, because "
+            f"{request.assembly} is not a loaded assembly"
+        )
     return PanelAppImportResponse(
         panel=panel_out,
         message=message,
@@ -960,7 +1007,7 @@ async def regenerate_mendeliome(
         "monarch_release": release,
         "predicates": list(_MENDELIOME_PREDICATES),
         "gene_count": len(deduped),
-        "resolved_count": len(regions),
+        "resolved_count": _resolved_gene_count(regions),
         "missing_count": len(missing_genes),
     }
 

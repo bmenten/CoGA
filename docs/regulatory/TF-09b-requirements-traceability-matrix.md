@@ -42,6 +42,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-CARR-001 | small-variant query + panel filter (`services/clickhouse_family_variants.py`, `panel_metadata_service.py`) | `test_panel_filter_constraints.py`; `test_gene_panel_versions.py` | H1,H12 | ◐ |
 | REQ-CARR-002 | recessive/compound-het logic (`services/clickhouse_family_variants.py::get_family_compound_het_candidates`) | (no couple-level test) — clinical validation TF-10 (50 couples) | H2 | ⚠ |
 | REQ-CARR-003 | `services/panel_metadata_service.py` | `test_panelapp_service.py`; `test_gene_panel_versions.py` | H8,H12 | ✅ |
+| REQ-CARR-004 | `services/panel_metadata_service.py::_resolve_gene_regions`, `_replace_panel_members`, `import_panelapp_panel_data`; `services/clickhouse_family_variants.py::_fetch_panel_constraints`; `gene_panel_regions` (`02_reference.sql`, incl. the in-place upgrade) | `test_panel_region_assembly_scope.py`; `test_panel_filter_constraints.py`; `integration/test_panel_regions_per_assembly.py` (real Postgres: per-assembly storage and filter, pre-#515 table upgrade); `GenePanelDetailPage.test.tsx`, `GenePanelsPage.test.tsx` | H12 | ✅ |
 
 ### PGT / haplotype segregation
 | Req | Implementation | Verifying test | Risk | Status |

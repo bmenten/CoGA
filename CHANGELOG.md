@@ -242,6 +242,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   with no override, and every family page and the report label such a family *Not validated for
   clinical use*. Comma-separated `FAMILY_IMPORT_ROOTS` and `CORS_ORIGINS` values set as real
   environment variables no longer fail at startup (#542).
+- **Gene-panel coordinates per assembly** — a panel's regions are stored per reference assembly,
+  and a family's panel filter uses only its own assembly's coordinates. Before, a GRCh38 family
+  could be filtered on T2T coordinates (and PanelApp GRCh37 coordinates on any family), so
+  variants outside the panel could be shown as panel hits. The panel pages show each region's
+  assembly and the panel size per assembly (#543).
 
 ### Security
 
