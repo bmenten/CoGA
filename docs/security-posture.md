@@ -31,9 +31,24 @@ but not yet applied to a live project** · ⛔ not yet done (deployment responsi
   require `get_current_admin_user`.
 - ✅ **PHI download scoping.** CRAM/BAM endpoints check family + sample access
   before issuing presigned URLs (`routers/cram.py`).
-- ✅ **No default secrets in prod.** `Settings.validate_security_defaults`
+- ✅ **No default or weak secrets in prod.** `Settings.validate_security_defaults`
   refuses to start outside dev/test if `SECRET_KEY` / `POSTGRES_PASSWORD` /
-  `ADMIN_PASSWORD` are still placeholders. Passwords are bcrypt-hashed.
+  `ADMIN_PASSWORD` are still placeholders, if `SECRET_KEY` (the HS256 signing key) is
+  shorter than 32 characters, if `CLICKHOUSE_PASSWORD` is empty, or if
+  `INTEGRITY_ANCHOR_SIGNING_KEY` is not the base64 of a 32-byte Ed25519 seed (#522); an
+  unsigned integrity anchor is also refused at write time there. Passwords are
+  bcrypt-hashed.
+- ✅ **Reference routers need a signed-in user**, the species list included (#522).
+- ✅ **Outbound fetches.** The HPO bootstrap downloads over HTTPS only, capped in size,
+  checked to be an OBO file, optionally pinned by `HPO_ONTOLOGY_SHA256` (the digest is
+  logged either way) and written atomically. The clinical-CNV knowledgebase build script
+  runs with an allowlisted environment (no database passwords, signing keys or cloud
+  credentials; `OMIM_API_KEY` is its one credential) (#522).
+- 🟡 **QC-report links** carry a 5-minute, family- and sample-scoped token in the query
+  string, since a browser navigation cannot send a bearer token. The report is served
+  with `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and a sandbox CSP, the
+  token is masked in uvicorn's access log, and the request audit logs query keys only;
+  it can still sit in the browser history until it expires (#522).
 
 **IDOR review:** every endpoint taking a `family_id` / `sample_id` / `project_id`
 routes through the scoping checkpoint; reference data (genes, assemblies, CNV

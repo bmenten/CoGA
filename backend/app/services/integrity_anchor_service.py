@@ -156,6 +156,16 @@ async def _capture_heads(session: AsyncSession) -> list[dict[str, Any]]:
 
 async def create_integrity_anchor(session: AsyncSession) -> dict[str, Any]:
     """Capture all chain heads, sign them, and append one anchor. Commits the caller's tx."""
+    key = _load_signing_key()
+    if key is None and not settings.is_development:
+        # An unsigned anchor carries NO anti-owner tamper-evidence (the owner can re-mint
+        # it over doctored state), so a real environment does not write one (#522). The
+        # startup check already refuses to run there without a signing key; this keeps
+        # the anchor honest even if that check is ever bypassed.
+        raise RuntimeError(
+            "Refusing to write an UNSIGNED integrity anchor outside development "
+            f"(APP_ENV={settings.app_env}): configure INTEGRITY_ANCHOR_SIGNING_KEY."
+        )
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": _ANCHOR_LOCK_KEY}
     )
@@ -171,17 +181,6 @@ async def create_integrity_anchor(session: AsyncSession) -> dict[str, Any]:
     anchor_root = hash_chain.canonical_hash(heads)
     created_at = datetime.now(timezone.utc)
 
-    key = _load_signing_key()
-    if key is None and not settings.is_development:
-        # An unsigned anchor carries NO anti-owner tamper-evidence (the owner can re-mint
-        # it over doctored state). Loudly flag the misconfiguration in a real environment;
-        # the anchor is still written and verify_* reports 'unverifiable_unsigned'. (#332)
-        logger.warning(
-            "Creating an UNSIGNED integrity anchor in a non-development environment "
-            "(APP_ENV=%s): INTEGRITY_ANCHOR_SIGNING_KEY is unset, so this anchor provides "
-            "no tamper-evidence against a database owner. Configure a signing key.",
-            settings.app_env,
-        )
     algo = "ed25519" if key else "unsigned"
     key_id = key.key_id if key else "unsigned"
     public_b64 = key.public_b64 if key else None

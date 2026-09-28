@@ -1,4 +1,6 @@
 from pathlib import Path
+import base64
+import binascii
 import json
 import re
 from typing import Annotated
@@ -16,8 +18,19 @@ API_PATH_PREFIX = "/api"
 _DEVELOPMENT_ENVIRONMENTS = {"dev", "development", "local", "test"}
 _INSECURE_SECRET_VALUES = {"secret", "change-me"}
 _INSECURE_PASSWORD_VALUES = {"admin", "change-me"}
+# HS256 wants at least 256 bits of key material (RFC 7518 §3.2); a short or guessable
+# SECRET_KEY lets anyone mint session tokens (#522).
+_MIN_SECRET_KEY_LENGTH = 32
 # libpq/asyncpg SSL modes for the Postgres connection (TF-13 S-2).
 _POSTGRES_SSLMODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+
+
+def _is_ed25519_seed(value: str) -> bool:
+    """Is this the base64 of a 32-byte Ed25519 seed (INTEGRITY_ANCHOR_SIGNING_KEY)?"""
+    try:
+        return len(base64.b64decode(value.strip(), validate=True)) == 32
+    except (binascii.Error, ValueError):
+        return False
 
 
 class Settings(BaseSettings):
@@ -314,10 +327,14 @@ class Settings(BaseSettings):
         default="/data/ref-data/hpo/hp.obo",
         alias="HPO_ONTOLOGY_PATH",
     )
+    # HTTPS only (#522): the bootstrap trusts what it downloads as the phenotype ontology.
     hpo_ontology_url: str = Field(
-        default="http://purl.obolibrary.org/obo/hp.obo",
+        default="https://purl.obolibrary.org/obo/hp.obo",
         alias="HPO_ONTOLOGY_URL",
     )
+    # Optional pin of the downloaded ontology's SHA-256 (hex). Unset, the digest of what
+    # was downloaded is logged for traceability.
+    hpo_ontology_sha256: str = Field(default="", alias="HPO_ONTOLOGY_SHA256")
     hpo_download_if_missing: bool = Field(default=True, alias="HPO_DOWNLOAD_IF_MISSING")
     reads_path: str | None = None
     # Storage backend for raw family data (IGV alignments + family-package sources).
@@ -517,8 +534,16 @@ class Settings(BaseSettings):
             )
 
         insecure_fields: list[str] = []
-        if self.secret_key.strip() in _INSECURE_SECRET_VALUES:
+        secret_key = self.secret_key.strip()
+        if secret_key in _INSECURE_SECRET_VALUES or len(secret_key) < _MIN_SECRET_KEY_LENGTH:
             insecure_fields.append("SECRET_KEY")
+        # A real environment's ClickHouse holds every genotype; it must have a password.
+        if not self.clickhouse_password.strip():
+            insecure_fields.append("CLICKHOUSE_PASSWORD")
+        # Without it, integrity anchors are unsigned and give no tamper-evidence against a
+        # database owner (#522); it must be the base64 of a 32-byte Ed25519 seed.
+        if not _is_ed25519_seed(self.integrity_anchor_signing_key):
+            insecure_fields.append("INTEGRITY_ANCHOR_SIGNING_KEY")
         if self.postgres_password.strip() in _INSECURE_PASSWORD_VALUES:
             insecure_fields.append("POSTGRES_PASSWORD")
         if self.admin_password.strip() in _INSECURE_PASSWORD_VALUES:
@@ -527,9 +552,14 @@ class Settings(BaseSettings):
             insecure_fields.append("ADMIN_USERNAME")
         if insecure_fields:
             raise ValueError(
-                "Refusing to start outside development/test with insecure default credentials: "
+                "Refusing to start outside development/test with missing or weak secrets: "
                 + ", ".join(sorted(set(insecure_fields)))
-                + ". Set APP_ENV=development for local-only work or provide real secrets."
+                + f". SECRET_KEY needs at least {_MIN_SECRET_KEY_LENGTH} characters "
+                "(python -c 'import secrets; print(secrets.token_urlsafe(48))'); "
+                "CLICKHOUSE_PASSWORD must be set; INTEGRITY_ANCHOR_SIGNING_KEY must be the "
+                "base64 of a 32-byte Ed25519 seed (python -c 'import base64, os; "
+                "print(base64.b64encode(os.urandom(32)).decode())'). "
+                "Set APP_ENV=development for local-only work."
             )
         return self
 

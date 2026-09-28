@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
 from dataclasses import asdict, dataclass, field
 from datetime import date
 import io
@@ -11,6 +12,7 @@ import os
 from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from fastapi import HTTPException
@@ -32,7 +34,10 @@ UNKNOWN_STATUS_VALUES = {"unknown", "uncertain", "na", "n/a", "not_applicable"}
 ANNOTATION_STATUSES = {"present", "absent", "unknown"}
 HPO_ADMIN_TABLES = ("hpo_term", "hpo_synonym", "hpo_edge")
 HPO_IMPORT_TABLES = ("hpo_term", "hpo_synonym", "hpo_edge", "hpo_closure")
-DEFAULT_HPO_ONTOLOGY_URL = "http://purl.obolibrary.org/obo/hp.obo"
+DEFAULT_HPO_ONTOLOGY_URL = "https://purl.obolibrary.org/obo/hp.obo"
+# hp.obo is ~10 MB; the ceiling only stops a runaway response exhausting the disk (#522).
+MAX_HPO_ONTOLOGY_BYTES = 256 * 1024 * 1024
+_HPO_DOWNLOAD_CHUNK = 1 << 20
 
 logger = logging.getLogger(__name__)
 
@@ -546,22 +551,63 @@ def ensure_authorized_hpo_ontology_path(path: str | Path) -> Path:
     raise ValueError("HPO ontology path is outside the authorized ontology directory")
 
 
-def _download_hpo_ontology_file(url: str, candidate_paths: list[Path]) -> Path:
-    errors: list[str] = []
+def _read_bounded(response: Any, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = response.read(_HPO_DOWNLOAD_CHUNK)
+        if not chunk:
+            return b"".join(chunks)
+        total += len(chunk)
+        if total > max_bytes:
+            raise ValueError(f"HPO ontology download exceeds {max_bytes} bytes")
+        chunks.append(chunk)
+
+
+def _download_hpo_ontology_file(
+    url: str,
+    candidate_paths: list[Path],
+    *,
+    expected_sha256: str = "",
+    max_bytes: int = MAX_HPO_ONTOLOGY_BYTES,
+) -> Path:
+    """Download the HPO ontology over HTTPS, bounded, checked, and written atomically.
+
+    The bootstrap trusts this file as the phenotype ontology, so it is fetched over TLS
+    only, capped in size, must look like an OBO file (an HTML error page would otherwise
+    be imported as an empty ontology), is verified against ``expected_sha256`` when one is
+    pinned, and never leaves a partial file behind (#522).
+    """
+    if urlparse(url).scheme.lower() != "https":
+        raise RuntimeError(f"Refusing to download the HPO ontology over a non-HTTPS URL: {url}")
     request = Request(url, headers={"User-Agent": "CoGA-HPO-bootstrap/1.0"})
+    try:
+        with urlopen(request, timeout=60) as response:
+            payload = _read_bounded(response, max_bytes)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to download HPO ontology from {url}: {exc}") from exc
+    if not payload.lstrip().startswith(b"format-version:"):
+        raise RuntimeError(f"The download from {url} is not an OBO ontology file")
+    digest = hashlib.sha256(payload).hexdigest()
+    pinned = expected_sha256.strip().lower()
+    if pinned and digest != pinned:
+        raise RuntimeError(
+            f"HPO ontology from {url} has SHA-256 {digest}, expected {pinned} (HPO_ONTOLOGY_SHA256)"
+        )
+    logger.info("Downloaded the HPO ontology from %s (%d bytes, sha256 %s)", url, len(payload), digest)
+
+    errors: list[str] = []
     for target in candidate_paths:
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            with urlopen(request, timeout=60) as response:
-                target.write_bytes(response.read())
+            partial = target.with_name(target.name + ".partial")
+            partial.write_bytes(payload)
+            os.replace(partial, target)
             return target
         except OSError as exc:
             errors.append(f"{target}: {exc}")
-        except Exception as exc:
-            errors.append(str(exc))
-            break
     detail = "; ".join(errors) if errors else "no candidate download target"
-    raise RuntimeError(f"Failed to download HPO ontology from {url}: {detail}")
+    raise RuntimeError(f"Failed to store the HPO ontology downloaded from {url}: {detail}")
 
 
 async def _hpo_term_count(session: AsyncSession) -> int:
@@ -598,6 +644,7 @@ async def ensure_hpo_ontology_on_startup(
                 _download_hpo_ontology_file,
                 ontology_url,
                 candidate_paths,
+                expected_sha256=settings.hpo_ontology_sha256,
             )
             logger.info("Downloaded HPO ontology to %s", resolved_path)
         except Exception:

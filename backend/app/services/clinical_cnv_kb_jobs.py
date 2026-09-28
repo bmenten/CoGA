@@ -35,6 +35,25 @@ logger = logging.getLogger(__name__)
 _STDERR_TAIL_CHARS = 8000
 
 
+# What the knowledgebase build script needs from the environment, and nothing else: it
+# makes network calls to external sources, so it must not inherit the backend's database
+# passwords, signing keys or cloud credentials (#522). OMIM_API_KEY is its one credential.
+_SCRIPT_ENV_ALLOWLIST = frozenset(
+    {
+        "PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR", "TEMP", "TMP",
+        "PYTHONPATH", "PYTHONHOME", "PYTHONIOENCODING", "PYTHONUNBUFFERED", "VIRTUAL_ENV",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+        "OMIM_API_KEY",
+    }
+)
+
+
+def _build_script_env(environ: dict[str, str] | None = None) -> dict[str, str]:
+    source = os.environ if environ is None else environ
+    return {name: value for name, value in source.items() if name in _SCRIPT_ENV_ALLOWLIST}
+
+
 def _script_path() -> Path | None:
     raw = settings.clinical_cnv_kb_script_path
     if not raw:
@@ -194,7 +213,7 @@ async def _run_job(job_id: str) -> None:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=os.environ.copy(),
+            env=_build_script_env(),
         )
         _, stderr = await process.communicate()
         log_tail = (stderr or b"").decode("utf-8", "replace")[-_STDERR_TAIL_CHARS:]

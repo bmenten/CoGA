@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
-from ..dependencies import get_current_admin_user
+from ..dependencies import get_current_admin_user, get_current_user
 from ..services.metadata_service import CurrentUser, create_species_record, list_species_records
 from ..schemas import SpeciesCreate, SpeciesOut
 
@@ -14,6 +14,8 @@ router = APIRouter(prefix="/species", tags=["species"])
 @router.get("/", response_model=List[SpeciesOut])
 async def list_species(
     session: AsyncSession = Depends(get_postgres_session),
+    # Signed-in users only, like every sibling reference router (#522).
+    user: CurrentUser = Depends(get_current_user),
 ) -> List[SpeciesOut]:
     return await list_species_records(session)
 

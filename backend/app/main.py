@@ -16,7 +16,7 @@ from .core.postgres import (
     init_postgres_schema,
     wait_for_postgres,
 )
-from .core.coga_logging import configure_json_logging
+from .core.coga_logging import configure_json_logging, install_access_log_redaction
 from .core.csv_export import EXPORT_HEADERS
 from .db_migrate import init_postgres_admin_user
 from .middleware.request_logging import log_request_response
@@ -127,6 +127,7 @@ app = FastAPI(
     **_docs_kwargs(),
 )
 configure_json_logging()
+install_access_log_redaction()
 
 app.add_middleware(
     CORSMiddleware,

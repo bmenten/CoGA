@@ -1,3 +1,5 @@
+import base64
+
 import pytest
 from pydantic import ValidationError
 
@@ -107,3 +109,44 @@ def test_clickhouse_tls_defaults_off() -> None:
 
     secure = Settings(_env_file=None, APP_ENV="test", CLICKHOUSE_SECURE=True)
     assert secure.clickhouse_secure is True
+
+
+# --- #522: the startup check refuses weak or missing secrets, not just literal defaults ---
+
+_VALID_PRODUCTION = {
+    "APP_ENV": "production",
+    "SECRET_KEY": "k" * 48,
+    "POSTGRES_PASSWORD": "s3cure-pg-pass",
+    "ADMIN_PASSWORD": "s3cure-admin-pass",
+    "CLICKHOUSE_PASSWORD": "s3cure-ch-pass",
+    # base64 of a 32-byte seed, built here rather than written out: a literal key-shaped
+    # value is exactly what the secret scan is there to catch.
+    "INTEGRITY_ANCHOR_SIGNING_KEY": base64.b64encode(bytes(range(32))).decode(),
+}
+
+
+def test_a_complete_production_configuration_starts() -> None:
+    settings = Settings(_env_file=None, **_VALID_PRODUCTION)
+    assert settings.is_development is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "named"),
+    [
+        ("SECRET_KEY", "short-but-not-a-default", "SECRET_KEY"),  # under 32 characters
+        ("SECRET_KEY", "change-me", "SECRET_KEY"),
+        ("CLICKHOUSE_PASSWORD", "", "CLICKHOUSE_PASSWORD"),
+        ("INTEGRITY_ANCHOR_SIGNING_KEY", "", "INTEGRITY_ANCHOR_SIGNING_KEY"),
+        ("INTEGRITY_ANCHOR_SIGNING_KEY", "not-base64!", "INTEGRITY_ANCHOR_SIGNING_KEY"),
+        ("INTEGRITY_ANCHOR_SIGNING_KEY", base64.b64encode(b"abc").decode(), "INTEGRITY_ANCHOR_SIGNING_KEY"),
+    ],
+)
+def test_production_refuses_weak_or_missing_secrets(field, value, named) -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{**_VALID_PRODUCTION, field: value})
+    assert named in str(excinfo.value)
+
+
+def test_development_does_not_require_production_secrets() -> None:
+    settings = Settings(_env_file=None, APP_ENV="development", SECRET_KEY="dev", CLICKHOUSE_PASSWORD="")
+    assert settings.is_development is True
