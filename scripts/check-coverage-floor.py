@@ -38,6 +38,10 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/variant_ranking_cache.py": 57.0,  # (60.3)
     "backend/app/services/annotation_manifest_service.py": 71.0,  # (74.6)
     "backend/app/services/qc_threshold_service.py": 69.0,  # (72.4)
+    # Added with #526 part 2, under the coverage the new unit tests reach (in brackets).
+    "backend/app/services/structural_variant_review_pg.py": 53.0,  # (56.8) CNV ACMG persistence
+    "backend/app/services/small_variant_review_tags.py": 57.0,  # (60.6)
+    "backend/app/services/clinical_cnv_kb_jobs.py": 85.0,  # (89.3)
 }
 
 # The combined unit + smoke + e2e report (the ``coverage`` CI job). Floors a few points

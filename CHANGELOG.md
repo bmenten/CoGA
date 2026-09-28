@@ -174,6 +174,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Access rules in their own module** — `CurrentUser`, `ADMIN_ROLES` (defined twice until now)
   and the project-visibility rules move from `metadata_service` to `services/access_control.py`,
   so the 64 modules that needed only them no longer import the metadata layer (#572).
+- **Tests for the thinly tested review and job modules (#526)** — structural-variant reviews and
+  their CNV classification, variant tag definitions and the clinical CNV knowledgebase rebuild job
+  now have unit tests and coverage floors (#574).
 
 ### Removed
 
