@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState } from 'react';
-import { Link, Outlet, useNavigate } from 'react-router';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router';
 import Breadcrumbs from './Breadcrumbs';
 import ErrorBoundary from './ErrorBoundary';
 import PageState from './PageState';
@@ -11,6 +11,7 @@ const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
 
 const Layout: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const username = getStoredUsername();
   const [showSettings, setShowSettings] = useState(false);
 
@@ -97,7 +98,7 @@ const Layout: React.FC = () => {
       <Breadcrumbs />
       <main className="flex-1">
         <div className="app-main-inner">
-          <ErrorBoundary>
+          <ErrorBoundary resetKey={location.pathname}>
             <Outlet />
           </ErrorBoundary>
         </div>

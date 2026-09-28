@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { cssVar } from '../../lib/colors';
+import { fetchTrackJson } from '../../lib/trackFetch';
 import { drawHaplotypeRiskOverlay } from '../../lib/haplotypeCanvas';
-import { storage } from '../../lib/storage';
 import {
   diseaseHaplotypeKindForLane,
   getHaplotypeLaneSignature,
@@ -16,6 +16,7 @@ import {
   type HaplotypeRiskRegion,
 } from '../../lib/haplotypeRisk';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizErrorOverlay from './VizErrorOverlay';
 
 const DEFAULT_CHROMS = [...Array.from({ length: 22 }, (_, i) => String(i + 1)), 'X', 'Y'];
 
@@ -91,19 +92,21 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
   chroms = DEFAULT_CHROMS,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const { data: segmentMap = {}, isLoading } = useQuery<Record<string, Segment[]>>({
+  const {
+    data: segmentMap = {},
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<Record<string, Segment[]>>({
     queryKey: ['genome-haplotypes', urls.join(','), chroms.join(',')],
     queryFn: async () => {
       if (!layout) return {};
-      const headers: Record<string, string> = {};
-      const token = storage.getItem('token');
-      if (token) headers.Authorization = `Bearer ${token}`;
+      // Every source must load. A failed source used to be dropped and the rest mapped,
+      // so the disease-haplotype model and the risk state were built from partial data —
+      // and cached for the session (#510). Now any failure fails the query, which is
+      // never cached as data.
       const responses = await Promise.all(
-        urls.map((u) =>
-          fetch(u, { headers })
-            .then((res) => (res.ok ? (res.json() as Promise<HaplotypeSourceResponse>) : null))
-            .catch(() => null),
-        ),
+        urls.map((u) => fetchTrackJson<HaplotypeSourceResponse>(u)),
       );
       const map: Record<string, Segment[]> = {};
       responses.forEach((j, idx) => {
@@ -184,6 +187,11 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
   useEffect(() => {
     if (isLoading) return;
     if (!layout || !canvasRef.current) return;
+    if (isError) {
+      const errorCtx = canvasRef.current.getContext('2d');
+      errorCtx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      return;
+    }
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
@@ -273,6 +281,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     diseaseModel,
     chroms,
     isLoading,
+    isError,
   ]);
   const riskState = useMemo(
     () =>
@@ -287,15 +296,21 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     [segments, diseaseModel, samplesArray, currentMember, analysisRegion],
   );
 
+  // A failed load has no risk state — not "uninformative", which is a real outcome.
+  const shownRiskState = isError ? 'unavailable' : riskState;
+
   return (
     <div
-      className={`relative haplotype-track haplotype-track--${riskState}`}
-      data-risk-state={riskState}
+      className={`relative haplotype-track haplotype-track--${shownRiskState}`}
+      data-risk-state={shownRiskState}
       style={{ width, height }}
     >
-      <canvas ref={canvasRef} aria-label={`Haplotype risk state: ${riskState}`} />
+      <canvas ref={canvasRef} aria-label={`Haplotype risk state: ${shownRiskState}`} />
       {isLoading && <VizLoadingOverlay message="Loading haplotypes" />}
-      {!isLoading && layout && segments.length === 0 && <div className="viz-empty-overlay">No haplotype data</div>}
+      {isError && <VizErrorOverlay what="haplotypes" onRetry={() => void refetch()} />}
+      {!isLoading && !isError && layout && segments.length === 0 && (
+        <div className="viz-empty-overlay">No haplotype data</div>
+      )}
     </div>
   );
 };

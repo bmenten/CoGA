@@ -2,8 +2,9 @@ import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { formatGt, hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
-import { storage } from '../../lib/storage';
+import { fetchTrackJson } from '../../lib/trackFetch';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
 
 interface Genotype {
@@ -69,19 +70,21 @@ const SvTrack: React.FC<Props> = ({
   // React Query caches/dedupes by URL (was a raw fetch in useEffect that ALSO
   // re-fetched on every layout / sampleId / typeColors change). Fetch only depends
   // on the URL now; the per-sample filtering is a cheap memo below.
-  const { data: rawVariants = [], isLoading } = useQuery<Variant[]>({
+  const {
+    data: rawVariants = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<Variant[]>({
     queryKey: ['genome-sv', url],
     enabled: !!layout && !!url,
     staleTime: Infinity,
     gcTime: Infinity,
     queryFn: async ({ signal }) => {
-      const headers: Record<string, string> = {};
-      const token = storage.getItem('token');
-      if (token) headers.Authorization = `Bearer ${token}`;
-      const res = await fetch(url, { headers, signal });
-      if (!res.ok) throw new Error(`SV track request failed with ${res.status}`);
-      const json = await res.json();
-      return (json.variants || []) as Variant[];
+      // Through the shared client (token + session handling); a failure fails the track
+      // instead of reading as "no SVs" (#510).
+      const payload = await fetchTrackJson<{ variants?: Variant[] }>(url, { signal });
+      return (payload?.variants || []) as Variant[];
     },
   });
   const variants = useMemo(
@@ -212,7 +215,8 @@ const SvTrack: React.FC<Props> = ({
         onMouseLeave={() => setTooltip(undefined)}
       />
       {loading && <VizLoadingOverlay message="Loading SVs" />}
-      {!loading && items.length === 0 && (
+      {isError && <VizErrorOverlay what="structural variants" onRetry={() => void refetch()} />}
+      {!loading && !isError && items.length === 0 && (
         <div className="viz-empty-overlay">
           no SVs for this region / sample
         </div>

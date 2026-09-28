@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import { cssVar } from '../../lib/colors';
-import { storage } from '../../lib/storage';
+import { fetchTrackJson } from '../../lib/trackFetch';
 import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
 
 const DEFAULT_CHROMS = [
@@ -47,25 +48,6 @@ interface SegmentHitbox {
 interface BedRecordPayload<T> {
   items: T[];
 }
-
-const fetchJsonOrNull = async <T,>(
-  url: string,
-  headers: Record<string, string>,
-  signal: AbortSignal,
-): Promise<BedRecordPayload<T> | null> => {
-  try {
-    const response = await fetch(url, { headers, signal });
-    if (!response.ok) {
-      return null;
-    }
-    return (await response.json()) as BedRecordPayload<T>;
-  } catch {
-    if (signal.aborted) {
-      throw new DOMException('Aborted', 'AbortError');
-    }
-    return null;
-  }
-};
 
 const splitKey = (key: string): string[] => (key ? key.split('\n').filter(Boolean) : []);
 
@@ -155,19 +137,31 @@ const ApcadChart: React.FC<Props> = ({
 
   // React Query caches/dedupes by URL across re-renders and navigation (was a raw
   // fetch in useEffect). The data is static per family, so it is held indefinitely.
-  const { data: trackData = null, isLoading } = useQuery<ApcadTrackData>({
+  const {
+    data: trackData = null,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<ApcadTrackData>({
     queryKey: ['genome-apcad', apcadUrlKey, pcfUrlKey, chromKey],
     enabled: stableApcadUrls.length > 0 || stablePcfUrls.length > 0,
     staleTime: Infinity,
     gcTime: Infinity,
     queryFn: async ({ signal }) => {
-      const headers: Record<string, string> = {};
-      const token = storage.getItem('token');
-      if (token) headers.Authorization = `Bearer ${token}`;
       const allowedChroms = new Set(stableChroms.map(normalizeChrom));
+      // A 404 is the BED endpoints' "no data" answer; any other failure fails the chart
+      // rather than drawing (and caching) a partial track (#510).
       const [apcadPayloads, pcfPayloads] = await Promise.all([
-        Promise.all(stableApcadUrls.map((url) => fetchJsonOrNull<ApcadBin>(url, headers, signal))),
-        Promise.all(stablePcfUrls.map((url) => fetchJsonOrNull<ApcadSegment>(url, headers, signal))),
+        Promise.all(
+          stableApcadUrls.map((url) =>
+            fetchTrackJson<BedRecordPayload<ApcadBin>>(url, { signal, emptyOn404: true }),
+          ),
+        ),
+        Promise.all(
+          stablePcfUrls.map((url) =>
+            fetchTrackJson<BedRecordPayload<ApcadSegment>>(url, { signal, emptyOn404: true }),
+          ),
+        ),
       ]);
       const bins: ApcadBin[] = [];
       const segments: ApcadSegment[] = [];
@@ -205,7 +199,11 @@ const ApcadChart: React.FC<Props> = ({
     },
   });
   // Keep the previous window painted across a pan (same span); dropped on zoom.
-  const displayData = useSameSpanFallbackData(trackData, (regionEnd ?? 0) - (regionStart ?? 0));
+  const displayData = useSameSpanFallbackData(
+    isError ? null : trackData,
+    (regionEnd ?? 0) - (regionStart ?? 0),
+    `${apcadUrlKey}|${pcfUrlKey}|${chromKey}`,
+  );
   const hasUrls = stableApcadUrls.length > 0 || stablePcfUrls.length > 0;
   const loading = isLoading && hasUrls && displayData === null;
   const hasData = !hasUrls
@@ -456,7 +454,8 @@ const ApcadChart: React.FC<Props> = ({
         </VizTooltip>
       )}
       {loading && <VizLoadingOverlay message="Loading APCAD" />}
-      {!loading && hasData === false && (
+      {isError && <VizErrorOverlay what="APCAD data" onRetry={() => void refetch()} />}
+      {!loading && !isError && hasData === false && (
         <div className="viz-empty-overlay">No APCAD data in this region</div>
       )}
     </div>

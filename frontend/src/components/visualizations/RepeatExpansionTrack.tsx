@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
+import VizErrorOverlay from './VizErrorOverlay';
 import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
@@ -31,7 +32,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
   chromosomeSize,
 }) => {
   const overviewMode = Number.isFinite(chromosomeSize) && (chromosomeSize ?? 0) > 0;
-  const { data: rawData, isLoading } = useQuery<ApiRepeatExpansionTrackResponse>({
+  const { data: rawData, isLoading, isError, refetch } = useQuery<ApiRepeatExpansionTrackResponse>({
     queryKey: [
       'repeat-expansions',
       familyId,
@@ -66,7 +67,11 @@ const RepeatExpansionTrack: React.FC<Props> = ({
     staleTime: Infinity,
     gcTime: Infinity,
   });
-  const data = useSameSpanFallbackData(rawData, (regionEnd ?? 0) - (regionStart ?? 0));
+  const data = useSameSpanFallbackData(
+    isError ? null : rawData,
+    (regionEnd ?? 0) - (regionStart ?? 0),
+    `${familyId}|${sampleId}|${chrom}`,
+  );
 
   const regionLength = Math.max(regionEnd - regionStart, 1);
   const visibleItems = useMemo(
@@ -143,7 +148,8 @@ const RepeatExpansionTrack: React.FC<Props> = ({
         })}
       </svg>
       {isLoading && <VizLoadingOverlay message="Loading repeat expansions" />}
-      {!isLoading && visibleItems.length === 0 && (
+      {isError && <VizErrorOverlay what="repeat expansions" onRetry={() => void refetch()} />}
+      {!isLoading && !isError && visibleItems.length === 0 && (
         <div className="viz-empty-overlay">
           {overviewMode ? 'No repeat loci for this chromosome' : 'No repeat loci in this region'}
         </div>

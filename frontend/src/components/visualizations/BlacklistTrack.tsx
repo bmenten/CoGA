@@ -1,6 +1,7 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
+import VizErrorOverlay from './VizErrorOverlay';
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
 
@@ -27,7 +28,7 @@ const BlacklistTrack: React.FC<Props> = ({
   regionStart,
   regionEnd,
 }) => {
-  const { data: rawData } = useQuery<Region[]>({
+  const { data: rawData, isError, refetch } = useQuery<Region[]>({
     queryKey: ["blacklist", assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(`/blacklist/${assembly}/${chrom}`, {
@@ -39,7 +40,21 @@ const BlacklistTrack: React.FC<Props> = ({
     staleTime: Infinity,
     gcTime: Infinity,
   });
-  const data = useSameSpanFallbackData(rawData, (regionEnd ?? 0) - (regionStart ?? 0));
+  const data = useSameSpanFallbackData(
+    isError ? null : rawData,
+    (regionEnd ?? 0) - (regionStart ?? 0),
+    `${assembly}|${chrom}`,
+  );
+
+  // A failed request must never read as an empty region (#510).
+  if (isError) {
+    return (
+      <div className="relative" style={{ width, height }}>
+        <svg width={width} height={height} />
+        <VizErrorOverlay what="blacklist regions" onRetry={() => void refetch()} />
+      </div>
+    );
+  }
 
   if (!data) return <svg width={width} height={height} />;
 
