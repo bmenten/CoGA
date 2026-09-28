@@ -246,26 +246,72 @@ test('keeps multi-partner complex pedigrees from overlapping nodes', async () =>
   }
 });
 
-test('colours each individual symbol by its QC status with a tooltip', async () => {
+test('marks QC with a ring and a glyph, not by colour alone (#529)', async () => {
   const { container } = render(
     <Pedigree
-      rows={baseRows}
+      rows={[...baseRows, { fid: 'F1', iid: 'KID', pid: 'DAD', mid: 'MOM', sex: '0', phen: '1' }]}
       qcStatusBySample={{
         DAD: { status: 'fail', label: 'Sex mismatch: recorded male, genotypes female' },
         MOM: { status: 'pass', label: 'Sex female (matches record)' },
+        KID: { status: 'warn', label: 'Mendelian errors above the warning limit' },
       }}
     />
   );
   await svgWidth(container);
 
-  // Father is a square: its own outline turns red on failure.
-  const dad = container.querySelector('[data-pedigree-node="DAD"]');
+  const node = (id: string) => container.querySelector(`[data-pedigree-node="${id}"]`);
+  // Father (a square): a thick square ring and ✕; the tooltip gives the reason.
+  const dad = node('DAD');
   expect(dad?.getAttribute('data-qc-status')).toBe('fail');
-  expect(dad?.querySelector('rect')?.getAttribute('stroke')).toBe('#dc2626');
+  const dadRing = dad?.querySelector('[data-qc-ring]');
+  expect(dadRing?.tagName).toBe('rect');
+  expect(dadRing?.getAttribute('stroke')).toBe('#dc2626');
+  expect(dadRing?.getAttribute('stroke-width')).toBe('3');
+  expect(dad?.querySelector('[data-qc-glyph] text')?.textContent).toBe('✕');
   expect(dad?.querySelector('title')?.textContent).toMatch(/Sex mismatch/);
 
-  // Mother is a circle: its outline turns green when checks pass.
+  // Mother (a circle): a thin solid ring and ✓.
+  const momRing = node('MOM')?.querySelector('[data-qc-ring]');
+  expect(momRing?.tagName).toBe('circle');
+  expect(momRing?.getAttribute('stroke')).toBe('#16a34a');
+  expect(momRing?.getAttribute('stroke-dasharray')).toBeNull();
+  expect(node('MOM')?.querySelector('[data-qc-glyph] text')?.textContent).toBe('✓');
+
+  // Child of unknown sex (a diamond): a dashed ring and !, so warn is not told from
+  // pass by amber versus green alone.
+  const kidRing = node('KID')?.querySelector('[data-qc-ring]');
+  expect(kidRing?.tagName).toBe('path');
+  expect(kidRing?.getAttribute('stroke-dasharray')).toBe('4 3');
+  expect(node('KID')?.querySelector('[data-qc-glyph] text')?.textContent).toBe('!');
+
+  // The symbols themselves keep the default outline.
+  expect(dad?.querySelector('rect:not([data-qc-ring])')?.getAttribute('stroke')).toBe('black');
+});
+
+test('a QC verdict leaves the affected fill and the carrier-type colour alone (#529)', async () => {
+  const { container } = render(
+    <Pedigree
+      rows={[
+        { fid: 'F1', iid: 'DAD', pid: '0', mid: '0', sex: '1', phen: '2' },
+        { fid: 'F1', iid: 'MOM', pid: '0', mid: '0', sex: '2', phen: '1' },
+      ]}
+      members={[
+        { sample_id: 'DAD', role: 'father', affected: true },
+        { sample_id: 'MOM', role: 'mother', carrier_status: 'carrier', carrier_type: 'obligate' },
+      ]}
+      qcStatusBySample={{ DAD: { status: 'pass' }, MOM: { status: 'fail' } }}
+    />
+  );
+  await svgWidth(container);
+
+  // The QC colour used to fill the affected square and the carrier half-circle.
+  const dad = container.querySelector('[data-pedigree-node="DAD"]');
+  expect(dad?.querySelector('rect:not([data-qc-ring])')?.getAttribute('fill')).toBe('black');
   const mom = container.querySelector('[data-pedigree-node="MOM"]');
-  expect(mom?.getAttribute('data-qc-status')).toBe('pass');
-  expect(mom?.querySelector('circle')?.getAttribute('stroke')).toBe('#16a34a');
+  const halfFill = Array.from(mom?.querySelectorAll('path') ?? []).find(
+    (path) => !path.hasAttribute('data-qc-ring'),
+  );
+  expect(halfFill?.getAttribute('fill')).toBe('#2563eb'); // obligate carrier
+  // The carrier type is named, not left to the half-fill's colour.
+  expect(mom?.querySelector('title')?.textContent).toBe('QC: fail · Carrier (obligate)');
 });

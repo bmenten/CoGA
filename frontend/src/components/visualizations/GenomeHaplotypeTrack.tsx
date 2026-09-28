@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
-import { drawHaplotypeRiskOverlay } from '../../lib/haplotypeCanvas';
+import { drawHaplotypeRiskOverlay, haplotypeRiskPattern } from '../../lib/haplotypeCanvas';
 import {
   diseaseHaplotypeKindForLane,
   getHaplotypeLaneSignature,
@@ -254,7 +254,11 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
           ctx.lineTo(x2 - 0.75, y + rectHeight - 1);
           ctx.stroke();
         }
-        if (riskKind) drawHaplotypeRiskOverlay(ctx, x1, y, w, rectHeight, riskColors[riskKind]);
+        if (riskKind) {
+          drawHaplotypeRiskOverlay(ctx, x1, y, w, rectHeight, riskColors[riskKind], {
+            pattern: haplotypeRiskPattern(riskKind),
+          });
+        }
       });
     });
 

@@ -15,6 +15,13 @@ import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
 import { apiPath } from '../../lib/apiPath';
+import {
+  SMALL_VARIANT_MARKS,
+  markDrawRank,
+  smallVariantMarkExtent,
+  smallVariantMarkKind,
+  smallVariantMarkPath,
+} from '../../lib/smallVariantMarks';
 
 interface Genotype {
   sample: string;
@@ -44,6 +51,7 @@ interface Variant {
 
 interface TagDefinition {
   key: string;
+  label?: string | null;
   color?: string | null;
 }
 
@@ -72,55 +80,6 @@ const samplePresenceFilter = (sampleId: string) => `${sampleId}:het|hom`;
 const hasActiveFilterValue = (value: unknown): boolean => {
   if (Array.isArray(value)) return value.some(hasActiveFilterValue);
   return String(value ?? '').trim().length > 0;
-};
-
-// Functional-impact colours (raw VEP/SnpEff IMPACT). Tuned for contrast against
-// the light track background; ClinVar benign/pathogenic override these (see
-// getVariantColor). Kept as literal hex so the component renders without the
-// theme stylesheet (and stays unit-testable).
-const IMPACT_COLORS = {
-  high: '#fb923c', // orange — HIGH
-  medium: '#4ade80', // green — MODERATE / MEDIUM
-  low: '#9ca3af', // gray — LOW / MODIFIER / unknown
-} as const;
-
-// ClinVar overrides: only benign and pathogenic categories recolour the dot.
-const CLINVAR_OVERRIDE_COLORS = {
-  pathogenic: '#dc2626', // red — pathogenic / likely pathogenic
-  benign: '#60a5fa', // blue — benign / likely benign
-} as const;
-
-const normalizeClinvar = (clinvar?: string | null): string =>
-  (clinvar || '')
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-// Light blue for benign/likely-benign, red for pathogenic/likely-pathogenic;
-// every other ClinVar value (uncertain, conflicting, risk factor, …) returns
-// undefined so the variant falls through to its functional-impact colour.
-const getClinvarOverrideColor = (clinvar?: string | null): string | undefined => {
-  const value = normalizeClinvar(clinvar);
-  if (!value) return undefined;
-  // "conflicting interpretations of pathogenicity" must not read as pathogenic.
-  if (value.includes('conflicting')) return undefined;
-  if (value.includes('pathogenic')) return CLINVAR_OVERRIDE_COLORS.pathogenic;
-  if (value.includes('benign')) return CLINVAR_OVERRIDE_COLORS.benign;
-  return undefined;
-};
-
-const getImpactColor = (impact?: string | null): string => {
-  switch ((impact || '').toUpperCase()) {
-    case 'HIGH':
-      return IMPACT_COLORS.high;
-    case 'MODERATE':
-    case 'MEDIUM':
-      return IMPACT_COLORS.medium;
-    default:
-      // LOW, MODIFIER, or unannotated.
-      return IMPACT_COLORS.low;
-  }
 };
 
 type ParentalOrigin = 'paternal' | 'maternal' | 'unknown';
@@ -270,13 +229,14 @@ const SmallVariantTrack: React.FC<Props> = ({
           data.total >= SMALL_VARIANT_TRACK_RESULT_LIMIT ||
           (data.count_limit != null && data.total >= data.count_limit)),
     );
-  const tagColorMap = React.useMemo(() => {
-    if (!Array.isArray(tagDefinitions)) return {};
-    return Object.fromEntries(
-      tagDefinitions
-        .filter((tag) => tag.key && tag.color)
-        .map((tag) => [tag.key, tag.color as string]),
-    );
+  const tagByKey = React.useMemo(() => {
+    const byKey = new Map<string, TagDefinition>();
+    if (Array.isArray(tagDefinitions)) {
+      tagDefinitions.forEach((tag) => {
+        if (tag.key) byKey.set(tag.key, tag);
+      });
+    }
+    return byKey;
   }, [tagDefinitions]);
 
   const variants = React.useMemo(
@@ -308,15 +268,11 @@ const SmallVariantTrack: React.FC<Props> = ({
     [variants, regionStart, span, width, originMode, sampleId, paternalSampleId, maternalSampleId]
   );
 
-  const getVariantColor = React.useCallback(
-    (variant: Variant) => {
-      const tagColor = variant.review?.tags
-        ?.map((tagKey) => tagColorMap[tagKey])
-        .find(Boolean);
-      if (tagColor) return tagColor;
-      return getClinvarOverrideColor(variant.clinvar) ?? getImpactColor(variant.impact);
-    },
-    [tagColorMap],
+  // A review tag rings the mark in the tag's colour; the mark keeps its own class (#529).
+  const getVariantTagColor = React.useCallback(
+    (variant: Variant): string | undefined =>
+      variant.review?.tags?.map((tagKey) => tagByKey.get(tagKey)?.color).find(Boolean) ?? undefined,
+    [tagByKey],
   );
   const emptyMessage = tooManyVariants
     ? 'Too many variants to display. Zoom in or apply filters.'
@@ -379,14 +335,36 @@ const SmallVariantTrack: React.FC<Props> = ({
       });
     }
 
-    // One data-join for all dots instead of an append per variant.
-    g.selectAll<SVGCircleElement, PositionedVariant>('circle')
-      .data(withPos)
+    // One data-join per layer instead of an append per variant. The salient marks are
+    // drawn last, so a dense run of low-impact dots cannot cover a pathogenic one.
+    const marked = withPos
+      .map((v) => ({ v, kind: smallVariantMarkKind(v), tagColor: getVariantTagColor(v) }))
+      .sort((a, b) => markDrawRank(a.kind) - markDrawRank(b.kind));
+    g.selectAll<SVGCircleElement, (typeof marked)[number]>('circle.small-variant-tag-ring')
+      .data(marked.filter((entry) => entry.tagColor))
       .join('circle')
-      .attr('cx', (v) => v.x)
-      .attr('cy', (v) => cyForOrigin(v.origin))
-      .attr('r', radius)
-      .attr('fill', (v) => getVariantColor(v));
+      .attr('class', 'small-variant-tag-ring')
+      .attr('data-variant-tag-ring', (entry) => entry.v.start)
+      .attr('cx', (entry) => entry.v.x)
+      .attr('cy', (entry) => cyForOrigin(entry.v.origin))
+      .attr('r', (entry) => smallVariantMarkExtent(entry.kind, radius) + 1.8)
+      .attr('fill', 'none')
+      .attr('stroke', (entry) => entry.tagColor as string)
+      .attr('stroke-width', 1.2);
+    g.selectAll<SVGPathElement, (typeof marked)[number]>('path.small-variant-mark')
+      .data(marked)
+      .join('path')
+      .attr('class', 'small-variant-mark')
+      .attr('data-variant-mark', (entry) => entry.kind)
+      .attr('transform', (entry) => `translate(${entry.v.x},${cyForOrigin(entry.v.origin)})`)
+      .attr('d', (entry) => smallVariantMarkPath(entry.kind, radius))
+      .attr('fill', (entry) =>
+        SMALL_VARIANT_MARKS[entry.kind].hollow ? 'white' : SMALL_VARIANT_MARKS[entry.kind].color,
+      )
+      .attr('stroke', (entry) =>
+        SMALL_VARIANT_MARKS[entry.kind].hollow ? SMALL_VARIANT_MARKS[entry.kind].color : 'none',
+      )
+      .attr('stroke-width', (entry) => (SMALL_VARIANT_MARKS[entry.kind].hollow ? 1 : 0));
 
     // A single delegated hit layer + quadtree replaces the per-variant transparent
     // hitbox rects (up to ~N extra DOM nodes at the 10k cap). On hover we look up
@@ -417,7 +395,7 @@ const SmallVariantTrack: React.FC<Props> = ({
         }
       })
       .on('mouseout', () => setTooltip(null));
-  }, [withPos, height, originMode, width, getVariantColor, emptyMessage, isLoading, isError]);
+  }, [withPos, height, originMode, width, getVariantTagColor, emptyMessage, isLoading, isError]);
 
   return (
     <div className="relative" style={{ width, height }}>
@@ -438,6 +416,14 @@ const SmallVariantTrack: React.FC<Props> = ({
           {tooltip.variant.hgvsp ? <div>{tooltip.variant.hgvsp}</div> : null}
           {tooltip.variant.impact ? <div>Impact: {tooltip.variant.impact}</div> : null}
           {tooltip.variant.clinvar ? <div>ClinVar: {tooltip.variant.clinvar}</div> : null}
+          {tooltip.variant.review?.tags?.length ? (
+            <div>
+              Tags:{' '}
+              {tooltip.variant.review.tags
+                .map((tagKey) => tagByKey.get(tagKey)?.label || tagKey)
+                .join(', ')}
+            </div>
+          ) : null}
           {originMode ? <div>{ORIGIN_LABEL[tooltip.variant.origin]}</div> : null}
         </VizTooltip>
       )}

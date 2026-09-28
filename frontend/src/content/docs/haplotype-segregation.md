@@ -90,8 +90,12 @@ stands out:
 
 | Overlay | Meaning |
 | --- | --- |
-| **Red** | The **dominant** affected haplotype — the single haplotype shared by the affected / obligate members at the ROI. |
-| **Orange** | A **recessive carrier** haplotype. An affected individual has two orange haplotypes; a carrier has one. |
+| **Red, solid line** | The **dominant** affected haplotype — the single haplotype shared by the affected / obligate members at the ROI. |
+| **Orange, dashed line** | A **recessive carrier** haplotype. An affected individual has two orange haplotypes; a carrier has one. |
+
+The line is set off from the homolog colour by a light gap. In the chromosome view it
+runs just below the thin haplotype band, so the band keeps its whole colour; on the
+genome overview it runs along the band's bottom edge.
 
 The risk overlay is derived (see *Disease-haplotype inference* below), not entered.
 

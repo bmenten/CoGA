@@ -41,11 +41,11 @@ cause harm and that the summative evaluation must cover:
 | ID | Hazard-related use scenario | Linked hazard | UI risk control |
 | --- | --- | --- | --- |
 | U1 | Analyst overlooks a low fetal-fraction / wide-CI warning and trusts a NIPT category call | H6 | FF gauge + CI + disagreement flag prominently surfaced |
-| U2 | Analyst trusts a PGT embryo call despite recombination near the ROI or sparse informative markers | H5 | Raw-marker overlay, informative-marker count, recombination warning, "uninformative" state |
+| U2 | Analyst trusts a PGT embryo call despite recombination near the ROI or sparse informative markers | H5 | Raw-marker overlay, informative-marker count, recombination warning, "uninformative" state; the risk-haplotype line is solid (affected) or dashed (carrier) and set off from the band by a light gap, not told apart by hue alone (CR-054) |
 | U3 | Analyst signs out while evidence has drifted, without realizing it | H8 | Drift badge + sign-out **409 gate** requiring explicit acknowledgment |
 | U4 | Analyst misreads the filter funnel and believes nothing was dropped when variants were filtered out | H1 | Explicit drop counts at each funnel stage |
 | U5 | Analyst signs out the wrong variant / wrong candidate set | H10 | Clear "report"-tagged set, frozen snapshot preview, audit trail |
-| U6 | Analyst misreads a Mendel-error/QC flag indicating sample swap | H4 | Mendel-error rate surfaced per child with guidance |
+| U6 | Analyst misreads a Mendel-error/QC flag indicating sample swap | H4 | Mendel-error rate surfaced per child with guidance; on the pedigree each sample's QC verdict is a ring whose line and badge (✓ ! ✕) tell pass, warn and fail apart, and which leaves the affected and carrier fills intact (CR-054) |
 | U7 | Analyst acts on data from the wrong assembly/panel/assay scope | H12 | Assembly/assay context displayed; off-scope guard (✅ #515: sign-out refused off `VALIDATED_ASSEMBLIES`, "Not validated for clinical use" label on family and report pages; panel coordinates scoped per assembly) |
 | U8 | Analyst loses half-finished review or ACMG input through a stray backdrop click or Escape, or two reviewers overwrite each other's classification | H3, H9 | Clinical dialogs ask before discarding unsaved input, close on Escape, trap focus and ignore a text-selection drag onto the backdrop (#529); so do the family-member dialog, for phenotype and carrier edits not yet applied, and the QC cut-off confirmation, for the reason typed (CR-052); a save against a review changed since it was loaded is refused and the current review shown (#513) |
 | U9 | Two workstations colour the same coverage differently (per-browser gain/loss thresholds) and the analyst reads a CNV call from the colour | H1, H7 | The chart always shows the thresholds in use and marks custom (this-browser) values; Settings explains the scope and resets them (#529) |
@@ -53,8 +53,12 @@ cause harm and that the summative evaluation must cover:
 ## 4. User interface specification & risk controls
 The UI-level risk controls above are requirements (traced in TF-09 RTM). Design principles:
 safety-critical signals are **visible without extra navigation**, destructive/irreversible
-actions (sign-out) require confirmation and are gated, and derived calls always display their
-QC basis. In-app guidance lives at `/docs` (the user guide) and is part of "information for
+actions (sign-out) require confirmation and are gated, derived calls always display their
+QC basis, and **a clinical state is not conveyed by colour alone** (WCAG 1.4.1): a shape,
+line style, glyph or text carries it too. CR-054 applies this to the pedigree QC ring, the
+risk-haplotype line and the small-variant marks. Two colour codes remain, each named in a
+tooltip: the pedigree's carrier-type half-fill, and the MODERATE versus LOW small-variant
+dots. In-app guidance lives at `/docs` (the user guide) and is part of "information for
 safety" (TF-15).
 
 ## 5. Evaluation plan

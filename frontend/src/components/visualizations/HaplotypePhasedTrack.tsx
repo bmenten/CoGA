@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
-import { drawHaplotypeRiskOverlay } from '../../lib/haplotypeCanvas';
+import { drawHaplotypeRiskOverlay, haplotypeRiskPattern } from '../../lib/haplotypeCanvas';
 import {
   defaultHaplotypeRiskRegion,
   diseaseHaplotypeKindForLane,
@@ -517,7 +517,13 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
           ctx.stroke();
         }
         const riskKind = laneRiskKind(seg, lane);
-        if (riskKind) drawHaplotypeRiskOverlay(ctx, x1, y, w, BAND_THICKNESS, riskColors[riskKind]);
+        // The band is thin, so the risk line goes just below it and the band stays whole.
+        if (riskKind) {
+          drawHaplotypeRiskOverlay(ctx, x1, y, w, BAND_THICKNESS, riskColors[riskKind], {
+            pattern: haplotypeRiskPattern(riskKind),
+            placement: 'below',
+          });
+        }
       });
     });
 
@@ -579,6 +585,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
         MARKER_WIDTH,
         markerHalfHeight * 2,
         riskColors[kind],
+        { pattern: haplotypeRiskPattern(kind) },
       );
     };
     markers.forEach((marker) => {
