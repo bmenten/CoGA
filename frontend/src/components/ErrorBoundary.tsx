@@ -2,7 +2,15 @@ import React from 'react';
 import { Link } from 'react-router';
 import PageState from './PageState';
 
-type Props = { children: React.ReactNode };
+type Props = {
+  children: React.ReactNode;
+  /**
+   * Clears a caught error when it changes — the Layout passes the route, so navigating
+   * away (e.g. via the "Dashboard" link on the error screen itself) shows the new view
+   * instead of the same error screen (#510).
+   */
+  resetKey?: string;
+};
 type State = { hasError: boolean; message?: string };
 
 export default class ErrorBoundary extends React.Component<Props, State> {
@@ -14,6 +22,12 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   static getDerivedStateFromError(error: unknown): State {
     const message = error instanceof Error ? error.message : String(error);
     return { hasError: true, message };
+  }
+
+  componentDidUpdate(prevProps: Props) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, message: undefined });
+    }
   }
 
   componentDidCatch(error: unknown, errorInfo: unknown) {

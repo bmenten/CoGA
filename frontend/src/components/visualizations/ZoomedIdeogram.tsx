@@ -5,6 +5,7 @@ import { cssVar } from "../../lib/colors";
 import { getStainColor } from "../../lib/stainColors";
 import { getAcenDirection, getBandGradientStops, niceTickInterval } from "../../lib/ideogram";
 import VizTooltip from "./VizTooltip";
+import VizErrorOverlay from "./VizErrorOverlay";
 
 interface IdeogramBand {
   name: string;
@@ -45,7 +46,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
   regionStart,
   regionEnd,
 }) => {
-  const { data } = useQuery<Chromosome>({
+  const { data, isError, refetch } = useQuery<Chromosome>({
     queryKey: ["chromosome", assembly, chrom],
     queryFn: async () => {
       const res = await api.get(`/chromosomes/${assembly}/${chrom}`);
@@ -59,6 +60,15 @@ const ZoomedIdeogram: React.FC<Props> = ({
     y: number;
     name: string;
   } | null>(null);
+
+  if (isError) {
+    return (
+      <div className="relative" style={{ width, height }}>
+        <svg width={width} height={height} />
+        <VizErrorOverlay what="the chromosome ideogram" onRetry={() => void refetch()} />
+      </div>
+    );
+  }
 
   if (!data || regionEnd <= regionStart) {
     return <svg width={width} height={height} />;

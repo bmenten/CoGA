@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
+import VizErrorOverlay from './VizErrorOverlay';
 import { select } from "d3-selection";
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
@@ -44,7 +45,7 @@ const GeneTrack: React.FC<Props> = ({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
 
-  const { data: rawGenes } = useQuery<Gene[]>({
+  const { data: rawGenes, isError, refetch } = useQuery<Gene[]>({
     queryKey: ["genes", assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(`/genes/${assembly}/${chrom}`, {
@@ -56,7 +57,11 @@ const GeneTrack: React.FC<Props> = ({
     staleTime: Infinity,
     gcTime: Infinity,
   });
-  const genes = useSameSpanFallbackData(rawGenes, (regionEnd ?? 0) - (regionStart ?? 0));
+  const genes = useSameSpanFallbackData(
+    isError ? null : rawGenes,
+    (regionEnd ?? 0) - (regionStart ?? 0),
+    `${assembly}|${chrom}`,
+  );
 
   const { data: panels } = useQuery<GenePanel[]>({
     queryKey: ["gene-panels"],
@@ -217,7 +222,8 @@ const GeneTrack: React.FC<Props> = ({
       className="text-text"
     >
       <svg ref={svgRef} width={width} height={containerHeight} />
-      {genes !== undefined && !hasGenes && (
+      {isError && <VizErrorOverlay what="genes" onRetry={() => void refetch()} />}
+      {!isError && genes !== null && !hasGenes && (
         <div className="viz-empty-overlay">No genes in this region</div>
       )}
       {createPortal(

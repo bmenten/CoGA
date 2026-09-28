@@ -3,6 +3,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ApcadChart from '../ApcadChart';
+import { serveTrackFetchFrom } from '../../../test/trackFetchMock';
+
+// The charts fetch through lib/trackFetch (the shared API client); serve it from the
+// fetch-shaped fixtures below.
+vi.mock('../../../lib/trackFetch', async () => {
+  const { fetchTrackJsonMock } = await import('../../../test/trackFetchMock');
+  return { fetchTrackJson: fetchTrackJsonMock };
+});
 
 /**
  * The APCAD track normally shows parent-of-origin markers, but it is also where a
@@ -41,9 +49,7 @@ const renderChart = () => {
 };
 
 const respondWith = (items: unknown[]) => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({
+  serveTrackFetchFrom(vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ items }),
     }),

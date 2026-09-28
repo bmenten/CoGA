@@ -12,6 +12,7 @@ import {
   shouldShowSmallVariantDetails,
 } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
 
 interface Genotype {
@@ -218,7 +219,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     }
     return nextFilters;
   }, [filters, sampleId]);
-  const { data: rawData, isLoading } = useQuery<ApiVariantPage<Variant>>({
+  const { data: rawData, isLoading, isError, refetch } = useQuery<ApiVariantPage<Variant>>({
     queryKey: [
       'small-variants-track',
       familyId,
@@ -247,7 +248,11 @@ const SmallVariantTrack: React.FC<Props> = ({
     },
     enabled: canRequestSmallVariants,
   });
-  const data = useSameSpanFallbackData(rawData, (regionEnd ?? 0) - (regionStart ?? 0));
+  const data = useSameSpanFallbackData(
+    isError ? null : rawData,
+    (regionEnd ?? 0) - (regionStart ?? 0),
+    `${familyId}|${sampleId}|${chrom}`,
+  );
   const { data: tagDefinitions = [] } = useQuery<TagDefinition[]>({
     queryKey: ['small-variant-track-tags', familyId],
     queryFn: async () => {
@@ -332,6 +337,12 @@ const SmallVariantTrack: React.FC<Props> = ({
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
+    // A failed request draws nothing: the error overlay says so, and the empty-state text
+    // below must never stand in for a failure (#510).
+    if (isError) {
+      return;
+    }
+
     if (withPos.length === 0) {
       svg
         .append('text')
@@ -406,12 +417,13 @@ const SmallVariantTrack: React.FC<Props> = ({
         }
       })
       .on('mouseout', () => setTooltip(null));
-  }, [withPos, height, originMode, width, getVariantColor, emptyMessage, isLoading]);
+  }, [withPos, height, originMode, width, getVariantColor, emptyMessage, isLoading, isError]);
 
   return (
     <div className="relative" style={{ width, height }}>
       <svg ref={svgRef} width={width} height={height} />
       {isLoading && <VizLoadingOverlay message="Loading small variants" />}
+      {isError && <VizErrorOverlay what="small variants" onRetry={() => void refetch()} />}
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>
           <div>{tooltip.variant.gene || tooltip.variant.gene_id || 'Intergenic variant'}</div>

@@ -1,10 +1,18 @@
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { type ReactElement, type ReactNode } from 'react';
 import { createTestQueryClient } from '../../test/createTestQueryClient';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CoverageSegmentsChart from '../visualizations/CoverageSegmentsChart';
 import { storage } from '../../lib/storage';
+import { serveTrackFetchFrom } from '../../test/trackFetchMock';
+
+// The charts fetch through lib/trackFetch (the shared API client); serve it from the
+// fetch-shaped fixtures below.
+vi.mock('../../lib/trackFetch', async () => {
+  const { fetchTrackJsonMock } = await import('../../test/trackFetchMock');
+  return { fetchTrackJson: fetchTrackJsonMock };
+});
 
 const createCanvasContext = (): CanvasRenderingContext2D =>
   ({
@@ -61,7 +69,7 @@ describe('CoverageSegmentsChart', () => {
         }),
       });
     });
-    vi.stubGlobal('fetch', fetchMock);
+    serveTrackFetchFrom(fetchMock);
 
     const { rerender } = renderWithClient(
       <CoverageSegmentsChart
@@ -96,7 +104,7 @@ describe('CoverageSegmentsChart', () => {
         json: async () => [{ chr: '1', start: 0, end: 100, value: 0.2 }],
       }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    serveTrackFetchFrom(fetchMock);
 
     renderWithClient(
       <CoverageSegmentsChart
@@ -121,9 +129,7 @@ describe('CoverageSegmentsChart', () => {
       ys.push(y);
     }) as unknown as CanvasRenderingContext2D['arc'];
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() =>
+    serveTrackFetchFrom(vi.fn(() =>
         Promise.resolve({
           ok: true,
           json: async () => ({ items: [{ chr: '1', start: 0, end: 100, value: 0.1 }] }),
@@ -157,7 +163,7 @@ describe('CoverageSegmentsChart', () => {
       }
       return Promise.resolve({ ok: true, json: async () => ({ items: [] }) });
     });
-    vi.stubGlobal('fetch', fetchMock);
+    serveTrackFetchFrom(fetchMock);
 
     renderWithClient(
       <CoverageSegmentsChart
@@ -174,5 +180,61 @@ describe('CoverageSegmentsChart', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     // Segment lines are stroked even though there are no coverage bins.
     await waitFor(() => expect(canvasContext.stroke).toHaveBeenCalled());
+  });
+
+  // #510 — the BED endpoints answer "no data" with a 404; that is an empty source, while
+  // any other failure must fail the chart rather than draw what did load.
+  it('treats a "no data" 404 as an empty source and still draws the rest', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes('segments')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ items: [{ chr: '1', start: 0, end: 100, value: 0.2 }] }),
+        });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+    });
+    serveTrackFetchFrom(fetchMock);
+
+    renderWithClient(
+      <CoverageSegmentsChart
+        coverageUrls={['https://example.test/coverage']}
+        segmentsUrls={['https://example.test/segments']}
+        chroms={['1']}
+        regionStart={0}
+        regionEnd={100}
+        width={320}
+        height={120}
+      />,
+    );
+
+    await waitFor(() => expect(canvasContext.stroke).toHaveBeenCalled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows a failure instead of a partial or empty chart when a source errors', async () => {
+    serveTrackFetchFrom(
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).includes('segments')
+          ? Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
+          : Promise.resolve({
+              ok: true,
+              json: async () => ({ items: [{ chr: '1', start: 0, end: 100, value: 0.1 }] }),
+            }),
+      ),
+    );
+
+    renderWithClient(
+      <CoverageSegmentsChart
+        coverageUrls={['https://example.test/coverage']}
+        segmentsUrls={['https://example.test/segments']}
+        chroms={['1']}
+        width={320}
+        height={120}
+      />,
+    );
+
+    expect(await screen.findByText(/Could not load coverage — this is not an empty result/)).toBeInTheDocument();
+    expect(screen.queryByText(/No coverage data in this region/)).not.toBeInTheDocument();
   });
 });
