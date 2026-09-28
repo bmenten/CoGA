@@ -163,31 +163,30 @@ De platformversie staat in `VERSION`: **`0.1.0`**. (Let op: dit is de productver
 
 | Technologie | Versie | Rol |
 | --- | --- | --- |
-| React + React-DOM | ^19.2 | UI-framework |
-| TypeScript | ^6.0 | Getypeerde JavaScript |
-| Vite | ^8.1 | Build-tool en dev-server |
+| React + React-DOM | ^19.3 | UI-framework |
+| TypeScript | ^6.0 | Getypeerde JavaScript (enkel bij het bouwen) |
+| Vite | ^8.3 | Build-tool en dev-server (enkel bij het bouwen) |
 | Tailwind CSS | ^4.3 | Styling |
-| react-router | ^8.3 | Client-side routing (`BrowserRouter`/`Routes`/`Route` in `index.tsx`) |
-| @tanstack/react-query | ^5.101 | Server-state en caching |
-| axios | ^1.18 | HTTP-client naar `/api` |
+| react-router | ^8.4 | Client-side routing (`BrowserRouter`/`Routes`/`Route` in `index.tsx`) |
+| @tanstack/react-query | ^5.103 | Server-state en caching |
+| axios | ^1.20 | HTTP-client naar `/api` |
 | d3 | ^7.9 | Datavisualisaties |
 | igv | ^3.8 | Ingebedde genoombrowser |
-| vitest / @playwright/test | ^4.1 / ^1.61 | Unit-tests / end-to-end tests |
+| vitest / @playwright/test | ^4.1 / ^1.63 | Unit-tests / end-to-end tests |
 
 **Backend** (uit `backend/requirements.txt`):
 
 | Technologie | Versie | Rol |
 | --- | --- | --- |
-| FastAPI | 0.139.0 | Web-/API-framework |
-| Uvicorn | 0.49.0 | ASGI-server die de app draait |
-| SQLAlchemy | 2.0.51 | ORM/async databanktoegang tot Postgres |
+| FastAPI | 0.141.1 | Web-/API-framework |
+| Uvicorn | 0.53.0 | ASGI-server die de app draait |
+| SQLAlchemy | 2.0.54 | ORM/async databanktoegang tot Postgres |
 | asyncpg | 0.31.0 | Async Postgres-driver |
-| clickhouse-connect | 1.4.1 | ClickHouse-client |
-| Pydantic / pydantic-settings | 2.13.4 / 2.14.2 | Datavalidatie en instellingen |
-| PyJWT | 2.13.0 | JWT-tokens |
-| passlib | 1.7.4 | Wachtwoord-hashing (API-laag) |
-| bcrypt | 3.2.0 | Onderliggend hash-algoritme voor passlib |
-| cryptography | 49.0.0 | Onderliggende crypto (o.a. integrity anchors) |
+| clickhouse-connect | 1.8.0 | ClickHouse-client |
+| Pydantic / pydantic-settings | 2.13.5 / 2.15.0 | Datavalidatie en instellingen |
+| PyJWT | 2.14.0 | JWT-tokens |
+| bcrypt | 5.0.0 | Wachtwoord-hashing, rechtstreeks aangeroepen (passlib is sinds #525 weg) |
+| cryptography | 50.0.0 | Onderliggende crypto (o.a. integrity anchors) |
 
 **Waar in de code:** `VERSION`, `frontend/package.json` en `backend/requirements.txt`.
 

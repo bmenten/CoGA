@@ -29,9 +29,9 @@ pydantic-settings>=2.15.0
 # fix for the Minerva P-256 timing attack (GHSA-wj6h-64fc-37mp). We only use
 # HS256 + RS256, never ECDSA, and PyJWT verifies both without depending on ecdsa.
 PyJWT[crypto]
-passlib[bcrypt]==1.7.4
-# pin bcrypt to avoid incompatibilities with passlib
-bcrypt==3.2.0
+# Password hashing, called directly: passlib 1.7.4 is unmaintained and held bcrypt at 3.2.0
+# (#525). The stored $2b$ hashes keep verifying.
+bcrypt>=5.0.0,<6
 python-multipart
 python-dotenv
 httpx

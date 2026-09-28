@@ -49,7 +49,7 @@ each release; it is not maintained by hand. **Reconciled with the lockfile on 20
 | clickhouse-connect[async] | 1.8.0 | ClickHouse client (variant store) | H | CVE/changelog |
 | pydantic / pydantic-settings | 2.13.5 / 2.15.0 | Data validation, settings | H | Changelog |
 | **PyJWT[crypto]** (+ cryptography) | **2.14.0** (+ 50.0.0) | JWT signing/verification (HS256 local, RS256 Azure) | **H (security)** | CVE watch (auth) |
-| passlib[bcrypt] + bcrypt | 1.7.4 + 3.2.0 | Password hashing | **H (security)** | CVE watch. **passlib is unmaintained** (last release 2020) and holds bcrypt at 3.2.0; replacing it with direct `bcrypt` use is tracked in #525 |
+| bcrypt | 5.0.0 | Password hashing, called directly; the stored `$2b$` hashes verify unchanged | **H (security)** | CVE watch. Replaced the unmaintained passlib 1.7.4 (last release 2020), which had held bcrypt at 3.2.0 (#525) |
 | pysam / pyfaidx | 0.24.1 / 0.9.0.4 | VCF/BAM/FASTA access | H | Changelog |
 | pyBigWig | 0.3.26 | bigWig signal-track reading (HiFiCNV read depth and minor allele fraction) | M | Changelog |
 | pandas / numpy | 2.3.3 / 2.2.6 | CNV knowledgebase build, analysis | M | Changelog |
@@ -101,6 +101,10 @@ are not installed in the production image, and the non-blocking dev-tree audit r
 
 All container images are pinned by digest in the Dockerfiles, compose, CI (#520) and
 Terraform; the digests are the authoritative identity, the tags are for reading.
+Dependabot proposes a new digest when a pinned tag is rebuilt, for the Dockerfiles and
+compose (#525). It proposes no new version line, because a new Python, Node, PostgreSQL or
+ClickHouse line is a runtime change with its own change record (A.4). The CI service images
+and the Terraform ClickHouse image are not covered and are updated by hand alongside.
 
 ### A.4 Runtime platform support status
 

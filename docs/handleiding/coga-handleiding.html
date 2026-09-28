@@ -567,18 +567,18 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 <tbody>
 <tr>
 <td>React + React-DOM</td>
-<td>^19.2</td>
+<td>^19.3</td>
 <td>UI-framework</td>
 </tr>
 <tr>
 <td>TypeScript</td>
 <td>^6.0</td>
-<td>Getypeerde JavaScript</td>
+<td>Getypeerde JavaScript (enkel bij het bouwen)</td>
 </tr>
 <tr>
 <td>Vite</td>
-<td>^8.1</td>
-<td>Build-tool en dev-server</td>
+<td>^8.3</td>
+<td>Build-tool en dev-server (enkel bij het bouwen)</td>
 </tr>
 <tr>
 <td>Tailwind CSS</td>
@@ -587,17 +587,17 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </tr>
 <tr>
 <td>react-router</td>
-<td>^8.3</td>
+<td>^8.4</td>
 <td>Client-side routing (<code>BrowserRouter</code>/<code>Routes</code>/<code>Route</code> in <code>index.tsx</code>)</td>
 </tr>
 <tr>
 <td>@tanstack/react-query</td>
-<td>^5.101</td>
+<td>^5.103</td>
 <td>Server-state en caching</td>
 </tr>
 <tr>
 <td>axios</td>
-<td>^1.18</td>
+<td>^1.20</td>
 <td>HTTP-client naar <code>/api</code></td>
 </tr>
 <tr>
@@ -612,7 +612,7 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </tr>
 <tr>
 <td>vitest / @playwright/test</td>
-<td>^4.1 / ^1.61</td>
+<td>^4.1 / ^1.63</td>
 <td>Unit-tests / end-to-end tests</td>
 </tr>
 </tbody>
@@ -629,17 +629,17 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 <tbody>
 <tr>
 <td>FastAPI</td>
-<td>0.139.0</td>
+<td>0.141.1</td>
 <td>Web-/API-framework</td>
 </tr>
 <tr>
 <td>Uvicorn</td>
-<td>0.49.0</td>
+<td>0.53.0</td>
 <td>ASGI-server die de app draait</td>
 </tr>
 <tr>
 <td>SQLAlchemy</td>
-<td>2.0.51</td>
+<td>2.0.54</td>
 <td>ORM/async databanktoegang tot Postgres</td>
 </tr>
 <tr>
@@ -649,32 +649,27 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </tr>
 <tr>
 <td>clickhouse-connect</td>
-<td>1.4.1</td>
+<td>1.8.0</td>
 <td>ClickHouse-client</td>
 </tr>
 <tr>
 <td>Pydantic / pydantic-settings</td>
-<td>2.13.4 / 2.14.2</td>
+<td>2.13.5 / 2.15.0</td>
 <td>Datavalidatie en instellingen</td>
 </tr>
 <tr>
 <td>PyJWT</td>
-<td>2.13.0</td>
+<td>2.14.0</td>
 <td>JWT-tokens</td>
 </tr>
 <tr>
-<td>passlib</td>
-<td>1.7.4</td>
-<td>Wachtwoord-hashing (API-laag)</td>
-</tr>
-<tr>
 <td>bcrypt</td>
-<td>3.2.0</td>
-<td>Onderliggend hash-algoritme voor passlib</td>
+<td>5.0.0</td>
+<td>Wachtwoord-hashing, rechtstreeks aangeroepen (passlib is sinds #525 weg)</td>
 </tr>
 <tr>
 <td>cryptography</td>
-<td>49.0.0</td>
+<td>50.0.0</td>
 <td>Onderliggende crypto (o.a. integrity anchors)</td>
 </tr>
 </tbody>
@@ -1556,18 +1551,25 @@ async def get_family(
 </code></pre></div>
 <p>Zo kost de "geen-zulke-account"-tak ongeveer evenveel tijd als de "verkeerd-wachtwoord"-tak. Bovendien is de foutmelding in beide gevallen identiek: <code>400 Incorrect email or password</code>. De client kan dus niet onderscheiden of het adres bestaat.</p>
 <p class="waar"><strong>Waar in de code:</strong> de constante <code>_DUMMY_LOGIN_PASSWORD_HASH</code> en de <code>if user is None</code>-tak in <code>_authenticate_and_issue_token</code> (<code>backend/app/routers/auth.py</code>).</p>
-<h2>Wachtwoord-hashing: bcrypt via passlib</h2>
-<p>Wachtwoorden worden nooit in leesbare vorm bewaard. De hashing gebeurt centraal met de bibliotheek <strong>passlib</strong> en het algoritme <strong>bcrypt</strong>:</p>
-<div class="scroll"><pre><code class="language-python">pwd_context = CryptContext(schemes=[&quot;bcrypt&quot;], deprecated=&quot;auto&quot;)
+<h2>Wachtwoord-hashing: bcrypt</h2>
+<p>Wachtwoorden worden nooit in leesbare vorm bewaard. De hashing gebeurt centraal met de bibliotheek <strong>bcrypt</strong>, die de backend rechtstreeks aanroept:</p>
+<div class="scroll"><pre><code class="language-python">_BCRYPT_MAX_PASSWORD_BYTES = 72
+
+def _bcrypt_secret(password: str) -&gt; bytes:
+    return password.encode(&quot;utf-8&quot;)[:_BCRYPT_MAX_PASSWORD_BYTES]
 
 def get_password_hash(password: str) -&gt; str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_bcrypt_secret(password), bcrypt.gensalt()).decode(&quot;ascii&quot;)
 
 def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(_bcrypt_secret(plain_password), hashed_password.encode(&quot;ascii&quot;))
+    except (AttributeError, UnicodeEncodeError, ValueError):
+        return False
 </code></pre></div>
-<p>Bcrypt is een bewust <em>trage</em> hash (met een "work factor") zodat een aanvaller die de databank buitmaakt niet snel miljoenen wachtwoorden kan raden. De hash wordt opgeslagen in de kolom <code>hashed_password</code> van de tabel <code>users</code> (zie <code>backend/db/schema/postgres/001_metadata.sql</code>); het echte wachtwoord verlaat het geheugen van de server nooit.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>pwd_context</code>, <code>get_password_hash</code>, <code>verify_password</code> in <code>backend/app/dependencies.py</code>; kolom <code>hashed_password</code> in <code>backend/db/schema/postgres/001_metadata.sql</code>.</p>
+<p>Bcrypt is een bewust <em>trage</em> hash (met een "work factor") zodat een aanvaller die de databank buitmaakt niet snel miljoenen wachtwoorden kan raden. De hash wordt opgeslagen in de kolom <code>hashed_password</code> van de tabel <code>users</code> (zie <code>backend/db/schema/postgres/01_access.sql</code>); het echte wachtwoord verlaat het geheugen van de server nooit.</p>
+<p>Tot #525 liep dit via <strong>passlib</strong>, dat niet meer onderhouden wordt en bcrypt op versie 3.2.0 vasthield. Het formaat is ongewijzigd (<code>$2b$</code>, kost 12), dus bestaande hashes blijven werken. Bcrypt leest alleen de eerste 72 bytes van een wachtwoord. passlib liet de rest stilzwijgend vallen, bcrypt 5 weigert zo'n wachtwoord. Daarom kapt de backend zelf af op 72 bytes, zodat een lang wachtwoord dat vroeger werkte, blijft werken. Een opgeslagen waarde die geen bcrypt-hash is, geeft gewoon "geen match".</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>get_password_hash</code>, <code>verify_password</code> in <code>backend/app/dependencies.py</code>; kolom <code>hashed_password</code> in <code>backend/db/schema/postgres/01_access.sql</code>; tests in <code>backend/tests/test_password_hashing.py</code>.</p>
 <h2>JWT: token maken en controleren</h2>
 <h3>Token maken</h3>
 <p>Een geslaagde login levert een JWT op via <code>create_access_token</code>:</p>

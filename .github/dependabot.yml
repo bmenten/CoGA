@@ -1,7 +1,8 @@
 version: 2
 
 # Keeps backend (pip), frontend (npm) and CI (github-actions) dependencies
-# current. With CI now running on every PR, each bump is tested automatically —
+# current, and refreshes the digests of the pinned container images (docker,
+# docker-compose). With CI now running on every PR, each bump is tested automatically —
 # so a breaking major (e.g. the Starlette 1.x bump that broke /api routing)
 # shows up as a reviewable red PR instead of a surprise on the next rebuild.
 #
@@ -34,3 +35,41 @@ updates:
     groups:
       actions:
         update-types: ["minor", "patch"]
+
+  # Digest-pinned container images (#525): the backend and frontend base images, and the
+  # datastores docker compose runs. Only digest refreshes come through, i.e. the same tag
+  # rebuilt with OS and security patches. Every version update is ignored because a new
+  # Python, Node, PostgreSQL or ClickHouse line is a runtime change with its own change
+  # record (TF-18). The CI service images in ci.yml mirror the compose ones; update them
+  # in the same PR.
+  - package-ecosystem: docker
+    directories:
+      - /backend
+      - /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+    groups:
+      base-images:
+        patterns: ["*"]
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+    groups:
+      datastore-images:
+        patterns: ["*"]
