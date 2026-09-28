@@ -290,6 +290,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Package imports from a bucket** — a Package Import queued from a `gs://` or `s3://` folder
   was stored as `gs:/bucket/…`, no longer a bucket URI, so the worker looked for a local folder
   and the import failed. The URI is now stored unchanged (#570).
+- **Requests stalled behind slow work (#527)** — password hashing, the haplotype lineage step,
+  the NIPT fetal-fraction and classification work, the phenotype scoring behind the prioritised
+  view and the HPO ontology parse now run in worker threads, so other users' requests are served
+  meanwhile on the single worker. `SMTP_HOST`, which was read outside the settings, is now a
+  documented setting (#568).
 
 ### Security
 

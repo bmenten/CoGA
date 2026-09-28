@@ -366,7 +366,7 @@ async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
     storage_path = record.get("storage_path") or ""
     expected = record.get("sha256")
     path = Path(storage_path)
-    if not storage_path or not path.is_file():
+    if not storage_path or not await asyncio.to_thread(path.is_file):
         return {
             "file_id": record["id"],
             "status": "missing",
@@ -375,7 +375,7 @@ async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
             "message": "The source file is no longer present at its storage path.",
         }
     try:
-        file_size: int | None = path.stat().st_size
+        file_size: int | None = (await asyncio.to_thread(path.stat)).st_size
     except OSError:
         file_size = None
     if file_size is not None and file_size > _VERIFY_MAX_BYTES:

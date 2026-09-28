@@ -10,6 +10,7 @@ See docs/monogenic-nipt.md and docs/monogenic-nipt-classification.md.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from fastapi import HTTPException
@@ -237,13 +238,62 @@ async def run_family_nipt_analysis(
     )
     artifact_lookup = await _load_artifact_lookup(session, context, assay_key)
     records = await _load_family_records(context)
-    sites = _family_sites(records, trio)
+    # The whole family callset goes through the analysis: pure CPU work, so it runs in a
+    # worker thread and other requests are served meanwhile (#527).
+    return await asyncio.to_thread(
+        _analyse_family_sites, records, trio, qc or NiptQualityThresholds(), artifact_lookup, external_ff
+    )
+
+
+def _analyse_family_sites(
+    records: list[SmallVariantRecord],
+    trio: NiptTrio,
+    qc: NiptQualityThresholds,
+    artifact_lookup: Any,
+    external_ff: float | None,
+) -> NiptAnalysisResult:
     return run_nipt_analysis(
-        sites,
-        qc or NiptQualityThresholds(),
+        _family_sites(records, trio),
+        qc,
         artifact_lookup=artifact_lookup,
         external_ff=external_ff,
     )
+
+
+def _estimate_cohort_fetal_fraction(
+    records: list[SmallVariantRecord],
+    trio: NiptTrio,
+    qc: NiptQualityThresholds,
+    external_ff: float | None,
+) -> FetalFractionEstimate:
+    return estimate_fetal_fraction(_family_sites(records, trio), qc, external_ff=external_ff)
+
+
+def _classify_candidates(
+    records: list[SmallVariantRecord],
+    trio: NiptTrio,
+    artifact_ids: Any,
+    ff_estimate: FetalFractionEstimate,
+    qc: NiptQualityThresholds,
+    min_confidence: float | None,
+) -> tuple[list[NiptClassifiedVariant], dict[str, NiptSiteObservation]]:
+    observations = {
+        observation.variant_id: observation for observation in _family_sites(records, trio)
+    }
+    classified: list[NiptClassifiedVariant] = []
+    for record in records:
+        if record.variant_id in artifact_ids:
+            continue
+        observation = observations.get(record.variant_id)
+        if observation is None:
+            continue
+        classification = classify_site(observation, ff_estimate, qc)
+        if min_confidence is not None and (
+            classification.category is None or classification.confidence < min_confidence
+        ):
+            continue
+        classified.append(NiptClassifiedVariant(record=record, classification=classification))
+    return classified, observations
 
 
 def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
@@ -389,9 +439,12 @@ async def get_family_nipt_variants(
 
     # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are
     # rarely inside the clinical filter), then the filtered subset is classified
-    # against that FF.
-    cohort_sites = _family_sites(await _load_family_records(context), trio)
-    ff_estimate = estimate_fetal_fraction(cohort_sites, qc, external_ff=external_ff)
+    # against that FF. Both steps are CPU work over many sites, so they run in a
+    # worker thread (#527).
+    cohort_records = await _load_family_records(context)
+    ff_estimate = await asyncio.to_thread(
+        _estimate_cohort_fetal_fraction, cohort_records, trio, qc, external_ff
+    )
 
     filters = _build_nipt_query_filters(query_filters or {})
     panel_constraints = PanelFilterConstraints()
@@ -408,23 +461,9 @@ async def get_family_nipt_variants(
         panel_constraints=panel_constraints,
         limit=_NIPT_VARIANT_FETCH_LIMIT,
     )
-    observations = {
-        observation.variant_id: observation for observation in _family_sites(records, trio)
-    }
-
-    classified: list[NiptClassifiedVariant] = []
-    for record in records:
-        if record.variant_id in artifact_ids:
-            continue
-        observation = observations.get(record.variant_id)
-        if observation is None:
-            continue
-        classification = classify_site(observation, ff_estimate, qc)
-        if min_confidence is not None and (
-            classification.category is None or classification.confidence < min_confidence
-        ):
-            continue
-        classified.append(NiptClassifiedVariant(record=record, classification=classification))
+    classified, observations = await asyncio.to_thread(
+        _classify_candidates, records, trio, artifact_ids, ff_estimate, qc, min_confidence
+    )
 
     # The category filter is applied after classification so recessive_at_risk
     # can group across the full candidate set by gene.

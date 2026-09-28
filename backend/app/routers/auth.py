@@ -1,4 +1,4 @@
-import os
+import asyncio
 import logging
 import smtplib
 from email.message import EmailMessage
@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from ..core.postgres import get_postgres_session
 from ..dependencies import (
     create_access_token,
@@ -61,7 +62,8 @@ def _request_remote_ip(request: Request) -> str | None:
 
 
 def notify_admin(email: str) -> None:
-    admin_email = os.getenv("ADMIN_EMAIL")
+    # Only when ADMIN_EMAIL is configured: its default is the seed admin's placeholder.
+    admin_email = settings.admin_email.strip() if "admin_email" in settings.model_fields_set else ""
     if not admin_email:
         logging.info("ADMIN_EMAIL not set; skipping notification for %s", email)
         return
@@ -71,7 +73,7 @@ def notify_admin(email: str) -> None:
     msg["To"] = admin_email
     msg.set_content(f"A new user has signed up with email: {email}")
     try:
-        with smtplib.SMTP(os.getenv("SMTP_HOST", "localhost")) as server:
+        with smtplib.SMTP(settings.smtp_host) as server:
             server.send_message(msg)
     except Exception as exc:
         logging.error("Failed to send signup notification: %s", exc)
@@ -100,8 +102,9 @@ async def _authenticate_and_issue_token(
     if user is None:
         # Run a throwaway verify so the no-such-account path costs roughly the
         # same as a wrong-password path; otherwise the response time reveals
-        # which emails are registered (account enumeration).
-        verify_password(password, _DUMMY_LOGIN_PASSWORD_HASH)
+        # which emails are registered (account enumeration). bcrypt is slow on purpose,
+        # so every hash and check runs in a worker thread, not on the event loop (#527).
+        await asyncio.to_thread(verify_password, password, _DUMMY_LOGIN_PASSWORD_HASH)
         await record_failed_login(
             session,
             email=email,
@@ -109,7 +112,7 @@ async def _authenticate_and_issue_token(
         )
         await session.commit()
         raise HTTPException(status_code=400, detail="Incorrect email or password")
-    if not verify_password(password, user["hashed_password"]):
+    if not await asyncio.to_thread(verify_password, password, user["hashed_password"]):
         await record_failed_login(
             session,
             email=email,
@@ -168,7 +171,7 @@ async def signup(
     created = await create_user_account(
         session,
         email=user_in.email,
-        hashed_password=get_password_hash(user_in.password),
+        hashed_password=await asyncio.to_thread(get_password_hash, user_in.password),
         first_name=user_in.first_name,
         last_name=user_in.last_name,
         affiliation=user_in.affiliation,
