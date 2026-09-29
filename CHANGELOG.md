@@ -560,6 +560,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   with, and a report signed before this is not shown as changed for lacking it; the HPO admin
   summary and the prioritised-ranking cache follow the release that is actually loaded; the HPO
   admin page starts from the file the backend loads (`hp.obo`, not `hpo.obo`) (CR-109, #647).
+- **Device label and problem route** — the app footer and the family and NIPT report footers name the
+  running build (version and short commit), the in-house-IVD status and the manufacturer; "Report a
+  problem" goes to the CMGG route set by `VITE_PROBLEM_REPORT_URL`, and a production build without it
+  no longer links the public GitHub issue form (CR-110, #648).
 
 ### Security
 
