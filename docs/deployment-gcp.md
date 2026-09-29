@@ -149,8 +149,8 @@ Understanding this makes everything else click:
    **ClickHouse** (HTTPS on port 8443) over the **private VPC** — none of that
    traffic touches the public internet.
 5. For genome viewing (IGV), once the GCS backend is on, the backend hands the
-   browser a short-lived **signed URL** so it streams CRAM/BAM bytes directly from
-   the bucket.
+   browser a short-lived **signed URL** so it streams CRAM/BAM bytes and the CNV
+   caller's signal files directly from the bucket.
 
 ---
 
@@ -507,18 +507,16 @@ reviewers). An infrastructure apply therefore never runs without a person approv
 
 ## 11. GCS storage backend
 
-By default `storage_backend = "local"`, so the app does **not** yet read family
-CRAM/BAM from a bucket. The code, bucket, and permissions are all in place — turning
-it on is a two-step flip:
+By default `storage_backend = "local"`, so the app does **not** yet read family data
+from a bucket. The code, bucket, and permissions are all in place — turning it on is a
+two-step flip:
 
-1. **Upload the alignments** to the PHI bucket. The app looks for
-   `<family_id>/<sample_id>.cram` (with `.crai`), or the same under `<family_id>/bams/` or
-   `<family_id>/alignments/`, at the top of the bucket:
+1. **Upload the family packages** to the PHI bucket, one folder per family with its
+   manifest, CRAM/BAM files included ([data-import.md](data-import.md), section 3):
 
    ```bash
    BUCKET=$(terraform output -raw phi_bucket)
-   gcloud storage cp PROBAND.cram      "gs://${BUCKET}/FAM001/PROBAND.cram"
-   gcloud storage cp PROBAND.cram.crai "gs://${BUCKET}/FAM001/PROBAND.cram.crai"
+   gcloud storage cp -r FAM001 "gs://${BUCKET}/imports/"   # -> imports/FAM001/...
    ```
 
 2. **Flip the switch** and apply:
@@ -527,11 +525,26 @@ it on is a two-step flip:
    terraform apply -var="storage_backend=gcs"   # plus your other -vars
    ```
 
-The backend then serves IGV alignments as short-lived **signed URLs** (keyless, via
-IAM `SignBlob`) and can stage family-package imports from `gs://` paths. Package Import
-reads from `gs://<phi bucket>/imports` unless the `family_import_roots` variable names
-other locations (`FAMILY_IMPORT_ROOTS`); upload package folders under that prefix, each
-with its own manifest ([data-import.md](data-import.md), section 3).
+Package Import then reads from `gs://<phi bucket>/imports` unless the
+`family_import_roots` variable names other locations (`FAMILY_IMPORT_ROOTS`). It stages a
+package to the backend's temporary folder, except the aligned reads, which stay in the
+bucket, and records where each alignment and CNV signal file lies. IGV reads those files
+through short-lived **signed URLs** (keyless, via IAM `SignBlob`). The backend signs a
+recorded location only when it is in the PHI bucket under `FAMILY_IMPORT_ROOTS`, so a
+package imported from a root in another bucket is imported, but IGV cannot show its reads.
+Alignments that no import recorded are looked for at `<family_id>/<sample_id>.cram` (with
+`.crai`), or the same under `<family_id>/bams/` or `<family_id>/alignments/`, at the top of
+the bucket (under `GCS_PREFIX` when that is set).
+
+**Sizing.** The temporary folder is `/tmp`, which on Cloud Run is memory: a staged package
+counts against `backend_memory` (2 GiB by default). The aligned reads are not staged, but
+everything else is: for a whole-genome trio, the SNV VCF and its VEP table alone can take
+several GB. The import also parses the VEP table into a temporary database in `/tmp`, and
+reads each SV and CNV VCF whole into memory (up to `MAX_UPLOAD_BYTES`, 1 GiB, and
+`MAX_DECOMPRESSED_UPLOAD_BYTES`, 2 GiB once decompressed). Each running import stages its
+own copy (`FAMILY_IMPORT_WORKER_COUNT`, 1 by default), and **Validate package** stages
+another for the length of the request. Set `backend_memory` to fit the largest package
+without its alignments, plus that parsing, for every import that may run at once.
 
 The **reference-data** bucket (`refdata`) is always mounted into the backend at
 `/data/ref-data`, regardless of this setting, and **read-only**. The backend image holds

@@ -167,9 +167,22 @@ On Google Cloud, Terraform sets `gs://<phi bucket>/imports` when `storage_backen
 (see [deployment-gcp.md](deployment-gcp.md) §11). The backend's cloud identity needs read
 access to the bucket. A path outside these roots is refused (`package_folder_not_allowed`).
 
-A package in a bucket is downloaded to a temporary folder for validation and import. The
-**Discover** and **Write manifest** steps only work on local folders, so a package in a bucket
-must already contain its manifest.
+A package in a bucket is downloaded to a temporary folder for validation and import,
+except its aligned reads: `.cram`, `.crai`, `.bam` and `.bai` files, and a `.csi` named after
+an alignment (`<sample>.bam.csi`), stay in the bucket. No importer reads them, and a
+whole-genome CRAM is tens of GB. Only the `alignments` dataset may name such a file. Its
+importer checks that the object exists and records its URI, and the genome browser reads it
+from there. Every other file must be downloaded. On Cloud Run the temporary folder is held in
+memory; see [deployment-gcp.md](deployment-gcp.md) §11 for sizing.
+
+The temporary folder is deleted after the import, so what the import records and reports names
+the bucket folder and its objects: the job's log and validation report, the family's package
+record and the raw-file provenance ([database.md](database.md), `raw_import_files`). A manifest
+without `family_id` takes the bucket folder's name, the last part of its URI, as a local
+package takes its folder's name.
+
+The **Discover** and **Write manifest** steps only work on local folders, so a package in a
+bucket must already contain its manifest.
 
 ### The import job
 
@@ -342,13 +355,13 @@ The `snv` dataset takes three optional settings:
 | `cnv` (HiFiCNV) | structural variants, source `hificnv`; the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers), and the MAF bigWig as `apcad` |
 | `mito` | chrM small variants, source `mito`, annotated from the mutserve table |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table |
-| `alignments` | the CRAM/BAM location, used by IGV |
+| `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI |
 | `pipeline_info` | tool versions in the annotation manifest; run parameters on the family |
 
 Each caller's rows carry their own source tag, so re-importing one callset never removes
 another. The track viewers draw one track per caller
 (`GET /families/{family_id}/track-availability` lists them). The three HiFiCNV files are
-also served unchanged to the genome browser (IGV).
+also served unchanged to the genome browser (IGV), from the bucket for a package in a bucket.
 
 ### Validation
 
@@ -360,8 +373,9 @@ Discover, dry run and import check that:
   may be missing: the family's stored pedigree is used;
 - the manifest's samples and per-sample entries name samples in the PED;
 - a phenotype file named in the manifest exists and uses `format: hpo_tsv`;
-- every file the manifest names exists, and a compressed family VCF has its index (`.tbi`,
-  `.csi` or `.idx`, next to it or given as `index:`); a plain `.vcf` needs none;
+- every file the manifest names exists (for a package in a bucket, an alignment exists in the
+  bucket), and a compressed family VCF has its index (`.tbi`, `.csi` or `.idx`, next to it or
+  given as `index:`); a plain `.vcf` needs none;
 - every dataset key is a known one.
 
 A missing `snv` or `sv_needlr` dataset is a warning; other datasets are optional without a
