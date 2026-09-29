@@ -372,8 +372,11 @@ def _wire_variants_mocks(
         return SimpleNamespace(assembly_id="assembly-uuid", assembly_name="GRCh38")
 
     async def fake_fetch(_context, filters, *, limit=None, **_kwargs):
-        # The cohort (FF) load carries no gene filter; the variant load does.
-        return cohort if filters.gene is None else filtered
+        # The cohort (FF) load carries no gene filter; the variant load does. A limit is
+        # the SQL LIMIT: the first rows, in genomic order.
+        if filters.gene is None:
+            return cohort
+        return filtered if limit is None else filtered[:limit]
 
     async def fake_load_artifacts(_session, *, assembly_id, assay_key):
         return set(artifacts or set())
@@ -710,6 +713,80 @@ async def test_get_family_nipt_variants_refuses_an_unreadable_interval(
     assert (refused.value.status_code, refused.value.detail) == (422, detail)
     # Refused before the cohort-wide fetal-fraction load, not after it.
     assert loads == []
+
+
+def _a_third_record_after_the_others() -> SmallVariantRecord:
+    return _record(
+        "1-9200-A-G",
+        start=9200,
+        calls=[
+            _call("father-1", "0/0", dp=50, ad=[50, 0]),
+            _call("cfdna-1", "0/1", dp=300, af=[0.05], ad=[285, 15]),
+        ],
+    )
+
+
+def _record_variant_load_limits(monkeypatch: pytest.MonkeyPatch) -> list[int | None]:
+    limits: list[int | None] = []
+    inner_fetch = nipt_service._fetch_small_variant_rows
+
+    async def recording_fetch(context, filters, **kwargs):
+        if filters.gene is not None:
+            limits.append(kwargs.get("limit"))
+        return await inner_fetch(context, filters, **kwargs)
+
+    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", recording_fetch)
+    return limits
+
+
+@pytest.mark.asyncio
+async def test_a_variant_list_past_the_classification_limit_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The list classifies the first variants of its scope in genomic order, up to a limit.
+    # Past the limit it stopped part-way through the genome with a total that looked exact,
+    # so the page and the report read as complete.
+    _wire_variants_mocks(
+        monkeypatch,
+        cohort=_cohort_cat7_records(),
+        filtered=[*_de_novo_and_cat3_records(), _a_third_record_after_the_others()],
+    )
+    limits = _record_variant_load_limits(monkeypatch)
+    monkeypatch.setattr(nipt_service, "_NIPT_VARIANT_FETCH_LIMIT", 2)
+
+    result = await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "BRCA1"},
+    )
+
+    # One row past the limit tells a cut list from a complete one.
+    assert limits == [3]
+    assert (result.total_is_estimated, result.count_limit) == (True, 2)
+    # Only the first two are classified, as before: the extra row only says there are more.
+    assert [item.record.variant_id for item in result.variants] == ["1-9000-A-G", "1-9100-A-G"]
+    assert result.total == 2
+
+
+@pytest.mark.asyncio
+async def test_a_variant_list_that_fits_the_classification_limit_is_complete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wire_variants_mocks(
+        monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records()
+    )
+    monkeypatch.setattr(nipt_service, "_NIPT_VARIANT_FETCH_LIMIT", 2)
+
+    result = await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "BRCA1"},
+    )
+
+    assert (result.total_is_estimated, result.count_limit) == (False, None)
+    assert result.total == 2
 
 
 # --------------------------------------------------------------------------- #

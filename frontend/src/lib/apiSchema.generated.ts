@@ -1709,6 +1709,8 @@ export interface NiptVariantOut {
 export interface NiptVariantPage {
   family_id: string;
   total: number;
+  total_is_estimated: boolean;
+  count_limit: number | null;
   fetal_fraction: NiptFetalFractionOut;
   variants: NiptVariantOut[];
 }

@@ -7,8 +7,11 @@ from backend.app.core.postgres import get_postgres_session
 from backend.app.main import app
 from backend.app.routers import admin as admin_router
 from backend.app.routers import families as families_router
+from backend.app.routers import families_nipt as families_nipt_router
 from backend.app.routers import lookups as lookups_router
 from backend.app.services.access_control import CurrentUser
+from backend.app.services.nipt_analysis import FetalFractionEstimate
+from backend.app.services.nipt_service import NiptVariantsResult
 
 
 class _FakeSession:
@@ -229,3 +232,44 @@ def test_variant_page_size_is_bounded(family_metadata_client, path, bad_page_siz
 
     assert response.status_code == 422
     assert "page_size" in response.text
+
+
+@pytest.mark.parametrize(
+    ("capped", "expected"),
+    [(True, (True, 5000)), (False, (False, None))],
+)
+def test_the_nipt_variant_page_says_when_its_list_is_capped(
+    family_metadata_client, capped, expected
+) -> None:
+    # The NIPT page and report need the cap to tell a cut list from a complete one; the
+    # page carried only the total, which past the cap looked exact.
+    client, monkeypatch = family_metadata_client
+
+    async def fake_variants(_session, **_kwargs):
+        return NiptVariantsResult(
+            fetal_fraction=FetalFractionEstimate(
+                ff=0.1,
+                ff_computed=0.1,
+                ff_external=None,
+                ff_median=0.1,
+                ci_low=0.09,
+                ci_high=0.11,
+                n_sites=40,
+                method="category7_pooled",
+                low_confidence=False,
+                disagreement=False,
+            ),
+            total=1234,
+            variants=[],
+            total_is_estimated=capped,
+            count_limit=5000 if capped else None,
+        )
+
+    monkeypatch.setattr(families_nipt_router, "get_family_nipt_variants", fake_variants)
+
+    response = client.get("/api/families/FAM1/nipt/variants", params={"panel_id": "panel-1"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1234
+    assert (body["total_is_estimated"], body["count_limit"]) == expected

@@ -62,8 +62,9 @@ from .nipt_analysis import (
     run_nipt_analysis,
 )
 
-# Bounds the in-memory classification for the variant list. Clinical use always
-# narrows by gene/panel/region, so this is a safety cap, not a normal limit.
+# Bounds the in-memory classification for the variant list: the first variants of the
+# scope, in genomic order. Clinical use narrows by gene/panel/region, so this is a safety
+# cap, not a normal limit; a list cut by it says so (total_is_estimated, count_limit).
 _NIPT_VARIANT_FETCH_LIMIT = 5000
 
 # NIPT inheritance presets that map to a set of categories. recessive_at_risk is
@@ -178,6 +179,11 @@ class NiptVariantsResult:
     fetal_fraction: FetalFractionEstimate
     total: int
     variants: list[NiptClassifiedVariant]
+    # True when more variants matched the scope than the list classifies
+    # (count_limit): the total is then a lower bound, and the list stops part-way
+    # through the genome.
+    total_is_estimated: bool = False
+    count_limit: int | None = None
 
 
 async def _load_family_records(context: FamilyMetadataContext) -> list[SmallVariantRecord]:
@@ -480,6 +486,10 @@ async def get_family_nipt_variants(
         if not panel_constraints.genes and not panel_constraints.regions:
             return NiptVariantsResult(fetal_fraction=ff_estimate, total=0, variants=[])
 
+    # One row past the limit tells a cut list from a complete one. The list used to stop
+    # at the limit with a total that looked exact, so the page and the report read as
+    # complete while the rest of the genome was never classified.
+    fetch_limit = _NIPT_VARIANT_FETCH_LIMIT
     records = await _fetch_small_variant_rows(
         context,
         filters,
@@ -488,8 +498,11 @@ async def get_family_nipt_variants(
         exclude_regions=exclude_regions,
         exclude_gene_regions=exclude_gene_regions,
         exclude_gene_terms=_split_gene_terms(filters.exclude_gene),
-        limit=_NIPT_VARIANT_FETCH_LIMIT,
+        limit=fetch_limit + 1,
     )
+    capped = len(records) > fetch_limit
+    if capped:
+        records = records[:fetch_limit]
     classified, observations = await asyncio.to_thread(
         _classify_candidates, records, trio, artifact_ids, ff_estimate, qc, min_confidence
     )
@@ -513,7 +526,13 @@ async def get_family_nipt_variants(
     for item, variant_out in zip(page_items, variant_outs):
         item.variant_out = variant_out
 
-    return NiptVariantsResult(fetal_fraction=ff_estimate, total=total, variants=page_items)
+    return NiptVariantsResult(
+        fetal_fraction=ff_estimate,
+        total=total,
+        variants=page_items,
+        total_is_estimated=capped,
+        count_limit=fetch_limit if capped else None,
+    )
 
 
 async def _fetch_labeled_gene_regions(
