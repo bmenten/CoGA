@@ -539,6 +539,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   succeeded unless the signer gives a reason, which is frozen into the signed record and the audit
   trail; every family page warns while the import is incomplete, naming the failed datasets and the
   import job that holds their errors (CR-112, #650).
+- **Compound-het phase and the SV second-hit index** — the second-hit badge no longer calls an
+  SNV + SV pair trans, or "effectively biallelic", on the strength of relatives who carry neither
+  hit. Phase comes from the reads or the parents, by the same rule for SNV + SNV pairs, which now
+  also show trans by segregation. The SV→gene index is rebuilt after any SV change, not only after
+  a package import (CR-107, #645).
 
 ### Security
 
