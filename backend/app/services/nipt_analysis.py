@@ -147,6 +147,11 @@ class NiptAnalysisResult:
     fetal_sex: FetalSexResult = field(
         default_factory=lambda: FetalSexResult("indeterminate", 0, 0, 0)
     )
+    # The paternity evidence: category-7 (transmitted) and category-8 (absent) sites
+    # whose father call is confident -- called, at min_father_dp or deeper. A missing
+    # or thin call lands in category 7 on the de novo prior alone, which says nothing
+    # about who the father is, so category_counts[7] is not paternity evidence.
+    paternal_evidence: dict[int, int] = field(default_factory=lambda: {7: 0, 8: 0})
 
 
 # --------------------------------------------------------------------------- #
@@ -635,9 +640,15 @@ def run_nipt_analysis(
     ]
 
     category_counts = {category: 0 for category in range(1, 9)}
-    for classification in classifications:
-        if classification.category is not None:
-            category_counts[classification.category] += 1
+    paternal_evidence = {7: 0, 8: 0}
+    for site, classification in zip(filtered.passed, classifications):
+        if classification.category is None:
+            continue
+        category_counts[classification.category] += 1
+        if classification.category in paternal_evidence and _trusted_father_state(
+            site, qc
+        ) in ("het", "hom_alt"):
+            paternal_evidence[classification.category] += 1
 
     return NiptAnalysisResult(
         fetal_fraction=ff_estimate,
@@ -645,4 +656,5 @@ def run_nipt_analysis(
         filter_counts=filtered.filter_counts,
         classifications=classifications,
         fetal_sex=infer_fetal_sex(filtered.passed, ff_estimate, qc),
+        paternal_evidence=paternal_evidence,
     )

@@ -1,12 +1,13 @@
 """Auto-seeding the NIPT artifact list counts only the assay's own cfDNA samples and skips
-common variants — real Postgres + ClickHouse.
+common and ClinVar pathogenic variants — real Postgres + ClickHouse.
 
 The seed used to list every variant carried by five samples anywhere on the assembly: every
 common SNP, so the paternal sites the fetal fraction is read from, and every other assay's
-recurrent artifacts, which the NIPT analysis then excluded. This seeds a fixture with one
-variant of each kind and checks that each assay lists only its own recurrent, non-common
-variant, counting a sample once whether ClickHouse stores its calls under its name or its
-UUID.
+recurrent artifacts, which the NIPT analysis then excluded. A rare pathogenic founder variant
+recurs in a disease-focused panel too, and listing it would drop it from every analysis. This
+seeds a fixture with one variant of each kind and checks that each assay lists only its own
+recurrent, non-common variants without a ClinVar P/LP (or conflicting) record, counting a
+sample once whether ClickHouse stores its calls under its name or its UUID.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -23,7 +24,7 @@ from sqlalchemy import text
 pytestmark = pytest.mark.integration
 
 
-def test_auto_seed_lists_only_the_assays_recurrent_non_common_variants() -> None:
+def test_auto_seed_lists_only_the_assays_recurrent_non_common_non_pathogenic_variants() -> None:
     from backend.app.core.clickhouse import close_clickhouse_client
     from backend.app.core.postgres import (
         close_postgres_engine,
@@ -45,7 +46,14 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_variants() -> None
     panel_cfdna = [name(f"PX{i}") for i in range(1, 6)]
     wgs = [name(f"W{i}") for i in range(1, 6)]
 
-    def record(variant_id: str, carriers: list[str], *, ref_calls: list[str] | None = None, common: bool = False):
+    def record(
+        variant_id: str,
+        carriers: list[str],
+        *,
+        ref_calls: list[str] | None = None,
+        common: bool = False,
+        clinvar: str | None = None,
+    ):
         chrom, pos, ref, alt = variant_id.split("-")
         return SmallVariantRecord(
             variant_key=None,
@@ -59,7 +67,11 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_variants() -> None
             rsid=None,
             filters=["PASS"],
             gene_symbols=[],
-            annotations=[{"gnomad_af": 0.31}] if common else [],
+            annotations=(
+                [{"gnomad_af": 0.31 if common else 0.012, **({"clinvar": clinvar} if clinvar else {})}]
+                if common or clinvar
+                else []
+            ),
             calls=[
                 SmallVariantCall(sample=s, gt="0/1", gq=99.0, dp=400, af=[0.05], ad=[380, 20], ps=None)
                 for s in carriers
@@ -132,7 +144,7 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_variants() -> None
                 str(uuid4()),
                 [str(uuid4())],
                 [
-                    # Recurrent in the assay's cfDNA and not common: the one artifact.
+                    # Recurrent in the assay's cfDNA, not common, no ClinVar record: an artifact.
                     record("1-100-A-G", [cf1, cf2, cf3, cf4, cf5_stored]),
                     # As recurrent, but a common SNP (the kind FF is read from).
                     record("1-200-A-G", [cf1, cf2, cf3, cf4, cf5_stored], common=True),
@@ -142,6 +154,25 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_variants() -> None
                     record("1-400-A-G", [cf1, cf2, cf3, cf4], ref_calls=[cf5_stored]),
                     # Four carriers, plus the same first sample again under its UUID (below).
                     record("1-500-A-G", [cf1, cf2, cf3, cf4]),
+                    # Recurrent, rare (gnomAD 1.2%) and ClinVar P/LP, or a conflicting record
+                    # that may hold a P/LP submission: never seeded.
+                    record("1-600-A-G", [cf1, cf2, cf3, cf4, cf5_stored], clinvar="Pathogenic"),
+                    record(
+                        "1-700-A-G",
+                        [cf1, cf2, cf3, cf4, cf5_stored],
+                        clinvar="Likely_pathogenic,_low_penetrance",
+                    ),
+                    record(
+                        "1-800-A-G",
+                        [cf1, cf2, cf3, cf4, cf5_stored],
+                        clinvar="Conflicting_classifications_of_pathogenicity",
+                    ),
+                    # A recurrent VUS is not protected.
+                    record(
+                        "1-900-A-G",
+                        [cf1, cf2, cf3, cf4, cf5_stored],
+                        clinvar="Uncertain_significance",
+                    ),
                 ],
             )
             await insert_small_variant_records(
@@ -168,9 +199,10 @@ def test_auto_seed_lists_only_the_assays_recurrent_non_common_variants() -> None
                     session, assembly_id=assembly_id, assay_key="PANEL_X"
                 )
 
-            assert default == {"seeded": 1, "min_carrier_samples": 5}
+            assert default == {"seeded": 2, "min_carrier_samples": 5}
             assert [(r["variant_id"], r["recurrence_count"], r["source"]) for r in default_rows] == [
-                ("1-100-A-G", 5, "auto")
+                ("1-100-A-G", 5, "auto"),
+                ("1-900-A-G", 5, "auto"),
             ]
             # The other panel's own recurrence is its artifact; the WGS carriers never count.
             assert panel == {"seeded": 1, "min_carrier_samples": 5}

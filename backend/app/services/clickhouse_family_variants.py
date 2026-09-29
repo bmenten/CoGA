@@ -50,6 +50,7 @@ from .variant_ranking_cache import (
     store_ranking,
 )
 from .variant_prioritization import (
+    clinvar_may_assert_pathogenic,
     score_structural_variant,
     score_variant,
 )
@@ -470,6 +471,7 @@ async def fetch_recurrent_small_variant_ids(
     min_carrier_samples: int,
     carrier_samples: Mapping[str, str] | None = None,
     exclude_common: bool = True,
+    exclude_clinvar_pathogenic: bool = True,
     project_ids: Sequence[str] | None = None,
     limit: int = 100_000,
 ) -> list[tuple[str, int]]:
@@ -482,6 +484,11 @@ async def fetch_recurrent_small_variant_ids(
     once whichever identifier its calls carry. ``exclude_common`` drops variants flagged
     at import as more than 5% frequent in gnomAD/TopMed (``is_gnomad_gt_5_percent``):
     every common variant recurs, and recurrence is no sign of an artifact.
+    ``exclude_clinvar_pathogenic`` drops every variant whose ClinVar record, in any of
+    its annotations on the assembly, carries or may carry a pathogenic or likely
+    pathogenic assertion (``clinvar_may_assert_pathogenic``: P, LP and every
+    conflicting record): a familial founder variant recurs in a disease-focused panel,
+    below 5%, and is the last thing an artifact list may hold.
 
     Returns ``(variant_id, carrier_count)`` pairs ordered by recurrence. Counts
     each carrier sample once via ``sign = 1`` over the ``entries`` table.
@@ -510,20 +517,42 @@ async def fetch_recurrent_small_variant_ids(
     if project_ids:
         clauses.append("project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(project_ids)
-    rows = await _execute_clickhouse(
-        f"""
+    recurrent = f"""
         SELECT variantId, uniqExact({carrier}) AS carriers
         FROM {entries_table}
         ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
         WHERE {' AND '.join(clauses)}
         GROUP BY variantId
         HAVING carriers >= %(min_samples)s
-        ORDER BY carriers DESC
+    """
+    if not exclude_clinvar_pathogenic:
+        rows = await _execute_clickhouse(
+            f"{recurrent} ORDER BY carriers DESC LIMIT %(limit)s", params
+        )
+        return [(str(variant_id), int(carriers or 0)) for variant_id, carriers in rows]
+    # Each candidate's ClinVar terms, pooled across its annotations, read by the one
+    # Python ClinVar rule rather than a second copy of it in SQL.
+    annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT recurrent.variantId, recurrent.carriers, clinvar.terms
+        FROM ({recurrent}) AS recurrent
+        LEFT JOIN (
+            SELECT variantId, groupUniqArrayArray(clinvar_terms) AS terms
+            FROM {annotation_index}
+            WHERE notEmpty(clinvar_terms)
+            GROUP BY variantId
+        ) AS clinvar ON clinvar.variantId = recurrent.variantId
+        ORDER BY recurrent.carriers DESC
         LIMIT %(limit)s
         """,
         params,
     )
-    return [(str(variant_id), int(carriers or 0)) for variant_id, carriers in rows]
+    return [
+        (str(variant_id), int(carriers or 0))
+        for variant_id, carriers, terms in rows
+        if not clinvar_may_assert_pathogenic([str(term) for term in terms or []])
+    ]
 
 
 async def _scan_family_sv_gene_map(

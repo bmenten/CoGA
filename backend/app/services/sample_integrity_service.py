@@ -12,6 +12,7 @@ cfDNA classification instead of genotype relatedness. The QC maths is in the pur
 from __future__ import annotations
 
 import logging
+import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,7 @@ from .clickhouse_family_variants import (
     fetch_imputed_phased_genotypes,
 )
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
+from .genotypes import NO_CALL, classify_genotype
 from .haplotype_lineage_service import build_pedigree
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
@@ -56,16 +58,24 @@ _SOURCE_PREFERENCE = ("clair3", "glimpse2")
 
 
 def _parse_genotype(gt: str | None) -> Genotype | None:
-    """Parse a phased (``0|1``) or unphased (``0/1``) diploid GT; None if missing."""
-    if not gt:
+    """Parse a phased (``0|1``), unphased (``0/1``) or haploid (``1``) GT; None unless
+    every allele is called.
+
+    The shared genotype classes (#511) decide what is a call. A haploid call -- a male's
+    non-PAR chrX from callers that emit ploidy 1 -- is hemizygous and reads as the
+    homozygote (``1`` -> (1, 1), ``0`` -> (0, 0)), so a haploid-called father is sexed
+    rather than left indeterminate. A no-call, a half call (``./1``), a non-genotype
+    and a call of more than two alleles stay None: missing data is never read as a
+    genotype.
+    """
+    if classify_genotype(gt) == NO_CALL:
         return None
-    sep = "|" if "|" in gt else "/" if "/" in gt else None
-    if sep is None:
+    alleles = re.split(r"[/|]", (gt or "").strip())
+    if len(alleles) == 1:
+        return (int(alleles[0]), int(alleles[0]))
+    if len(alleles) != 2 or not all(allele.isdigit() for allele in alleles):
         return None
-    a, b = gt.split(sep, 1)
-    if not (a.isdigit() and b.isdigit()):
-        return None
-    return (int(a), int(b))
+    return (int(alleles[0]), int(alleles[1]))
 
 
 def _choose_genotype_source(available: list[str]) -> str | None:
@@ -155,7 +165,9 @@ async def _nipt_checks(
     result = await run_family_nipt_analysis(
         session, family_id=family_id, user=user, project_id=project_id
     )
-    paternity = evaluate_paternity(trio.father_sample_id, result.category_counts)
+    # Only sites with a confident father call count: a missing or thin call reaches
+    # category 7 on the prior alone and would read as paternity support.
+    paternity = evaluate_paternity(trio.father_sample_id, result.paternal_evidence)
     fs = result.fetal_sex
     fetal_sex = evaluate_fetal_sex(
         fs.inferred, fs.x_transmitted, fs.x_not_transmitted, fs.informative_sites

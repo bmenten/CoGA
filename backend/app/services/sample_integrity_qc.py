@@ -561,7 +561,8 @@ def profile_for(application: ApplicationKind) -> QcProfile:
 
 
 def evaluate_paternity(father: str, category_counts: dict[int, int]) -> PaternityCheck:
-    """Paternity verdict from the NIPT category tally (categories 7 and 8)."""
+    """Paternity verdict from the category-7 / -8 tally of the sites whose father call
+    is confident (``NiptAnalysisResult.paternal_evidence``), not the raw category counts."""
     cat7 = int(category_counts.get(7, 0))
     cat8 = int(category_counts.get(8, 0))
     informative = cat7 + cat8

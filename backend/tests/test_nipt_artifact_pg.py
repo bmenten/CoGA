@@ -59,7 +59,8 @@ async def test_fetch_recurrent_small_variant_ids_parses_rows(
     async def fake_execute(query, params):
         assert "HAVING carriers >=" in query
         assert params["min_samples"] == 5
-        return [("1-100-A-G", 12), ("2-200-C-T", 7)]
+        # (variant, carriers, the variant's ClinVar terms across its annotations)
+        return [("1-100-A-G", 12, []), ("2-200-C-T", 7, ["uncertain significance"])]
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
     result = await clickhouse_family_variants.fetch_recurrent_small_variant_ids(
@@ -83,7 +84,7 @@ async def test_fetch_recurrent_small_variant_ids_counts_only_the_given_samples_a
 
     async def fake_execute(query, params):
         captured.update(query=query, params=params)
-        return [("1-100-A-G", 5)]
+        return [("1-100-A-G", 5, [])]
 
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
     result = await clickhouse_family_variants.fetch_recurrent_small_variant_ids(
@@ -98,6 +99,32 @@ async def test_fetch_recurrent_small_variant_ids_counts_only_the_given_samples_a
     assert sorted(captured["params"]["carrier_ids"]) == ["CF1", "CF2", "uuid-1", "uuid-2"]
     # Every common variant recurs: the import-time > 5% population-frequency flag excludes it.
     assert "NOT is_gnomad_gt_5_percent" in captured["query"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_recurrent_small_variant_ids_never_returns_a_clinvar_pathogenic_variant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A familial founder variant (CFTR F508del is ~1% in gnomAD, so not "common") reaches
+    # five cfDNA samples of a disease-focused panel easily; seeded, it would be excluded
+    # from every analysis of the assay.
+    async def fake_execute(query, params):
+        assert "clinvar_terms" in query
+        return [
+            ("1-100-A-G", 9, []),
+            ("1-200-A-G", 8, ["pathogenic"]),
+            ("1-300-A-G", 8, ["likely pathogenic", "uncertain significance"]),
+            ("1-400-A-G", 7, ["conflicting classifications of pathogenicity"]),
+            ("1-500-A-G", 6, ["uncertain significance"]),
+            ("1-600-A-G", 5, ["benign", "likely benign"]),
+        ]
+
+    monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
+    result = await clickhouse_family_variants.fetch_recurrent_small_variant_ids(
+        "GRCh38", min_carrier_samples=5
+    )
+
+    assert result == [("1-100-A-G", 9), ("1-500-A-G", 6), ("1-600-A-G", 5)]
 
 
 @pytest.mark.asyncio
@@ -198,6 +225,7 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
     assert session.sample_queries == [{"assay": "nipt_cfdna"}]
     assert seen["carrier_samples"] == {"CF1": "CF1", "uuid-1": "CF1", "CF3": "CF3", "uuid-3": "CF3"}
     assert seen["exclude_common"] is True
+    assert seen["exclude_clinvar_pathogenic"] is True
     assert result == {"seeded": 1, "min_carrier_samples": 5}
 
     await auto_seed_nipt_artifacts(

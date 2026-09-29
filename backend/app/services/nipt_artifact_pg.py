@@ -232,18 +232,27 @@ async def auto_seed_nipt_artifacts(
     """Seed the artifact list from recurrence among the assay's own cfDNA samples.
 
     A variant is upserted as a ``source='auto'`` artifact for the scope when at least
-    ``min_carrier_samples`` distinct cfDNA samples of this assay carry it and it is
-    not common in the population. Both limits protect the fetal fraction. FF is read
-    off paternal sites that are mostly common SNPs, and every common variant is
-    carried by many samples, so counting recurrence across the whole assembly -- as
-    this did, every assay and application pooled -- listed the very sites FF relies
-    on (and other assays' artifacts), and the analysis then excluded them.
+    ``min_carrier_samples`` distinct cfDNA samples of this assay carry it, it is not
+    common in the population, and ClinVar does not call it pathogenic. The first two
+    limits protect the fetal fraction. FF is read off paternal sites that are mostly
+    common SNPs, and every common variant is carried by many samples, so counting
+    recurrence across the whole assembly -- as this did, every assay and application
+    pooled -- listed the very sites FF relies on (and other assays' artifacts), and the
+    analysis then excluded them.
 
-    Known limits; review the auto entries before relying on them. "Not common" is
-    the import-time gnomAD/TopMed > 5% flag, so a site with no population annotation,
-    or a real variant that recurs below 5% (a founder pathogenic allele, say), can
-    still be seeded, and is then excluded from this assay's NIPT analyses. A cfDNA
-    sample counts only when tagged ``assay: nipt_cfdna``.
+    Protected -- never seeded, whatever its recurrence: a variant with a ClinVar
+    pathogenic or likely pathogenic assertion in any of its annotations on the
+    assembly (Pathogenic, Likely_pathogenic, their combinations and low-penetrance
+    forms), and every "conflicting classifications/interpretations" record, which may
+    hold a P/LP submission (``clinvar_may_assert_pathogenic``). A familial founder
+    variant (CFTR F508del is ~1% in gnomAD) reaches five cfDNA samples of a
+    disease-focused panel easily; seeded, it would be excluded from every analysis.
+
+    Known limits; review the auto entries before relying on them. "Not common" is the
+    import-time gnomAD/TopMed > 5% flag, and the ClinVar protection needs a ClinVar
+    annotation, so a site with neither, or a real recurrent variant that ClinVar has
+    not called pathogenic, can still be seeded, and is then excluded from this assay's
+    NIPT analyses. A cfDNA sample counts only when tagged ``assay: nipt_cfdna``.
     """
     assembly_name = await _resolve_assembly_name(session, assembly_id)
     if assembly_name is None:
@@ -253,6 +262,7 @@ async def auto_seed_nipt_artifacts(
         min_carrier_samples=min_carrier_samples,
         carrier_samples=await _assay_cfdna_carrier_samples(session, assay_key=assay_key),
         exclude_common=True,
+        exclude_clinvar_pathogenic=True,
     )
     seeded = await bulk_upsert_nipt_artifacts(
         session,

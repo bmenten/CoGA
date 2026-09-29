@@ -406,6 +406,29 @@ def test_run_nipt_analysis_filter_counts() -> None:
     }
 
 
+def test_paternity_evidence_counts_only_sites_with_a_confident_father_call() -> None:
+    # A present FF/2 site whose father call is missing or thin is classified category 7 on
+    # the de novo prior alone: it says nothing about who the father is.
+    qc = NiptQualityThresholds()
+    sites = [_site(f"cat7-{i}", father_state="het", dp=400, alt=20) for i in range(40)]
+    sites += [_site(f"nocall-{i}", father_state="missing", father_dp=None, dp=400, alt=20) for i in range(20)]
+    sites += [_site(f"thin-{i}", father_state="hom_ref", father_dp=3, dp=400, alt=20) for i in range(10)]
+    sites += [
+        _site(f"absent-{i}", father_state="hom_alt", present=False, dp=120, alt=0, vaf=0.0)
+        for i in range(3)
+    ]
+    sites += [
+        _site(f"thin-absent-{i}", father_state="hom_alt", father_dp=3, present=False, dp=120, alt=0, vaf=0.0)
+        for i in range(2)
+    ]
+
+    result = run_nipt_analysis(sites, qc)
+
+    assert result.category_counts[7] == 70  # the prior still places the thin/no calls here
+    assert result.category_counts[8] == 3
+    assert result.paternal_evidence == {7: 40, 8: 3}
+
+
 def test_run_nipt_analysis_end_to_end_recovers_ff_and_categories() -> None:
     qc = NiptQualityThresholds()
     sites = [_site(f"cat7-{i}", father_state="het", dp=400, alt=20) for i in range(40)]
