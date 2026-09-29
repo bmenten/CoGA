@@ -996,25 +996,23 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </table></div>
 </section><section id="hs-5" class="chapter">
 <h1>5. Login &amp; authenticatie</h1>
-<p>Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA: hoe het inlogformulier zijn gegevens naar de backend stuurt, hoe wachtwoorden veilig worden bewaard, hoe een JWT-token (een ondertekend "toegangsbewijs", zie hieronder) wordt uitgegeven en bij elke volgende aanvraag gecontroleerd, hoe de sessie in de browser leeft, en hoe brute-force-aanvallen (het systematisch uitproberen van wachtwoorden) worden afgeremd. Ook de optionele Azure AD single-sign-on (SSO) komt aan bod, en het hoofdstuk sluit af met wat een ingelogde gebruiker mag doen. Voor het volledige rechtenmodel verwijzen we naar <a href="#hs-2">hoofdstuk 2 — Gebruikersrollen, machtigingen &amp; afscherming</a>.</p>
-<h2>Begrippen die in dit hoofdstuk terugkomen</h2>
+<p>Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA: hoe het inlogformulier zijn gegevens naar de backend stuurt, hoe wachtwoorden veilig worden bewaard, hoe een toegangstoken wordt uitgegeven en bij elk volgend verzoek gecontroleerd, hoe de sessie in de browser leeft en hoe het raden van wachtwoorden wordt afgeremd. Ook de optionele aanmelding via Azure AD en het registreren van een nieuw account komen aan bod. Wat een ingelogde gebruiker daarna mag zien, staat in <a href="#hs-2">hoofdstuk 2</a>.</p>
+<h2>Begrippen</h2>
 <ul>
-<li><strong>JWT (JSON Web Token):</strong> een klein, digitaal ondertekend tekstbestandje dat de server aan de client meegeeft na een geslaagde login. Het bevat een paar gegevens ("claims", bv. wie je bent en tot wanneer het geldig is). Omdat het ondertekend is met een geheime sleutel, kan de client het niet vervalsen.</li>
-<li><strong>Hashen:</strong> een wachtwoord onomkeerbaar versleutelen tot een reeks tekens. De server bewaart nooit het echte wachtwoord, alleen de hash; bij het inloggen wordt de ingevoerde tekst opnieuw gehasht en vergeleken.</li>
-<li><strong>Endpoint:</strong> een concreet API-adres (bv. <code>POST /api/auth/login</code>) waar de frontend een aanvraag naartoe stuurt.</li>
-<li><strong>Rate limiting / lockout:</strong> het tijdelijk blokkeren van te veel pogingen achter elkaar.</li>
+<li><strong>JWT</strong> (<em>JSON Web Token</em>): een klein, digitaal ondertekend bewijs dat de server na een geslaagde login meegeeft. Het bevat enkele gegevens (<em>claims</em>), zoals wie je bent en tot wanneer het geldt. Omdat het ondertekend is met een geheime sleutel, kan de client het niet vervalsen.</li>
+<li><strong>Hashen:</strong> een wachtwoord onomkeerbaar omzetten in een reeks tekens. De server bewaart alleen die hash; bij het inloggen wordt de ingevoerde tekst opnieuw gehasht en vergeleken.</li>
+<li><strong>Rate limiting / lockout:</strong> het tijdelijk blokkeren na te veel mislukte pogingen.</li>
 </ul>
-<h2>De login-flow in vogelvlucht</h2>
+<h2>De login in vogelvlucht</h2>
 <ol>
-<li>De gebruiker vult e-mail en wachtwoord in op de inlogpagina in de browser.</li>
+<li>De gebruiker vult e-mailadres en wachtwoord in op de inlogpagina.</li>
 <li>De frontend stuurt die naar het login-endpoint van de backend.</li>
-<li>De backend controleert eerst of het adres/IP niet geblokkeerd is (rate limiting), verifieert het wachtwoord tegen de opgeslagen hash, en geeft bij succes een JWT-token terug.</li>
-<li>De browser bewaart het token en stuurt het bij elke volgende aanvraag mee in een <code>Authorization</code>-header.</li>
-<li>De backend valideert dat token bij elk beschermd endpoint en leidt daaruit af wie de gebruiker is en wat die mag.</li>
+<li>De backend controleert of het adres of het IP niet geblokkeerd is, vergelijkt het wachtwoord met de opgeslagen hash en geeft bij succes een JWT terug.</li>
+<li>De browser bewaart het token en stuurt het bij elk volgend verzoek mee in de <code>Authorization</code>-header.</li>
+<li>De backend controleert het token bij elk beschermd endpoint en leidt daaruit af wie de gebruiker is.</li>
 </ol>
-<h2>De login-endpoints in de backend</h2>
-<p>De authenticatie-endpoints staan in <code>backend/app/routers/auth.py</code>, gemonteerd onder het pad <code>/auth</code> (dat samen met de globale API-prefix <code>/api</code> het volledige pad <code>/api/auth/...</code> oplevert).</p>
-<p>Er zijn twee ingangen die naar exact dezelfde logica leiden:</p>
+<h2>De login-endpoints</h2>
+<p>De endpoints staan in <code>backend/app/routers/auth.py</code>, onder <code>/api/auth/...</code>. Twee ingangen leiden naar dezelfde logica:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -1026,157 +1024,77 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 <tbody>
 <tr>
 <td><code>POST /auth/login</code></td>
-<td>JSON met <code>email</code> + <code>password</code> (schema <code>UserLogin</code>)</td>
-<td>De echte frontend (inlogpagina)</td>
+<td>JSON met <code>email</code> en <code>password</code></td>
+<td>De inlogpagina</td>
 </tr>
 <tr>
 <td><code>POST /auth/token</code></td>
-<td>OAuth2-formulier met <code>username</code> + <code>password</code></td>
-<td>De Swagger-testinterface; het e-mailadres gaat in het veld <code>username</code></td>
+<td>Een OAuth2-formulier met <code>username</code> en <code>password</code></td>
+<td>De interactieve API-documentatie, die alleen in ontwikkeling bereikbaar is; het e-mailadres gaat in <code>username</code></td>
 </tr>
 </tbody>
 </table></div>
-<p>Beide roepen de gedeelde functie <code>_authenticate_and_issue_token</code> aan. Die functie doet, in volgorde:</p>
+<p>Beide roepen <code>_authenticate_and_issue_token</code> aan. Die doet, in volgorde:</p>
 <ol>
-<li><strong>Rate-limit-controle</strong> via <code>get_login_throttle_state</code>. Is het adres of IP momenteel geblokkeerd, dan volgt onmiddellijk een <code>429</code>-fout ("Too many login attempts. Try again later.") met een <code>Retry-After</code>-header (hoeveel seconden wachten).</li>
-<li><strong>Gebruiker opzoeken</strong> via <code>get_auth_user_mapping_by_email</code> (in <code>backend/app/services/metadata_service.py</code>).</li>
-<li><strong>Wachtwoord verifiëren</strong> met <code>verify_password</code>.</li>
-<li><strong>Actief-controle:</strong> een gevonden gebruiker die nog niet is geactiveerd (<code>is_active = false</code>) krijgt <code>403 User not active</code> (en die poging wordt, net als een verkeerd wachtwoord, meegeteld door de rate limiter via <code>record_failed_login</code>).</li>
-<li>Bij succes: de tellers van mislukte pogingen wissen (<code>clear_login_failures</code>) en een token uitgeven met <code>create_access_token</code>.</li>
+<li><strong>De blokkering controleren.</strong> Is het e-mailadres of het IP geblokkeerd, dan volgt <code>429</code> ("Too many login attempts") met een <code>Retry-After</code>-header.</li>
+<li><strong>De gebruiker opzoeken en het wachtwoord controleren.</strong> Een onbekend adres of een verkeerd wachtwoord geeft dezelfde melding: <code>400 Incorrect email or password</code>.</li>
+<li><strong>Controleren of het account actief is.</strong> Een nog niet geactiveerd account krijgt <code>403 User not active</code>. Ook die poging telt als mislukt.</li>
+<li><strong>Bij succes:</strong> de teller van mislukte pogingen wissen en een token uitgeven.</li>
 </ol>
-<p>Het antwoord is een <code>Token</code>-object met drie velden: <code>access_token</code>, <code>token_type</code> (<code>"bearer"</code>) en <code>role</code> (de rol van de gebruiker, zodat de frontend meteen weet wat te tonen).</p>
-<p class="waar"><strong>Waar in de code:</strong> functie <code>_authenticate_and_issue_token</code> en de endpoints <code>login</code> / <code>token</code> in <code>backend/app/routers/auth.py</code>.</p>
-<h3>Bescherming tegen account-enumeratie (timing-side-channel)</h3>
-<p>Een subtiel maar belangrijk beveiligingsdetail: als de server bij een onbekend e-mailadres meteen "nee" zou zeggen zonder een wachtwoordcontrole uit te voeren, zou een aanvaller aan de <em>responstijd</em> kunnen aflezen welke adressen wél bestaan (bekende adressen zijn trager omdat ze de dure bcrypt-verificatie doorlopen). Om dat te voorkomen draait de code bij een onbekend adres tóch een "wegwerp"-verificatie tegen een vaste dummy-hash:</p>
-<div class="scroll"><pre><code class="language-python">_DUMMY_LOGIN_PASSWORD_HASH = get_password_hash(&quot;coga-login-timing-equalizer&quot;)
-</code></pre></div>
-<p>Zo kost de "geen-zulke-account"-tak ongeveer evenveel tijd als de "verkeerd-wachtwoord"-tak. Bovendien is de foutmelding in beide gevallen identiek: <code>400 Incorrect email or password</code>. De client kan dus niet onderscheiden of het adres bestaat.</p>
-<p class="waar"><strong>Waar in de code:</strong> de constante <code>_DUMMY_LOGIN_PASSWORD_HASH</code> en de <code>if user is None</code>-tak in <code>_authenticate_and_issue_token</code> (<code>backend/app/routers/auth.py</code>).</p>
-<h2>Wachtwoord-hashing: bcrypt</h2>
-<p>Wachtwoorden worden nooit in leesbare vorm bewaard. De hashing gebeurt centraal met de bibliotheek <strong>bcrypt</strong>, die de backend rechtstreeks aanroept:</p>
-<div class="scroll"><pre><code class="language-python">_BCRYPT_MAX_PASSWORD_BYTES = 72
-
-def _bcrypt_secret(password: str) -&gt; bytes:
-    return password.encode(&quot;utf-8&quot;)[:_BCRYPT_MAX_PASSWORD_BYTES]
-
-def get_password_hash(password: str) -&gt; str:
-    return bcrypt.hashpw(_bcrypt_secret(password), bcrypt.gensalt()).decode(&quot;ascii&quot;)
-
-def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
-    try:
-        return bcrypt.checkpw(_bcrypt_secret(plain_password), hashed_password.encode(&quot;ascii&quot;))
-    except (AttributeError, UnicodeEncodeError, ValueError):
-        return False
-</code></pre></div>
-<p>Bcrypt is een bewust <em>trage</em> hash (met een "work factor") zodat een aanvaller die de databank buitmaakt niet snel miljoenen wachtwoorden kan raden. De hash wordt opgeslagen in de kolom <code>hashed_password</code> van de tabel <code>users</code> (zie <code>backend/db/schema/postgres/01_access.sql</code>); het echte wachtwoord verlaat het geheugen van de server nooit.</p>
-<p>Tot #525 liep dit via <strong>passlib</strong>, dat niet meer onderhouden wordt en bcrypt op versie 3.2.0 vasthield. Het formaat is ongewijzigd (<code>$2b$</code>, kost 12), dus bestaande hashes blijven werken. Bcrypt leest alleen de eerste 72 bytes van een wachtwoord. passlib liet de rest stilzwijgend vallen, bcrypt 5 weigert zo'n wachtwoord. Daarom kapt de backend zelf af op 72 bytes, zodat een lang wachtwoord dat vroeger werkte, blijft werken. Een opgeslagen waarde die geen bcrypt-hash is, geeft gewoon "geen match".</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>get_password_hash</code>, <code>verify_password</code> in <code>backend/app/dependencies.py</code>; kolom <code>hashed_password</code> in <code>backend/db/schema/postgres/01_access.sql</code>; tests in <code>backend/tests/test_password_hashing.py</code>.</p>
-<h2>JWT: token maken en controleren</h2>
-<h3>Token maken</h3>
-<p>Een geslaagde login levert een JWT op via <code>create_access_token</code>:</p>
-<div class="scroll"><pre><code class="language-python">def create_access_token(data: dict, expires_delta=None) -&gt; str:
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
-    )
-    to_encode.update({&quot;exp&quot;: expire})
-    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
-</code></pre></div>
-<p>De belangrijkste eigenschappen:</p>
+<p>Het antwoord bevat het token, het type (<code>bearer</code>) en de rol van de gebruiker, zodat de frontend weet wat hij moet tonen.</p>
+<p><strong>Bescherming tegen accountopsomming.</strong> Zou de server bij een onbekend adres meteen "nee" zeggen, dan kon een aanvaller aan de <em>responstijd</em> zien welke adressen bestaan: de bcrypt-controle is bewust traag. Daarom voert de code bij een onbekend adres toch een controle uit tegen een vaste dummy-hash. Beide gevallen duren dus ongeveer even lang en geven dezelfde melding. Het hashen draait in een aparte thread, zodat een trage controle de server niet ophoudt.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>_authenticate_and_issue_token</code> in <code>backend/app/routers/auth.py</code>.</p>
+<h2>Wachtwoorden: bcrypt</h2>
+<p>Wachtwoorden worden nooit leesbaar bewaard. De backend hasht ze met <strong>bcrypt</strong>, dat hij rechtstreeks aanroept. Bcrypt is bewust traag, zodat een aanvaller die de databank buitmaakt niet snel miljoenen wachtwoorden kan uitproberen. De hash staat in de kolom <code>hashed_password</code> van <code>users</code>.</p>
+<p>Bcrypt leest alleen de eerste 72 bytes van een wachtwoord. De backend kapt een langer wachtwoord daarom zelf af op 72 bytes, bij het aanmaken van de hash én bij de controle, zodat beide altijd hetzelfde deel vergelijken. Een opgeslagen waarde die geen bcrypt-hash is (bv. een account zonder lokaal wachtwoord), geeft gewoon geen match.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>get_password_hash</code> en <code>verify_password</code> in <code>backend/app/dependencies.py</code>; de tests in <code>backend/tests/test_password_hashing.py</code>.</p>
+<h2>Het token</h2>
+<p>Een geslaagde login levert een JWT op:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
-<th>Aspect</th>
+<th>Eigenschap</th>
 <th>Waarde</th>
-<th>Herkomst</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>Claim <code>sub</code></td>
-<td>het e-mailadres van de gebruiker</td>
-<td><code>data={"sub": user["email"]}</code> in <code>_authenticate_and_issue_token</code></td>
+<td>Het e-mailadres van de gebruiker</td>
 </tr>
 <tr>
 <td>Claim <code>exp</code></td>
-<td>verloopmoment</td>
-<td>berekend uit <code>access_token_expire_minutes</code></td>
+<td>Het verloopmoment</td>
 </tr>
 <tr>
 <td>Levensduur</td>
-<td>standaard <strong>120 minuten (2 uur)</strong></td>
-<td><code>ACCESS_TOKEN_EXPIRE_MINUTES</code> in config</td>
+<td>Kort: standaard twee uur (<code>ACCESS_TOKEN_EXPIRE_MINUTES</code>)</td>
 </tr>
 <tr>
-<td>Algoritme</td>
-<td><strong>HS256</strong> (symmetrisch ondertekend)</td>
-<td><code>settings.algorithm</code></td>
-</tr>
-<tr>
-<td>Ondertekensleutel</td>
-<td><code>SECRET_KEY</code></td>
-<td><code>settings.secret_key</code></td>
+<td>Handtekening</td>
+<td>HS256 (symmetrisch), met <code>SECRET_KEY</code></td>
 </tr>
 </tbody>
 </table></div>
-<p>De korte levensduur van 2 uur is een bewuste keuze: het token leeft in de browser in <code>localStorage</code> (niet in een beveiligde HttpOnly-cookie), dus als het lekt, is de "straal van de explosie" beperkt tot maximaal twee uur.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>create_access_token</code> in <code>backend/app/dependencies.py</code>; instellingen <code>algorithm</code>, <code>secret_key</code> en <code>access_token_expire_minutes</code> in <code>backend/app/core/config.py</code>.</p>
-<h3>SECRET_KEY-beveiliging bij opstart</h3>
-<p>De <code>SECRET_KEY</code> is het hart van de tokenbeveiliging: wie die kent, kan geldige tokens vervalsen. De standaardwaarde is <code>"change-me"</code>, puur voor lokaal werk. De config weigert echter te starten buiten een ontwikkel-/testomgeving als de sleutel nog op zo'n onveilige standaard staat. De <code>model_validator</code> <code>validate_security_defaults</code> gooit een fout wanneer, terwijl <code>APP_ENV</code> niet op een ontwikkel-/testomgeving staat:</p>
-<ul>
-<li><code>SECRET_KEY</code> een onveilige waarde is (<code>change-me</code> of <code>secret</code>, uit de set <code>_INSECURE_SECRET_VALUES</code>), of</li>
-<li><code>POSTGRES_PASSWORD</code> of <code>ADMIN_PASSWORD</code> een onveilige waarde is (<code>change-me</code> of <code>admin</code>, uit de set <code>_INSECURE_PASSWORD_VALUES</code>), of de standaard-<code>ADMIN_USERNAME</code> (<code>admin</code>) met zo'n zwak wachtwoord wordt gecombineerd.</li>
-</ul>
-<p>Dezelfde validator dwingt nog andere productie-eisen af (bv. dat <code>AUDIT_LOG_DROP_ALLOWED</code> niet aan mag staan in productie, zie de sectie over traceerbaarheid).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>validate_security_defaults</code> en de sets <code>_INSECURE_SECRET_VALUES</code> / <code>_INSECURE_PASSWORD_VALUES</code> in <code>backend/app/core/config.py</code>.</p>
-<h3>Token controleren: <code>get_current_user</code></h3>
+<p>De korte levensduur is een bewuste keuze: het token staat in de browseropslag (niet in een afgeschermde HttpOnly-cookie), dus als het lekt, is de schade beperkt tot die periode. Wie <code>SECRET_KEY</code> kent, kan geldige tokens maken; daarom weigert de backend buiten ontwikkeling een zwakke sleutel (<a href="#hs-2">hoofdstuk 2</a>).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>create_access_token</code> in <code>backend/app/dependencies.py</code>; de instellingen in <code>backend/app/core/config.py</code>.</p>
+<h3>Het token controleren: <code>get_current_user</code></h3>
 <p>Elk beschermd endpoint hangt af van <code>get_current_user</code>. Die functie:</p>
 <ol>
-<li>Haalt het token uit de <code>Authorization: Bearer ...</code>-header (via <code>oauth2_scheme</code>).</li>
-<li>Decodeert en verifieert het met <code>jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])</code>. Een ongeldige of verlopen handtekening levert een <code>401 Could not validate credentials</code>.</li>
-<li>Leest het e-mailadres uit de <code>sub</code>-claim.</li>
-<li>Zoekt de gebruiker op met <code>get_current_user_by_email</code> en controleert dat die nog bestaat en <code>is_active</code> is; zo niet, opnieuw <code>401</code>.</li>
-<li>Slaat het gebruikersobject op in <code>request.state.current_user</code>, zodat de audit-middleware (zie verderop) weet wie de aanvraag deed.</li>
+<li>haalt het token uit de header <code>Authorization: Bearer …</code>;</li>
+<li>controleert de handtekening en de geldigheid; een ongeldig of verlopen token geeft <code>401 Could not validate credentials</code>;</li>
+<li>leest het e-mailadres uit de claim <code>sub</code>;</li>
+<li>laadt de gebruiker vers uit Postgres en controleert dat die bestaat en actief is; zo niet, opnieuw <code>401</code>;</li>
+<li>hangt de gebruiker aan het verzoek (<code>request.state.current_user</code>), zodat de auditlog weet wie het verzoek deed.</li>
 </ol>
-<p>De strengere variant <code>get_current_admin_user</code> bouwt hierop voort en eist dat de rol in <code>ADMIN_ROLES = {"admin", "superuser"}</code> zit; anders <code>403 Admin access required</code>.</p>
+<p><code>get_current_admin_user</code> bouwt daarop voort en eist een beheerdersrol (<code>admin</code> of <code>superuser</code>); anders volgt <code>403 Admin access required</code>.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>get_current_user</code> en <code>get_current_admin_user</code> in <code>backend/app/dependencies.py</code>.</p>
-<h2>De frontend: van formulier tot bewaarde sessie</h2>
-<h3>Inlogpagina</h3>
-<p>De inlogpagina is <code>frontend/src/pages/auth/LoginPage.tsx</code>. Bij verzenden (<code>handleSubmit</code>):</p>
-<ol>
-<li>Stuurt <code>POST /auth/login</code> met e-mail en wachtwoord.</li>
-<li>Haalt daarna met het verse token het profiel op via <code>GET /auth/me</code> (het token wordt hier expliciet als <code>Authorization</code>-header meegegeven).</li>
-<li>Bewaart de sessie met <code>persistSession(accessToken, me.data.email ?? email, me.data.role)</code> — dus het token, het e-mailadres uit het profiel (met de ingetypte waarde als terugval) en de rol.</li>
-<li>Navigeert naar de doelpagina.</li>
-</ol>
-<p>Die doelpagina komt uit de <code>next</code>-parameter in de URL, maar wordt eerst gefilterd door <code>resolveNextPath</code>: alleen paden die met één <code>/</code> beginnen zijn toegestaan (geen <code>//</code> en geen externe URL's), en <code>/login</code>/<code>/signup</code> worden teruggestuurd naar <code>/dashboard</code>. Dat voorkomt een <strong>open-redirect</strong> (een aanvaller die je na login naar een kwaadaardige site stuurt).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>handleSubmit</code> en <code>resolveNextPath</code> in <code>frontend/src/pages/auth/LoginPage.tsx</code>.</p>
-<h3>Waar het token wordt bewaard</h3>
-<p>De sessie leeft in drie sleutels in de browseropslag: <code>token</code>, <code>username</code> en <code>role</code> (gedefinieerd in <code>AUTH_STORAGE_KEYS</code>).</p>
-<div class="scroll"><pre><code class="language-ts">export function persistSession(token, username, role) {
-  storage.setItem('token', token);
-  storage.setItem('username', username);
-  storage.setItem('role', role);
-}
-</code></pre></div>
-<p>De opslaglaag <code>storage</code> (<code>frontend/src/lib/storage.ts</code>) gebruikt bij voorkeur de browser-<code>localStorage</code>, maar valt terug op een in-geheugen-implementatie (<code>createMemoryStorage</code>) wanneer <code>localStorage</code> niet beschikbaar is (bv. in bepaalde testomgevingen of privacymodi). Zo blijft de app werken zonder crash.</p>
-<p>Helperfuncties zoals <code>isAuthenticated()</code> (is er een token?), <code>getStoredRole()</code> en <code>isAdmin()</code> lezen deze sleutels uit. <code>isAdmin()</code> geeft <code>true</code> voor de rollen <code>admin</code> en <code>superuser</code>.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>persistSession</code>, <code>clearSession</code>, <code>isAuthenticated</code>, <code>isAdmin</code>, <code>getStoredRole</code> in <code>frontend/src/lib/auth.ts</code>; de opslaglaag in <code>frontend/src/lib/storage.ts</code>.</p>
-<h3>De axios-client: token meesturen en 401 afhandelen</h3>
-<p>Alle API-aanvragen lopen via één gedeelde axios-client in <code>frontend/src/lib/api.ts</code>. Twee "interceptors" (tussenlagen) regelen de authenticatie:</p>
-<ul>
-<li><strong>Request-interceptor:</strong> hangt automatisch <code>Authorization: Bearer &lt;token&gt;</code> aan elke uitgaande aanvraag, behalve aan <code>/auth/login</code> en <code>/auth/signup</code> (die staan in <code>AUTH_EXCLUDED_PATHS</code>), en behalve wanneer de aanroeper al zelf een <code>Authorization</code>-header meegaf.</li>
-<li><strong>Response-interceptor:</strong> vangt elke <code>401</code>-respons op, wist de sessie met <code>clearSession()</code> en stuurt de browser hard naar <code>/login</code> (tenzij die zich al op <code>/login</code> bevindt). Zo wordt een verlopen of ongeldig token overal in de app consequent afgehandeld: de gebruiker belandt terug op de inlogpagina.</li>
-</ul>
-<p class="waar"><strong>Waar in de code:</strong> de twee <code>api.interceptors</code>-blokken in <code>frontend/src/lib/api.ts</code>; hulpfuncties <code>shouldAttachStoredToken</code> en <code>hasAuthorizationHeader</code> in hetzelfde bestand.</p>
-<h3>Routebescherming: RequireAuth en SessionRedirect</h3>
-<ul>
-<li><code>frontend/src/components/RequireAuth.tsx</code> bewaakt beschermde routes. Is er geen sessie, dan stuurt het door naar <code>/login?next=&lt;huidige pad&gt;</code> (het opgeslagen <code>next</code> bevat pad + query + hash), zodat de gebruiker na inloggen terugkeert waar die wilde zijn.</li>
-<li><code>frontend/src/components/SessionRedirect.tsx</code> is een eenvoudige schakelaar die, afhankelijk van <code>isAuthenticated()</code>, naar een <code>authenticatedTo</code>- of <code>unauthenticatedTo</code>-bestemming leidt (bv. de root-route die naar dashboard of login gaat).</li>
-</ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>RequireAuth</code> en <code>SessionRedirect</code> in <code>frontend/src/components/</code>.</p>
-<h2>Rate limiting &amp; lockout tegen brute force</h2>
-<p>Om te voorkomen dat iemand wachtwoorden blijft raden, houdt de backend mislukte pogingen bij in de Postgres-tabel <code>auth_login_attempts</code>. Elke rij is een "scope" (bereik) met een teller:</p>
+<h2>De frontend: van formulier tot sessie</h2>
+<p>De inlogpagina (<code>frontend/src/pages/auth/LoginPage.tsx</code>) stuurt <code>POST /auth/login</code>, vraagt met het verse token het profiel op (<code>GET /auth/me</code>) en bewaart dan de sessie: het token, het e-mailadres en de rol. Daarna gaat ze naar de gevraagde pagina uit de parameter <code>next</code>. Die wordt eerst gefilterd: alleen een pad binnen de app mag (geen <code>//</code> of externe URL), zodat een aanvaller je na het inloggen niet naar een andere site kan sturen (<em>open redirect</em>).</p>
+<p>De sessie staat in de browseropslag (<code>localStorage</code>); is die niet beschikbaar, dan valt de app terug op opslag in het geheugen. Hoe de API-client het token meestuurt en bij een <code>401</code> uitlogt, staat in <a href="#hs-1">hoofdstuk 1</a>; de routebewakers in hoofdstuk 2.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/auth/LoginPage.tsx</code>, <code>frontend/src/lib/auth.ts</code> en <code>frontend/src/lib/storage.ts</code>.</p>
+<h2>Rate limiting en lockout</h2>
+<p>Mislukte pogingen worden bijgehouden in de Postgres-tabel <code>auth_login_attempts</code>. Elke rij is een <em>bereik</em> met een teller:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -1187,79 +1105,54 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 <tbody>
 <tr>
 <td><code>scope_type</code> / <code>scope_value</code></td>
-<td>het bereik: <code>email</code>, <code>remote_ip</code>, of <code>signup_ip</code></td>
+<td>Het bereik: <code>email</code>, <code>remote_ip</code> of <code>signup_ip</code></td>
 </tr>
 <tr>
 <td><code>failure_count</code></td>
-<td>aantal opeenvolgende mislukte pogingen</td>
+<td>Het aantal opeenvolgende mislukte pogingen</td>
 </tr>
 <tr>
 <td><code>last_failure_at</code></td>
-<td>tijdstip van de laatste mislukking</td>
+<td>Het tijdstip van de laatste mislukking</td>
 </tr>
 <tr>
 <td><code>locked_until</code></td>
-<td>tot wanneer dit bereik geblokkeerd is</td>
+<td>Tot wanneer dit bereik geblokkeerd is</td>
 </tr>
 </tbody>
 </table></div>
-<p class="waar"><strong>Waar in de code:</strong> het schema in <code>backend/db/schema/postgres/01_access.sql</code>; de logica in <code>backend/app/services/auth_rate_limit_pg.py</code>.</p>
-<p>De werking (functies <code>record_failed_login</code>, <code>get_login_throttle_state</code>, <code>clear_login_failures</code>):</p>
+<p>De werking:</p>
 <ul>
-<li>Elke mislukte login verhoogt de teller voor <strong>twee</strong> bereiken tegelijk: het ingevoerde e-mailadres én het bron-IP (<code>_scope_rows</code>). Dat maakt zowel het bestoken van één account als het rondstrooien over vele accounts moeilijk.</li>
-<li>Zodra de teller de drempel (<code>LOGIN_RATE_LIMIT_THRESHOLD</code>, standaard <strong>5</strong>) bereikt, treedt een <strong>exponentiële back-off</strong> in werking: de wachttijd verdubbelt per extra poging, vanaf <code>LOGIN_RATE_LIMIT_BASE_BACKOFF_SECONDS</code> (standaard 30 s) tot maximaal <code>LOGIN_RATE_LIMIT_MAX_BACKOFF_SECONDS</code> (standaard 900 s = 15 min). Dit staat in <code>_backoff_seconds</code>.</li>
-<li>De teller "vergeet" oude mislukkingen: is de laatste poging langer dan <code>LOGIN_RATE_LIMIT_WINDOW_SECONDS</code> geleden (standaard 900 s), dan begint het tellen opnieuw bij 1 (<code>_next_failure_count</code>).</li>
-<li>Een <strong>geslaagde</strong> login wist de tellers (<code>clear_login_failures</code>), zodat een legitieme gebruiker die zich een keer vergist geen last houdt.</li>
+<li>Elke mislukte login verhoogt de teller voor <strong>twee</strong> bereiken tegelijk: het ingevoerde e-mailadres en het bron-IP. Zo wordt zowel het bestoken van één account als het uitproberen over vele accounts afgeremd.</li>
+<li>Vanaf een drempel volgt een wachttijd die per extra poging verdubbelt, tot een maximum. Is de laatste mislukking lang genoeg geleden, dan begint de telling opnieuw.</li>
+<li>Een geslaagde login wist de tellers.</li>
+<li>Drempel, venster en wachttijden zijn instelbaar (<code>LOGIN_RATE_LIMIT_*</code>, met hun standaardwaarde in <code>.env.example</code>).</li>
 </ul>
-<p>Een geblokkeerde poging levert <code>429</code> met een <code>Retry-After</code>-header op, zodat de client weet hoelang te wachten.</p>
-<p><strong>Signup-throttling</strong> werkt apart en enkel per bron-IP (<code>_signup_scope_rows</code> gebruikt <code>signup_ip</code>). E-mail-scoping heeft daar geen zin, omdat een aanvaller bij enumeratie juist telkens een ander adres probeert. De relevante instellingen staan in <code>backend/app/core/config.py</code> (de <code>login_rate_limit_*</code>-velden).</p>
-<p><strong>Het wachtwoord bij registratie</strong> moet minstens 15 tekens lang zijn (<code>SIGNUP_PASSWORD_MIN_LENGTH</code> in <code>backend/app/schemas/auth.py</code>, naar NIST SP 800-63B-4 voor een wachtwoord dat de enige factor is). Een korter wachtwoord krijgt <code>422</code> nog vóór de throttling, het hashen of het aanmaken van een account. Tot CR-059 werd elk wachtwoord aanvaard, ook een leeg. Na een geslaagde registratie toont <code>SignupPage</code> de bevestiging van de server: de account wacht op activatie door een beheerder. Vroeger ging de pagina meteen naar <code>/login</code>, waar aanmelden daarna mislukte met "User not active", zonder uitleg.</p>
-<h2>Optioneel: Azure AD (SSO) en de admin-override</h2>
-<p>CoGA kan optioneel inloggen via <strong>Azure AD</strong> (Microsofts identiteitsdienst). Dit wordt geactiveerd zodra zowel <code>AZURE_TENANT_ID</code> als <code>AZURE_CLIENT_ID</code> zijn ingesteld.</p>
-<p>Wanneer dat het geval is, verandert het gedrag van <code>get_current_user</code>: het inkomende token wordt eerst gevalideerd als een Azure-token via <code>verify_azure_token</code>. Die functie:</p>
-<ol>
-<li>Leest het <code>kid</code> (key-id) uit de token-header.</li>
-<li>Haalt de publieke sleutels (JWKS) op bij Microsoft, met caching (<code>lru_cache</code>) en één automatische her-ophaling (<code>cache_clear</code>) als Azure zijn sleutels heeft geroteerd.</li>
-<li>Verifieert het token met <strong>RS256</strong> (asymmetrische handtekening) en controleert de <code>audience</code> (client-id) en <code>issuer</code>.</li>
-</ol>
-<p>Het e-mailadres komt dan uit de claim <code>preferred_username</code> of <code>email</code>.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>verify_azure_token</code> in <code>backend/app/core/azure.py</code>; de Azure-tak in <code>get_current_user</code> in <code>backend/app/dependencies.py</code>; de <code>azure_*</code>-instellingen in <code>backend/app/core/config.py</code>.</p>
-<h3>De "break-glass" admin-override</h3>
-<p>Er is een noodmechanisme: als Azure-validatie faalt én <code>AZURE_ADMIN_OVERRIDE</code> aan staat (standaard <strong>uit</strong>), probeert de server het token alsnog als een lokaal uitgegeven HS256-token te lezen. Dit is streng afgeschermd:</p>
+<p>Het bron-IP is het IP dat de middleware achter de proxies vaststelt (<code>TRUSTED_PROXY_HOPS</code>, hoofdstuk 2), zodat een client het zelf niet kan kiezen. Registreren wordt apart en alleen per bron-IP afgeremd: bij het opsommen van accounts probeert een aanvaller juist telkens een ander adres.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/auth_rate_limit_pg.py</code>; de tabel in <code>backend/db/schema/postgres/01_access.sql</code>.</p>
+<h2>Registreren en goedkeuren</h2>
+<p>Iedereen kan zich registreren via <code>POST /auth/signup</code> (pagina <code>frontend/src/pages/auth/SignupPage.tsx</code>), maar dat geeft <strong>geen</strong> toegang:</p>
 <ul>
-<li>Het werkt <strong>alleen</strong> voor gebruikers met een admin-rol (<code>user.role in ADMIN_ROLES</code>); anders <code>401</code>.</li>
-<li>Elk gebruik schrijft een <strong>waarschuwing</strong> naar het log (<code>logger.warning("azure_admin_override: ...")</code>) met de tekst dat <code>AZURE_ADMIN_OVERRIDE</code> in productie uitgeschakeld hoort te zijn — zodat een per ongeluk ingeschakelde override opvalt in de logs.</li>
+<li>Het wachtwoord moet minstens 15 tekens lang zijn (naar NIST SP 800-63B-4, voor een wachtwoord dat de enige factor is). Een korter wachtwoord krijgt <code>422</code>, nog vóór er iets wordt aangemaakt.</li>
+<li>Registreren wordt per bron-IP afgeremd.</li>
+<li>Een nieuw account krijgt de rol <code>viewer</code> en is <strong>niet actief</strong>.</li>
+<li>Het antwoord is altijd hetzelfde ("Registration received …"), of het adres nu nieuw is of al bestaat. Ook dat voorkomt het opsommen van accounts. Alleen bij een echt nieuw adres krijgt de beheerder een e-mail, als <code>ADMIN_EMAIL</code> is ingesteld.</li>
+<li>De pagina toont die bevestiging: het account wacht op activatie.</li>
 </ul>
-<p>Dit is bedoeld als "glas breken bij nood": een manier om binnen te komen als de SSO-koppeling stuk is, zonder de deur voor gewone gebruikers open te zetten.</p>
-<p class="waar"><strong>Waar in de code:</strong> de <code>local_override</code>-tak en het <code>logger.warning(...)</code> in <code>get_current_user</code> (<code>backend/app/dependencies.py</code>); de instelling <code>azure_admin_override</code> in <code>backend/app/core/config.py</code>.</p>
-<h2>Registratie (signup) en het goedkeuringsbeleid</h2>
-<p>Registreren kan iedereen via <code>POST /auth/signup</code> (endpoint <code>signup</code> in <code>backend/app/routers/auth.py</code>, frontend <code>frontend/src/pages/auth/SignupPage.tsx</code>), maar dat geeft <strong>geen</strong> directe toegang. Het beleid:</p>
+<p>Een gebruiker kan pas inloggen nadat een beheerder het account activeert (<code>PATCH /auth/users/{user_id}</code>, alleen voor beheerders). Rol en projecttoegang bepalen beheerders, niet de gebruiker. Projecttoegang loopt via de projectinstellingen, niet via dit endpoint.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>signup</code> en <code>update_user</code> in <code>backend/app/routers/auth.py</code>; het aanmaken van het account in <code>backend/app/services/metadata_service.py</code>; de minimale lengte in <code>backend/app/schemas/auth.py</code>.</p>
+<h2>Optioneel: Azure AD</h2>
+<p>CoGA kan aanmelden via <strong>Azure AD</strong> (Microsofts identiteitsdienst) zodra <code>AZURE_TENANT_ID</code> en <code>AZURE_CLIENT_ID</code> zijn ingesteld. De backend controleert het token dan als een Azure-token: hij haalt Microsofts publieke sleutels op (met cache, en één keer opnieuw als Azure van sleutel wisselde), controleert de handtekening (RS256), de <em>audience</em> (de client-id) en de <em>issuer</em>, en leest het e-mailadres uit <code>preferred_username</code> of <code>email</code>. Is Azure ingesteld, dan aanvaardt de backend geen lokaal uitgegeven tokens meer, behalve via de noodoverride hieronder.</p>
+<p><strong>Noodoverride.</strong> Faalt de Azure-controle én staat <code>AZURE_ADMIN_OVERRIDE</code> aan (standaard uit), dan probeert de server het token als lokaal token te lezen. Dat werkt alleen voor beheerders, en elk gebruik schrijft een waarschuwing naar de log, zodat een per ongeluk ingeschakelde override opvalt. Het is bedoeld om binnen te raken als de koppeling met Azure stuk is.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/azure.py</code> en de Azure-tak in <code>get_current_user</code> (<code>backend/app/dependencies.py</code>).</p>
+<h2>Veiligheid en traceerbaarheid</h2>
 <ul>
-<li>De signup is per bron-IP gethrottled (<code>record_signup_attempt</code> / <code>get_signup_throttle_state</code>), zodat het niet misbruikt kan worden om accounts te enumereren of de admin-mailbox te overspoelen. De endpoint antwoordt met <code>202 Accepted</code>.</li>
-<li>Een nieuw account wordt aangemaakt met rol <strong><code>viewer</code></strong> en <code>is_active = false</code> — dus <strong>niet actief</strong>. Zie de <code>INSERT</code> in <code>create_user_account</code> (<code>backend/app/services/metadata_service.py</code>), die de rol hardcodeert op <code>'viewer'</code> en <code>is_active</code> op <code>false</code>.</li>
-<li>De response is <strong>altijd identiek</strong> — "Registration received. An administrator will review the request..." — of het e-mailadres nu nieuw is of al bestaat. Bij een bestaand adres geeft <code>create_user_account</code> stilletjes <code>None</code> terug en wordt de insert overgeslagen. Ook dit voorkomt account-enumeratie.</li>
-<li>Bij een écht nieuw adres wordt op de achtergrond een admin genotificeerd (<code>notify_admin</code>, via een <code>BackgroundTasks</code>-taak).</li>
+<li><strong>Elk verzoek wordt gelogd,</strong> ook elke loginpoging, met statuscode, tijdstip, bron-IP en user-agent (hoofdstuk 7). Een mislukte login is herkenbaar aan <code>400</code>, <code>403</code> of <code>429</code>.</li>
+<li><strong>Wachtwoorden en tokens komen niet in de logs.</strong> De auditlog maskeert gevoelige velden, ook in het formulier van <code>/auth/token</code>.</li>
+<li><strong>De tabel <code>auth_login_attempts</code></strong> toont per e-mailadres en IP de mislukkingen en blokkeringen: bruikbaar om een aanval te herkennen.</li>
+<li><strong>De noodoverride laat altijd een spoor na</strong> in de log.</li>
+<li><strong>Korte tokens en uitloggen bij <code>401</code></strong> beperken de gevolgen van een gelekt token.</li>
 </ul>
-<p>Een gebruiker kan pas inloggen nadat een <strong>admin</strong> het account activeert via <code>PATCH /auth/users/{user_id}</code> (endpoint <code>update_user</code>, beschermd door <code>get_current_admin_user</code>), dat <code>is_active</code> op <code>true</code> zet. Rollen en projecttoegang worden dus niet door de gebruiker zelf, maar door beheerders bepaald; project-toegang wordt zelfs expliciet geweigerd via dit endpoint (dat verloopt via de projectinstellingen).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>signup</code>, <code>notify_admin</code>, <code>update_user</code> in <code>backend/app/routers/auth.py</code>; <code>create_user_account</code>, <code>update_user_account</code> in <code>backend/app/services/metadata_service.py</code>.</p>
-<h2>Wat mag een ingelogde gebruiker?</h2>
-<p>Na een geslaagde login draagt de gebruiker een rol (<code>admin</code>, <code>superuser</code> of <code>viewer</code>) en een lijst van projecten waartoe die toegang heeft (<code>metadata_project_ids</code>), afgeleid uit de tabellen <code>users</code> en <code>project_users</code>. Kort samengevat:</p>
-<ul>
-<li><strong>viewer:</strong> kan de families/projecten bekijken en beoordelen waar die aan gekoppeld is; ziet niets buiten die projecten.</li>
-<li><strong>admin / superuser:</strong> beheerdersrechten (o.a. gebruikers activeren via <code>/auth/users</code>, projectbeheer) en toegang die niet tot specifieke projecten beperkt is.</li>
-</ul>
-<p>De feitelijke afscherming gebeurt niet in dit hoofdstuk maar in de service-laag, die queries filtert op de projecten van de gebruiker (zie o.a. de <code>metadata_project_ids</code>-logica en <code>visible_metadata_project_ids</code> in <code>backend/app/services/access_control.py</code>). Het volledige rollen- en rechtenmodel, inclusief hoe project-afscherming wordt afgedwongen, staat in <a href="#hs-2">hoofdstuk 2 — Gebruikersrollen, machtigingen &amp; afscherming</a>.</p>
-<h2>Veiligheid &amp; traceerbaarheid</h2>
-<p>Voor een IVD-platform moet elke poging tot toegang navolgbaar zijn. De maatregelen rond authenticatie:</p>
-<ul>
-<li><strong>Volledige audit van elke aanvraag.</strong> De middleware in <code>backend/app/middleware/request_logging.py</code> schrijft voor élke HTTP-aanvraag een auditgebeurtenis naar de databank (<code>write_audit_log_event</code>), inclusief de HTTP-status. Een mislukte login is dus herkenbaar aan de statuscode (<code>400</code>, <code>403</code> of <code>429</code>), een geslaagde aan <code>200</code>, samen met bron-IP, tijdstip en user-agent. Bij aanvragen op beschermde endpoints wordt ook de actor (<code>user_id</code>, <code>user_email</code>, <code>role</code>) meegeschreven, afgeleid uit <code>request.state.current_user</code> dat <code>get_current_user</code> heeft gezet (functie <code>_get_request_user</code>).</li>
-<li><strong>Wachtwoorden lekken niet in de logs.</strong> De middleware maskeert gevoelige velden. Sleutels waarvan de naam met een van de <code>_SENSITIVE_PREFIXES</code> begint (o.a. <code>password</code>, <code>secret</code>, <code>token</code>, <code>authorization</code>, <code>api_key</code>, <code>access_key</code>) worden vervangen door <code>***</code> — ook voor het formulier-gecodeerde body van <code>/auth/token</code>, die in <code>_parse_request_body</code> expliciet wordt ontleed en gemaskeerd zodat <code>password=&lt;plaintext&gt;</code> nooit in de audit-DB belandt.</li>
-<li><strong>Mislukte-loginteller als aparte, doorzoekbare bron.</strong> Naast de audittrail houdt de tabel <code>auth_login_attempts</code> per e-mail/IP het aantal mislukkingen en het lockout-moment bij — direct bruikbaar om een aanval te detecteren.</li>
-<li><strong>De noodoverride laat altijd een spoor na.</strong> Elk gebruik van de Azure-admin-override schrijft een waarschuwing naar het log (zie hierboven).</li>
-<li><strong>Accountability wordt niet stilletjes weggegooid.</strong> In productie weigert de config om <code>AUDIT_LOG_DROP_ALLOWED=true</code> te accepteren (<code>validate_security_defaults</code> in <code>backend/app/core/config.py</code>), zodat auditgebeurtenissen bij een volle wachtrij niet zomaar verloren gaan.</li>
-<li><strong>Korte tokenlevensduur + harde 401-afhandeling</strong> beperken de gevolgen van een gelekt token: het verloopt na 2 uur en elke <code>401</code> wist automatisch de clientsessie.</li>
-</ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>log_request_response</code>, <code>_get_request_user</code>, <code>_sanitize_for_logging</code>, <code>_parse_request_body</code> in <code>backend/app/middleware/request_logging.py</code>; <code>auth_login_attempts</code> in <code>backend/db/schema/postgres/01_access.sql</code>.</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
 <thead>
@@ -1271,445 +1164,237 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 <tbody>
 <tr>
 <td><code>backend/app/routers/auth.py</code></td>
-<td>Login-, token-, signup-, <code>me</code>- en gebruikersbeheer-endpoints; enumeratie-beschermingen</td>
+<td>Login, token, registratie, profiel en gebruikersbeheer</td>
 </tr>
 <tr>
 <td><code>backend/app/dependencies.py</code></td>
-<td>Wachtwoord-hashing (bcrypt), JWT maken/valideren, <code>get_current_user</code> / <code>get_current_admin_user</code>, Azure-tak</td>
-</tr>
-<tr>
-<td><code>backend/app/core/config.py</code></td>
-<td>Instellingen: <code>SECRET_KEY</code>, tokenlevensduur, rate-limit-parameters, Azure-config; weigert onveilige defaults in productie</td>
+<td>Wachtwoorden (bcrypt), tokens maken en controleren, Azure-tak</td>
 </tr>
 <tr>
 <td><code>backend/app/core/azure.py</code></td>
-<td>Azure AD-tokenvalidatie (JWKS ophalen, RS256, issuer/audience-controle)</td>
+<td>Controle van Azure-tokens</td>
 </tr>
 <tr>
 <td><code>backend/app/services/auth_rate_limit_pg.py</code></td>
-<td>Rate limiting / lockout-logica (back-off, scopes email/IP/signup)</td>
+<td>Rate limiting en lockout</td>
+</tr>
+<tr>
+<td><code>backend/app/schemas/auth.py</code></td>
+<td>Invoer van login en registratie (minimale wachtwoordlengte)</td>
 </tr>
 <tr>
 <td><code>backend/db/schema/postgres/01_access.sql</code></td>
-<td>Tabel <code>users</code> (o.a. <code>hashed_password</code>, <code>role</code>, <code>is_active</code>) en tabel <code>auth_login_attempts</code> voor mislukte-pogingtellers en lockouts</td>
+<td>De tabellen <code>users</code> en <code>auth_login_attempts</code></td>
 </tr>
 <tr>
-<td><code>backend/app/services/metadata_service.py</code></td>
-<td>Gebruiker opzoeken, aanmaken (viewer/inactief) en activeren; project-scoping</td>
+<td><code>frontend/src/pages/auth/LoginPage.tsx</code> · <code>SignupPage.tsx</code></td>
+<td>Inloggen en registreren</td>
 </tr>
 <tr>
-<td><code>backend/app/middleware/request_logging.py</code></td>
-<td>Audittrail van elke aanvraag, met maskering van wachtwoorden/tokens</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/auth/LoginPage.tsx</code></td>
-<td>Inlogformulier, tokenopslag, veilige <code>next</code>-redirect</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/auth/SignupPage.tsx</code></td>
-<td>Registratieformulier</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/auth.ts</code></td>
-<td>Sessiehelpers (<code>persistSession</code>, <code>isAuthenticated</code>, rollen)</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/api.ts</code></td>
-<td>Axios-client: token meesturen + centrale 401-afhandeling</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/storage.ts</code></td>
-<td>Opslaglaag met terugval van <code>localStorage</code> naar geheugen</td>
-</tr>
-<tr>
-<td><code>frontend/src/components/RequireAuth.tsx</code></td>
-<td>Routebescherming met terugkeer naar bedoelde pagina</td>
-</tr>
-<tr>
-<td><code>frontend/src/components/SessionRedirect.tsx</code></td>
-<td>Redirect op basis van sessiestatus</td>
+<td><code>frontend/src/lib/auth.ts</code> · <code>frontend/src/lib/storage.ts</code></td>
+<td>De sessie in de browser</td>
 </tr>
 </tbody>
 </table></div>
 </section><section id="hs-6" class="chapter">
 <h1>6. Package import — manifest, controles en traceerbaarheid</h1>
-<p>Dit hoofdstuk beschrijft hoe CoGA een volledig familiepakket met genoomdata in één gecontroleerde handeling inleest. Het volgt de weg van een map op schijf of in een cloud-bucket, via een <em>manifest</em> (een inhoudsopgave-bestand), langs een reeks veiligheids- en integriteitscontroles, tot de uiteindelijke wegschrijving in Postgres en ClickHouse. Aan bod komen welke controles vooraf gebeuren (de <em>dry-run</em>), hoe elk bronbestand herleidbaar wordt vastgelegd, en hoe een importtaak wordt bijgehouden en teruggerold als er iets misgaat. De rode draad is dat een auditor achteraf exact moet kunnen reconstrueren <em>welk bestand, met welke versies van welke tools, in welke tabel</em> terechtkwam — een IVDR-traceerbaarheidsvereiste.</p>
-<p>Een paar begrippen die in dit hoofdstuk steeds terugkomen:</p>
+<p>Dit hoofdstuk beschrijft hoe CoGA een volledig familiepakket met genoomdata in één gecontroleerde handeling inleest: van een map op schijf of in een cloudbucket, via een <em>manifest</em> en een reeks controles, tot de opslag in Postgres en ClickHouse. De rode draad is dat een auditor achteraf moet kunnen nagaan <em>welk bestand, gemaakt met welke tools, in welke tabel</em> terechtkwam. De Engelse referentie voor beheerders en ontwikkelaars is <code>docs/data-import.md</code> (mapindeling, manifestformaat, instellingen); de herkomst van versies staat in <code>docs/annotation-provenance.md</code>.</p>
+<p>Enkele begrippen:</p>
 <ul>
-<li><strong>Manifest</strong>: een YAML- of JSON-bestand (<code>manifest.yaml</code>) dat opsomt welke datasets een familie bevat en waar elk bestand staat. Vergelijkbaar met een paklijst.</li>
-<li><strong>PED</strong>: het klassieke pedigree-bestand (zes kolommen) dat de familieleden en hun ouder-kindrelaties beschrijft.</li>
-<li><strong>VCF</strong>: het standaard tekstformaat voor varianten. De <code>##</code>-regels bovenaan (de <em>header</em>) bevatten de versies van de gebruikte tools.</li>
-<li><strong>Dry-run</strong>: een "proefdraai" die alles valideert maar niets wegschrijft.</li>
-<li><strong>Postgres vs. ClickHouse</strong>: Postgres bewaart metadata en review-status; ClickHouse bewaart de grote hoeveelheden varianten (zie <a href="#hs-3">hoofdstuk 3</a>).</li>
+<li><strong>Manifest:</strong> een YAML- of JSON-bestand (<code>manifest.yaml</code>) dat opsomt welke datasets een familie bevat en waar elk bestand staat, zoals een paklijst.</li>
+<li><strong>PED:</strong> het klassieke stamboombestand (zes kolommen) met de familieleden en hun ouders.</li>
+<li><strong>VCF:</strong> het standaardformaat voor varianten. De <code>##</code>-regels bovenaan (de <em>header</em>) vermelden de gebruikte tools en hun versies.</li>
+<li><strong>Dry-run:</strong> een proefdraai die alles controleert maar niets wegschrijft.</li>
 </ul>
 <h2>De pijplijn in vogelvlucht</h2>
-<p>De hele importstroom is admin-only en loopt over de router <code>family_imports.py</code> (prefix <code>/family-imports</code>). Elk endpoint hangt aan <code>Depends(get_current_admin_user)</code>, zodat een gewone gebruiker deze functionaliteit niet kan aanroepen.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/family_imports.py</code>. De endpoints (de "Service-functie" is de onderliggende functie waar de logica zit; de router is een dunne schil eromheen):</p>
+<p>De hele import is alleen voor beheerders: elk endpoint van de router <code>/api/family-imports</code> vraagt <code>get_current_admin_user</code>.</p>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Endpoint</th>
-<th>Service-functie</th>
 <th>Rol</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>GET /family-imports/packages</code></td>
-<td><code>scan_family_import_packages</code></td>
-<td>Ontdekt importeerbare familiemappen</td>
+<td>Importeerbare familiemappen vinden</td>
 </tr>
 <tr>
 <td><code>POST /family-imports/manifest/discover</code></td>
-<td><code>discover_family_package_manifest</code></td>
-<td>Bouwt een manifest-voorstel</td>
+<td>Een manifestvoorstel opbouwen uit wat in de map staat</td>
 </tr>
 <tr>
 <td><code>POST /family-imports/manifest/write</code></td>
-<td><code>write_family_package_manifest</code></td>
-<td>Schrijft <code>manifest.yaml</code> weg</td>
+<td><code>manifest.yaml</code> wegschrijven</td>
 </tr>
 <tr>
 <td><code>POST /family-imports/validate</code></td>
-<td><code>validate_family_package</code></td>
-<td>Onmiddellijke validatie (geen job)</td>
+<td>Meteen valideren, zonder job</td>
 </tr>
 <tr>
 <td><code>POST /family-imports</code></td>
-<td><code>queue_family_import_job</code></td>
-<td>Zet een import- of dry-run-taak in de wachtrij</td>
+<td>Een import of dry-run in de wachtrij zetten</td>
 </tr>
 <tr>
 <td><code>GET /family-imports</code> en <code>GET /family-imports/{job_id}</code></td>
-<td><code>list_family_import_jobs</code> / <code>get_family_import_job</code></td>
-<td>Volg de status</td>
+<td>De status volgen</td>
 </tr>
 </tbody>
 </table></div>
-<p>De feitelijke import draait niet in het request zelf, maar in een <strong>achtergrondwerker</strong> (<code>family_package_import_worker</code>), zodat een groot pakket het webproces niet blokkeert. Die werker claimt de volgende taak (<code>claim_next_family_import_job</code>) en voert <code>run_family_import_job</code> uit; dat roept <code>execute_family_package_import</code> aan, die op zijn beurt <code>_execute_family_package_import_local</code> uitvoert: valideren → familie registreren → dataset voor dataset importeren.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_import.py</code> (<code>family_package_import_worker</code>, <code>run_family_import_job</code>, <code>execute_family_package_import</code>, <code>_execute_family_package_import_local</code>).</p>
-<h2>Manifest-discovery vanuit S3, GCS of een lokale map</h2>
-<h3>De opslag-abstractie</h3>
-<p>CoGA leest brondata uit drie soorten locaties: een lokale map, een AWS <strong>S3</strong>-bucket, of <strong>Google Cloud Storage</strong> (GCS). Een <em>bucket</em> is de cloud-tegenhanger van een map. Welke back-end actief is, bepaalt de instelling <code>STORAGE_BACKEND</code> (<code>local</code>, <code>s3</code> of <code>gcs</code>). Alle scheme-verschillen (<code>s3://</code> vs. <code>gs://</code>) worden weggeabstraheerd in één module, zodat de rest van de importcode nooit hoeft te weten waar de bytes vandaan komen.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/object_storage.py</code>. Kernfuncties: <code>is_remote_uri</code>, <code>parse_remote_uri</code>, <code>download_prefix</code> (haalt alle objecten onder een prefix op) en <code>list_remote_package_candidates</code> (ontdekt familiemappen in een bucket). De cloud-SDK's (<code>boto3</code>, <code>google-cloud-storage</code>) worden <em>lazy</em> geïmporteerd, zodat een installatie de back-end die ze niet gebruikt ook niet hoeft te installeren.</p>
-<p>Welke locaties mogen worden gescand, staat in de instelling <code>FAMILY_IMPORT_ROOTS</code> — een komma-gescheiden <strong>allowlist</strong> (standaard <code>/data/families</code>). Cloud-deployments zetten hier een <code>s3://…</code>-prefix. Deze allowlist is een beveiligingsgrens: een admin kan niet zomaar een willekeurig pad op de host laten inlezen.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_source.py</code>, functies <code>_authorized_local_roots</code>, <code>_authorized_s3_roots</code> en de bewaker <code>_ensure_authorized_package_path</code>. Die laatste "faalt open" (staat alles toe) <em>alleen</em> wanneer er helemaal niets is geconfigureerd (<code>family_import_roots=[]</code>) — een expliciete dev-modus. Zodra roots geconfigureerd zijn, wordt een pad buiten de allowlist met <strong>HTTP 403</strong> afgewezen. Het commentaar in de code documenteert dat een eerdere versie hier een lek had (een S3-only configuratie liet lokale paden ongemoeid door); dat is nu dichtgetimmerd.</p>
-<h3>Herkende bestandstypen en het pakketlayout</h3>
-<p>Een geldig pakket is een map met een <code>manifest.yaml</code> (of <code>.yml</code>/<code>.json</code>) en/of een <code>*.ped</code>-bestand. Het <code>standard_v1</code>-naamgevingsschema kent vaste zoekpaden per dataset. De discovery-stap scant die paden en stelt een manifest-voorstel samen met een beschikbaarheidstabel.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_discovery.py</code> (<code>discover_family_package_manifest</code>, <code>NAMING_SCHEMES</code>) en de gedocumenteerde layout in <code>docs/data-import.md</code>.</p>
-<p>De ondersteunde datasets zijn vastgelegd in de constante <code>SUPPORTED_DATASETS</code> (in <code>family_package_common.py</code>) — vijftien datasettypen — met per type een verwacht zoekpad (<code>{family_id}</code>/<code>{sample_id}</code> zijn plaatshouders):</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Manifest-sleutel</th>
-<th>Inhoud</th>
-<th>Voorbeeldpad</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>snv</code></td>
-<td>Small Variants (SNV/indels), VCF + optionele annotatie-TSV</td>
-<td><code>snv/{family_id}.annotated.vcf.gz</code></td>
-</tr>
-<tr>
-<td><code>sv_needlr</code></td>
-<td>Structurele varianten (NeedlR)</td>
-<td><code>needlr/{family_id}.sv.annotated.vcf.gz</code></td>
-</tr>
-<tr>
-<td><code>repeats_trgt</code></td>
-<td>Repeat-expansies (TRGT), per familie of per sample</td>
-<td><code>repeats/{sample_id}/{sample_id}_tr.vcf.gz</code></td>
-</tr>
-<tr>
-<td><code>wisecondorx</code></td>
-<td>CNV coverage-bins en segmenten (per sample)</td>
-<td><code>wisecondorx/{sample_id}/bins.bed</code></td>
-</tr>
-<tr>
-<td><code>qdnaseq</code></td>
-<td>CNV coverage-bins en segmenten (per sample)</td>
-<td><code>QDNAseq/{sample_id}/bins.csv</code></td>
-</tr>
-<tr>
-<td><code>coverage</code></td>
-<td>Algemene coverage-BED per sample (alleen via manifest, geen vast zoekpad)</td>
-<td>—</td>
-</tr>
-<tr>
-<td><code>apcad</code></td>
-<td>APCAD-intervallen (embryo)</td>
-<td><code>APCAD/{family_id}.apcad.vcf.gz</code></td>
-</tr>
-<tr>
-<td><code>pcf</code></td>
-<td>PCF-segmenten, maternaal/paternaal (embryo)</td>
-<td><code>PCF/{sample_id}_pcf_mat_data.csv</code></td>
-</tr>
-<tr>
-<td><code>haplotypes</code></td>
-<td>GLIMPSE2-gefaseerde varianten</td>
-<td><code>GLIMPSE2/{family_id}_phased_final.vcf.gz</code></td>
-</tr>
-<tr>
-<td><code>paraphase</code></td>
-<td>Paraphase-resultaten (JSON)</td>
-<td><code>paraphase/{sample_id}.paraphase.json</code></td>
-</tr>
-<tr>
-<td><code>cnv</code></td>
-<td>CNV-calls uit een dieptecaller (HiFiCNV): VCF plus drie signaalbestanden (diepte-bigWig, copynumber-bedgraph, MAF-bigWig)</td>
-<td><code>cnv/{sample_id}/annotation/{sample_id}_annot.vcf.gz</code></td>
-</tr>
-<tr>
-<td><code>mito</code></td>
-<td>Mitochondriale varianten (chrM) + mutserve-annotatie</td>
-<td><code>mito/{sample_id}/{sample_id}.vcf.gz</code></td>
-</tr>
-<tr>
-<td><code>alignments</code></td>
-<td>Uitgelijnde reads voor de genoombrowser</td>
-<td><code>bams/{sample_id}.cram</code></td>
-</tr>
-<tr>
-<td><code>qc</code></td>
-<td>Sequencing-QC: NanoPlot/MultiQC-rapport, NanoStats, mosdepth</td>
-<td><code>qc/nanoplot/{sample_id}/{sample_id}NanoStats.txt</code></td>
-</tr>
-<tr>
-<td><code>pipeline_info</code></td>
-<td>Nextflow-runregistratie (toolversies, parameters)</td>
-<td><code>pipeline_info/software_versions.yaml</code></td>
-</tr>
-</tbody>
-</table></div>
-<p>De laatste vijf komen uit de long-read-pipeline (nf-core/lrsvar), die per sample
-wegschrijft en de toolversie in de bestandsnaam zet. Zoekpaden mogen daarom een <code>*</code>
-bevatten; de scanner lost die op tot een concreet pad binnen de pakketmap en schrijft
-nooit een patroon in het manifest.</p>
-<h3>Hoe families en samples worden afgeleid</h3>
-<p>De <strong>PED</strong> is de bron van waarheid voor de familiestructuur. Discovery en validatie parsen het PED strikt (zes kolommen, precies één familie), en elke per-sample dataset moet naar een sample-ID uit het PED verwijzen. Het manifest kan het PED aanvullen met klinische status, dragerschap (<code>carrier_status</code>/<code>carrier_type</code>) en expliciete relaties (partnerschappen, ouder-kind), maar mag geen samples introduceren die niet in het PED staan.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_validation.py</code> (<code>_parse_ped_text_strict</code> via <code>load_validated_family_package</code>) en <code>family_package_manifest.py</code> (<code>_ped_members_for_import</code>, <code>_manifest_relationships</code>). Voor een import tegen een <em>bestaande</em> familie kan het PED zelfs worden gereconstrueerd uit de database, zodat geen PED-bestand nodig is — zie <code>db_pedigree_fallback</code> in <code>family_package_import.py</code>.</p>
-<h2>Dry-run: alles valideren vóór er iets wordt weggeschreven</h2>
-<p>De dry-run is de veiligheidspoort van de hele import. Hij draait exact dezelfde validatie als een echte import, maar stopt vóór de eerste wegschrijving. De centrale functie is <code>load_validated_family_package</code>, die een <code>FamilyPackageValidationOut</code> teruggeeft (geldig ja/nee, plus lijsten met <code>errors</code>, <code>warnings</code> en per-dataset <code>datasets</code>-samenvattingen).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_validation.py</code>, functies <code>load_validated_family_package</code> en <code>validate_family_package</code>.</p>
-<p>De controles, op volgorde:</p>
+<p>De import zelf draait niet binnen het webverzoek maar in een <strong>achtergrondworker</strong>, zodat een groot pakket de server niet blokkeert. De worker neemt de volgende job, valideert het pakket, registreert de familie en importeert dan dataset per dataset.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/family_imports.py</code>; de orkestratie en de worker in <code>backend/app/services/family_package_import.py</code>.</p>
+<h2>Waar het pakket vandaan komt</h2>
+<p>CoGA leest pakketten uit een lokale map, een AWS <strong>S3</strong>-bucket of <strong>Google Cloud Storage</strong> (GCS). Welke bron actief is, bepaalt <code>STORAGE_BACKEND</code>. Het verschil tussen <code>s3://</code> en <code>gs://</code> zit in één module; de rest van de importcode weet niet waar de bytes vandaan komen. Een pakket uit de cloud wordt eerst naar een tijdelijke map gekopieerd, zodat dezelfde importlogica draait; die map wordt daarna opgeruimd.</p>
+<p>Welke locaties gescand mogen worden, staat in <code>FAMILY_IMPORT_ROOTS</code>: een <strong>allowlist</strong>. Een pad buiten die lijst wordt geweigerd (<code>HTTP 403</code>), zodat een beheerder niet zomaar een willekeurig bestand op de server kan laten inlezen. Alleen als de lijst leeg is, staat de controle open; dat is een bewuste ontwikkelmodus.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/object_storage.py</code> (de opslaglaag) en <code>backend/app/services/family_package_source.py</code> (de allowlist en het kopiëren).</p>
+<h2>Wat een pakket bevat</h2>
+<p>Een geldig pakket is een map met een manifest en/of een PED-bestand. Het manifest kent vijftien soorten datasets:</p>
+<ul>
+<li><strong>Varianten:</strong> <code>snv</code> (small variants, met optionele annotatietabel), <code>sv_needlr</code> (structurele varianten), <code>cnv</code> (CNV-calls met hun signaalbestanden), <code>mito</code> (mitochondriale varianten), <code>repeats_trgt</code> (repeat-expansies).</li>
+<li><strong>Tracks:</strong> <code>wisecondorx</code> en <code>qdnaseq</code> (CNV-dekking en -segmenten), <code>coverage</code>, <code>apcad</code> en <code>pcf</code> (embryo-analyses), <code>haplotypes</code> (GLIMPSE2-fasering).</li>
+<li><strong>Overige:</strong> <code>paraphase</code> (paraloge genen), <code>alignments</code> (CRAM/BAM voor de genoombrowser), <code>qc</code> (sequencing-QC) en <code>pipeline_info</code> (de run-registratie van de pipeline: toolversies en parameters).</li>
+</ul>
+<p>De verwachte mapindeling per dataset staat in <code>docs/data-import.md</code>. De ontdekkingsstap zoekt die paden af en toont wat hij vond. De long-read-pipeline zet de toolversie in bestandsnamen; een zoekpad mag daarom een <code>*</code> bevatten, maar het manifest bevat altijd het concrete pad dat gevonden werd, nooit het patroon.</p>
+<p><strong>De PED is de bron van waarheid voor de familie.</strong> De controle leest haar strikt: zes kolommen, precies één familie. Elke dataset per sample moet naar een sample uit de PED verwijzen. Het manifest mag klinische status, dragerschap en expliciete relaties toevoegen, maar geen samples die niet in de PED staan. Bij een import in een <em>bestaande</em> familie mag de PED ontbreken: dan wordt de stamboom uit de databank gebruikt.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_discovery.py</code> (ontdekken), <code>family_package_common.py</code> (de datasetlijst) en <code>family_package_manifest.py</code> (de PED en het manifest lezen).</p>
+<h2>De dry-run: alles controleren vóór er iets wordt weggeschreven</h2>
+<p>De dry-run is de veiligheidspoort van de import. Hij voert exact dezelfde controles uit als een echte import, maar stopt vóór de eerste schrijfactie. De controles, in volgorde:</p>
 <ol>
-<li><strong>Pad-autorisatie</strong> — de map moet binnen <code>FAMILY_IMPORT_ROOTS</code> vallen (anders <code>package_folder_not_allowed</code>).</li>
-<li><strong>Bestaan en type</strong> — de map bestaat en is een directory; het manifest bestaat (anders <code>package_folder_missing</code> / <code>package_folder_not_directory</code> / <code>manifest_missing</code>).</li>
-<li><strong>Manifest-schema</strong> — het manifest parst en <code>schema_version</code> moet <code>1</code> zijn (ontbreekt hij, dan een waarschuwing <code>manifest_schema_version_missing</code>; is hij anders, dan een fout <code>manifest_schema_version_unsupported</code>).</li>
-<li><strong>PED-integriteit</strong> — zes kolommen, precies één familie, sample-ID's uniek, <code>family_id</code> moet matchen (<code>ped_multiple_families</code>, <code>ped_family_mismatch</code>, …).</li>
-<li><strong>Per-dataset</strong> — voor elke dataset controleert een eigen validator dat de bestanden bestaan en dat gecomprimeerde VCF/BCF-bestanden een index hebben (<code>.tbi</code>/<code>.csi</code>/<code>.idx</code>); een ongecomprimeerde <code>.vcf</code> mag zonder index. Onbekende dataset-sleutels zijn <em>fouten</em> (<code>dataset_unsupported</code>); ontbrekende optionele datasets zijn <em>waarschuwingen</em> (<code>optional_dataset_missing</code>).</li>
-<li><strong>Fenotypes (HPO)</strong> — een phenotype-TSV moet formaat <code>hpo_tsv</code> hebben en naar PED-samples verwijzen; slechte rijen worden waarschuwingen, niet blokkerend.</li>
+<li><strong>Pad</strong> — de map moet binnen <code>FAMILY_IMPORT_ROOTS</code> liggen.</li>
+<li><strong>Bestaan</strong> — de map bestaat en het manifest bestaat.</li>
+<li><strong>Manifestversie</strong> — <code>schema_version</code> moet <code>1</code> zijn (ontbreekt ze, dan volgt een waarschuwing).</li>
+<li><strong>PED</strong> — zes kolommen, één familie, unieke sample-id's, de juiste familie-id.</li>
+<li><strong>Per dataset</strong> — de bestanden bestaan, en een gecomprimeerde VCF/BCF heeft een index (<code>.tbi</code>, <code>.csi</code> of <code>.idx</code>); een ongecomprimeerde <code>.vcf</code> mag zonder. Een onbekende dataset is een <strong>fout</strong>; een ontbrekende kerndataset (<code>snv</code> of <code>sv_needlr</code>) geeft een <strong>waarschuwing</strong>.</li>
+<li><strong>Fenotypes (HPO)</strong> — een fenotypetabel moet naar samples uit de PED verwijzen; slechte rijen worden waarschuwingen.</li>
 </ol>
-<p class="waar"><strong>Waar in de code:</strong> de per-dataset validators (<code>_validate_family_vcf_dataset</code>, <code>_validate_wisecondorx_dataset</code>, <code>_validate_paraphase_dataset</code>, …) in <code>family_package_validation.py</code>. Elke bevinding is een <code>FamilyImportValidationIssue</code> met een stabiele <code>code</code>, zodat de frontend en een auditor de fout eenduidig kunnen benoemen.</p>
-<p>Een fout leidt tot <code>valid=False</code>; de import stopt dan onmiddellijk met de logregel <em>"Package validation failed; no data were imported."</em> — er wordt niets weggeschreven.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>_execute_family_package_import_local</code> in <code>family_package_import.py</code> (de <code>if validation.errors:</code>-tak en de <code>if dry_run:</code>-tak).</p>
-<h2>Data-controles en integriteit</h2>
-<h3>VCF-header-provenance</h3>
-<p>Bij elke VCF-import haalt CoGA de <code>##</code>-headerregels op en leidt daaruit af <em>welke tools en databankversies</em> de data hebben geproduceerd — de variant-caller (DeepVariant/GATK/Sniffles/Spectre/TRGT/Clair3/GLIMPSE), de annotatie-engine (VEP/snpEff/bcftools) en de daarin ingebedde databankreleases (gnomAD, ClinVar, dbNSFP, SpliceAI, …). Deze parsing is <strong>best-effort en werpt nooit een fout</strong>: een onherkenbare header levert simpelweg minder op, maar kan een import nooit laten mislukken.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/vcf_header_provenance.py</code>. Drie parsers werken samen: <code>extract_header_provenance</code> (de VCF-<code>##KEY=value</code>-vorm, inclusief de rijke <code>##VEP=</code>-regel), <code>extract_vep_tab_provenance</code> (voor families waar de annotatie in een aparte VEP-TSV zit) en <code>extract_info_description_provenance</code> (een conservatieve, ge-allowlist mijnbouw in <code>##INFO</code>-beschrijvingen, o.a. voor de NeedlR-SV-pijplijn); <code>merge_module_maps</code> voegt de opbrengsten samen. Zie ook <code>docs/annotation-provenance.md</code>.</p>
-<h3>Hashing en checksums van ruwe bestanden</h3>
-<p>Voor traceerbaarheid berekent CoGA van elk bronbestand een <strong>SHA-256-checksum</strong> (een cryptografische vingerafdruk waarmee je later kunt bewijzen dat een bestand niet gewijzigd is). De hash wordt <em>streaming</em> berekend — in blokken van 1 MiB — zodat een VCF of CRAM van vele gigabytes nooit volledig in het geheugen wordt geladen.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/raw_import_files_pg.py</code>, functies <code>_hash_and_size</code> (op-schijf, streaming) en <code>verify_raw_import_file</code> (herberekent de hash en vergelijkt met de opgeslagen waarde). Die verificatie is begrensd: boven 2 GiB of na 30 s timeout wordt het overgeslagen en gerapporteerd als <code>too_large</code>, zodat een enorme CRAM een request niet minutenlang gijzelt.</p>
-<h3>Veilige, begrensde download en upload</h3>
-<p>Twee aparte modules beschermen tegen een <em>decompression bomb</em> — een klein <code>.gz</code>-bestand dat bij uitpakken naar gigabytes opzwelt en het werkgeheugen uitput (een DoS-aanval).</p>
+<p>Elke bevinding heeft een vaste <code>code</code>, zodat de UI en een auditor een fout eenduidig kunnen benoemen. Is er één fout, dan stopt de import met "Package validation failed; no data were imported." en wordt er niets weggeschreven.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_validation.py</code>.</p>
+<h2>Integriteit van de gegevens</h2>
 <ul>
-<li><strong>Uploads/pakketbestanden</strong> worden begrensd gelezen én uitgepakt met harde limieten op zowel de gelezen bytes als de uitgepakte omvang; overschrijding geeft HTTP 413. De gunzip-lus doorloopt bovendien álle gzip-members (bgzip/BGZF <code>.vcf.gz</code> bestaat uit vele blokken), zodat het bestand niet stilzwijgend tot zijn eerste blok wordt afgekapt.
-  <strong>Waar in de code:</strong> <code>backend/app/services/upload_safety.py</code> (<code>decode_upload_text</code>, <code>read_path_text_bounded</code>, <code>_gunzip_bounded</code>).</li>
-<li><strong>Uitgaande referentie-downloads</strong> hebben hun eigen begrensde variant; een te grote of ongeldige upstream-respons geeft hier een <code>ValueError</code> (server-/upstream-fout in plaats van 4xx).
-  <strong>Waar in de code:</strong> <code>backend/app/services/bounded_download.py</code> (<code>download_bounded_bytes</code>, <code>gunzip_bounded</code>).</li>
+<li><strong>Herkomst uit de VCF-header.</strong> Bij elke VCF-import leest CoGA de <code>##</code>-regels en leidt daaruit af welke caller (bv. DeepVariant, Sniffles, TRGT, GLIMPSE), welke annotatietool (VEP, snpEff, bcftools) en welke databankversies (gnomAD, ClinVar, dbNSFP, SpliceAI, …) de data maakten. Dat is <em>best effort</em> en faalt nooit: een onbekende header levert minder op, maar laat de import niet mislukken. <strong>Waar in de code:</strong> <code>backend/app/services/vcf_header_provenance.py</code>.</li>
+<li><strong>Een SHA-256 per bronbestand.</strong> Van elk bronbestand wordt een SHA-256-vingerafdruk berekend, in blokken, zodat ook een CRAM van vele gigabytes niet in het geheugen hoeft. Een beheerder kan die hash later opnieuw laten controleren; voor zeer grote bestanden (boven een vaste grootte- of tijdsgrens) slaat de controle over en meldt ze <code>too_large</code>. <strong>Waar in de code:</strong> <code>backend/app/services/raw_import_files_pg.py</code>.</li>
+<li><strong>Begrensd lezen en uitpakken.</strong> Pakketbestanden en uploads worden begrensd gelezen en uitgepakt, tegen "decompressiebommen" (hoofdstuk 2). Downloads van referentiedata hebben een eigen begrenzing. <strong>Waar in de code:</strong> <code>backend/app/services/upload_safety.py</code> en <code>bounded_download.py</code>.</li>
+<li><strong>Geen ontsnapping uit de map.</strong> Elk pad uit het manifest moet binnen de pakketmap blijven (<code>../../etc/passwd</code> geeft <code>HTTP 400</code>), en bij het kopiëren uit de cloud moet elk doelpad binnen de tijdelijke map blijven. <strong>Waar in de code:</strong> <code>family_package_common.py</code> en <code>backend/app/core/object_storage.py</code>.</li>
 </ul>
-<h3>Padveiligheid bij het stagen en oplossen van paden</h3>
-<p>Twee plekken beschermen tegen <em>path traversal</em> (een gemanipuleerd pad zoals <code>../../etc/passwd</code>):</p>
-<ul>
-<li>Bij het <strong>stagen</strong> van een S3-/GCS-pakket worden alle objectsleutels naar lokale doelen vertaald en wordt gecontroleerd dat elk doel binnen de staging-map blijft; een sleutel die eruit probeert te ontsnappen wordt geweigerd vóór er iets wordt geschreven.
-  <strong>Waar in de code:</strong> <code>_plan_downloads</code> in <code>object_storage.py</code>.</li>
-<li>Elk <strong>in het manifest gedeclareerd</strong> bestandspad wordt opgelost en moet binnen de pakketmap blijven; <code>ped: /etc/passwd</code> of <code>../../etc/passwd</code> levert HTTP 400.
-  <strong>Waar in de code:</strong> <code>_resolve_package_path</code> in <code>backend/app/services/family_package_common.py</code>.</li>
-</ul>
-<p>Een remote pakket wordt eerst gestaged (gedownload naar een tijdelijke map) zodat de bestaande, pad-gebaseerde importlogica ongewijzigd draait; de tijdelijke map wordt na afloop opgeruimd.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>staged_package_source_async</code> / <code>_stage_s3_package</code> in <code>family_package_source.py</code>.</p>
 <h2>Wat komt in welke tabel</h2>
-<p>De import registreert eerst de familie-metadata en de provenance, en importeert daarna dataset voor dataset. Grofweg: kleine, hoog-volume variantrijen gaan naar <strong>ClickHouse</strong>; metadata, herkomst en per-sample brongegevens naar <strong>Postgres</strong>.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_datasets.py</code>. Elke per-dataset importfunctie registreert zich met <code>@_dataset_importer("&lt;type&gt;")</code> in <code>DATASET_IMPORTERS</code> en krijgt één <code>DatasetImportJob</code> mee: het pakket, de manifestregel van de dataset, de samenvatting, de familie- en samplecontext, de conflictmodus en de voortgangsterugmelding. <code>_import_dataset</code> zoekt de functie op in dat register (#528). De functies roepen de bestaande loaders aan: <code>upload_family_small_variant_file</code>, <code>replace_family_structural_variants</code>, <code>ingest_family_trgt_text</code>, enz. Een datasettype in <code>SUPPORTED_DATASETS</code> zonder registratie is een fout: een test bewaakt dat, en <code>_import_dataset</code> faalt er luid op.</p>
+<p>Eerst registreert de import de familie en de herkomst, daarna volgen de datasets één voor één. Grote aantallen variantrijen gaan naar <strong>ClickHouse</strong>; metadata, herkomst en brongegevens per sample naar <strong>Postgres</strong>.</p>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Bron in het pakket</th>
-<th>Loader (functie)</th>
-<th>Doeltabel(len)</th>
+<th>Doel</th>
 <th>Databank</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>snv</code> VCF (+ VEP-TSV)</td>
-<td><code>upload_family_small_variant_file</code></td>
-<td>small variants</td>
+<td><code>snv</code>, <code>mito</code>, <code>haplotypes</code> (VCF)</td>
+<td>Small variants (bij <code>haplotypes</code> ook haplotypeblokken als interval-track)</td>
 <td>ClickHouse</td>
 </tr>
 <tr>
-<td><code>haplotypes</code> GLIMPSE2 VCF</td>
-<td><code>upload_family_small_variant_file</code> (<code>glimpse2</code>)</td>
-<td>small variants + haplotype-interval-tracks</td>
+<td><code>sv_needlr</code>, <code>cnv</code> (VCF)</td>
+<td>Structurele varianten; bij <code>cnv</code> ook dekking, kopieaantal en allelfractie als interval-tracks</td>
 <td>ClickHouse</td>
 </tr>
 <tr>
-<td><code>sv_needlr</code> VCF</td>
-<td><code>replace_family_structural_variants</code></td>
-<td>structural variants</td>
+<td><code>wisecondorx</code>, <code>qdnaseq</code>, <code>apcad</code>, <code>pcf</code>, <code>coverage</code></td>
+<td>Interval-tracks</td>
 <td>ClickHouse</td>
 </tr>
 <tr>
-<td><code>wisecondorx</code>/<code>qdnaseq</code> bins/segments</td>
-<td><code>_import_wisecondorx_track</code> / <code>_import_copy_number_track</code></td>
-<td>interval-track-entries</td>
-<td>ClickHouse</td>
-</tr>
-<tr>
-<td><code>apcad</code>/<code>pcf</code>/<code>coverage</code></td>
-<td><code>_import_apcad_track_file</code> / <code>_import_pcf_segment_file</code> / <code>upload_bed_data</code></td>
-<td>interval-tracks (<code>apcad</code>, <code>apcad_pcf</code>, <code>coverage</code>)</td>
-<td>ClickHouse</td>
-</tr>
-<tr>
-<td>interval-track bron-metadata</td>
-<td><code>upsert_interval_track_source</code></td>
+<td>Bron van elke interval-track</td>
 <td><code>sample_interval_track_sources</code></td>
 <td>Postgres</td>
 </tr>
 <tr>
-<td><code>repeats_trgt</code> VCF</td>
-<td><code>ingest_family_trgt_text</code> / <code>ingest_trgt_text</code></td>
+<td><code>repeats_trgt</code> (VCF)</td>
 <td><code>repeat_expansions</code></td>
 <td>Postgres</td>
 </tr>
 <tr>
-<td><code>paraphase</code> JSON</td>
-<td><code>_replace_sample_paraphase_rows</code></td>
+<td><code>paraphase</code> (JSON)</td>
 <td><code>sample_paraphase_results</code></td>
 <td>Postgres</td>
 </tr>
 <tr>
-<td><code>cnv</code> VCF (+ signaalbestanden)</td>
-<td><code>_iter_cnv_structural_records</code> → <code>replace_family_structural_variants</code> (<code>hificnv</code>); <code>_import_bigwig_interval_track</code> / <code>_import_copy_number_track</code></td>
-<td>structural variants, plus <code>coverage</code> (diepte), <code>segments</code> (copynumber) en <code>apcad</code> (MAF, <code>origin = und</code>) interval-tracks</td>
-<td>ClickHouse</td>
-</tr>
-<tr>
-<td><code>mito</code> chrM-VCF (+ mutserve-TSV)</td>
-<td><code>upload_family_small_variant_file</code> (<code>mito</code>)</td>
-<td>small variants (chrM)</td>
-<td>ClickHouse</td>
-</tr>
-<tr>
-<td><code>qc</code> NanoStats/mosdepth/rapport</td>
-<td><code>record_sample_qc_metadata</code></td>
-<td><code>samples.metadata["sequencing_qc"]</code></td>
+<td><code>qc</code>, <code>alignments</code></td>
+<td>De metadata van het sample (<code>samples.metadata</code>)</td>
 <td>Postgres</td>
 </tr>
 <tr>
-<td><code>alignments</code> CRAM/BAM</td>
-<td><code>record_sample_alignment_metadata</code></td>
-<td><code>samples.metadata["alignment"]</code></td>
+<td><code>pipeline_info</code></td>
+<td><code>family_annotation_manifest</code> en de metadata van de familie</td>
 <td>Postgres</td>
 </tr>
 <tr>
-<td><code>pipeline_info</code> versies/parameters</td>
-<td><code>extract_pipeline_versions</code> → <code>merge_vcf_header_provenance</code>; <code>record_family_pipeline_metadata</code></td>
-<td><code>family_annotation_manifest</code>, <code>families.metadata["pipeline"]</code></td>
-<td>Postgres</td>
-</tr>
-<tr>
-<td><code>phenotypes</code> (HPO)</td>
-<td><code>import_family_hpo_annotations</code></td>
+<td>Fenotypes (HPO)</td>
 <td><code>individual_hpo</code></td>
 <td>Postgres</td>
 </tr>
 <tr>
-<td>familiestructuur (PED/manifest)</td>
-<td><code>_ensure_family_from_ped</code></td>
+<td>Familiestructuur (PED, manifest)</td>
 <td><code>families</code>, <code>samples</code>, <code>family_members</code>, <code>family_projects</code>, <code>sample_projects</code></td>
 <td>Postgres</td>
 </tr>
 <tr>
-<td>elk ruw bronbestand</td>
-<td><code>record_raw_import_file</code></td>
+<td>Elk ruw bronbestand</td>
 <td><code>raw_import_files</code></td>
 <td>Postgres</td>
 </tr>
 <tr>
-<td>tool-/databankversies</td>
-<td><code>merge_vcf_header_provenance</code></td>
+<td>Tool- en databankversies</td>
 <td><code>family_annotation_manifest</code></td>
 <td>Postgres</td>
 </tr>
 <tr>
-<td>de importtaak zelf</td>
-<td><code>queue_family_import_job</code> / <code>_update_job_progress</code></td>
+<td>De importjob zelf</td>
 <td><code>family_import_jobs</code></td>
 <td>Postgres</td>
 </tr>
 </tbody>
 </table></div>
-<p class="waar"><strong>Waar in de code:</strong> de ClickHouse-loaders in <code>backend/app/services/clickhouse_variant_storage.py</code> (<code>insert_small_variant_records</code>, <code>replace_family_structural_variants</code>); de NeedlR-SV-parser is <code>_iter_needlr_structural_records</code> in <code>family_package_variants.py</code> (levert <code>StructuralVariantRecord</code>-objecten voor <code>replace_family_structural_variants</code>). De Postgres-schrijvers <code>ingest_family_trgt_text</code> (<code>repeat_expansion_pg.py</code>) en <code>_replace_sample_paraphase_rows</code> (<code>family_package_variants.py</code>).</p>
-<h3>Waar de pipeline-instellingen zichtbaar zijn</h3>
-<p>De <strong>runparameters</strong> (genoombuild, welke caller welke variantklasse maakte, VEP-cache,
-repeat-catalogus, welke stappen liepen) staan in de kaart <strong>Analysis pipeline</strong> op de
-familiewerkplek én als sectie <strong>Analysis pipeline settings</strong> op het klinische rapport. De
-<strong>toolversies</strong> staan daar los van: die verschijnen in de annotatie-provenance-voettekst
-en in de regel "Modules &amp; versions" van het rapport. Samen vormen ze het antwoord op
-"hoe is deze data gemaakt" (instellingen) en "waarmee" (versies).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/families/PipelineSettingsPanel.tsx</code> (beide
-weergaven) en <code>AnnotationProvenanceSummary.tsx</code> (versies).</p>
-<p>Let op: <strong>NIPT-artefacten</strong> (<code>nipt_artifact_variants</code>, Postgres) worden <em>niet</em> door de pakket-import gevuld — die lopen via een aparte route (zie <a href="#hs-8">hoofdstuk 8</a>). De pakket-import promoveert wél een gedeclareerd <code>analysis_type</code> (bv. <code>monogenic_nipt</code>) en een per-sample <code>assay</code> (bv. <code>nipt_cfdna</code>) naar de familie-/sample-metadata, zodat de NIPT-context later herkend wordt.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>_register_package_provenance</code> in <code>family_package_registration.py</code>; <code>nipt_artifact_pg.py</code> is de aparte NIPT-loader.</p>
-<h2>Import-job-tracking en foutafhandeling</h2>
-<h3>De job-tabel en statussen</h3>
-<p>Elke import is een rij in <code>family_import_jobs</code>. De statussen zijn afgedwongen door een <code>CHECK</code>-constraint: <code>queued → validating → running → completed | failed</code>.</p>
-<p class="waar"><strong>Waar in de code:</strong> de tabel <code>family_import_jobs</code> in <code>backend/db/schema/postgres/03_assay.sql</code>. De rij bewaart naast de status ook <code>validation_errors</code>, <code>validation_warnings</code>, <code>logs</code>, <code>dataset_summaries</code> en <code>metadata</code> (JSONB), plus tijdstempels <code>requested_at</code>, <code>started_at</code>, <code>heartbeat_at</code>, <code>completed_at</code>.</p>
-<p>De worker "claimt" de volgende taak atomair met <code>FOR UPDATE SKIP LOCKED</code>, zodat meerdere workers (instelbaar via <code>FAMILY_IMPORT_WORKER_COUNT</code>, standaard 1) elkaar niet in de weg zitten. Een taak waarvan de <code>heartbeat_at</code> te oud is (<code>FAMILY_IMPORT_STALE_HEARTBEAT</code>, 10 min) wordt als vastgelopen beschouwd en opnieuw geclaimd. Tijdens lange imports wordt de heartbeat/voortgang doorlopend bijgewerkt.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_jobs.py</code> (<code>claim_next_family_import_job</code>, <code>_update_job_progress</code>, <code>queue_family_import_job</code>). De autorisatie is fijnmazig: <code>get_family_import_job</code> en <code>list_family_import_jobs</code> tonen niet-admins alleen hun eigen jobs — al is de router zelf al admin-only.</p>
-<h3>"Fail-clean": nooit een stil half-geïmporteerde familie</h3>
-<p>De foutafhandeling is expliciet ontworpen om nooit een misleidend-onvolledige toestand achter te laten. Elke dataset wordt in een eigen <code>try/except</code> geïmporteerd; faalt er één, dan volgt een <code>session.rollback()</code> en gaat de import door met de rest. Na afloop geldt:</p>
+<p>Elke datasetsoort heeft een eigen importfunctie in een register. Een soort zonder importfunctie is een fout: een test bewaakt dat, en de import faalt er luid op.</p>
+<p><strong>NIPT-artefacten</strong> (de lijst van terugkerende artefacten per assay) worden niet door de pakketimport gevuld; ze hebben een eigen beheer (hoofdstuk 15). De import neemt wel een gedeclareerd analysetype (bv. <code>monogenic_nipt</code>) en een assay per sample (bv. <code>nipt_cfdna</code>) over in de metadata, zodat de NIPT-context later wordt herkend (hoofdstuk 8).</p>
+<p>De <strong>runparameters</strong> van de pipeline (genoombuild, welke caller welke variantklasse maakte, welke stappen liepen) staan in de kaart <em>Analysis pipeline</em> op de familiewerkruimte en in de sectie <em>Analysis pipeline settings</em> van het rapport. De <strong>toolversies</strong> verschijnen in de herkomstvoettekst en in de regel <em>Modules &amp; versions</em> van het rapport.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_datasets.py</code> (de importfuncties per dataset) en <code>family_package_registration.py</code> (familie, samples en herkomst registreren); de weergave in <code>frontend/src/pages/families/PipelineSettingsPanel.tsx</code>.</p>
+<h2>Jobs volgen en fouten afhandelen</h2>
+<p>Elke import is een rij in <code>family_import_jobs</code>, met een status die de databank bewaakt: <code>queued → validating → running → completed | failed</code>. De rij bewaart ook de validatiefouten en -waarschuwingen, de logregels, een samenvatting per dataset en de tijdstippen.</p>
+<p>Een worker neemt een job atomair (<code>FOR UPDATE SKIP LOCKED</code>), zodat meerdere workers elkaar niet hinderen. Een job waarvan het levensteken (<em>heartbeat</em>) te oud is, geldt als vastgelopen en wordt opnieuw opgepakt.</p>
+<p>De foutafhandeling is zo gebouwd dat er nooit ongemerkt een half-geïmporteerde familie achterblijft ("fail-clean"):</p>
 <ul>
-<li><strong>Nieuwe familie én niets geïmporteerd</strong> → de vers aangemaakte familie-<em>shell</em> wordt gecompenseerd (verwijderd), inclusief zijn ClickHouse-variant- en interval-rijen, zodat er niets partieels overblijft.</li>
-<li><strong>Deels gelukt, of een bestaande familie</strong> → de succesvolle datasets blijven bewaard, maar de familie-metadata krijgt een <code>import_incomplete</code>-vlag, zodat de partiële toestand expliciet en auditeerbaar is in plaats van stilzwijgend als "compleet" opvraagbaar.</li>
-<li>In élk faalgeval wordt <code>error</code> gezet, waardoor de job-rij op <code>status='failed'</code> eindigt — nooit een stille <code>completed</code>.</li>
+<li>Elke dataset wordt apart geïmporteerd. Faalt er één, dan wordt die teruggedraaid en gaat de import door met de rest.</li>
+<li>Is de familie <strong>nieuw en is niets gelukt</strong>, dan wordt de lege familie weer verwijderd, met haar ClickHouse-rijen.</li>
+<li>Is een deel gelukt, of ging het om een <strong>bestaande</strong> familie, dan blijven de gelukte datasets staan en krijgt de familie de vlag <code>import_incomplete</code>. De gedeeltelijke toestand is dus zichtbaar, en niet stilzwijgend "compleet".</li>
+<li>Bij elke fout eindigt de job op <code>failed</code>, nooit op een stille <code>completed</code>.</li>
+<li>Een mislukte SNV-import ruimt alleen haar eigen rijen op, niet bv. een eerder geïmporteerde GLIMPSE2-callset.</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>_execute_family_package_import_local</code> in <code>family_package_import.py</code> (het uitgebreide "Fail-clean"-blok), met helpers <code>_delete_family_shell</code>, <code>_flag_family_import_incomplete</code> en <code>_clear_family_import_incomplete</code> in <code>family_package_registration.py</code>. Dezelfde compensatie-gedachte zit ook in de dataset-importers zelf: <code>_import_snv_dataset</code> en <code>_import_haplotypes_dataset</code> (in <code>family_package_datasets.py</code>) verwijderen bij een fout hun eigen (deels weggeschreven) rijen, maar scopen dat naar hun eigen <code>source</code> (<code>clair3</code> respectievelijk <code>glimpse2</code>) zodat een mislukte SNV-import nooit een reeds geïmporteerde GLIMPSE2-callset of haar haplotype-blokken wist.</p>
-<h2>Provenance en het annotation manifest</h2>
-<p>Naast de per-bestand-hashing legt CoGA per familie een <strong>annotation manifest</strong> aan: één rij met een vrije JSONB-map <code>modules</code> van <code>{ toolKey: { version, detail, by_modality } }</code>. Dit is cruciaal voor latere rapport-traceerbaarheid — een resultaat moet herleidbaar zijn naar precies de tool- en databankversies die het produceerden (IVDR-vereiste).</p>
-<p class="waar"><strong>Waar in de code:</strong> de tabel <code>family_annotation_manifest</code> in <code>backend/db/schema/postgres/04_traceability.sql</code> (kolommen <code>modules</code>, <code>source</code>, <code>recorded_by</code>, <code>recorded_at</code>, <code>assembly_id</code>; <code>source</code> is <code>'vcf_header'</code>, <code>'manifest'</code> of <code>'manual'</code>; <code>UNIQUE (family_id)</code> — precies één rij per familie). De schrijf- en leesdienst is <code>backend/app/services/annotation_manifest_service.py</code>.</p>
-<p>De belangrijkste regels van <code>merge_vcf_header_provenance</code> (met helper <code>_refresh_modules</code>):</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_jobs.py</code> (de joblevenscyclus) en <code>family_package_import.py</code> (de fail-clean-regels).</p>
+<h2>Herkomst: het annotatiemanifest</h2>
+<p>Naast de hash per bestand houdt CoGA per familie één <strong>annotatiemanifest</strong> bij (<code>family_annotation_manifest</code>): per tool of databank de versie, met een detail en, waar nodig, de versie per modaliteit. Zo is elk resultaat later terug te voeren op de versies die het maakten. De regels:</p>
 <ul>
-<li><strong>Verversen bij her-import</strong> — nieuw geparste versies overschrijven de oude <em>per sleutel</em>, terwijl modules die de nieuwe invoer niet noemt behouden blijven (het her-importeren van alleen de SV-VCF wist de SNV-afgeleide VEP/gnomAD-versies niet).</li>
-<li><strong>Handmatige override wint altijd</strong> — een door een admin gecureerd manifest (<code>source='manual'</code>) wordt door import nooit overschreven.</li>
-<li><strong>Transactie-veilig</strong> — de schrijfactie loopt in een <code>SAVEPOINT</code> (<code>session.begin_nested()</code>, een genest, terugrolbaar punt binnen de transactie) en voegt zich bij de commit van de ingestie, zodat de provenance persistent wordt <em>dan en slechts dan als</em> de data die hij beschrijft dat ook wordt — en een provenance-fout een import nooit kan breken.</li>
-<li><strong>Per-modaliteit</strong> — omdat SNV, SV en TRGT door verschillende pijplijnen worden geannoteerd (en zo verschillende releases van dezelfde databank kunnen noemen, bv. GENCODE 49 vs. 45), wordt naast de vlakke <code>version</code> ook <code>by_modality</code> bijgehouden.</li>
+<li><strong>Verversen bij een nieuwe import:</strong> nieuwe versies overschrijven de oude per tool; wat de nieuwe invoer niet noemt, blijft staan (een nieuwe SV-import wist de SNV-versies dus niet).</li>
+<li><strong>Handwerk wint:</strong> een door een beheerder gecureerd manifest (<code>manual</code>) wordt door een import nooit overschreven.</li>
+<li><strong>Samen met de data:</strong> de schrijfactie maakt deel uit van dezelfde transactie als de import. De herkomst wordt dus bewaard als, en alleen als, de data die ze beschrijft ook bewaard wordt; een fout in de herkomst breekt de import niet.</li>
+<li><strong>Per modaliteit:</strong> SNV, SV en repeats worden door verschillende pipelines geannoteerd en kunnen verschillende releases van dezelfde databank noemen (bv. twee GENCODE-versies). Daarom wordt ook de versie per modaliteit bewaard.</li>
 </ul>
-<p>De import-hooks roepen deze samenvoeging aan vlak nadat de varianten zijn weggeschreven: voor SNV onderaan <code>upload_family_small_variant_file</code> (modality <code>snv</code>), voor SV in <code>_import_sv_needlr_dataset</code> (modality <code>sv</code>, dat de header én de <code>##INFO</code>-beschrijvingen mijnt).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>variant_upload_service.py</code> (het <code>merge_vcf_header_provenance</code>-blok onderaan <code>upload_family_small_variant_file</code>) en <code>family_package_datasets.py</code> (<code>_import_sv_needlr_dataset</code>).</p>
-<h2>Logging en volledige traceerbaarheid</h2>
-<p>Het traceerbaarheidsregister bij uitstek is de tabel <strong><code>raw_import_files</code></strong>: één rij per fysiek bronbestand, met bestandsnaam, type, scope (<code>family</code> of <code>individual</code>), gekoppeld sample, opslagpad, byte-grootte, SHA-256-checksum en herkomst (<code>source</code>). De insertie is idempotent op <code>(family_id, sample_id, storage_path)</code> (een uniek index met een placeholder-UUID voor een leeg sample), zodat een her-import de bestaande rij ververst in plaats van dubbelen te maken.</p>
-<p class="waar"><strong>Waar in de code:</strong> de tabel <code>raw_import_files</code> in <code>backend/db/schema/postgres/04_traceability.sql</code>; de schrijffunctie <code>record_raw_import_file</code> en het pakket-gedreven <code>_record_package_raw_files</code> in respectievelijk <code>raw_import_files_pg.py</code> en <code>family_package_registration.py</code>. Pakketbestanden worden <em>in place</em> geregistreerd (<code>managed=False</code>) — CoGA verplaatst of verwijdert ze niet; alleen web-uploads worden als beheerde kopie onder <code>data/raw_imports/</code> bewaard. Voor een S3-pakket wordt bovendien de duurzame <code>s3://</code>-URI vastgelegd (de staging-map verdwijnt immers na afloop).</p>
-<p>Wat kan een auditor hierdoor achteraf reconstrueren? Per familie: welke ruwe bestanden zijn ingelezen, met welke checksum (verifieerbaar via <code>verify_raw_import_file</code>), in welke dataset; welke tool- en databankversies gebruikt zijn (<code>family_annotation_manifest</code>); en de volledige loop van de importtaak — status, tijdstempels, logregels, validatiefouten/-waarschuwingen en per-dataset resultaat (<code>family_import_jobs</code>). Samen sluit dit de keten van <em>geannoteerde VCF → weggeschreven data → herkomst → rapport</em>.</p>
-<p>Naast deze registers logt de import ook een leesbare regel per stap (bv. <em>"Dataset snv: imported."</em>, <em>"Family package import completed."</em>), zichtbaar in de job-rij en in de frontend.</p>
-<p class="waar"><strong>Waar in de code:</strong> de <code>logs</code>-lijst die door <code>_execute_family_package_import_local</code> wordt opgebouwd en via <code>_update_job_progress</code> wordt weggeschreven.</p>
-<h2>De frontend: hoe de admin de import stuurt</h2>
-<p>De adminpagina bestaat uit een dunne pagina-schil (<code>PackageImportPage</code>) rond het eigenlijke paneel (<code>FamilyPackageImportPanel</code>).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/dashboard/PackageImportPage.tsx</code> en <code>frontend/src/pages/dashboard/FamilyPackageImportPanel.tsx</code> (bereikbaar via <code>/package-import</code>, geregistreerd in <code>frontend/src/index.tsx</code>).</p>
-<p>De workflow in het paneel volgt de backend-endpoints één-op-één:</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/annotation_manifest_service.py</code>.</p>
+<h2>Het register van bronbestanden</h2>
+<p>Het traceerbaarheidsregister bij uitstek is <strong><code>raw_import_files</code></strong>: één rij per fysiek bronbestand, met bestandsnaam, soort, familie of sample, opslagpad, grootte, SHA-256 en bron. Een nieuwe import van hetzelfde bestand werkt de rij bij in plaats van een dubbel te maken. Pakketbestanden worden ter plaatse geregistreerd: CoGA verplaatst of verwijdert ze niet. Voor een pakket uit de cloud wordt de blijvende bucket-URI vastgelegd, niet de tijdelijke kopie.</p>
+<p>Een auditor kan zo per familie nagaan: welke bestanden zijn ingelezen, met welke hash (opnieuw te controleren), in welke dataset; met welke tool- en databankversies (<code>family_annotation_manifest</code>); en hoe de job verliep, met status, tijdstippen, logregels en validatiebevindingen (<code>family_import_jobs</code>). Dat sluit de keten <em>geannoteerde VCF → opgeslagen data → herkomst → rapport</em>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/raw_import_files_pg.py</code> en <code>family_package_registration.py</code>.</p>
+<h2>De beheerpagina</h2>
+<p>De pagina <em>Package import</em> (<code>/package-import</code>) volgt de endpoints één op één:</p>
 <ol>
-<li><strong>Familiemap kiezen</strong> — een dropdown gevuld door <code>GET /family-imports/packages</code> (ontdekte pakketten), of een pad intypen. Het PED wordt automatisch ontdekt.</li>
-<li><strong>Doel bepalen</strong> — nieuwe familie of bestaande familie, met een <em>existing-data policy</em> (<code>cancel</code> / <code>update</code> / <code>overwrite</code>) die als <code>conflict_mode</code> meegaat.</li>
-<li><strong>Manifest ontdekken</strong> (<code>/manifest/discover</code>) — toont een beschikbaarheidstabel per dataset en een bewerkbaar <code>manifest.yaml</code>-voorbeeld; optioneel wegschrijven met <code>/manifest/write</code>.</li>
-<li><strong>Valideren of importeren</strong> (<code>POST /family-imports</code>) — de <em>Dry run</em>-checkbox staat standaard aan; aan is dit een proefdraai ("Validate package"), anders een echte import ("Start import"). Een project kiezen is verplicht voor een echte import.</li>
-<li><strong>Volgen</strong> — de pagina <em>poll</em>t <code>GET /family-imports/{job_id}</code> (elke 2,5 s zolang de job actief is) en toont status, tellers, validatiefouten, waarschuwingen, een per-dataset tabel en de loglijst. "Recent family imports" (<code>GET /family-imports</code>) laat eerdere jobs opnieuw openen.</li>
+<li><strong>Familiemap kiezen</strong> uit de gevonden pakketten, of een pad intypen.</li>
+<li><strong>Doel kiezen:</strong> een nieuwe of een bestaande familie, met een beleid voor bestaande data (<code>cancel</code>, <code>update</code> of <code>overwrite</code>).</li>
+<li><strong>Manifest ontdekken:</strong> een overzicht per dataset en een bewerkbaar voorbeeld van <code>manifest.yaml</code>, eventueel weg te schrijven.</li>
+<li><strong>Valideren of importeren:</strong> de keuze <em>Dry run</em> staat standaard aan. Voor een echte import is een project verplicht.</li>
+<li><strong>Volgen:</strong> de pagina ververst de status zolang de job loopt en toont tellers, fouten, waarschuwingen, het resultaat per dataset en de logregels. Eerdere imports blijven op te roepen.</li>
 </ol>
-<p>De verplichte dry-run-eerst-workflow (gedocumenteerd in <code>docs/data-import.md</code>) zorgt ervoor dat een admin de validatie-uitkomst ziet vóór er ook maar iets naar de databank gaat — de menselijke bevestigingsstap in een verder geautomatiseerde, herleidbare pijplijn.</p>
+<p><code>docs/data-import.md</code> beschrijft deze werkwijze met de dry-run eerst: de beheerder ziet de uitkomst van de controles voordat er iets naar de databank gaat.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/dashboard/FamilyPackageImportPanel.tsx</code>.</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
 <thead>
@@ -1721,83 +1406,46 @@ weergaven) en <code>AnnotationProvenanceSummary.tsx</code> (versies).</p>
 <tbody>
 <tr>
 <td><code>backend/app/routers/family_imports.py</code></td>
-<td>Admin-only API-endpoints voor scan, manifest, validatie en import-jobs</td>
+<td>De endpoints (alleen voor beheerders)</td>
 </tr>
 <tr>
 <td><code>backend/app/services/family_package_import.py</code></td>
-<td>Orkestratie: valideren → registreren → per dataset importeren; fail-clean; achtergrondworker</td>
+<td>Orkestratie, worker en de fail-clean-regels</td>
 </tr>
 <tr>
-<td><code>backend/app/services/family_package_source.py</code></td>
-<td>Bronresolutie: allowlist-bewaking, S3/GCS-staging, manifest parsen</td>
-</tr>
-<tr>
-<td><code>backend/app/core/object_storage.py</code></td>
-<td>Opslag-abstractie (local/S3/GCS), begrensde prefix-download, pakketontdekking</td>
+<td><code>backend/app/services/family_package_source.py</code> · <code>backend/app/core/object_storage.py</code></td>
+<td>Allowlist, lokale map, S3 en GCS</td>
 </tr>
 <tr>
 <td><code>backend/app/services/family_package_validation.py</code></td>
-<td>Dry-run: manifest-/PED-/per-dataset-validatie met stabiele foutcodes</td>
+<td>De dry-run-controles</td>
 </tr>
 <tr>
 <td><code>backend/app/services/family_package_datasets.py</code></td>
-<td>Per-dataset importfuncties die de bestaande variant-/track-loaders aansturen</td>
+<td>De importfunctie per dataset</td>
 </tr>
 <tr>
 <td><code>backend/app/services/family_package_registration.py</code></td>
-<td>Familie/sample registreren, provenance vastleggen, compensatie/incompleet-vlag</td>
+<td>Familie en samples registreren, herkomst vastleggen</td>
 </tr>
 <tr>
 <td><code>backend/app/services/family_package_jobs.py</code></td>
-<td>Job-levenscyclus: wachtrij, atomair claimen, voortgang/heartbeat</td>
+<td>Wachtrij, jobs nemen, heartbeat</td>
 </tr>
 <tr>
-<td><code>backend/app/services/family_package_variants.py</code></td>
-<td>NeedlR-SV-parser en Paraphase-rijen naar Postgres</td>
-</tr>
-<tr>
-<td><code>backend/app/services/variant_upload_service.py</code></td>
-<td>SNV/GLIMPSE2-loader; SNV-header-provenance</td>
-</tr>
-<tr>
-<td><code>backend/app/services/haplotype_block_builder.py</code></td>
-<td>Haplotype-blokken uit de GLIMPSE2-genotypes: segregatiehaplotypes (beide ouders aanwezig) of blokken per phase set</td>
-</tr>
-<tr>
-<td><code>backend/app/services/annotation_table_parser.py</code></td>
-<td>VEP-TSV- en mutserve-annotatietabellen, geïndexeerd per variant</td>
-</tr>
-<tr>
-<td><code>backend/app/services/vcf_header_provenance.py</code></td>
-<td>Best-effort parser van tool-/databankversies uit VCF-headers</td>
-</tr>
-<tr>
-<td><code>backend/app/services/annotation_manifest_service.py</code></td>
-<td>Schrijft/leest <code>family_annotation_manifest</code>; refresh- en manual-wins-regels</td>
+<td><code>backend/app/services/vcf_header_provenance.py</code> · <code>annotation_manifest_service.py</code></td>
+<td>Versies uit de headers; het annotatiemanifest</td>
 </tr>
 <tr>
 <td><code>backend/app/services/raw_import_files_pg.py</code></td>
-<td>Provenance-register van ruwe bestanden: hashing, verificatie, opslag</td>
-</tr>
-<tr>
-<td><code>backend/app/services/upload_safety.py</code> / <code>bounded_download.py</code></td>
-<td>Begrensde, bomb-veilige (de)compressie van uploads en downloads</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/03_assay.sql</code></td>
-<td>Job-tabel <code>family_import_jobs</code> met status-constraint en JSONB-logs/samenvattingen</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/04_traceability.sql</code></td>
-<td>Ruwe-bestand-provenance <code>raw_import_files</code> met unieke identiteit per (familie, sample, pad); per-familie annotatie-/versiemanifest <code>family_annotation_manifest</code> voor rapport-traceerbaarheid</td>
+<td>Het register van bronbestanden met SHA-256</td>
 </tr>
 <tr>
 <td><code>frontend/src/pages/dashboard/FamilyPackageImportPanel.tsx</code></td>
-<td>Adminpaneel: mapkeuze, manifest, dry-run, import starten en volgen</td>
+<td>De beheerpagina</td>
 </tr>
 </tbody>
 </table></div>
-<p>Voor de bredere context van de databanktabellen zie <a href="#hs-3">hoofdstuk 3</a>; voor toegangscontrole en rollen <a href="#hs-2">hoofdstuk 2</a>; voor hoe deze provenance uiteindelijk in het ondertekende rapport wordt bevroren <a href="#hs-11">hoofdstuk 11</a>.</p>
 </section><section id="hs-7" class="chapter">
 <h1>7. Backend: routers &amp; services in detail</h1>
 <p>Dit hoofdstuk beschrijft hoe de API-laag van CoGA is opgebouwd: het vaste patroon <strong>router → service → opslag</strong>, hoe FastAPI afhankelijkheden (sessies, ingelogde gebruiker) automatisch aan elke endpoint doorgeeft, welke rol de Pydantic-schemas spelen, en — het belangrijkst voor een auditor — welke <strong>veiligheids-invarianten overal gelden</strong>: elke databankvraag is geparametriseerd, elke <code>ORDER BY</code> komt uit een vaste allowlist, en elke <code>LIMIT</code>/<code>OFFSET</code> wordt naar een geheel getal geforceerd. Dit hoofdstuk is de "kaart" die de losse feature-hoofdstukken (8 t/m 15) met elkaar verbindt: het legt uit wat ze gemeen hebben, zodat die hoofdstukken zich op hun eigen inhoud kunnen richten.</p>
