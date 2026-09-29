@@ -535,6 +535,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   pathogenic. PM6/PS2 and the mtDNA maternal transmission use the parents the pedigree links, not a
   grandparent who shares the role. PM6 is offered for review instead of applied when a reference
   parent has under 8 reads or the proband is homozygous (CR-106, #644).
+- **Sign-out and incomplete imports** — sign-out refuses a family whose data import only partly
+  succeeded unless the signer gives a reason, which is frozen into the signed record and the audit
+  trail; every family page warns while the import is incomplete, naming the failed datasets and the
+  import job that holds their errors (CR-112, #650).
 
 ### Security
 
