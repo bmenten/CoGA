@@ -567,6 +567,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   the password. `clickhouse_restrict_egress` limits the ClickHouse VM to Google APIs. The deploy
   job refuses to run until `gcp-deploy` has required reviewers, and ingress ranges are validated
   as CIDRs (#627).
+- **QC-limit history closed to the runtime role** — the restricted database role `coga_app`
+  could still update and delete `qc_threshold_changes`, the append-only history of QC
+  acceptance limits; only its trigger refused. It now holds INSERT and SELECT only, like the
+  other append-only tables. The integration test reads every trigger-guarded table from the
+  catalogue and fails if one keeps UPDATE or DELETE (CR-092, #630).
 
 ### Documentation
 

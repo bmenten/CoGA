@@ -81,7 +81,8 @@ Sequencing-QC acceptance limits (admin-managed):
   value that was *replaced* as well as the new one plus the acting user. The HTTP
   request-audit pipeline records the request but has no prior value, so "who lowered the
   depth limit, and from what" is only answerable here. UPDATE and DELETE are rejected by
-  trigger (`04_traceability.sql`), like the clinical audit and sign-out chains.
+  trigger (`04_traceability.sql`), like the clinical audit and sign-out chains, and the
+  runtime role `coga_app` holds no UPDATE, DELETE or TRUNCATE on it (`05_grants.sql`).
 - `qc_thresholds` — per profile and metric, a warning and an error bound (either may be
   null). The *metric catalogue* — which metrics exist and whether a low or a high value is
   the failing side — lives in code (`qc_threshold_service.QC_METRICS`), because it follows

@@ -2,9 +2,9 @@
 
 Schema `05_grants.sql` creates a **restricted runtime role
 `coga_app`** and revokes `UPDATE`/`DELETE`/`TRUNCATE` on the append-only tables
-(`audit_log_events`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`). It
-ships in **fallback mode**: the role exists (`NOLOGIN`) but the application still connects
-as the table **owner**, so nothing changes at runtime yet.
+(`audit_log_events`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`,
+`qc_threshold_changes`). It ships in **fallback mode**: the role exists (`NOLOGIN`) but the
+application still connects as the table **owner**, so nothing changes at runtime yet.
 
 This runbook performs the **coordinated DSN flip** that makes the application connect as
 `coga_app`. That is what actually closes P1-4's owner-bypass gap: as a non-owner the
@@ -137,7 +137,9 @@ login, unused.
   ```
 - The automated proof is two integration tests in the CI `smoke` job:
   - `backend/tests/integration/test_app_role_privileges.py` asserts the allow/deny outcomes
-    above plus the `ON DELETE SET NULL` cascade (via `SET ROLE coga_app`).
+    above on every append-only table, plus the `ON DELETE SET NULL` cascade (via `SET ROLE
+    coga_app`). It reads the tables with a `*_block_mutation` trigger from the catalogue
+    and fails if one is missing from the test or still grants `coga_app` `UPDATE`/`DELETE`.
   - `backend/tests/integration/test_app_boots_as_restricted_role.py` runs the migration
     out-of-band as the owner, then **boots the whole app as `coga_app`** with startup
     migrations disabled — proving the deployed flip serves without owner-only DDL and that
@@ -148,3 +150,6 @@ login, unused.
 Any **new append-only table** must get the same `REVOKE UPDATE, DELETE, TRUNCATE … FROM
 coga_app;` in `05_grants.sql`, after the broad `GRANT` — the `GRANT … ON ALL TABLES` and the
 `ALTER DEFAULT PRIVILEGES` in that file otherwise give the new table full CRUD for `coga_app`.
+Add it to `_APPEND_ONLY` in `test_app_role_privileges.py` as well: the test fails for a
+trigger-guarded table it does not list, which is how `qc_threshold_changes` would have been
+caught when it shipped with its trigger but without the `REVOKE`.
