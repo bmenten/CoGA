@@ -6,7 +6,9 @@ import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
-import { RepeatLocusTooltip, STATUS_COLORS } from './repeatExpansionHelpers';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
+import { RepeatLocusTooltip, STATUS_COLORS, describeRepeatLoci } from './repeatExpansionHelpers';
 import { apiPath } from '../../lib/apiPath';
 
 interface Props {
@@ -33,6 +35,9 @@ const RepeatExpansionTrack: React.FC<Props> = ({
   chromosomeSize,
 }) => {
   const overviewMode = Number.isFinite(chromosomeSize) && (chromosomeSize ?? 0) > 0;
+  // Overview mode asks for the whole chromosome; otherwise a view with no width asks for
+  // nothing, and is neither loading nor "none" (#602).
+  const regionInView = overviewMode || hasRegionInView(regionStart, regionEnd);
   const { data: rawData, isLoading, isError, refetch } = useQuery<ApiRepeatExpansionTrackResponse>({
     queryKey: [
       'repeat-expansions',
@@ -64,14 +69,15 @@ const RepeatExpansionTrack: React.FC<Props> = ({
       );
       return response.data as ApiRepeatExpansionTrackResponse;
     },
-    enabled: overviewMode || regionEnd > regionStart,
+    enabled: regionInView,
     staleTime: Infinity,
     gcTime: Infinity,
   });
   const data = useSameSpanFallbackData(
-    isError ? null : rawData,
+    rawData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${familyId}|${sampleId}|${chrom}`,
+    isError,
   );
 
   const regionLength = Math.max(regionEnd - regionStart, 1);
@@ -84,6 +90,24 @@ const RepeatExpansionTrack: React.FC<Props> = ({
       ),
     [chrom, data?.items, overviewMode, regionEnd, regionStart],
   );
+
+  // The chart's accessible name (#529): what it shows now — the whole chromosome in
+  // overview mode, else the region. A failure or a load is said as such, never as zero
+  // loci (#510).
+  const lociSummary = useMemo(() => describeRepeatLoci(visibleItems), [visibleItems]);
+  const chartScope = overviewMode
+    ? formatChromosomeLabel(chrom)
+    : describeTrackRegion(chrom, regionStart, regionEnd);
+  const chartState = isError
+    ? 'failed to load'
+    : !regionInView
+      ? NO_REGION_IN_VIEW
+      : isLoading
+        ? 'loading'
+        : visibleItems.length === 0
+          ? 'none'
+          : lociSummary;
+  const chartLabel = `Repeat loci of ${sampleId} on ${chartScope}: ${chartState}`;
 
   const [tooltip, setTooltip] = useState<{
     item: ApiRepeatExpansionTrackItem;
@@ -111,7 +135,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
 
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
+      <svg width={width} height={height} role="img" aria-label={chartLabel}>
         <line
           x1={0}
           x2={width}
@@ -151,7 +175,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
       </svg>
       {isLoading && <VizLoadingOverlay message="Loading repeat expansions" />}
       {isError && <VizErrorOverlay what="repeat expansions" onRetry={() => void refetch()} />}
-      {!isLoading && !isError && visibleItems.length === 0 && (
+      {regionInView && !isLoading && !isError && visibleItems.length === 0 && (
         <div className="viz-empty-overlay">
           {overviewMode ? 'No repeat loci for this chromosome' : 'No repeat loci in this region'}
         </div>

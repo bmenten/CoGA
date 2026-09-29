@@ -3,6 +3,7 @@ from __future__ import annotations
 from backend.app.routers.variant_explorer import (
     _EXPORT_COLUMNS,
     _export_cell,
+    _parse_sample_genotype_filters,
 )
 from backend.app.schemas import GlobalVariantRowOut
 
@@ -37,3 +38,20 @@ def test_export_columns_cover_every_row_field() -> None:
     for field, label in _EXPORT_COLUMNS:
         assert field in valid_fields, f"unknown export field {field!r}"
         assert label.strip()
+
+
+def test_sample_genotype_values_allow_a_colon_in_the_sample_id() -> None:
+    # The page sends "<sample>:<mode>". Splitting on the first ":" read "LAB:1:hom" as
+    # sample "LAB" (#526); the mode is the text after the last ":", when it is one.
+    assert _parse_sample_genotype_filters(["LAB:1:hom", "S1:het", "S2:het_hom"]) == [
+        ("LAB:1", "hom"),
+        ("S1", "het"),
+        ("S2", "het_hom"),
+    ]
+    # Without a mode, the whole value is the sample id and both genotypes count.
+    assert _parse_sample_genotype_filters(["LAB:1", "S3", "S4:", " S5 : HOM ", ""]) == [
+        ("LAB:1", "het_hom"),
+        ("S3", "het_hom"),
+        ("S4", "het_hom"),
+        ("S5", "hom"),
+    ]

@@ -10,7 +10,8 @@ from ..core.object_storage import object_exists, object_key, presigned_get_url, 
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import AlignmentManifestEntryOut
-from ..services.metadata_service import CurrentUser, get_family_record
+from ..services.metadata_service import get_family_record
+from ..services.access_control import CurrentUser
 
 router = APIRouter(prefix="/cram", tags=["cram"])
 

@@ -45,7 +45,7 @@ export default function AnnotationProvenanceSummary({
   modality?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const { data } = useQuery<ApiAnnotationManifest>({
+  const { data, isError, refetch } = useQuery<ApiAnnotationManifest>({
     queryKey: ['family', familyId, 'annotation-manifest'],
     enabled: Boolean(familyId),
     queryFn: async () =>
@@ -58,6 +58,19 @@ export default function AnnotationProvenanceSummary({
     .filter((entry): entry is { module: ApiAnnotationModule; version: string } =>
       Boolean(entry.version),
     );
+  // A failed manifest is said in the footer's place: the footer used to vanish, as for a
+  // family whose annotation versions were never recorded (#610).
+  if (isError) {
+    return (
+      <footer className="surface-card annotation-provenance-footer" data-testid="annotation-provenance" role="alert">
+        <span className="annotation-provenance-label">Annotation versions</span>{' '}
+        <span>could not be loaded.</span>{' '}
+        <button type="button" className="button-link" onClick={() => void refetch()}>
+          Retry
+        </button>
+      </footer>
+    );
+  }
   if (!modules.length) {
     return null;
   }

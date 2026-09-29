@@ -48,6 +48,17 @@ interface PositionedVariant extends Variant {
   typeKey: VariantType;
 }
 
+/** The drawn SVs in words, for the chart's accessible name (#529): "3 (2 DEL, 1 DUP)". */
+const describeTypes = (items: PositionedVariant[]): string => {
+  const byType = TYPE_ORDER.map((typeKey) => ({
+    typeKey,
+    count: items.filter((item) => item.typeKey === typeKey).length,
+  }))
+    .filter(({ count }) => count > 0)
+    .map(({ typeKey, count }) => `${count.toLocaleString()} ${typeKey}`);
+  return `${items.length.toLocaleString()} (${byType.join(', ')})`;
+};
+
 const SvTrack: React.FC<Props> = ({
   url,
   layout,
@@ -56,6 +67,9 @@ const SvTrack: React.FC<Props> = ({
   height = 40,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Without a layout no SV can be placed yet (the genome overview is still sizing it),
+  // and without a URL none is asked for: neither is a finding of no SVs (#602).
+  const canRequest = Boolean(layout) && Boolean(url);
   const typeColors = useMemo<Record<string, string>>(
     () => ({
       DEL: cssVar('--color-variant-del'),
@@ -70,32 +84,36 @@ const SvTrack: React.FC<Props> = ({
   // React Query caches/dedupes by URL (was a raw fetch in useEffect that ALSO
   // re-fetched on every layout / sampleId / typeColors change). Fetch only depends
   // on the URL now; the per-sample filtering is a cheap memo below.
-  const {
-    data: rawVariants = [],
-    isLoading,
-    isError,
-    refetch,
-  } = useQuery<Variant[]>({
+  const { data, isLoading, isError, refetch } = useQuery<{ variants: Variant[]; capped: boolean }>({
     queryKey: ['genome-sv', url],
-    enabled: !!layout && !!url,
+    enabled: canRequest,
     staleTime: Infinity,
     gcTime: Infinity,
     queryFn: async ({ signal }) => {
       // Through the shared client (token + session handling); a failure fails the track
       // instead of reading as "no SVs" (#510).
-      const payload = await fetchTrackJson<{ variants?: Variant[] }>(url, { signal });
-      return (payload?.variants || []) as Variant[];
+      const payload = await fetchTrackJson<{ variants?: Variant[]; total_is_estimated?: boolean }>(
+        url,
+        { signal },
+      );
+      return {
+        variants: (payload?.variants || []) as Variant[],
+        // Past the backend's candidate cap the list stops part-way through the genome;
+        // drawn, the last chromosomes would look free of SVs (#585).
+        capped: Boolean(payload?.total_is_estimated),
+      };
     },
   });
+  const tooManyVariants = Boolean(data?.capped);
   const variants = useMemo(
     () =>
-      rawVariants
+      (tooManyVariants ? [] : data?.variants ?? [])
         .filter((v) => Object.prototype.hasOwnProperty.call(typeColors, v.type))
         .map((v) => ({ ...v, genotypes: v.genotypes?.filter((g) => g.sample === sampleId) }))
         .filter((v) => v.genotypes && v.genotypes.length > 0 && hasAltAllele(v.genotypes[0].gt)),
-    [rawVariants, typeColors, sampleId],
+    [data?.variants, tooManyVariants, typeColors, sampleId],
   );
-  const loading = isLoading && !!layout && !!url;
+  const loading = isLoading && canRequest;
 
   const rowHeight = useMemo(() => height / TYPE_ORDER.length, [height]);
 
@@ -118,6 +136,22 @@ const SvTrack: React.FC<Props> = ({
       })
       .filter(Boolean) as PositionedVariant[];
   }, [variants, layout, width, rowHeight]);
+
+  // The chart's accessible name (#529): what it shows now. A failure or a load is said
+  // as such, never as zero SVs (#510).
+  const typeSummary = useMemo(() => describeTypes(items), [items]);
+  const chartState = isError
+    ? 'failed to load'
+    : loading || !layout
+      ? 'loading'
+      : !url
+        ? 'no SV data for this sample'
+        : tooManyVariants
+          ? 'too many to display; open a chromosome'
+          : items.length === 0
+            ? 'none'
+            : typeSummary;
+  const chartLabel = `Structural variants of ${sampleId} in view: ${chartState}`;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -211,14 +245,18 @@ const SvTrack: React.FC<Props> = ({
         ref={canvasRef}
         width={width}
         height={height}
+        role="img"
+        aria-label={chartLabel}
         onMouseMove={handlePointerMove}
         onMouseLeave={() => setTooltip(undefined)}
       />
       {loading && <VizLoadingOverlay message="Loading SVs" />}
       {isError && <VizErrorOverlay what="structural variants" onRetry={() => void refetch()} />}
-      {!loading && !isError && items.length === 0 && (
+      {canRequest && !loading && !isError && items.length === 0 && (
         <div className="viz-empty-overlay">
-          no SVs for this region / sample
+          {tooManyVariants
+            ? 'Too many SVs to display genome-wide. Open a chromosome to see them.'
+            : 'no SVs for this region / sample'}
         </div>
       )}
       {tooltip && (

@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .family_metadata_context import build_family_metadata_context
 from .hash_chain import ChainVerification, chain_row_hash, verify_chain
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser
 
 
 def _clinical_chain_payload(row: dict[str, Any]) -> dict[str, Any]:

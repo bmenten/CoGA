@@ -23,7 +23,8 @@ from ..schemas import (
     MonarchPhenotypeMatchOut,
 )
 from .data_scope import is_primary_chromosome
-from .metadata_service import CurrentUser, get_accessible_family_mapping
+from .metadata_service import get_accessible_family_mapping
+from .access_control import CurrentUser, is_admin_user
 from .monarch_ingest import (
     family_observed_phenotype_closure,
     list_monarch_gene_disease,
@@ -312,7 +313,7 @@ def _require_uuid_or_none(value: str | None, detail: str) -> str | None:
 
 
 def _ensure_project_access(project_id: str, user: CurrentUser) -> None:
-    if user.role == "admin":
+    if is_admin_user(user):
         return
     if project_id not in set(user.metadata_project_ids):
         raise HTTPException(status_code=403, detail="Not authorized")

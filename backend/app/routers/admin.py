@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from pathlib import Path
 from typing import Dict, List
@@ -114,23 +115,23 @@ from ..services.hpo_service import (
     sync_hpo_ontology,
 )
 from ..services.metadata_service import (
-    CurrentUser,
     list_family_project_assignments,
     update_family_project_assignments,
 )
+from ..services.access_control import CurrentUser
 from ..services.nipt_artifact_pg import (
     add_nipt_artifact,
     auto_seed_nipt_artifacts,
     delete_nipt_artifact,
     list_nipt_artifacts,
 )
-from ..services.small_variant_review_pg import (
+from ..services.small_variant_review_tags import (
     create_small_variant_tag_definition,
     delete_small_variant_tag_definition,
-    list_small_variant_filter_presets_for_admin,
     list_small_variant_tag_definitions,
     update_small_variant_tag_definition,
 )
+from ..services.small_variant_review_presets import list_small_variant_filter_presets_for_admin
 
 logger = logging.getLogger(__name__)
 
@@ -426,7 +427,7 @@ async def download_raw_import_file(
 ) -> FileResponse:
     record = await get_raw_import_file_record(session, file_id=file_id)
     storage_path = record.get("storage_path") or ""
-    if not storage_path or not Path(storage_path).is_file():
+    if not storage_path or not await asyncio.to_thread(Path(storage_path).is_file):
         raise HTTPException(
             status_code=410,
             detail="The source file is no longer available at its storage path.",

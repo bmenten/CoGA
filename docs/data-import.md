@@ -30,7 +30,9 @@ Startup bootstrap:
 - When GRCh38 cytobands or genes are missing, CoGA imports the missing core reference tables.
   **Human GRCh38 gene loci come from GENCODE**; everything else, and any failure to reach GENCODE,
   falls back to the UCSC `hg38` track. If neither is available, startup continues after creating the
-  species/assembly shell.
+  species/assembly shell. The fallback is not silent (#536): the import result carries a warning
+  and startup logs it, the import record names the UCSC table used and its URL, and every report's
+  annotation manifest records the source of the gene loci as `gene_loci`.
 - CoGA can automatically seed `clinical_cnvs` and `segmental_duplications` for GRCh38 when those
   tables are empty.
 - When `/data/ref-data/dbNSFP5.4_gene.gz` or `GENE_REFERENCE_DBNSFP_GENE_PATH` is present and

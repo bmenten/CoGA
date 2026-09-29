@@ -131,9 +131,22 @@ CREATE TABLE IF NOT EXISTS clinical_cnvs (
     omim_title text,
     orpha_id text,
     orpha_name text,
+    -- Pathogenic ClinVar CNVs overlapping the region by >= 30 % reciprocally, per side, and
+    -- their VariationIDs, from the knowledgebase build. NULL: the knowledgebase recorded
+    -- none (built without ClinVar, or a file without the columns), not zero (#624).
+    clinvar_pathogenic_loss_count integer,
+    clinvar_pathogenic_gain_count integer,
+    clinvar_pathogenic_accessions text[],
     CONSTRAINT clinical_cnvs_pkey PRIMARY KEY (id),
     CONSTRAINT clinical_cnvs_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
 );
+
+-- Added after the table shipped; the baselines re-run on every boot, so an existing
+-- deployment picks the columns up without a migration ledger.
+ALTER TABLE clinical_cnvs
+    ADD COLUMN IF NOT EXISTS clinvar_pathogenic_loss_count integer,
+    ADD COLUMN IF NOT EXISTS clinvar_pathogenic_gain_count integer,
+    ADD COLUMN IF NOT EXISTS clinvar_pathogenic_accessions text[];
 
 CREATE INDEX IF NOT EXISTS idx_clinical_cnvs_assembly_region ON clinical_cnvs USING btree (assembly_id, chr, start);
 

@@ -67,7 +67,7 @@ const FamilyPageHeader: React.FC<{
   /** Samples whose phenotype ring the pedigree should draw (workspace only). */
   phenotypeSampleIds?: string[];
   /** The family's reference assembly and whether it is inside the validated scope. */
-  assemblyScope?: { name?: string; validated?: boolean };
+  assemblyScope?: { name?: string; validated?: boolean; unavailable?: boolean; onRetry?: () => void };
 }> = ({
   kicker,
   familyId,
@@ -115,6 +115,8 @@ const FamilyPageHeader: React.FC<{
           <AssemblyScopeBanner
             assemblyName={assemblyScope?.name}
             assemblyValidated={assemblyScope?.validated}
+            unavailable={assemblyScope?.unavailable}
+            onRetry={assemblyScope?.onRetry}
           />
         </div>
         {hasPedigree && (

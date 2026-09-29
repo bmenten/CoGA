@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager, contextmanager
 import json
 import logging
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -23,6 +24,21 @@ from .family_package_common import PackageManifest  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
+
+
+def package_folder_path(folder_path: str | Path) -> str:
+    """The package folder as it should be stored and shown: a remote URI unchanged, a local
+    path with ``~`` expanded.
+
+    Passing a ``gs://`` or ``s3://`` URI through ``Path`` collapses the scheme's double slash
+    (``gs:/bucket/...``), and ``is_remote_uri`` no longer recognises the result. A queued
+    import is later run from the stored value, so it would look for a local folder.
+    """
+    if is_remote_uri(folder_path):
+        return str(folder_path).strip()
+    # String operations only: nothing is read here. The import checks the folder against
+    # FAMILY_IMPORT_ROOTS before it touches the file system.
+    return os.path.normpath(os.path.expanduser(str(folder_path)))
 
 
 def _staging_root() -> Path:

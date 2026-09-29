@@ -7,7 +7,7 @@ from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import GeneOut, GeneProfileOut, GeneSearchResultOut
 from ..services.gene_metadata_service import build_gene_profile, search_genes
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.reference_metadata_service import get_gene_region_records
 
 router = APIRouter(prefix="/genes", tags=["genes"])

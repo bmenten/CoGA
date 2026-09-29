@@ -22,7 +22,8 @@ export interface ApiFamilyMember extends ApiFamilyMemberRef {
   carrier_evidence?: Record<string, unknown>;
   active?: boolean;
   sample_metadata?: Record<string, unknown>;
-  sequencing_qc?: ApiSampleSequencingQcEvaluation;
+  // Null when the sample has no sequencing QC to judge (the backend sends null, #528).
+  sequencing_qc?: ApiSampleSequencingQcEvaluation | null;
 }
 
 /** A sequencing-QC metric judged against its configured cut-offs. */
@@ -283,32 +284,6 @@ export interface ApiNiptSummary {
   // Category counts are keyed by the category number (1-8), serialized as strings.
   category_counts: Record<string, number>;
   filter_counts: Record<string, number>;
-}
-
-export interface ApiNiptVariant {
-  variant_id: string;
-  chr: string;
-  pos: number;
-  ref: string;
-  alt: string;
-  gene?: string | null;
-  impact?: string | null;
-  consequence?: string | null;
-  category?: number | null;
-  category_label: string;
-  maternal_state: string;
-  fetal_inheritance: string;
-  expected_vaf: number;
-  observed_vaf?: number | null;
-  confidence: number;
-  flags: string[];
-}
-
-export interface ApiNiptVariantPage {
-  family_id: string;
-  total: number;
-  fetal_fraction: ApiNiptFetalFraction;
-  variants: ApiNiptVariant[];
 }
 
 export interface ApiNiptCoverageRegion {
@@ -583,6 +558,11 @@ export interface ApiClinicalCnv {
   source_id?: string | null;
   orpha_id?: string | null;
   orpha_name?: string | null;
+  // Pathogenic ClinVar CNVs overlapping the region by >= 30 % reciprocally, per side, and
+  // their VariationIDs, from the knowledgebase build (#624). null: not recorded, not zero.
+  clinvar_pathogenic_loss_count?: number | null;
+  clinvar_pathogenic_gain_count?: number | null;
+  clinvar_pathogenic_accessions?: string[] | null;
 }
 
 export interface ApiChromosomeBand {

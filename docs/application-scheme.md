@@ -44,7 +44,7 @@ flowchart LR
 - `backend/app/services/clickhouse_family_variants.py`: family-scoped variant queries
 - `backend/app/services/variant_explorer_service.py`: cross-project variant-centric aggregation (Global Small Variant Explorer)
 - `backend/app/services/gene_metadata_service.py`: Gene Explorer profiles and transcript metadata
-- `backend/app/services/variant_upload_service.py`: variant ingestion
+- `backend/app/services/variant_upload_service.py`: variant ingestion, with `haplotype_block_builder.py` (haplotype blocks from phased genotypes) and `annotation_table_parser.py` (VEP TSV and mutserve annotation tables)
 - `backend/app/services/bed_service.py`: interval-track ingestion and retrieval
 - `backend/app/services/repeat_expansion_pg.py`: repeat catalog and sample calls
 - `backend/app/services/paraphase_pg.py`, `mitochondrial_analysis.py`: Paraphase and mtDNA analysis

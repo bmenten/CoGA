@@ -11,6 +11,7 @@ import type {
 } from '../../lib/apiTypes';
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
@@ -156,7 +157,13 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
   const [diseaseFilter, setDiseaseFilter] = useState('');
   const [aberrantOnly, setAberrantOnly] = useState(false);
 
-  const { data: family, isLoading: familyLoading } = useQuery<ApiFamilyRecord>({
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const response = await api.get(apiPath`/families/${familyId}`);
@@ -170,9 +177,17 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
     assemblyVersion,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(family?.projects, projectIdParam);
 
-  const { data: repeatTable, isLoading: repeatLoading } = useQuery<ApiFamilyRepeatExpansionTable>({
+  const {
+    data: repeatTable,
+    isLoading: repeatLoading,
+    isError: repeatFailed,
+    error: repeatError,
+    refetch: refetchRepeats,
+  } = useQuery<ApiFamilyRepeatExpansionTable>({
     queryKey: ['family', familyId, 'repeat-expansions', resolvedProjectId],
     queryFn: async () => {
       const response = await api.get(apiPath`/families/${familyId}/repeat-expansions`, {
@@ -212,7 +227,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
     [aberrantOnly, diseaseFilter, geneFilter, repeatTable?.loci],
   );
   const referenceLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion },
+    { assemblyName, assemblyVersion, isError: referenceFailed },
     'Not linked',
   );
 
@@ -222,6 +237,21 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
         kicker="Repeats"
         title="Loading repeat expansions"
         message="Preparing the family repeat expansion table and pedigree context."
+      />
+    );
+  }
+
+  if (familyFailed || repeatFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Repeats"
+        what={familyFailed ? 'Family' : 'Repeat expansions'}
+        error={familyFailed ? familyError : repeatError}
+        notFoundMessage="This repeat expansion workspace could not resolve the requested family."
+        onRetry={() => {
+          if (familyFailed) void refetchFamily();
+          if (repeatFailed) void refetchRepeats();
+        }}
       />
     );
   }
@@ -239,7 +269,12 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
   return (
     <div className="page-shell family-repeat-page space-y-6">
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Repeat expansions"
         family={family}
         projectId={resolvedProjectId}

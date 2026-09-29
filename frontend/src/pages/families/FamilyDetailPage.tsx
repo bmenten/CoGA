@@ -6,21 +6,21 @@ import MonarchPhenotypeMatchPanel from './MonarchPhenotypeMatchPanel';
 import { useEmbryoSegregation } from '../../lib/useEmbryoSegregation';
 import { segregationStateLabel } from '../../lib/embryoSegregation';
 import InfoTip from '../../components/InfoTip';
+import FamilyMemberDetailDialog from './FamilyMemberDetailDialog';
 import type {
   ApiFamilyRecord,
   ApiFamilyMemberBatchUpdateItem,
   ApiFamilyMemberBatchUpdateResponse,
-  ApiFamilyMemberDeleteResponse,
-  ApiFamilyMemberDetail,
   ApiFamilyStatusDefinition,
   ApiHpoAnnotation,
-  ApiHpoTerm,
   ApiPaginatedTotalResponse,
   ApiSmallVariantReviewSummary,
   ApiUserRef,
 } from '../../lib/apiTypes';
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
+import QueryFailure from '../../components/QueryFailure';
 import { formatUserRef } from '../../lib/users';
 import { isAdmin } from '../../lib/auth';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
@@ -30,28 +30,20 @@ import {
   useFamilyReference,
   useProjectCatalog,
 } from '../../lib/reference';
-import {
-  getTagDefinitionMap,
-  type SmallVariantTagDefinition,
-} from './smallVariantSearch';
+import { getTagDefinitionMap, type SmallVariantTagDefinition } from './smallVariantSearch';
 import { getReviewTagStyle } from './smallVariantResultUtils';
-
 import type {
   CarrierStatus,
-  CarrierType,
   ClinicalStatus,
   CoupleDraft,
-  HpoAnnotationStatus,
   MemberDetailDraft,
   ParentChildDraft,
   StructureMemberDraft,
 } from './familyDetailTypes';
 import {
   CARRIER_STATUS_OPTIONS,
-  CARRIER_TYPE_OPTIONS,
   CLINICAL_STATUS_OPTIONS,
   defaultNewMember,
-  HPO_STATUS_OPTIONS,
   ROLE_OPTIONS,
   SEX_OPTIONS,
 } from './familyDetailConstants';
@@ -59,14 +51,12 @@ import {
   carrierStatusForMember,
   clinicalStatusForMember,
   coupleDraftsFromRelationships,
-  formatHpoTermOption,
   formatRegion,
   getReviewSummaryTags,
   hpoTooltip,
   memberDraftFromFamilyMember,
   parentChildDraftsFromRelationships,
   parentsForSample,
-  parsePedigree,
   sampleKey,
 } from './familyDetailHelpers';
 import VariantWorkspaceLink from './VariantWorkspaceLink';
@@ -130,21 +120,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     message: string;
   } | null>(null);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
-  const [memberDraft, setMemberDraft] = useState<MemberDetailDraft | null>(null);
-  const [memberBusy, setMemberBusy] = useState(false);
   const [pendingMemberUpdates, setPendingMemberUpdates] = useState<Record<string, MemberDetailDraft>>({});
   const [pendingMembersBusy, setPendingMembersBusy] = useState(false);
   const [pendingMembersStatus, setPendingMembersStatus] = useState<{
     tone: 'success' | 'error';
     message: string;
   } | null>(null);
-  const [memberStatus, setMemberStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
-  const [hpoSearchInput, setHpoSearchInput] = useState('');
-  const [selectedHpoTerm, setSelectedHpoTerm] = useState<ApiHpoTerm | null>(null);
-  const [hpoAnnotationStatus, setHpoAnnotationStatus] = useState<HpoAnnotationStatus>('present');
-  const [hpoNote, setHpoNote] = useState('');
-  const [hpoBusy, setHpoBusy] = useState(false);
-  const [hpoStatus, setHpoStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [statusDraft, setStatusDraft] = useState('');
   const [assignedToDraft, setAssignedToDraft] = useState('');
   const [reviewedByDraft, setReviewedByDraft] = useState('');
@@ -154,7 +135,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     message: string;
   } | null>(null);
 
-  const { data, isLoading } = useQuery<ApiFamilyRecord>({
+  const {
+    data,
+    isLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
@@ -165,7 +152,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   // Active status catalogue + assignable users power the status / assignment
   // pickers below. Both are small, app-wide lookups so they are cached by a
   // stable key and shared across family pages.
-  const { data: familyStatusOptions = [] } = useQuery<ApiFamilyStatusDefinition[]>({
+  const {
+    data: familyStatusOptions = [],
+    isError: statusesFailed,
+    refetch: refetchStatuses,
+  } = useQuery<ApiFamilyStatusDefinition[]>({
     queryKey: ['family-statuses'],
     queryFn: async () => {
       const res = await api.get('/family-statuses');
@@ -173,7 +164,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const { data: assignableUsers = [] } = useQuery<ApiUserRef[]>({
+  const {
+    data: assignableUsers = [],
+    isError: usersFailed,
+    refetch: refetchUsers,
+  } = useQuery<ApiUserRef[]>({
     queryKey: ['assignable-users'],
     queryFn: async () => {
       const res = await api.get('/users');
@@ -187,6 +182,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     assemblyVersion,
     projectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(data?.projects, preferredProjectId);
   const variantCountsReady = Boolean(
     familyId && data && (!(data.projects?.length) || projectId),
@@ -204,7 +201,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     return `?${params.toString()}`;
   };
 
-  const { data: variantPage } = useQuery<ApiPaginatedTotalResponse>({
+  const {
+    data: variantPage,
+    isError: structuralPresenceFailed,
+    refetch: refetchStructuralPresence,
+  } = useQuery<ApiPaginatedTotalResponse>({
     queryKey: ['family', familyId, 'structural-variants', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
@@ -213,7 +214,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const { data: familyVariantPage } = useQuery<ApiPaginatedTotalResponse>({
+  const {
+    data: familyVariantPage,
+    isError: smallPresenceFailed,
+    refetch: refetchSmallPresence,
+  } = useQuery<ApiPaginatedTotalResponse>({
     queryKey: ['family', familyId, 'small-variants', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
@@ -222,7 +227,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const { data: repeatTable } = useQuery<{ loci_count?: number }>({
+  const {
+    data: repeatTable,
+    isError: repeatPresenceFailed,
+    refetch: refetchRepeatPresence,
+  } = useQuery<{ loci_count?: number }>({
     queryKey: ['family', familyId, 'repeat-expansions', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
@@ -231,7 +240,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const { data: paraphaseTable } = useQuery<{ genes_count?: number }>({
+  const {
+    data: paraphaseTable,
+    isError: paraphasePresenceFailed,
+    refetch: refetchParaphasePresence,
+  } = useQuery<{ genes_count?: number }>({
     queryKey: ['family', familyId, 'paraphase', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
@@ -240,7 +253,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const { data: mitoTable } = useQuery<{ variant_count?: number; has_coverage?: boolean }>({
+  const {
+    data: mitoTable,
+    isError: mitoPresenceFailed,
+    refetch: refetchMitoPresence,
+  } = useQuery<{ variant_count?: number; has_coverage?: boolean }>({
     queryKey: ['family', familyId, 'mitochondrial-dna', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
@@ -249,31 +266,50 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const hasVariants = (variantPage?.total ?? 0) > 0;
-  const hasSmallVariants = (familyVariantPage?.total ?? 0) > 0;
-  const hasRepeatExpansions = (repeatTable?.loci_count ?? 0) > 0;
-  const hasParaphase = (paraphaseTable?.genes_count ?? 0) > 0;
+  // A presence check that failed leaves it unknown whether the family has that data: its
+  // workspace link is shown, so the page can say for itself, rather than hidden as if
+  // there were none (#607).
+  const hasVariants = (variantPage?.total ?? 0) > 0 || structuralPresenceFailed;
+  const hasSmallVariants = (familyVariantPage?.total ?? 0) > 0 || smallPresenceFailed;
+  const hasRepeatExpansions = (repeatTable?.loci_count ?? 0) > 0 || repeatPresenceFailed;
+  const hasParaphase = (paraphaseTable?.genes_count ?? 0) > 0 || paraphasePresenceFailed;
   // mtDNA data is present when there are chrM variants or any sample carries
   // mtDNA coverage (coverage-only families still have something to show).
-  const hasMitoDna = (mitoTable?.variant_count ?? 0) > 0 || (mitoTable?.has_coverage ?? false);
+  const hasMitoDna =
+    (mitoTable?.variant_count ?? 0) > 0 || (mitoTable?.has_coverage ?? false) || mitoPresenceFailed;
+  const failedPresenceChecks = [
+    smallPresenceFailed ? 'small variants' : null,
+    structuralPresenceFailed ? 'structural variants' : null,
+    repeatPresenceFailed ? 'repeat expansions' : null,
+    paraphasePresenceFailed ? 'Paraphase results' : null,
+    mitoPresenceFailed ? 'mtDNA data' : null,
+  ].filter((name): name is string => Boolean(name));
+  const retryPresenceChecks = () => {
+    if (smallPresenceFailed) void refetchSmallPresence();
+    if (structuralPresenceFailed) void refetchStructuralPresence();
+    if (repeatPresenceFailed) void refetchRepeatPresence();
+    if (paraphasePresenceFailed) void refetchParaphasePresence();
+    if (mitoPresenceFailed) void refetchMitoPresence();
+  };
   const hasVariantSummary = hasVariants || hasSmallVariants;
   const hasAnyVariantData =
     hasVariants || hasSmallVariants || hasRepeatExpansions || hasParaphase || hasMitoDna;
+  // A failed check is settled too: "Checking…" used to stay up for good (#607).
   const variantCountsLoaded =
     variantCountsReady &&
-    variantPage !== undefined &&
-    familyVariantPage !== undefined &&
-    repeatTable !== undefined &&
-    paraphaseTable !== undefined &&
-    mitoTable !== undefined;
+    (variantPage !== undefined || structuralPresenceFailed) &&
+    (familyVariantPage !== undefined || smallPresenceFailed) &&
+    (repeatTable !== undefined || repeatPresenceFailed) &&
+    (paraphaseTable !== undefined || paraphasePresenceFailed) &&
+    (mitoTable !== undefined || mitoPresenceFailed);
   // Monogenic NIPT families surface a dedicated analysis tab (see docs/monogenic-nipt.md).
   const isMonogenicNipt = data?.metadata?.analysis_type === 'monogenic_nipt';
   const { data: projects = [] } = useProjectCatalog();
   const assemblyLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion },
+    { assemblyName, assemblyVersion, isError: referenceFailed },
     data?.projects?.length && referenceLoading ? 'Loading linked reference...' : 'Not linked',
   );
-  const { data: reviewSummary } = useQuery<ApiSmallVariantReviewSummary>({
+  const { data: reviewSummary, isError: reviewSummaryFailed } = useQuery<ApiSmallVariantReviewSummary>({
     queryKey: ['family', familyId, 'small-variant-review-summary'],
     enabled: Boolean(familyId && hasSmallVariants),
     queryFn: async () => {
@@ -291,7 +327,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       return res.data as SmallVariantTagDefinition[];
     },
   });
-  const { data: structuralReviewSummary } = useQuery<ApiSmallVariantReviewSummary>({
+  const { data: structuralReviewSummary, isError: structuralReviewSummaryFailed } =
+    useQuery<ApiSmallVariantReviewSummary>({
     queryKey: ['family', familyId, 'structural-variant-review-summary'],
     enabled: Boolean(familyId && hasVariants),
     queryFn: async () => {
@@ -311,33 +348,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       return res.data as SmallVariantTagDefinition[];
     },
   });
-  const { data: hpoAnnotations = [] } = useQuery<ApiHpoAnnotation[]>({
+  const { data: hpoAnnotations = [], isError: hpoFailed } = useQuery<ApiHpoAnnotation[]>({
     queryKey: ['family', familyId, 'hpo'],
     enabled: Boolean(familyId),
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/hpo`);
       return res.data as ApiHpoAnnotation[];
-    },
-  });
-  const hpoSearchQuery = hpoSearchInput.trim();
-  const { data: hpoSearchResults = [] } = useQuery<ApiHpoTerm[]>({
-    queryKey: ['hpo-search', hpoSearchQuery],
-    enabled: hpoSearchQuery.length >= 2,
-    queryFn: async () => {
-      const res = await api.get('/hpo/search', { //
-        params: { q: hpoSearchQuery, limit: 20 },
-      });
-      return res.data as ApiHpoTerm[];
-    },
-  });
-  const { data: selectedMemberDetail } = useQuery<ApiFamilyMemberDetail>({
-    queryKey: ['family', familyId, 'member', selectedMemberId],
-    enabled: Boolean(familyId && selectedMemberId),
-    queryFn: async () => {
-      const res = await api.get(
-        apiPath`/families/${familyId}/members/${selectedMemberId!}`,
-      );
-      return res.data as ApiFamilyMemberDetail;
     },
   });
 
@@ -385,7 +401,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   );
   // Derived embryo segregation at the ROI (carrier/affected/unaffected), shown per
   // embryo in the Family members table below. Derived from the haplotype analysis.
-  const { byEmbryo: embryoSegregation } = useEmbryoSegregation({
+  const {
+    byEmbryo: embryoSegregation,
+    isError: segregationFailed,
+    retry: retrySegregation,
+  } = useEmbryoSegregation({
     familyId: data?.family_id ?? '',
     roi: data?.roi ?? null,
     members: data?.members ?? [],
@@ -457,39 +477,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   }, [data]);
 
   useEffect(() => {
-    if (!selectedMemberDetail) {
-      setMemberDraft(null);
-      return;
-    }
-    const pending = pendingMemberUpdates[selectedMemberDetail.member.sample_id];
-    if (pending) {
-      setMemberDraft(pending);
-      return;
-    }
-    setMemberDraft({
-      sample_id: selectedMemberDetail.member.sample_id,
-      sex:
-        selectedMemberDetail.member.sex === 'male' || selectedMemberDetail.member.sex === 'female'
-          ? selectedMemberDetail.member.sex
-          : 'und',
-      role: ROLE_OPTIONS.includes(selectedMemberDetail.member.role as StructureMemberDraft['role'])
-        ? (selectedMemberDetail.member.role as StructureMemberDraft['role'])
-        : 'relative',
-      clinical_status: clinicalStatusForMember(selectedMemberDetail.member),
-      carrier_status: carrierStatusForMember(selectedMemberDetail.member),
-      carrier_type: selectedMemberDetail.member.carrier_type ?? '',
-      father_id: selectedMemberDetail.father_id ?? '',
-      mother_id: selectedMemberDetail.mother_id ?? '',
-    });
-    setMemberStatus(null);
-    setHpoStatus(null);
-    setHpoSearchInput('');
-    setSelectedHpoTerm(null);
-    setHpoNote('');
-    setHpoAnnotationStatus('present');
-  }, [pendingMemberUpdates, selectedMemberDetail]);
-
-  useEffect(() => {
     if (selectedMemberId && !orderedMembers.some((member) => member.sample_id === selectedMemberId)) {
       setSelectedMemberId(null);
     }
@@ -501,6 +488,18 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
         kicker="Family"
         title="Loading family workspace"
         message="Preparing family metadata, pedigree and navigation links."
+      />
+    );
+  }
+
+  if (familyFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Family"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This workspace could not resolve the requested family."
+        onRetry={() => void refetchFamily()}
       />
     );
   }
@@ -812,46 +811,14 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     }
   };
 
-  const updateHpoSearchInput = (value: string) => {
-    setHpoSearchInput(value);
-    const normalizedValue = value.trim().toLowerCase();
-    const matchedTerm = hpoSearchResults.find((term) => {
-      return (
-        term.hpo_id.toLowerCase() === normalizedValue ||
-        formatHpoTermOption(term).toLowerCase() === normalizedValue
-      );
-    });
-    setSelectedHpoTerm(matchedTerm ?? null);
-  };
-
   const openMemberDetail = (sampleId: string) => {
     setSelectedMemberId(sampleId);
   };
 
-  const closeMemberDetail = () => {
-    setSelectedMemberId(null);
-    setMemberDraft(null);
-    setMemberStatus(null);
-    setHpoStatus(null);
-    setHpoSearchInput('');
-    setSelectedHpoTerm(null);
-    setHpoNote('');
-  };
-
-  const applyMemberDetail = () => {
-    if (!selectedMemberDetail || !memberDraft) return;
+  // The member dialog's edits wait here, with other members', until saved together.
+  const queueMemberUpdate = (sampleId: string, draft: MemberDetailDraft) => {
     setPendingMembersStatus(null);
-    setPendingMemberUpdates((updates) => ({
-      ...updates,
-      [selectedMemberDetail.member.sample_id]: {
-        ...memberDraft,
-        sample_id: memberDraft.sample_id.trim() || selectedMemberDetail.member.sample_id,
-      },
-    }));
-    setMemberStatus({
-      tone: 'success',
-      message: 'Member changes are pending. Save pending updates to commit them together.',
-    });
+    setPendingMemberUpdates((updates) => ({ ...updates, [sampleId]: draft }));
   };
 
   const savePendingMemberUpdates = async () => {
@@ -938,106 +905,17 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     }
   };
 
-  const deleteMemberDetail = async () => {
-    if (!familyId || !selectedMemberDetail) return;
-    const impactWarnings = selectedMemberDetail.impact.warnings.join('\n');
-    const confirmed = window.confirm(
-      [
-        `Remove ${selectedMemberDetail.member.sample_id} from the active family?`,
-        impactWarnings,
-        'This can make derived analyses stale.',
-      ]
-        .filter(Boolean)
-        .join('\n\n'),
-    );
-    if (!confirmed) return;
-    setMemberBusy(true);
-    setMemberStatus(null);
-    try {
-      const response = await api.delete(
-        apiPath`/families/${familyId}/members/${selectedMemberDetail.member.sample_id}`,
-        {
-          params: {
-            confirm: true,
-          },
-        },
-      );
-      const payload = response.data as ApiFamilyMemberDeleteResponse;
-      queryClient.setQueryData(['family', familyId], payload.family);
-      await queryClient.invalidateQueries({ queryKey: ['families'] });
-      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
-      await invalidatePedigreeDependentQueries();
-      closeMemberDetail();
-    } catch (error) {
-      setMemberStatus({
-        tone: 'error',
-        message: getErrorMessage(error, 'Failed to remove family member.'),
-      });
-    } finally {
-      setMemberBusy(false);
-    }
-  };
-
-  const addHpoAnnotation = async () => {
-    if (!familyId || !selectedHpoTerm || !selectedMemberDetail) {
-      setHpoStatus({ tone: 'error', message: 'Select a family member and HPO term.' });
-      return;
-    }
-    setHpoBusy(true);
-    setHpoStatus(null);
-    try {
-      await api.post(
-        apiPath`/families/${familyId}/members/${selectedMemberDetail.member.sample_id}/hpo`,
-        {
-          hpo_id: selectedHpoTerm.hpo_id,
-          status: hpoAnnotationStatus,
-          source: 'manual',
-          note: hpoNote.trim() || null,
-        },
-      );
-      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
-      await queryClient.invalidateQueries({
-        queryKey: ['family', familyId, 'member', selectedMemberDetail.member.sample_id],
-      });
-      setHpoNote('');
-      setHpoSearchInput('');
-      setSelectedHpoTerm(null);
-      setHpoStatus({ tone: 'success', message: 'Phenotype annotation saved.' });
-    } catch (error) {
-      setHpoStatus({
-        tone: 'error',
-        message: getErrorMessage(error, 'Failed to save phenotype annotation.'),
-      });
-    } finally {
-      setHpoBusy(false);
-    }
-  };
-
-  const removeHpoAnnotation = async (annotationId: string) => {
-    if (!familyId) return;
-    setHpoBusy(true);
-    setHpoStatus(null);
-    try {
-      await api.delete(apiPath`/families/${familyId}/hpo/${annotationId}`);
-      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
-      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'member'] });
-      setHpoStatus({ tone: 'success', message: 'Phenotype annotation removed.' });
-    } catch (error) {
-      setHpoStatus({
-        tone: 'error',
-        message: getErrorMessage(error, 'Failed to remove phenotype annotation.'),
-      });
-    } finally {
-      setHpoBusy(false);
-    }
-  };
-
   return (
     <div
       className={`family-detail-page space-y-6${embedded ? '' : ' page-shell'}`}
     >
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Family Workspace"
         familyId={data.family_id}
         family={data}
@@ -1080,7 +958,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setStatusDraft(value);
                     saveMetadata({ status_key: value || null });
                   }}
-                  disabled={metadataBusy}
+                  disabled={metadataBusy || statusesFailed}
                 >
                   <option value="">No status</option>
                   {familyStatusOptions.map((option) => (
@@ -1088,6 +966,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       {option.label}
                     </option>
                   ))}
+                  {/* The current status stays shown when its list failed: it read "No
+                      status" on a reviewed case (#607). */}
+                  {statusDraft && !familyStatusOptions.some((option) => option.key === statusDraft) ? (
+                    <option value={statusDraft}>
+                      {data.status?.key === statusDraft ? data.status.label : statusDraft}
+                    </option>
+                  ) : null}
                 </select>
               </div>
               <div className="family-workspace-meta-field">
@@ -1101,7 +986,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setAssignedToDraft(value);
                     saveMetadata({ assigned_to: value || null });
                   }}
-                  disabled={metadataBusy}
+                  disabled={metadataBusy || usersFailed}
                 >
                   <option value="">Unassigned</option>
                   {assignableUsers.map((candidate) => (
@@ -1109,6 +994,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       {formatUserRef(candidate)}
                     </option>
                   ))}
+                  {assignedToDraft && !assignableUsers.some((candidate) => candidate.id === assignedToDraft) ? (
+                    <option value={assignedToDraft}>
+                      {data.assigned_to?.id === assignedToDraft ? formatUserRef(data.assigned_to) : assignedToDraft}
+                    </option>
+                  ) : null}
                 </select>
               </div>
               <div className="family-workspace-meta-field">
@@ -1122,7 +1012,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setReviewedByDraft(value);
                     saveMetadata({ reviewed_by: value || null });
                   }}
-                  disabled={metadataBusy}
+                  disabled={metadataBusy || usersFailed}
                 >
                   <option value="">Not reviewed</option>
                   {assignableUsers.map((candidate) => (
@@ -1130,6 +1020,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       {formatUserRef(candidate)}
                     </option>
                   ))}
+                  {reviewedByDraft && !assignableUsers.some((candidate) => candidate.id === reviewedByDraft) ? (
+                    <option value={reviewedByDraft}>
+                      {data.reviewed_by?.id === reviewedByDraft ? formatUserRef(data.reviewed_by) : reviewedByDraft}
+                    </option>
+                  ) : null}
                 </select>
               </div>
               {(metadataBusy || metadataStatus) && (
@@ -1143,6 +1038,16 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 </span>
               )}
             </div>
+            {statusesFailed || usersFailed ? (
+              <QueryFailure
+                what={statusesFailed && usersFailed ? 'the status and user lists' : statusesFailed ? 'the status list' : 'the user list'}
+                onRetry={() => {
+                  if (statusesFailed) void refetchStatuses();
+                  if (usersFailed) void refetchUsers();
+                }}
+                consequence="The current values are shown, and cannot be changed until it loads."
+              />
+            ) : null}
       </FamilyPageHeader>
 
       <section className="family-workspace-grid">
@@ -1170,10 +1075,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 <div className="family-variant-curation" aria-label="Small variant curation">
                   <span className="family-review-summary-label">Curation</span>
                   <span className="table-chip family-review-summary-chip">
-                    Reviewed <strong>{reviewSummary?.reviewed_variant_count ?? 0}</strong>
+                    Reviewed <strong>{reviewSummaryFailed ? '—' : (reviewSummary?.reviewed_variant_count ?? 0)}</strong>
                   </span>
                   <span className="table-chip family-review-summary-chip family-review-summary-chip--notes">
-                    Notes <strong>{reviewSummary?.note_count ?? 0}</strong>
+                    Notes <strong>{reviewSummaryFailed ? '—' : (reviewSummary?.note_count ?? 0)}</strong>
                   </span>
                   {reviewSummaryTags.map((tag) => (
                     <span
@@ -1199,10 +1104,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 <div className="family-variant-curation" aria-label="Structural variant curation">
                   <span className="family-review-summary-label">Curation</span>
                   <span className="table-chip family-review-summary-chip">
-                    Reviewed <strong>{structuralReviewSummary?.reviewed_variant_count ?? 0}</strong>
+                    Reviewed <strong>{structuralReviewSummaryFailed ? '—' : (structuralReviewSummary?.reviewed_variant_count ?? 0)}</strong>
                   </span>
                   <span className="table-chip family-review-summary-chip family-review-summary-chip--notes">
-                    Notes <strong>{structuralReviewSummary?.note_count ?? 0}</strong>
+                    Notes <strong>{structuralReviewSummaryFailed ? '—' : (structuralReviewSummary?.note_count ?? 0)}</strong>
                   </span>
                   {structuralReviewSummaryTags.map((tag) => (
                     <span
@@ -1282,6 +1187,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           {!variantCountsLoaded && (
             <p className="dashboard-link-note">Checking available family data…</p>
           )}
+          {failedPresenceChecks.length ? (
+            <QueryFailure
+              what={`whether this family has ${failedPresenceChecks.join(', ')}`}
+              onRetry={retryPresenceChecks}
+              consequence="Their links are shown, so you can open them."
+            />
+          ) : null}
           {variantCountsLoaded && !hasAnyVariantData && !isMonogenicNipt && (
             <p className="dashboard-link-note">
               No variant data is loaded for this family yet — each type activates
@@ -1456,6 +1368,15 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             {pendingMembersStatus.message}
           </div>
         )}
+        {/* No derived segregation is not "no warnings": the embryos' recombination and
+            uninformative flags come from the same haplotypes (#607, TF-12 U2). */}
+        {segregationFailed ? (
+          <QueryFailure
+            what="the haplotypes at the ROI"
+            onRetry={retrySegregation}
+            consequence="The embryos' segregation, and any recombination or uninformative warning, are not shown."
+          />
+        ) : null}
         <div className="data-table-shell overflow-x-auto">
           <table className="analysis-table family-members-table">
             {/* Sequencing QC is a compact pill like Status, so it takes the narrowest
@@ -1700,6 +1621,14 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                               {displayMember.carrier_type || 'carrier'}
                             </span>
                           )}
+                          {segregationFailed && String(displayMember.role || '').toLowerCase() === 'embryo' && (
+                            <InfoTip
+                              className="segregation-warning"
+                              label="The haplotypes at the ROI could not be loaded: this embryo's segregation, and any recombination or uninformative warning, are unknown."
+                            >
+                              ⚠ segregation not derived
+                            </InfoTip>
+                          )}
                           {embryoClass && (
                             <InfoTip
                               className={`segregation-badge segregation-badge--${embryoClass.state}`}
@@ -1746,6 +1675,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                             </span>
                           )}
                         </div>
+                      ) : hpoFailed ? (
+                        // Not "-": the member's terms are unknown (#607).
+                        <span className="dashboard-link-note">could not be loaded</span>
                       ) : (
                         <span className="dashboard-link-note">-</span>
                       )}
@@ -1989,360 +1921,19 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       <PipelineSettingsPanel familyId={data.family_id} settings={pipelineSettings} variant="workspace" />
 
       {selectedMemberId && (
-        <div
-          className="modal-backdrop family-member-modal-backdrop"
-          role="presentation"
-          onMouseDown={closeMemberDetail}
-        >
-          <section
-            className="modal-surface surface-card family-member-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Family member details"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="variant-review-modal-header">
-              <div>
-                <p className="page-kicker">Family Member</p>
-                <h2 className="catalog-card-title">
-                  {selectedMemberDetail?.member.sample_id ?? selectedMemberId}
-                </h2>
-              </div>
-              <button type="button" className="button-secondary" onClick={closeMemberDetail}>
-                Close
-              </button>
-            </div>
-
-            {!selectedMemberDetail || !memberDraft ? (
-              <p className="dashboard-link-note">Loading member details.</p>
-            ) : (
-              <>
-                <div className="family-member-modal-grid">
-                  <label className="field-label">
-                    Identifier
-                    <input
-                      type="text"
-                      value={memberDraft.sample_id}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft ? { ...draft, sample_id: event.target.value } : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    />
-                  </label>
-                  <label className="field-label">
-                    Sex
-                    <select
-                      value={memberDraft.sex}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, sex: event.target.value as StructureMemberDraft['sex'] }
-                            : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {SEX_OPTIONS.map((sex) => (
-                        <option key={sex} value={sex}>
-                          {sex}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    Family role
-                    <select
-                      value={memberDraft.role}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, role: event.target.value as StructureMemberDraft['role'] }
-                            : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {ROLE_OPTIONS.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    Phenotype
-                    <select
-                      value={memberDraft.clinical_status}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, clinical_status: event.target.value as ClinicalStatus }
-                            : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {CLINICAL_STATUS_OPTIONS.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    Carrier status
-                    <select
-                      value={memberDraft.carrier_status}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft
-                            ? { ...draft, carrier_status: event.target.value as CarrierStatus }
-                            : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      {CARRIER_STATUS_OPTIONS.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {memberDraft.carrier_status === 'carrier' && (
-                    <label className="field-label">
-                      Carrier type
-                      <select
-                        value={memberDraft.carrier_type}
-                        onChange={(event) =>
-                          setMemberDraft((draft) =>
-                            draft
-                              ? { ...draft, carrier_type: event.target.value as CarrierType }
-                              : draft,
-                          )
-                        }
-                        disabled={!userIsAdmin || memberBusy}
-                      >
-                        <option value="">type</option>
-                        {CARRIER_TYPE_OPTIONS.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <label className="field-label">
-                    Father
-                    <select
-                      value={memberDraft.father_id}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft ? { ...draft, father_id: event.target.value } : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      <option value="">None</option>
-                      {orderedMembers
-                        .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
-                        .map((member) => (
-                          <option key={member.sample_id} value={member.sample_id}>
-                            {member.sample_id}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <label className="field-label">
-                    Mother
-                    <select
-                      value={memberDraft.mother_id}
-                      onChange={(event) =>
-                        setMemberDraft((draft) =>
-                          draft ? { ...draft, mother_id: event.target.value } : draft,
-                        )
-                      }
-                      disabled={!userIsAdmin || memberBusy}
-                    >
-                      <option value="">None</option>
-                      {orderedMembers
-                        .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
-                        .map((member) => (
-                          <option key={member.sample_id} value={member.sample_id}>
-                            {member.sample_id}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="family-member-modal-review-grid">
-                  <div className="variant-review-modal-section family-member-modal-section">
-                    <div className="family-workspace-card-head">
-                      <h3 className="section-title">HPO Phenotypes</h3>
-                      <span className="table-chip">
-                        {selectedMemberDetail.hpo_annotations.length} terms
-                      </span>
-                    </div>
-                    {selectedMemberDetail.hpo_annotations.length ? (
-                      <div className="family-hpo-chip-list">
-                        {selectedMemberDetail.hpo_annotations.map((annotation) => (
-                          <span
-                            key={annotation.id}
-                            className={`table-chip family-hpo-chip family-hpo-chip--${annotation.status}`}
-                            title={hpoTooltip(annotation)}
-                          >
-                            <span>{annotation.hpo_id}</span>
-                            <strong>{annotation.label}</strong>
-                            <em>{annotation.status}</em>
-                            {userIsAdmin && (
-                              <button
-                                type="button"
-                                className="button-ghost"
-                                onClick={() => removeHpoAnnotation(annotation.id)}
-                                disabled={hpoBusy}
-                              >
-                                Remove
-                              </button>
-                            )}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="dashboard-link-note">No HPO phenotypes linked.</p>
-                    )}
-
-                    {userIsAdmin && (
-                      <>
-                        <div className="family-hpo-controls">
-                          <label className="field-label family-hpo-term-field">
-                            HPO term
-                            <input
-                              type="text"
-                              value={hpoSearchInput}
-                              onChange={(event) => updateHpoSearchInput(event.target.value)}
-                              placeholder="HP:0001250 or seizure"
-                              disabled={hpoBusy}
-                              list={`hpo-term-options-${data.family_id}`}
-                            />
-                            <datalist id={`hpo-term-options-${data.family_id}`}>
-                              {hpoSearchResults.map((term) => (
-                                <option key={term.hpo_id} value={formatHpoTermOption(term)} />
-                              ))}
-                            </datalist>
-                          </label>
-                          <label className="field-label">
-                            Status
-                            <select
-                              value={hpoAnnotationStatus}
-                              onChange={(event) =>
-                                setHpoAnnotationStatus(event.target.value as HpoAnnotationStatus)
-                              }
-                              disabled={hpoBusy}
-                            >
-                              {HPO_STATUS_OPTIONS.map((status) => (
-                                <option key={status} value={status}>
-                                  {status}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="field-label family-hpo-note-field">
-                            Note
-                            <input
-                              type="text"
-                              value={hpoNote}
-                              onChange={(event) => setHpoNote(event.target.value)}
-                              disabled={hpoBusy}
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            className="form-button"
-                            onClick={addHpoAnnotation}
-                            disabled={hpoBusy || !selectedHpoTerm}
-                          >
-                            Add phenotype
-                          </button>
-                        </div>
-
-
-                      </>
-                    )}
-                    {hpoStatus && (
-                      <div className={`status-note ${hpoStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'}`}>
-                        {hpoStatus.message}
-                      </div>
-                    )}
-                  </div>
-                  <div className="variant-review-modal-section family-member-modal-section">
-                    <div className="family-workspace-card-head">
-                      <h3 className="section-title">Impact</h3>
-                      {selectedMemberDetail.impact.destructive && (
-                        <span className="table-chip table-chip--critical">Linked data</span>
-                      )}
-                    </div>
-                    {selectedMemberDetail.impact.warnings.length ? (
-                      <ul className="family-member-impact-list">
-                        {selectedMemberDetail.impact.warnings.map((warning) => (
-                          <li key={warning}>{warning}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="dashboard-link-note">No derived-data dependencies detected.</p>
-                    )}
-                    <div className="family-member-impact-chips">
-                      {Object.entries(selectedMemberDetail.impact.pedigree_references).map(([key, count]) => (
-                        <span key={key} className="table-chip">
-                          {key} {count}
-                        </span>
-                      ))}
-                      {Object.entries(selectedMemberDetail.impact.data_counts).map(([key, count]) => (
-                        <span key={key} className="table-chip">
-                          {key} {count}
-                        </span>
-                      ))}
-                      {selectedMemberDetail.impact.stale_analysis_scopes.map((scope) => (
-                        <span key={scope} className="table-chip table-chip--critical">
-                          {scope}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {memberStatus && (
-                  <div
-                    className={`status-note ${
-                      memberStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
-                    }`}
-                  >
-                    {memberStatus.message}
-                  </div>
-                )}
-
-                {userIsAdmin && (
-                  <div className="variant-review-modal-actions compact-toolbar">
-                    <button type="button" className="form-button"onClick={applyMemberDetail} disabled={memberBusy}>
-                      Apply to pending
-                    </button>
-                    <button
-                      type="button"
-                      className="button-ghost"
-                      onClick={deleteMemberDetail}
-                      disabled={memberBusy || orderedMembers.length <= 1}
-                    >
-                      Remove member
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </section>
-        </div>
+        <FamilyMemberDetailDialog
+          familyId={familyId}
+          family={data}
+          memberId={selectedMemberId}
+          orderedMembers={orderedMembers}
+          userIsAdmin={userIsAdmin}
+          pendingDraft={pendingMemberUpdates[selectedMemberId]}
+          onQueue={queueMemberUpdate}
+          onRemoved={invalidatePedigreeDependentQueries}
+          onClose={() => setSelectedMemberId(null)}
+        />
       )}
+
     </div>
   );
 };

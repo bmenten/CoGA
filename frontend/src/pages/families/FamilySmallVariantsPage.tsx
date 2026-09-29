@@ -7,12 +7,15 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import FamilyPageHeader from './FamilyPageHeader';
 import { useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
+import QueryFailure from '../../components/QueryFailure';
 import LoadingBar from '../../components/LoadingBar';
 import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 import {
   buildPresetPayload,
+  hasLocationProblems,
+  smallVariantLocationProblems,
   useSmallVariantSearchState,
   type GenePanel,
   type SmallVariant,
@@ -67,6 +70,8 @@ const FamilySmallVariantsPage: React.FC = () => {
     assemblyValidated,
     assemblyVersion,
     projectId,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(
     family?.projects as string[] | undefined,
     preferredProjectId,
@@ -75,7 +80,13 @@ const FamilySmallVariantsPage: React.FC = () => {
     familyId && family && (!(family.projects?.length) || projectId),
   );
 
-  const { data: panels = [], isLoading: panelsLoading } = useQuery<GenePanel[]>({
+  const {
+    data: panels = [],
+    isLoading: panelsLoading,
+    isError: panelsFailed,
+    error: panelsError,
+    refetch: refetchPanels,
+  } = useQuery<GenePanel[]>({
     queryKey: ['panels'],
     enabled: Boolean(familyId),
     queryFn: async () => {
@@ -95,6 +106,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     applyPreset,
     applySavedPreset,
     draftFilters,
+    draftLocationProblems,
     filters,
     goToPage,
     handleApply,
@@ -148,6 +160,12 @@ const FamilySmallVariantsPage: React.FC = () => {
     queryKey: ['family', familyId, 'small-variants', requestQueryString],
     enabled: variantQueryReady,
     queryFn: async () => {
+      // A location from the URL that cannot be read fails the search with its reason:
+      // sent on, a malformed locus was searched as a gene name (#604).
+      const locationProblems = smallVariantLocationProblems(filters);
+      if (hasLocationProblems(locationProblems)) {
+        throw new Error([...locationProblems.include, ...locationProblems.exclude].join(' '));
+      }
       const res = await api.get(apiPath`/families/${familyId}/small-variants?${raw(requestQueryString)}`);
       return res.data as SmallVariantPage;
     },
@@ -263,6 +281,23 @@ const FamilySmallVariantsPage: React.FC = () => {
 
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / 100));
 
+  // The project catalogue failed: the search runs within the family's project, and would
+  // otherwise wait for it for good (#608).
+  if (referenceFailed) {
+    return (
+      <PageState
+        kicker="Small Variants"
+        title="Reference could not be loaded"
+        message="The family's project, and with it the reference assembly, could not be loaded. The search runs within that project, so it cannot run without it."
+        action={
+          <button type="button" className="button-secondary" onClick={retryReference}>
+            Retry
+          </button>
+        }
+      />
+    );
+  }
+
   if (!variantQueryReady || (isLoading && !data)) {
     return (
       <PageState
@@ -287,7 +322,12 @@ const FamilySmallVariantsPage: React.FC = () => {
   return (
     <div className="page-shell analysis-shell">
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Small Variants"
         familyId={familyId}
         family={family}
@@ -316,6 +356,7 @@ const FamilySmallVariantsPage: React.FC = () => {
           draftFilters={draftFilters}
           feedback={workspaceFeedback}
           handleApply={handleApply}
+          draftLocationProblems={draftLocationProblems}
           handleGtToggle={handleGtToggle}
           handleReset={handleReset}
           handleSampleFieldChange={handleSampleFieldChange}
@@ -387,6 +428,15 @@ const FamilySmallVariantsPage: React.FC = () => {
                   </div>
                 ) : null}
       </FamilyPageHeader>
+
+      {panelsFailed ? (
+        <QueryFailure
+          what="the gene panel list"
+          error={panelsError}
+          onRetry={() => void refetchPanels()}
+          consequence="Panels cannot be chosen, and the default Mendeliome scope is not applied."
+        />
+      ) : null}
 
       <div className="variant-results-region">
         {isFetching ? <LoadingBar label="Loading variants" /> : null}

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
 from .clickhouse_variant_storage import delete_family_small_variants, delete_family_structural_variants
 from .upload_safety import decode_upload_text
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser, is_admin_user
 
 INHERITANCE_MODELS = {"AD", "AR", "XLD", "XLR", "mitochondrial"}
 
@@ -259,7 +259,7 @@ async def _resolve_accessible_project_id(
 ) -> str | None:
     normalized_project_id = _normalize_project_id(project_id)
     if normalized_project_id is None:
-        if user.role == "admin":
+        if is_admin_user(user):
             return None
         raise HTTPException(status_code=400, detail="Project assignment is required")
 
@@ -270,7 +270,7 @@ async def _resolve_accessible_project_id(
     )
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    if user.role != "admin" and normalized_project_id not in _metadata_project_ids_for_user(user):
+    if not is_admin_user(user) and normalized_project_id not in _metadata_project_ids_for_user(user):
         raise HTTPException(status_code=403, detail="Not authorized for this project")
     return normalized_project_id
 
@@ -384,7 +384,7 @@ async def _existing_family_rows(
 def _ensure_user_can_replace_existing_families(user: CurrentUser) -> None:
     # Replacing existing families/samples is admin-only — a role-based policy,
     # not a per-project one.
-    if user.role == "admin":
+    if is_admin_user(user):
         return
     raise HTTPException(
         status_code=403,

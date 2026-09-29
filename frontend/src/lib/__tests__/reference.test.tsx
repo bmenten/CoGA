@@ -1,9 +1,9 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestQueryClient } from '../../test/createTestQueryClient';
-import { useFamilyReference } from '../reference';
+import { formatResolvedReferenceLabel, useFamilyReference } from '../reference';
 
 const apiGetMock = vi.hoisted(() => vi.fn());
 
@@ -33,12 +33,64 @@ const readReference = () =>
     assemblyValidated?: boolean;
     projectId?: string;
     isLoading: boolean;
+    isError: boolean;
     hasLinkedProject: boolean;
   };
 
 describe('useFamilyReference', () => {
   beforeEach(() => {
     apiGetMock.mockReset();
+  });
+
+  // #608 — a failed catalogue leaves the reference unknown, and says so: it is not "not
+  // linked", and not a validation scope that was checked.
+  it('reports a failed project catalogue, and loads it again on retry', async () => {
+    apiGetMock.mockRejectedValueOnce(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+    apiGetMock.mockResolvedValue({
+      data: [
+        {
+          _id: 'p1',
+          name: 'T2T project',
+          species_name: 'Homo sapiens',
+          assembly_name: 'T2T-CHM13v2.0',
+          assembly_validated: false,
+          families: [],
+          samples: [],
+        },
+      ],
+    });
+    const RetryProbe = () => {
+      const reference = useFamilyReference(['p1']);
+      return (
+        <>
+          <output data-testid="reference">{JSON.stringify(reference)}</output>
+          <button type="button" onClick={reference.retry}>
+            Retry
+          </button>
+        </>
+      );
+    };
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <RetryProbe />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(readReference().isError).toBe(true));
+    expect(readReference()).toMatchObject({ hasLinkedProject: true, isLoading: false });
+    expect(readReference().assemblyValidated).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(readReference().assemblyValidated).toBe(false));
+    expect(readReference().isError).toBe(false);
+  });
+
+  it('names a reference that could not be loaded as such, not as unlinked', () => {
+    expect(formatResolvedReferenceLabel({ isError: true }, 'Not linked')).toBe('Reference could not be loaded');
+    expect(formatResolvedReferenceLabel({ assemblyName: 'GRCh38', isError: false })).toBe('GRCh38');
+    expect(formatResolvedReferenceLabel({}, 'Not linked')).toBe('Not linked');
   });
 
   it('only resolves preferred projects that are linked to the family', async () => {
@@ -139,6 +191,7 @@ describe('useFamilyReference', () => {
       assemblyVersion: '',
       hasLinkedProject: false,
       isLoading: false,
+      isError: false,
     });
     expect(readReference().projectId).toBeUndefined();
     expect(readReference().assemblyName).toBeUndefined();

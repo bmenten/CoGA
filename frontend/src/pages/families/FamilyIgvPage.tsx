@@ -11,6 +11,7 @@ import {
   useFamilyReference,
 } from '../../lib/reference';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { apiPath } from '../../lib/apiPath';
 
 const FamilyIgvPage: React.FC = () => {
@@ -21,7 +22,9 @@ const FamilyIgvPage: React.FC = () => {
   const backSearch = searchParams.get('back') || undefined;
   const backPathParam = searchParams.get('back_path') || undefined;
 
-  const { data, isLoading } = useQuery<Pick<ApiFamilyRecord, 'members' | 'projects'>>({
+  const { data, isLoading, isError, error, refetch } = useQuery<
+    Pick<ApiFamilyRecord, 'members' | 'projects'>
+  >({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
@@ -35,13 +38,15 @@ const FamilyIgvPage: React.FC = () => {
     assemblyName,
     assemblyVersion,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(
     data?.projects,
     projectIdParam,
   );
   const resolvedGenome = useMemo(() => mapAssemblyToIgvGenome(assemblyName), [assemblyName]);
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion },
+    { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
     'Reference not linked',
   );
 
@@ -59,12 +64,40 @@ const FamilyIgvPage: React.FC = () => {
     );
   }
 
+  if (isError) {
+    return (
+      <FamilyLoadFailure
+        kicker="Viewer"
+        what="Family"
+        error={error}
+        notFoundMessage="The IGV view could not resolve the requested family."
+        onRetry={() => void refetch()}
+      />
+    );
+  }
+
   if (!data) {
     return (
       <PageState
         kicker="Viewer"
         title="Family not found"
         message="The IGV view could not resolve the requested family."
+      />
+    );
+  }
+
+  // The project catalogue failed: the reference is unknown, not missing (#608).
+  if (referenceFailed) {
+    return (
+      <PageState
+        kicker="Viewer"
+        title="Reference could not be loaded"
+        message="The family's project, and with it the reference assembly, could not be loaded. IGV needs it to load the genome."
+        action={
+          <button type="button" className="button-secondary" onClick={retryReference}>
+            Retry
+          </button>
+        }
       />
     );
   }

@@ -22,7 +22,8 @@ from .clickhouse_family_variants import (
 )
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .haplotype_lineage_service import build_pedigree
-from .metadata_service import CurrentUser, get_family_record
+from .metadata_service import get_family_record
+from .access_control import CurrentUser
 from .nipt import resolve_nipt_trio
 from .sample_integrity_qc import (
     FetalSexCheck,

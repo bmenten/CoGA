@@ -26,14 +26,16 @@ DEPLOY_SA   = coga-<env>-<region_short>-gh-actions@${PROJECT_ID}.iam.gserviceacc
 > cannot self-escalate). Lifted verbatim from CoGA `terraform/main-repo-reference/coga-prerequisites.tf.example`.
 >
 > Creates on the CoGA runtime project (`PROJECT_ID`):
-> - **15 APIs** (compute, run, sqladmin, servicenetworking, vpcaccess, secretmanager,
+> - **16 APIs** (compute, run, sqladmin, servicenetworking, vpcaccess, secretmanager,
 >   cloudkms, storage, artifactregistry, iam, iamcredentials, logging, monitoring,
->   certificatemanager, cloudresourcemanager).
-> - **3 runtime service accounts** — `coga-backend-run`, `coga-frontend-run`,
->   `coga-clickhouse-vm`.
+>   certificatemanager, cloudresourcemanager, dns).
+> - **4 runtime service accounts** — `coga-backend-run`, `coga-frontend-run`,
+>   `coga-clickhouse-vm`, and `coga-db-migrate` (the schema-migration job, used once the API
+>   runs as the restricted database role).
 > - **Least-privilege project IAM**: backend → `cloudsql.client`, `logging.logWriter`,
 >   `monitoring.metricWriter`, self `iam.serviceAccountTokenCreator`; frontend →
->   `logging.logWriter`; clickhouse-vm → `logging.logWriter`, `monitoring.metricWriter`.
+>   `logging.logWriter`; clickhouse-vm → `logging.logWriter`, `monitoring.metricWriter`;
+>   db-migrate → `cloudsql.client`.
 > - **CMEK grants**: `cloudkms.cryptoKeyEncrypterDecrypter` on `KMS_KEY` for the Cloud
 >   SQL, Compute, and GCS service agents.
 > - **PHI audit (S-4)**: project-wide GCS `DATA_READ`/`DATA_WRITE` data-access logging.
@@ -98,7 +100,7 @@ terraform apply    # or apply after the imports in Part B
 gcloud services list --enabled --project PROJECT_ID \
   | grep -E 'run|sqladmin|cloudkms|secretmanager|storage|iamcredentials'
 gcloud iam service-accounts list --project PROJECT_ID \
-  | grep -E 'coga-backend-run|coga-frontend-run|coga-clickhouse-vm'
+  | grep -E 'coga-backend-run|coga-frontend-run|coga-clickhouse-vm|coga-db-migrate'
 gcloud projects get-iam-policy PROJECT_ID --flatten='bindings[].members' \
   --filter='bindings.members:coga-backend-run@PROJECT_ID.iam.gserviceaccount.com' \
   --format='value(bindings.role)'    # expect cloudsql.client, logging.logWriter, monitoring.metricWriter
@@ -113,7 +115,7 @@ template — the CoGA Cloud Run apply sets `service_account = <runtime SA>`, and
 `DEPLOY_SA` needs `iam.serviceAccounts.actAs`):
 
 ```bash
-for sa in coga-backend-run coga-frontend-run coga-clickhouse-vm; do
+for sa in coga-backend-run coga-frontend-run coga-clickhouse-vm coga-db-migrate; do
   gcloud iam service-accounts get-iam-policy $sa@PROJECT_ID.iam.gserviceaccount.com \
     --format='value(bindings.members)' | grep -q "$DEPLOY_SA" \
     && echo "OK actAs: $sa" || echo "MISSING actAs on $sa — grant it (see below)"
@@ -129,7 +131,7 @@ resource "google_service_account_iam_member" "deploy_actas_backend" {
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${var.deploy_sa_email}"   # add a var for DEPLOY_SA
 }
-# ...repeat for frontend + clickhouse_vm
+# ...repeat for frontend, clickhouse_vm and db_migrate
 ```
 
 ---
@@ -149,6 +151,28 @@ CoGA config (now behind the `gcp-deploy` environment gate from #363 — approve 
       up healthy under their runtime SAs.
 - [ ] (Optional) set `allowed_ingress_cidrs` to the UGent/UZ + VPN ranges and, after
       reviewing WAF-preview hits, `cloud_armor_waf_enforce = true` (closes #364's WAF item).
+
+---
+
+## Part F — go-live switches (#364)
+
+All default off. Each switch is its own change-controlled deployment (TF-18); the order
+below keeps each one small. Details in `docs/deployment-gcp.md` §10 and §12.8–12.10.
+
+- [ ] **Required reviewers on `gcp-deploy`** (GitHub → Settings → Environments). The deploy
+      job refuses to run without at least one.
+- [ ] **Institutional networks only:** `allowed_ingress_cidrs` = the ranges IT confirms (§12.9).
+- [ ] **WAF enforce:** `cloud_armor_waf_enforce = true` after the preview logs show no false
+      positives (§12.7).
+- [ ] **Restricted database role:** `coga-db-migrate` account and its `actAs` grant (Part C),
+      a version in `coga-postgres-app-password`, then `db_runtime_role = "coga_app"` (§12.8,
+      `docs/db-runtime-role-runbook.md`, "Google Cloud").
+- [ ] **ClickHouse egress lockdown:** image mirrored to Artifact Registry, VM account
+      `roles/artifactregistry.reader`, Cloud DNS API, then `clickhouse_restrict_egress = true`
+      and a VM reset (§12.10).
+- [ ] **Terraform state secrets:** the owner accepts the residual (owner password and
+      ClickHouse TLS keys in the private, versioned, CMEK state bucket) or schedules the
+      provider upgrade that keeps them out of state (`terraform/README.md`, residuals).
 
 ---
 

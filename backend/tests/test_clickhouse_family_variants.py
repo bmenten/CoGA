@@ -6,30 +6,34 @@ from clickhouse_connect.driver.exceptions import DatabaseError
 from fastapi import HTTPException
 
 from backend.app.services.clickhouse_family_variants import (
-    PanelFilterConstraints,
-    Region,
-    _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS,
-    SmallVariantCall,
-    SmallVariantRecord,
-    StructuralVariantCall,
-    StructuralVariantRecord,
-    _compound_het_partner_map,
-    _chromosome_options,
     _execute_clickhouse,
     _read_small_summary_cache,
-    _inheritance_result_items,
     _fetch_small_variant_rows,
-    _flexible_status_match,
-    _small_detail_filter_clauses,
-    _small_variant_where_clauses,
-    _small_variant_out,
-    _small_record_matches,
-    _normalize_small_variant_inheritance,
     _prioritized_small_variants_page,
     _prioritized_structural_variants_page,
     get_family_compound_het_candidates,
     get_family_small_variants_page,
     get_family_structural_variants_page,
+)
+from backend.app.services.clickhouse_variant_queries import (
+    _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS,
+    _compound_het_partner_map,
+    _chromosome_options,
+    _inheritance_result_items,
+    _small_detail_filter_clauses,
+    _small_variant_where_clauses,
+    _small_variant_out,
+    _small_record_matches,
+    _normalize_small_variant_inheritance,
+)
+from backend.app.services.clickhouse_variant_records import (
+    PanelFilterConstraints,
+    Region,
+    SmallVariantCall,
+    SmallVariantRecord,
+    StructuralVariantCall,
+    StructuralVariantRecord,
+    _flexible_status_match,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import (
@@ -165,7 +169,7 @@ def test_small_variant_out_primary_in_flat_fields_others_in_transcripts() -> Non
         calls=[_small_call("PROBAND", "0/1")],
     )
 
-    variant = _small_variant_out(record)
+    variant = _small_variant_out(record, assembly_name="GRCh38")
 
     # The primary transcript (MANE select NM_000059.4) is carried by the flat
     # fields and not duplicated in `transcripts`.
@@ -180,6 +184,24 @@ def test_small_variant_out_primary_in_flat_fields_others_in_transcripts() -> Non
     assert variant.transcripts[0].canonical is True
     assert variant.transcripts[0].hgvsc == "ENST00000380152.8:c.7007G>A"
     assert variant.transcripts[0].primary is False
+
+
+def test_small_variant_out_says_where_a_male_is_hemizygous() -> None:
+    # The ACMG dialog reads it to apply the sex-aware de novo rule (#621): the PAR
+    # bounds stay in one place, the backend.
+    def flagged(chrom: str, pos: int, assembly: str | None = "GRCh38") -> bool:
+        record = SmallVariantRecord(
+            variant_key=1, variant_id=f"{chrom}-{pos}", chr=chrom, start=pos, end=pos,
+            ref="A", alt="G", source=None, rsid=None, filters=[], gene_symbols=[],
+            annotations=[], calls=[_small_call("PROBAND", "1")],
+        )
+        return _small_variant_out(record, assembly_name=assembly).hemizygous_in_males
+
+    assert flagged("chrX", 31_500_000)
+    assert flagged("chrY", 2_787_000)
+    assert not flagged("chrX", 1_000_000)  # PAR1
+    assert not flagged("chr1", 31_500_000)
+    assert not flagged("chrX", 31_500_000, assembly="T2T-CHM13v2.0")  # PARs not known
 
 
 def _family_context() -> FamilyMetadataContext:
@@ -964,8 +986,16 @@ def _structural_del_row(idx: int) -> tuple:
     )
 
 
-async def _run_non_native_structural_page(monkeypatch, *, returned_rows: int):
+async def _run_non_native_structural_page(
+    monkeypatch,
+    *,
+    returned_rows: int,
+    queries: list[tuple[str, dict[str, object]]] | None = None,
+    **page_kwargs,
+):
     async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        if queries is not None:
+            queries.append((query, dict(params)))
         # The non-native path issues a single SV rows fetch (limit = cap + 1).
         return [_structural_del_row(i) for i in range(1, returned_rows + 1)]
 
@@ -994,12 +1024,16 @@ async def _run_non_native_structural_page(monkeypatch, *, returned_rows: int):
         "backend.app.services.clickhouse_family_variants._fetch_structural_cytoband_map",
         fake_fetch_cytoband_map,
     )
+    kwargs: dict[str, object] = {
+        "page": 1,
+        "page_size": 10,
+        "type": "DEL",  # any of these filters forces the non-native fetch-all path
+    }
+    kwargs.update(page_kwargs)
     return await get_family_structural_variants_page(
         None,  # type: ignore[arg-type]
         context=_family_context(),
-        page=1,
-        page_size=10,
-        type="DEL",  # any of these filters forces the non-native fetch-all path
+        **kwargs,  # type: ignore[arg-type]
     )
 
 
@@ -1028,6 +1062,63 @@ async def test_structural_page_non_native_exact_total_under_cap(monkeypatch: pyt
     assert page.total_is_estimated is False
     assert page.count_limit is None
     assert page.total == 2
+
+
+@pytest.mark.asyncio
+async def test_structural_track_reports_the_total_beyond_its_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 5 SVs in view for a track page of 2: the track must be able to tell it is
+    # drawing part of the view (#585). It used to get total=0.
+    page = await _run_non_native_structural_page(
+        monkeypatch, returned_rows=5, type=None, page_size=2, track_mode=True
+    )
+    assert len(page.variants) == 2
+    assert page.total == 5
+    assert page.total_is_estimated is False
+    assert page.count_limit is None
+    assert page.summary is None
+
+
+@pytest.mark.asyncio
+async def test_structural_track_flags_the_candidate_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP",
+        2,
+    )
+    # The genome track asks for every SV (page_size=0); past the cap it must be told.
+    page = await _run_non_native_structural_page(
+        monkeypatch, returned_rows=3, type=None, page_size=0, track_mode=True
+    )
+    assert len(page.variants) == 2
+    assert page.total_is_estimated is True
+    assert page.count_limit == 2
+
+
+@pytest.mark.asyncio
+async def test_structural_track_fetches_only_its_samples_svs(monkeypatch: pytest.MonkeyPatch) -> None:
+    clause = "hasAny(e.calls.sampleId, %(call_sample_ids)s)"
+
+    queries: list[tuple[str, dict[str, object]]] = []
+    await _run_non_native_structural_page(
+        monkeypatch, returned_rows=1, queries=queries, type=None, track_mode=True, samples=["PROBAND"]
+    )
+    (query, params), = queries
+    # In SQL, so the candidate cap counts the sample's SVs, not the family's; by name
+    # and by uuid, like every other sample match.
+    assert clause in query
+    assert params["call_sample_ids"] == ["PROBAND", "sample-proband"]
+    assert params["limit"] == 50_001
+
+    # No sample named: the whole family, as before.
+    queries.clear()
+    await _run_non_native_structural_page(
+        monkeypatch, returned_rows=1, queries=queries, type=None, track_mode=True
+    )
+    assert clause not in queries[0][0]
+
+    # The SV table's query is unchanged.
+    queries.clear()
+    await _run_non_native_structural_page(monkeypatch, returned_rows=1, queries=queries, samples=["PROBAND"])
+    assert clause not in queries[0][0]
 
 
 @pytest.mark.asyncio
@@ -2068,12 +2159,11 @@ async def test_small_variant_track_mode_samples_across_filtered_region(
 def test_small_panel_filter_skips_region_inlining_for_large_gene_panels():
     """A large gene panel (e.g. the Mendeliome) must not inline thousands of region
     triples into the query — gene-symbol + gene-index matching covers it."""
-    from backend.app.services.clickhouse_family_variants import (
+    from backend.app.services.clickhouse_variant_queries import (
         _PANEL_REGION_INLINE_LIMIT,
-        PanelFilterConstraints,
-        Region,
         _small_panel_filter_condition,
     )
+    from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region
 
     context = _family_context()
     filters = SmallVariantQueryFilters(page=1, page_size=100)
@@ -2096,11 +2186,8 @@ def test_small_panel_filter_skips_region_inlining_for_large_gene_panels():
 
 
 def test_small_panel_filter_keeps_regions_for_normal_panels():
-    from backend.app.services.clickhouse_family_variants import (
-        PanelFilterConstraints,
-        Region,
-        _small_panel_filter_condition,
-    )
+    from backend.app.services.clickhouse_variant_queries import _small_panel_filter_condition
+    from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region
 
     context = _family_context()
     filters = SmallVariantQueryFilters(page=1, page_size=100)
@@ -2374,7 +2461,7 @@ async def test_prioritized_structural_variants_tie_order_is_deterministic(
 
 
 def test_clamp_small_variant_page_bounds_deep_offset() -> None:
-    from backend.app.services.clickhouse_family_variants import (
+    from backend.app.services.clickhouse_variant_queries import (
         _SMALL_COUNT_LIMIT,
         _clamp_small_variant_page,
         _page_offset,

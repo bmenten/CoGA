@@ -11,7 +11,7 @@ from ..schemas import (
     SmallVariantFilterPresetCreate,
     SmallVariantFilterPresetOut,
 )
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser
 from .review_pg_utils import _json_payload, _require_uuid
 
 

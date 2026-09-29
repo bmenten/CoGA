@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
 import PageState from '../../components/PageState';
+import QueryFailure from '../../components/QueryFailure';
+import { getErrorMessage } from '../../lib/errorMessage';
 import type {
   GeneLocation,
   GenePanel,
@@ -15,7 +17,12 @@ const GenePanelDetailPage: React.FC = () => {
   const { panelId } = useParams();
   const queryClient = useQueryClient();
   const userIsAdmin = isAdmin();
-  const { data: panel } = useQuery<GenePanel>({
+  const {
+    data: panel,
+    isError: panelFailed,
+    error: panelError,
+    refetch: refetchPanel,
+  } = useQuery<GenePanel>({
     queryKey: ['panel', panelId],
     queryFn: async () => {
       const res = await api.get(apiPath`/panels/${panelId}`);
@@ -23,7 +30,12 @@ const GenePanelDetailPage: React.FC = () => {
     },
   });
 
-  const { data: versionList } = useQuery<GenePanelVersionList>({
+  const {
+    data: versionList,
+    isError: versionsFailed,
+    error: versionsError,
+    refetch: refetchVersions,
+  } = useQuery<GenePanelVersionList>({
     queryKey: ['panel', panelId, 'versions'],
     enabled: Boolean(panelId),
     queryFn: async () =>
@@ -121,6 +133,21 @@ const GenePanelDetailPage: React.FC = () => {
       });
   }, [panel, filters, sortKey, sortAsc]);
 
+  // It stayed at "Loading gene panel" for good (#610).
+  if (panelFailed) {
+    return (
+      <PageState
+        kicker="Panel Detail"
+        title="Gene panel could not be loaded"
+        message={getErrorMessage(panelError, 'The gene panel could not be retrieved.')}
+        action={
+          <button type="button" className="button-secondary" onClick={() => void refetchPanel()}>
+            Retry
+          </button>
+        }
+      />
+    );
+  }
   if (!panel) {
     return (
       <PageState
@@ -211,6 +238,13 @@ const GenePanelDetailPage: React.FC = () => {
         </section>
       )}
 
+      {versionsFailed ? (
+        <QueryFailure
+          what="the panel's version history"
+          error={versionsError}
+          onRetry={() => void refetchVersions()}
+        />
+      ) : null}
       {versionList?.versions?.length ? (
         <section className="surface-card space-y-3">
           <h3 className="section-title">Version history</h3>

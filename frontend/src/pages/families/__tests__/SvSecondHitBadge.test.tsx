@@ -103,6 +103,14 @@ describe('SvSecondHitBadge navigation', () => {
     expect(badge.classList.contains('sv-second-hit-badge--link')).toBe(false);
   });
 
+  it('is a button without a link, so the keyboard reaches its explanation (#529)', () => {
+    render(<SvSecondHitBadge hit={hit} />);
+    const badge = screen.getByRole('button', { name: /effectively biallelic/i });
+    expect(badge).toHaveAttribute('type', 'button');
+    fireEvent.focus(badge);
+    expect(screen.getByRole('tooltip').textContent).toMatch(/effectively biallelic/i);
+  });
+
   it('says where the click goes, since a badge does not look like a link', () => {
     render(<SvSecondHitBadge hit={hit} href="/families/F1/structural-variants?gene=TRNT1" />);
     fireEvent.mouseEnter(screen.getByRole('link'));

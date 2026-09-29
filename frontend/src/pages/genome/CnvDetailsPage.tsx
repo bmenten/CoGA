@@ -6,6 +6,12 @@ import type { ApiChromosome, ApiClinicalCnv } from '../../lib/apiTypes';
 import PageState from '../../components/PageState';
 import { sanitizeHtml } from '../../lib/sanitizeHtml';
 import { apiPath } from '../../lib/apiPath';
+import { getErrorMessage, isNotFoundError } from '../../lib/errorMessage';
+import {
+  CLINVAR_SUPPORT_NOT_RECORDED,
+  clinvarRecordHref,
+  clinvarSupportSummary,
+} from '../../lib/clinicalCnvSupport';
 
 const formatBp = (bp: number) => bp.toLocaleString();
 
@@ -45,6 +51,8 @@ const CnvDetailsPage: React.FC = () => {
     data: cnv,
     isLoading,
     isError,
+    error,
+    refetch,
   } = useQuery<ApiClinicalCnv>({
     queryKey: ['clinical-cnv', cnvId],
     queryFn: async () => {
@@ -80,6 +88,27 @@ const CnvDetailsPage: React.FC = () => {
     );
   }
 
+  // A server error is not a CNV that does not exist (#624, as #610).
+  if (isError && !isNotFoundError(error)) {
+    return (
+      <div className="page-shell content-shell">
+        <PageState
+          kicker="Clinical CNV"
+          title="CNV could not be loaded"
+          message={`${getErrorMessage(error, 'The request failed.')} This is a failed request, not a missing CNV.`}
+          action={
+            <>
+              <button type="button" className="button-secondary" onClick={() => void refetch()}>
+                Retry
+              </button>
+              <button onClick={() => navigate(-1)}>Back</button>
+            </>
+          }
+        />
+      </div>
+    );
+  }
+
   if (isError || !cnv) {
     return (
       <div className="page-shell content-shell">
@@ -94,6 +123,8 @@ const CnvDetailsPage: React.FC = () => {
   }
 
   const size = Math.max(cnv.end - cnv.start, 0);
+  const clinvarSummary = clinvarSupportSummary(cnv);
+  const clinvarAccessions = cnv.clinvar_pathogenic_accessions ?? [];
 
   return (
     <div className="page-shell content-shell">
@@ -154,6 +185,16 @@ const CnvDetailsPage: React.FC = () => {
               <dd>{cnv.decipher_id}</dd>
             </div>
           ) : null}
+          <div>
+            <dt>ClinVar pathogenic</dt>
+            <dd>
+              {clinvarSummary ?? (
+                <span className="table-empty" title={CLINVAR_SUPPORT_NOT_RECORDED}>
+                  Not recorded
+                </span>
+              )}
+            </dd>
+          </div>
         </dl>
 
         <div className="space-y-1">
@@ -163,6 +204,29 @@ const CnvDetailsPage: React.FC = () => {
               'No curated clinical description is available for this CNV in the reference set. Use the OMIM and DECIPHER links below for more information.'}
           </p>
         </div>
+
+        {clinvarAccessions.length ? (
+          <div className="space-y-1">
+            <p className="cnv-detail-section-label">Supporting ClinVar records</p>
+            <p className="cnv-detail-text">
+              Pathogenic ClinVar CNVs that overlap this region by at least 30 % reciprocally, as
+              counted when the knowledgebase was built.
+            </p>
+            <div className="compact-toolbar">
+              {clinvarAccessions.map((accession) => (
+                <a
+                  key={accession}
+                  href={clinvarRecordHref(accession)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="variant-card-resource variant-card-resource--clinical"
+                >
+                  {accession} ↗
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {sourceHtml ? (
           <div className="space-y-1">

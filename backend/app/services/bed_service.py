@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import datetime, timezone
 import json
@@ -594,7 +595,10 @@ async def _apply_haplotype_lineage(
         context.sample_uuid_to_name[sample_uuid]: segs
         for sample_uuid, segs in segments_by_uuid.items()
     }
-    annotated = annotate_lineage(
+    # IBD matching over up to LINEAGE_PHASED_FETCH_LIMIT sites is pure CPU work: run it in a
+    # worker thread so other requests are served meanwhile (#527).
+    annotated = await asyncio.to_thread(
+        annotate_lineage,
         sample_rows=context.sample_rows,
         relationship_rows=context.relationship_rows,
         segments_by_name=segments_by_name,
@@ -764,7 +768,8 @@ async def _compute_genomewide_lineage(
         genotype_rows = await fetch_imputed_phased_genotypes(
             context, chrom=chrom, start=0, end=2_000_000_000, limit=LINEAGE_PRECOMPUTE_FETCH_LIMIT
         )
-        annotated = annotate_lineage(
+        annotated = await asyncio.to_thread(
+            annotate_lineage,
             sample_rows=context.sample_rows,
             relationship_rows=context.relationship_rows,
             segments_by_name=chrom_segments,

@@ -21,7 +21,7 @@ from ..schemas import (
     SampleIntegrityRelatednessCheckOut,
     SampleIntegritySexCheckOut,
 )
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.sample_integrity_service import get_family_sample_integrity_qc
 from ..services.annotation_manifest_service import (
     get_family_annotation_manifest,

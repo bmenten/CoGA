@@ -6,7 +6,7 @@ from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import ManualPedFamilyCreate, PedUploadResult
 from ..services.bed_service import precompute_family_lineage_safe
 from ..services.clickhouse_family_variants import precompute_family_ranking_safe
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.ped_service import create_manual_family_data, upload_ped_data
 
 router = APIRouter(prefix="/ped", tags=["ped"])

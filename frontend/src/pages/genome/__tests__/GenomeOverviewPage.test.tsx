@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { useLocation } from 'react-router';
 import { describe, expect, it, vi, type Mock } from 'vitest';
@@ -252,5 +252,66 @@ describe('GenomeOverviewPage', () => {
     expect(screen.getByTestId('location-search')).toHaveTextContent('type=DEL');
     expect(screen.getByTestId('location-search')).toHaveTextContent('start=120');
     expect(screen.getByTestId('location-search')).toHaveTextContent('end=180');
+  });
+
+  // #610 — without the chromosome lengths the viewer waited for good on a layout that
+  // never came; the failure is handed on to be said in place of the tracks.
+  it('passes a failed chromosome-lengths request on as a failure, not an endless load', async () => {
+    let lengthRequests = 0;
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
+            projects: ['p1'],
+            roi: null,
+          },
+        });
+      }
+      if (url === '/chromosomes/GRCh38') {
+        lengthRequests += 1;
+        return Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/genome']}>
+          <Routes>
+            <Route path="/families/:familyId/genome" element={<GenomeOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(workspaceSpy.mock.calls.at(-1)?.[0].tracksFailure?.what).toBe('the chromosome lengths'),
+    );
+    expect(workspaceSpy.mock.calls.at(-1)?.[0].showViewerLoading).toBe(false);
+    const requestsBefore = lengthRequests;
+    act(() => workspaceSpy.mock.calls.at(-1)?.[0].tracksFailure.retry());
+    await waitFor(() => expect(lengthRequests).toBeGreaterThan(requestsBefore));
+  });
+
+  it('says the family could not be loaded, not that it was not found', async () => {
+    (api.get as unknown as Mock).mockImplementation(() =>
+      Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } })),
+    );
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/genome']}>
+          <Routes>
+            <Route path="/families/:familyId/genome" element={<GenomeOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Family could not be loaded' })).toBeInTheDocument();
+    expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });

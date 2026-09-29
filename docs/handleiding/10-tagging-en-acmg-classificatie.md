@@ -20,7 +20,7 @@ Voordat we bij classificatie komen: CoGA houdt op *familielid*-niveau twee volle
 
 Deze scheiding is klinisch essentieel: bij recessieve aandoeningen is een ouder vaak *drager maar niet aangedaan*. De ACMG-segregatielogica (PP1/BS4, zie verder) redeneert daarom over de combinatie van beide assen, niet over één samengevoegde "rol".
 
-**Waar in de code:** het datamodel in `frontend/src/lib/apiTypes.ts` (`clinical_status` en `carrier_status` als aparte velden op een familielid). De ACMG-familiecontext in `AcmgClassificationModal.tsx` markeert een lid als "aangedaan" via `Boolean(member.affected) || member.clinical_status === 'affected'`.
+**Waar in de code:** het datamodel in `frontend/src/lib/apiTypes.ts` (sinds #528 getoetst aan de uit het backend-schema gegenereerde typen in `apiSchema.generated.ts`) (`clinical_status` en `carrier_status` als aparte velden op een familielid). De ACMG-familiecontext in `AcmgClassificationModal.tsx` markeert een lid als "aangedaan" via `Boolean(member.affected) || member.clinical_status === 'affected'`.
 
 ---
 
@@ -63,7 +63,7 @@ Bij het opslaan van een review controleert de backend dat *elke* opgegeven tag o
 
 Custom tags aanmaken/bewerken/verwijderen mag **alleen een admin**. Bovendien controleert `_ensure_projects_visible` dat een niet-admin geen tag koppelt aan een project waartoe hij geen toegang heeft (via `metadata_project_ids`).
 
-**Waar in de code:** `create_small_variant_tag_definition`, `update_small_variant_tag_definition`, `delete_small_variant_tag_definition` in `small_variant_review_tags.py` (elke functie begint met `if user.role != "admin": raise HTTPException(403, …)`). Verwijderen is een *soft delete* (`is_active = FALSE`), geen fysieke verwijdering — belangrijk voor traceerbaarheid.
+**Waar in de code:** `create_small_variant_tag_definition`, `update_small_variant_tag_definition`, `delete_small_variant_tag_definition` in `small_variant_review_tags.py` (elke functie begint met `if not is_admin_user(user): raise HTTPException(403, …)`, zodat ook een `superuser` als admin telt). Verwijderen is een *soft delete* (`is_active = FALSE`), geen fysieke verwijdering — belangrijk voor traceerbaarheid.
 
 ### Filter-presets
 
@@ -121,7 +121,7 @@ De belangrijkste automatische regels (drempels als benoemde constanten bovenaan 
 
 | Criterium | Databron | Regel (samengevat) |
 | --- | --- | --- |
-| **PVS1** | consequence + LOFTEE + ClinGen-dosage | Predicted-null effect (`stop_gained`, `frameshift_variant`, canonieke splice, `start_lost`, `transcript_ablation`). *Very strong* als LOFTEE=`HC` én het LOF-mechanisme bewezen is (ClinGen "sufficient evidence"); anders *Strong* (applies); is het LOF-mechanisme onbevestigd, dan *Strong* als **Consider**. |
+| **PVS1** | consequence + LOFTEE + ClinGen-dosage | Predicted-null effect (`stop_gained`, `frameshift_variant`, canonieke splice, `start_lost`, `transcript_ablation`). *Very strong* als LOFTEE=`HC` én het LOF-mechanisme bewezen is (ClinGen "sufficient evidence"); anders *Strong* (applies); is het LOF-mechanisme onbevestigd, dan *Strong* als **Consider**. Kon het genprofiel niet geladen worden (`AcmgGeneContext.unavailable`), dan zegt het bewijs dat het mechanisme *niet beoordeeld* is, niet dat het onbevestigd is; hetzelfde geldt voor BS2 en voor PP4 zonder score, ook bij mislukte HPO-termen (`probandHpoUnavailable`, #616). |
 | **PM2** | gnomAD-frequentie | Afwezig of AF < 1×10⁻⁴ → Supporting (ClinGen-downgrade). |
 | **BA1** | gnomAD-frequentie | AF ≥ 5% → *stand-alone* benigne override. |
 | **BS1 / BS2** | gnomAD-frequentie / homozygoten | AF 1–5% → BS1 (Strong); homozygoten aanwezig → BS2 (Strong als gen recessief, anders Consider/Supporting). |
@@ -130,7 +130,7 @@ De belangrijkste automatische regels (drempels als benoemde constanten bovenaan 
 | **BP7** | consequence + SpliceAI | Synoniem zonder splice-impact (SpliceAI < 0.1); mét voorspelde splice-impact wordt BP7 juist *argues against*. |
 | **PP5 / BP6** | ClinVar | ClinVar meldt de variant pathogeen → PP5 (BP6 contra); benigne → BP6 (PP5 contra). |
 | **PP4** | Monarch-fenotypescore of HPO-overlap | Gen↔proband-fenotype-specificiteit; sterkte schaalt met de Monarch-score (≥0.6 Moderate, ≥0.3 Supporting), anders directe HPO-overlap op Supporting. |
-| **PM6 / PS2 / PP1 / BS4** | trio-genotypes | *De novo* (afwezig bij beide sequenced ouders) → PM6 (PS2 blijft manueel); ≥2 aangedane dragers → PP1 (Consider); aangedaan familielid zónder variant → BS4 (Consider). |
+| **PM6 / PS2 / PP1 / BS4** | trio-genotypes | *De novo* (afwezig bij beide sequenced ouders; bij een zoon op X of Y buiten de PAR's beslist de ouder die dat chromosoom doorgeeft, de moeder voor X en de vader voor Y, en mag de andere ouder de variant niet dragen; `hemizygous_in_males` komt van de backend, #621) → PM6 (PS2 blijft manueel); ≥2 aangedane dragers → PP1 (Consider); aangedaan familielid zónder variant → BS4 (Consider). |
 
 De frequentie-, in-silico- en molecular-consequence-blokken markeren de *niet-passende* criteria bovendien expliciet als `not_applicable`, zodat de werkset eerlijk blijft (bv. bij een missense-variant worden PVS1, PM4, BP3 en BP7 grijs).
 

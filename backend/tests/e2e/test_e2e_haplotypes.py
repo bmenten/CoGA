@@ -151,7 +151,7 @@ async def _collect(root: Path, family_id: str) -> dict:
 
 @pytest.fixture(scope="module")
 def hap(tmp_path_factory, request) -> dict:
-    from backend.app.services import family_package_import as package_import
+    from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
     base = tmp_path_factory.mktemp("e2e_hap")
@@ -159,7 +159,7 @@ def hap(tmp_path_factory, request) -> dict:
     _write_hap_package(base / family_id, family_id)
 
     mp = pytest.MonkeyPatch()
-    mp.setattr(package_import.settings, "family_import_roots", [str(base)])
+    mp.setattr(settings, "family_import_roots", [str(base)])
     request.addfinalizer(mp.undo)
 
     out = _harness.run_async(lambda: _collect(base / family_id, family_id))

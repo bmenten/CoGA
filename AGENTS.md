@@ -42,7 +42,7 @@
 
 - React/TypeScript + Tailwind + Vite: login flow, dashboard, family workspace, gene/global explorers, and interactive canvas/SVG/D3 visualizations under `frontend/src/components/visualizations/` (coverage/APCAD, small-variant/SV/CNV/gene/segdup/DGV/blacklist tracks, ideograms, Circos, pedigree, and the PGT haplotype/lineage tracks).
 - Configure Axios with the JWT, extend routing as needed, and reuse shared styles from `frontend/src/styles/theme.css` for buttons, links, tables, and layout to keep a consistent appearance.
-- In-app reference docs are authored under `frontend/src/content/docs/` and render at `/docs`.
+- In-app reference docs are authored under `frontend/src/content/docs/` and render at `/docs`; the user guide's sections are Markdown under `content/docs/user-guide/`, held to their text by `UserGuideContent.test.tsx`.
 
 ## Security & Testing
 

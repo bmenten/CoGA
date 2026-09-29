@@ -27,6 +27,14 @@ Reference data:
 - `clinical_cnvs`
 - `segmental_duplications`
 
+`clinical_cnvs` also carries the knowledgebase build's ClinVar support (#624):
+`clinvar_pathogenic_loss_count` and `clinvar_pathogenic_gain_count` (the pathogenic ClinVar CNVs
+that overlap the region by at least 30 % reciprocally, per side) and
+`clinvar_pathogenic_accessions` (their VariationIDs). NULL means the knowledgebase recorded no
+ClinVar support (built without ClinVar, or loaded from a BED-style file), not zero. The columns
+were added after the table shipped, so an `ALTER TABLE … ADD COLUMN IF NOT EXISTS` follows its
+`CREATE TABLE` for existing deployments.
+
 Review and annotation state:
 
 - `small_variant_reviews`

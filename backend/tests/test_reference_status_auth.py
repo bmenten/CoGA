@@ -7,7 +7,7 @@ from backend.app.core.postgres import get_postgres_session
 from backend.app.dependencies import get_current_user
 from backend.app.main import app
 from backend.app.routers import assemblies as assemblies_router
-from backend.app.services.metadata_service import CurrentUser
+from backend.app.services.access_control import CurrentUser
 
 
 class _FakeSession:

@@ -39,6 +39,7 @@ import {
 } from './smallVariantSearch';
 import type { AcmgFamilyContext } from '../../lib/acmg';
 import { apiPath } from '../../lib/apiPath';
+import QueryFailure from '../../components/QueryFailure';
 
 type AcmgClassificationModalProps = {
   familyId?: string;
@@ -156,7 +157,12 @@ export default function AcmgClassificationModal({
   };
 
   const geneSymbol = variant.gene?.trim();
-  const { data: geneProfile } = useQuery<GeneProfileResponse>({
+  const {
+    data: geneProfile,
+    isError: geneProfileFailed,
+    error: geneProfileError,
+    refetch: refetchGeneProfile,
+  } = useQuery<GeneProfileResponse>({
     queryKey: ['acmg-gene-profile', geneSymbol, familyId, projectId],
     enabled: Boolean(geneSymbol),
     queryFn: async () => {
@@ -167,10 +173,20 @@ export default function AcmgClassificationModal({
     },
   });
 
-  const geneContext = useMemo(() => toGeneContext(geneProfile), [geneProfile]);
+  // A failed profile is unknown, not a gene without a LOF mechanism or HPO terms: the
+  // criteria that read it say "not assessed" (#609).
+  const geneContext = useMemo<AcmgGeneContext | undefined>(
+    () => (geneProfileFailed ? { unavailable: true } : toGeneContext(geneProfile)),
+    [geneProfile, geneProfileFailed],
+  );
 
   // Patient HPO terms (proband's "present" annotations) for PP4 and the PubMed link.
-  const { data: hpoData } = useQuery<HpoAnnotationLite[]>({
+  const {
+    data: hpoData,
+    isError: hpoFailed,
+    error: hpoError,
+    refetch: refetchHpo,
+  } = useQuery<HpoAnnotationLite[]>({
     queryKey: ['acmg-family-hpo', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
@@ -193,8 +209,9 @@ export default function AcmgClassificationModal({
     return {
       ids: Array.from(new Set(present.map((a) => a.hpo_id))),
       labels: Array.from(new Set(present.map((a) => a.label).filter(Boolean))),
+      unavailable: hpoFailed,
     };
-  }, [hpoData, probandSampleId]);
+  }, [hpoData, probandSampleId, hpoFailed]);
 
   // Trio / segregation context: each member's genotype call for this variant.
   const familyContext = useMemo<AcmgFamilyContext>(
@@ -204,6 +221,7 @@ export default function AcmgClassificationModal({
         role: member.role,
         affected: Boolean(member.affected) || member.clinical_status === 'affected',
         gt: variant.genotypes.find((g) => g.sample === member.sample_id)?.gt,
+        sex: member.sex,
       })),
     }),
     [members, variant],
@@ -245,6 +263,7 @@ export default function AcmgClassificationModal({
     // populated it on the variant (otherwise PP4 falls back to HPO overlap).
     const phenotypeContext = {
       probandHpoIds: probandHpo.ids,
+      probandHpoUnavailable: probandHpo.unavailable,
       phenotypeScore: variant.priority?.phenotype_score ?? null,
       phenotypeMatches: variant.priority?.phenotype_matches,
     };
@@ -386,6 +405,23 @@ export default function AcmgClassificationModal({
         </div>
 
         <div className="variant-review-modal-body acmg-modal-body">
+          {/* A lookup that failed changes the suggestions: say which, and why (#609). */}
+          {geneProfileFailed ? (
+            <QueryFailure
+              what={`the gene profile of ${geneSymbol}`}
+              error={geneProfileError}
+              onRetry={() => void refetchGeneProfile()}
+              consequence="PVS1, BS2 and PP4 are not assessed from it: review them by hand."
+            />
+          ) : null}
+          {hpoFailed ? (
+            <QueryFailure
+              what="the family's HPO terms"
+              error={hpoError}
+              onRetry={() => void refetchHpo()}
+              consequence="PP4 is not assessed from them: review the phenotype match by hand."
+            />
+          ) : null}
           {errorMessage ? (
             <div className="variant-workspace-feedback variant-workspace-feedback--error">
               {errorMessage}

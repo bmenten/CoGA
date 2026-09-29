@@ -4,23 +4,24 @@ from types import SimpleNamespace
 from fastapi import HTTPException, UploadFile
 import pytest
 
-from backend.app.services.clickhouse_variant_storage import build_small_variant_id
+from backend.app.services.clickhouse_variant_ids import build_small_variant_id
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services import variant_upload_service
-from backend.app.services.variant_upload_service import (
-    _coerce_int,
-    _detect_small_variant_format,
-    _detect_small_variant_format_from_upload,
+from backend.app.services import haplotype_block_builder, variant_upload_service
+from backend.app.services.annotation_table_parser import _coerce_int, _vep_location_allele_key
+from backend.app.services.haplotype_block_builder import (
     _haplotype_state_end,
     _haplotype_state_matches_block,
-    _iter_upload_text_lines,
     _new_haplotype_state,
+    _phased_haplotype_alleles,
+)
+from backend.app.services.variant_upload_service import (
+    _detect_small_variant_format,
+    _detect_small_variant_format_from_upload,
+    _iter_upload_text_lines,
     _parse_float_list,
     _parse_int_list,
     _parse_qual,
     _parse_vep_tsv_annotation_upload,
-    _phased_haplotype_alleles,
-    _vep_location_allele_key,
 )
 
 
@@ -212,12 +213,12 @@ def test_gt_only_clair3_vcf_is_not_detected_as_glimpse2() -> None:
 def test_segregation_haplotype_switch_requires_repeated_evidence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(variant_upload_service, "SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS", 2)
-    monkeypatch.setattr(variant_upload_service, "SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN", 10)
+    monkeypatch.setattr(haplotype_block_builder, "SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS", 2)
+    monkeypatch.setattr(haplotype_block_builder, "SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN", 10)
 
-    state = variant_upload_service._empty_segregation_side_state()
+    state = haplotype_block_builder._empty_segregation_side_state()
     assert (
-        variant_upload_service._observe_segregation_haplotype(
+        haplotype_block_builder._observe_segregation_haplotype(
             state,
             chrom="1",
             start=100,
@@ -226,7 +227,7 @@ def test_segregation_haplotype_switch_requires_repeated_evidence(
         == (100, "0")
     )
     assert (
-        variant_upload_service._observe_segregation_haplotype(
+        haplotype_block_builder._observe_segregation_haplotype(
             state,
             chrom="1",
             start=120,
@@ -235,7 +236,7 @@ def test_segregation_haplotype_switch_requires_repeated_evidence(
         is None
     )
     assert (
-        variant_upload_service._observe_segregation_haplotype(
+        haplotype_block_builder._observe_segregation_haplotype(
             state,
             chrom="1",
             start=130,
@@ -244,7 +245,7 @@ def test_segregation_haplotype_switch_requires_repeated_evidence(
         is None
     )
     assert (
-        variant_upload_service._observe_segregation_haplotype(
+        haplotype_block_builder._observe_segregation_haplotype(
             state,
             chrom="1",
             start=200,
@@ -253,7 +254,7 @@ def test_segregation_haplotype_switch_requires_repeated_evidence(
         is None
     )
     assert (
-        variant_upload_service._observe_segregation_haplotype(
+        haplotype_block_builder._observe_segregation_haplotype(
             state,
             chrom="1",
             start=215,
@@ -522,8 +523,8 @@ async def test_glimpse2_upload_derives_child_haplotype_blocks_from_parental_segr
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     inserted_haplotype_rows = []
-    monkeypatch.setattr(variant_upload_service, "SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS", 1)
-    monkeypatch.setattr(variant_upload_service, "SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN", 0)
+    monkeypatch.setattr(haplotype_block_builder, "SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS", 1)
+    monkeypatch.setattr(haplotype_block_builder, "SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN", 0)
 
     async def fake_count_family_small_variants(*_args, **_kwargs):
         return 0

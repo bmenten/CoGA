@@ -8,7 +8,7 @@ type ErrorMessageOptions = {
 };
 
 type ApiErrorLike = {
-  response?: { data?: { detail?: unknown } };
+  response?: { status?: number; data?: { detail?: unknown } };
   request?: unknown;
   code?: string;
   message?: string;
@@ -48,6 +48,13 @@ export const isNetworkTransportError = (error: unknown): boolean => {
     candidate.message === 'Network Error'
   );
 };
+
+/**
+ * Whether the API answered 404: what was asked for does not exist, or is not visible to this
+ * user. Any other failure is a request that failed, not a missing record (#610).
+ */
+export const isNotFoundError = (error: unknown): boolean =>
+  (error as ApiErrorLike | null)?.response?.status === 404;
 
 export const buildApiUnavailableMessage = (baseUrl?: string): string => {
   const normalized = typeof baseUrl === 'string' ? baseUrl.trim() : '';

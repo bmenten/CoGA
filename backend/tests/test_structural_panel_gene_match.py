@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from backend.app.services.clickhouse_family_variants import (
-    StructuralVariantRecord,
-    _structural_record_matches,
-)
+from backend.app.services.clickhouse_variant_queries import _structural_record_matches
+from backend.app.services.clickhouse_variant_records import StructuralVariantRecord
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 
 

@@ -3,10 +3,8 @@ from pathlib import Path
 import pytest
 
 from app.schemas import FamilyPackageManifestBuildRequest
-from app.services.family_package_import import (
-    discover_family_package_manifest,
-    load_validated_family_package,
-)
+from app.services.family_package_discovery import discover_family_package_manifest
+from app.services.family_package_validation import load_validated_family_package
 from app.services.ped_service import build_pedigree_text
 
 
@@ -15,9 +13,9 @@ def _unrestricted_import_roots(monkeypatch: pytest.MonkeyPatch) -> None:
     # These tests validate/discover packages in tmp dirs; clear the configured
     # roots so the path-authorization guard (now defaulting to /data/families)
     # does not reject the temp paths. Path auth is covered in test_s3_import_and_cram.
-    from app.services import family_package_import as fpi
+    from app.core.config import settings
 
-    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
+    monkeypatch.setattr(settings, "family_import_roots", [])
 
 
 class _FakeResult:

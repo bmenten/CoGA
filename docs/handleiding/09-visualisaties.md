@@ -24,7 +24,7 @@ De viewer bestaat uit twee samengestelde pagina's die de losse track-componenten
 
 ### Welke tracks tonen we eigenlijk? — de availability-poort
 
-Voordat een track wordt gerenderd, vraagt de frontend aan de backend welke datasoorten voor deze familie/dit bereik überhaupt bestaan. Dat gebeurt via het endpoint `GET /families/{family_id}/track-availability` (functie `get_family_track_availability` in `backend/app/routers/families_tracks.py`). Zo verschijnt er geen lege APCAD-strook als de familie geen APCAD-data heeft. Het antwoord bevat een `samples`-map; de frontend zet die om in `availability[sample_id]` en gebruikt dat in de `&&`-condities die elke track omhullen in beide workspaces.
+Voordat een track wordt gerenderd, vraagt de frontend aan de backend welke datasoorten voor deze familie/dit bereik überhaupt bestaan. Dat gebeurt via het endpoint `GET /families/{family_id}/track-availability` (functie `get_family_track_availability` in `backend/app/routers/families_tracks.py`). Zo verschijnt er geen lege APCAD-strook als de familie geen APCAD-data heeft. Het antwoord bevat een `samples`-map; de frontend zet die om in `availability[sample_id]` en gebruikt dat in de `&&`-condities die elke track omhullen in beide workspaces. Mislukt die aanvraag, of die voor de chromosoomlengtes, dan meldt de workspace dat op de plaats van de tracks ("Could not load … — this is not an empty result", met Retry; de prop `tracksFailure`), en niet "No BED data for selected samples" of een laadbalk die niet verdwijnt (#614, #617).
 
 ## Het ideogram: cytobanden tekenen (Ideogram / ZoomedIdeogram)
 
@@ -44,7 +44,9 @@ Het **ideogram** is de klassieke gestreepte chromosoomtekening. De banden (*cyto
 
 ## De sample-tracks
 
-Deze tracks tonen data die per **sample** (individu) verschilt. Ze delen enkele patronen: coördinaten worden lineair naar pixels geschaald, en veel tracks houden bij een *pan* (verschuiven met gelijke breedte) tijdelijk het vorige beeld vast via de hook `useSameSpanFallbackData`, zodat het beeld glijdt in plaats van te knipperen.
+Deze tracks tonen data die per **sample** (individu) verschilt. Ze delen enkele patronen: coördinaten worden lineair naar pixels geschaald, en veel tracks houden bij een *pan* (verschuiven met gelijke breedte) tijdelijk het vorige beeld vast via de hook `useSameSpanFallbackData`, zodat het beeld glijdt in plaats van te knipperen. Dat vorige beeld blijft alleen staan zolang het nieuwe venster laadt, en alleen wat in het nieuwe venster ligt wordt getekend. Mislukt de aanvraag, dan valt de hook nooit terug op het vorige beeld: de track toont de fout boven een leeg venster (#586). Welke tracks een sample heeft, bepaalt `/families/{id}/track-availability`. Mislukt die aanvraag, dan zeggen de chromosoomweergave en het genoomoverzicht dat, met Retry (`availabilityFailure`), en niet "No BED data for selected samples" (#614).
+
+Een venster zonder breedte (het begin op of voorbij het einde) vraagt niets op. De tracks noemen zich dan "no region in view", niet "loading", "none" of "too many": zo'n venster laadt niet en is ook niet leeg (`hasRegionInView` en `describeTrackRegion` in `frontend/src/components/visualizations/trackRegion.ts`). Chromosoomnamen komen overal uit `formatChromosomeLabel` in `frontend/src/lib/chromosomes.ts`: in de namen van de tracks, de chromosoomlijsten en de kop van de viewer heet het mitochondrion `chrM`, hoe de data het ook schrijft (#603).
 
 ### Coverage & segments (CoverageSegmentsChart)
 
@@ -80,7 +82,9 @@ Deze track plaatst één gekleurde stip per Small Variant (SNV/indel) van het ge
 
 Het genome-overzicht gebruikt `SvTrack`, de per-chromosoom-weergave gebruikt `VariantTrack` (label "SVs"). Beide halen de structurele varianten op via `GET /families/{familyId}/structural-variants`.
 
-**SvTrack (genome-overzicht).** Krijgt één URL binnen en haalt de SV's op met een ruwe `fetch` (met bearer-token uit `storage`). Vijf typen worden in vaste rijen getekend: `DEL, DUP, INV, INS, BND`.
+**SvTrack (genome-overzicht).** Krijgt één URL binnen (`page_size=0`, `track_mode=true`, `sample=<id>`) en haalt de SV's op via `fetchTrackJson`, de gedeelde client met token- en sessieafhandeling; een mislukte aanvraag toont een fout, nooit "geen SV's". De backend leest in track-modus alleen de SV's met een call voor dat sample, tot 50.000 kandidaten. Daarboven zet hij `total_is_estimated`, en dan toont de track "Too many SVs to display genome-wide. Open a chromosome to see them." in plaats van een deel van het genoom te tekenen, met de laatste chromosomen leeg (#585). Vijf typen worden in vaste rijen getekend: `DEL, DUP, INV, INS, BND`.
+
+**VariantTrack (per chromosoom).** Vraagt voor het getoonde venster één pagina van `getTrackVariantLimit(width)` SV's (400–4.000) in track-modus. De backend geeft ook het aantal SV's in beeld terug (`total`). Is dat groter dan de pagina, dan toont de track "Too many SVs to display. Zoom in or apply filters." in plaats van alleen de meest linkse SV's te tekenen, met de rest van het venster leeg (#585).
 
 **Tekenen (canvas).** DEL/DUP als balken, INV als een omkaderde (witte) balk, INS als verticale streep, BND als driehoek. Positionering gebeurt via het genoombrede `layout` (`offset + start`). Hover-detectie is puur wiskundig (rechthoek-hittest), geen extra DOM.
 
@@ -88,7 +92,7 @@ Het genome-overzicht gebruikt `SvTrack`, de per-chromosoom-weergave gebruikt `Va
 
 ### Haplotype- en repeat-tracks
 
-- **Haplotypes.** Op het overzicht `GenomeHaplotypeTrack`, op één chromosoom `HaplotypePhasedTrack`. Data uit `GET /families/{family_id}/haplotypes(/batch)` en `GET /families/{family_id}/phased-markers`. De gefaseerde marker-overlay wordt alleen getoond als beide ouders aanwezig zijn en de gebruiker de overlay aanzet. Zoals in de projectgeheugens vastgelegd: **gefaseerde imputed markers worden ruw per marker gekleurd** (niet gebinned); de haplotype-track zelf is de opgekuiste versie.
+- **Haplotypes.** Op het overzicht `GenomeHaplotypeTrack`, op één chromosoom `HaplotypePhasedTrack`. Data uit `GET /families/{family_id}/haplotypes(/batch)` en `GET /families/{family_id}/phased-markers`. De gefaseerde marker-overlay wordt alleen getoond als beide ouders aanwezig zijn en de gebruiker de overlay aanzet. Het risicohaplotype wordt afgeleid in de ROI. Op het overzicht wordt het alleen op het chromosoom van de ROI getekend, want de homoloog-labels gelden per chromosoom. Zonder ROI tekent het overzicht geen risico-overlay en toont het geen risicostatus ("not assessed") (#588). Zoals in de projectgeheugens vastgelegd: **gefaseerde imputed markers worden ruw per marker gekleurd** (niet gebinned); de haplotype-track zelf is de opgekuiste versie.
 - **Repeat expansions.** Op het overzicht `GenomeRepeatExpansionTrack`, op één chromosoom `RepeatExpansionTrack`; beide halen `GET /families/{familyId}/repeat-expansions/sample/{sampleId}` op. In *overview-mode* (als `chromosomeSize` is meegegeven) vraagt de track chromosoombreed en cachet stabiel; elke locus krijgt een kleur naar status (normaal/intermediair/pathogeen).
 - **Waar in de code:** endpoints `get_family_haplotypes`, `get_family_haplotypes_batch`, `get_family_phased_markers`, `get_sample_repeat_expansions` in `backend/app/routers/families_tracks.py`; componenten in `frontend/src/components/visualizations/` (`GenomeHaplotypeTrack.tsx`, `HaplotypePhasedTrack.tsx`, `GenomeRepeatExpansionTrack.tsx`, `RepeatExpansionTrack.tsx`).
 
@@ -122,7 +126,9 @@ De Circos-plot legt alle chromosomen in een cirkel en tekent structurele variant
 
 **Data.** De pagina `frontend/src/pages/genome/CircosPlotPage.tsx` haalt twee dingen op:
 1. de chromosoom-scaffolds via `GET /chromosomes/GRCh38/details` (alle chromosomen mét banden), en
-2. de structurele varianten via `GET /families/{familyId}/structural-variants` met `page_size=0` (= alle SV's, geen paginering).
+2. de structurele varianten via `GET /families/{familyId}/structural-variants` met `page_size=0` (= alle SV's, geen paginering). De backend leest hoogstens 50.000 kandidaten; daarboven zet hij `total_is_estimated`, en dan tekent de plot geen verbindingen maar meldt hij dat er te veel SV's zijn om te tekenen, in plaats van de laatste chromosomen zonder verbindingen te tonen (#589).
+
+Mislukt een van beide aanvragen, dan zegt de pagina dat, met een knop om het opnieuw te proberen. Een mislukte chromosoomaanvraag blijft dus niet eindeloos "laden", en een mislukte SV-aanvraag leest niet als een familie zonder SV's (#589).
 
 **Tekenen (D3 op SVG).** `frontend/src/components/visualizations/CircosPlot.tsx` gebruikt **D3** intensief: het rekent per chromosoom een hoeksegment uit (evenredig met chromosoomlengte, met tussenruimte), tekent de cytobanden als ring-sectoren (met dezelfde `getStainColor`/`getBandGradientStops`-helpers als het ideogram), en tekent per variant een radiale verbinding: DEL/DUP als dikke bogen (`d3.linkRadial`), INV/BND als gebogen lijnen (kwadratische curves) tussen bron- en doelpositie, INS als klein radiaal streepje. Kleur per SV-type komt uit CSS-variabelen (`--color-variant-del/dup/ins/inv/bnd`). Belangrijk voor performance: de tekencode gebruikt **keyed joins** (per chromosoom/variant), zodat bij het aan/uitzetten van chromosomen alleen de gewijzigde knopen muteren in plaats van de hele SVG opnieuw op te bouwen.
 

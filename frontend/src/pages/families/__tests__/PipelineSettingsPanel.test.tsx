@@ -1,4 +1,4 @@
-import { render as rtlRender, screen } from '@testing-library/react';
+import { fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import PipelineSettingsPanel, {
@@ -205,5 +205,36 @@ describe('PipelineSettingsPanel', () => {
     const tools = await screen.findByTestId('pipeline-tools');
     expect(tools).toHaveTextContent('hificnv');
     expect(tools).toHaveTextContent('not reported');
+  });
+
+  // #610 — a failed manifest read as a run whose tools reported no version, on a panel
+  // that is printed on the report.
+  it('says the tool versions could not be loaded, not that none were reported', async () => {
+    const api = (await import('../../../lib/api')).default;
+    vi.mocked(api.get).mockRejectedValue(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+
+    render(<PipelineSettingsPanel familyId="pacbio" settings={PACBIO_SETTINGS} variant="report" />);
+
+    expect(await screen.findByTestId('pipeline-versions-failed')).toHaveTextContent(
+      'The tool versions could not be loaded, so only the run parameters are shown.',
+    );
+    const tools = screen.getByTestId('pipeline-tools');
+    expect(tools).toHaveTextContent('hificnv');
+    expect(tools).toHaveTextContent('version could not be loaded');
+    expect(tools).not.toHaveTextContent('not reported');
+
+    vi.mocked(api.get).mockResolvedValue({ data: { modules: [] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByTestId('pipeline-versions-failed')).not.toBeInTheDocument());
+    expect(screen.getByTestId('pipeline-tools')).toHaveTextContent('not reported');
+  });
+
+  it('says the tool versions could not be loaded for a family without a run record', async () => {
+    const api = (await import('../../../lib/api')).default;
+    vi.mocked(api.get).mockRejectedValue(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+
+    render(<PipelineSettingsPanel familyId="pacbio" settings={undefined} />);
+
+    expect(await screen.findByTestId('pipeline-versions-failed')).toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -146,5 +146,36 @@ describe('FamilyIgvPage', () => {
       expect(screen.getByText(/Homo sapiens • GRCh38 p14 • chr1:10-20/i)).toBeInTheDocument(),
     );
     expect(screen.queryByText(/Mus musculus • GRCm39 v1/i)).not.toBeInTheDocument();
+  });
+
+  // #610 — a server error is not a family that does not exist.
+  it('says the family could not be loaded, not that it was not found, and retries', async () => {
+    let familyRequests = 0;
+    apiGetMock.mockImplementation((url: string): Promise<never> => {
+      if (url === '/families/F1') {
+        familyRequests += 1;
+        return Promise.reject(
+          Object.assign(new Error('Request failed with status code 502'), { response: { status: 502 } }),
+        );
+      }
+      throw new Error(`Unexpected GET ${url}`);
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/igv']}>
+          <Routes>
+            <Route path="/families/:familyId/igv" element={<FamilyIgvPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Family could not be loaded' })).toBeInTheDocument();
+    expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('igv-viewer')).not.toBeInTheDocument();
+    const before = familyRequests;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(familyRequests).toBeGreaterThan(before));
   });
 });

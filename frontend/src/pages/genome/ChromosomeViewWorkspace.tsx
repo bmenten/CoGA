@@ -17,8 +17,10 @@ import CnvTrack from '../../components/visualizations/CnvTrack';
 import DgvTrack from '../../components/visualizations/DgvTrack';
 import SegmentalDuplicationTrack from '../../components/visualizations/SegmentalDuplicationTrack';
 import SmallVariantTrack from '../../components/visualizations/SmallVariantTrack';
+import SmallVariantLegend from '../../components/visualizations/SmallVariantLegend';
 import RepeatExpansionTrack from '../../components/visualizations/RepeatExpansionTrack';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
+import QueryFailure from '../../components/QueryFailure';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
@@ -26,14 +28,8 @@ import ViewerMemberSection from './ViewerMemberSection';
 import ViewerTrackBlock from './ViewerTrackBlock';
 import ViewerInteractionSurface from './ViewerInteractionSurface';
 import type { ChromosomeTrackVisibility } from './ChromosomeViewSidebar';
-import {
-  CHROMS,
-  buildTrackFilterSummary,
-  formatChromosomeLabel,
-  formatBp,
-  formatRoiCoordinates,
-  normalizeChrom,
-} from './viewerShared';
+import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
+import { CHROMS, buildTrackFilterSummary, formatBp, formatRoiCoordinates } from './viewerShared';
 
 const TRACK_HEIGHT = 120;
 const VARIANT_TRACK_HEIGHT = 80;
@@ -114,6 +110,10 @@ interface ChromosomeViewWorkspaceProps {
   apcadPointLimit: number;
   segmentLimit: number;
   showViewerLoading: boolean;
+  /** A request the tracks need failed: which tracks each sample has (#607), or the
+   * chromosome lengths the view is laid out on (#610). The tracks are not mounted, and that
+   * is not "no data". `what` names what could not be loaded. */
+  tracksFailure?: { what: string; error: unknown; retry: () => void } | null;
 }
 
 interface GeneSuggestion {
@@ -216,6 +216,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   apcadPointLimit,
   segmentLimit,
   showViewerLoading,
+  tracksFailure = null,
 }) => {
   const roiTitle = visibleRoi ? `ROI: ${visibleRoi.label}` : undefined;
   const regionStartParam = Math.max(0, Math.floor(region.start));
@@ -546,6 +547,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       viewportInteraction={viewportInteraction}
                     >
                       <ApcadChart
+                        sampleId={member.sample_id}
                         maxValue={apcadAxisMax(availability[member.sample_id]?.apcadSources)}
                         apcadUrls={[
                           `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${apcadPointLimit}&format=json`,
@@ -611,10 +613,13 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                         label="Small variants"
                         width={trackWidth}
                         meta={
-                          <TrackMeta
-                            variantFilters={variantFilters}
-                            sampleFilter={sampleFilterMap[member.sample_id]}
-                          />
+                          <span className="viewer-track-meta-group">
+                            <TrackMeta
+                              variantFilters={variantFilters}
+                              sampleFilter={sampleFilterMap[member.sample_id]}
+                            />
+                            <SmallVariantLegend />
+                          </span>
                         }
                         frameClassName={originRows ? 'h-[45px]' : 'h-[20px]'}
                         roiRange={regionRoiRange}
@@ -722,7 +727,18 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
           {membersWithData.length === 0 && !showViewerLoading && visibleMembers.length === 0 && (
             <p className="analysis-count">No samples selected.</p>
           )}
-          {membersWithData.length === 0 && !showViewerLoading && visibleMembers.length > 0 && (
+          {tracksFailure ? (
+            <QueryFailure
+              what={tracksFailure.what}
+              error={tracksFailure.error}
+              onRetry={tracksFailure.retry}
+              consequence="The samples' tracks are not shown until it loads."
+            />
+          ) : null}
+          {membersWithData.length === 0 &&
+            !showViewerLoading &&
+            visibleMembers.length > 0 &&
+            !tracksFailure && (
             <p className="analysis-count">No BED data for selected samples.</p>
           )}
         </section>

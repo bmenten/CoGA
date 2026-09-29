@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.app.services.clickhouse_family_variants import SmallVariantCall, SmallVariantRecord
+from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 from backend.app.services.nipt_analysis import NiptQualityThresholds, run_nipt_analysis
 from backend.app.services.nipt_service import (
     NiptClassifiedVariant,

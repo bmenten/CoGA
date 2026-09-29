@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ApiFamilyMember } from '../../lib/apiTypes';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { CHROMS } from './viewerShared';
 
 export interface GenomeTrackVisibility {
@@ -101,7 +102,7 @@ const GenomeOverviewSidebar: React.FC<GenomeOverviewSidebarProps> = ({
                 checked={chromSelected[chrom]}
                 onChange={() => onToggleChrom(chrom)}
               />
-              {`chr${chrom}`}
+              {formatChromosomeLabel(chrom)}
             </label>
           </li>
         ))}

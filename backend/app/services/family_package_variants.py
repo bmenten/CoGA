@@ -8,10 +8,8 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .clickhouse_family_variants import StructuralVariantCall, StructuralVariantRecord
-from .clickhouse_variant_storage import (
-    build_structural_variant_id,
-)
+from .clickhouse_variant_records import StructuralVariantCall, StructuralVariantRecord
+from .clickhouse_variant_ids import build_structural_variant_id
 from .data_scope import normalize_chromosome
 from .family_metadata_context import (
     SampleMetadataContext,

@@ -90,8 +90,18 @@ stands out:
 
 | Overlay | Meaning |
 | --- | --- |
-| **Red** | The **dominant** affected haplotype — the single haplotype shared by the affected / obligate members at the ROI. |
-| **Orange** | A **recessive carrier** haplotype. An affected individual has two orange haplotypes; a carrier has one. |
+| **Red, solid line** | The **dominant** affected haplotype — the single haplotype shared by the affected / obligate members at the ROI. |
+| **Orange, dashed line** | A **recessive carrier** haplotype. An affected individual has two orange haplotypes; a carrier has one. |
+
+The line is set off from the homolog colour by a light gap. In the chromosome view it
+runs just below the thin haplotype band, so the band keeps its whole colour; on the
+genome overview it runs along the band's bottom edge.
+
+On the genome overview the overlay is drawn **only on the ROI's chromosome**. A homolog's
+label (which of a parent's two homologs was passed on) is defined per chromosome, so the
+haplotype found at the ROI says nothing about another chromosome. **Without an ROI** the
+genome overview draws no risk overlay and shows no risk state ("not assessed"); set the
+ROI to the disorder's locus first.
 
 The risk overlay is derived (see *Disease-haplotype inference* below), not entered.
 
@@ -209,6 +219,12 @@ the **index parents' own children** (single-parent families: the one known paren
 the parent-of-origin transmission logic on a relative would be biologically backwards and produce
 coincidental, wildly-switching noise, so relatives appear on the track — their lineage block is the
 meaningful view — but carry no marker dots.
+
+**When a request fails.** A failure is never shown as an uninformative region. If the phased markers
+cannot be loaded, the overview says so, with a **Retry**, instead of "0 markers in view". On the
+family page, an embryo whose haplotypes at the ROI could not be loaded shows *⚠ segregation not
+derived*: its call, and any *⚠ recombination* or *⚠ uninformative* warning, are unknown until they
+load.
 
 ---
 

@@ -55,14 +55,14 @@ const LoginPage: React.FC = () => {
       persistSession(accessToken, me.data.email ?? email, me.data.role);
       navigate(nextPath, { replace: true });
     } catch (err: unknown) {
+      const message = getErrorMessage(err, 'Login failed', {
+        networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
+      });
       if (import.meta.env.DEV && import.meta.env.MODE !== 'test') {
-        console.error(err);
+        // The message only: the error object carries the request, password included (#526).
+        console.error('Login failed:', message);
       }
-      setError(
-        getErrorMessage(err, 'Login failed', {
-          networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
-        })
-      );
+      setError(message);
     } finally {
       setIsSubmitting(false);
     }

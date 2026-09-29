@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
+import ModalDialog from '../../components/ModalDialog';
 import api from '../../lib/api';
 import { genotypeZygosity } from '../../lib/genotypes';
 import {
@@ -19,7 +20,8 @@ import {
   buildSvSecondHitHref,
   formatFrequency,
   formatCompoundHetPhaseStatus,
-  formatHgvsG,
+  GENOMIC_CHANGE_NOTE,
+  formatGenomicChange,
   formatLocus,
   formatPredictionScore,
   formatScore,
@@ -231,38 +233,79 @@ interface GeneProfileSlice {
  * opening the modal or the disclosure — never as part of the variant list, which is the
  * hot path behind the filter.
  */
-const useGeneProfileSlice = (symbol?: string | null) => {
-  const { data } = useQuery<GeneProfileSlice>({
+const useGeneProfileSlice = (symbol?: string | null) =>
+  useQuery<GeneProfileSlice>({
     queryKey: ['gene-profile-slice', symbol],
     enabled: Boolean(symbol),
     staleTime: 5 * 60 * 1000,
     queryFn: async () =>
       (await api.get('/genes/profile', { params: { symbol } })).data as GeneProfileSlice,
   });
-  return data;
+
+// VEP may write ENST00000357654 while the annotation stores ENST00000357654.9, so the
+// lookup is on the accession stem; the version then decides whether the cross-reference
+// may be shown (#536).
+const transcriptKey = (id?: string | null) => (id || '').trim().toUpperCase().split('.')[0];
+const normalizedTranscriptId = (id?: string | null) => (id || '').trim().toUpperCase();
+const hasVersion = (id?: string | null) => normalizedTranscriptId(id).includes('.');
+
+interface TranscriptDetailEntry {
+  detail: GeneTranscriptDetail;
+  // The identifier the entry was found under: the transcript itself or a RefSeq accession.
+  matchedId: string;
+}
+
+/**
+ * How the variant's transcript relates to the annotation's cross-references.
+ *
+ * - `exact`: the same versioned transcript, so CCDS and RefSeq apply as they stand.
+ * - `unversioned`: the variant names the transcript without a version, so the version
+ *   cannot be checked; the cross-references are shown with the annotation's version.
+ * - `different_version`: the variant names another version than the annotation holds.
+ *   CCDS and RefSeq are then not shown, since they may describe a different CDS.
+ */
+type TranscriptMatch =
+  | { kind: 'exact' | 'unversioned'; detail: GeneTranscriptDetail; annotationId: string }
+  | { kind: 'different_version'; annotationId: string };
+
+const matchTranscriptDetail = (
+  byKey: Map<string, TranscriptDetailEntry[]>,
+  transcriptId?: string | null,
+): TranscriptMatch | null => {
+  const entries = byKey.get(transcriptKey(transcriptId)) ?? [];
+  if (!entries.length) return null;
+  const wanted = normalizedTranscriptId(transcriptId);
+  const exact = entries.find((entry) => normalizedTranscriptId(entry.matchedId) === wanted);
+  if (exact) return { kind: 'exact', detail: exact.detail, annotationId: exact.matchedId };
+  const [first] = entries;
+  if (!hasVersion(transcriptId)) {
+    return { kind: 'unversioned', detail: first.detail, annotationId: first.matchedId };
+  }
+  return { kind: 'different_version', annotationId: first.matchedId };
 };
 
-// VEP writes ENST00000357654, the annotation stores ENST00000357654.9. Compare on the
-// accession, not the version, or nothing ever matches.
-const transcriptKey = (id?: string | null) => (id || '').trim().toUpperCase().split('.')[0];
-
 const useGeneTranscriptDetails = (symbol?: string | null) => {
-  const data = useGeneProfileSlice(symbol);
+  const { data, isError } = useGeneProfileSlice(symbol);
 
-  return useMemo(() => {
-    const byKey = new Map<string, GeneTranscriptDetail>();
+  const byKey = useMemo(() => {
+    const byKey = new Map<string, TranscriptDetailEntry[]>();
+    const add = (id: string | null | undefined, detail: GeneTranscriptDetail) => {
+      const key = transcriptKey(id);
+      if (!key || !id) return;
+      const list = byKey.get(key) ?? [];
+      list.push({ detail, matchedId: id });
+      byKey.set(key, list);
+    };
     for (const transcript of data?.transcripts ?? []) {
-      const key = transcriptKey(transcript.transcript_id);
-      if (key) byKey.set(key, transcript);
+      add(transcript.transcript_id, transcript);
       // A RefSeq-named transcript in the VCF resolves through the accessions the
       // annotation maps onto its Ensembl transcript.
-      for (const accession of transcript.refseq_accessions ?? []) {
-        const accessionKey = transcriptKey(accession);
-        if (accessionKey && !byKey.has(accessionKey)) byKey.set(accessionKey, transcript);
-      }
+      for (const accession of transcript.refseq_accessions ?? []) add(accession, transcript);
     }
     return byKey;
   }, [data]);
+  // A failed profile leaves the transcripts' CCDS and RefSeq unknown, not absent (#610).
+  return { byKey, failed: isError };
 };
 
 
@@ -274,7 +317,7 @@ const useGeneTranscriptDetails = (symbol?: string | null) => {
  * transcript modal already cached for the same gene.
  */
 const VariantGeneDiseases = ({ symbol }: { symbol?: string | null }) => {
-  const profile = useGeneProfileSlice(symbol);
+  const { data: profile, isError, refetch } = useGeneProfileSlice(symbol);
   const monarch = (profile?.monarch_associations ?? []).filter((entry) => entry.disease_label);
   const omim = (profile?.extra?.omim_diseases ?? [])
     .map((entry) => (typeof entry === 'string' ? { label: entry } : entry))
@@ -282,6 +325,17 @@ const VariantGeneDiseases = ({ symbol }: { symbol?: string | null }) => {
 
   if (!symbol) {
     return <p className="variant-card-empty-note">No gene assigned to this variant.</p>;
+  }
+  if (isError) {
+    // It stayed at "Loading gene–disease associations…" for good (#610).
+    return (
+      <p className="variant-card-empty-note" role="alert">
+        The gene–disease associations of {symbol} could not be loaded.{' '}
+        <button type="button" className="button-link" onClick={() => void refetch()}>
+          Retry
+        </button>
+      </p>
+    );
   }
   if (!profile) {
     return <p className="variant-card-empty-note">Loading gene–disease associations…</p>;
@@ -360,112 +414,123 @@ const TranscriptPopup = ({
   const variantLabel = `${formatLocus(variant)} · ${variant.ref || '—'} → ${variant.alt || '—'}`;
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <div
-        className="modal-surface surface-card variant-transcript-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="small-variant-transcript-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="variant-review-modal-header">
-          <div className="variant-review-modal-summary">
-            <p className="page-kicker">Transcripts</p>
-            <h2 id="small-variant-transcript-title" className="catalog-card-title">
-              {geneName}
-            </h2>
-            <p className="variant-review-modal-subtitle">{variantLabel}</p>
-          </div>
-          <button type="button" className="button-secondary" onClick={onClose}>
-            Close
-          </button>
+    // ModalDialog: Escape, a focus trap and focus restore (#529).
+    <ModalDialog
+      onClose={onClose}
+      labelledBy="small-variant-transcript-title"
+      className="modal-surface surface-card variant-transcript-modal"
+    >
+      <div className="variant-review-modal-header">
+        <div className="variant-review-modal-summary">
+          <p className="page-kicker">Transcripts</p>
+          <h2 id="small-variant-transcript-title" className="catalog-card-title">
+            {geneName}
+          </h2>
+          <p className="variant-review-modal-subtitle">{variantLabel}</p>
         </div>
+        <button type="button" className="button-secondary" onClick={onClose}>
+          Close
+        </button>
+      </div>
 
-        <div className="variant-transcript-summary-grid">
-          <div>
-            <span>Gene</span>
-            <strong>{geneName}</strong>
-          </div>
-          <div>
-            <span>Variant</span>
-            <strong>{variant.hgvsp || variant.hgvsc || variantLabel}</strong>
-          </div>
-          <div>
-            <span>Transcript effects</span>
-            <strong>{transcripts.length}</strong>
-          </div>
+      <div className="variant-transcript-summary-grid">
+        <div>
+          <span>Gene</span>
+          <strong>{geneName}</strong>
         </div>
-
-        <div className="data-table-shell variant-transcript-table-shell">
-          <table className="analysis-table variant-transcript-table">
-            <thead>
-              <tr>
-                <th>Transcript</th>
-                <th>HGVS</th>
-                <th>Effect</th>
-                <th>Impact</th>
-                <th>Exon / intron</th>
-                <th>Flags</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transcripts.map((transcript, index) => {
-                const detail = transcriptDetails.get(transcriptKey(transcript.transcript_id));
-                const badges = transcriptBadges(transcript, detail);
-                // The VCF names one transcript; the annotation knows which RefSeq
-                // accessions correspond to it.
-                const refseq = (detail?.refseq_accessions ?? []).filter(
-                  (accession) => transcriptKey(accession) !== transcriptKey(transcript.transcript_id),
-                );
-                return (
-                  <tr key={`${transcript.transcript_id || 'transcript'}-${index}`}>
-                    <td>
-                      <div className="variant-transcript-id">
-                        <strong>{transcript.transcript_id || '—'}</strong>
-                        <span>
-                          {transcript.transcript_source ||
-                            transcriptSourceFor(transcript.transcript_id) ||
-                            'Transcript'}
-                          {transcript.transcript_biotype ? ` · ${transcript.transcript_biotype}` : ''}
-                        </span>
-                        {refseq.length ? (
-                          <span className="variant-transcript-refseq">{refseq.join(', ')}</span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="variant-transcript-hgvs">
-                        <span>{transcript.hgvsc || '—'}</span>
-                        <span>{transcript.hgvsp || '—'}</span>
-                      </div>
-                    </td>
-                    <td>{formatTokenLabel(transcript.effect || undefined)}</td>
-                    <td>{transcript.impact || '—'}</td>
-                    <td>{transcriptRegionLabel(transcript)}</td>
-                    <td>
-                      {badges.length ? (
-                        <div className="variant-transcript-badges">
-                          {badges.map((badge) => (
-                            <span
-                              key={badge.label}
-                              className={`variant-card-chip variant-card-chip--${badge.tone}`}
-                            >
-                              {badge.label}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="table-empty">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div>
+          <span>Variant</span>
+          <strong>{variant.hgvsp || variant.hgvsc || variantLabel}</strong>
+        </div>
+        <div>
+          <span>Transcript effects</span>
+          <strong>{transcripts.length}</strong>
         </div>
       </div>
-    </div>
+
+      {transcriptDetails.failed ? (
+        <p className="variant-card-empty-note" role="alert">
+          The gene&rsquo;s transcript annotation could not be loaded, so CCDS membership and RefSeq
+          accessions are not shown.
+        </p>
+      ) : null}
+      <div className="data-table-shell variant-transcript-table-shell">
+        <table className="analysis-table variant-transcript-table">
+          <thead>
+            <tr>
+              <th>Transcript</th>
+              <th>HGVS</th>
+              <th>Effect</th>
+              <th>Impact</th>
+              <th>Exon / intron</th>
+              <th>Flags</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transcripts.map((transcript, index) => {
+              const match = matchTranscriptDetail(transcriptDetails.byKey, transcript.transcript_id);
+              const detail = match && match.kind !== 'different_version' ? match.detail : undefined;
+              const badges = transcriptBadges(transcript, detail);
+              // The VCF names one transcript; the annotation knows which RefSeq
+              // accessions correspond to it.
+              const refseq = (detail?.refseq_accessions ?? []).filter(
+                (accession) => transcriptKey(accession) !== transcriptKey(transcript.transcript_id),
+              );
+              const xrefNote =
+                match?.kind === 'unversioned' && (detail?.ccds_id || refseq.length)
+                  ? `CCDS/RefSeq from ${match.annotationId} in the gene annotation; the variant names no version`
+                  : match?.kind === 'different_version'
+                    ? `CCDS/RefSeq not shown: the gene annotation has ${match.annotationId}`
+                    : null;
+              return (
+                <tr key={`${transcript.transcript_id || 'transcript'}-${index}`}>
+                  <td>
+                    <div className="variant-transcript-id">
+                      <strong>{transcript.transcript_id || '—'}</strong>
+                      <span>
+                        {transcript.transcript_source ||
+                          transcriptSourceFor(transcript.transcript_id) ||
+                          'Transcript'}
+                        {transcript.transcript_biotype ? ` · ${transcript.transcript_biotype}` : ''}
+                      </span>
+                      {refseq.length ? (
+                        <span className="variant-transcript-refseq">{refseq.join(', ')}</span>
+                      ) : null}
+                      {xrefNote ? <span className="variant-transcript-xref-note">{xrefNote}</span> : null}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="variant-transcript-hgvs">
+                      <span>{transcript.hgvsc || '—'}</span>
+                      <span>{transcript.hgvsp || '—'}</span>
+                    </div>
+                  </td>
+                  <td>{formatTokenLabel(transcript.effect || undefined)}</td>
+                  <td>{transcript.impact || '—'}</td>
+                  <td>{transcriptRegionLabel(transcript)}</td>
+                  <td>
+                    {badges.length ? (
+                      <div className="variant-transcript-badges">
+                        {badges.map((badge) => (
+                          <span
+                            key={badge.label}
+                            className={`variant-card-chip variant-card-chip--${badge.tone}`}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="table-empty">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </ModalDialog>
   );
 };
 
@@ -598,7 +663,7 @@ export default function SmallVariantCards({
         const consequenceLabel = formatTokenLabel(variant.effect);
         // Replaces the locus that used to sit in the headline: it carries the same
         // position, in the notation a report is written in.
-        const hgvsG = formatHgvsG(variant);
+        const genomicChange = formatGenomicChange(variant);
         const variantIds = parseVariantIds(variant.rsid);
         const popFreq = variant.population_frequencies || {};
         // AlphaMissense arrives as two first-class fields. Reading it out of
@@ -765,9 +830,11 @@ export default function SmallVariantCards({
                 ) : null}
                 <dl className="variant-card-mini-dl">
                   <div>
-                    <dt>HGVS.g</dt>
+                    <dt>
+                      <abbr title={GENOMIC_CHANGE_NOTE}>Genomic change</abbr>
+                    </dt>
                     <dd>
-                      {hgvsG || '—'}
+                      {genomicChange || '—'}
                       {variant.cytoband ? (
                         <span className="variant-card-cytoband">({variant.cytoband})</span>
                       ) : null}
@@ -991,6 +1058,7 @@ export default function SmallVariantCards({
                 <button
                   type="button"
                   className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
+                  aria-pressed={hasReviewTag}
                   disabled={reviewIsPending}
                   onClick={() => {
                     void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.review);
@@ -1001,6 +1069,7 @@ export default function SmallVariantCards({
                 <button
                   type="button"
                   className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
+                  aria-pressed={isExcluded}
                   disabled={reviewIsPending}
                   onClick={() => {
                     void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.excluded);
@@ -1011,6 +1080,7 @@ export default function SmallVariantCards({
                 <button
                   type="button"
                   className={`variant-quick-toggle${isReported ? ' variant-quick-toggle--active' : ''}`}
+                  aria-pressed={isReported}
                   disabled={reviewIsPending}
                   onClick={() => {
                     void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.report);

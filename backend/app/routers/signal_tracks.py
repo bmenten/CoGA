@@ -32,7 +32,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import SignalTrackManifestEntryOut
-from ..services.metadata_service import CurrentUser, get_family_record
+from ..services.metadata_service import get_family_record
+from ..services.access_control import CurrentUser
 
 router = APIRouter(prefix="/signal-tracks", tags=["signal_tracks"])
 

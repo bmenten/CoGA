@@ -10,7 +10,7 @@ from backend.app.services import reference_source_service
 
 
 async def _decline_gencode(client, *, assembly_id: str, ucsc_genome: str):
-    """Stand-in for GENCODE being unavailable, so the UCSC fallback is exercised."""
+    """Stand-in for a genome without a configured GTF, so the UCSC path is exercised."""
     return None
 
 
@@ -306,6 +306,7 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
         )
 
     applied_calls: list[tuple[str, str, str, bool, bool]] = []
+    applied_sources: dict[str, tuple[str | None, str | None]] = {}
 
     async def fake_apply_reference_dataset_text(
         session,
@@ -317,8 +318,10 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
         commit: bool,
         performed_by=None,
         source=None,
+        source_url=None,
     ):
         applied_calls.append((assembly_id, dataset_type, text_value, overwrite, commit))
+        applied_sources[dataset_type] = (source, source_url)
         if dataset_type == "cytobands":
             return type("Result", (), {"inserted": 1, "replaced": False})()
         return type("Result", (), {"inserted": 1, "replaced": True})()
@@ -379,6 +382,25 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
         ("assembly-1", "cytobands", "chr1\t0\t100\tp36.33\tgneg\n", True, False),
         ("assembly-1", "genes", "chr1\t100\t200\tGENE1\t\t+\t\tNM_000001\t1\t100-200\t0\t\n", True, False),
     ]
+    # The import record names the table actually used and where it came from (#536).
+    assert applied_sources["genes"] == ("ucsc refGene", "https://example.org/refGene.txt.gz")
+    # No GTF was configured for the genome, so the UCSC table is not a fallback.
+    assert result.gene_warning is None
+
+    # When the GTF was wanted but could not be fetched, the result says so (#536).
+    async def failing_gencode(client, *, assembly_id: str, ucsc_genome: str):
+        raise reference_source_service._AnnotationDownloadFailed("ConnectError: timed out")
+
+    monkeypatch.setattr(reference_source_service, "_download_gencode_genes", failing_gencode)
+    fallback = await reference_source_service.import_reference_from_ucsc(
+        _RecordingSession(), tax_id=9606, ucsc_genome="hg38", overwrite=True
+    )
+    assert fallback.genes_inserted == 1
+    assert fallback.gene_warning == (
+        "The gene annotation GTF could not be fetched (ConnectError: timed out); the UCSC refGene "
+        "table was used instead, without biotypes, Ensembl identifiers or MANE tags."
+    )
+    assert applied_sources["genes"] == ("ucsc refGene", "https://example.org/refGene.txt.gz")
 
 
 @pytest.mark.asyncio

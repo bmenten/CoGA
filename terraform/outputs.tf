@@ -42,3 +42,8 @@ output "backend_service_account" {
   description = "Backend runtime service account email (created in the central infra repo; referenced here)."
   value       = local.backend_sa_email
 }
+
+output "db_migrate_job" {
+  description = "Cloud Run job that applies the Postgres schema as the owner (db_runtime_role = \"coga_app\" only; null otherwise). Terraform runs it on every new backend image; by hand: gcloud run jobs execute <name> --region <region> --wait."
+  value       = local.restricted_db_role ? google_cloud_run_v2_job.db_migrate[0].name : null
+}

@@ -31,7 +31,8 @@ type StructuralVariantResultsProps = {
   linkSearch: string;
   members: StructuralVariantFamilyMember[];
   onPageChange: (nextPage: number) => void;
-  overallTotal: number;
+  /** All the family's imported SVs; null when that count could not be loaded (#606). */
+  overallTotal: number | null;
   page: number;
   projectId?: string;
   reviewError?: string | null;
@@ -158,8 +159,10 @@ export default function StructuralVariantResults({
           <div className="space-y-1">
             <h2 className="section-title">Variants</h2>
             <p className="table-subtle">
-              Filtered {filteredTotal.toLocaleString()} of {overallTotal.toLocaleString()} imported
-              SVs. Auto view switches to cards at {CARD_VIEW_THRESHOLD} results.
+              {overallTotal === null
+                ? `Filtered ${filteredTotal.toLocaleString()} SVs; the number imported could not be loaded.`
+                : `Filtered ${filteredTotal.toLocaleString()} of ${overallTotal.toLocaleString()} imported SVs.`}{' '}
+              Auto view switches to cards at {CARD_VIEW_THRESHOLD} results.
             </p>
           </div>
           <div className="variant-results-toolbar-actions">

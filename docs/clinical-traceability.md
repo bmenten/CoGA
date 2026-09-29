@@ -108,7 +108,9 @@ grounded in the current code (file references inline).
 Two layers, merged by one service:
 
 - **Platform reference layer** — versions of what CoGA loaded (assembly, Monarch, HPO,
-  gene reference [ClinGen/GenCC/ClinVar-gene-condition/dbNSFP-gene], PanelApp, clinical CNVs).
+  gene reference [ClinGen/GenCC/ClinVar-gene-condition/dbNSFP-gene], PanelApp, clinical CNVs),
+  and the source of the gene loci CoGA uses for panel regions and gene tracks (`gene_loci`:
+  GENCODE, or the UCSC table loaded when GENCODE could not be fetched, #536).
   Mostly already in Postgres; needs a consistent `source_version` / `source_release_date`.
 - **Per-family pipeline layer** — versions of the upstream tools that produced *this family's*
   annotated VCF (VEP+cache, ClinVar, gnomAD, dbNSFP, SpliceAI). Captured at import.

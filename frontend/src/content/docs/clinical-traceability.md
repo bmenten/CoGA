@@ -103,6 +103,16 @@ signed report, and a printout carries a notice at the top saying so. If the chec
 be made, the record is grey and the page must be treated as unsigned. **Download signed
 version** on the record returns the frozen snapshot itself.
 
+**When part of the report cannot be loaded.** The page never shows a part it could not load
+as empty. If the family or either list of reported variants cannot be loaded, no report is
+shown, only *Report could not be loaded* with a **Retry**. If the sign-out record cannot be
+loaded, the page says it is not known whether the case is signed, and does not offer
+sign-out. A gene description, the HPO terms, the evidence-drift check, the audit trail or
+the annotation provenance that could not be loaded is marked where it belongs, and the
+analysis-pipeline settings then say the tool versions could not be loaded, not *version not
+reported*. The printout then starts with *Incomplete — … could not be loaded*. The NIPT report does the same for the
+fetal-fraction estimate and the coverage QC.
+
 **What the signed record could not capture.** If a lookup fails while the snapshot is
 frozen — the QC cut-offs, or the reference-assembly or Monarch version — sign-out still
 goes ahead, but the snapshot records that part as unavailable rather than as empty, and the
@@ -112,7 +122,10 @@ could not be resolved)*. The sign-out entry in the audit trail lists the same pa
 **The assembly scope.** CoGA is validated on **GRCh38**. A family on another reference
 assembly (such as T2T-CHM13) can be analysed, but every family page and the report carry a
 *Not validated for clinical use* label, and the report **cannot be signed out** — there is no
-override. The validated assemblies are set by the laboratory under change control.
+override. The validated assemblies are set by the laboratory under change control. If the
+family's project cannot be loaded, the assembly, and so the scope, is not known: the pages
+then say *Validated scope not confirmed*, with a **Retry**, and the report is not prepared
+until the project loads.
 
 **The drift gate.** If any reported classification has drifted, sign-out is **blocked**
 and you are asked to re-review or **acknowledge** the drift **with a reason**. The

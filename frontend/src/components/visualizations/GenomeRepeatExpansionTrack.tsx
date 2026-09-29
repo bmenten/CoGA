@@ -5,7 +5,7 @@ import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } fro
 import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
-import { RepeatLocusTooltip, STATUS_COLORS } from './repeatExpansionHelpers';
+import { RepeatLocusTooltip, STATUS_COLORS, describeRepeatLoci } from './repeatExpansionHelpers';
 import { apiPath, raw } from '../../lib/apiPath';
 
 interface Layout {
@@ -23,6 +23,17 @@ interface Props {
   height: number;
   projectId?: string;
 }
+
+// Markers are drawn from the least to the most severe status, so the most severe is on
+// top: at genome scale a 4 px marker covers loci a few hundred kb away, and a normal AFF2
+// was painted over a pathogenic FMR1 (#526). The sort is stable, so ties keep API order.
+const STATUS_DRAW_RANK: Record<string, number> = {
+  unknown: 0,
+  normal: 1,
+  review: 2,
+  intermediate: 3,
+  pathogenic: 4,
+};
 
 const GenomeRepeatExpansionTrack: React.FC<Props> = ({
   familyId,
@@ -69,15 +80,34 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
 
   const items = useMemo(() => {
     if (!layout) return [];
-    return (data?.items || []).filter((item) => layout.offsets[item.chr.replace(/^chr/i, '')] !== undefined);
+    return (data?.items || [])
+      .filter((item) => layout.offsets[item.chr.replace(/^chr/i, '')] !== undefined)
+      .sort((a, b) => (STATUS_DRAW_RANK[a.status] ?? 0) - (STATUS_DRAW_RANK[b.status] ?? 0));
   }, [data?.items, layout]);
+
+  // The chart's accessible name (#529): what it shows now. A failure or a load is said
+  // as such, never as zero loci (#510). Nor is a track that asked for nothing: without a
+  // layout no locus can be placed yet (the genome overview is still sizing it), and
+  // without a chromosome in view none is requested (#602).
+  const answered = Boolean(layout) && chroms.length > 0;
+  const lociSummary = useMemo(() => describeRepeatLoci(items), [items]);
+  const chartState = isError
+    ? 'failed to load'
+    : isLoading || !layout
+      ? 'loading'
+      : chroms.length === 0
+        ? 'no chromosomes in view'
+        : items.length === 0
+          ? 'none'
+          : lociSummary;
+  const chartLabel = `Repeat loci of ${sampleId} in view: ${chartState}`;
 
   const trackY = Math.max(2, Math.floor(height * 0.28));
   const trackHeight = Math.max(height - trackY * 2, 6);
 
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
+      <svg width={width} height={height} role="img" aria-label={chartLabel}>
         <line
           x1={0}
           x2={width}
@@ -116,8 +146,8 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
       </svg>
       {isLoading && <VizLoadingOverlay message="Loading repeat expansions" />}
       {isError && <VizErrorOverlay what="repeat expansions" onRetry={() => void refetch()} />}
-      {!isLoading && !isError && items.length === 0 && (
-        <div className="viz-empty-overlay">No repeat loci for this sample</div>
+      {answered && !isLoading && !isError && items.length === 0 && (
+        <div className="viz-empty-overlay">No repeat loci in view</div>
       )}
       {tooltip && (
         <RepeatLocusTooltip x={tooltip.x} y={tooltip.y} item={tooltip.item} />

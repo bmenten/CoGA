@@ -2,21 +2,26 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
-import { drawHaplotypeRiskOverlay } from '../../lib/haplotypeCanvas';
+import { drawHaplotypeRiskOverlay, haplotypeRiskPattern } from '../../lib/haplotypeCanvas';
+import { segregationStateLabel } from '../../lib/embryoSegregation';
 import {
+  defaultDiseaseHaplotypeModel,
   diseaseHaplotypeKindForLane,
   getHaplotypeLaneSignature,
   getRenderableHaplotypeLanes,
   inferDiseaseHaplotypes,
   interpretSampleHaplotypeRisk,
+  normalizeHaplotypeChrom,
   resolveHaplotypeInheritanceModel,
   type DiseaseHaplotypeKind,
   type HaplotypeLane,
   type HaplotypeMemberLike,
   type HaplotypeRiskRegion,
+  type HaplotypeRiskState,
 } from '../../lib/haplotypeRisk';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
 
 const DEFAULT_CHROMS = [...Array.from({ length: 22 }, (_, i) => String(i + 1)), 'X', 'Y'];
 
@@ -154,35 +159,25 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     () => (familyMembers.length > 0 ? familyMembers : [currentMember]),
     [familyMembers, currentMember],
   );
-  const analysisRegion = useMemo(
-    () =>
-      riskRegion ||
-      (layout
-        ? {
-            chr: chroms[0],
-            start: 0,
-            end: layout.lengths[chroms[0]] || 1,
-          }
-        : { chr: chroms[0], start: 0, end: 1 }),
-    [riskRegion, layout, chroms],
-  );
+  // The disease haplotype is inferred at a locus, the ROI. Without one there is none to
+  // assess: the whole of the first chromosome shown used to stand in, and the track then
+  // showed a risk state for a disorder whose locus it did not know (#588).
+  // An ROI without a chromosome cannot be placed on the genome either.
+  const analysisRegion = riskRegion?.chr ? riskRegion : null;
   const riskEnabled =
     highlightRiskHaplotype ?? membersForRisk.some((member) => member.affected || member.carrier_status === 'carrier');
-  const diseaseModel = useMemo(() => {
-    return riskEnabled
-      ? inferDiseaseHaplotypes({
-          samples: samplesArray,
-          members: membersForRisk,
-          inheritanceModel: resolveHaplotypeInheritanceModel(effectiveInheritanceModel, membersForRisk),
-          region: analysisRegion,
-        })
-      : inferDiseaseHaplotypes({
-          samples: [],
-          members: [],
-          inheritanceModel: effectiveInheritanceModel,
-          region: analysisRegion,
-        });
-  }, [analysisRegion, effectiveInheritanceModel, membersForRisk, riskEnabled, samplesArray]);
+  const diseaseModel = useMemo(
+    () =>
+      riskEnabled && analysisRegion
+        ? inferDiseaseHaplotypes({
+            samples: samplesArray,
+            members: membersForRisk,
+            inheritanceModel: resolveHaplotypeInheritanceModel(effectiveInheritanceModel, membersForRisk),
+            region: analysisRegion,
+          })
+        : defaultDiseaseHaplotypeModel(effectiveInheritanceModel),
+    [analysisRegion, effectiveInheritanceModel, membersForRisk, riskEnabled, samplesArray],
+  );
 
   useEffect(() => {
     if (isLoading) return;
@@ -215,6 +210,10 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
 
     const recombXs: number[] = [];
     const prevByChr: Record<string, Segment> = {};
+    // A signature is a parent of origin and a homolog label, and the labels are defined per
+    // chromosome: found at the ROI, it means nothing on another chromosome, where it matched
+    // unrelated homologs and drew them as the risk haplotype (#588).
+    const riskChrom = analysisRegion ? normalizeHaplotypeChrom(analysisRegion.chr) : null;
 
     const baseColorForLane = (seg: Segment, lane: HaplotypeLane): string => {
       const value = seg[lane];
@@ -240,7 +239,10 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
       prevByChr[chr] = seg;
       const lanes = getRenderableHaplotypeLanes(currentMember, seg, chr);
       lanes.forEach((lane) => {
-        const riskKind = diseaseHaplotypeKindForLane(diseaseModel, currentMember, seg, lane, chr);
+        const riskKind =
+          riskChrom !== null && normalizeHaplotypeChrom(chr) === riskChrom
+            ? diseaseHaplotypeKindForLane(diseaseModel, currentMember, seg, lane, chr)
+            : null;
         const isSingleLane = lanes.length === 1;
         const y = isSingleLane ? 0 : lane === 'hap1' ? 0 : half + 1;
         const rectHeight = isSingleLane ? height : half - 1;
@@ -254,7 +256,11 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
           ctx.lineTo(x2 - 0.75, y + rectHeight - 1);
           ctx.stroke();
         }
-        if (riskKind) drawHaplotypeRiskOverlay(ctx, x1, y, w, rectHeight, riskColors[riskKind]);
+        if (riskKind) {
+          drawHaplotypeRiskOverlay(ctx, x1, y, w, rectHeight, riskColors[riskKind], {
+            pattern: haplotypeRiskPattern(riskKind),
+          });
+        }
       });
     });
 
@@ -279,25 +285,43 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     height,
     currentMember,
     diseaseModel,
+    analysisRegion,
     chroms,
     isLoading,
     isError,
   ]);
-  const riskState = useMemo(
+  const riskState = useMemo<HaplotypeRiskState | null>(
     () =>
-      segments.length > 0
-        ? interpretSampleHaplotypeRisk({
-            model: diseaseModel,
-            samples: samplesArray,
-            member: currentMember,
-            region: analysisRegion,
-          })
-        : 'uninformative',
+      !analysisRegion
+        ? null
+        : segments.length > 0
+          ? interpretSampleHaplotypeRisk({
+              model: diseaseModel,
+              samples: samplesArray,
+              member: currentMember,
+              region: analysisRegion,
+            })
+          : 'uninformative',
     [segments, diseaseModel, samplesArray, currentMember, analysisRegion],
   );
 
-  // A failed load has no risk state — not "uninformative", which is a real outcome.
-  const shownRiskState = isError ? 'unavailable' : riskState;
+  // A failed load has no risk state — not "uninformative", which is a real outcome — and
+  // without an ROI none was assessed (#588).
+  const shownRiskState = isError ? 'unavailable' : (riskState ?? 'not_assessed');
+
+  // The accessible name: whose haplotypes, where, and the risk state the track's border
+  // shows, with the ROI it was assessed at. A load in flight claims no risk state, a
+  // failed one says so (#510, #529), and without an ROI none was assessed (#588).
+  const trackLabel = (() => {
+    const where = chroms.length === 1 ? `on ${formatChromosomeLabel(chroms[0])}` : `across ${chroms.length} chromosomes`;
+    const subject = `Haplotypes of ${sampleId} ${where}`;
+    if (isError) return `${subject}: failed to load; risk state: unavailable`;
+    if (isLoading || !layout) return `${subject}: loading`;
+    const shown = `${subject}${segments.length ? '' : ': no data'}`;
+    if (!analysisRegion || !riskState) return `${shown}; risk state: not assessed, no region of interest`;
+    const riskScope = `${formatChromosomeLabel(String(analysisRegion.chr))}:${analysisRegion.start.toLocaleString()}–${analysisRegion.end.toLocaleString()}`;
+    return `${shown}; risk state at ${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}`;
+  })();
 
   return (
     <div
@@ -305,7 +329,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
       data-risk-state={shownRiskState}
       style={{ width, height }}
     >
-      <canvas ref={canvasRef} aria-label={`Haplotype risk state: ${shownRiskState}`} />
+      <canvas ref={canvasRef} role="img" aria-label={trackLabel} />
       {isLoading && <VizLoadingOverlay message="Loading haplotypes" />}
       {isError && <VizErrorOverlay what="haplotypes" onRetry={() => void refetch()} />}
       {!isLoading && !isError && layout && segments.length === 0 && (

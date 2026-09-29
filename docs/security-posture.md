@@ -18,7 +18,10 @@ but not yet applied to a live project** · ⛔ not yet done (deployment responsi
 - ✅ **AuthN.** JWT bearer (HS256) with optional Azure AD; local JWT fallback is
   restricted to admins. See `backend/app/dependencies.py`
   (`get_current_user`, `get_current_admin_user`). Roles: `admin`/`superuser` vs
-  `viewer` (`ADMIN_ROLES` in `metadata_service.py`).
+  `viewer` (`ADMIN_ROLES` in `services/access_control.py`). Every admin check goes
+  through `ADMIN_ROLES` (`get_current_admin_user`, `is_admin_user`), so a superuser
+  is an admin everywhere; `test_admin_role_checks.py` fails on any comparison of a
+  role with the literal `"admin"` (CR-053).
 - ✅ **AuthZ is project-scoped.** Every family/sample/variant endpoint resolves
   access through one checkpoint:
   `build_family_metadata_context` → `get_accessible_family_mapping` →
@@ -125,6 +128,12 @@ no cross-tenant boundary to protect.
 - ✅ **In transit (app edge).** Presigned S3 URLs are HTTPS; production is
   expected to terminate TLS at the proxy/ingress.
 - ✅ **Secrets at rest in DB.** Passwords bcrypt-hashed.
+- ✅ **Sign-up password length.** At least 15 characters (`SIGNUP_PASSWORD_MIN_LENGTH`,
+  NIST SP 800-63B-4 for a single-factor password); shorter ones get a 422 before any
+  throttle bookkeeping or hashing. Until CR-059 any string was accepted, the empty one
+  included. Neither sign-up nor login logs the failed request in a development build any
+  more (its body holds the password). The device owner confirmed this policy on 2026-09-29
+  (CR-088).
 - 🟡 **In transit to datastores (TLS — S-2).** The app now supports TLS to both
   stores: set `POSTGRES_SSLMODE` (e.g. `require`/`verify-full`, passed to asyncpg)
   and `CLICKHOUSE_SECURE=true` (HTTPS; use `CLICKHOUSE_HTTP_PORT=8443`,

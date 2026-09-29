@@ -70,6 +70,12 @@ resource "google_sql_user" "coga" {
 # Secret Manager at boot (COS has no gcloud → curl + metadata token), so it is
 # never stored in instance metadata or Terraform state.
 
+locals {
+  # Registry host of the ClickHouse image when it is in Artifact Registry, whose pulls need
+  # the VM's credentials; empty for any other registry (the Docker Hub image needs none).
+  clickhouse_image_registry = can(regex("^[a-z0-9-]+-docker\\.pkg\\.dev/", var.clickhouse_image)) ? split("/", var.clickhouse_image)[0] : ""
+}
+
 resource "google_compute_disk" "clickhouse_data" {
   name = "${local.name_prefix}-clickhouse-data"
   type = "pd-ssd"
@@ -112,7 +118,8 @@ resource "google_compute_instance" "clickhouse" {
     network    = google_compute_network.vpc_network.id
     subnetwork = google_compute_subnetwork.subnet.id
     network_ip = google_compute_address.clickhouse.address
-    # No external IP. Egress (Docker Hub pull) via Cloud NAT; Google APIs via PGA.
+    # No external IP. Egress (Docker Hub pull) via Cloud NAT; Google APIs via PGA. With
+    # var.clickhouse_restrict_egress only the Google APIs remain reachable (egress.tf).
   }
 
   # Live-migrate on host maintenance so ClickHouse is not SIGTERM'd mid-merge.
@@ -137,6 +144,7 @@ resource "google_compute_instance" "clickhouse" {
       clickhouse_image = var.clickhouse_image
       ch_db            = "coga"
       ch_user          = "clickhouse_admin"
+      registry_host    = local.clickhouse_image_registry
     })
     shutdown-script = file("${path.module}/scripts/clickhouse-shutdown.sh")
     # Installed by the startup script and run by a daily systemd timer for cert rotation.
@@ -153,7 +161,18 @@ resource "google_compute_instance" "clickhouse" {
     google_secret_manager_secret_version.clickhouse_tls_key,
     google_secret_manager_secret_version.clickhouse_tls_cert,
     google_compute_router_nat.nat,
+    # With the egress lockdown, the first boot needs the private Google DNS to pull.
+    google_compute_firewall.clickhouse_egress_google_apis,
+    google_dns_record_set.private_google_a,
+    google_dns_record_set.private_google_cname,
   ]
+
+  lifecycle {
+    precondition {
+      condition     = !var.clickhouse_restrict_egress || local.clickhouse_image_registry != ""
+      error_message = "clickhouse_restrict_egress blocks Docker Hub: mirror clickhouse_image into Artifact Registry and point the variable at it (a <region>-docker.pkg.dev host) first."
+    }
+  }
 }
 
 # ---- ClickHouse data-disk backups (daily snapshots) -----------------------

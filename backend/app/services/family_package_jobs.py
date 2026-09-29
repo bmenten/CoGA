@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
@@ -15,8 +14,9 @@ from ..schemas import (
     FamilyPackageImportJobOut,
     FamilyPackageValidationOut,
 )
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser, is_admin_user
 
+from .family_package_source import package_folder_path
 from .family_package_common import _dataset_summary_list, _issue_list, _json_dict, _json_list, _model_list_json  # noqa: F401
 
 
@@ -106,7 +106,7 @@ async def queue_family_import_job(
             """
         ),
         {
-            "submitted_path": str(Path(folder_path).expanduser()),
+            "submitted_path": package_folder_path(folder_path),
             "project_id": project_id or "",
             "dry_run": dry_run,
             "metadata": json.dumps(metadata),
@@ -155,7 +155,7 @@ async def get_family_import_job(
     row = result.mappings().first()
     if row is None:
         raise HTTPException(status_code=404, detail="Family import job not found")
-    if user.role != "admin" and str(row["requested_by"]) != user.email:
+    if not is_admin_user(user) and str(row["requested_by"]) != user.email:
         raise HTTPException(status_code=403, detail="Not authorized for this import job")
     return _serialize_job(dict(row))
 
@@ -168,7 +168,7 @@ async def list_family_import_jobs(
 ) -> list[FamilyPackageImportJobOut]:
     clauses: list[str] = []
     params: dict[str, Any] = {"limit": limit}
-    if user.role != "admin":
+    if not is_admin_user(user):
         clauses.append("requested_by = :requested_by")
         params["requested_by"] = user.email
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""

@@ -13,6 +13,7 @@ import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { isAdmin } from '../../lib/auth';
 import { apiPath } from '../../lib/apiPath';
+import QueryFailure from '../../components/QueryFailure';
 
 type Project = ApiProjectRecord<ApiFamilyBase<ApiFamilyMemberRef>>;
 type Species = ApiSpeciesRecord;
@@ -107,7 +108,12 @@ const ProjectsPage: React.FC = () => {
   const [familySortKey, setFamilySortKey] = useState<FamilySortKey>('created_at');
   const [familySortAsc, setFamilySortAsc] = useState(false);
 
-  const { data: projects = [] } = useQuery<Project[]>({
+  const {
+    data: projects = [],
+    isError: projectsFailed,
+    error: projectsError,
+    refetch: retryProjects,
+  } = useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: async () => {
       const res = await api.get('/projects');
@@ -240,7 +246,9 @@ const ProjectsPage: React.FC = () => {
     [assemblies, editForm.speciesId],
   );
 
+  // Unknown, not zero, while the project list could not be loaded (#610).
   const projectTotals = useMemo(() => {
+    if (projectsFailed) return { projects: '—', families: '—', samples: '—' };
     const totalFamilies = projects.reduce((sum, project) => sum + project.families.length, 0);
     const totalSamples = projects.reduce((sum, project) => sum + getProjectSampleCount(project), 0);
     return {
@@ -248,7 +256,7 @@ const ProjectsPage: React.FC = () => {
       families: totalFamilies,
       samples: totalSamples,
     };
-  }, [projects]);
+  }, [projects, projectsFailed]);
 
   const refetchProjects = async () => {
     await queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -507,11 +515,16 @@ const ProjectsPage: React.FC = () => {
           </label>
         </div>
 
-        <p className="project-filter-summary">
-          Showing {filteredProjects.length} of {projects.length} projects.
-        </p>
+        {projectsFailed ? null : (
+          <p className="project-filter-summary">
+            Showing {filteredProjects.length} of {projects.length} projects.
+          </p>
+        )}
 
-        {filteredProjects.length === 0 ? (
+        {/* A failed list is not an empty one: it read "No projects yet" (#610). */}
+        {projectsFailed ? (
+          <QueryFailure what="the projects" error={projectsError} onRetry={() => void retryProjects()} />
+        ) : filteredProjects.length === 0 ? (
           <div className="page-state">
             <div className="space-y-2">
               <p className="page-kicker">Projects</p>

@@ -21,7 +21,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .family_metadata_context import build_family_metadata_context
-from .metadata_service import CurrentUser, get_family_record
+from .metadata_service import get_family_record
+from .access_control import CurrentUser
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,7 @@ _MODULE_LABELS: dict[str, str] = {
     "omim": "OMIM",
     "giab": "GIAB",
     # platform reference layer
+    "gene_loci": "Gene loci (CoGA reference)",
     "gencc": "GenCC",
     "panelapp": "PanelApp",
     "monarch": "Monarch",
@@ -178,6 +180,30 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
         except Exception:  # noqa: BLE001 — provenance must never break sign-out
             logger.warning("Reference-assembly provenance lookup failed", exc_info=True)
             modules["assembly"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
+        # The gene loci CoGA itself loaded for the assembly (panel regions, gene tracks) and
+        # where they came from: GENCODE, or the UCSC table used when GENCODE could not be
+        # fetched. Distinct from the pipeline's own annotation version (#536).
+        try:
+            async with session.begin_nested():
+                gene_import = (
+                    await session.execute(
+                        text(
+                            "SELECT source, performed_at FROM reference_dataset_imports "
+                            "WHERE assembly_id = CAST(:assembly_id AS uuid) AND dataset_type = 'genes' "
+                            "ORDER BY performed_at DESC LIMIT 1"
+                        ),
+                        {"assembly_id": assembly_id},
+                    )
+                ).mappings().first()
+            if gene_import and gene_import["source"]:
+                performed_at = gene_import["performed_at"]
+                modules["gene_loci"] = {
+                    "version": str(gene_import["source"]),
+                    "detail": f"imported {performed_at:%Y-%m-%d}" if performed_at else None,
+                }
+        except Exception:  # noqa: BLE001 — provenance must never break sign-out
+            logger.warning("Gene-locus provenance lookup failed", exc_info=True)
+            modules["gene_loci"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
     try:
         async with session.begin_nested():
             release = (

@@ -5,16 +5,15 @@ import pytest
 from pathlib import Path
 
 from backend.app.schemas import FamilyPackageManifestBuildRequest
-from backend.app.services import family_package_import as fpi
-from backend.app.services.family_package_import import (
-    ManifestDataset,
-    PackageManifest,
-    _normalize_manifest_samples,
+from backend.app.core.config import settings
+from backend.app.services.family_package_common import ManifestDataset, PackageManifest
+from backend.app.services.family_package_manifest import _normalize_manifest_samples
+from backend.app.services.family_package_validation import (
     _validate_coverage_dataset,
-    discover_family_package_manifest,
     load_validated_family_package,
-    scan_family_import_packages,
 )
+from backend.app.services.family_package_discovery import discover_family_package_manifest
+from backend.app.services.family_package_source import scan_family_import_packages
 
 _DEMO_DIR = Path(__file__).resolve().parents[2] / "demo" / "nipt_family"
 
@@ -40,7 +39,7 @@ def _write_nipt_package(folder) -> None:
 def test_discover_uses_manifest_family_id_not_folder_name(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
+    monkeypatch.setattr(settings, "family_import_roots", [])
     # Folder name (nipt_family) deliberately differs from the declared family_id.
     package = tmp_path / "nipt_family"
     _write_nipt_package(package)
@@ -75,7 +74,7 @@ def test_scan_lists_packages_with_manifest_and_ped(
 
     (tmp_path / "not-a-package").mkdir()  # no manifest, no ped -> skipped
 
-    monkeypatch.setattr(fpi.settings, "family_import_roots", [str(tmp_path)])
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
 
     packages = {pkg["name"]: pkg for pkg in scan_family_import_packages()}
 
@@ -96,7 +95,7 @@ def test_scan_lists_packages_with_manifest_and_ped(
 
 
 def test_scan_returns_empty_without_roots(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
+    monkeypatch.setattr(settings, "family_import_roots", [])
     assert scan_family_import_packages() == []
 
 
@@ -120,7 +119,7 @@ def test_family_import_roots_default_is_data_families() -> None:
 
 
 def test_scan_includes_s3_packages(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(fpi.settings, "family_import_roots", ["s3://bucket/families"])
+    monkeypatch.setattr(settings, "family_import_roots", ["s3://bucket/families"])
 
     def fake_list(uri: str):
         assert uri == "s3://bucket/families"
@@ -143,7 +142,7 @@ def test_scan_includes_s3_packages(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_scan_s3_failure_is_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(fpi.settings, "family_import_roots", ["s3://bucket/families"])
+    monkeypatch.setattr(settings, "family_import_roots", ["s3://bucket/families"])
 
     def boom(_uri: str):
         raise RuntimeError("no credentials")
@@ -164,7 +163,7 @@ def test_coverage_dataset_requires_per_sample() -> None:
 def test_demo_package_validates_with_snv_and_coverage_datasets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
+    monkeypatch.setattr(settings, "family_import_roots", [])
     validation, _bundle = load_validated_family_package(_DEMO_DIR)
 
     assert validation.valid, validation.errors
@@ -181,7 +180,7 @@ def test_discover_preserves_explicit_snv_and_coverage(
 ) -> None:
     import yaml
 
-    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
+    monkeypatch.setattr(settings, "family_import_roots", [])
     result = discover_family_package_manifest(
         FamilyPackageManifestBuildRequest(folder_path=str(_DEMO_DIR))
     )

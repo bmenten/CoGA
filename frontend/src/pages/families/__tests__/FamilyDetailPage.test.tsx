@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, it, vi, type Mock } from 'vitest';
 
 import FamilyDetailPage from '../FamilyDetailPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
@@ -553,6 +553,137 @@ describe('FamilyDetailPage', () => {
     );
   });
 
+  // #607 — the embryos' recombination and uninformative warnings come from the haplotypes
+  // at the ROI: a failed request is not an embryo without warnings.
+  it('says the segregation could not be derived when the haplotypes at the ROI fail', async () => {
+    localStorage.setItem('role', 'viewer');
+    mockApiState.members = [
+      { sample_id: 'S1', role: 'mother', affected: false, sex: 'female' },
+      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'unknown' },
+    ];
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation((url: string, config?: unknown) =>
+      url === '/families/F1/haplotypes'
+        ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+        : working(url, config),
+    );
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1']}>
+            <Routes>
+              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      expect(await screen.findByText(/Could not load the haplotypes at the ROI — this is not an empty result/)).toHaveTextContent(
+        /segregation, and any recombination or uninformative warning, are not shown/,
+      );
+      expect(screen.getByText('⚠ segregation not derived')).toBeInTheDocument();
+    } finally {
+      get.mockImplementation(working);
+    }
+  });
+
+  // #607 — a failed request on the family page is said as such, never as missing data.
+  describe('when a request fails', () => {
+    const renderWithFailing = (matches: (url: string) => boolean) => {
+      const get = api.get as unknown as Mock;
+      const working = get.getMockImplementation()!;
+      get.mockImplementation((url: string, config?: unknown) =>
+        matches(url)
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : working(url, config),
+      );
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1']}>
+            <Routes>
+              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      return () => get.mockImplementation(working);
+    };
+
+    it('shows a workspace whose presence check failed, and says the check failed', async () => {
+      mockApiState.structuralVariantTotal = 0;
+      const restore = renderWithFailing((url) => url.startsWith('/families/F1/structural-variants?count_only'));
+      try {
+        expect(
+          await screen.findByText(/Could not load whether this family has structural variants — this is not an empty result/),
+        ).toHaveTextContent(/Their links are shown, so you can open them/);
+        // Unknown, not absent: the link is offered, and the check does not "run" for good.
+        expect(screen.getByRole('link', { name: 'Structural variants' })).toBeInTheDocument();
+        expect(screen.queryByText('Checking available family data…')).not.toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
+
+    it('reads failed curation counts and HPO terms as unknown, not as none', async () => {
+      const restore = renderWithFailing(
+        (url) => url === '/families/F1/small-variant-review-summary' || url === '/families/F1/hpo',
+      );
+      try {
+        const curation = await screen.findByLabelText('Small variant curation');
+        await waitFor(() => expect(curation).toHaveTextContent('Reviewed —'));
+        expect(curation).toHaveTextContent('Notes —');
+        expect(await screen.findByText('could not be loaded')).toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
+
+    it('keeps the current status shown, and unchangeable, when the status list failed', async () => {
+      const restore = renderWithFailing((url) => url === '/family-statuses');
+      try {
+        expect(await screen.findByText(/Could not load the status list — this is not an empty result/)).toHaveTextContent(
+          /The current values are shown, and cannot be changed until it loads/,
+        );
+        const status = screen.getByRole('combobox', { name: 'Family status' });
+        expect(status).toHaveValue('analysis_in_progress');
+        expect(status).toHaveDisplayValue('Analysis in progress');
+        expect(status).toBeDisabled();
+      } finally {
+        restore();
+      }
+    });
+
+    // #610 — a server error is not a family that does not exist.
+    it('says the family could not be loaded, not that it was not found, and retries', async () => {
+      const restore = renderWithFailing((url) => url === '/families/F1');
+      try {
+        expect(await screen.findByRole('heading', { name: 'Family could not be loaded' })).toBeInTheDocument();
+        expect(screen.getByText('HTTP 500 This is a failed request, not a missing family.')).toBeInTheDocument();
+        expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
+      } finally {
+        restore();
+      }
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText(/Family F1/i)).toBeInTheDocument();
+    });
+
+    it('says the member details could not be loaded, instead of loading for good', async () => {
+      const restore = renderWithFailing((url) => url === '/families/F1/members/S1');
+      try {
+        await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+        fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+        const dialog = await screen.findByRole('dialog', { name: /family member details/i });
+        expect(
+          await within(dialog).findByText(/Could not load the member's details — this is not an empty result/),
+        ).toBeInTheDocument();
+        expect(within(dialog).queryByText('Loading member details.')).not.toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
+  });
+
   it('shows HPO phenotype annotations in the family members overview', async () => {
     mockApiState.hpoAnnotations = [
       {
@@ -703,6 +834,178 @@ describe('FamilyDetailPage', () => {
     expect(batchPayload.updates[0]).not.toHaveProperty('sex');
     expect(batchPayload.updates[0]).not.toHaveProperty('role');
     expect(await screen.findByText(/Pending updates saved/i)).toBeInTheDocument();
+  });
+
+  it('asks before closing member details over unapplied edits, not once applied (#529)', async () => {
+    localStorage.setItem('role', 'admin');
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+    fireEvent.change(await screen.findByLabelText('Carrier status'), {
+      target: { value: 'carrier' },
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('dialog', { name: /family member details/i })).toBeInTheDocument();
+
+    // Applied edits wait among the pending updates, so closing now loses nothing.
+    fireEvent.click(screen.getByRole('button', { name: /apply to pending/i }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog', { name: /family member details/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/1 pending/i)).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  // #528: the member dialog's own flows, recorded before it moved into its own component.
+  const openS1AsAdmin = async () => {
+    localStorage.setItem('role', 'admin');
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+    const dialog = await screen.findByRole('dialog', { name: /family member details/i });
+    // The member's details load after the dialog opens.
+    await within(dialog).findByLabelText(/identifier/i);
+    return dialog;
+  };
+
+  it('adds a phenotype to a member from the HPO search', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({ data: {} });
+    const dialog = await openS1AsAdmin();
+
+    // A term is picked once the search has answered: type, then choose the match.
+    fireEvent.change(within(dialog).getByLabelText('HPO term'), { target: { value: 'HP:000125' } });
+    await waitFor(() =>
+      expect(dialog.querySelector('datalist option[value]')).not.toBeNull(),
+    );
+    fireEvent.change(within(dialog).getByLabelText('HPO term'), { target: { value: 'HP:0001250' } });
+    fireEvent.change(within(dialog).getByLabelText(/^note$/i), { target: { value: ' seen at 4 y ' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /add phenotype/i }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/families/F1/members/S1/hpo', {
+        hpo_id: 'HP:0001250',
+        status: 'present',
+        source: 'manual',
+        note: 'seen at 4 y',
+      }),
+    );
+    expect(await within(dialog).findByText('Phenotype annotation saved.')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('HPO term')).toHaveValue('');
+  });
+
+  it('says so when a phenotype cannot be saved', async () => {
+    vi.mocked(api.post).mockRejectedValueOnce(new Error('boom'));
+    const dialog = await openS1AsAdmin();
+    fireEvent.change(within(dialog).getByLabelText('HPO term'), { target: { value: 'HP:000125' } });
+    await waitFor(() => expect(dialog.querySelector('datalist option[value]')).not.toBeNull());
+    fireEvent.change(within(dialog).getByLabelText('HPO term'), { target: { value: 'HP:0001250' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /add phenotype/i }));
+
+    expect(await within(dialog).findByText(/boom|Failed to save phenotype annotation/)).toBeInTheDocument();
+  });
+
+  it('removes a phenotype from a member', async () => {
+    mockApiState.hpoAnnotations = [
+      {
+        id: 'hpo1',
+        sample_id: 'S1',
+        hpo_id: 'HP:0001250',
+        label: 'Seizure',
+        definition: null,
+        status: 'present',
+        onset: null,
+        evidence: null,
+        source: 'manual',
+        note: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ];
+    vi.mocked(api.delete).mockResolvedValueOnce({ data: {} });
+    const dialog = await openS1AsAdmin();
+
+    fireEvent.click(await within(dialog).findByRole('button', { name: /^remove$/i }));
+
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/families/F1/hpo/hpo1'));
+    expect(await within(dialog).findByText('Phenotype annotation removed.')).toBeInTheDocument();
+  });
+
+  it('does not offer to remove the family’s last member', async () => {
+    const dialog = await openS1AsAdmin();
+    expect(within(dialog).getByRole('button', { name: /remove member/i })).toBeDisabled();
+  });
+
+  it('removes a member only once the removal is confirmed', async () => {
+    mockApiState.members = [
+      { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
+      { sample_id: 'S2', role: 'mother', affected: false, sex: 'female' },
+    ];
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    vi.mocked(api.delete).mockResolvedValueOnce({
+      data: {
+        family: {
+          _id: 'fam1',
+          family_id: 'F1',
+          members: [],
+          relationships: [],
+          pedigree: null,
+          projects: ['p1'],
+          metadata: {},
+          roi: null,
+        },
+      },
+    });
+    const dialog = await openS1AsAdmin();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /remove member/i }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0][0]).toContain('Remove S1 from the active family?');
+    expect(api.delete).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /remove member/i }));
+    await waitFor(() =>
+      expect(api.delete).toHaveBeenCalledWith('/families/F1/members/S1', { params: { confirm: true } }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /family member details/i })).not.toBeInTheDocument(),
+    );
+    confirm.mockRestore();
+  });
+
+  it('keeps a member edit pending after Apply, and says so', async () => {
+    const dialog = await openS1AsAdmin();
+    fireEvent.change(within(dialog).getByLabelText('Carrier status'), { target: { value: 'carrier' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /apply to pending/i }));
+
+    expect(
+      await within(dialog).findByText('Member changes are pending. Save pending updates to commit them together.'),
+    ).toBeInTheDocument();
+    // Reopened, the dialog shows the pending edit, not the saved value.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+    expect(await screen.findByLabelText('Carrier status')).toHaveValue('carrier');
   });
 
   it('preserves the selected project in variant workspace links', async () => {

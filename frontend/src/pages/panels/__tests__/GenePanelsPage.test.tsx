@@ -52,6 +52,28 @@ describe('GenePanelsPage', () => {
     expect(screen.queryByRole('button', { name: /create/i })).not.toBeInTheDocument();
   });
 
+  // #610 — a failed catalogue showed as an empty table, with no message.
+  it('says the gene panels could not be loaded, not that there are none, and retries', async () => {
+    localStorage.setItem('role', 'viewer');
+    vi.mocked(api.get).mockRejectedValueOnce(
+      Object.assign(new Error('HTTP 500'), { response: { status: 500 } }),
+    );
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter>
+          <GenePanelsPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(
+      await screen.findByText(/Could not load the gene panels — this is not an empty result/),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('link', { name: 'PanelA' })).toBeInTheDocument();
+    expect(screen.queryByText(/Could not load the gene panels/)).not.toBeInTheDocument();
+  });
+
   it('gives the panel size per assembly, not summed across them (#515)', async () => {
     localStorage.setItem('role', 'viewer');
     (api.get as any).mockResolvedValueOnce({

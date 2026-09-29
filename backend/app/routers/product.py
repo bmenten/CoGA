@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from ..dependencies import get_current_user
 from ..schemas import GithubReleaseCatalogOut
 from ..services.github_releases_service import get_github_release_catalog
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 
 router = APIRouter(prefix="/product", tags=["product"])
 
