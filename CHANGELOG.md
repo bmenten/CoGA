@@ -595,6 +595,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Root and developer guides trimmed and corrected** — the README is a short front door; setup,
+  architecture and open work each have one home (`docs/development.md`,
+  `docs/application-scheme.md`, `docs/ROADMAP.md`); the retired workplan and the separate storage
+  document are gone; AGENTS.md, CONTRIBUTING.md and SECURITY.md match how the project works now
+  (CR-099, #637).
 - **Technical file checked against the code** — every document in `docs/regulatory/` was re-read
   against the code. The Sample QC checks, the version display, the in-app label, the problem-report
   route and several requirement statuses now say what CoGA does, with open gaps marked for the
