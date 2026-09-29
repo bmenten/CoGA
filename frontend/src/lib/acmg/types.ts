@@ -145,14 +145,28 @@ export interface AcmgPhenotypeContext {
 // One family member's genotype call for this variant (for de-novo / segregation).
 export interface AcmgFamilyMemberCall {
   sampleId: string;
-  role: string; // 'proband' | 'father' | 'mother' | 'sibling' | …
+  // 'proband' | 'father' | 'mother' | 'sibling' | …. It finds the proband, never the parents:
+  // a grandparent is stored as 'father' or 'mother' too (see AcmgFamilyContext.parentLinks).
+  role: string;
   affected: boolean;
   gt?: string; // VCF genotype string, e.g. '0/1', '1/1', '0/0', './.'
+  dp?: number; // read depth of the call, when the caller reports it
   sex?: string; // 'male' | 'female' | …, from the pedigree
+}
+
+// One parent → child link of the pedigree: a parent_child relationship of the family whose
+// parent is named father or mother (see pedigree.ts).
+export interface AcmgParentLink {
+  childId: string;
+  parentId: string;
+  role: 'father' | 'mother';
 }
 
 export interface AcmgFamilyContext {
   members: AcmgFamilyMemberCall[];
+  // Who is whose parent. PS2/PM6 compare the proband with the parents linked here, as the
+  // backend's de novo mode does; without links, de novo is not assessed.
+  parentLinks?: AcmgParentLink[];
 }
 
 // mtDNA locus category from the MT_LOCI map (drives mt-specific criteria).

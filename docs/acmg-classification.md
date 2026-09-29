@@ -18,7 +18,7 @@ the code. This note covers the implementation.
 
 | Part | Files |
 | --- | --- |
-| Small-variant engine (pure, unit-tested) | `frontend/src/lib/acmg/` — `criteria.ts` (criterion catalogue), `evaluate.ts` (nuclear pre-evaluation), `evaluateMito.ts` (mtDNA rules), `score.ts` (points, class, VUS tier), `index.ts` (initial selections) |
+| Small-variant engine (pure, unit-tested) | `frontend/src/lib/acmg/` — `criteria.ts` (criterion catalogue), `evaluate.ts` (nuclear pre-evaluation), `evaluateMito.ts` (mtDNA rules), `pedigree.ts` (the proband's parents from the pedigree links), `score.ts` (points, class, VUS tier), `index.ts` (initial selections); `frontend/src/lib/clinvar.ts` (the ClinVar reading for PP5 / BP6) |
 | Small-variant dialog | `frontend/src/pages/families/AcmgClassificationModal.tsx`, `AcmgScaleBar.tsx` |
 | Small-variant server scoring | `backend/app/services/acmg_points.py` (codes, strengths, class bands, `vus_tier_for_points`), `small_variant_review_acmg.py` (payload normalisation, evidence snapshot) |
 | CNV engine | `frontend/src/lib/cnvAcmg/` (criteria for loss and gain, auto-suggestions, scorer) |
@@ -48,14 +48,19 @@ The small-variant dialog runs on the family small-variant page, the NIPT variant
 mtDNA page (mt rule set, chosen for chromosome MT variants that carry mt context). The CNV dialog runs
 on the family structural-variant page. The global Variant Explorer has no classifier.
 
-## Known defects
+## Rules shared with the backend
 
-These are described for lab users in the in-app reference, so the lab is not misled while they are
-open:
+Some pre-evaluation rules repeat a backend rule. Change both sides together:
 
-- PP5 (and the mt PP5) matches the substring "pathogenic", so a ClinVar *Conflicting classifications of
-  pathogenicity* record pre-applies PP5 (`clinvarSays` in `evaluate.ts`, `clinSigIncludes` in
-  `evaluateMito.ts`). The variant marks and the prioritiser already exclude "conflicting".
-- PM6 finds the parents by the flat `father` / `mother` role, which a grandparent can also carry, and
-  ignores the parents' read depth (`evaluateFamily` in `evaluate.ts`). The backend de novo filter uses
-  the pedigree's parent links instead.
+- **ClinVar.** `lib/clinvar.ts` is the one frontend reading of a ClinVar significance, for PP5 / BP6
+  (nuclear and mtDNA) and the small-variant track marks. A *Conflicting classifications of
+  pathogenicity* record is neither pathogenic nor benign, as in the prioritiser
+  (`variant_prioritization.py`) and the mtDNA status (`mitochondrial_analysis.py`).
+- **De novo (PM6 / PS2).** `evaluateFamily` in `evaluate.ts` follows the de novo filter in
+  `clickhouse_variant_queries.py`: the parents come from the pedigree links (`pedigree.ts` reads them as
+  `_parent_child_links` does, never from the flat `father` / `mother` role, which a grandparent also
+  holds), a reference parent needs `_DE_NOVO_MIN_PARENT_DP` reads, and the proband must be heterozygous
+  outside a son's hemizygous X or Y. The dialog offers a candidate the filter drops for depth or
+  zygosity as Consider.
+- **mtDNA maternal transmission.** `_maternal_transmission` in `mitochondrial_analysis.py` reads the
+  proband's mother and father from the same links. The mtDNA PP1 needs `maternal_shared`.

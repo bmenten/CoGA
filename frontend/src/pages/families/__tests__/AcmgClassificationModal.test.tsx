@@ -153,6 +153,64 @@ describe('AcmgClassificationModal', () => {
     expect(within(pp4).getByRole('checkbox')).not.toBeChecked();
   });
 
+  // PM6 compares the proband with the parents the pedigree links, not with whoever has the
+  // role 'father' or 'mother': a PED import gives the grandparents those roles too.
+  it('compares the proband with the linked parents for PM6, not with a grandparent', async () => {
+    const trioVariant: SmallVariant = {
+      _id: 'chr3-300-G-A',
+      chr: 'chr3',
+      start: 300,
+      end: 300,
+      type: 'SNV',
+      gene: 'GENEZ',
+      gene_id: 'ENSG0003',
+      effect: 'missense_variant',
+      hgvsp: 'p.Gly10Asp',
+      genotypes: [
+        { sample: 'GF', gt: '0/0', dp: 30 },
+        { sample: 'GM', gt: '0/0', dp: 30 },
+        { sample: 'P', gt: '0/1', dp: 30 },
+        { sample: 'F', gt: '0/1', dp: 30 },
+        { sample: 'M', gt: '0/0', dp: 30 },
+      ],
+    };
+    const member = (sample_id: string, role: string, sex: string, affected = false) => ({ sample_id, role, sex, affected });
+    const link = (parent: string, child: string, role: 'father' | 'mother') => ({
+      id: `${parent}-${child}`,
+      relationship_type: 'parent_child' as const,
+      sample_id_a: parent,
+      sample_id_b: child,
+      role_a: role,
+      role_b: 'child',
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <AcmgClassificationModal
+          variant={trioVariant}
+          familyId="F1"
+          // The grandparents come first, so a lookup by role finds them.
+          members={[
+            member('GF', 'father', 'male'),
+            member('GM', 'mother', 'female'),
+            member('P', 'proband', 'female', true),
+            member('F', 'father', 'male'),
+            member('M', 'mother', 'female'),
+          ]}
+          relationships={[link('F', 'P', 'father'), link('M', 'P', 'mother'), link('GF', 'F', 'father'), link('GM', 'F', 'mother')]}
+          onClose={vi.fn()}
+          onSave={vi.fn(async () => undefined)}
+        />
+      </QueryClientProvider>,
+    );
+
+    const pm6 = await screen.findByRole('checkbox', { name: /PM6/ });
+    const row = pm6.closest('.acmg-criterion') as HTMLElement;
+    await waitFor(() => expect(row).toHaveClass('acmg-criterion--na'));
+    expect(pm6).not.toBeChecked();
+    await userEvent.hover(row);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Inherited from a parent — not de novo.');
+  });
+
   it('recomputes the class when a strength is changed', async () => {
     renderModal();
     const user = userEvent.setup();

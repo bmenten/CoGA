@@ -60,7 +60,26 @@ describe('evaluateMitoAcmg', () => {
     expect(
       find(evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'benign' }), 'BP6')?.disposition,
     ).toBe('applies');
+    // The backend's likely classes (MitoDNAVariantAnnotationOut.clinical_significance).
+    expect(
+      find(evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'likely_pathogenic' }), 'PP5')?.disposition,
+    ).toBe('applies');
+    expect(
+      find(evaluateMitoAcmg(baseVariant, { clinicalSignificance: 'likely_benign' }), 'BP6')?.disposition,
+    ).toBe('applies');
   });
+
+  // "Conflicting classifications of pathogenicity" contains "pathogenic": read as a substring,
+  // it applied PP5 and argued against BP6. The backend reads it as 'uncertain'.
+  it.each(['Conflicting_classifications_of_pathogenicity', 'uncertain'])(
+    'suggests neither PP5 nor BP6 for a conflicting or uncertain status (%s)',
+    (clinicalSignificance) => {
+      const suggestions = evaluateMitoAcmg(baseVariant, { category: 'protein coding', clinicalSignificance });
+
+      expect(find(suggestions, 'PP5')).toBeUndefined();
+      expect(find(suggestions, 'BP6')).toBeUndefined();
+    },
+  );
 
   it('marks PP3/BP4 not applicable (no mt in-silico predictor)', () => {
     const suggestions = evaluateMitoAcmg(baseVariant, { category: 'protein coding' });
@@ -93,6 +112,24 @@ describe('evaluateMitoAcmg', () => {
     };
     expect(find(evaluateMitoAcmg(baseVariant, mito), 'PP1')?.disposition).toBe('consider');
   });
+
+  // Only 'maternal_shared' says the mother passed the variant on. 'maternal_not_observed' (the
+  // mother does not carry it) and 'maternal_only' contain "maternal" too, and offered PP1.
+  it.each(['maternal_not_observed', 'maternal_only', 'family_private'])(
+    'does not offer PP1 when the transmission is %s',
+    (maternalTransmission) => {
+      const mito: AcmgMitoContext = {
+        category: 'protein coding',
+        maternalTransmission,
+        calls: [
+          { sampleId: 'P', role: 'proband', affected: true, zygosity: 'heteroplasmic', alleleFraction: 0.6 },
+          { sampleId: 'S', role: 'sibling', affected: true, zygosity: 'heteroplasmic', alleleFraction: 0.4 },
+        ],
+      };
+
+      expect(find(evaluateMitoAcmg(baseVariant, mito), 'PP1')?.disposition).toBe('not_applicable');
+    },
+  );
 
   it('derives BS4 when an affected maternal relative lacks the variant', () => {
     const mito: AcmgMitoContext = {

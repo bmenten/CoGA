@@ -28,8 +28,7 @@ the family genotypes, and scores them on the ClinGen points scale.
   the report can later tell whether it changed.
 
 > **Decision support, not an autoclassifier.** The dialog pre-positions the criteria; you confirm them,
-> adjust the strengths and add a note. Two automatic calls need a second look: PP5 is also pre-applied
-> for a ClinVar *conflicting* record, and PM6 does not check the parents' read depth.
+> adjust the strengths and add a note.
 
 A variant opened from the **mtDNA analysis** page gets a mitochondrial rule set.
 

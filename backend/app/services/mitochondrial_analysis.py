@@ -23,6 +23,7 @@ from .clickhouse_variant_records import (
     SmallVariantRecord,
 )
 from .clickhouse_interval_tracks import fetch_interval_track_rows
+from .clickhouse_variant_queries import _parent_child_links
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters
 from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype, genotype_has_alt
@@ -205,6 +206,12 @@ def _clinical_significance(annotation: dict[str, Any]) -> str:
     ).lower()
     if not status_text:
         return "unknown"
+    # ClinVar's "Conflicting classifications of pathogenicity" contains "pathogenic" but is
+    # neither pathogenic nor benign, as in variant_prioritization and the frontend's ClinVar
+    # reading: checked after the words below, it read as pathogenic and the mt ACMG evaluator
+    # suggested PP5. A conflicting record makes the status uncertain, whatever else is joined.
+    if "conflict" in status_text:
+        return "uncertain"
     if "pathogenic" in status_text and "likely" in status_text:
         return "likely_pathogenic"
     if "pathogenic" in status_text:
@@ -215,7 +222,7 @@ def _clinical_significance(annotation: dict[str, Any]) -> str:
         return "benign"
     if "polymorphism" in status_text or "common" in status_text:
         return "polymorphism"
-    if "uncertain" in status_text or "vus" in status_text or "conflict" in status_text:
+    if "uncertain" in status_text or "vus" in status_text:
         return "uncertain"
     if "reported" in status_text or "confirmed" in status_text or "cfrm" in status_text:
         return "reported"
@@ -456,14 +463,24 @@ MaternalTransmission = Literal[
 def _maternal_transmission(
     calls: dict[str, MitoDNAVariantSampleCallOut],
     samples: Sequence[_MemberWithRole],
+    parent_links: Sequence[tuple[str, str, str]],
 ) -> MaternalTransmission:
-    mothers = {sample.sample_id for sample in samples if sample.role == "mother"}
-    fathers = {sample.sample_id for sample in samples if sample.role == "father"}
-    children = {
-        sample.sample_id
-        for sample in samples
-        if sample.role not in {"mother", "father"}
-    }
+    """How the variant sits in the proband's maternal line.
+
+    mtDNA passes from a mother to each of her children, so the calls that decide are those of
+    the proband's mother and father and of the children: the proband and every member the
+    pedigree gives the same mother. The parents are the ones the pedigree links to the
+    proband (``parent_links``, read by ``_parent_child_links`` as the de novo mode reads them),
+    not the members with the role "mother" or "father": a PED import gives everyone with a
+    child that role, so a paternal grandmother who carried the variant read as a carrier
+    mother. Without a proband (role "proband") or without their parents in the pedigree,
+    those sets are empty.
+    """
+    proband = next((sample.sample_id for sample in samples if sample.role == "proband"), None)
+    mothers = {parent for child, parent, role in parent_links if child == proband and role == "mother"}
+    fathers = {parent for child, parent, role in parent_links if child == proband and role == "father"}
+    children = {proband} if proband else set()
+    children |= {child for child, parent, role in parent_links if role == "mother" and parent in mothers}
     mother_alt = any(_has_alt_call(calls.get(sample_id)) for sample_id in mothers)
     father_alt = any(_has_alt_call(calls.get(sample_id)) for sample_id in fathers)
     child_alt = any(_has_alt_call(calls.get(sample_id)) for sample_id in children)
@@ -486,6 +503,7 @@ def _variant_out(
     *,
     member_by_sample: dict[str, dict[str, Any]],
     samples: Sequence[_MemberWithRole],
+    parent_links: Sequence[tuple[str, str, str]],
 ) -> MitoDNAVariantOut:
     calls = {
         call.sample: _call_out(call, member_by_sample=member_by_sample)
@@ -503,7 +521,7 @@ def _variant_out(
         rsid=record.rsid,
         annotation=_annotation_for_record(record),
         calls=calls,
-        maternal_transmission=_maternal_transmission(calls, samples),
+        maternal_transmission=_maternal_transmission(calls, samples, parent_links),
     )
 
 
@@ -880,8 +898,9 @@ async def get_family_mitochondrial_analysis_response(
         sample.coverage.source is not None or sample.coverage.mean_depth is not None
         for sample in samples
     )
+    parent_links = _parent_child_links(context)
     variant_rows = [
-        _variant_out(record, member_by_sample=member_by_sample, samples=samples)
+        _variant_out(record, member_by_sample=member_by_sample, samples=samples, parent_links=parent_links)
         for record in records
     ]
     await _attach_reviews(session, context=context, variants=variant_rows)

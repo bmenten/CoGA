@@ -470,6 +470,7 @@ const FamilySmallVariantsPage: React.FC = () => {
         familyId={familyId}
         locationSearch={location.search}
         members={members}
+        relationships={family?.relationships}
         onPageChange={goToPage}
         page={page}
         projectId={projectId}

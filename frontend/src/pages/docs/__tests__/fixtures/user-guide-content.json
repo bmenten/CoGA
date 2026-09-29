@@ -1047,7 +1047,7 @@
   "title": "Interpretation and review",
   "summary": "Tag, annotate and classify variants — with the semi-automatic ACMG classifier — and keep the review state per family.",
   "quickLinks": [],
-  "text": "Recordyourinterpretationasyougo.Reviewstateiskeptperfamily:thesamevariantintwofamilieshastwoseparaterecords.OneachvariantEachroworcardhasReview,ExcludeandReport(one-clicktags),Tags&notesandACMGclassify.Tags.Thebuilt-intagsareReview,Sendforvalidation,Validated,Validationdidnotconfirm,ConfidentARsinglehit,ExcludedandReport,theACMGclasstags,theVUStiersandSecondaryfinding.Anadministratorcanaddcustomtagsforoneprojectorforeveryone.Noteskeepyourreasoningwiththevariant.Reportputsthevariantinthefamily'sclinicalreport.ACMGclassifyACMGclassifyopensadialogthatpre-evaluatestheACMG/AMPcriteriafromthevariant,thegeneandthefamilygenotypes,andscoresthemontheClinGenpointsscale.Eachcriterionshowsaschecked(thedatasupportsit),●(consider),✕(thedataarguesagainst)orn/a(cannotapply).Hoveritfortheevidence;clicktochangeit,andpickitsstrength.Onlycheckedcriteriacount.Thebaratthetopshowsthepoints,theclassand,foraVUS,thetier(Hot,WarmorCold).TheheaderlinkstognomAD,ClinVar,DECIPHERandaPubMedsearchonthegeneandthepatient'sHPOterms.Saveclassificationstorestheclassasthevariant'sclassificationandreviewtag,togetherwitheverycriterionandyournote;theserverrecomputestheclass.Italsofreezestheevidence,sothereportcanlatertellwhetheritchanged.Decisionsupport,notanautoclassifier.Thedialogpre-positionsthecriteria;youconfirmthem,adjustthestrengthsandaddanote.Twoautomaticcallsneedasecondlook:PP5isalsopre-appliedforaClinVarconflictingrecord,andPM6doesnotchecktheparents'readdepth.AvariantopenedfromthemtDNAanalysispagegetsamitochondrialruleset.StructuralvariantsThestructural-variantpageworksthesameway:Review,Exclude,Report,tagsandnotes,andACMG(CNV)fortheClinGencopy-numberclassifier.Small-variantandSVreviewarecountedseparatelyonthefamilypage.In-depthreferenceACMGclassificationreference(rules,points,mtDNA,CNV)→",
+  "text": "Recordyourinterpretationasyougo.Reviewstateiskeptperfamily:thesamevariantintwofamilieshastwoseparaterecords.OneachvariantEachroworcardhasReview,ExcludeandReport(one-clicktags),Tags&notesandACMGclassify.Tags.Thebuilt-intagsareReview,Sendforvalidation,Validated,Validationdidnotconfirm,ConfidentARsinglehit,ExcludedandReport,theACMGclasstags,theVUStiersandSecondaryfinding.Anadministratorcanaddcustomtagsforoneprojectorforeveryone.Noteskeepyourreasoningwiththevariant.Reportputsthevariantinthefamily'sclinicalreport.ACMGclassifyACMGclassifyopensadialogthatpre-evaluatestheACMG/AMPcriteriafromthevariant,thegeneandthefamilygenotypes,andscoresthemontheClinGenpointsscale.Eachcriterionshowsaschecked(thedatasupportsit),●(consider),✕(thedataarguesagainst)orn/a(cannotapply).Hoveritfortheevidence;clicktochangeit,andpickitsstrength.Onlycheckedcriteriacount.Thebaratthetopshowsthepoints,theclassand,foraVUS,thetier(Hot,WarmorCold).TheheaderlinkstognomAD,ClinVar,DECIPHERandaPubMedsearchonthegeneandthepatient'sHPOterms.Saveclassificationstorestheclassasthevariant'sclassificationandreviewtag,togetherwitheverycriterionandyournote;theserverrecomputestheclass.Italsofreezestheevidence,sothereportcanlatertellwhetheritchanged.Decisionsupport,notanautoclassifier.Thedialogpre-positionsthecriteria;youconfirmthem,adjustthestrengthsandaddanote.AvariantopenedfromthemtDNAanalysispagegetsamitochondrialruleset.StructuralvariantsThestructural-variantpageworksthesameway:Review,Exclude,Report,tagsandnotes,andACMG(CNV)fortheClinGencopy-numberclassifier.Small-variantandSVreviewarecountedseparatelyonthefamilypage.In-depthreferenceACMGclassificationreference(rules,points,mtDNA,CNV)→",
   "paragraphs": [
    "Record your interpretation as you go. Review state is kept per family: the same variant in two families has two separate records.",
    "Each row or card has Review, Exclude and Report (one-click tags), Tags & notes and ACMG classify.",
@@ -1094,7 +1094,7 @@
    ],
    [
     "callout",
-    "Decision support, not an autoclassifier. The dialog pre-positions the criteria; you confirm them, adjust the strengths and add a note. Two automatic calls need a second look: PP5 is also pre-applied for a ClinVar conflicting record, and PM6 does not check the parents' read depth."
+    "Decision support, not an autoclassifier. The dialog pre-positions the criteria; you confirm them, adjust the strengths and add a note."
    ],
    [
     "h3",
@@ -1205,10 +1205,6 @@
    [
     "strong",
     "Decision support, not an autoclassifier."
-   ],
-   [
-    "em",
-    "conflicting"
    ],
    [
     "strong",

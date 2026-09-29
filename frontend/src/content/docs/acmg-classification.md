@@ -88,16 +88,15 @@ member.
 | **PP2** | Applied (Supporting) | Missense in a missense-constrained gene (gnomAD missense Z of 3.09 or more). |
 | **PP3 / BP4** | Applied, strength scaled | See *In-silico evidence* below. |
 | **BP7** | Applied (Supporting) | Synonymous, with SpliceAI below 0.1 or no SpliceAI score. A higher SpliceAI score marks BP7 as argues against. |
-| **PP5** | Applied (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic. BP6 is then marked argues against. See the warning below. |
+| **PP5** | Applied (Supporting) | ClinVar lists this variant as pathogenic or likely pathogenic. BP6 is then marked argues against. |
 | **BP6** | Applied (Supporting) | ClinVar lists this variant as benign or likely benign. PP5 is then marked argues against. |
 | **PP4** | Applied (Supporting or Moderate) | See *Phenotype (PP4)* below. |
-| **PM6** | Applied (Moderate) | Present in the proband and absent in both parents (assumed de novo). See *De novo (PM6)* below. |
+| **PM6** | Applied or Consider (Moderate) | Present in the proband and absent in both parents (assumed de novo). See *De novo (PM6)* below. |
 | **PP1** | Consider (Supporting) | Carried by 2 or more affected family members. |
 | **BS4** | Consider (Strong) | An affected family member is genotyped and does not carry the variant. |
 
-> **PP5 and conflicting ClinVar records.** CoGA also pre-applies PP5 when ClinVar says *Conflicting
-> classifications of pathogenicity*, because that text contains the word "pathogenic". Untick PP5 for a
-> conflicting record.
+A ClinVar record with *Conflicting classifications of pathogenicity* is neither pathogenic nor benign,
+so it pre-applies neither PP5 nor BP6. The variant marks and the ranking read ClinVar the same way.
 
 ### Frequency (PM2, BS1, BA1)
 
@@ -150,23 +149,26 @@ Moderate: raise it to Strong yourself for a highly specific, single-gene phenoty
 
 ### De novo (PM6)
 
-PM6 compares the proband with the family members recorded as **father** and **mother**:
+PM6 compares the proband with the proband's own parents: the father and mother that the pedigree links
+to the proband. The member roles do not decide it, because a grandparent can hold the father or mother
+role too. The rules are those of the de novo inheritance filter.
 
-- Both parents genotyped, neither carries the variant → PM6 applied (assumed de novo). Upgrade to PS2
-  yourself if parentage is confirmed.
+- Both parents called reference with 8 reads or more, and the proband heterozygous → PM6 applied
+  (assumed de novo). A call without a reported depth counts as enough. Upgrade to PS2 yourself if
+  parentage is confirmed.
+- Both parents reference, but a parent has fewer than 8 reads → PM6 Consider. At that depth a parent
+  can carry the variant without it being called. Check the parents' reads.
+- Both parents reference, but the proband is homozygous → PM6 Consider. A de novo event changes one
+  copy, so something else explains the second: a deletion of the other allele, uniparental disomy or a
+  genotyping error.
 - A parent carries it → PS2 and PM6 not applicable (inherited).
 - A parent's genotype is missing → PS2 and PM6 not applicable (cannot be assessed).
+- The pedigree does not link the proband to both parents → PS2 and PM6 not applicable (cannot be
+  assessed).
 - For a son on chrX or chrY outside the pseudo-autosomal regions, only the parent who passes on that
   chromosome counts: the mother for the X, the father for the Y. The variant must be absent in that
-  parent and not called in the other.
-
-Check two things yourself, because CoGA does not:
-
-- **Parental depth.** A parent called reference counts as absent whatever the read depth. Check that
-  both parents are well covered at the site.
-- **Which relatives.** CoGA finds the parents by their role in the family. In a family that also holds
-  grandparents, a grandparent can carry the father or mother role. Check that PM6 compared the proband
-  with the proband's own parents.
+  parent, with 8 reads or more, and not called in the other. The son's own call can be `1`, `1/1` or
+  `0/1`.
 
 ---
 
@@ -186,6 +188,7 @@ clickable.
 | No homozygotes in gnomAD | BS2 |
 | No REVEL, SpliceAI or AlphaMissense value | PP3, BP4 |
 | A parent's genotype is missing | PS2, PM6 |
+| The pedigree does not link the proband to both parents | PS2, PM6 |
 | Inherited from a parent | PS2, PM6 |
 | Fewer than 2 affected carriers | PP1 |
 | No genotyped affected member without the variant | BS4 |
@@ -220,11 +223,11 @@ only the pre-evaluation differs.
 | --- | --- |
 | **PVS1** | Very strong for a predicted-null change in a protein-coding mt gene. Not applicable at tRNA, rRNA and control-region loci. Consider when the locus type is unknown. |
 | **PM2 / BS1 / BA1** | gnomAD mtDNA thresholds: BA1 0.5% or more (stand-alone), BS1 0.02% or more, PM2 below 0.002% or absent. A MITOMAP polymorphism or haplogroup marker goes to BS1. |
-| **PP5 / BP6** | From the MITOMAP or ClinVar status: pathogenic → PP5; benign or polymorphism → BP6. The warning about conflicting records applies here too. |
+| **PP5 / BP6** | From the MITOMAP or ClinVar status: pathogenic → PP5; benign or polymorphism → BP6. A conflicting ClinVar record reads as uncertain: neither. |
 | **PP3 / BP4** | Not applicable: the mtDNA predictors (MitoTIP, APOGEE, HmtVar) are not loaded. Assess by hand. |
 | **PM1** | Consider (Moderate) at tRNA loci. |
 | **PS2 / PM6** | Not applicable: maternally inherited. |
-| **PP1 / BS4** | Maternal segregation: Consider PP1 when 2 or more affected family members carry it and it is recorded as maternally transmitted; Consider BS4 when an affected member does not carry it. |
+| **PP1 / BS4** | Maternal segregation. Consider PP1 when 2 or more affected family members carry it and the mtDNA page reads *Maternal transmission*: the proband's mother, as the pedigree links her, carries it, and so does the proband or a sibling of the same mother. Consider BS4 when an affected member does not carry it. Both count every affected member, also relatives outside the maternal line: check that they share the proband's mtDNA. |
 | **PP4** | Supporting when an HPO term is on both the proband's and the gene's list; the evidence text notes the proband's heteroplasmy. |
 | PP2, PM3, PM4, PM5, BP1, BP2, BP3, BP7, BS2 | Not applicable. |
 

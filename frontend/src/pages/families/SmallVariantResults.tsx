@@ -16,6 +16,7 @@ import SmallVariantPairCards from './SmallVariantPairCards';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import SmallVariantTable from './SmallVariantTable';
 import { apiPath, raw } from '../../lib/apiPath';
+import type { ApiFamilyRelationship } from '../../lib/apiTypes';
 
 type ResultViewMode = 'auto' | 'table' | 'cards';
 
@@ -39,6 +40,8 @@ type SmallVariantResultsProps = {
   familyId?: string;
   locationSearch: string;
   members: FamilyMember[];
+  // The family's pedigree links, for the ACMG de novo criteria (PS2/PM6).
+  relationships?: ApiFamilyRelationship[];
   onPageChange: (nextPage: number) => void;
   page: number;
   projectId?: string;
@@ -63,6 +66,7 @@ export default function SmallVariantResults({
   familyId,
   locationSearch,
   members,
+  relationships,
   onPageChange,
   page,
   projectId,
@@ -305,6 +309,7 @@ export default function SmallVariantResults({
           projectId={projectId}
           variant={acmgVariant}
           members={members}
+          relationships={relationships}
           tagDefinitions={tags}
           speciesName={speciesName}
           assemblyName={assemblyName}
