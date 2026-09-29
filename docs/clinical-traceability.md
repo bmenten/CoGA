@@ -26,8 +26,9 @@ record in a package (`manifest`), and an edit through
 `PUT /families/{family_id}/annotation-manifest` (`manual`; later imports then leave the
 manifest alone). `GET /families/{family_id}/annotation-manifest` merges it with what CoGA itself
 loaded: the reference assembly, the source of the gene loci (`gene_loci`: GENCODE, or the
-UCSC table used when GENCODE could not be fetched) and the Monarch release. The report footer
-shows the merged list, and sign-out freezes it.
+UCSC table used when GENCODE could not be fetched), the Monarch release and the HPO release
+(how each is read: [annotation-provenance.md](annotation-provenance.md#the-reference-modules)).
+The report footer shows the merged list, and sign-out freezes it.
 
 **The evidence snapshot** is taken on every ACMG save. It holds the variant's annotation
 version, its annotation-set hash and its ClinVar significance, with the time. The hash
@@ -96,9 +97,9 @@ Four gates run first, in this order:
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 
 A lookup that fails while the snapshot is built is frozen as an explicit marker, never as an
-empty value: missing QC cut-offs as `sequencing_qc.unavailable`, a failed assembly or Monarch
-lookup as module version `unavailable`. The audit event lists these as `not_captured`, and the
-report page names them.
+empty value: missing QC cut-offs as `sequencing_qc.unavailable`, and a failed lookup of a
+reference module, or an HPO ontology that recorded no release, as module version `unavailable`.
+The audit event lists these as `not_captured`, and the report page names them.
 
 The other sign-out endpoints:
 
@@ -116,6 +117,12 @@ sign-out (`sign-out-check`):
 - green: the content matches the signed version;
 - amber: the content changed after sign-out, and the changed sections are named;
 - grey: the check could not be made, so treat the page as unsigned.
+
+Each snapshot also records the reference modules its build looked up (`reference_modules`).
+A snapshot without that list was signed before CoGA recorded the HPO release and holds none:
+the check lists `modules.hpo` under `not_compared` instead of calling the record changed, and
+`not_captured` names the missing release. A snapshot with the list but no HPO module was signed
+with no ontology loaded, so an ontology imported since is a change.
 
 A page that is not the verified signed record prints with a notice at the top ("Draft …",
 "Not the signed report …" or "Not verified …"). The frozen record itself can be downloaded as
@@ -161,8 +168,8 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   the old key report `unknown_key`; keep the old public key for audits.
 - `coga_app` keeps INSERT on the chained tables, so it could append a forged but
   self-consistent row; it cannot rewrite or delete existing ones.
-- The manifest's platform layer covers only the assembly, the gene loci and Monarch. The
-  releases of HPO, the gene reference, PanelApp and the clinical CNVs are not in it, and
+- The manifest's platform layer covers the assembly, the gene loci, Monarch and HPO. The
+  releases of the gene reference, PanelApp and the clinical CNVs are not in it, and
   `reference_dataset_imports.source_version` and `source_release_date` are never filled.
 - Any user who can open the family can sign out; sign-out is not limited to a role. The same
   users can replace the family's annotation manifest (`PUT …/annotation-manifest`), which is

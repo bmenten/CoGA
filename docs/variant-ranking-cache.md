@@ -29,7 +29,7 @@ Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the r
 | The pedigree and who is affected | the family's latest `family_structure_versions.structure_hash` |
 | The family's small-variant data | the ClickHouse `SNV_INDEL/family_data_version` table: every insert, delete or re-import of the family's variants adds a token |
 | The Monarch release | `monarch_gene_disease.release_version` |
-| The HPO ontology release | `hpo_term.release_version` |
+| The loaded HPO ontology: its release and import time | the most recently written `hpo_term` row (`release_version`, `updated_at`), read as the signed record reads it ([annotation-provenance.md](annotation-provenance.md#the-reference-modules)); the import time tells apart two imports that recorded no release |
 | Gene constraint (pLI, missense-Z) | the latest `gene_info.updated_at` for the assembly |
 | The review-filter state | the review-tag and excluded-variant sets of the query |
 | The assembly and the scoring version | the family, and `_ALGORITHM_VERSION` in `variant_ranking_cache.py` |
@@ -77,6 +77,9 @@ or removal), and after a PED upload or manual family creation.
 | Monarch, HPO or gene reference refreshed | every ranking that reads it misses |
 | Review tags or exclusions changed | the review signature changes |
 | Scoring code changed | bump `_ALGORITHM_VERSION`; every ranking misses |
+
+A change to what the key covers needs no bump: the hashed input itself changes, so no row
+cached before can match.
 
 A package import also deletes the family's cached rows when it finishes. That only frees
 rows the new data version could never match again.

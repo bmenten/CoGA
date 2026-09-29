@@ -101,7 +101,8 @@ backend container with `scripts/import_dgv.py`, which inserts in batches (see
 ### Updating the HPO ontology
 
 To move to a newer HPO release, put the new `hp.obo` in `/data/ref-data/hpo/` and run the sync
-on **Admin → HPO Terminology** (`POST /admin/hpo/sync`). The sync previews the changes first.
+on **Admin → HPO Terminology** (`POST /admin/hpo/sync`). The page starts from the file the
+backend is configured to load (`HPO_ONTOLOGY_PATH`). The sync previews the changes first.
 It only reads files inside the configured ontology folders.
 
 ## 2. Gene reference sync
