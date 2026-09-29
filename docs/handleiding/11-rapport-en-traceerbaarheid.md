@@ -29,7 +29,7 @@ Naast de varianten toont het familierapport drie herkomstelementen, elk met een 
 | --- | --- | --- |
 | Herkomstvoettekst | De versies van annotatie en referentie (assembly, VEP, ClinVar, gnomAD, GENCODE, Monarch, HPO, …), met afwijkingen per modaliteit | `GET /families/{id}/annotation-manifest` |
 | Driftmelding | Classificaties waarvan de annotatie veranderde sinds ze gemaakt werden | `GET /families/{id}/classification-drift` |
-| Klinisch auditspoor | Wie wat classificeerde of tagde, wanneer, met de waarde ervoor en erna | `GET /families/{id}/clinical-audit` |
+| Klinisch auditspoor | Wie wat classificeerde of tagde of het annotatiemanifest verving, wanneer, met de waarde ervoor en erna | `GET /families/{id}/clinical-audit` |
 
 Dezelfde drie worden bij het ondertekenen bevroren.
 
@@ -122,7 +122,7 @@ Nee, niet vanzelf. In het kort:
 CoGA houdt twee auditlogs bij:
 
 - **De HTTP-toegangslog** `audit_log_events`: elk verzoek, met methode, pad, status en gebruiker (hoofdstuk 7).
-- **Het klinische auditspoor** `clinical_audit_events`: betekenisvolle klinische handelingen (classificeren, een tag zetten of weghalen, een notitie wijzigen, een review leegmaken of wissen, ondertekenen), met per veld de waarde ervoor en erna. Het geldt voor small variants, SV's en CNV's; bij een CNV legt de regel voor de klasse ook de ClinGen-score vast (de soort, het puntentotaal en de aanvaarde criteria met hun punten). Regels van SV's en CNV's dragen `metadata.modality = "sv"`, zodat hun id nooit voor dat van een small variant wordt gehouden. Het spoor wordt in dezelfde transactie geschreven als de wijziging zelf, zodat het nooit uit de pas loopt met de data. Wijzigingen aan de stamboom, de familieleden en hun HPO-termen, en de review van een compound-heterozygoot paar, staan er niet in. Ze staan in de HTTP-toegangslog, en stamboom- en ledenwijzigingen ook als structuurversie in `family_structure_versions` (niet append-only en niet geketend).
+- **Het klinische auditspoor** `clinical_audit_events`: betekenisvolle klinische handelingen (classificeren, een tag zetten of weghalen, een notitie wijzigen, een review leegmaken of wissen, het annotatiemanifest vervangen, ondertekenen), met per veld de waarde ervoor en erna. Het geldt voor small variants, SV's en CNV's; bij een CNV legt de regel voor de klasse ook de ClinGen-score vast (de soort, het puntentotaal en de aanvaarde criteria met hun punten). Regels van SV's en CNV's dragen `metadata.modality = "sv"`, zodat hun id nooit voor dat van een small variant wordt gehouden. Het spoor wordt in dezelfde transactie geschreven als de wijziging zelf, zodat het nooit uit de pas loopt met de data. Wijzigingen aan de stamboom, de familieleden en hun HPO-termen, en de review van een compound-heterozygoot paar, staan er niet in. Ze staan in de HTTP-toegangslog, en stamboom- en ledenwijzigingen ook als structuurversie in `family_structure_versions` (niet append-only en niet geketend).
 
 Beide zijn in de databank **append-only**: een trigger blokkeert wissen en wijzigen, met één uitzondering: het op `NULL` zetten van een verwijzing naar een account of familie die verwijderd wordt. De gedenormaliseerde velden bewaren dan wie het was. Dezelfde bescherming geldt voor `report_signouts`, `integrity_anchors` en `qc_threshold_changes`.
 
@@ -165,7 +165,7 @@ De ankers dekken de Postgres-ketens. De variantopslag in ClickHouse bewaakt een 
 ## De volledige traceerbaarheidsketen
 
 1. **Ruw bestand → hash.** Elk bronbestand staat in `raw_import_files`, met zijn SHA-256 (hoofdstuk 6).
-2. **Annotatiemanifest.** De tool- en databankversies uit de VCF-headers staan per familie in `family_annotation_manifest` (hoofdstuk 6).
+2. **Annotatiemanifest.** De tool- en databankversies uit de VCF-headers staan per familie in `family_annotation_manifest` (hoofdstuk 6); een vervanging door een beheerder komt in het klinische auditspoor.
 3. **Variant in ClickHouse.** Elke variant draagt de hash van de annotatieset waarmee hij werd geannoteerd (hoofdstuk 3).
 4. **Classificatie en bewijs.** Bij elke ACMG-classificatie van een small variant worden de annotatieversie, de hash van de annotatieset, de ClinVar-waarde en het tijdstip bevroren (hoofdstuk 10).
 5. **Poorten.** Vóór het ondertekenen worden de assembly, de drift en de sample-QC gecontroleerd; wat niet in orde is, moet worden erkend, met een reden.

@@ -23,9 +23,10 @@ cp .env.example .env
 `APP_ENV=development` in `.env`. The backend then accepts the placeholder passwords and keys,
 and serves the interactive API docs at <http://localhost:8000/docs>. With any other value it
 refuses to start until `SECRET_KEY`, `INTEGRITY_ANCHOR_SIGNING_KEY`, `POSTGRES_PASSWORD`,
-`CLICKHOUSE_PASSWORD` and `ADMIN_PASSWORD` hold real values; `.env.example` shows how to
-generate the first two. The same check applies to anything that loads the backend settings
-on your machine, such as the demo loader.
+`CLICKHOUSE_PASSWORD` and `ADMIN_PASSWORD` hold real values, with the first two different;
+`.env.example` shows how to generate those two. It also refuses `AUDIT_LOG_MODE=off`. The
+same check applies to anything that loads the backend settings on your machine, such as the
+demo loader.
 
 ## Run everything in Docker
 

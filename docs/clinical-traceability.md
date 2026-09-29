@@ -16,15 +16,17 @@ Code comments refer to four parts by number: Phase 0 (the annotation manifest), 
 | --- | --- | --- |
 | Annotation manifest | `family_annotation_manifest` | per family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
 | Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot` | for each ACMG classification of a small variant, what the classifier saw |
-| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, or signed out, when, with before and after |
+| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, replaced the annotation manifest or signed out, when, with before and after |
 | Signed reports | `report_signouts` | each sign-out as a frozen, versioned, content-hashed snapshot |
 | HTTP audit log | `audit_log_events` | every API request, with the user and a masked body |
 
 **The manifest** is filled from three sources: the VCF headers read at import
 (`vcf_header`, see [annotation-provenance.md](annotation-provenance.md)), the pipeline's own
-record in a package (`manifest`), and an edit through
-`PUT /families/{family_id}/annotation-manifest` (`manual`; later imports then leave the
-manifest alone). `GET /families/{family_id}/annotation-manifest` merges it with what CoGA itself
+record in a package (`manifest`), and a replacement by an admin through
+`PUT /families/{family_id}/annotation-manifest`. A replacement is always recorded as `manual`,
+and later imports leave a manual manifest alone. An import and a replacement of the same
+family take turns on one lock, so neither overwrites the other halfway.
+`GET /families/{family_id}/annotation-manifest` merges it with what CoGA itself
 loaded: the reference assembly, the source of the gene loci (`gene_loci`: GENCODE, or the
 UCSC table used when GENCODE could not be fetched), the Monarch release and the HPO release
 (how each is read: [annotation-provenance.md](annotation-provenance.md#the-reference-modules)).
@@ -36,7 +38,7 @@ changes whenever any annotation of the variant changes, so it is the drift key.
 
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
-to it, and so does sign-out. Its actions are `classification`, `tags`, `note` and `sign_out`.
+to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too. Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one) and `sign_out`.
 For a small variant, `classification` holds the ACMG class and the accepted criteria. For a
 structural variant or CNV, it holds the reviewer's classification and the CNV (ClinGen)
 scoring: the class, the kind, the point total and each accepted criterion with its points.
@@ -180,7 +182,5 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 - The manifest's platform layer covers the assembly, the gene loci, Monarch and HPO. The
   releases of the gene reference, PanelApp and the clinical CNVs are not in it, and
   `reference_dataset_imports.source_version` and `source_release_date` are never filled.
-- Any user who can open the family can sign out; sign-out is not limited to a role. The same
-  users can replace the family's annotation manifest (`PUT …/annotation-manifest`), which is
-  then frozen into later sign-outs; that change appears only in the HTTP audit log.
+- Any user who can open the family can sign out; sign-out is not limited to a role.
 - Sign-out exists for the family report only; the monogenic NIPT report page has none.

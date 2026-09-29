@@ -92,10 +92,10 @@ Buiten ontwikkeling en test (dus als `APP_ENV` niet `dev`, `development`, `local
 
 - `SECRET_KEY` korter is dan 32 tekens of `secret`/`change-me` is;
 - `CLICKHOUSE_PASSWORD` leeg is of `admin`/`change-me` is;
-- `INTEGRITY_ANCHOR_SIGNING_KEY` niet de base64 van een 32-byte Ed25519-sleutel is;
+- `INTEGRITY_ANCHOR_SIGNING_KEY` niet de base64 van een 32-byte Ed25519-sleutel is, of gelijk is aan `SECRET_KEY` (dan kan wie sessietokens kan maken ook integriteitsankers ondertekenen);
 - `POSTGRES_PASSWORD`, `ADMIN_PASSWORD` of een ingesteld `POSTGRES_APP_PASSWORD` `admin`/`change-me` is.
 
-Ook `AUDIT_LOG_DROP_ALLOWED=true` (auditregels laten vallen bij een volle wachtrij) wordt daar geweigerd. De foutmelding noemt de velden die niet voldoen. Dit is een bewuste *fail-closed*-keuze: liever niet starten dan onveilig starten. `.env.example` bevat alleen placeholders, precies om te dwingen dat ze vóór een echte uitrol worden vervangen.
+Ook `AUDIT_LOG_DROP_ALLOWED=true` (auditregels laten vallen bij een volle wachtrij) en `AUDIT_LOG_MODE=off` (helemaal geen auditregels schrijven) worden daar geweigerd. De foutmelding noemt de velden die niet voldoen. Dit is een bewuste *fail-closed*-keuze: liever niet starten dan onveilig starten. `.env.example` bevat alleen placeholders, precies om te dwingen dat ze vóór een echte uitrol worden vervangen.
 
 **Waar in de code:** `validate_security_defaults` in `backend/app/core/config.py`.
 

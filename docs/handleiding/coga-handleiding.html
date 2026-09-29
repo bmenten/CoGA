@@ -565,10 +565,10 @@ python docs/handleiding/build_site.py
 <ul>
 <li><code>SECRET_KEY</code> korter is dan 32 tekens of <code>secret</code>/<code>change-me</code> is;</li>
 <li><code>CLICKHOUSE_PASSWORD</code> leeg is of <code>admin</code>/<code>change-me</code> is;</li>
-<li><code>INTEGRITY_ANCHOR_SIGNING_KEY</code> niet de base64 van een 32-byte Ed25519-sleutel is;</li>
+<li><code>INTEGRITY_ANCHOR_SIGNING_KEY</code> niet de base64 van een 32-byte Ed25519-sleutel is, of gelijk is aan <code>SECRET_KEY</code> (dan kan wie sessietokens kan maken ook integriteitsankers ondertekenen);</li>
 <li><code>POSTGRES_PASSWORD</code>, <code>ADMIN_PASSWORD</code> of een ingesteld <code>POSTGRES_APP_PASSWORD</code> <code>admin</code>/<code>change-me</code> is.</li>
 </ul>
-<p>Ook <code>AUDIT_LOG_DROP_ALLOWED=true</code> (auditregels laten vallen bij een volle wachtrij) wordt daar geweigerd. De foutmelding noemt de velden die niet voldoen. Dit is een bewuste <em>fail-closed</em>-keuze: liever niet starten dan onveilig starten. <code>.env.example</code> bevat alleen placeholders, precies om te dwingen dat ze vóór een echte uitrol worden vervangen.</p>
+<p>Ook <code>AUDIT_LOG_DROP_ALLOWED=true</code> (auditregels laten vallen bij een volle wachtrij) en <code>AUDIT_LOG_MODE=off</code> (helemaal geen auditregels schrijven) worden daar geweigerd. De foutmelding noemt de velden die niet voldoen. Dit is een bewuste <em>fail-closed</em>-keuze: liever niet starten dan onveilig starten. <code>.env.example</code> bevat alleen placeholders, precies om te dwingen dat ze vóór een echte uitrol worden vervangen.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>validate_security_defaults</code> in <code>backend/app/core/config.py</code>.</p>
 <h3>Uploads en externe HTML</h3>
 <ul>
@@ -1316,7 +1316,8 @@ python docs/handleiding/build_site.py
 <p>Naast de hash per bestand houdt CoGA per familie één <strong>annotatiemanifest</strong> bij (<code>family_annotation_manifest</code>): per tool of databank de versie, met een detail en, waar nodig, de versie per modaliteit. Zo is elk resultaat later terug te voeren op de versies die het maakten. De regels:</p>
 <ul>
 <li><strong>Verversen bij een nieuwe import:</strong> nieuwe versies overschrijven de oude per tool; wat de nieuwe invoer niet noemt, blijft staan (een nieuwe SV-import wist de SNV-versies dus niet).</li>
-<li><strong>Handwerk wint:</strong> een handmatig gezet manifest (<code>manual</code>) wordt door een import nooit overschreven. Er is geen scherm voor; de API (<code>PUT /api/families/{family_id}/annotation-manifest</code>) laat elke gebruiker met toegang tot de familie het manifest zo vervangen. Het manifest is geen append-only tabel: de vorige waarde verdwijnt, en alleen de HTTP-auditlog bewaart het verzoek.</li>
+<li><strong>Handwerk wint:</strong> een manifest dat met de hand vervangen werd, staat altijd als <code>manual</code> en wordt door een import nooit overschreven. Er is geen scherm voor; alleen een beheerder kan het vervangen, via de API (<code>PUT /api/families/{family_id}/annotation-manifest</code>). Het manifest zelf is geen append-only tabel, maar elke vervanging komt in het klinische auditspoor, met het manifest ervoor en erna (hoofdstuk 11).</li>
+<li><strong>Om beurten:</strong> een import en een vervanging van dezelfde familie nemen hetzelfde slot voor ze het manifest lezen, en een import houdt het vast tot ze is vastgelegd. Een vervanging kan dus niet tussen het lezen en het schrijven van een import vallen; ze wacht tot een lopende import van die familie klaar is.</li>
 <li><strong>Samen met de data:</strong> de schrijfactie maakt deel uit van dezelfde transactie als de import. De herkomst wordt dus bewaard als, en alleen als, de data die ze beschrijft ook bewaard wordt; een fout in de herkomst breekt de import niet.</li>
 <li><strong>Per modaliteit:</strong> SNV, SV en repeats worden door verschillende pipelines geannoteerd en kunnen verschillende releases van dezelfde databank noemen (bv. twee GENCODE-versies). Daarom wordt ook de versie per modaliteit bewaard.</li>
 </ul>
@@ -1676,7 +1677,7 @@ python docs/handleiding/build_site.py
 <li><strong>De inhoud van een wijziging:</strong> bij <code>POST</code>, <code>PUT</code>, <code>PATCH</code> en <code>DELETE</code> wordt de body bewaard, met gevoelige velden (wachtwoord, token, geheim, …) gemaskeerd, ook in het formulier van <code>/auth/token</code>. Een body die niet te lezen is, wordt niet ruw bewaard. De middleware leidt ook af welke entiteit en welke velden werden gewijzigd.</li>
 <li><strong>Scheiding van klinische gegevens en applicatielog:</strong> de body (mogelijk klinische gegevens) komt alleen in de afgeschermde auditdatabank, nooit in de gewone applicatielog.</li>
 </ul>
-<p>Mislukt het wegschrijven, dan wordt dat zelf gelogd; het verzoek van de gebruiker faalt er niet door. De auditregels lopen via een wachtrij die in productie nooit stil iets laat vallen: bij een volle wachtrij schrijft de backend synchroon, en een regel die echt niet op te slaan is, wordt met inhoud gelogd en geteld. Alleen in ontwikkeling mag een volle wachtrij regels laten vallen (<code>AUDIT_LOG_DROP_ALLOWED</code>; daarbuiten weigert de backend te starten). Let wel: met <code>AUDIT_LOG_MODE=off</code> schrijft de backend geen auditregels, en die waarde wordt buiten ontwikkeling niet geweigerd. De standaard is <code>async</code>, en geen van de meegeleverde opstellingen zet <code>off</code>.</p>
+<p>Mislukt het wegschrijven, dan wordt dat zelf gelogd; het verzoek van de gebruiker faalt er niet door. De auditregels lopen via een wachtrij die in productie nooit stil iets laat vallen: bij een volle wachtrij schrijft de backend synchroon, en een regel die echt niet op te slaan is, wordt met inhoud gelogd en geteld. Alleen in ontwikkeling mag een volle wachtrij regels laten vallen (<code>AUDIT_LOG_DROP_ALLOWED</code>) of mag de auditlog helemaal uit (<code>AUDIT_LOG_MODE=off</code>); daarbuiten weigert de backend met die waarden te starten. De standaard is <code>async</code>.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/coga_logging.py</code> (JSON-logging), <code>backend/app/middleware/request_logging.py</code> (de middleware), <code>backend/app/services/audit_log_pg.py</code> en <code>event_pipeline.py</code> (wegschrijven zonder verlies).</p>
 <h3>De volgorde van de middleware</h3>
 <p>In Starlette (waarop FastAPI draait) is de laatst geregistreerde middleware de buitenste. Van binnen (dicht bij de route) naar buiten (dicht bij de client):</p>
@@ -2399,7 +2400,7 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td>Klinisch auditspoor</td>
-<td>Wie wat classificeerde of tagde, wanneer, met de waarde ervoor en erna</td>
+<td>Wie wat classificeerde of tagde of het annotatiemanifest verving, wanneer, met de waarde ervoor en erna</td>
 <td><code>GET /families/{id}/clinical-audit</code></td>
 </tr>
 </tbody>
@@ -2510,7 +2511,7 @@ python docs/handleiding/build_site.py
 <p>CoGA houdt twee auditlogs bij:</p>
 <ul>
 <li><strong>De HTTP-toegangslog</strong> <code>audit_log_events</code>: elk verzoek, met methode, pad, status en gebruiker (hoofdstuk 7).</li>
-<li><strong>Het klinische auditspoor</strong> <code>clinical_audit_events</code>: betekenisvolle klinische handelingen (classificeren, een tag zetten of weghalen, een notitie wijzigen, een review leegmaken of wissen, ondertekenen), met per veld de waarde ervoor en erna. Het geldt voor small variants, SV's en CNV's; bij een CNV legt de regel voor de klasse ook de ClinGen-score vast (de soort, het puntentotaal en de aanvaarde criteria met hun punten). Regels van SV's en CNV's dragen <code>metadata.modality = "sv"</code>, zodat hun id nooit voor dat van een small variant wordt gehouden. Het spoor wordt in dezelfde transactie geschreven als de wijziging zelf, zodat het nooit uit de pas loopt met de data. Wijzigingen aan de stamboom, de familieleden en hun HPO-termen, en de review van een compound-heterozygoot paar, staan er niet in. Ze staan in de HTTP-toegangslog, en stamboom- en ledenwijzigingen ook als structuurversie in <code>family_structure_versions</code> (niet append-only en niet geketend).</li>
+<li><strong>Het klinische auditspoor</strong> <code>clinical_audit_events</code>: betekenisvolle klinische handelingen (classificeren, een tag zetten of weghalen, een notitie wijzigen, een review leegmaken of wissen, het annotatiemanifest vervangen, ondertekenen), met per veld de waarde ervoor en erna. Het geldt voor small variants, SV's en CNV's; bij een CNV legt de regel voor de klasse ook de ClinGen-score vast (de soort, het puntentotaal en de aanvaarde criteria met hun punten). Regels van SV's en CNV's dragen <code>metadata.modality = "sv"</code>, zodat hun id nooit voor dat van een small variant wordt gehouden. Het spoor wordt in dezelfde transactie geschreven als de wijziging zelf, zodat het nooit uit de pas loopt met de data. Wijzigingen aan de stamboom, de familieleden en hun HPO-termen, en de review van een compound-heterozygoot paar, staan er niet in. Ze staan in de HTTP-toegangslog, en stamboom- en ledenwijzigingen ook als structuurversie in <code>family_structure_versions</code> (niet append-only en niet geketend).</li>
 </ul>
 <p>Beide zijn in de databank <strong>append-only</strong>: een trigger blokkeert wissen en wijzigen, met één uitzondering: het op <code>NULL</code> zetten van een verwijzing naar een account of familie die verwijderd wordt. De gedenormaliseerde velden bewaren dan wie het was. Dezelfde bescherming geldt voor <code>report_signouts</code>, <code>integrity_anchors</code> en <code>qc_threshold_changes</code>.</p>
 <p class="waar"><strong>Waar in de code:</strong> de triggers in <code>backend/db/schema/postgres/04_traceability.sql</code>; het schrijven in <code>backend/app/services/clinical_audit_service.py</code>.</p>
@@ -2540,7 +2541,7 @@ python docs/handleiding/build_site.py
 <h2>De volledige traceerbaarheidsketen</h2>
 <ol>
 <li><strong>Ruw bestand → hash.</strong> Elk bronbestand staat in <code>raw_import_files</code>, met zijn SHA-256 (hoofdstuk 6).</li>
-<li><strong>Annotatiemanifest.</strong> De tool- en databankversies uit de VCF-headers staan per familie in <code>family_annotation_manifest</code> (hoofdstuk 6).</li>
+<li><strong>Annotatiemanifest.</strong> De tool- en databankversies uit de VCF-headers staan per familie in <code>family_annotation_manifest</code> (hoofdstuk 6); een vervanging door een beheerder komt in het klinische auditspoor.</li>
 <li><strong>Variant in ClickHouse.</strong> Elke variant draagt de hash van de annotatieset waarmee hij werd geannoteerd (hoofdstuk 3).</li>
 <li><strong>Classificatie en bewijs.</strong> Bij elke ACMG-classificatie van een small variant worden de annotatieversie, de hash van de annotatieset, de ClinVar-waarde en het tijdstip bevroren (hoofdstuk 10).</li>
 <li><strong>Poorten.</strong> Vóór het ondertekenen worden de assembly, de drift en de sample-QC gecontroleerd; wat niet in orde is, moet worden erkend, met een reden.</li>

@@ -28,9 +28,10 @@ A footer at the end of the report states when it was generated and which version
 - the **reference** layer: what CoGA itself loaded — the genome assembly (with its release date), the
   gene loci (their source and import date), the Monarch release and the HPO release (with its date).
 
-The pipeline versions are taken from the family's import manifest; there is no screen to edit them. A
-version that is not known is left out, never guessed. The footer prints with the report and is part of
-the signed record.
+The pipeline versions are taken from the family's import manifest; there is no screen to edit them.
+Only an admin can replace them, through the API, and the replacement is written to the audit trail
+(section 3); a later import leaves it in place. A version that is not known is left out, never
+guessed. The footer prints with the report and is part of the signed record.
 
 The footer also names the software: *Software: CoGA X.Y.Z (commit)*, the build that produced the page,
 followed by the in-house IVD statement and the manufacturer. The report asks for the build each time it
@@ -60,12 +61,13 @@ it, but sign-out does: it counts as drift and needs an acknowledgement (see *The
 
 The **Classification audit trail** lists, most recent first, every clinical action on the family's
 small variants, structural variants and CNVs: who classified, tagged or annotated which variant, when,
-and what changed (before → after), including each sign-out. For a CNV it also lists each change to
+and what changed (before → after), including each sign-out and each replacement of the pipeline versions. For a CNV it also lists each change to
 its ClinGen classification (the class, the points or the criteria). Clearing a review is listed too.
 
 - *Classification VUS (class 3) → Likely pathogenic (class 4)*
 - *CNV classification VUS - class 3 → Pathogenic - class 5*
 - *Tags added report*
+- *Annotation manifest replaced (was vcf_header, now manual): VEP 110 → 112*
 - *Report signed out (v2) — 3 reported variant(s)*
 
 Each entry is written together with the change itself, and entries can never be changed or deleted.

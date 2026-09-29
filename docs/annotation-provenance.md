@@ -34,7 +34,7 @@ One row per family in `family_annotation_manifest`
 | Column | Meaning |
 | --- | --- |
 | `modules` (JSON) | `{ moduleKey: { version, detail, by_modality } }`, one entry per tool or database |
-| `source` | `vcf_header` (from headers), `manifest` (from the package) or `manual` (entered through the API) |
+| `source` | `vcf_header` (from headers), `manifest` (from the package) or `manual` (an admin's replacement through the API) |
 | `recorded_by`, `recorded_at` | who or what wrote it, and when |
 | `assembly_id` | the family's assembly |
 
@@ -56,13 +56,18 @@ All in `merge_vcf_header_provenance`
 - **A re-import refreshes.** The newly read versions replace the old ones key by key.
   Modules the new input does not mention are kept, so re-importing only the SV file does not
   remove the SNV-derived versions. The manifest always reflects the latest import.
-- **A manual manifest is never overwritten.** Once the manifest was set through
+- **A manual manifest is never overwritten.** Once an admin has replaced the manifest through
   `PUT /families/{family_id}/annotation-manifest` (`source='manual'`), imports leave it alone.
+- **An import and a replacement take turns.** Both take the family's manifest lock before they
+  read the row, and an import holds it until it commits. A replacement cannot land between an
+  import's read and its write, and waits while an import of the same family is running.
 - **It commits with the data.** The write runs in a savepoint inside the import's transaction,
   so the provenance is stored exactly when the data it describes is, and a provenance failure
   cannot roll back an import.
-- **History lives in the sign-outs.** The table holds the current manifest only. Each
-  sign-out freezes a copy into its content-hashed snapshot.
+- **History lives in the sign-outs and the audit trail.** The table holds the current manifest
+  only. Each sign-out freezes a copy into its content-hashed snapshot, and each replacement is
+  written to the clinical audit trail with the manifest it replaced
+  ([clinical-traceability.md](clinical-traceability.md)).
 
 The manifest names versions; it does not detect change. That is the job of the
 `annotationSetHash` that ClickHouse keeps per variant: it changes whenever a variant's
@@ -107,8 +112,9 @@ VCF `##reference` line), the pipeline's value is the one listed.
 - **Report.** `FamilyReportPage.tsx` shows the full list ("Modules & versions"), with the
   per-input values where they differ (for example `GENCODE 49 (snv), 45 (sv)`); sign-out
   freezes it.
-- **API.** `GET /families/{family_id}/annotation-manifest` returns the merged list;
-  `PUT /families/{family_id}/annotation-manifest` replaces it (`source='manual'`).
+- **API.** `GET /families/{family_id}/annotation-manifest` returns the merged list.
+  `PUT /families/{family_id}/annotation-manifest` lets an admin replace it; the replacement is
+  recorded as `source='manual'`, whatever `source` the request sends.
 
 ## Limitations
 
@@ -126,10 +132,14 @@ VCF `##reference` line), the pipeline's value is the one listed.
 - [test_vcf_header_provenance.py](../backend/tests/test_vcf_header_provenance.py): the
   parsers, with realistic headers for every input, and the merge rules.
 - [test_annotation_manifest.py](../backend/tests/test_annotation_manifest.py): the refresh
-  rules, the module list and the reference modules with their `unavailable` states.
+  rules, the module list, the reference modules with their `unavailable` states, the replacement's audit
+  event and the lock both writers take.
 - [integration/test_hpo_release_provenance.py](../backend/tests/integration/test_hpo_release_provenance.py):
   the HPO release read from a real database, after a re-import of an older release and after an
   import without one.
+- [integration/test_annotation_manifest_integration.py](../backend/tests/integration/test_annotation_manifest_integration.py):
+  a replacement on the family's hash chain, and an import and a replacement taking turns, on
+  real Postgres.
 - [AnnotationProvenanceSummary.test.tsx](../frontend/src/pages/families/__tests__/AnnotationProvenanceSummary.test.tsx):
   the filter-page summary.
 
