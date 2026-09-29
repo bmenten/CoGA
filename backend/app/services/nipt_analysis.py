@@ -15,8 +15,8 @@ It is pure Python (no numpy/scipy, no I/O): the two core functions
 an already-loaded list of sites. Wiring to ClickHouse and the assay artifact
 list happens later (Phase 5).
 
-See docs/monogenic-nipt-classification.md for the full algorithm reference and
-docs/monogenic-nipt.md for the feature design.
+See docs/monogenic-nipt.md for the implementation notes and
+frontend/src/content/docs/monogenic-nipt.md for the model and the rules.
 """
 
 from __future__ import annotations
