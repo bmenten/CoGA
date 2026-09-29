@@ -106,7 +106,8 @@ resource "google_cloud_run_v2_service" "backend" {
       # Defaults to local; flip var.storage_backend to "gcs" once the PHI bucket is
       # populated. GCS_BUCKET is always wired so activation is a single var change.
       # Signed URLs use IAM SignBlob via the backend SA (serviceAccountTokenCreator
-      # on itself, granted in iam.tf).
+      # on itself, granted in the central infra repo; see
+      # main-repo-reference/coga-prerequisites.tf.example).
       env {
         name  = "STORAGE_BACKEND"
         value = var.storage_backend

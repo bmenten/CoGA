@@ -582,6 +582,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **QC-limit history tested on the server** — a cut-off edit is now shown, in a unit test and
   against the real database, to record the limit it replaced, the new limit, who made the
   change and why; a change without a reason is refused and records nothing (CR-093, #631).
+- **Reference-data bucket read-only to the app** — the backend's service account held a role
+  that could write the reference-data bucket, which is mounted read-only and never written by the
+  app. It now holds the read-only `roles/storage.objectViewer`, as on the PHI bucket (CR-096, #634).
 
 ### Documentation
 
