@@ -582,6 +582,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Per-sample SV rewrites keep every other call** — an SV upload or admin delete for one sample writes
   every other stored call back unchanged (phase set, breakend end, project, inactive members' calls);
   a per-sample SV upload also records its caller in the family's annotation versions (CR-116, #654).
+- **Classified variants reopen with their saved criteria** — every list of small variants (the tables and
+  cards, the report, the NIPT candidates, the mtDNA analysis) now serves each review with its ACMG record.
+  The lists left it out, so the ACMG dialog reopened a classified variant with the pre-evaluation alone, a
+  save replaced the stored criteria with it, and the report showed no classification motivation. The
+  family's review count also counts a review that holds only an ACMG classification (#662).
 
 ### Security
 
