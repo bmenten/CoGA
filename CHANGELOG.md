@@ -107,6 +107,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   (#473, #475). The SV second-hit badge links to the SVs behind it (#468, #470).
 - **Release tooling** — `scripts/check-release-version.sh` fails a release whose tag does not
   match `VERSION` (#398); `RELEASING.md` and a release-record template (#400).
+- **ClinVar support in the Clinical CNV Explorer** — the knowledgebase's per-region count of
+  pathogenic ClinVar CNVs, per side, is stored in `clinical_cnvs` and shown in the explorer and on
+  the CNV page, with a link to each supporting ClinVar record. A knowledgebase built without
+  ClinVar reads "not recorded", not 0 (#625).
 
 ### Changed
 
@@ -499,6 +503,8 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   side now comes from ClinVar's `Type`, then from the copy number in the name (on X and Y only `x0`
   and `x3` or more), and only then from the name's words. CoGA does not load these counts into
   `clinical_cnvs`, so nothing the app shows changes (#623).
+- **CNV page: failed or missing** — the clinical CNV page said "CNV not found." for any failure; a
+  server error now reads "CNV could not be loaded", with the reason and a retry (#625).
 
 ### Security
 

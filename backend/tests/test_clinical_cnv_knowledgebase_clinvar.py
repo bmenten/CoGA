@@ -106,3 +106,24 @@ def test_array_records_count_toward_a_regions_loss_and_gain_support() -> None:
     assert out.loc[0, "clinvar_pathogenic_loss_count"] == 2
     assert out.loc[0, "clinvar_pathogenic_gain_count"] == 1
     assert out.loc[0, "clinvar_pathogenic_accessions"] == "TEST-0;TEST-1;TEST-2"
+
+
+# #624 — the counts are written only once ClinVar support has been computed: a region the
+# build never checked against ClinVar is not a region without ClinVar support.
+def test_counts_stay_empty_until_clinvar_support_is_computed() -> None:
+    clingen = pd.DataFrame(
+        [{"ISCA ID": "ISCA-37446", "ISCA Region Name": "Williams-Beuren", "Genomic Location": "chr7:73330452-74799773"}]
+    )
+    kb = kb_script.normalize_clingen_table(clingen, "https://example.org/clingen.tsv", "GRCh38")
+
+    assert kb.loc[0, "clinvar_pathogenic_loss_count"] == ""
+    assert kb.loc[0, "clinvar_pathogenic_gain_count"] == ""
+    # An empty ClinVar load leaves them unrecorded too.
+    unchanged = kb_script.add_clinvar_overlap_support(kb, pd.DataFrame())
+    assert unchanged.loc[0, "clinvar_pathogenic_loss_count"] == ""
+    # Once counted, a region without overlapping records reads 0.
+    counted = kb_script.add_clinvar_overlap_support(
+        kb,
+        kb_script.clinvar_support_rows(_clinvar_frame(("1", "copy number loss", 1_000_000, 2_000_000, "x1"))),
+    )
+    assert counted.loc[0, "clinvar_pathogenic_loss_count"] == 0

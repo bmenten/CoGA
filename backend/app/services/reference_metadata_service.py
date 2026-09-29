@@ -59,7 +59,24 @@ _CLINICAL_CNV_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "details_html": ("details_html", "details"),
     "source": ("source",),
     "source_detail": ("source_url", "clingen_url", "source_detail"),
+    "clinvar_loss": ("clinvar_pathogenic_loss_count", "clinvar_loss_count"),
+    "clinvar_gain": ("clinvar_pathogenic_gain_count", "clinvar_gain_count"),
+    "clinvar_accessions": ("clinvar_pathogenic_accessions", "clinvar_accessions"),
 }
+
+
+def _clinvar_count(value: str | None) -> int | None:
+    """A knowledgebase ClinVar count, or None when the file records none (#624)."""
+    if value is None:
+        return None
+    try:
+        return max(int(float(value)), 0)
+    except ValueError:
+        return None
+
+
+def _clinvar_accessions(value: str | None) -> list[str]:
+    return [part.strip() for part in (value or "").split(";") if part.strip()]
 
 
 def _clinical_cnv_header_index(row: list[str]) -> dict[str, int] | None:
@@ -930,6 +947,14 @@ async def apply_reference_dataset_text(
                 omim_title = _cell(row, header_index.get("omim_title"))
                 orpha_id = _cell(row, header_index.get("orpha_id"))
                 orpha_name = _cell(row, header_index.get("orpha_name"))
+                clinvar_loss = _clinvar_count(_cell(row, header_index.get("clinvar_loss")))
+                clinvar_gain = _clinvar_count(_cell(row, header_index.get("clinvar_gain")))
+                # The VariationIDs belong to the counts: recorded with them, or not at all.
+                clinvar_accessions = (
+                    _clinvar_accessions(_cell(row, header_index.get("clinvar_accessions")))
+                    if clinvar_loss is not None or clinvar_gain is not None
+                    else None
+                )
                 html = _cell(row, header_index.get("details_html"))
                 if html is None:
                     parts = [
@@ -966,6 +991,7 @@ async def apply_reference_dataset_text(
                 decipher_id = _cell(row, detail_base + 1)
                 description = _cell(row, detail_base + 2)
                 cytoband = source_id = omim_title = orpha_id = orpha_name = None
+                clinvar_loss = clinvar_gain = clinvar_accessions = None
 
             rows.append(
                 {
@@ -986,6 +1012,9 @@ async def apply_reference_dataset_text(
                     "omim_title": omim_title,
                     "orpha_id": orpha_id,
                     "orpha_name": orpha_name,
+                    "clinvar_pathogenic_loss_count": clinvar_loss,
+                    "clinvar_pathogenic_gain_count": clinvar_gain,
+                    "clinvar_pathogenic_accessions": clinvar_accessions,
                 }
             )
         if not rows:
@@ -996,7 +1025,9 @@ async def apply_reference_dataset_text(
                 INSERT INTO clinical_cnvs (
                     assembly_id, chr, start, "end", type, label, details_html,
                     omim_id, decipher_id, description,
-                    cytoband, source_id, omim_title, orpha_id, orpha_name
+                    cytoband, source_id, omim_title, orpha_id, orpha_name,
+                    clinvar_pathogenic_loss_count, clinvar_pathogenic_gain_count,
+                    clinvar_pathogenic_accessions
                 )
                 VALUES (
                     CAST(:assembly_id AS uuid),
@@ -1013,7 +1044,10 @@ async def apply_reference_dataset_text(
                     :source_id,
                     :omim_title,
                     :orpha_id,
-                    :orpha_name
+                    :orpha_name,
+                    :clinvar_pathogenic_loss_count,
+                    :clinvar_pathogenic_gain_count,
+                    :clinvar_pathogenic_accessions
                 )
                 """
             ),
@@ -1501,7 +1535,8 @@ async def get_dgv_track_data(
 _CLINICAL_CNV_COLUMNS = (
     'id::text AS id, chr, start, "end", type, label, details_html, '
     "omim_id, omim_title, decipher_id, description, "
-    "cytoband, source_id, orpha_id, orpha_name"
+    "cytoband, source_id, orpha_id, orpha_name, "
+    "clinvar_pathogenic_loss_count, clinvar_pathogenic_gain_count, clinvar_pathogenic_accessions"
 )
 
 
@@ -1525,6 +1560,9 @@ def _clinical_cnv_out(row: Mapping[str, Any], *, assembly: str | None) -> Clinic
         source_id=row.get("source_id"),
         orpha_id=row.get("orpha_id"),
         orpha_name=row.get("orpha_name"),
+        clinvar_pathogenic_loss_count=row.get("clinvar_pathogenic_loss_count"),
+        clinvar_pathogenic_gain_count=row.get("clinvar_pathogenic_gain_count"),
+        clinvar_pathogenic_accessions=row.get("clinvar_pathogenic_accessions"),
     )
 
 

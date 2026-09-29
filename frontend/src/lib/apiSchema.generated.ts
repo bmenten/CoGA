@@ -306,6 +306,9 @@ export interface ClinicalCnvOut {
   source_id: string | null;
   orpha_id: string | null;
   orpha_name: string | null;
+  clinvar_pathogenic_loss_count: number | null;
+  clinvar_pathogenic_gain_count: number | null;
+  clinvar_pathogenic_accessions: string[] | null;
 }
 
 /** ClinGen 2019 copy-number classification (structural variants only). */

@@ -345,6 +345,12 @@ class ClinicalCnvOut(ApiDocumentModel):
     source_id: Optional[str] = None
     orpha_id: Optional[str] = None
     orpha_name: Optional[str] = None
+    # Pathogenic ClinVar CNVs overlapping the region by >= 30 % reciprocally, per side, and
+    # their VariationIDs, from the knowledgebase build (#624). None: not recorded (built
+    # without ClinVar, or loaded from a file without them), not zero.
+    clinvar_pathogenic_loss_count: Optional[int] = None
+    clinvar_pathogenic_gain_count: Optional[int] = None
+    clinvar_pathogenic_accessions: Optional[List[str]] = None
 
 
 class DgvVariantOut(BaseModel):
