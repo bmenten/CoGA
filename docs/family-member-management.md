@@ -1,84 +1,109 @@
-# Family Member Management Impact Chain
+# Family member management
 
-CoGA stores family membership in PostgreSQL with the family graph split across
-`family_members`, `samples`, and `family_relationships`. HPO annotations are
-stored in `individual_hpo` and linked by `family_id` plus `sample_id` UUID.
+What happens when an admin changes a family after it was created: its members, their
+states, or the relationships between them. All the edits below are admin-only.
 
-## Tables That Reference Family Members
+## Where a member's data lives
 
-- `family_members`: active membership, role, clinical status, carrier status.
-- `family_relationships`: parent-child and couple edges; `sample_id_a` is the parent or first partner, `sample_id_b` is the child or second partner.
-- `individual_hpo`: per-individual HPO annotations.
-- `sample_projects`: project visibility for a sample.
-- `sample_interval_track_sources`: coverage, APCAD, segment, and haplotype track metadata.
-- `repeat_expansions`: TRGT/repeat calls per sample.
-- `sample_paraphase_results`: Paraphase copy-number and haplotype results per sample.
-- ClickHouse SNV/indel entries: per-family variant calls with `calls.sampleId`.
-- ClickHouse structural variant entries: per-family calls with `calls.sampleId`.
+A family's graph is split across three Postgres tables: `family_members` (active
+membership, role, clinical and carrier status), `samples` and `family_relationships`
+(parent-child and couple edges; `sample_id_a` is the parent or first partner, `sample_id_b`
+the child or second partner). The family's PED text is rebuilt into `families.pedigree`
+after every change, and each change adds a row to `family_structure_versions`.
 
-Family-level tables that can depend on member state include
-`small_variant_reviews`, `structural_variant_reviews`, `family_structure_versions`,
-the family pedigree text in `families.pedigree`, and derived browser tracks.
+These also refer to a member:
 
-## Validation Assumptions
+- `individual_hpo` (the person's HPO terms) and `sample_projects` (project visibility);
+- `sample_interval_track_sources`, `repeat_expansions` and `sample_paraphase_results`;
+- the ClickHouse small-variant and structural-variant rows, which name the sample in
+  `calls.sampleId`;
+- family-level: `small_variant_reviews`, `structural_variant_reviews` and the derived
+  browser tracks.
 
-- Father relationships must point to male individuals.
-- Mother relationships must point to female individuals.
-- Unknown-sex individuals may remain generic parents, but cannot be saved as an explicit father or mother when their stored sex conflicts.
-- Parent-child relationships are directed from parent to child and must be acyclic.
-- A child can have at most one father and one mother.
-- Removing a member is a soft removal from the active family graph; linked sample rows are retained for auditability.
+## The edit endpoints
 
-## Derived Data Impact
+| Endpoint | Does |
+| --- | --- |
+| `PUT /families/{family_id}/members/{sample_id}` | edits one member (states, sex, role, parents, rename) |
+| `PUT /families/{family_id}/members/batch` | edits several members in one transaction |
+| `DELETE /families/{family_id}/members/{sample_id}?confirm=true` | removes a member; without `confirm` it returns 409 with the impact |
+| `GET /families/{family_id}/members/{sample_id}/impact` | shows what a change to this member would touch, before you make it |
+| `PUT /families/{family_id}/structure` | adds, updates and removes members and replaces relationships in one request |
 
-Changing sex, role, identifier, or parent links can invalidate pedigree rendering,
-segregation models, inheritance filtering, haplotype phasing, shared haplotype
-calculations, embryo classification, and family-level variant review context.
+The member endpoints go through the structure update, so the rules below apply to all of
+them. When ClickHouse cannot be reached, the impact says that the genotype linkage is
+unknown.
 
-Changing phenotype or carrier status can invalidate segregation analysis,
-inheritance filtering, and saved variant interpretation context.
+## Rules checked on every change
 
-Phenotype, carrier, affected/unaffected, sex, and role edits are treated as
-metadata-only changes. They update `samples`, `family_members`,
-`family_relationships`, `families.pedigree`, `family_structure_versions`, and
-`families.metadata.derived_data_status`. They do not delete, reload, reimport, or
-recompute raw/imported datasets.
+- If the request carries `expected_structure_version` and the family changed since it was
+  loaded, the change is refused (409), so two admins cannot overwrite each other.
+- A family keeps at least one active member and at most one active proband.
+- Relationships must name active members. A child has at most two parents, at most one
+  father and one mother. Parent-child links cannot form a cycle, and no one is their own
+  parent. Duplicate couples are refused.
+- A father cannot be a member recorded as female, and a mother cannot be one recorded as
+  male. A member of unknown sex may be either.
+- Removing a member makes them inactive. The sample row is kept for auditability.
+- Renaming a member is refused while imported genomic data still uses the old sample ID. It
+  is also refused when ClickHouse cannot be reached, because CoGA cannot then confirm that
+  nothing would be orphaned.
 
-Changing HPO annotations marks phenotype-dependent derived data as stale in
-`families.metadata.derived_data_status.hpo_annotations`.
+## What an edit changes
 
-The metadata-derived resources that are marked stale after phenotype/carrier
-updates are:
+Edits save even when the family already has imported data. The imported data is kept: small
+and structural variants, interval tracks (coverage, segments, APCAD, haplotypes), repeat
+expansions and Paraphase results. What depends on the edited facts is marked stale in
+`families.metadata.derived_data_status`, with the scopes that are affected:
 
-- Pedigree display snapshots.
-- Segregation and inheritance-filter views.
-- Haplotype interpretation/classification overlays.
-- Embryo risk/classification summaries.
-- Saved variant interpretation context.
+- a new, reactivated or removed member: sample data;
+- changed relationships: segregation, haplotypes and phasing;
+- a changed sex or role, without relationship changes: segregation and haplotypes;
+- a changed clinical or carrier status: the variant interpretation views.
 
-The imported datasets preserved by metadata updates are:
+The response lists these warnings and scopes. Stale views are not recomputed by the edit.
+Two background jobs do follow a member edit (single, batch or removal) and a PED upload:
+the genome overview's haplotype lineage is recomputed, and the prioritised variant ranking
+is warmed again. An HPO edit re-warms the ranking only. A `PUT …/structure` request starts
+neither.
 
-- APCAD and APCAD PCF interval tracks.
-- Coverage and segment tracks.
-- Haplotype interval tracks.
-- GLIMPSE2, Clair3, and other SNV/indel ClickHouse variant entries.
-- Structural variant ClickHouse entries.
-- TRGT repeat expansion calls.
-- QDNAseq or other coverage-derived uploads.
+Changing an HPO term marks the phenotype-dependent views stale in
+`derived_data_status.hpo_annotations`.
 
-Renaming a member with imported genomic data is blocked because raw variant and
-track datasets still carry the source sample identifier. Removing a member is a
-soft removal from the active family graph and preserves imported datasets.
+Saved variant reviews stay as they are. After a change to phenotypes, carriers or
+relationships, re-check the saved interpretations before you rely on them.
 
-Batch phenotype/member updates use a single transaction. The UI queues edits for
-multiple individuals and calls `PUT /families/{family_id}/members/batch` once,
-then downstream family-level interpretation scopes are marked stale once for the
-batch.
+### Clearing the data to reload it
 
-## Current Limitations
+`PUT /families/{family_id}/structure` with `clear_existing_genomic_data: true` deletes the
+family's imported data, so it can be reloaded under the new structure: small and structural
+variants, interval tracks, repeat expansions, Paraphase results, and the small- and
+structural-variant reviews. It is the only edit that deletes data. The web interface never
+sends it.
 
-- Expensive derived analyses are marked stale; automatic recomputation is only
-performed where the existing service already supports it.
-- Some ClickHouse impact checks can be unavailable when ClickHouse is offline;
-the API reports this as an unknown genotype-linkage risk.
-- The deletion workflow soft-removes members instead of hard-deleting sample rows.
+```yaml
+expected_structure_version: 3
+change_reason: family_detail_page
+clear_existing_genomic_data: false
+add_members:
+  - {sample_id: FUTURE_EMBRYO_1, sex: und, role: embryo, clinical_status: unknown}
+members:
+  - {sample_id: FATHER, clinical_status: unaffected, carrier_status: carrier, carrier_type: proven}
+remove_members: []
+relationships:
+  parent_child:
+    - {parent: FATHER, child: PROBAND, parent_role: father}
+    - {parent: MOTHER, child: PROBAND, parent_role: mother}
+  couples:
+    - {partners: [FATHER, MOTHER], context: reproductive}
+```
+
+## Limits of the pedigree model
+
+- A classic PED row holds only a father and a mother, and the editor allows at most two
+  parents per child.
+- A `couple` relationship can record a partnership without children and consanguinity
+  context.
+- Divorce, adoption, twins, donor gametes, deceased symbols and proband arrows are not
+  modelled.
+- A couple that spans generations is drawn without forcing both partners onto one row.

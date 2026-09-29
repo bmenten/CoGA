@@ -1,10 +1,10 @@
-# CoGA prerequisites — central-repo PR + rollout checklist
+# Central-repo prerequisites and first rollout
 
-Companion to [`README.md`](README.md) and [`coga-prerequisites.tf.example`](coga-prerequisites.tf.example).
-This is the operator runbook for landing the CoGA repo's `deploy/gcp-tf-review-followups`
-change (PR #326), which **removes** project-level IAM/KMS/API management from the CoGA
-pipeline and moves it here. Do the central-repo side (Parts A–B) **before** merging #326
-(Part D). Substitute `PROJECT_ID`, `REGION`, `KMS_KEY`, and the deploy-SA email below.
+Companion to [`README.md`](README.md) and
+[`coga-prerequisites.tf.example`](coga-prerequisites.tf.example): the operator's checklist
+for provisioning CoGA's prerequisites in the central infra repo and doing the first CoGA
+apply. The step-by-step deployment itself is in
+[docs/deployment-gcp.md](../../docs/deployment-gcp.md). Substitute these values below:
 
 ```
 PROJECT_ID  = <CoGA runtime project, e.g. the value of the GCP_COGA_PROJECT_ID secret>
@@ -21,84 +21,31 @@ DEPLOY_SA   = coga-<env>-<region_short>-gh-actions@${PROJECT_ID}.iam.gserviceacc
 
 **Body (paste):**
 
-> Provisions everything the CoGA app repo can no longer manage itself after CoGA PR #326
-> (which drops project-IAM-admin / SA-admin rights from the CoGA deploy pipeline so it
-> cannot self-escalate). Lifted verbatim from CoGA `terraform/main-repo-reference/coga-prerequisites.tf.example`.
+> Provisions what the CoGA app repo deliberately does not manage itself: its deploy
+> pipeline holds no project-IAM-admin or service-account-admin rights, so it cannot grant
+> itself privileges. Lifted from CoGA `terraform/main-repo-reference/coga-prerequisites.tf.example`.
 >
-> Creates on the CoGA runtime project (`PROJECT_ID`):
-> - **16 APIs** (compute, run, sqladmin, servicenetworking, vpcaccess, secretmanager,
->   cloudkms, storage, artifactregistry, iam, iamcredentials, logging, monitoring,
->   certificatemanager, cloudresourcemanager, dns).
-> - **4 runtime service accounts** — `coga-backend-run`, `coga-frontend-run`,
->   `coga-clickhouse-vm`, and `coga-db-migrate` (the schema-migration job, used once the API
->   runs as the restricted database role).
-> - **Least-privilege project IAM**: backend → `cloudsql.client`, `logging.logWriter`,
->   `monitoring.metricWriter`, self `iam.serviceAccountTokenCreator`; frontend →
->   `logging.logWriter`; clickhouse-vm → `logging.logWriter`, `monitoring.metricWriter`;
->   db-migrate → `cloudsql.client`.
-> - **CMEK grants**: `cloudkms.cryptoKeyEncrypterDecrypter` on `KMS_KEY` for the Cloud
->   SQL, Compute, and GCS service agents.
-> - **PHI audit (S-4)**: project-wide GCS `DATA_READ`/`DATA_WRITE` data-access logging.
+> Creates on the CoGA runtime project (`PROJECT_ID`): the APIs CoGA needs; four runtime
+> service accounts (`coga-backend-run`, `coga-frontend-run`, `coga-clickhouse-vm`,
+> `coga-db-migrate`) with least-privilege project roles; the CMEK grants on `KMS_KEY` for the
+> Cloud SQL, Compute and GCS service agents; and project-wide GCS data-access logging (S-4).
 >
-> **Hand-off contract:** after this applies, the CoGA repo apply (PR #326) references the
-> SAs by email and creates only its own resources + resource-level IAM. Merge order is
-> enforced by that dependency — apply this first.
+> **Hand-off contract:** after this applies, the CoGA apply references the accounts by
+> email and creates only its own resources and their resource-level IAM. Apply this first.
 
 **Wire the two variables** (`project_id`, `cmek_key_self_link`) per your landing-zone
 convention, and drop the `.example` suffix when you copy the file in.
 
----
+## Part B — apply the central repo
 
-## Part B — ⚠️ state migration (READ FIRST — skipping this can delete the running SAs)
+Run `terraform apply` in the central repo. The objects are additive and stay idle until
+CoGA refers to them, so a failed apply is safe to retry.
 
-CoGA's **current** Terraform state owns the runtime SAs + KMS grants (they were created by
-the now-deleted `iam.tf`/`kms.tf`). If you merge #326 with those resources still in CoGA's
-state, CoGA's next `terraform apply` will try to **destroy** them — deleting the Cloud Run
-service identities and revoking CMEK access. Decide which path you're on:
+## Part C — verify, and add the grants the template does not make
 
 ```bash
-# In the CoGA terraform dir, against the CoGA state:
-terraform state list | grep -E 'google_service_account\.|google_kms_crypto_key_iam_member\.|google_project_service\.services'
-```
-
-- **Empty output → greenfield** (CoGA was never actually applied to this project). No
-  migration: the central PR *creates* the SAs/grants fresh. Proceed to Part C.
-
-- **Non-empty → already deployed.** The SAs/grants exist and are state-owned by CoGA. Do a
-  hand-off so nothing is destroyed:
-  1. In the **central** repo, `terraform import` each existing object instead of creating a
-     duplicate (a plain create fails "already exists"). Example:
-     ```bash
-     terraform import google_service_account.backend \
-       projects/PROJECT_ID/serviceAccounts/coga-backend-run@PROJECT_ID.iam.gserviceaccount.com
-     terraform import google_service_account.frontend  projects/PROJECT_ID/serviceAccounts/coga-frontend-run@PROJECT_ID.iam.gserviceaccount.com
-     terraform import google_service_account.clickhouse_vm projects/PROJECT_ID/serviceAccounts/coga-clickhouse-vm@PROJECT_ID.iam.gserviceaccount.com
-     # project IAM members: import id is "PROJECT_ID roles/<role> serviceAccount:<email>"
-     # kms members:        import id is "<KMS_KEY> roles/cloudkms.cryptoKeyEncrypterDecrypter serviceAccount:<agent-email>"
-     ```
-     `terraform plan` in the central repo must then show **no changes** for those objects.
-  2. In the **CoGA** repo, drop them from CoGA's state so #326's apply treats them as gone,
-     not to-be-destroyed:
-     ```bash
-     terraform state rm $(terraform state list | grep -E 'google_service_account\.|google_kms_crypto_key_iam_member\.')
-     ```
-     (`google_project_service.services` is safe to leave — it has `disable_on_destroy=false`,
-     so destroying the resource record does not disable the API. `state rm` it too if you
-     want a clean plan.)
-  3. Confirm CoGA `terraform plan` (with #326 applied) shows **no destroys** of any
-     `google_service_account` / `google_kms_crypto_key_iam_member`.
-
----
-
-## Part C — apply the central repo & verify
-
-```bash
-# central repo
-terraform apply    # or apply after the imports in Part B
-
-# --- verify (all should return the expected objects) ---
 gcloud services list --enabled --project PROJECT_ID \
-  | grep -E 'run|sqladmin|cloudkms|secretmanager|storage|iamcredentials'
+  | grep -E 'run|sqladmin|cloudkms|secretmanager|storage|iamcredentials|dns'
 gcloud iam service-accounts list --project PROJECT_ID \
   | grep -E 'coga-backend-run|coga-frontend-run|coga-clickhouse-vm|coga-db-migrate'
 gcloud projects get-iam-policy PROJECT_ID --flatten='bindings[].members' \
@@ -110,9 +57,9 @@ gcloud projects get-iam-policy PROJECT_ID --format=json \
   | jq '.auditConfigs[] | select(.service=="storage.googleapis.com")'   # DATA_READ + DATA_WRITE
 ```
 
-**Also verify the deploy pipeline can `actAs` the runtime SAs** (not created by the
-template — the CoGA Cloud Run apply sets `service_account = <runtime SA>`, and the applying
-`DEPLOY_SA` needs `iam.serviceAccounts.actAs`):
+**The deploy pipeline must be able to act as the runtime accounts** (the CoGA apply sets
+each Cloud Run service's and job's `service_account`, and `DEPLOY_SA` needs
+`iam.serviceAccounts.actAs` on each):
 
 ```bash
 for sa in coga-backend-run coga-frontend-run coga-clickhouse-vm coga-db-migrate; do
@@ -122,8 +69,8 @@ for sa in coga-backend-run coga-frontend-run coga-clickhouse-vm coga-db-migrate;
 done
 ```
 
-If missing (and `DEPLOY_SA` doesn't already hold project-wide `roles/iam.serviceAccountUser`),
-add to the central prerequisites — one binding per runtime SA:
+If missing (and `DEPLOY_SA` does not already hold project-wide `roles/iam.serviceAccountUser`),
+add to the central prerequisites, one binding per runtime account:
 
 ```hcl
 resource "google_service_account_iam_member" "deploy_actas_backend" {
@@ -134,30 +81,27 @@ resource "google_service_account_iam_member" "deploy_actas_backend" {
 # ...repeat for frontend, clickhouse_vm and db_migrate
 ```
 
----
+Also give `DEPLOY_SA` a Cloud Run role that includes `run.jobs.run` (`roles/run.developer`
+or `roles/run.admin`), so the apply can run the migration job. If the images live in
+another project (the shared registry), give Cloud Run's service agent,
+`service-<project-number>@serverless-robot-prod.iam.gserviceaccount.com`,
+`roles/artifactregistry.reader` on the image repository.
 
-## Part D — merge CoGA #326 & verify the app apply
+## Part D — the first CoGA apply
 
-Merging #326 to `main` triggers `.github/workflows/build.yml` → `terraform apply` for the
-CoGA config (now behind the `gcp-deploy` environment gate from #363 — approve it there).
+- [ ] Part C passes: APIs, accounts, roles, key grants, audit config, `actAs` and
+      `run.jobs.run` all present.
+- [ ] `cmek_key_self_link` set for CoGA (required: CMEK is mandatory), and the secret values
+      added ([deployment-gcp.md §5.5](../../docs/deployment-gcp.md)).
+- [ ] The deploy job's `terraform plan` shows only creates, and no destroys.
+- [ ] Approve the `gcp-deploy` environment; the apply succeeds; the backend and frontend come
+      up healthy under their runtime accounts
+      ([deployment-gcp.md §9](../../docs/deployment-gcp.md)).
 
-- [ ] Part B migration done (plan shows **no destroys** of SAs/KMS grants).
-- [ ] Part C central apply green; all `gcloud` verifications pass; `actAs` present.
-- [ ] `cmek_key_self_link` set in CoGA tfvars (now **required** — CMEK is mandatory).
-- [ ] Merge #326 → CoGA `terraform plan` in the deploy job shows only expected
-      creates/updates and **zero** `google_service_account` / `google_kms_crypto_key_iam_member`
-      destroys.
-- [ ] Approve the `gcp-deploy` environment; apply succeeds; Cloud Run backend/frontend come
-      up healthy under their runtime SAs.
-- [ ] (Optional) set `allowed_ingress_cidrs` to the UGent/UZ + VPN ranges and, after
-      reviewing WAF-preview hits, `cloud_armor_waf_enforce = true` (closes #364's WAF item).
-
----
-
-## Part F — go-live switches (#364)
+## Part E — go-live switches
 
 All default off. Each switch is its own change-controlled deployment (TF-18); the order
-below keeps each one small. Details in `docs/deployment-gcp.md` §10 and §12.8–12.10.
+below keeps each one small. Details in `docs/deployment-gcp.md` §10 and §12.7–12.10.
 
 - [ ] **Required reviewers on `gcp-deploy`** (GitHub → Settings → Environments). The deploy
       job refuses to run without at least one.
@@ -173,17 +117,3 @@ below keeps each one small. Details in `docs/deployment-gcp.md` §10 and §12.8�
 - [ ] **Terraform state secrets:** the owner accepts the residual (owner password and
       ClickHouse TLS keys in the private, versioned, CMEK state bucket) or schedules the
       provider upgrade that keeps them out of state (`terraform/README.md`, residuals).
-
----
-
-## Part E — rollback
-
-- **Central apply fails:** safe to retry; the objects are additive and idle until CoGA
-  references them. No CoGA impact (CoGA not yet merged).
-- **CoGA apply fails after Part B migration:** the runtime SAs/grants are now owned by the
-  central repo and untouched. Fix forward in the CoGA repo; do **not** revert #326 without
-  re-importing the SAs back into CoGA state first (a bare revert re-adds `iam.tf`/`kms.tf`
-  and CoGA would try to *create* SAs that already exist → "already exists" errors).
-- **Full unwind:** revert #326 in CoGA **and** `terraform state rm` the SAs/grants from the
-  central repo (leaving them live), so CoGA can re-import/adopt them. Coordinate — only one
-  state may own a given SA at a time.

@@ -595,6 +595,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Technical and deployment docs trimmed and corrected** — the Google Cloud guide no longer
+  generates an integrity-anchor key the backend refuses (it must be 32 bytes); the data-import
+  guide is rewritten at half the length; the database reference lists every table; the
+  traceability, security and Terraform documents describe what the code does now (CR-102, #640).
 - **Handleiding rewritten against current main** — the fifteen chapters of the Dutch codebase
   manual were re-checked against the code and shortened by almost half, with one home per topic
   and the limits a reviewer should know stated plainly (CR-100, #638).

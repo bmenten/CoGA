@@ -1,75 +1,92 @@
 # Test Overview
 
-A catalogue of CoGA's automated tests — **what each test file verifies**, with a link to the
-file. This is the **file-centric** view; for the **requirement-centric** view (each
-requirement → its verifying test), see the Requirements Traceability Matrix
-[docs/regulatory/TF-09b](regulatory/TF-09b-requirements-traceability-matrix.md).
+A catalogue of CoGA's automated tests: **what each test file verifies**, with a link to the
+file. This is the file-centric view. For the requirement-centric view (each requirement and
+its verifying test), see the Requirements Traceability Matrix,
+[TF-09b](regulatory/TF-09b-requirements-traceability-matrix.md).
 
-| Suite | Files | Tests | Runner |
-| --- | --- | --- | --- |
-| Backend (Python) | 162 | 1413, of which 79 are integration/e2e tests that only the `smoke` and `e2e` jobs run | `pytest` |
-| Frontend (TypeScript/React) | 124 | 663 | `vitest` |
-
-> Counts as of 2026-09-28 (#530); the test tree is the source of truth. Regenerate the
-> inventory with the commands in [§ Keeping this current](#keeping-this-current).
+The backend tests run with `pytest` (Python), the frontend tests with `vitest`
+(TypeScript/React). The test tree is the source of truth for how many there are; the
+commands under [Keeping this current](#keeping-this-current) print the counts.
 
 ---
 
 ## Test strategy
 
-- **Unit-first, self-contained.** The backend unit suite mocks Postgres/ClickHouse access, so it runs with no service containers. Pure analysis logic (NIPT, haplotype/PGT, ACMG/CNV, mtDNA, prioritization) is tested directly against synthetic inputs.
-- **Integration smoke.** A small integration suite boots the real app against **Postgres + ClickHouse** (schema init, admin seed, health probe) to catch startup/schema failures the unit suite cannot.
-- **Frontend component + logic.** `vitest` + Testing Library cover pure `lib/` logic, visualization components (canvas mocked), and page behaviour; safety-relevant UI (route guards, ACMG/CNV/NIPT readouts, sign-out/drift) is explicitly covered.
-- **Fail-safe / degraded input.** Across NIPT, ACMG, CNV and haplotype, degraded/empty input must abstain (low-confidence / VUS / uninformative), never silently mis-call.
-- **One backend test root.** Every backend test lives under `backend/tests/`, the only `pytest.ini` `testpaths` entry, so `pytest` collects the same suite whether it is run from the repository root or from `backend/`. The former top-level `tests/` folder was merged into it (#530); `scripts/check-test-catalogue.sh` fails if a test file appears there again.
+- **Unit-first, self-contained.** The backend unit suite mocks Postgres and ClickHouse, so
+  it runs without service containers. Pure analysis logic (NIPT, haplotype/PGT, ACMG/CNV,
+  mtDNA, prioritisation) is tested directly against synthetic inputs.
+- **Integration and end-to-end.** Integration tests boot the real app against Postgres and
+  ClickHouse (schema, admin seed, health probe) to catch startup and schema failures the
+  unit suite cannot. The end-to-end harness runs the golden-trio pipeline and the demo
+  bundles against documented expected results.
+- **Frontend components and logic.** `vitest` and Testing Library cover the pure `lib/`
+  logic, the visualization components (with the canvas mocked) and page behaviour.
+  Safety-relevant UI (route guards, ACMG/CNV/NIPT readouts, sign-out and drift) is covered
+  explicitly.
+- **Fail-safe on degraded input.** Across NIPT, ACMG, CNV and haplotypes, degraded or empty
+  input must abstain (low confidence, VUS, uninformative), never silently mis-call.
+- **One backend test root.** Every backend test lives under `backend/tests/`, the only
+  `testpaths` entry in `pytest.ini`, so `pytest` collects the same suite from the repository
+  root and from `backend/`. `scripts/check-test-catalogue.sh` fails if a test file appears
+  outside it.
 
 ## How to run
 
 ```bash
-# Backend — unit suite (mocked datastores; honours pytest.ini testpaths)
-python -m pytest -q                       # CI; or backend/.venv/bin/python -m pytest
+# Backend: the unit suite (mocked datastores)
+python -m pytest -q
 
-# Backend — integration smoke (needs Postgres + ClickHouse; CI sets RUN_INTEGRATION=1)
-python -m pytest backend/tests/integration -q
+# Backend: integration and end-to-end tests (need Postgres and ClickHouse running)
+RUN_INTEGRATION=1 python -m pytest backend/tests/integration -q
+RUN_INTEGRATION=1 python -m pytest backend/tests/e2e -q
 
-# Frontend — the full gate (matches CI)
+# Frontend: the full gate, as in CI
 cd frontend && npm run tsc && npm run lint && npm run test
 ```
 
+Without `RUN_INTEGRATION=1` the integration and end-to-end tests are skipped. The settings
+the CI jobs use for the datastores are in `.github/workflows/ci.yml`.
+
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs the following jobs on every PR and push to `main`
-(the security gates — `deps`, `secret-scan`, `codeql` — live in `.github/workflows/security.yml`):
+`.github/workflows/ci.yml` runs these jobs on every pull request and push to `main`; the
+security gates (`deps`, `secret-scan`, `codeql`) are in `.github/workflows/security.yml`.
 
 | Job | What it runs | Notes |
 | --- | --- | --- |
-| **backend** | `pip install -r backend/requirements-dev.txt` → `ruff check .` → `mypy` → `scripts/generate-api-types.py --check` → `pytest -q` | Lint (`ruff.toml`), a type check of the clinical-critical modules listed in `mypy.ini`, a check that the frontend's generated API types (`frontend/src/lib/apiSchema.generated.ts`) match the backend's OpenAPI schema (#528), then the self-contained unit suite (no containers) with its coverage floors (#526). |
-| **smoke** | `pytest backend/tests/integration` against `postgres:16` + `clickhouse/clickhouse-server:26.8` services | Real lifespan: schema init, migrations, admin seed, health probe. Records coverage for the `coverage` job. |
-| **e2e** | `pytest backend/tests/e2e` against `postgres:16` + `clickhouse/clickhouse-server:26.8` services | Golden-trio pipeline + demo bundles vs documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Records coverage for the `coverage` job, like `smoke`. |
-| **coverage** | combines the `backend`, `smoke` and `e2e` coverage data → `scripts/check-coverage-floor.py --combined` | Floors on the combined figure for the modules real datastores exercise (import pipeline, integrity anchors, sign-out), which the unit job under-reports (#526). Not yet a required check. |
-| **frontend** | `npm ci` → `npm run tsc` → `npm run lint` → `npm run test:coverage` | Type-check + ESLint + vitest. The type-check includes `src/lib/apiContract.ts`: each hand-written API type in `apiTypes.ts` must accept the response shape the backend's schema declares (#528). The React hooks and jsx-a11y rules are errors; `npm run lint` also fails above its `--max-warnings` budget, which counts the remaining `any`s (#526). vitest fails below the coverage floors in `vite.config.mts`: global, and a separate one for `components/visualizations` (#526). |
-| **e2e-playwright** | seed golden trio → Playwright drives Chromium against a uvicorn backend + the production frontend (built bundle served by `server.mjs`, with its CSP) | Browser journeys: login → family workspace → genome overview (see [TF-09d](regulatory/TF-09d-browser-e2e-verification.md), incl. a manual reproduction procedure for auditors). |
-| **sbom** | CycloneDX SBOM for backend + frontend, uploaded as artifacts | Supply-chain evidence (see [sbom/README.md](../sbom/README.md)). |
+| **backend** | `pip install -r backend/requirements-dev.txt`, `ruff check .`, `mypy`, `scripts/generate-api-types.py --check`, `pytest -q` | Lint (`ruff.toml`); a type check of the clinical-critical modules listed in `mypy.ini`; a check that the frontend's generated API types (`frontend/src/lib/apiSchema.generated.ts`) match the backend's OpenAPI schema; then the unit suite with its coverage floors. |
+| **smoke** | `pytest backend/tests/integration` against Postgres and ClickHouse service containers | The real startup: schema baselines, admin seed, health probe. Records coverage for the `coverage` job. |
+| **e2e** | `pytest backend/tests/e2e` against the same services | The golden-trio pipeline and the demo bundles against documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Records coverage for the `coverage` job. |
+| **coverage** | combines the `backend`, `smoke` and `e2e` coverage data, then `scripts/check-coverage-floor.py --combined` | Floors on the combined figure for the modules only real datastores exercise (import pipeline, integrity anchors, sign-out), which the unit job under-reports. Not a required check. |
+| **frontend** | `npm ci`, `npm run tsc`, `npm run lint`, `npm run test:coverage` | Type check, ESLint and vitest. The type check includes `src/lib/apiContract.ts`: each hand-written API type in `apiTypes.ts` must accept the response shape the backend's schema declares. The React hooks and jsx-a11y rules are errors, and `npm run lint` also fails above its `--max-warnings` budget. vitest fails below the coverage floors in `vite.config.mts`: a global one, and a separate one for `components/visualizations`. |
+| **e2e-playwright** | seeds the golden trio, then Playwright drives Chromium against a uvicorn backend and the production frontend (the built bundle served by `server.mjs`, with its CSP) | Browser journeys; see [TF-09d](regulatory/TF-09d-browser-e2e-verification.md), which includes a manual procedure for auditors. |
+| **sbom** | CycloneDX SBOMs for the backend and the frontend, uploaded as artifacts | Supply-chain evidence (see [sbom/README.md](../sbom/README.md)). Not a required check. |
+| **catalogue** | `scripts/check-test-catalogue.sh`, then `scripts/check-handleiding-sync.sh` | Fails when a test file has no row here or a row names a file that no longer exists, and when the handleiding HTML no longer matches its Markdown chapters. |
 
-All ten checks — `backend`, `frontend`, `smoke`, `e2e`, `e2e-playwright`, `catalogue`
-(`ci.yml`) and `deps`, `secret-scan`, `codeql` ×2 (`security.yml`) — are **required
-status checks** on `main` with **strict** (up-to-date-before-merge) enforcement, so a
-change cannot merge unless they pass (TF-13 S-6).
+Ten checks are required status checks on `main`, with strict (up-to-date-before-merge)
+enforcement: `backend`, `frontend`, `smoke`, `e2e`, `e2e-playwright` and `catalogue` from
+`ci.yml`, and `deps`, `secret-scan` and the two `codeql` checks (Python,
+JavaScript/TypeScript) from `security.yml`. `coverage` and `sbom` run but are not required.
+How the protection is enforced, and where it falls short, is in
+[TF-18 §6](regulatory/TF-18-change-configuration-management.md).
 
 ### Browser end-to-end (Playwright)
 
-`frontend/e2e/*.spec.ts` drive a real Chromium against a running stack: a uvicorn backend and the
-production frontend, i.e. the built bundle served by `server.mjs` with its enforcing CSP and `/api`
-proxy (#526). It is the only suite that exercises the actual UI, and every journey fails if the
-browser reports a CSP violation (`e2e/fixtures.ts`). Run locally with the datastores up:
+`frontend/e2e/*.spec.ts` drive a real Chromium against a running stack: a uvicorn backend and
+the production frontend, that is the built bundle served by `server.mjs` with its enforcing
+CSP and `/api` proxy. It is the only suite that exercises the actual UI, and every journey
+fails if the browser reports a CSP violation (`e2e/fixtures.ts`). Run it locally with the
+datastores up:
 
 ```bash
 RUN_INTEGRATION=1 python scripts/seed_playwright_e2e.py   # golden trio + a known e2e user
 cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 ```
 
-`E2E_FRONTEND=dev` runs the journeys against the Vite dev server instead (faster to iterate, but
-no build and no CSP), and `E2E_BACKEND_PORT` moves the backend off port 8000 when it is taken.
+`E2E_FRONTEND=dev` runs the journeys against the Vite dev server instead (faster to iterate,
+but no build and no CSP), and `E2E_BACKEND_PORT` moves the backend off port 8000 when it is
+taken.
 
 | Spec | Journey |
 | --- | --- |

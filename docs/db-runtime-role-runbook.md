@@ -12,8 +12,7 @@ runtime role cannot `ALTER TABLE … DISABLE TRIGGER`, cannot `SET session_repli
 (superuser-only), and cannot `UPDATE`/`DELETE` the append-only tables — so it can neither
 edit/remove an audit row or signed report nor re-chain an interior edit.
 
-The **application side of the split is already implemented** — the flip is a configuration
-change, no code change:
+The switch is a configuration change; the application needs no code change:
 
 - Setting `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` makes the app **skip** the
   owner-only schema DDL + admin seed on startup, so it can boot as `coga_app` without
@@ -29,15 +28,17 @@ change, no code change:
   "Google Cloud" below).
 
 > **Regulatory note (IVDR / TF-09b REQ-TRACE-008):** until this flip is done, the running
-> application credential *is* the owner and the owner-bypass tampering remains undetectable
-> by the hash chain. The flip + the deferred external chain-head anchor together close that
-> gap. Treat this as a change-controlled deployment (CMGG SOP H11.1-OP5).
+> application credential *is* the owner, and an owner can rewrite the hash chain without
+> the chain showing it. A signed integrity anchor taken before the change makes it visible
+> (see [clinical-traceability.md](clinical-traceability.md)); exporting anchors outside the
+> database is not implemented yet. Treat the flip as a change-controlled deployment (CMGG SOP
+> H11.1-OP5).
 
 ## Invariant: migrations stay as owner, the app runs as `coga_app`
 
 | Connection | Role | Why |
 | --- | --- | --- |
-| Schema migrations / `python -m backend.app.db_migrate` | **owner** (current `DATABASE_URL` role) | needs `CREATE`/`ALTER TABLE`, trigger management, `GRANT` |
+| Schema migrations / `python -m backend.app.db_migrate` | **owner** (the role in the current `POSTGRES_USER`) | needs `CREATE`/`ALTER TABLE`, trigger management, `GRANT` |
 | Application runtime | **`coga_app`** | least privilege; cannot bypass the append-only controls |
 
 Do **not** make migrations run as `coga_app` — it deliberately cannot create or alter
@@ -57,10 +58,10 @@ tables or manage triggers.
    ```
    (Leaving it `NOLOGIN` until now means no passwordless login ever existed.)
 3. **Split the DSNs and disable startup migrations.**
-   - Keep the existing owner DSN as a **migration-only** secret (used by the migration/CI
-     step that runs `python -m backend.app.db_migrate`).
-   - Point the **application** connection at `coga_app` (`POSTGRES_USER=coga_app` +
-     the secret password, or a `coga_app` `DATABASE_URL`).
+   - Keep the owner's credentials (`POSTGRES_USER` / `POSTGRES_PASSWORD`) for the
+     **migration step only** (the step that runs `python -m backend.app.db_migrate`).
+   - Point the **application** at `coga_app`: `POSTGRES_USER=coga_app` and
+     `POSTGRES_PASSWORD` set to its password.
    - Set `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` on the app (Terraform:
      `run_db_schema_migrations_on_startup = false`) so it no longer attempts owner-only DDL
      at boot.

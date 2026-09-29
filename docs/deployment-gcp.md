@@ -5,13 +5,14 @@ Cloud with Terraform. It assumes you can use a terminal but does **not** assume 
 are a GCP or Terraform expert — every concept is explained the first time it
 appears.
 
-> If you just want the terse reference (variables, resource list), see
-> [terraform/README.md](../terraform/README.md). This document is the friendly,
-> end-to-end walkthrough and operations manual.
+> For the design notes, the map of the `.tf` files and the known residuals, see
+> [terraform/README.md](../terraform/README.md). This document is the end-to-end
+> walkthrough and operations manual.
 
-CoGA is a clinical genomics platform handling patient data (PHI), regulated as an
-in-house IVD under IVDR. **Treat every step here as production-grade**: secrets,
-encryption, network isolation, audit logging, and backups are not optional.
+CoGA is built to handle patient data (PHI) and is regulated as an in-house IVD under
+IVDR. **Treat every step here as production-grade**: secrets, encryption, network
+isolation, audit logging, and backups are not optional. There is no production
+deployment yet.
 
 ---
 
@@ -26,7 +27,7 @@ encryption, network isolation, audit logging, and backups are not optional.
 7. [First deployment (manual)](#7-first-deployment-manual)
 8. [Point your domain at it + TLS](#8-dns--tls)
 9. [Verify it works](#9-verify-it-works)
-10. [Deploying through CI/CD (the normal path)](#10-cicd)
+10. [Deploying through CI/CD (the normal path)](#10-cicd-the-normal-path)
 11. [Turning on the GCS storage backend](#11-gcs-storage-backend)
 12. [Day-2 operations (runbooks)](#12-day-2-operations)
 13. [Security & compliance mapping](#13-security--compliance)
@@ -78,12 +79,13 @@ Terraform creates one self-contained CoGA environment in a GCP project:
 |-------|--------------|---------|
 | **PostgreSQL** | Users, projects, families, samples, review state, audit logs. | Cloud SQL (managed) |
 | **ClickHouse** | High-volume variant rows (SNV/SV, interval tracks). | Self-hosted on a Compute Engine VM (GCP has no managed ClickHouse) |
-| **Object storage** | Raw family data (CRAM/BAM for IGV) + reference data. | Google Cloud Storage (GCS) buckets |
+| **Object storage** | Raw family data (CRAM/BAM for IGV, import packages) + reference data. | Google Cloud Storage (GCS) buckets |
 
 **The supporting infrastructure** (created for you): a private network (VPC), a
 load balancer with a managed TLS certificate, a Web Application Firewall (Cloud
-Armor), secret storage (Secret Manager), encryption keys (Cloud KMS / CMEK),
-least-privilege identities (service accounts), and automated backups.
+Armor), secret storage (Secret Manager), least-privilege access to the buckets and
+secrets, and automated backups. The encryption key, the service accounts and the
+project APIs come from outside this configuration (4.3).
 
 Everything lives in **`europe-west1` (Belgium)** by default, for EU data residency.
 
@@ -99,8 +101,6 @@ You'll meet these terms throughout. Skim now, refer back later.
 - **Terraform state** — Terraform's record of what it created. Stored remotely in a
   **GCS bucket** so the whole team shares one source of truth. **It contains
   secrets**, so the bucket must be private + encrypted.
-- **Provider** — the plugin that lets Terraform talk to a specific cloud (here,
-  `hashicorp/google`).
 - **`apply` / `plan`** — `plan` shows what *would* change; `apply` makes it happen.
 - **Project** — a GCP container for resources and billing. CoGA may use one project,
   or several (a runtime project, a shared image-registry project, a KMS project).
@@ -121,7 +121,7 @@ You'll meet these terms throughout. Skim now, refer back later.
   and routes `/api/*` to the backend and everything else to the frontend.
 - **Cloud Armor** — a Web Application Firewall + DDoS protection in front of the LB.
 - **Secret Manager** — secure storage for passwords and keys, injected into the app
-  at runtime (never baked into images or Terraform state where avoidable).
+  at runtime (never baked into images).
 - **Cloud KMS / CMEK** — Customer-Managed Encryption Keys. "Encryption at rest" with
   *your* key (rather than Google's default key), for stronger control.
 - **Artifact Registry** — where the built container images are stored.
@@ -129,8 +129,6 @@ You'll meet these terms throughout. Skim now, refer back later.
   **without** a long-lived key file (keyless CI).
 - **Service account (SA)** — a non-human identity. The backend runs *as* a service
   account with only the permissions it needs (least privilege).
-- **PHI** — Protected Health Information (patient data). The reason for all the
-  encryption/audit/isolation.
 
 ---
 
@@ -163,7 +161,7 @@ Understanding this makes everything else click:
 | Tool | Why | Install |
 |------|-----|---------|
 | `gcloud` | Talk to GCP from the CLI | <https://cloud.google.com/sdk/docs/install> |
-| `terraform` ≥ 1.6 (or `tofu`) | Run the deployment | <https://developer.hashicorp.com/terraform/install> |
+| `terraform` (or `tofu`), at the version `terraform/versions.tf` requires | Run the deployment | <https://developer.hashicorp.com/terraform/install> |
 | `git` | Get the code | your package manager |
 | `openssl` | Generate strong secrets | usually preinstalled |
 
@@ -182,17 +180,18 @@ You (or an admin) need:
 ### 4.3 Landing-zone pieces (created once, possibly by an admin)
 
 These exist *outside* the per-environment Terraform because they're shared or
-sensitive. The bootstrap section (next) shows how to create them if they don't
-exist:
+sensitive. At CMGG the landing zone and the central infra repo provide them; the
+bootstrap section (next) shows how to create them in a standalone project:
 
-- A **GCS bucket for Terraform state** (private, versioned).
+- A **GCS bucket for Terraform state** (private, versioned, CMEK).
 - A **Cloud KMS key** for CMEK (same region as everything else).
 - An **Artifact Registry** repository for images.
 - **Workload Identity Federation** + the CI service accounts (only needed for the
   GitHub Actions path).
 - Control over **DNS** for your domain (e.g. `coga.cmgg.be`).
-- The **runtime service accounts, their roles and the project APIs**, from the central
-  infra repo ([terraform/main-repo-reference/](../terraform/main-repo-reference/coga-prerequisites.tf.example)).
+- The **project APIs, the runtime service accounts and their roles**, the key grants to
+  Google's service agents and the bucket data-access audit log, from the central infra
+  repo ([terraform/main-repo-reference/](../terraform/main-repo-reference/coga-prerequisites.tf.example)).
   The go-live switches in 12.8 and 12.10 need two more things from it: the
   `coga-db-migrate` account, and the Cloud DNS API with Artifact Registry read access for
   the ClickHouse VM.
@@ -202,7 +201,8 @@ exist:
 ## 5. One-time bootstrap
 
 Do this **once per environment** (e.g. once for `dev`, once for `prod`). Replace the
-`<...>` placeholders.
+`<...>` placeholders. At CMGG, 5.1–5.4 and 5.6 are provided by the landing zone and the
+central infra repo; run them yourself only in a standalone project. 5.5 is always yours.
 
 ```bash
 # Pick your project and region.
@@ -213,7 +213,8 @@ gcloud config set project "$PROJECT"
 
 ### 5.1 Terraform state bucket
 
-Terraform needs somewhere to store its state. Make a private, versioned bucket:
+Terraform needs somewhere to store its state. Make a private, versioned bucket (5.2 then
+sets its encryption key, before any state is written):
 
 ```bash
 export STATE_BUCKET="${PROJECT}-tfstate"
@@ -234,12 +235,16 @@ gcloud kms keys create coga --location "$REGION" --keyring coga \
   --next-rotation-time "$(date -u -d '+90 days' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+90d +%Y-%m-%dT%H:%M:%SZ)"
 
 # This string is your cmek_key_self_link variable:
-echo "projects/${PROJECT}/locations/${REGION}/keyRings/coga/cryptoKeys/coga"
+export CMEK_KEY="projects/${PROJECT}/locations/${REGION}/keyRings/coga/cryptoKeys/coga"
+
+# Let Cloud Storage use the key, and encrypt the state bucket with it.
+gcloud storage service-agent --project="$PROJECT" --authorize-cmek="$CMEK_KEY"
+gcloud storage buckets update "gs://${STATE_BUCKET}" --default-encryption-key="$CMEK_KEY"
 ```
 
 > CMEK is mandatory (organization policy) and always on — `cmek_key_self_link` is a
-> required variable. The key is granted to the Cloud SQL / Compute / Storage service
-> agents in the central infra repo before this config applies.
+> required variable. The central infra template grants the key to the Cloud SQL,
+> Compute and Storage service agents (5.4).
 
 ### 5.3 Artifact Registry (for images)
 
@@ -253,17 +258,13 @@ gcloud artifacts repositories create gen-ghreg-shared-gbl \
 
 ### 5.4 Enable the APIs
 
-Terraform enables most APIs itself, but enabling them up front avoids first-run
-races:
-
-```bash
-gcloud services enable \
-  compute.googleapis.com run.googleapis.com sqladmin.googleapis.com \
-  servicenetworking.googleapis.com vpcaccess.googleapis.com \
-  secretmanager.googleapis.com cloudkms.googleapis.com storage.googleapis.com \
-  artifactregistry.googleapis.com iam.googleapis.com iamcredentials.googleapis.com \
-  certificatemanager.googleapis.com logging.googleapis.com monitoring.googleapis.com
-```
+CoGA's Terraform enables no APIs and creates no service accounts: that needs rights the
+CoGA pipeline deliberately lacks. The central infra template,
+[coga-prerequisites.tf.example](../terraform/main-repo-reference/coga-prerequisites.tf.example),
+enables the APIs, creates the runtime service accounts, grants their roles and the key
+grants above, and turns on the bucket data-access audit log. In a standalone project,
+copy it into a Terraform directory of its own, drop the `.example` suffix and apply it as
+a project owner, with `project_id` and `cmek_key_self_link`, before CoGA's first apply.
 
 ### 5.5 Create the secret values
 
@@ -280,12 +281,12 @@ terraform init \
 # Create ONLY the app secret containers first.
 terraform apply -target='google_secret_manager_secret.app' \
   -var="project_id=${PROJECT}" \
-  -var="cmek_key_self_link=projects/${PROJECT}/locations/${REGION}/keyRings/coga/cryptoKeys/coga" \
+  -var="cmek_key_self_link=${CMEK_KEY}" \
   -var="backend_image=placeholder" -var="frontend_image=placeholder"
 
 # Now add a value to each. Use STRONG, DISTINCT values.
 openssl rand -base64 48 | tr -d '\n' | gcloud secrets versions add coga-secret-key            --data-file=-
-openssl rand -base64 48 | tr -d '\n' | gcloud secrets versions add coga-integrity-anchor-key  --data-file=-
+openssl rand -base64 32 | tr -d '\n' | gcloud secrets versions add coga-integrity-anchor-key  --data-file=-
 printf '%s' 'CHOOSE-A-STRONG-ADMIN-PASSWORD'   | gcloud secrets versions add coga-admin-password   --data-file=-
 openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-postgres-password      --data-file=-
 openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-clickhouse-password    --data-file=-
@@ -296,6 +297,9 @@ openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-postgres
 Notes:
 
 - `coga-secret-key` and `coga-integrity-anchor-key` **must be different** values.
+- `coga-integrity-anchor-key` must be the base64 of exactly 32 random bytes (an Ed25519
+  seed), which is what `openssl rand -base64 32` prints. Any other length and the backend
+  refuses to start.
 - You do **not** create `coga-clickhouse-tls-*` — Terraform generates the ClickHouse
   TLS cert/key itself.
 - The `coga-admin-password` is the first login password for user **`coga-admin`**.
@@ -303,12 +307,19 @@ Notes:
 ### 5.6 (CI only) Workload Identity Federation
 
 Only needed for the GitHub Actions path (Section 10). WIF lets GitHub authenticate to
-GCP without storing a key. This is org-specific; the workflow expects service
-accounts named like `coga-dev-<region>-gh-actions@<project>` and
-`reg-dev-<region>-gh-actions@<registry-project>`. Set it up following
-<https://github.com/google-github-actions/auth#setup> and grant those SAs the roles
-they need (Cloud Build, Artifact Registry writer, and — for the deploy SA — the
-roles to run `terraform apply`). If you only ever deploy manually, skip this.
+GCP without storing a key. This is org-specific; the workflow expects these service
+accounts, where `<short>` is the `GCP_REGION_SHORT` repository variable:
+
+- `reg-dev-<short>-gh-actions@<registry-project>` (pushes images),
+- `reg-dev-<short>-cb-runner@<registry-project>` (runs Cloud Build),
+- `coga-dev-<short>-gh-actions@<coga-project>` (runs `terraform apply`).
+
+Set it up following <https://github.com/google-github-actions/auth#setup> and grant
+those accounts the roles they need (Cloud Build, Artifact Registry writer, and — for the
+deploy account — the roles to run `terraform apply`, act as the runtime service accounts
+and run Cloud Run jobs; see
+[main-repo-reference/rollout-checklist.md](../terraform/main-repo-reference/rollout-checklist.md)).
+If you only ever deploy manually, skip this.
 
 ---
 
@@ -336,10 +347,14 @@ The variables you'll most likely set:
 | `db_availability_type` | `ZONAL` (cheaper) or `REGIONAL` (HA) | `ZONAL` |
 | `clickhouse_machine_type` | ClickHouse VM size | `e2-standard-4` (4 vCPU / 16 GB) |
 | `clickhouse_data_disk_gb` | ClickHouse data disk | `200` |
-| `storage_backend` | `local`, `s3`, or `gcs` | `local` (flip to `gcs` later — Section 11) |
+| `storage_backend` | `local` or `gcs` | `local` (flip to `gcs` later — Section 11) |
 | `enable_cloud_armor` | Edge WAF/DDoS | `true` |
 | `cloud_armor_waf_enforce` | Block (vs log-only) WAF matches | `false` (log-only first) |
 | `azure_ad_tenant_id` / `azure_ad_client_id` | Institutional login | empty |
+
+The go-live switches (`cloud_armor_waf_enforce`, `db_runtime_role`,
+`allowed_ingress_cidrs`, `clickhouse_restrict_egress`) are described in 12.7–12.10.
+Every variable, with its default, is in `terraform/variables.tf`.
 
 For **production**, consider `db_availability_type = "REGIONAL"` and a larger
 `db_tier` / `clickhouse_machine_type`.
@@ -363,6 +378,9 @@ gcloud builds submit --config=ci/cloudbuild.frontend.yaml \
   --substitutions=_IMAGE=${IMG_BASE}-frontend:${TAG} .
 ```
 
+Give every build a new tag, as above: Terraform deploys only when the image string
+changes, so an image pushed under a tag it already runs would never roll out.
+
 Then apply Terraform:
 
 ```bash
@@ -371,16 +389,15 @@ terraform init -backend-config="bucket=${STATE_BUCKET}" -backend-config="prefix=
 
 terraform plan -out=tfplan \
   -var="project_id=${PROJECT}" \
-  -var="cmek_key_self_link=projects/${PROJECT}/locations/${REGION}/keyRings/coga/cryptoKeys/coga" \
+  -var="cmek_key_self_link=${CMEK_KEY}" \
   -var="backend_image=${IMG_BASE}-backend:${TAG}" \
   -var="frontend_image=${IMG_BASE}-frontend:${TAG}"
 
 terraform apply tfplan
 ```
 
-Terraform will create ~40 resources (network, databases, secrets wiring, Cloud Run,
-load balancer, Cloud Armor, …). The first apply takes several minutes (Cloud SQL
-alone is ~10 min).
+Terraform creates the network, databases, secrets wiring, Cloud Run, the load
+balancer and Cloud Armor. The first apply takes a while; Cloud SQL takes the longest.
 
 > **Tip:** if a step needs the secret values (it reads the Postgres password to set
 > the DB user), make sure you completed Section 5.5 first.
@@ -414,8 +431,9 @@ warning — that's expected during this window.
 ## 9. Verify it works
 
 ```bash
-# Health endpoint (should print {"status":"ok"} or similar with HTTP 200):
-curl -i https://coga.cmgg.be/api/health
+curl -i https://coga.cmgg.be/api/health         # 200 {"status":"ok"} once the app runs
+curl -i https://coga.cmgg.be/api/health/ready   # 200 only when Postgres and ClickHouse answer
+curl -s https://coga.cmgg.be/api/version        # the version and git commit that are running
 ```
 
 Then open `https://coga.cmgg.be` in a browser and log in with:
@@ -426,6 +444,12 @@ Then open `https://coga.cmgg.be` in a browser and log in with:
 If the page loads and you can log in, the deployment is live. **Change/rotate the
 admin password** and create real user accounts.
 
+**Client addresses.** The load balancer appends `<client-ip>,<lb-ip>` to
+`X-Forwarded-For`, and the backend takes the client `trusted_proxy_hops` (default 2)
+entries from the right, never the client-settable left-most one. After the first
+deploy, check that the audit log's `remoteIp` for your own request is your public
+address.
+
 ---
 
 ## 10. CI/CD (the normal path)
@@ -435,12 +459,14 @@ Day-to-day you don't run Terraform by hand — GitHub Actions does it. The workf
 
 - **On a pull request:** it only runs `terraform fmt -check` + `terraform validate`
   (no credentials, no changes). Safe to review.
-- **On push to `main` (or a release):** it builds both images (stamping
+- **On push to `main` (or a published release):** it builds both images (stamping
   `APP_VERSION`/`GIT_SHA`), pushes them to Artifact Registry, then runs `terraform
-  init/plan/apply` to deploy. Only **one** trigger applies (#520): pushes to `main` by
-  default, or published releases when the repository variable `COGA_DEPLOY_TRIGGER` is
-  `release`. There is one environment and one state, so a later `main` push must not
-  overwrite a release deployment.
+  init/plan/apply` to deploy. A `main` build is tagged `main-<12-character commit>` and a
+  release build with its release tag, so every deploy carries a new image: Cloud Run rolls
+  out new revisions, and with the restricted database role (12.8) the migration job runs
+  again. Only **one** trigger applies: pushes to `main` by default, or published releases
+  when the repository variable `COGA_DEPLOY_TRIGGER` is `release`. There is one environment
+  and one state, so a later `main` push must not overwrite a release deployment.
 
 Set these **GitHub repository secrets** (Settings → Secrets and variables → Actions):
 
@@ -458,7 +484,7 @@ And these **variables**:
 | Variable | Where | What |
 |----------|-------|------|
 | `GCP_REGION_SHORT` | repository | e.g. `euw1`, used in the SA names |
-| `COGA_DEPLOY_TRIGGER` | repository | `main` (default) or `release`: which event deploys (#520) |
+| `COGA_DEPLOY_TRIGGER` | repository | `main` (default) or `release`: which event deploys |
 | `COGA_TFVARS` | `gcp-deploy` environment | Every other Terraform variable, as HCL (for example `storage_backend = "gcs"`, `app_domain = "..."`). CI writes it to `ci.auto.tfvars` before planning, so a value set once is not reverted by the next deploy; the five values CI passes with `-var` still win. No secrets here: they live in Secret Manager. |
 
 Once configured, merging to `main` deploys automatically, after approval: the deploy job
@@ -474,13 +500,14 @@ By default `storage_backend = "local"`, so the app does **not** yet read family
 CRAM/BAM from a bucket. The code, bucket, and permissions are all in place — turning
 it on is a two-step flip:
 
-1. **Upload family data** to the PHI bucket, mirroring the layout
-   `<family_id>/<file>`:
+1. **Upload the alignments** to the PHI bucket. The app looks for
+   `<family_id>/<sample_id>.cram` (with `.crai`), or the same under `<family_id>/bams/` or
+   `<family_id>/alignments/`, at the top of the bucket:
 
    ```bash
    BUCKET=$(terraform output -raw phi_bucket)
-   gcloud storage cp FAM001.cram     "gs://${BUCKET}/FAM001/FAM001.cram"
-   gcloud storage cp FAM001.cram.crai "gs://${BUCKET}/FAM001/FAM001.cram.crai"
+   gcloud storage cp PROBAND.cram      "gs://${BUCKET}/FAM001/PROBAND.cram"
+   gcloud storage cp PROBAND.cram.crai "gs://${BUCKET}/FAM001/PROBAND.cram.crai"
    ```
 
 2. **Flip the switch** and apply:
@@ -492,20 +519,22 @@ it on is a two-step flip:
 The backend then serves IGV alignments as short-lived **signed URLs** (keyless, via
 IAM `SignBlob`) and can stage family-package imports from `gs://` paths. Package Import
 reads from `gs://<phi bucket>/imports` unless the `family_import_roots` variable names
-other locations (`FAMILY_IMPORT_ROOTS`, #520); upload package folders under that prefix.
+other locations (`FAMILY_IMPORT_ROOTS`); upload package folders under that prefix, each
+with its own manifest ([data-import.md](data-import.md), section 3).
 
 The **reference-data** bucket (`refdata`) is always mounted into the backend at
-`/data/ref-data`, regardless of this setting, and **read-only** (#520): load the
-reference files into the bucket out of band, e.g.
-`gcloud storage cp dbNSFP5.4_gene.gz STRchive-loci.json "gs://$(terraform output -raw refdata_bucket)/"`.
-The HPO bootstrap downloads its ontology to a temporary directory when that path is not
-writable, so an empty `hpo/` folder is fine.
+`/data/ref-data`, regardless of this setting, and **read-only**. The backend image holds
+no reference files, so upload all of `data/ref-data/` from the repository, plus the
+dbNSFP gene file ([data-import.md](data-import.md), section 2):
 
-**Client addresses.** The load balancer appends `<client-ip>,<lb-ip>` to
-`X-Forwarded-For`, and the backend takes the client `trusted_proxy_hops` (default 2)
-entries from the right, never the client-settable left-most one (#520). After the first
-deploy, check that the audit log's `remoteIp` for your own request is your public
-address. The HTTPS load balancer enforces TLS 1.2+ with the `MODERN` profile.
+```bash
+REFDATA=$(terraform output -raw refdata_bucket)
+gcloud storage cp -r data/ref-data/* "gs://${REFDATA}/"
+gcloud storage cp dbNSFP5.4_gene.gz "gs://${REFDATA}/"
+```
+
+If the HPO ontology is missing there, the startup bootstrap downloads it to a temporary
+directory.
 
 ---
 
@@ -513,8 +542,8 @@ address. The HTTPS load balancer enforces TLS 1.2+ with the `MODERN` profile.
 
 ### 12.1 Deploy a new version of the app
 
-- **Normal:** merge to `main` → CI builds + applies.
-- **Manual:** build a new image (Section 7), then
+- **Normal:** merge to `main` → CI builds new images, and after approval applies them.
+- **Manual:** build new images under a new tag (Section 7), then
   `terraform apply -var="backend_image=...:newtag" -var="frontend_image=...:newtag"`.
 
 Cloud Run rolls out a new revision with zero-downtime; if it fails its health check,
@@ -530,9 +559,14 @@ printf '%s' 'NEW-VALUE' | gcloud secrets versions add coga-secret-key --data-fil
 gcloud run services update coga-backend --region "$REGION" --update-labels rotated=$(date +%s)
 ```
 
-For the **Postgres password**, the database user's password is set from the secret by
-Terraform, so: add the new version, then `terraform apply` (it updates the DB user and
-the backend together).
+The backend reads its secrets when an instance starts, so running instances keep the old
+value until the roll.
+
+For the **Postgres password**, Terraform sets the database user's password from the
+secret. Add the new version, run `terraform apply` (it changes the user's password, not
+the backend), then roll the backend as above. Between the two, running instances cannot
+open new database connections, so do it at a quiet time. For `coga_app`'s password, see
+[db-runtime-role-runbook.md](db-runtime-role-runbook.md), "Google Cloud".
 
 ### 12.3 Backups & restore
 
@@ -557,13 +591,10 @@ gcloud compute disks create coga-clickhouse-data-restored \
   --source-snapshot=<SNAPSHOT_NAME> --zone="$REGION-b" --type=pd-ssd
 ```
 
-**Upgrading ClickHouse** (a new `clickhouse_image`, e.g. 25.3 → 26.8 LTS in #524). The server
-upgrades its data directory in place the first time the new version starts, and the previous
-version is not guaranteed to read it afterwards, so switching the image back is not a rollback.
-Take a snapshot of the data disk first (above); to roll back, restore that snapshot. The
-25.3 → 26.8 step was verified on a data volume written by 25.3: every table attached with the
-same row counts and content hashes, `CHECK TABLE` and the integrity sweep passed, and the e2e
-suite ran against it.
+**Upgrading ClickHouse** (a new `clickhouse_image`). The server upgrades its data directory
+in place the first time the new version starts, and the previous version is not guaranteed
+to read it afterwards, so switching the image back is not a rollback. Take a snapshot of the
+data disk first (above); to roll back, restore that snapshot.
 
 > **Run a restore drill** before go-live (IVDR item P1-13): actually restore into a
 > throwaway instance/VM and confirm the data is intact. A backup you've never
@@ -573,7 +604,7 @@ suite ran against it.
 
 Automatic: a daily `systemd` timer on the VM re-fetches the cert from Secret Manager
 and restarts ClickHouse only if it changed — no action needed for a server-cert
-re-issue. The VM has **no SSH ingress** (see §S-8), so there is normally nothing to do
+re-issue. The VM has **no SSH ingress** (TF-13 S-8), so there is normally nothing to do
 by hand. If you must force a refresh, either wait for the daily timer, or add a
 temporary break-glass IAP SSH rule (source `35.235.240.0/20`, tcp/22, target tag
 `clickhouse`), run `sudo /etc/coga-clickhouse/refresh-certs.sh`, then remove the rule.
@@ -584,8 +615,10 @@ Rotating the **CA** (10-year) is rare and needs a backend redeploy to pick up th
 
 - **Backend/frontend traffic:** raise `backend_max_instances` / `frontend_max_instances`.
 - **Database:** raise `db_tier` (and `REGIONAL` for HA).
-- **ClickHouse:** raise `clickhouse_machine_type` / `clickhouse_data_disk_gb`
-  (the disk auto-grows on the FS only if you resize + grow; plan capacity).
+- **ClickHouse:** raise `clickhouse_machine_type` / `clickhouse_data_disk_gb`. Terraform
+  grows the disk, but not the file system on it: afterwards run
+  `sudo resize2fs /dev/disk/by-id/google-clickhouse-data` on the VM (through the
+  break-glass SSH rule of 12.4). Plan capacity ahead.
 
 ### 12.6 Logs & monitoring
 
@@ -674,13 +707,12 @@ This deployment closes the deployment-level security items tracked in
 | **S-8** network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege service accounts, NAT/PGA, optional edge IP allowlist (12.9) and ClickHouse egress lockdown (12.10) |
 | **P1-3/P1-4** DB privilege separation | `db_runtime_role = "coga_app"` (12.8): the API runs as a role that cannot change the audit trail and cannot read the owner's password |
 | **P1-13** backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots (**do a restore drill**) |
-| edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist |
+| edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist; the HTTPS load balancer accepts TLS 1.2+ with the `MODERN` profile |
 
 **Still your responsibility (process, not code):** IVDR **change control** (TF-18) for
-each switch in 12.8–12.10 and for the first production deployment, and the IFU (TF-15)
-minimum IT requirements. Google Cloud is the chosen host. The DPIA that adds Google as a
-data sub-processor is signed and the data processing agreement is being signed (owner,
-2026-09-29); TF-14 and TF-02 §10 record this (CR-089).
+each switch in 12.7–12.10 and for the first production deployment, and the IFU (TF-15)
+minimum IT requirements. Google Cloud is the chosen host. The DPIA and the data
+processing agreement with Google are tracked in TF-14 and TF-02 §10.
 
 ---
 
@@ -707,12 +739,12 @@ To reduce a **dev** environment's cost: `db_availability_type = "ZONAL"`, a smal
 |---------|--------------------|
 | Managed cert stuck `PROVISIONING` | DNS A record not pointing at `load_balancer_ip` yet, or domain not resolving. Fix DNS; wait up to ~60 min. |
 | Backend revision won't go healthy | A required secret has no `latest` version (Section 5.5), or the DB/ClickHouse isn't reachable. Check `gcloud run services logs read coga-backend`. |
-| "Refusing to start … insecure default credentials" | `SECRET_KEY`/`ADMIN_PASSWORD` still placeholders. Add real secret versions and redeploy. |
+| "Refusing to start outside development/test with missing or weak secrets: …" | The named secrets are placeholders or malformed: `SECRET_KEY` needs 32+ characters, `INTEGRITY_ANCHOR_SIGNING_KEY` the base64 of 32 bytes, and the Postgres, ClickHouse and admin passwords real values. Add correct secret versions (5.5) and roll the backend (12.2). |
 | `terraform apply` fails reading the Postgres password | The `coga-postgres-password` secret version doesn't exist yet — complete the secret bootstrap (5.5) before the full apply. |
 | ClickHouse VM has no data / won't start the container | No Cloud NAT egress to pull the image, or the data disk didn't mount. With the egress lockdown (12.10): the image is not in Artifact Registry, or the VM's account cannot read it. Check the VM serial console: `gcloud compute instances get-serial-port-output coga-clickhouse-vm --zone "$REGION-b"`. |
 | Deploy job fails at "Refuse to deploy without required reviewers" | The `gcp-deploy` environment has no required reviewer. Add one (Section 10) and re-run the job. |
 | `terraform apply` fails in `terraform_data.db_migrate` | The schema migration job failed (12.8); the running revision keeps serving. Read its logs: `gcloud run jobs executions list --job coga-db-migrate --region "$REGION"`, then `gcloud logging read 'resource.type="cloud_run_job" resource.labels.job_name="coga-db-migrate"' --limit 50`. |
-| Postgres connector errors | Backend SA missing `roles/cloudsql.client`, or the Cloud SQL Admin API disabled. Both are wired by Terraform — re-`apply`. |
+| Postgres connector errors | The backend's service account lacks `roles/cloudsql.client`, or the Cloud SQL Admin API is off. Both come from the central infra repo (5.4), not from this configuration. |
 | Legitimate requests blocked | If you enabled `cloud_armor_waf_enforce`, review the WAF logs (12.6) and tune; revert to `false` to log-only. |
 | Frontend loads but API calls 404 | The LB path rule must route `/api/*` to the backend — re-`apply`; confirm the URL map exists. |
 
@@ -734,7 +766,7 @@ Then:
 
 ```bash
 cd terraform
-terraform destroy -var="project_id=${PROJECT}" -var="cmek_key_self_link=..." \
+terraform destroy -var="project_id=${PROJECT}" -var="cmek_key_self_link=${CMEK_KEY}" \
   -var="backend_image=x" -var="frontend_image=x"
 ```
 
@@ -746,35 +778,18 @@ nothing left.
 
 ## 17. FAQ
 
-**Why is ClickHouse on a plain VM instead of managed?**
-GCP has no managed ClickHouse. The VM uses a dedicated, encrypted, snapshot-backed
-disk, fetches its password/cert from Secret Manager at boot, serves HTTPS, and
-gracefully shuts down to avoid corruption. For a guaranteed multi-minute flush
-window under all conditions, a future option is running it on GKE as a StatefulSet.
-
 **Can I run this in a different region?**
 Yes — set `region`/`zone` (and put the KMS key in that region). Keep it in the EU for
 data residency.
 
-**Do I have to use CMEK / Cloud Armor / Azure login?**
-CMEK is **mandatory** (org policy) and always on. Cloud Armor (`enable_cloud_armor`)
-can be turned off but is recommended for PHI. Azure AD login is optional (leave the
-`azure_ad_*` vars empty to disable).
-
-**Where do the build version numbers come from?**
-`APP_VERSION` (from the `VERSION` file) and `GIT_SHA` are baked into the image at
-build time and frozen into every signed clinical report — which is why CI builds from
-the repo root and passes them as build args. Don't bypass that.
-
-**Is anything not yet automated?**
-A couple of operational residuals are listed in
-[terraform/README.md](../terraform/README.md) (e.g. the SQL-user password living in
-Terraform state — keep the state bucket locked down). The IVDR change-control/DPIA
+**Why is ClickHouse on a VM, and what is not automated yet?**
+See the design notes and the known residuals in
+[terraform/README.md](../terraform/README.md) (for example the SQL-user password living
+in Terraform state — keep the state bucket locked down). The IVDR change-control and DPIA
 paperwork is a manual, required step.
 
 ---
 
-*Quick reference (variables, resource list, residuals):*
-[terraform/README.md](../terraform/README.md).
+*Design notes and residuals:* [terraform/README.md](../terraform/README.md).
 *Security posture:* [security-posture.md](security-posture.md) ·
 [regulatory/TF-13-cybersecurity.md](regulatory/TF-13-cybersecurity.md).

@@ -15,7 +15,7 @@ terraform {
   }
 
   # Remote state in GCS. Bucket + prefix are supplied at `terraform init` time via
-  # -backend-config (see .github/workflows/build.yml and terraform/README.md), so the
+  # -backend-config (see .github/workflows/build.yml and docs/deployment-gcp.md §7), so the
   # same config serves every environment. The state bucket holds DB/user passwords in
   # plaintext — it MUST be a private, versioned, CMEK-encrypted bucket with tight IAM.
   backend "gcs" {}

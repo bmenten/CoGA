@@ -14,7 +14,7 @@
 #   printf '%s' "$APP_PG_PW"    | gcloud secrets versions add coga-postgres-app-password  --data-file=- --project <p>
 #
 # Versions MUST exist before `terraform apply` (the Cloud SQL user and the Cloud Run
-# revisions resolve `latest` at apply time). See terraform/README.md "Bootstrap". The
+# revisions resolve `latest` at apply time). See docs/deployment-gcp.md §5.5. The
 # last one, coga_app's password (printable ASCII), is needed only before switching to
 # db_runtime_role = "coga_app": docs/db-runtime-role-runbook.md, "Google Cloud".
 
