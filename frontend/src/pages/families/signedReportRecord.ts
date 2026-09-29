@@ -12,8 +12,9 @@ import { importIncompleteFromMetadata, type FamilyImportIncomplete } from '../..
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
 import { CNV_CLASS_LABELS, cnvCriterionMap } from '../../lib/cnvAcmg';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
-import type { QcStatus } from '../../lib/apiTypes';
+import type { ApiStructuralEvidence, QcStatus } from '../../lib/apiTypes';
 import { joinWithAnd } from './reportNarrative';
+import { formatLocus } from './smallVariantResultUtils';
 import {
   getClassificationLabelFromTagKey,
   getClassificationTagKeyFromTags,
@@ -101,6 +102,22 @@ export interface SignedDrift {
   drifted: SignedDriftItem[];
 }
 
+export interface SignedStructuralDriftItem {
+  variantId: string;
+  status: string;
+  /** What moved: 'source' | 'sv_type' | 'locus' | 'gene_symbols' | 'pli' | 'inheritance' | 'annotations'. */
+  changed: string[];
+  evidenceFrom: ApiStructuralEvidence | null;
+  evidenceTo: ApiStructuralEvidence | null;
+  classifiedBy: string | null;
+}
+
+export interface SignedStructuralDrift {
+  checked: number | null;
+  driftedCount: number;
+  drifted: SignedStructuralDriftItem[];
+}
+
 export interface SignedQcCheck {
   label: string;
   status: string;
@@ -152,6 +169,8 @@ export interface SignedReport {
   modules: SignedModule[] | null;
   software: { version: string; gitSha: string | null } | null;
   drift: SignedDrift | null;
+  /** The SV/CNV classifications' evidence drift; null: signed before CoGA froze their evidence. */
+  structuralDrift: SignedStructuralDrift | null;
   driftAcknowledgement: SignedAcknowledgement;
   sampleQc: SignedSampleQc | null;
   qcAcknowledgement: SignedAcknowledgement;
@@ -307,6 +326,55 @@ const parseDrift = (value: unknown): SignedDrift | null => {
   };
 };
 
+// The evidence fields the drift check compares, each kept only when it has the expected type.
+const parseStructuralEvidence = (value: unknown): ApiStructuralEvidence | null => {
+  if (!isObject(value)) return null;
+  const genes = Array.isArray(value.gene_symbols)
+    ? (value.gene_symbols as unknown[]).filter((gene): gene is string => typeof gene === 'string')
+    : null;
+  return {
+    source: text(value.source),
+    sv_type: text(value.sv_type),
+    chrom: text(value.chrom),
+    start: number(value.start),
+    end: number(value.end),
+    gene_symbols: genes,
+    pli: number(value.pli),
+    inheritance: text(value.inheritance),
+  };
+};
+
+const parseStructuralDrift = (value: unknown): SignedStructuralDrift | null => {
+  if (!isObject(value)) return null;
+  const drifted = (Array.isArray(value.drifted) ? (value.drifted as unknown[]) : []).map(
+    (item): SignedStructuralDriftItem =>
+      isObject(item)
+        ? {
+            variantId: text(item.variant_id) ?? 'unnamed variant',
+            status: text(item.status) ?? 'unknown',
+            changed: Array.isArray(item.changed)
+              ? (item.changed as unknown[]).filter((field): field is string => typeof field === 'string')
+              : [],
+            evidenceFrom: parseStructuralEvidence(item.evidence_from),
+            evidenceTo: parseStructuralEvidence(item.evidence_to),
+            classifiedBy: text(item.classified_by),
+          }
+        : {
+            variantId: 'unnamed variant',
+            status: 'unknown',
+            changed: [],
+            evidenceFrom: null,
+            evidenceTo: null,
+            classifiedBy: null,
+          },
+  );
+  return {
+    checked: number(value.checked),
+    driftedCount: number(value.drifted_count) ?? drifted.length,
+    drifted,
+  };
+};
+
 const qcCheck = (check: unknown, label: (value: Json) => string): SignedQcCheck | null =>
   isObject(check)
     ? { label: label(check), status: text(check.status) ?? 'unknown', message: text(check.message) }
@@ -405,6 +473,7 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
       ? { version: text(software.version) as string, gitSha: text(software.git_sha) }
       : null,
     drift: parseDrift(snapshot.drift),
+    structuralDrift: parseStructuralDrift(snapshot.structural_drift),
     driftAcknowledgement: acknowledgement(snapshot, 'acknowledged_drift', 'drift_acknowledgement_reason'),
     sampleQc: parseSampleQc(snapshot.sample_qc),
     qcAcknowledgement: acknowledgement(snapshot, 'acknowledged_qc', 'qc_acknowledgement_reason'),
@@ -470,6 +539,7 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   reported_variants: 'reported small variants',
   reported_structural_variants: 'reported structural variants',
   drift: 'evidence drift',
+  structural_drift: 'structural-variant evidence drift',
   sample_qc: 'sample-integrity QC',
   sequencing_qc: 'sequencing QC cut-offs',
   import_incomplete: 'import completeness',
@@ -492,6 +562,52 @@ export const describeSignedDrift = (item: SignedDriftItem): string => {
     return `ClinVar ${item.clinvarFrom || 'n/a'} → ${item.clinvarTo || 'n/a'}`;
   }
   return 'annotation set changed';
+};
+
+const genesOf = (evidence: ApiStructuralEvidence | null): string =>
+  evidence?.gene_symbols?.length ? evidence.gene_symbols.join(', ') : 'none';
+
+const pliOf = (evidence: ApiStructuralEvidence | null): string =>
+  typeof evidence?.pli === 'number' ? evidence.pli.toFixed(3) : 'n/a';
+
+const locusOf = (evidence: ApiStructuralEvidence | null): string =>
+  evidence && typeof evidence.start === 'number' && typeof evidence.end === 'number'
+    ? formatLocus({ chr: String(evidence.chrom ?? ''), start: evidence.start, end: evidence.end })
+    : 'n/a';
+
+/**
+ * What moved in an SV/CNV classification's evidence, in the words of its inputs ("genes A, B →
+ * A; pLI 0.990 → 0.410"); null when none of the named inputs moved. The live report and the
+ * signed version both describe drift this way.
+ */
+export const describeStructuralEvidenceChange = (
+  changed: string[],
+  from: ApiStructuralEvidence | null,
+  to: ApiStructuralEvidence | null,
+): string | null => {
+  const parts: string[] = [];
+  if (changed.includes('gene_symbols')) parts.push(`genes ${genesOf(from)} → ${genesOf(to)}`);
+  if (changed.includes('pli')) parts.push(`pLI ${pliOf(from)} → ${pliOf(to)}`);
+  if (changed.includes('inheritance')) {
+    parts.push(`inheritance ${from?.inheritance || 'n/a'} → ${to?.inheritance || 'n/a'}`);
+  }
+  if (changed.includes('sv_type')) parts.push(`type ${from?.sv_type || 'n/a'} → ${to?.sv_type || 'n/a'}`);
+  if (changed.includes('locus')) parts.push(`locus ${locusOf(from)} → ${locusOf(to)}`);
+  if (changed.includes('source')) parts.push(`caller ${from?.source || 'n/a'} → ${to?.source || 'n/a'}`);
+  return parts.length ? parts.join('; ') : null;
+};
+
+/** Why an SV/CNV classification counted as drift when the version was signed. */
+export const describeSignedStructuralDrift = (item: SignedStructuralDriftItem): string => {
+  if (item.status === 'variant_missing') return 'no longer present in the data';
+  if (item.status === 'no_snapshot') {
+    return 'no frozen evidence (no CNV scoring saved, or saved before CoGA froze its evidence)';
+  }
+  if (item.status === 'unknown') return 'its evidence could not be compared';
+  return (
+    describeStructuralEvidenceChange(item.changed, item.evidenceFrom, item.evidenceTo) ??
+    (item.changed.includes('annotations') ? 'annotation changed' : 'evidence changed')
+  );
 };
 
 /** A sequencing-QC metric outside its cut-offs: "Mean coverage 18 × (Warning; warning 20, fail 10)". */

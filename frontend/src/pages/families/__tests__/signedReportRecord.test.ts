@@ -7,6 +7,8 @@ import {
   describeBreachedMetric,
   describeModuleVersions,
   describeSignedDrift,
+  describeSignedStructuralDrift,
+  describeStructuralEvidenceChange,
   parseSignedReport,
   parseSignedVersionParam,
   reportViewSearch,
@@ -25,6 +27,21 @@ const SNAPSHOT = {
     checked: 2,
     drifted_count: 1,
     drifted: [{ variant_id: '1-100-A-G', status: 'no_snapshot', acmg_class: 'acmg_class_3' }],
+  },
+  structural_drift: {
+    checked: 3,
+    drifted_count: 2,
+    drifted: [
+      {
+        variant_id: 'sv-1',
+        status: 'drifted',
+        classified_by: 'bob',
+        changed: ['gene_symbols', 7],
+        evidence_from: { chrom: '18', start: 55000000, end: 55400000, gene_symbols: ['TCF4', 'TXNL1'], pli: 0.99 },
+        evidence_to: { chrom: '18', start: 55000000, end: 55400000, gene_symbols: ['TCF4'], pli: 'high' },
+      },
+      { variant_id: 'sv-2', status: 'no_snapshot', cnv_class: 'cnv_class_4' },
+    ],
   },
   acknowledged_drift: true,
   drift_acknowledgement_reason: 'Reviewed at the case meeting.',
@@ -114,6 +131,22 @@ describe('parseSignedReport', () => {
       driftedCount: 1,
       drifted: [{ variantId: '1-100-A-G', status: 'no_snapshot', clinvarFrom: null, clinvarTo: null, classifiedBy: null }],
     });
+    // The SV/CNV classifications' drift: a field of the wrong type is dropped, not guessed.
+    expect(record.structuralDrift).toEqual({
+      checked: 3,
+      driftedCount: 2,
+      drifted: [
+        {
+          variantId: 'sv-1',
+          status: 'drifted',
+          changed: ['gene_symbols'],
+          evidenceFrom: { source: null, sv_type: null, chrom: '18', start: 55000000, end: 55400000, gene_symbols: ['TCF4', 'TXNL1'], pli: 0.99, inheritance: null },
+          evidenceTo: { source: null, sv_type: null, chrom: '18', start: 55000000, end: 55400000, gene_symbols: ['TCF4'], pli: null, inheritance: null },
+          classifiedBy: 'bob',
+        },
+        { variantId: 'sv-2', status: 'no_snapshot', changed: [], evidenceFrom: null, evidenceTo: null, classifiedBy: null },
+      ],
+    });
     expect(record.driftAcknowledgement).toEqual({ acknowledged: true, reason: 'Reviewed at the case meeting.' });
     expect(record.sampleQc?.overallStatus).toBe('warn');
     expect(record.sampleQc?.checks.map((check) => check.label)).toEqual([
@@ -195,6 +228,8 @@ describe('parseSignedReport', () => {
 
     expect(record.software).toBeNull();
     expect(record.drift).toBeNull();
+    // Signed before CoGA froze the SV/CNV evidence: the record holds no drift for them.
+    expect(record.structuralDrift).toBeNull();
     expect(record.sampleQc).toBeNull();
     expect(record.sequencingQc).toBeNull();
     expect(record.importIncomplete).toBe('absent');
@@ -248,6 +283,37 @@ describe('the signed report’s wording', () => {
       'ClinVar VUS → Pathogenic',
     );
     expect(describeSignedDrift({ ...item, status: 'drifted' })).toBe('annotation set changed');
+  });
+
+  it('says why an SV/CNV classification counted as drift when the version was signed', () => {
+    const evidence = { chrom: '18', start: 55000000, end: 55400000, gene_symbols: ['TCF4', 'TXNL1'], pli: 0.99, sv_type: 'DEL', source: 'needlr', inheritance: 'de_novo' };
+    const item = { variantId: 'sv', changed: [], evidenceFrom: evidence, evidenceTo: evidence, classifiedBy: null };
+    expect(describeSignedStructuralDrift({ ...item, status: 'variant_missing' })).toBe('no longer present in the data');
+    expect(describeSignedStructuralDrift({ ...item, status: 'no_snapshot' })).toBe(
+      'no frozen evidence (no CNV scoring saved, or saved before CoGA froze its evidence)',
+    );
+    expect(describeSignedStructuralDrift({ ...item, status: 'unknown' })).toBe('its evidence could not be compared');
+    expect(
+      describeSignedStructuralDrift({
+        ...item,
+        status: 'drifted',
+        changed: ['gene_symbols', 'pli'],
+        evidenceTo: { ...evidence, gene_symbols: ['TCF4'], pli: 0.41 },
+      }),
+    ).toBe('genes TCF4, TXNL1 → TCF4; pLI 0.990 → 0.410');
+    expect(describeSignedStructuralDrift({ ...item, status: 'drifted', changed: ['annotations'] })).toBe('annotation changed');
+    expect(describeSignedStructuralDrift({ ...item, status: 'drifted' })).toBe('evidence changed');
+  });
+
+  it('names what moved in an SV/CNV classification’s evidence, in the words of its inputs', () => {
+    // Coordinates under 1,000, so the locus reads the same in every locale.
+    const from = { chrom: '18', start: 100, end: 400, sv_type: 'DEL', source: 'needlr', inheritance: 'de_novo', gene_symbols: [] };
+    const to = { ...from, start: 200, sv_type: 'DUP', source: 'hificnv', inheritance: null };
+    expect(describeStructuralEvidenceChange(['inheritance', 'sv_type', 'locus', 'source', 'gene_symbols'], from, to)).toBe(
+      'genes none → none; inheritance de_novo → n/a; type DEL → DUP; locus chr18:100-400 → chr18:200-400; caller needlr → hificnv',
+    );
+    expect(describeStructuralEvidenceChange(['annotations'], from, to)).toBeNull();
+    expect(describeStructuralEvidenceChange(['pli'], null, null)).toBe('pLI n/a → n/a');
   });
 
   it('names a metric outside its cut-offs with its value and limits', () => {

@@ -62,6 +62,8 @@ export type ApiContract = [
   Check<Fits<Api.ApiAnnotationManifest, Schema.AnnotationManifestOut>>,
   Check<Fits<Api.ApiClassificationDriftItem, Schema.ClassificationDriftItem>>,
   Check<Fits<Api.ApiClassificationDrift, Schema.ClassificationDriftOut>>,
+  Check<Fits<Api.ApiStructuralClassificationDriftItem, Schema.StructuralClassificationDriftItem>>,
+  Check<Fits<Api.ApiStructuralClassificationDrift, Schema.StructuralClassificationDriftOut>>,
   Check<Fits<Api.ApiClinicalAuditEvent, Schema.ClinicalAuditEventOut>>,
   Check<Fits<Api.ApiClinicalAudit, Schema.ClinicalAuditOut>>,
   Check<Fits<Api.ApiReportSignoutList, Schema.ReportSignoutListOut>>,

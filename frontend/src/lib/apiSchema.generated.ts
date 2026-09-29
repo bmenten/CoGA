@@ -177,12 +177,16 @@ export interface ClassificationDriftItem {
   clinvar_to: string | null;
 }
 
-/** Evidence-drift summary for a family's ACMG classifications. */
+/**
+ * Evidence-drift summary for a family's ACMG classifications: the small variants at
+ * the top level, the structural variants and CNVs under ``structural``.
+ */
 export interface ClassificationDriftOut {
   family_id: string;
   checked: number;
   drifted_count: number;
   drifted: ClassificationDriftItem[];
+  structural: StructuralClassificationDriftOut;
 }
 
 export interface ClickHouseDetachedPartOut {
@@ -2652,6 +2656,29 @@ export interface SpeciesOut {
   name: string;
   common_name: string;
   tax_id: number;
+}
+
+/**
+ * A structural-variant / CNV classification whose frozen evidence changed since it
+ * was made (services/structural_variant_evidence.py).
+ */
+export interface StructuralClassificationDriftItem {
+  variant_id: string;
+  classification: string | null;
+  cnv_class: string | null;
+  classified_by: string | null;
+  classified_at: string | null;
+  status: string;
+  changed: string[];
+  evidence_from: Record<string, unknown> | null;
+  evidence_to: Record<string, unknown> | null;
+}
+
+/** Evidence-drift summary for a family's structural-variant / CNV classifications. */
+export interface StructuralClassificationDriftOut {
+  checked: number;
+  drifted_count: number;
+  drifted: StructuralClassificationDriftItem[];
 }
 
 /**

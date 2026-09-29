@@ -280,6 +280,81 @@ describe('FamilyReportPage', () => {
     expect(screen.getByText(/classified by alice/)).toBeInTheDocument();
   });
 
+  it('lists the structural variants and CNVs whose classification evidence moved', async () => {
+    const evidence = {
+      source: 'needlr',
+      sv_type: 'DEL',
+      chrom: '18',
+      start: 55000000,
+      end: 55400000,
+      gene_symbols: ['TCF4', 'TXNL1'],
+      gene_count: 2,
+      pli: 0.99,
+      inheritance: 'de_novo',
+    };
+    const svItem = (variantId: string, overrides: Record<string, unknown>) => ({
+      variant_id: variantId,
+      classification: 'Pathogenic - class 5',
+      cnv_class: 'cnv_class_5',
+      classified_by: 'bob',
+      classified_at: null,
+      status: 'drifted',
+      changed: [],
+      evidence_from: evidence,
+      evidence_to: evidence,
+      ...overrides,
+    });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/classification-drift') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            checked: 0,
+            drifted_count: 0,
+            drifted: [],
+            structural: {
+              checked: 4,
+              drifted_count: 4,
+              drifted: [
+                svItem('sv-genes', {
+                  changed: ['gene_symbols', 'pli'],
+                  evidence_to: { ...evidence, gene_symbols: ['TCF4'], gene_count: 1, pli: 0.41 },
+                }),
+                svItem('sv-annotation', { changed: ['annotations'] }),
+                svItem('sv-gone', { status: 'variant_missing', evidence_to: null }),
+                svItem('sv-unreadable', { status: 'unknown', evidence_from: null }),
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    // One banner counts the SV/CNV classifications with the small variants.
+    expect(
+      await screen.findByText(/4 classifications have evidence changes since being made/),
+    ).toBeInTheDocument();
+    const items = screen.getAllByRole('listitem').map((item) => item.textContent ?? '');
+    expect(items).toContain(
+      'sv-genes (structural variant) — genes TCF4, TXNL1 → TCF4; pLI 0.990 → 0.410 (classified by bob)',
+    );
+    expect(items).toContain('sv-annotation (structural variant) — annotation changed (classified by bob)');
+    expect(items).toContain(
+      'sv-gone (structural variant) — no longer present in the dataset (classified by bob)',
+    );
+    expect(items).toContain(
+      'sv-unreadable (structural variant) — its frozen evidence cannot be compared (classified by bob)',
+    );
+  });
+
   it('renders the immutable clinical audit trail', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
@@ -747,6 +822,10 @@ describe('FamilyReportPage', () => {
       expect(screen.getByText(/No reported classification had changed evidence/)).toHaveTextContent(
         'No reported classification had changed evidence when this version was signed (1 checked).',
       );
+      // Signed before CoGA froze the SV/CNV evidence: the record says it holds no drift for them.
+      expect(
+        screen.getByText(/The record predates the drift check of the structural-variant and CNV classifications/),
+      ).toBeInTheDocument();
 
       // The footer: the versions and the build as signed, and the build that rendered it.
       const footer = container.querySelector('footer')!;
@@ -864,6 +943,43 @@ describe('FamilyReportPage', () => {
 
       await signedRecordCard();
       expect(screen.queryByText(/Not captured in signed version/)).not.toBeInTheDocument();
+    });
+
+    it('counts and lists the SV/CNV classifications whose evidence had moved at sign-out', async () => {
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, drift_acknowledged: true, drift_acknowledgement_reason: 'SV re-reviewed' }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          structural_drift: {
+            checked: 2,
+            drifted_count: 1,
+            drifted: [
+              {
+                variant_id: 'sv-18-del',
+                status: 'drifted',
+                classified_by: 'bob',
+                changed: ['pli'],
+                evidence_from: { chrom: '18', start: 100, end: 400, pli: 0.99 },
+                evidence_to: { chrom: '18', start: 100, end: 400, pli: 0.41 },
+              },
+            ],
+          },
+          acknowledged_drift: true,
+          drift_acknowledgement_reason: 'SV re-reviewed',
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      // Only an SV/CNV classification drifted: the record must not read as if none had.
+      expect(drift).not.toHaveTextContent('No reported classification had changed evidence');
+      expect(drift).toHaveTextContent(
+        '1 classification had evidence that changed, or could not be verified, when this version was signed',
+      );
+      expect(drift).toHaveTextContent('sv-18-del (structural variant) — pLI 0.990 → 0.410 (classified by bob)');
+      expect(drift).toHaveTextContent('Signed out over it, with the reason: SV re-reviewed.');
+      expect(drift).not.toHaveTextContent(/The record predates/);
     });
 
     it('shows the overrides frozen into the signed version', async () => {
@@ -1449,6 +1565,16 @@ describe('FamilyReportPage', () => {
 
       expect(await screen.findByText(/Changed since sign-out/)).toBeInTheDocument();
       expect(screen.getByText(/import completeness\. This page shows the current state/)).toBeInTheDocument();
+    });
+
+    it('names a change in the structural variants’ evidence drift since sign-out', async () => {
+      mockSignedCase({ check: () => checkResult({ matches: false, changed_sections: ['structural_drift'] }) });
+      renderPage(undefined, '/families/F1/report?view=live');
+
+      expect(await screen.findByText(/Changed since sign-out/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/structural-variant evidence drift\. This page shows the current state/),
+      ).toBeInTheDocument();
     });
 
   });
