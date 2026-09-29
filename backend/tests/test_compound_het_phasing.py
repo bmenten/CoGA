@@ -187,3 +187,118 @@ class TestPairsInAGene:
 )
 def test_phase_is_symmetric(left_gt: str, right_gt: str, expected: str | None) -> None:
     assert _phase(left_gt, right_gt, left_ps=1, right_ps=1) == expected
+
+
+def _pedigree(parents_of: dict[str, set[str]]):
+    # Imported here so the tests above still run where the pedigree type is absent.
+    from backend.app.services.compound_het_phase import FamilyPedigree
+
+    return FamilyPedigree(
+        parents_of={child: frozenset(parents) for child, parents in parents_of.items()},
+        assembly_name="GRCh38",
+    )
+
+
+TRIO = {"PROBAND": {"MOTHER", "FATHER"}}
+
+
+class TestPhaseFromTheParents:
+    """Without read-backed phasing, the parents' genotypes can still place the two hits."""
+
+    def test_one_hit_from_each_parent_is_trans_by_segregation(self) -> None:
+        maternal = _variant(
+            "maternal",
+            calls=[_call("PROBAND", "0/1"), _call("MOTHER", "0/1"), _call("FATHER", "0/0")],
+            start=100,
+        )
+        paternal = _variant(
+            "paternal",
+            calls=[_call("PROBAND", "0/1"), _call("MOTHER", "0/0"), _call("FATHER", "0/1")],
+            start=200,
+        )
+        pairs = _compound_het_pairs(
+            [maternal, paternal],
+            affected_samples=AFFECTED,
+            unaffected_samples=["MOTHER", "FATHER"],
+            pedigree=_pedigree(TRIO),
+        )
+        assert [(pair.phase, pair.phase_evidence) for pair in pairs] == [("trans", "segregation")]
+
+    def test_read_backed_trans_is_labelled_as_such(self) -> None:
+        records = [
+            _variant("A", calls=[_call("PROBAND", "0|1", 42)], start=100),
+            _variant("B", calls=[_call("PROBAND", "1|0", 42)], start=200),
+        ]
+        pairs = _compound_het_pairs(records, affected_samples=AFFECTED, unaffected_samples=[])
+        assert [(pair.phase, pair.phase_evidence) for pair in pairs] == [("trans", "read")]
+
+    def test_the_reads_outrank_the_parents(self) -> None:
+        # The parents trace one hit to each of them, but the reads put both on one
+        # haplotype: the reads are direct evidence, so the pair is cis and dropped.
+        left = _variant(
+            "left",
+            calls=[_call("PROBAND", "0|1", 7), _call("MOTHER", "0/1"), _call("FATHER", "0/0")],
+            start=100,
+        )
+        right = _variant(
+            "right",
+            calls=[_call("PROBAND", "0|1", 7), _call("MOTHER", "0/0"), _call("FATHER", "0/1")],
+            start=200,
+        )
+        assert (
+            _compound_het_pair_phase(
+                left,
+                right,
+                affected_samples=AFFECTED,
+                unaffected_samples=["MOTHER", "FATHER"],
+                pedigree=_pedigree(TRIO),
+            )
+            is None
+        )
+
+    def test_an_unaffected_sibling_carrying_neither_hit_leaves_the_pair_unknown(self) -> None:
+        records = [
+            _variant("A", calls=[_call("PROBAND", "0/1"), _call("SIB", "0/0")], start=100),
+            _variant("B", calls=[_call("PROBAND", "0/1"), _call("SIB", "0/0")], start=200),
+        ]
+        pairs = _compound_het_pairs(records, affected_samples=AFFECTED, unaffected_samples=["SIB"])
+        assert [(pair.phase, pair.phase_evidence) for pair in pairs] == [("unknown", None)]
+
+    def test_both_hits_from_one_parent_are_cis_and_not_a_candidate(self) -> None:
+        # The mother (affection status not recorded) carries both, the father neither:
+        # both hits are on the proband's maternal copy.
+        left = _variant(
+            "left",
+            calls=[_call("PROBAND", "0/1"), _call("MOTHER", "0/1"), _call("FATHER", "0/0")],
+            start=100,
+        )
+        right = _variant(
+            "right",
+            calls=[_call("PROBAND", "0/1"), _call("MOTHER", "0/1"), _call("FATHER", "0/0")],
+            start=200,
+        )
+        assert (
+            _compound_het_pairs(
+                [left, right],
+                affected_samples=AFFECTED,
+                unaffected_samples=["FATHER"],
+                pedigree=_pedigree(TRIO),
+            )
+            == []
+        )
+
+    def test_without_a_pedigree_the_parents_are_not_traced(self) -> None:
+        maternal = _variant(
+            "maternal",
+            calls=[_call("PROBAND", "0/1"), _call("MOTHER", "0/1"), _call("FATHER", "0/0")],
+            start=100,
+        )
+        paternal = _variant(
+            "paternal",
+            calls=[_call("PROBAND", "0/1"), _call("MOTHER", "0/0"), _call("FATHER", "0/1")],
+            start=200,
+        )
+        pairs = _compound_het_pairs(
+            [maternal, paternal], affected_samples=AFFECTED, unaffected_samples=["MOTHER", "FATHER"]
+        )
+        assert [(pair.phase, pair.phase_evidence) for pair in pairs] == [("unknown", None)]

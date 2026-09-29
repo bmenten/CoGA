@@ -19,6 +19,19 @@ from ..schemas import (
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .variant_annotation_parser import _spliceai_delta
 from .family_metadata_context import FamilyMetadataContext
+from .compound_het_phase import (
+    CONFIDENT_REFERENCE_MIN_DP,
+    PHASE_CIS,
+    PHASE_EVIDENCE_READ,
+    PHASE_EVIDENCE_SEGREGATION,
+    PHASE_TRANS,
+    PHASE_UNKNOWN,
+    UNKNOWN_CARRIAGE,
+    Carriage,
+    FamilyPedigree,
+    segregation_phase,
+    small_variant_carriage,
+)
 from .genotypes import (
     ALT_CLASSES,
     HET,
@@ -104,17 +117,19 @@ _INTERVAL_PATTERN = re.compile(
 _GENE_QUERY_SPLIT = re.compile(r"[\s,;]+")
 
 
-# Phase of a compound-het pair as derived from the caller's own phasing, distinct from
-# the curator's `phase_status` on a saved group review. `cis` never reaches a response:
-# a cis pair is not a compound-het candidate, so it is dropped rather than reported.
-COMPOUND_HET_PHASE_TRANS = "trans"
-COMPOUND_HET_PHASE_CIS = "cis"
-COMPOUND_HET_PHASE_UNKNOWN = "unknown"
+# Phase of a compound-het pair as derived from the caller's own phasing or the family's
+# genotypes (compound_het_phase), distinct from the curator's `phase_status` on a saved
+# group review. `cis` never reaches a response: a cis pair is not a compound-het
+# candidate, so it is dropped rather than reported.
+COMPOUND_HET_PHASE_TRANS = PHASE_TRANS
+COMPOUND_HET_PHASE_CIS = PHASE_CIS
+COMPOUND_HET_PHASE_UNKNOWN = PHASE_UNKNOWN
 
 
 # Minimum parental depth to trust a homozygous-reference call when calling de novo;
-# a low-coverage ref parent could be a missed heterozygote (false de novo).
-_DE_NOVO_MIN_PARENT_DP = 8
+# a low-coverage ref parent could be a missed heterozygote (false de novo). Tracing a
+# compound-het pair through the parents asks the same of a reference call.
+_DE_NOVO_MIN_PARENT_DP = CONFIDENT_REFERENCE_MIN_DP
 
 
 _X_CHROMOSOME_TOKENS = {"X", "23"}
@@ -1160,6 +1175,26 @@ def _parent_roles(context: FamilyMetadataContext) -> dict[str, str]:
     return {parent: role for _child, parent, role in _parent_child_links(context)}
 
 
+def _family_pedigree(context: FamilyMetadataContext) -> FamilyPedigree:
+    """The pedigree the compound-het phase is traced through (compound_het_phase).
+
+    The same parent links as the de novo check, so both read one pedigree.
+    """
+    sample_sex = _sample_sex_map(context.sample_rows)
+    return FamilyPedigree(
+        parents_of={child: frozenset(parents) for child, parents in _child_parent_map(context).items()},
+        males=frozenset(sample for sample, value in sample_sex.items() if _is_male_sex(value)),
+        assembly_name=context.assembly_name,
+    )
+
+
+def _call_carriage(call: SmallVariantCall | None) -> Carriage:
+    """A sample's carriage of a small variant, for tracing a pair through the parents."""
+    if call is None:
+        return UNKNOWN_CARRIAGE
+    return small_variant_carriage(call.gt, call.dp)
+
+
 def _hemizygous_inheritance_ruled_out(
     call_map: dict[str, SmallVariantCall],
     *,
@@ -1365,19 +1400,23 @@ def _pair_phase_for_sample(
     return COMPOUND_HET_PHASE_CIS if left_haplotype == right_haplotype else COMPOUND_HET_PHASE_TRANS
 
 
-def _compound_het_pair_phase(
+def _compound_het_pair_verdict(
     left: SmallVariantRecord,
     right: SmallVariantRecord,
     *,
     affected_samples: Sequence[str],
     unaffected_samples: Sequence[str],
-) -> str | None:
-    """The pair's phase, or None when it is not a compound-het candidate at all.
+    pedigree: FamilyPedigree | None = None,
+) -> tuple[str, str | None] | None:
+    """The pair's ``(phase, evidence)``, or None when it is not a compound-het candidate.
 
     Genotype rules first: every affected sample het for both, and no unaffected sample
-    carrying both. Then phasing, which can only ever remove candidates — a pair the reads
-    place on the same haplotype in any affected sample is in cis, so that sample carries
-    one intact copy of the gene and the pair cannot be the recessive explanation.
+    carrying both. Then read-backed phasing: a pair the reads place on the same haplotype
+    in any affected sample is in cis, so that sample carries one intact copy of the gene
+    and the pair cannot be the recessive explanation; opposite haplotypes are trans. Where
+    the reads say nothing, the parents (``pedigree``) are traced by the rule the SNV + SV
+    second hit also uses (compound_het_phase): both hits traced to one parent is cis and
+    drops the pair, one hit to each parent is trans.
     """
     if left.variant_id == right.variant_id:
         return None
@@ -1407,10 +1446,42 @@ def _compound_het_pair_phase(
     if COMPOUND_HET_PHASE_CIS in resolved:
         return None
     if COMPOUND_HET_PHASE_TRANS in resolved:
-        return COMPOUND_HET_PHASE_TRANS
-    # No shared phase block: the genotypes are consistent with compound het, but nothing
-    # proves the two alts sit on different haplotypes.
-    return COMPOUND_HET_PHASE_UNKNOWN
+        return COMPOUND_HET_PHASE_TRANS, PHASE_EVIDENCE_READ
+
+    by_family = segregation_phase(
+        affected=affected_samples,
+        unaffected=unaffected_samples,
+        first=lambda sample: _call_carriage(left_calls.get(sample)),
+        second=lambda sample: _call_carriage(right_calls.get(sample)),
+        pedigree=pedigree,
+        loci=[(left.chr, left.start), (right.chr, right.start)],
+    )
+    if by_family == COMPOUND_HET_PHASE_CIS:
+        return None
+    if by_family == COMPOUND_HET_PHASE_TRANS:
+        return COMPOUND_HET_PHASE_TRANS, PHASE_EVIDENCE_SEGREGATION
+    # Neither the reads nor the parents place the two alts: the genotypes are consistent
+    # with compound het, but nothing shows they sit on different haplotypes.
+    return COMPOUND_HET_PHASE_UNKNOWN, None
+
+
+def _compound_het_pair_phase(
+    left: SmallVariantRecord,
+    right: SmallVariantRecord,
+    *,
+    affected_samples: Sequence[str],
+    unaffected_samples: Sequence[str],
+    pedigree: FamilyPedigree | None = None,
+) -> str | None:
+    """The pair's phase, or None when it is not a compound-het candidate at all."""
+    verdict = _compound_het_pair_verdict(
+        left,
+        right,
+        affected_samples=affected_samples,
+        unaffected_samples=unaffected_samples,
+        pedigree=pedigree,
+    )
+    return None if verdict is None else verdict[0]
 
 
 def _records_form_compound_het_pair(
@@ -1419,6 +1490,7 @@ def _records_form_compound_het_pair(
     *,
     affected_samples: Sequence[str],
     unaffected_samples: Sequence[str],
+    pedigree: FamilyPedigree | None = None,
 ) -> bool:
     return (
         _compound_het_pair_phase(
@@ -1426,6 +1498,7 @@ def _records_form_compound_het_pair(
             right,
             affected_samples=affected_samples,
             unaffected_samples=unaffected_samples,
+            pedigree=pedigree,
         )
         is not None
     )
@@ -1436,6 +1509,7 @@ def _compound_het_pairs(
     *,
     affected_samples: Sequence[str],
     unaffected_samples: Sequence[str],
+    pedigree: FamilyPedigree | None = None,
 ) -> list[SmallVariantCompoundHetPair]:
     if not affected_samples:
         return []
@@ -1457,14 +1531,16 @@ def _compound_het_pairs(
                 pair_ids = tuple(sorted((left.variant_id, right.variant_id)))
                 if pair_ids in pair_map:
                     continue
-                phase = _compound_het_pair_phase(
+                verdict = _compound_het_pair_verdict(
                     left,
                     right,
                     affected_samples=affected_samples,
                     unaffected_samples=unaffected_samples,
+                    pedigree=pedigree,
                 )
-                if phase is None:
+                if verdict is None:
                     continue
+                phase, phase_evidence = verdict
                 ordered_left, ordered_right = sorted((left, right), key=_small_record_sort_key)
                 gene, gene_id = _resolve_compound_het_pair_gene_labels(ordered_left, ordered_right)
                 pair_map[pair_ids] = SmallVariantCompoundHetPair(
@@ -1474,6 +1550,7 @@ def _compound_het_pairs(
                     left=ordered_left,
                     right=ordered_right,
                     phase=phase,
+                    phase_evidence=phase_evidence,
                 )
 
     return sorted(
@@ -1490,12 +1567,14 @@ def _compound_het_partner_map(
     *,
     affected_samples: Sequence[str],
     unaffected_samples: Sequence[str],
+    pedigree: FamilyPedigree | None = None,
 ) -> dict[str, set[str]]:
     partner_map: dict[str, set[str]] = {}
     for pair in _compound_het_pairs(
         records,
         affected_samples=affected_samples,
         unaffected_samples=unaffected_samples,
+        pedigree=pedigree,
     ):
         partner_map.setdefault(pair.left.variant_id, set()).add(pair.right.variant_id)
         partner_map.setdefault(pair.right.variant_id, set()).add(pair.left.variant_id)
@@ -2984,6 +3063,7 @@ def _inheritance_result_items(
     unaffected_samples: Sequence[str],
     sample_rows: Sequence[dict[str, Any]],
     assembly_name: str | None = None,
+    pedigree: FamilyPedigree | None = None,
 ) -> list[tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord]]:
     pair_items = [
         ("group", pair)
@@ -2991,6 +3071,7 @@ def _inheritance_result_items(
             records,
             affected_samples=affected_samples,
             unaffected_samples=unaffected_samples,
+            pedigree=pedigree,
         )
     ]
     if inheritance == _COMPOUND_HET_INHERITANCE:
@@ -3079,7 +3160,10 @@ def _segregation_modes_by_variant(
     if not affected:
         return modes
     for pair in _compound_het_pairs(
-        records, affected_samples=affected, unaffected_samples=unaffected
+        records,
+        affected_samples=affected,
+        unaffected_samples=unaffected,
+        pedigree=_family_pedigree(context),
     ):
         for vid in (pair.left.variant_id, pair.right.variant_id):
             if MODE_COMPOUND_HET not in modes.setdefault(vid, []):

@@ -38,7 +38,7 @@ from .monarch_phenotype_score import score_genes_for_hpo
 from .sv_gene_index_service import (
     get_sv_hit_genes,
     get_sv_second_hits,
-    is_index_built,
+    is_index_current,
     store_sv_gene_index,
     summarize_second_hit,
 )
@@ -88,6 +88,7 @@ from .clickhouse_variant_queries import (
     _display_sample_name,
     _extract_gene_constraint_metrics,
     _family_affected_unaffected_sample_names,
+    _family_pedigree,
     _filter_expanded_carrier_screening,
     _float_list,
     _format_cytoband_label,
@@ -125,6 +126,7 @@ from .clickhouse_variant_queries import (
 from .clickhouse_variant_storage import (
     ensure_clickhouse_variant_tables,
     get_family_small_variant_data_version,
+    get_family_structural_variant_data_version,
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, clickhouse_genotype_condition
 
@@ -551,16 +553,35 @@ async def _scan_family_sv_gene_map(
 async def _ensure_family_sv_gene_index(
     session: AsyncSession, context: FamilyMetadataContext
 ) -> None:
-    """Build the family's SV→gene index once (lazily); cleared on SV re-import."""
-    if await is_index_built(session, context.family_uuid):
-        return
-    # Ensure the SV entries table is current (notably the calls.ps phase-set column added for
-    # read-based phasing) before the scan selects it.
+    """Build the family's SV→gene index, or rebuild it once the family's SVs have changed.
+
+    The index records the storage-level SV data version it was built from, which every SV
+    insert, delete and snapshot restore moves (``clickhouse_variant_storage``), whatever
+    code path made the write. Only the package import used to clear the index, so a
+    per-sample SV upload or an admin SV delete left the second-hit badge describing SVs
+    the family no longer had.
+
+    The version is read before the scan: a write that lands while the index is being
+    built leaves it stamped with a version that has already moved on, so the next read
+    rebuilds it again rather than keeping a half-updated index.
+    """
+    sv_data_version: str | None = None
     if context.assembly_name:
+        # Ensure the SV tables are current (the calls.ps phase-set column read-based
+        # phasing reads, and the data-version table) before reading them.
         await ensure_clickhouse_variant_tables(context.assembly_name)
+        sv_data_version = await get_family_structural_variant_data_version(
+            context.assembly_name, context.family_uuid
+        )
+    if await is_index_current(session, context.family_uuid, sv_data_version):
+        return
     gene_map, sv_total = await _scan_family_sv_gene_map(context)
     await store_sv_gene_index(
-        session, family_uuid=context.family_uuid, gene_map=gene_map, sv_total=sv_total
+        session,
+        family_uuid=context.family_uuid,
+        gene_map=gene_map,
+        sv_total=sv_total,
+        sv_data_version=sv_data_version,
     )
 
 
@@ -582,6 +603,7 @@ async def _attach_sv_second_hits(
         if not second_hits:
             return
         affected, unaffected = _family_affected_unaffected_sample_names(context)
+        pedigree = _family_pedigree(context)
         for variant in variants:
             # A variant can hit several genes and the SV may be on any of them, so record
             # which one matched. The badge's link needs that gene, not the variant's
@@ -598,6 +620,11 @@ async def _attach_sv_second_hits(
                     for gt in (variant.genotypes or [])
                     if gt.sample and gt.ps is not None
                 }
+                snv_dp = {
+                    gt.sample: int(gt.dp)
+                    for gt in (variant.genotypes or [])
+                    if gt.sample and gt.dp is not None
+                }
                 variant.sv_second_hit = SvSecondHitOut.model_validate(
                     {
                         **summarize_second_hit(
@@ -606,6 +633,9 @@ async def _attach_sv_second_hits(
                             unaffected_samples=list(unaffected),
                             snv_gt_by_sample=snv_gt,
                             snv_ps_by_sample=snv_ps,
+                            snv_dp_by_sample=snv_dp,
+                            pedigree=pedigree,
+                            snv_locus=(variant.chr, variant.start),
                         ),
                         "gene": matched_gene,
                     }
@@ -2385,6 +2415,7 @@ async def _small_variants_inheritance_page(
         unaffected_samples=unaffected_sample_names,
         sample_rows=context.sample_rows,
         assembly_name=context.assembly_name,
+        pedigree=_family_pedigree(context),
     )
     total = len(inheritance_items)
     reported_total = min(total, _SMALL_COUNT_LIMIT)
@@ -2407,6 +2438,7 @@ async def _small_variants_inheritance_page(
                     gene_id=pair.gene_id,
                     variants=[left_variant, right_variant],
                     phase=pair.phase,
+                    phase_evidence=pair.phase_evidence,
                 )
             )
         else:
@@ -3202,6 +3234,7 @@ async def get_family_compound_het_candidates(
         records,
         affected_samples=affected_sample_names,
         unaffected_samples=unaffected_sample_names,
+        pedigree=_family_pedigree(context),
     ).get(source_record.variant_id, set())
     if not partner_ids:
         return VariantPage(total=0, variants=[])

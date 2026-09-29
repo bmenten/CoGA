@@ -32,7 +32,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Bump when the scoring/ranking logic changes so old cached rankings are ignored.
-_ALGORITHM_VERSION = "1"
+# 2: a compound-het pair whose two hits trace to one parent is no longer a candidate,
+#    which moves the segregation weight of both variants (compound_het_phase).
+_ALGORITHM_VERSION = "2"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 

@@ -41,6 +41,14 @@ const buildCompactGenotypeText = (variant: SmallVariant, members: FamilyMember[]
     .filter((entry): entry is string => Boolean(entry))
     .join(' · ');
 
+// Read-backed phasing sees both alts on opposite haplotypes; segregation traces one hit
+// to each parent. Say which, and claim neither when the payload does not.
+const transPhaseLabel = (evidence: SmallVariantGroup['phase_evidence']): string => {
+  if (evidence === 'read') return 'In trans · read-backed';
+  if (evidence === 'segregation') return 'In trans · by segregation';
+  return 'In trans';
+};
+
 export default function SmallVariantPairCards({
   groups,
   members,
@@ -112,16 +120,17 @@ export default function SmallVariantPairCards({
                       <span className="analysis-pill analysis-pill--muted">Phase</span>
                       <span>{formatCompoundHetPhaseStatus(group.review?.phase_status)}</span>
                     </div>
-                    {/* What the reads say, as opposed to what the curator recorded above.
-                        Cis pairs never reach the client — they are dropped as candidates. */}
+                    {/* What the reads or the parents' genotypes say, as opposed to what the
+                        curator recorded above. Cis pairs never reach the client — they are
+                        dropped as candidates. */}
                     <div className="variant-compound-het-summary-row">
                       <span className="analysis-pill analysis-pill--muted">Phasing</span>
                       {group.phase === 'trans' ? (
                         <span className="variant-card-chip variant-card-chip--success">
-                          In trans · read-backed
+                          {transPhaseLabel(group.phase_evidence)}
                         </span>
                       ) : (
-                        <span>Not resolved by reads</span>
+                        <span>Not resolved by reads or segregation</span>
                       )}
                     </div>
                   </div>

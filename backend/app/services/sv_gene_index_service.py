@@ -4,6 +4,11 @@ Stores which genes a family's structural variants hit, so the small-variant work
 flag genes that also carry an SV (the cross-type "second hit"). This module owns only the
 Postgres rows + the badge summary; the ClickHouse scan that populates it lives in
 ``clickhouse_family_variants`` (which holds the SV helpers). See docs/snv-sv-compound-het.md.
+
+The index records the storage-level SV data version it was built from; a family whose SVs
+have changed since (any insert, delete or restore) gets it rebuilt on the next read. The
+badge's cis/trans verdict comes from the reads where the calls share a phase set, else
+from the family by the same rule as the SNV + SNV compound het (``compound_het_phase``).
 """
 
 from __future__ import annotations
@@ -14,7 +19,22 @@ from typing import Any
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .genotypes import HET, HOM_ALT, classify_genotype, genotype_has_alt
+from .compound_het_phase import (
+    CARRIER,
+    NON_CARRIER,
+    PHASE_CIS,
+    PHASE_EVIDENCE_READ,
+    PHASE_EVIDENCE_SEGREGATION,
+    PHASE_TRANS,
+    PHASE_UNKNOWN,
+    UNKNOWN_CARRIAGE,
+    Carriage,
+    FamilyPedigree,
+    Locus,
+    segregation_phase,
+    small_variant_carriage,
+)
+from .genotypes import HET, HOM_ALT, HOM_REF, classify_genotype, genotype_has_alt
 
 
 def _gt_has_alt(gt: str | None) -> bool:
@@ -63,20 +83,49 @@ def _read_phase_verdict(
     return "cis" if "cis" in verdicts else "trans"
 
 
+def _sv_carriage(svs: list[dict[str, Any]], sample: str, affected: set[str]) -> Carriage:
+    """A sample's carriage of the SV hit on this gene.
+
+    A carrier has an ALT call in any of the gene's SVs. A non-carrier has none, and a
+    genotyped reference call in every SV an affected sample carries: the SV was looked
+    for in that sample and not found. Anything less, notably a callset with no call for
+    the sample at all (per-sample SV files), is not evidence of absence.
+    """
+    if any(_gt_has_alt((sv.get("gt") or {}).get(sample)) for sv in svs):
+        return CARRIER
+    carried = [
+        sv
+        for sv in svs
+        if any(_gt_has_alt((sv.get("gt") or {}).get(member)) for member in affected)
+    ]
+    if carried and all(
+        classify_genotype(str((sv.get("gt") or {}).get(sample) or "")) == HOM_REF
+        for sv in carried
+    ):
+        return NON_CARRIER
+    return UNKNOWN_CARRIAGE
+
+
 def _phase_verdict(
     svs: list[dict[str, Any]],
     affected: set[str],
     unaffected: set[str],
     snv_gt_by_sample: dict[str, str] | None,
+    *,
+    snv_dp_by_sample: dict[str, int] | None = None,
+    pedigree: FamilyPedigree | None = None,
+    snv_locus: Locus | None = None,
 ) -> str:
-    """trans / cis / unknown by segregation — the same rule as the SNV+SNV compound-het call.
+    """trans / cis / unknown from the family — the rule the SNV+SNV compound het uses too.
 
-    A clean candidate needs the SNV heterozygous in every affected sample and the SV present
-    in every affected sample. It's ``trans`` (compound-het) when no unaffected individual
-    carries *both* hits, ``cis`` when one does, and ``unknown`` without that evidence.
+    A candidate needs the SNV heterozygous in every affected sample and the SV present in
+    every affected sample. It is then ``cis`` when an unaffected individual carries both
+    hits, and otherwise traced through the affected samples' parents
+    (``compound_het_phase.segregation_phase``). Unaffected relatives who carry neither hit
+    are not evidence of trans.
     """
     if snv_gt_by_sample is None or not affected:
-        return "unknown"
+        return PHASE_UNKNOWN
 
     snv_het_in_affected = all(
         classify_genotype(str(snv_gt_by_sample.get(sample, ""))) == HET for sample in affected
@@ -85,28 +134,38 @@ def _phase_verdict(
         any(_gt_has_alt((sv.get("gt") or {}).get(sample)) for sv in svs) for sample in affected
     )
     if not (snv_het_in_affected and sv_in_affected):
-        return "unknown"
+        return PHASE_UNKNOWN
 
-    for sample in unaffected:
-        snv_alt = _gt_has_alt(snv_gt_by_sample.get(sample))
-        sv_alt = any(_gt_has_alt((sv.get("gt") or {}).get(sample)) for sv in svs)
-        if snv_alt and sv_alt:
-            return "cis"
-    if not unaffected:
-        return "unknown"  # no segregation evidence (e.g. singleton)
-    return "trans"
+    snv_dp = snv_dp_by_sample or {}
+    loci: list[Locus] = [snv_locus] if snv_locus is not None else []
+    for sv in svs:
+        loci.extend([(sv.get("chr"), sv.get("start")), (sv.get("chr"), sv.get("end"))])
+    return segregation_phase(
+        affected=affected,
+        unaffected=unaffected,
+        first=lambda sample: small_variant_carriage(
+            snv_gt_by_sample.get(sample), snv_dp.get(sample)
+        ),
+        second=lambda sample: _sv_carriage(svs, sample, affected),
+        pedigree=pedigree,
+        loci=loci,
+    )
 
 
-async def is_index_built(session: AsyncSession, family_uuid: str) -> bool:
-    found = (
+async def is_index_current(
+    session: AsyncSession, family_uuid: str, sv_data_version: str | None
+) -> bool:
+    """True when the family's index exists and was built from ``sv_data_version``."""
+    row = (
         await session.execute(
             text(
-                "SELECT 1 FROM family_sv_gene_index_status WHERE family_id = CAST(:fid AS uuid)"
+                "SELECT sv_data_version FROM family_sv_gene_index_status "
+                "WHERE family_id = CAST(:fid AS uuid)"
             ),
             {"fid": family_uuid},
         )
-    ).scalar()
-    return found is not None
+    ).first()
+    return row is not None and row[0] == sv_data_version
 
 
 async def store_sv_gene_index(
@@ -115,8 +174,18 @@ async def store_sv_gene_index(
     family_uuid: str,
     gene_map: dict[str, list[dict[str, Any]]],
     sv_total: int,
+    sv_data_version: str | None = None,
 ) -> None:
-    """Replace the family's index with ``gene -> [svs]`` and mark it built."""
+    """Replace the family's index with ``gene -> [svs]``, stamped with the SV data version
+    it was built from.
+
+    Two page loads can find the index out of date at once; the transaction lock makes the
+    second rebuild wait for the first and replace it, instead of colliding on its rows.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": f"sv_gene_index:{family_uuid}"},
+    )
     await session.execute(
         text("DELETE FROM family_sv_gene_index WHERE family_id = CAST(:fid AS uuid)"),
         {"fid": family_uuid},
@@ -142,15 +211,22 @@ async def store_sv_gene_index(
     await session.execute(
         text(
             """
-            INSERT INTO family_sv_gene_index_status (family_id, sv_total, gene_count, computed_at)
-            VALUES (CAST(:fid AS uuid), :sv_total, :gene_count, now())
+            INSERT INTO family_sv_gene_index_status
+                (family_id, sv_total, gene_count, sv_data_version, computed_at)
+            VALUES (CAST(:fid AS uuid), :sv_total, :gene_count, :sv_data_version, now())
             ON CONFLICT (family_id) DO UPDATE SET
                 sv_total = EXCLUDED.sv_total,
                 gene_count = EXCLUDED.gene_count,
+                sv_data_version = EXCLUDED.sv_data_version,
                 computed_at = now()
             """
         ),
-        {"fid": family_uuid, "sv_total": sv_total, "gene_count": len(gene_map)},
+        {
+            "fid": family_uuid,
+            "sv_total": sv_total,
+            "gene_count": len(gene_map),
+            "sv_data_version": sv_data_version,
+        },
     )
     await session.commit()
 
@@ -203,9 +279,16 @@ def summarize_second_hit(
     unaffected_samples: list[str] | None = None,
     snv_gt_by_sample: dict[str, str] | None = None,
     snv_ps_by_sample: dict[str, int] | None = None,
+    snv_dp_by_sample: dict[str, int] | None = None,
+    pedigree: FamilyPedigree | None = None,
+    snv_locus: Locus | None = None,
 ) -> dict[str, Any]:
     """Compact badge summary: which SV types hit the gene, the zygosity in affected
     individuals, and — when the SNV genotype is supplied — the trans/cis phase verdict.
+
+    The phase is read from the reads when the SNV and an SV share a phase set, else from
+    the family (``pedigree``: whose parent is whom; ``snv_dp_by_sample``: the depth behind
+    a parent's reference call; ``snv_locus``: where a male carries one copy).
 
     The headline is a deletion in trans with a heterozygous SNV: the deletion removes the
     other allele, so the pair is effectively biallelic (``deletion_unmasked``)."""
@@ -233,10 +316,18 @@ def summarize_second_hit(
     read_phase = _read_phase_verdict(svs, affected, snv_gt_by_sample, snv_ps_by_sample)
     if read_phase is not None:
         phase = read_phase
-        phase_evidence: str | None = "read"
+        phase_evidence: str | None = PHASE_EVIDENCE_READ
     else:
-        phase = _phase_verdict(svs, affected, set(unaffected_samples or []), snv_gt_by_sample)
-        phase_evidence = "segregation" if phase in {"trans", "cis"} else None
+        phase = _phase_verdict(
+            svs,
+            affected,
+            set(unaffected_samples or []),
+            snv_gt_by_sample,
+            snv_dp_by_sample=snv_dp_by_sample,
+            pedigree=pedigree,
+            snv_locus=snv_locus,
+        )
+        phase_evidence = PHASE_EVIDENCE_SEGREGATION if phase in {PHASE_TRANS, PHASE_CIS} else None
 
     has_deletion = any(t in {"DEL", "CNV"} for t in sv_types)
     locus_chr, locus_start, locus_end = _bounding_locus(svs)
@@ -247,7 +338,7 @@ def summarize_second_hit(
         "has_deletion": has_deletion,
         "phase": phase,
         "phase_evidence": phase_evidence,
-        "deletion_unmasked": has_deletion and phase == "trans",
+        "deletion_unmasked": has_deletion and phase == PHASE_TRANS,
         "chr": locus_chr,
         "start": locus_start,
         "end": locus_end,

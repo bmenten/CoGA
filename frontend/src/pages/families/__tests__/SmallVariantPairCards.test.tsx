@@ -48,22 +48,37 @@ const phasingRow = () =>
 
 describe('SmallVariantPairCards', () => {
   it('marks a read-backed trans pair', () => {
-    renderPair({ phase: 'trans' });
+    renderPair({ phase: 'trans', phase_evidence: 'read' });
     expect(within(phasingRow()).getByText('In trans · read-backed')).toBeInTheDocument();
   });
 
-  it('says so plainly when the reads did not resolve the pair', () => {
+  it('marks a pair the parents place in trans as such, not as read-backed', () => {
+    renderPair({ phase: 'trans', phase_evidence: 'segregation' });
+    expect(within(phasingRow()).getByText('In trans · by segregation')).toBeInTheDocument();
+    expect(within(phasingRow()).queryByText(/read-backed/)).not.toBeInTheDocument();
+  });
+
+  it('does not claim evidence it was not given', () => {
+    renderPair({ phase: 'trans' });
+    expect(within(phasingRow()).getByText('In trans')).toBeInTheDocument();
+  });
+
+  it('says so plainly when neither the reads nor the family resolved the pair', () => {
     renderPair({ phase: 'unknown' });
-    expect(within(phasingRow()).getByText('Not resolved by reads')).toBeInTheDocument();
+    expect(within(phasingRow()).getByText('Not resolved by reads or segregation')).toBeInTheDocument();
   });
 
   it('treats a payload without a phase as unresolved rather than claiming trans', () => {
     renderPair({});
-    expect(within(phasingRow()).getByText('Not resolved by reads')).toBeInTheDocument();
+    expect(within(phasingRow()).getByText('Not resolved by reads or segregation')).toBeInTheDocument();
   });
 
   it('keeps the curator phase separate from what the reads say', () => {
-    renderPair({ phase: 'trans', review: { phase_status: 'likely_cis' } as never });
+    renderPair({
+      phase: 'trans',
+      phase_evidence: 'read',
+      review: { phase_status: 'likely_cis' } as never,
+    });
     // The reviewer's own call stands on its own row and is not overwritten.
     const curated = screen.getByText('Phase').closest('.variant-compound-het-summary-row') as HTMLElement;
     expect(within(curated).getByText('Likely cis')).toBeInTheDocument();

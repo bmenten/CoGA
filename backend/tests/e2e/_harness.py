@@ -374,7 +374,13 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
             session, context=context, page=1, page_size=100, inheritance="compound_het"
         )
         facts["comp_het_groups"] = [
-            {"gene": g.gene, "n": len(g.variants)} for g in getattr(ch_page, "variant_groups", [])
+            {
+                "gene": g.gene,
+                "n": len(g.variants),
+                "phase": g.phase,
+                "phase_evidence": getattr(g, "phase_evidence", None),
+            }
+            for g in getattr(ch_page, "variant_groups", [])
         ]
 
         brca2_page = await get_family_small_variants_page(
