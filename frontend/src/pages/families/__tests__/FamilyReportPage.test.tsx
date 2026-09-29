@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -843,5 +843,113 @@ describe('FamilyReportPage', () => {
 
     expect(await screen.findByText(/override acknowledged:\s*reviewed/)).toBeInTheDocument();
     expect(screen.getByText('Evidence drift')).toBeInTheDocument();
+  });
+
+  // #605 — a failed request is never printed as an empty or complete report.
+  describe('when a request fails', () => {
+    const serverError = () => Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+
+    /**
+     * The full report of `mockApi`, with the listed URLs failing until `recover` is called:
+     * a failure that lasts, as a new observer mounting would otherwise retry it away.
+     */
+    const mockApiFailing = (...urls: string[]) => {
+      mockApi();
+      const base = apiMock.get.getMockImplementation()!;
+      let failing = true;
+      apiMock.get.mockImplementation((url: string, config?: unknown) =>
+        failing && urls.some((candidate) => url.startsWith(candidate)) ? serverError() : base(url, config),
+      );
+      return {
+        recover: () => {
+          failing = false;
+        },
+      };
+    };
+
+    it('does not render an empty report when the family could not be loaded', async () => {
+      const api = mockApiFailing('/families/F1');
+      renderPage();
+
+      expect(await screen.findByText('Report could not be loaded')).toBeInTheDocument();
+      expect(screen.getByText(/This is not a report without variants/)).toBeInTheDocument();
+      expect(screen.queryByText(/This report summarises/)).not.toBeInTheDocument();
+
+      api.recover();
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByRole('heading', { name: /BRCA1 c\.123A>G/ })).toBeInTheDocument();
+    });
+
+    it('does not drop the reported SVs silently', async () => {
+      mockApiFailing('/families/F1/structural-variants');
+      renderPage();
+
+      expect(await screen.findByText('Report could not be loaded')).toBeInTheDocument();
+      expect(
+        screen.getByText(/The reported structural variants for this family could not be retrieved/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/This report summarises/)).not.toBeInTheDocument();
+    });
+
+    it('does not call a case a draft when its sign-out record could not be loaded', async () => {
+      mockApiFailing('/families/F1/report/sign-outs');
+      renderPage();
+
+      expect(await screen.findByText(/The sign-out record could not be loaded,/)).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'The sign-out record could not be loaded — do not use as the signed report.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Draft — this report has not been signed/)).not.toBeInTheDocument();
+      // It may already be signed: sign-out is not offered until the record is known.
+      expect(screen.getByRole('button', { name: /Sign out report/ })).toBeDisabled();
+    });
+
+    it('marks each part that could not be loaded, on screen and in print, and retries them', async () => {
+      const api = mockApiFailing(
+        '/genes/profile',
+        '/families/F1/hpo',
+        '/families/F1/classification-drift',
+        '/families/F1/clinical-audit',
+        '/families/F1/annotation-manifest',
+      );
+      renderPage();
+
+      // Printed at the top of every page, as the sign-out notices are.
+      await waitFor(() =>
+        expect(screen.getByText(/so this printout does not show the whole report/)).toHaveTextContent(
+          'Incomplete — the description of BRCA1, the family’s HPO terms, the evidence-drift check, the audit trail and the annotation provenance could not be loaded',
+        ),
+      );
+      expect(
+        screen.getByText(
+          (_content, element) =>
+            element?.tagName === 'P' && element.textContent === 'The description of BRCA1 could not be loaded.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/The family’s HPO terms could not be loaded/)).toBeInTheDocument();
+      expect(screen.getByText('⚠ Evidence drift could not be checked')).toBeInTheDocument();
+      expect(screen.getByText('The audit trail could not be loaded.')).toBeInTheDocument();
+      expect(screen.getByText(/Modules & versions:/).parentElement).toHaveTextContent('could not be loaded');
+      // None of them reads as a finding of "none".
+      expect(screen.queryByText(/No curated description is available/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/No HPO phenotype terms have been recorded/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/not recorded for this family/)).not.toBeInTheDocument();
+
+      api.recover();
+      fireEvent.click(
+        within(screen.getByText(/Parts of this report could not be loaded/).closest('section')!).getByRole(
+          'button',
+          { name: 'Retry' },
+        ),
+      );
+
+      expect(await screen.findByText(/tumour suppressor/)).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.queryByText(/Parts of this report could not be loaded/)).not.toBeInTheDocument(),
+      );
+      expect(screen.getByText(/ClinVar 2026-05/)).toBeInTheDocument();
+    });
   });
 });

@@ -140,7 +140,7 @@ const describeSections = (sections: string[]): string =>
 
 // How the page relates to the latest signed record. Only "matches" may present the page as
 // the signed report; every other state must say it is not (#508).
-type SignedState = 'none' | 'checking' | 'matches' | 'changed' | 'unverified';
+type SignedState = 'none' | 'checking' | 'matches' | 'changed' | 'unverified' | 'unknown';
 
 const apiErrorMessage = (error: unknown, fallback: string): string => {
   const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
@@ -159,7 +159,12 @@ const FamilyReportPage: React.FC = () => {
     [location.search],
   );
 
-  const { data: family, isLoading: familyLoading } = useQuery<SmallVariantFamily>({
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    refetch: refetchFamily,
+  } = useQuery<SmallVariantFamily>({
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
@@ -205,6 +210,7 @@ const FamilyReportPage: React.FC = () => {
     data: reportPage,
     isLoading: variantsLoading,
     isError,
+    refetch: refetchReportVariants,
   } = useQuery<SmallVariantPage>({
     queryKey: ['family', familyId, 'report-variants', reportQueryString],
     enabled: variantQueryReady,
@@ -216,7 +222,12 @@ const FamilyReportPage: React.FC = () => {
 
   const variants = useMemo(() => reportPage?.variants ?? [], [reportPage]);
 
-  const { data: structuralReportPage } = useQuery<{ variants: StructuralVariant[] }>({
+  const {
+    data: structuralReportPage,
+    isLoading: structuralLoading,
+    isError: structuralFailed,
+    refetch: refetchStructural,
+  } = useQuery<{ variants: StructuralVariant[] }>({
     queryKey: ['family', familyId, 'report-structural-variants', reportQueryString],
     enabled: variantQueryReady,
     queryFn: async () => {
@@ -257,8 +268,18 @@ const FamilyReportPage: React.FC = () => {
     });
     return map;
   }, [geneProfileQueries]);
+  // A gene whose profile could not be loaded has no description on record as far as this
+  // page knows: said as such, not as "no curated description" (#605).
+  const failedGeneProfiles = useMemo(
+    () => new Set(geneSymbols.filter((_symbol, index) => geneProfileQueries[index]?.isError)),
+    [geneSymbols, geneProfileQueries],
+  );
 
-  const { data: hpoAnnotations = [] } = useQuery<FamilyHpoAnnotation[]>({
+  const {
+    data: hpoAnnotations = [],
+    isError: hpoFailed,
+    refetch: refetchHpo,
+  } = useQuery<FamilyHpoAnnotation[]>({
     queryKey: ['family', familyId, 'hpo'],
     enabled: Boolean(familyId),
     queryFn: async () => {
@@ -268,7 +289,11 @@ const FamilyReportPage: React.FC = () => {
   });
 
   // Provenance footer: which annotation/reference modules + versions backed the report.
-  const { data: manifest } = useQuery<ApiAnnotationManifest>({
+  const {
+    data: manifest,
+    isError: manifestFailed,
+    refetch: refetchManifest,
+  } = useQuery<ApiAnnotationManifest>({
     queryKey: ['family', familyId, 'annotation-manifest'],
     enabled: Boolean(familyId),
     queryFn: async () =>
@@ -279,7 +304,7 @@ const FamilyReportPage: React.FC = () => {
 
   // Evidence drift: classifications whose backing annotation changed since they
   // were made — a sign-out guardrail against stale interpretations.
-  const { data: drift } = useQuery<ApiClassificationDrift>({
+  const { data: drift, isError: driftFailed, refetch: refetchDrift } = useQuery<ApiClassificationDrift>({
     queryKey: ['family', familyId, 'classification-drift'],
     enabled: Boolean(familyId),
     queryFn: async () =>
@@ -287,7 +312,7 @@ const FamilyReportPage: React.FC = () => {
   });
 
   // Immutable clinical audit trail (who classified / tagged / annotated what, when).
-  const { data: audit } = useQuery<ApiClinicalAudit>({
+  const { data: audit, isError: auditFailed, refetch: refetchAudit } = useQuery<ApiClinicalAudit>({
     queryKey: ['family', familyId, 'clinical-audit'],
     enabled: Boolean(familyId),
     queryFn: async () =>
@@ -296,7 +321,11 @@ const FamilyReportPage: React.FC = () => {
 
   // Case sign-out: the frozen, versioned, content-hashed report record.
   const queryClient = useQueryClient();
-  const { data: signouts } = useQuery<ApiReportSignoutList>({
+  const {
+    data: signouts,
+    isError: signoutsFailed,
+    refetch: refetchSignouts,
+  } = useQuery<ApiReportSignoutList>({
     queryKey: ['family', familyId, 'report-signouts'],
     enabled: Boolean(familyId),
     queryFn: async () =>
@@ -316,7 +345,11 @@ const FamilyReportPage: React.FC = () => {
       (await api.get(apiPath`/families/${familyId}/report/sign-out-check`))
         .data as ApiReportSignoutCheck,
   });
-  const signedState: SignedState = !latestSignout
+  // A sign-out record that could not be loaded leaves it unknown whether the case is
+  // signed: the page is then neither a draft nor the signed report (#605).
+  const signedState: SignedState = signoutsFailed
+    ? 'unknown'
+    : !latestSignout
     ? 'none'
     : signoutCheckFailed
       ? 'unverified'
@@ -334,14 +367,41 @@ const FamilyReportPage: React.FC = () => {
     latestSignout && signoutCheck?.version === latestSignout.version
       ? (signoutCheck.not_captured ?? [])
       : [];
-  const printNotice =
-    signedState === 'none'
+  const signedNotice =
+    signedState === 'unknown'
+      ? 'The sign-out record could not be loaded — do not use as the signed report.'
+      : signedState === 'none'
       ? 'Draft — this report has not been signed.'
       : signedState === 'changed'
         ? `Not the signed report — the content differs from signed version ${latestSignout?.version}.`
         : signedState === 'matches'
           ? null
           : `Not verified against signed version ${latestSignout?.version} — do not use as the signed report.`;
+  // The parts of the report that could not be loaded. Each says so where it belongs, and
+  // together they head every printed page: a printout without them used to read as
+  // complete, their sections as "none" (#605).
+  const failedParts = [
+    failedGeneProfiles.size
+      ? `the description${failedGeneProfiles.size === 1 ? '' : 's'} of ${joinWithAnd(Array.from(failedGeneProfiles))}`
+      : null,
+    hpoFailed ? 'the family’s HPO terms' : null,
+    driftFailed ? 'the evidence-drift check' : null,
+    auditFailed ? 'the audit trail' : null,
+    manifestFailed ? 'the annotation provenance' : null,
+  ].filter((part): part is string => Boolean(part));
+  const retryFailedParts = () => {
+    geneProfileQueries.forEach((query) => {
+      if (query.isError) void query.refetch();
+    });
+    if (hpoFailed) void refetchHpo();
+    if (driftFailed) void refetchDrift();
+    if (auditFailed) void refetchAudit();
+    if (manifestFailed) void refetchManifest();
+  };
+  const incompleteNotice = failedParts.length
+    ? `Incomplete — ${joinWithAnd(failedParts)} could not be loaded, so this printout does not show the whole report.`
+    : null;
+  const printNotice = [incompleteNotice, signedNotice].filter(Boolean).join(' ') || null;
 
   // Override dialogs. Each gate is acknowledged with a reason that is frozen into the
   // signed record: evidence drift first, then a failing / unverifiable Sample QC.
@@ -504,12 +564,33 @@ const FamilyReportPage: React.FC = () => {
     return <PageState kicker="Report" title="Family not specified" />;
   }
 
-  if (familyLoading || (variantQueryReady && variantsLoading) || referenceLoading) {
+  if (
+    familyLoading ||
+    (variantQueryReady && (variantsLoading || structuralLoading)) ||
+    referenceLoading
+  ) {
     return (
       <PageState
         kicker="Report"
         title="Preparing the family report"
         message="Gathering reported variants, gene context and phenotype data."
+      />
+    );
+  }
+
+  // Without the family the report queries never run: it used to render as a report of
+  // 0 small and 0 structural variants (#605).
+  if (familyFailed) {
+    return (
+      <PageState
+        kicker="Report"
+        title="Report could not be loaded"
+        message="The family could not be loaded, so the report cannot be prepared. This is not a report without variants."
+        action={
+          <button type="button" className="button-secondary" onClick={() => void refetchFamily()}>
+            Retry
+          </button>
+        }
       />
     );
   }
@@ -531,16 +612,30 @@ const FamilyReportPage: React.FC = () => {
     );
   }
 
-  if (isError) {
+  // Either list of reported variants: the SVs used to drop out of the report unnoticed,
+  // and the introduction to count none (#605).
+  if (isError || structuralFailed) {
     return (
       <PageState
         kicker="Report"
         title="Report could not be loaded"
-        message="The reported variants for this family could not be retrieved."
+        message={`The reported ${isError ? 'small' : 'structural'} variants for this family could not be retrieved. This is not a report without them.`}
         action={
-          <Link to={`/families/${familyId}`} className="button-secondary">
-            Back to family
-          </Link>
+          <div className="inline-actions">
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => {
+                if (isError) void refetchReportVariants();
+                if (structuralFailed) void refetchStructural();
+              }}
+            >
+              Retry
+            </button>
+            <Link to={`/families/${familyId}`} className="button-secondary">
+              Back to family
+            </Link>
+          </div>
         }
       />
     );
@@ -575,11 +670,14 @@ const FamilyReportPage: React.FC = () => {
               className="form-button"
               onClick={handleSignOut}
               // Off the validated scope the server refuses anyway; do not offer it (#515).
-              disabled={signOut.isPending || assemblyValidated === false}
+              // Nor while the sign-out record is unknown: this may already be signed (#605).
+              disabled={signOut.isPending || assemblyValidated === false || signoutsFailed}
               title={
                 assemblyValidated === false
                   ? 'Not validated for clinical use — this report cannot be signed out'
-                  : undefined
+                  : signoutsFailed
+                    ? 'The sign-out record could not be loaded'
+                    : undefined
               }
             >
               {signOut.isPending
@@ -714,6 +812,30 @@ const FamilyReportPage: React.FC = () => {
         </ModalDialog>
       ) : null}
 
+      {signoutsFailed ? (
+        <section className="surface-card report-signout report-signout-unknown" role="alert">
+          <p className="report-signout-line">
+            <strong>The sign-out record could not be loaded,</strong> so it is not known whether this
+            report has been signed out. Do not treat this page as a draft or as the signed report.{' '}
+            <button type="button" className="button-link no-print" onClick={() => void refetchSignouts()}>
+              Retry
+            </button>
+          </p>
+        </section>
+      ) : null}
+
+      {failedParts.length ? (
+        <section className="surface-card report-incomplete no-print" role="alert">
+          <p className="report-paragraph">
+            <strong>Parts of this report could not be loaded:</strong> {joinWithAnd(failedParts)}.
+            Each is marked where it belongs, and a printout says the report is incomplete.{' '}
+            <button type="button" className="button-link" onClick={retryFailedParts}>
+              Retry
+            </button>
+          </p>
+        </section>
+      ) : null}
+
       {latestSignout ? (
         <section
           className={`surface-card report-signout report-signout-${signedState}`}
@@ -805,7 +927,15 @@ const FamilyReportPage: React.FC = () => {
         </p>
       </section>
 
-      {drift && drift.drifted_count > 0 ? (
+      {driftFailed ? (
+        <section className="surface-card report-drift" role="alert">
+          <p className="report-drift-title">⚠ Evidence drift could not be checked</p>
+          <p className="report-paragraph report-drift-lead">
+            Whether the annotation behind a reported classification has changed since it was made
+            is not known. Sign-out checks it again.
+          </p>
+        </section>
+      ) : drift && drift.drifted_count > 0 ? (
         <section className="surface-card report-drift" role="alert">
           <p className="report-drift-title">
             ⚠ {drift.drifted_count} classification{drift.drifted_count === 1 ? '' : 's'}{' '}
@@ -947,6 +1077,10 @@ const FamilyReportPage: React.FC = () => {
                   <p className="report-paragraph">
                     <strong>{profile.display_name || variant.gene}</strong> — {profile.summary}
                   </p>
+                ) : variant.gene && failedGeneProfiles.has(variant.gene) ? (
+                  <p className="report-paragraph">
+                    The description of <strong>{variant.gene}</strong> could not be loaded.
+                  </p>
                 ) : (
                   <p className="report-paragraph">
                     No curated description is available for{' '}
@@ -969,7 +1103,12 @@ const FamilyReportPage: React.FC = () => {
 
               <div className="report-section">
                 <h3 className="report-subheading">Phenotype (HPO)</h3>
-                {presentHpoTerms.size === 0 ? (
+                {hpoFailed ? (
+                  <p className="report-paragraph">
+                    The family&rsquo;s HPO terms could not be loaded, so the phenotype match is not
+                    assessed.
+                  </p>
+                ) : presentHpoTerms.size === 0 ? (
                   <p className="report-paragraph">
                     No HPO phenotype terms have been recorded for this family.
                   </p>
@@ -978,6 +1117,11 @@ const FamilyReportPage: React.FC = () => {
                     The patient phenotype overlaps the gene&rsquo;s known HPO associations for{' '}
                     {joinWithAnd(overlappingHpo.map((term) => `${term.label} (${term.id})`))},
                     supporting a phenotypic match.
+                  </p>
+                ) : variant.gene && failedGeneProfiles.has(variant.gene) ? (
+                  <p className="report-paragraph">
+                    The gene&rsquo;s HPO associations could not be loaded, so their overlap with the
+                    recorded phenotype is not assessed.
                   </p>
                 ) : (
                   <p className="report-paragraph">
@@ -1047,6 +1191,10 @@ const FamilyReportPage: React.FC = () => {
                   <p className="report-paragraph">
                     <strong>{profile.display_name || variant.gene}</strong> — {profile.summary}
                   </p>
+                ) : variant.gene && failedGeneProfiles.has(variant.gene) ? (
+                  <p className="report-paragraph">
+                    The description of <strong>{variant.gene}</strong> could not be loaded.
+                  </p>
                 ) : (
                   <p className="report-paragraph">
                     No curated description is available for{' '}
@@ -1063,7 +1211,12 @@ const FamilyReportPage: React.FC = () => {
 
               <div className="report-section">
                 <h3 className="report-subheading">Phenotype (HPO)</h3>
-                {presentHpoTerms.size === 0 ? (
+                {hpoFailed ? (
+                  <p className="report-paragraph">
+                    The family&rsquo;s HPO terms could not be loaded, so the phenotype match is not
+                    assessed.
+                  </p>
+                ) : presentHpoTerms.size === 0 ? (
                   <p className="report-paragraph">
                     No HPO phenotype terms have been recorded for this family.
                   </p>
@@ -1072,6 +1225,11 @@ const FamilyReportPage: React.FC = () => {
                     The patient phenotype overlaps the gene&rsquo;s known HPO associations for{' '}
                     {joinWithAnd(overlappingHpo.map((term) => `${term.label} (${term.id})`))},
                     supporting a phenotypic match.
+                  </p>
+                ) : variant.gene && failedGeneProfiles.has(variant.gene) ? (
+                  <p className="report-paragraph">
+                    The gene&rsquo;s HPO associations could not be loaded, so their overlap with the
+                    recorded phenotype is not assessed.
                   </p>
                 ) : (
                   <p className="report-paragraph">
@@ -1098,7 +1256,12 @@ const FamilyReportPage: React.FC = () => {
         </>
       )}
 
-      {audit?.events?.length ? (
+      {auditFailed ? (
+        <section className="surface-card report-audit" role="alert">
+          <h2 className="report-audit-heading">Classification audit trail</h2>
+          <p className="report-paragraph report-audit-lead">The audit trail could not be loaded.</p>
+        </section>
+      ) : audit?.events?.length ? (
         <section className="surface-card report-audit">
           <h2 className="report-audit-heading">Classification audit trail</h2>
           <p className="report-paragraph report-audit-lead">
@@ -1133,7 +1296,9 @@ const FamilyReportPage: React.FC = () => {
         </p>
         <p className="report-footer-versions">
           <span className="report-footer-label">Modules &amp; versions:</span>{' '}
-          {manifest?.modules?.some((module) => module.version)
+          {manifestFailed
+            ? 'could not be loaded'
+            : manifest?.modules?.some((module) => module.version)
             ? manifest.modules
                 .filter((module) => module.version)
                 .map((module) => {
