@@ -58,6 +58,17 @@ interface PositionedVariant extends Variant {
 const isSupportedVariantType = (value: string): value is VariantType =>
   TYPE_ORDER.includes(value as VariantType);
 
+/** The drawn SVs in words, for the chart's accessible name (#529): "3 (2 DEL, 1 DUP)". */
+const describeTypes = (items: PositionedVariant[]): string => {
+  const byType = TYPE_ORDER.map((typeKey) => ({
+    typeKey,
+    count: items.filter((item) => item.typeKey === typeKey).length,
+  }))
+    .filter(({ count }) => count > 0)
+    .map(({ typeKey, count }) => `${count.toLocaleString()} ${typeKey}`);
+  return `${items.length.toLocaleString()} (${byType.join(', ')})`;
+};
+
 const VariantTrack: React.FC<Props> = ({
   familyId,
   sampleId,
@@ -149,6 +160,19 @@ const VariantTrack: React.FC<Props> = ({
       .sort((left, right) => left.start - right.start);
   }, [regionStart, rowHeight, span, variants, width]);
 
+  // The chart's accessible name (#529): what it shows now. A failure or a load is said
+  // as such, never as zero SVs (#510).
+  const typeSummary = React.useMemo(() => describeTypes(items), [items]);
+  const chartRegion = `chr${chrom.replace(/^chr/i, '')}:${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+  const chartState = isError
+    ? 'failed to load'
+    : isLoading
+      ? 'loading'
+      : items.length === 0
+        ? 'none'
+        : typeSummary;
+  const chartLabel = `Structural variants of ${sampleId} on ${chartRegion}: ${chartState}`;
+
   const [tooltip, setTooltip] = React.useState<{
     x: number;
     y: number;
@@ -168,7 +192,7 @@ const VariantTrack: React.FC<Props> = ({
 
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
+      <svg width={width} height={height} role="img" aria-label={chartLabel}>
         {TYPE_ORDER.map((typeKey, index) => {
           const rowTop = index * rowHeight;
           const rowFill = typeColors[typeKey] || fallbackColors.default;

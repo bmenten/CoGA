@@ -4,6 +4,7 @@ import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import { drawHaplotypeRiskOverlay, haplotypeRiskPattern } from '../../lib/haplotypeCanvas';
+import { segregationStateLabel } from '../../lib/embryoSegregation';
 import {
   defaultHaplotypeRiskRegion,
   diseaseHaplotypeKindForLane,
@@ -83,6 +84,11 @@ interface PhasedMarkerResponse {
 }
 
 const isDeletedHaplotype = (value: string): boolean => value === '.';
+
+const chromLabel = (chrom: string): string => (/^chr/i.test(chrom) ? chrom : `chr${chrom}`);
+
+const regionLabel = (chrom: string, start: number, end: number): string =>
+  `${chromLabel(chrom)}:${start.toLocaleString()}–${end.toLocaleString()}`;
 
 const laneValue = (value: number | null): string => (value === null ? '.' : String(value));
 
@@ -741,6 +747,29 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   // A failed load has no risk state — not "uninformative", which is a real outcome.
   const shownRiskState = haplotypeError ? 'unavailable' : riskState;
 
+  // The accessible name: whose haplotypes, where, and the risk state the track's border
+  // shows — assessed at the ROI when there is one. A load in flight claims no risk state
+  // and a failed one says so (#510, #529).
+  const trackLabel = (() => {
+    const subject = `Haplotypes of ${sampleId} on ${regionLabel(chrom, regionStart, regionEnd)}`;
+    if (haplotypeError) return `${subject}: failed to load; risk state: unavailable`;
+    if (isLoading) return `${subject}: loading`;
+    const riskScope = riskRegion
+      ? ` at ${regionLabel(riskRegion.chr || chrom, riskRegion.start, riskRegion.end)}`
+      : '';
+    const markerNote = !showMarkers
+      ? ''
+      : markersError
+        ? '; phased markers failed to load'
+        : markersTruncated
+          ? '; phased markers hidden, too many sites'
+          : '';
+    return (
+      `${subject}${hasSegments ? '' : ': no data'}` +
+      `; risk state${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}${markerNote}`
+    );
+  })();
+
   return (
     <div
       className={`relative haplotype-track haplotype-track--${shownRiskState}`}
@@ -750,7 +779,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       <canvas
         ref={canvasRef}
         className={showMarkers && !markersTruncated ? 'cursor-pointer' : undefined}
-        aria-label={`Haplotype risk state: ${shownRiskState}`}
+        role="img"
+        aria-label={trackLabel}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setTooltip(null)}
       />

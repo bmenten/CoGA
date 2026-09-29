@@ -51,6 +51,47 @@ export const TELOMERE_CORNER_RADIUS = 5.5;
 const CHROMOSOME_GAP = 0.04; // radians of whitespace between adjacent chromosomes
 const TELOMERE_END_WHITESPACE = 0.0007;
 
+// The types the legend names (typeColors below), in its order.
+const LEGEND_TYPES = ['DEL', 'DUP', 'INS', 'INV', 'BND'];
+
+const countOf = (count: number, one: string, many = `${one}s`): string =>
+  `${count.toLocaleString()} ${count === 1 ? one : many}`;
+
+/**
+ * The plot's accessible name: what is drawn now. A variant is counted only when both of
+ * its ends sit on a drawn chromosome and it has a type, as in the link layout below.
+ * `variants` is undefined until they have loaded (or when they could not), which is
+ * never reported as "no structural variants".
+ */
+const describeCircos = (
+  chroms: Chromosome[],
+  selected: Record<string, boolean>,
+  variants: Variant[] | undefined,
+): string => {
+  const shown = new Set(chroms.filter((chrom) => selected[chrom.chr]).map((chrom) => chrom.chr));
+  if (shown.size === 0) return 'Circos plot: no chromosomes selected';
+  const across = countOf(shown.size, 'chromosome');
+  if (variants === undefined) return `Circos plot of ${across}; structural variants not loaded`;
+
+  const isShown = (chr?: string) => !!chr && (shown.has(chr) || shown.has(chr.replace(/^chr/i, '')));
+  const byType = new Map<string, number>();
+  variants.forEach((v) => {
+    const type = v.type?.toUpperCase();
+    if (!type || !isShown(v.chr) || !isShown(v.remote_chr || v.chr)) return;
+    byType.set(type, (byType.get(type) ?? 0) + 1);
+  });
+  const drawn = [...byType.values()].reduce((sum, count) => sum + count, 0);
+  if (drawn === 0) {
+    return `Circos plot of ${across}: no structural variants${variants.length ? ' in this selection' : ''}`;
+  }
+  const other = drawn - LEGEND_TYPES.reduce((sum, type) => sum + (byType.get(type) ?? 0), 0);
+  const breakdown = [
+    ...LEGEND_TYPES.filter((type) => byType.has(type)).map((type) => `${byType.get(type)} ${type}`),
+    ...(other ? [`${other} other`] : []),
+  ];
+  return `Circos plot of ${countOf(drawn, 'structural variant')} across ${across}: ${breakdown.join(', ')}`;
+};
+
 const toCartesianAngle = (angle: number) => angle - Math.PI / 2;
 
 const polarPoint = (radius: number, angle: number) => ({
@@ -310,6 +351,11 @@ const CircosPlot: FC<CircosPlotProps> = ({
         bands: [...chrom.bands].sort((a, b) => a.start - b.start),
       })),
     [chromData],
+  );
+
+  const chartLabel = useMemo(
+    () => describeCircos(chromData, selected, variants),
+    [chromData, selected, variants],
   );
 
   useEffect(() => {
@@ -749,7 +795,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
 
   return (
     <div className="flex flex-col items-center">
-      <svg ref={svgRef} className="mx-auto block text-text"></svg>
+      <svg ref={svgRef} className="mx-auto block text-text" role="img" aria-label={chartLabel}></svg>
       <div className="mt-4 flex flex-wrap justify-center gap-4 text-xs">
         {Object.entries(typeColors).map(([type, color]) => (
           <div key={type} className="flex items-center gap-1">

@@ -21,6 +21,7 @@ import {
   smallVariantMarkExtent,
   smallVariantMarkKind,
   smallVariantMarkPath,
+  type SmallVariantMarkKind,
 } from '../../lib/smallVariantMarks';
 
 interface Genotype {
@@ -147,6 +148,31 @@ const variantOrigin = (
 };
 
 type PositionedVariant = Variant & { x: number; origin: ParentalOrigin };
+
+/**
+ * The drawn variants in words, for the chart's accessible name (#529): how many, and how
+ * many carry the salient marks. Counted by mark, as the legend reads them: a ClinVar P/LP
+ * variant of HIGH impact is drawn, and counted, as P/LP.
+ */
+const describeMarks = (variants: Variant[]): string => {
+  const counts: Record<SmallVariantMarkKind, number> = {
+    pathogenic: 0,
+    high: 0,
+    moderate: 0,
+    benign: 0,
+    other: 0,
+  };
+  variants.forEach((variant) => {
+    counts[smallVariantMarkKind(variant)] += 1;
+  });
+  const salient = (['pathogenic', 'high'] as const)
+    .filter((kind) => counts[kind] > 0)
+    .map((kind) => `${counts[kind].toLocaleString()} ${SMALL_VARIANT_MARKS[kind].label}`);
+  const detail = salient.length
+    ? `of which ${salient.join(' and ')}`
+    : `none ${SMALL_VARIANT_MARKS.pathogenic.label} or ${SMALL_VARIANT_MARKS.high.label}`;
+  return `${variants.length.toLocaleString()}, ${detail}`;
+};
 
 const SmallVariantTrack: React.FC<Props> = ({
   familyId,
@@ -278,6 +304,21 @@ const SmallVariantTrack: React.FC<Props> = ({
     ? 'Too many variants to display. Zoom in or apply filters.'
     : 'no small variants for this region / sample';
 
+  // The chart's accessible name (#529): what it shows now. A failure, a load or a view
+  // over the cap is said as such, never as zero variants (#510).
+  const markSummary = React.useMemo(() => describeMarks(variants), [variants]);
+  const chartRegion = `chr${chrom.replace(/^chr/i, '')}:${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+  const chartState = isError
+    ? 'failed to load'
+    : isLoading
+      ? 'loading'
+      : tooManyVariants
+        ? 'too many to display; zoom in or apply filters'
+        : variants.length === 0
+          ? 'none'
+          : markSummary;
+  const chartLabel = `Small variants of ${sampleId} on ${chartRegion}: ${chartState}`;
+
   const svgRef = React.useRef<SVGSVGElement | null>(null);
   const [tooltip, setTooltip] = React.useState<{
     x: number;
@@ -399,7 +440,7 @@ const SmallVariantTrack: React.FC<Props> = ({
 
   return (
     <div className="relative" style={{ width, height }}>
-      <svg ref={svgRef} width={width} height={height} />
+      <svg ref={svgRef} width={width} height={height} role="img" aria-label={chartLabel} />
       {isLoading && <VizLoadingOverlay message="Loading small variants" />}
       {isError && <VizErrorOverlay what="small variants" onRetry={() => void refetch()} />}
       {tooltip && (

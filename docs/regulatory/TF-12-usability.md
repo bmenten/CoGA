@@ -58,8 +58,10 @@ QC basis, and **a clinical state is not conveyed by colour alone** (WCAG 1.4.1):
 line style, glyph or text carries it too. CR-054 applies this to the pedigree QC ring, the
 risk-haplotype line and the small-variant marks. Two colour codes remain, each named in a
 tooltip: the pedigree's carrier-type half-fill, and the MODERATE versus LOW small-variant
-dots. In-app guidance lives at `/docs` (the user guide) and is part of "information for
-safety" (TF-15).
+dots. Every chart, track, ideogram and the pedigree is an image with a **text name that
+states what it shows now** (WCAG 1.1.1): the counts and the salient items, or that it is
+loading or failed to load, never a failure as "none" (CR-062). In-app guidance lives at
+`/docs` (the user guide) and is part of "information for safety" (TF-15).
 
 ## 5. Evaluation plan
 

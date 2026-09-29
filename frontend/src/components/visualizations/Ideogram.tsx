@@ -241,28 +241,44 @@ const Ideogram: React.FC<Props> = ({
     [width, ideogramY, ideogramInnerHeight, capsuleRadius, chromLength, renderBands],
   );
 
+  // The ideogram's name for a screen reader (#529): the chromosome and the region
+  // highlighted on it, as drawn (clamped to the chromosome).
+  const ideogramName = `Chromosome ${chrom.replace(/^chr/i, "")} ideogram`;
+
   if (isError) {
     return (
       <div className="relative" style={{ width, height }}>
-        <svg width={width} height={height} />
+        <svg
+          width={width}
+          height={height}
+          role="img"
+          aria-label={`${ideogramName}: failed to load`}
+        />
         <VizErrorOverlay what="the chromosome ideogram" onRetry={() => void refetch()} />
       </div>
     );
   }
 
   if (!data) {
-    return <svg width={width} height={height} />;
+    return (
+      <svg width={width} height={height} role="img" aria-label={`${ideogramName}: loading`} />
+    );
   }
 
   const cytobandLabel = bandTooltip
     ? `${chrom.replace(/^chr/i, "")}${bandTooltip.name}`
     : "";
+  const ariaLabel = showHighlight
+    ? `${ideogramName}, ${start.toLocaleString()}–${end.toLocaleString()} highlighted`
+    : `${ideogramName}, whole chromosome in view`;
 
   return (
     <>
     <svg
       width={width}
       height={height}
+      role="img"
+      aria-label={ariaLabel}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}

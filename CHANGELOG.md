@@ -363,6 +363,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   just previewed; it could apply without a preview, or another file than the one on screen. The
   release date no longer shows a day early west of UTC, and "Back to SVs" keeps the project and
   filters (#583).
+- **Charts for screen readers (#529)** — every track, chart, ideogram and the pedigree has a
+  text name that says what it shows: how many genes, variants, loci or segments are in view and
+  the salient ones, the haplotype risk state, or that it is loading or failed to load, never a
+  failure as none (#587).
 
 ### Security
 

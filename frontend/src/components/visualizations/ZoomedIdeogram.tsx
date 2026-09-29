@@ -69,17 +69,31 @@ const ZoomedIdeogram: React.FC<Props> = ({
     name: string;
   } | null>(null);
 
+  // The surface's name for a screen reader (#529): the cytobands in the region, in ISCN
+  // form (13q13.1) like the band tooltip. A failure is never "none" (#510).
+  const chromName = chrom.replace(/^chr/i, "");
+  const bandsOn =
+    `Cytobands on chr${chromName}:` +
+    `${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+
   if (isError) {
     return (
       <div className="relative" style={{ width, height }}>
-        <svg width={width} height={height} />
+        <svg width={width} height={height} role="img" aria-label={`${bandsOn}: failed to load`} />
         <VizErrorOverlay what="the chromosome ideogram" onRetry={() => void refetch()} />
       </div>
     );
   }
 
   if (!data || regionEnd <= regionStart) {
-    return <svg width={width} height={height} />;
+    return (
+      <svg
+        width={width}
+        height={height}
+        role="img"
+        aria-label={data ? `Cytobands on chr${chromName}: no region in view` : `${bandsOn}: loading`}
+      />
+    );
   }
 
   const bandHoverHandlers = (band: IdeogramBand) => ({
@@ -94,6 +108,10 @@ const ZoomedIdeogram: React.FC<Props> = ({
   const bands = data.bands.filter(
     (b) => b.end > regionStart && b.start < regionEnd
   );
+  const bandNames = bands.slice(0, 3).map((band) => `${chromName}${band.name}`).join(", ");
+  const ariaLabel = bands.length
+    ? `${bandsOn}: ${bands.length.toLocaleString()} (${bandNames}${bands.length > 3 ? ", …" : ""})`
+    : `${bandsOn}: none`;
 
   const tickInterval = niceTickInterval(regionLength, width);
   const tickValues: number[] = [regionStart];
@@ -126,7 +144,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
 
   return (
     <>
-    <svg width={width} height={height}>
+    <svg width={width} height={height} role="img" aria-label={ariaLabel}>
       <defs>{bandGradients}</defs>
       {bands.map((band, i) => {
         const start = Math.max(band.start, regionStart);

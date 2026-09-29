@@ -48,6 +48,17 @@ interface PositionedVariant extends Variant {
   typeKey: VariantType;
 }
 
+/** The drawn SVs in words, for the chart's accessible name (#529): "3 (2 DEL, 1 DUP)". */
+const describeTypes = (items: PositionedVariant[]): string => {
+  const byType = TYPE_ORDER.map((typeKey) => ({
+    typeKey,
+    count: items.filter((item) => item.typeKey === typeKey).length,
+  }))
+    .filter(({ count }) => count > 0)
+    .map(({ typeKey, count }) => `${count.toLocaleString()} ${typeKey}`);
+  return `${items.length.toLocaleString()} (${byType.join(', ')})`;
+};
+
 const SvTrack: React.FC<Props> = ({
   url,
   layout,
@@ -118,6 +129,18 @@ const SvTrack: React.FC<Props> = ({
       })
       .filter(Boolean) as PositionedVariant[];
   }, [variants, layout, width, rowHeight]);
+
+  // The chart's accessible name (#529): what it shows now. A failure or a load is said
+  // as such, never as zero SVs (#510).
+  const typeSummary = useMemo(() => describeTypes(items), [items]);
+  const chartState = isError
+    ? 'failed to load'
+    : loading
+      ? 'loading'
+      : items.length === 0
+        ? 'none'
+        : typeSummary;
+  const chartLabel = `Structural variants of ${sampleId} in view: ${chartState}`;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -211,6 +234,8 @@ const SvTrack: React.FC<Props> = ({
         ref={canvasRef}
         width={width}
         height={height}
+        role="img"
+        aria-label={chartLabel}
         onMouseMove={handlePointerMove}
         onMouseLeave={() => setTooltip(undefined)}
       />

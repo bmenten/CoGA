@@ -47,24 +47,36 @@ const BlacklistTrack: React.FC<Props> = ({
     `${assembly}|${chrom}`,
   );
 
+  // The surface's name for a screen reader (#529): how many regions are in view.
+  const regionsOn =
+    `Blacklist regions on chr${chrom.replace(/^chr/i, "")}:` +
+    `${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+
   // A failed request must never read as an empty region (#510).
   if (isError) {
     return (
       <div className="relative" style={{ width, height }}>
-        <svg width={width} height={height} />
+        <svg width={width} height={height} role="img" aria-label={`${regionsOn}: failed to load`} />
         <VizErrorOverlay what="blacklist regions" onRetry={() => void refetch()} />
       </div>
     );
   }
 
-  if (!data) return <svg width={width} height={height} />;
+  if (!data) {
+    return <svg width={width} height={height} role="img" aria-label={`${regionsOn}: loading`} />;
+  }
 
   const regionLength = regionEnd - regionStart;
   const trackY = Math.max(2, Math.floor(height * 0.2));
   const trackHeight = Math.max(height - trackY * 2, 4);
+  // Only what overlaps the region; see SegmentalDuplicationTrack (#526).
+  const inView = data.filter((r) => r.end > regionStart && r.start < regionEnd);
+  // Nothing in view while a pan's new window is still on its way is not "none".
+  const inViewSummary =
+    inView.length > 0 ? inView.length.toLocaleString() : rawData ? "none" : "loading";
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
+      <svg width={width} height={height} role="img" aria-label={`${regionsOn}: ${inViewSummary}`}>
         <line
           x1={0}
           x2={width}
@@ -73,27 +85,24 @@ const BlacklistTrack: React.FC<Props> = ({
           stroke={cssVar("--color-grid")}
           strokeWidth={1}
         />
-      {/* Only what overlaps the region; see SegmentalDuplicationTrack (#526). */}
-      {data
-        .filter((r) => r.end > regionStart && r.start < regionEnd)
-        .map((r, idx) => {
-          const start = Math.max(r.start, regionStart);
-          const end = Math.min(r.end, regionEnd);
-          const x = ((start - regionStart) / regionLength) * width;
-          const w = Math.max(((end - start) / regionLength) * width, 2);
-          return (
-            <rect
-              key={idx}
-              x={x}
-              y={trackY}
-              width={w}
-              height={trackHeight}
-              fill={cssVar("--color-blacklist")}
-            >
-              <title>{r.label}</title>
-            </rect>
-          );
-        })}
+      {inView.map((r, idx) => {
+        const start = Math.max(r.start, regionStart);
+        const end = Math.min(r.end, regionEnd);
+        const x = ((start - regionStart) / regionLength) * width;
+        const w = Math.max(((end - start) / regionLength) * width, 2);
+        return (
+          <rect
+            key={idx}
+            x={x}
+            y={trackY}
+            width={w}
+            height={trackHeight}
+            fill={cssVar("--color-blacklist")}
+          >
+            <title>{r.label}</title>
+          </rect>
+        );
+      })}
       </svg>
       {data.length === 0 && (
         <div className="viz-empty-overlay">No blacklist regions in this region</div>

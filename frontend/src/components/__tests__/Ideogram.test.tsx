@@ -170,6 +170,35 @@ test('names the cytoband under the pointer, without the chr prefix', () => {
   expect(screen.queryByText('1p1')).not.toBeInTheDocument();
 });
 
+test('names the chromosome and the region highlighted on it for a screen reader (#529)', () => {
+  answer(CHROMOSOME);
+  const region = (regionStart: number, regionEnd: number) => (
+    <Ideogram assembly="GRCh38" chrom="chr1" width={1000} height={40} regionStart={regionStart} regionEnd={regionEnd} />
+  );
+  const { rerender } = render(region(200, 400));
+  expect(screen.getByRole('img', { name: 'Chromosome 1 ideogram, 200–400 highlighted' })).toBeInTheDocument();
+
+  // Clamped to the chromosome, as the highlight is.
+  rerender(region(900, 5000));
+  expect(screen.getByRole('img', { name: 'Chromosome 1 ideogram, 900–1,000 highlighted' })).toBeInTheDocument();
+
+  // Nothing is highlighted when the whole chromosome is in view.
+  rerender(region(0, 1000));
+  expect(screen.getByRole('img', { name: 'Chromosome 1 ideogram, whole chromosome in view' })).toBeInTheDocument();
+});
+
+test('names a loading or failed ideogram as such, not as a region (#529)', () => {
+  answer(undefined);
+  const { rerender } = renderIdeogram({ regionStart: 200, regionEnd: 400 });
+  expect(screen.getByRole('img', { name: 'Chromosome 1 ideogram: loading' })).toBeInTheDocument();
+
+  answer(undefined, true);
+  rerender(
+    <Ideogram assembly="GRCh38" chrom="chr1" width={1000} height={40} regionStart={200} regionEnd={400} />,
+  );
+  expect(screen.getByRole('img', { name: 'Chromosome 1 ideogram: failed to load' })).toBeInTheDocument();
+});
+
 test('draws nothing until the chromosome arrives, and a failure with a retry', () => {
   answer(undefined);
   const { container, rerender } = renderIdeogram();

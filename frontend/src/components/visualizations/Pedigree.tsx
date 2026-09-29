@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import * as d3 from 'd3';
 
 interface PedRow {
@@ -1017,6 +1017,61 @@ const isConsanguineous = (
   return context.includes('consanguin') || context.includes('related');
 };
 
+const isAffectedMember = (row: PedRow, member?: PedigreeMember): boolean =>
+  isAffectedPhenotype(row.phen) ||
+  member?.clinical_status === 'affected' ||
+  member?.affected === true;
+
+const countOf = (count: number, one: string, many = `${one}s`): string =>
+  `${count.toLocaleString()} ${count === 1 ? one : many}`;
+
+/**
+ * The pedigree's accessible name. `role="img"` hides the per-symbol tooltips from
+ * assistive technology, so the name carries what the symbols draw: who is affected, the
+ * carriers (the half-fill, which the drawing gives only to an unaffected carrier), the
+ * consanguineous couples (the double line), the HPO badges and the QC rings.
+ */
+const describePedigree = (
+  layout: LayoutResult,
+  phenotypeSampleIds: string[],
+  qcStatusBySample: Record<string, PedigreeQcStatus>
+): string => {
+  if (!layout.rows.length) return 'Pedigree: no members';
+  const phenotypeSampleSet = new Set(phenotypeSampleIds);
+  let affected = 0;
+  let carriers = 0;
+  let withPhenotypes = 0;
+  const qcCounts: Record<PedigreeQcStatus['status'], number> = { fail: 0, warn: 0, pass: 0 };
+  layout.rows.forEach((row) => {
+    const member = layout.memberMap.get(row.iid);
+    const isAffected = isAffectedMember(row, member);
+    if (isAffected) affected += 1;
+    else if (isCarrierStatus(member?.carrier_status)) carriers += 1;
+    if (phenotypeSampleSet.has(row.iid)) withPhenotypes += 1;
+    const qc = qcStatusBySample[row.iid];
+    if (qc) qcCounts[qc.status] += 1;
+  });
+  const consanguineousCouples = layout.coupleEdges.filter((edge) => {
+    const left = layout.positions.get(edge.left);
+    const right = layout.positions.get(edge.right);
+    return (
+      !!left && !!right && left.generation === right.generation && isConsanguineous(edge.metadata)
+    );
+  }).length;
+
+  const facts = [
+    `${countOf(layout.rows.length, 'member')} in ${countOf(layout.generationCount, 'generation')}`,
+    `${affected.toLocaleString()} affected`,
+    carriers ? countOf(carriers, 'carrier') : null,
+    consanguineousCouples ? countOf(consanguineousCouples, 'consanguineous couple') : null,
+    withPhenotypes ? `${withPhenotypes.toLocaleString()} with HPO phenotypes` : null,
+  ].filter(Boolean);
+  const qc = (['fail', 'warn', 'pass'] as const)
+    .filter((status) => qcCounts[status] > 0)
+    .map((status) => `${qcCounts[status].toLocaleString()} ${status}`);
+  return `Pedigree: ${facts.join(', ')}${qc.length ? `; QC: ${qc.join(', ')}` : ''}`;
+};
+
 const Pedigree: React.FC<Props> = ({
   rows,
   members = [],
@@ -1027,12 +1082,20 @@ const Pedigree: React.FC<Props> = ({
   qcStatusBySample = {},
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  // Laid out once for both the drawing and the accessible name.
+  const layout = useMemo(
+    () => layoutPedigree(rows, members, relationships),
+    [rows, members, relationships]
+  );
+  const chartLabel = useMemo(
+    () => describePedigree(layout, phenotypeSampleIds, qcStatusBySample),
+    [layout, phenotypeSampleIds, qcStatusBySample]
+  );
 
   useEffect(() => {
     const normalizedInheritance = (inheritanceModel || '').trim().toUpperCase();
     const phenotypeSampleSet = new Set(phenotypeSampleIds);
     const highlightedSampleSet = new Set(highlightedSampleIds);
-    const layout = layoutPedigree(rows, members, relationships);
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
     svg
@@ -1184,10 +1247,7 @@ const Pedigree: React.FC<Props> = ({
       if (!position) return;
       const member = layout.memberMap.get(row.iid);
       const rowSex = normalizedSexFor(row, member);
-      const affected =
-        isAffectedPhenotype(row.phen) ||
-        member?.clinical_status === 'affected' ||
-        member?.affected === true;
+      const affected = isAffectedMember(row, member);
       const carrier = isCarrierStatus(member?.carrier_status);
       const hasPhenotypeAnnotation = phenotypeSampleSet.has(row.iid);
       const highlighted = highlightedSampleSet.has(row.iid);
@@ -1372,9 +1432,9 @@ const Pedigree: React.FC<Props> = ({
         .attr('font-size', member?.role === 'embryo' ? 7 : 8)
         .text(row.iid);
     });
-  }, [rows, members, relationships, inheritanceModel, phenotypeSampleIds, highlightedSampleIds, qcStatusBySample]);
+  }, [layout, inheritanceModel, phenotypeSampleIds, highlightedSampleIds, qcStatusBySample]);
 
-  return <svg ref={svgRef} className="pedigree-svg" />;
+  return <svg ref={svgRef} className="pedigree-svg" role="img" aria-label={chartLabel} />;
 };
 
 // Memoized: the layout effect is expensive (D3 layout + full SVG clear/redraw),

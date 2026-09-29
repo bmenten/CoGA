@@ -6,7 +6,7 @@ import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
-import { RepeatLocusTooltip, STATUS_COLORS } from './repeatExpansionHelpers';
+import { RepeatLocusTooltip, STATUS_COLORS, describeRepeatLoci } from './repeatExpansionHelpers';
 import { apiPath } from '../../lib/apiPath';
 
 interface Props {
@@ -85,6 +85,23 @@ const RepeatExpansionTrack: React.FC<Props> = ({
     [chrom, data?.items, overviewMode, regionEnd, regionStart],
   );
 
+  // The chart's accessible name (#529): what it shows now — the whole chromosome in
+  // overview mode, else the region. A failure or a load is said as such, never as zero
+  // loci (#510).
+  const lociSummary = useMemo(() => describeRepeatLoci(visibleItems), [visibleItems]);
+  const chartChrom = `chr${chrom.replace(/^chr/i, '')}`;
+  const chartScope = overviewMode
+    ? chartChrom
+    : `${chartChrom}:${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+  const chartState = isError
+    ? 'failed to load'
+    : isLoading
+      ? 'loading'
+      : visibleItems.length === 0
+        ? 'none'
+        : lociSummary;
+  const chartLabel = `Repeat loci of ${sampleId} on ${chartScope}: ${chartState}`;
+
   const [tooltip, setTooltip] = useState<{
     item: ApiRepeatExpansionTrackItem;
     x: number;
@@ -111,7 +128,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
 
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
+      <svg width={width} height={height} role="img" aria-label={chartLabel}>
         <line
           x1={0}
           x2={width}

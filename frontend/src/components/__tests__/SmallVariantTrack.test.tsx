@@ -564,3 +564,109 @@ test('a failed request shows the failure, never "no small variants" (#510)', () 
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
   expect(refetch).toHaveBeenCalled();
 });
+
+// The chart's accessible name summarises what it draws now (#529).
+const serveVariants = (state: Record<string, unknown>) =>
+  useQueryMock.mockImplementation(({ queryKey }) =>
+    queryKey[0] === 'small-variant-track-tags'
+      ? { data: [], isLoading: false }
+      : { data: undefined, isLoading: false, isError: false, refetch: vi.fn(), ...state },
+  );
+
+const carried = (start: number, extra: Record<string, unknown> = {}) => ({
+  chr: '13',
+  start,
+  end: start,
+  type: 'SNV',
+  genotypes: [{ sample: 'S1', gt: '0/1' }],
+  ...extra,
+});
+
+const brca2Track = (regionStart = 32_316_000) => (
+  <SmallVariantTrack
+    familyId="F1"
+    sampleId="S1"
+    chrom="13"
+    regionStart={regionStart}
+    regionEnd={regionStart + 1000}
+    width={100}
+    height={20}
+  />
+);
+
+test('names the drawn variants and the salient marks among them (#529)', () => {
+  serveVariants({
+    data: {
+      total: 5,
+      variants: [
+        // Drawn as P/LP, so counted as P/LP only, whatever its impact.
+        carried(32_316_100, { clinvar: 'Pathogenic', impact: 'HIGH' }),
+        carried(32_316_200, { impact: 'HIGH' }),
+        carried(32_316_300, { impact: 'MODERATE' }),
+        carried(32_316_400, { clinvar: 'Likely benign' }),
+        // Not carried by S1: not drawn, not counted.
+        { ...carried(32_316_500, { clinvar: 'Pathogenic' }), genotypes: [{ sample: 'S1', gt: '0/0' }] },
+      ],
+    },
+  });
+  render(brca2Track());
+
+  expect(
+    screen.getByRole('img', {
+      name: 'Small variants of S1 on chr13:32,316,000–32,317,000: 4, of which 1 ClinVar P/LP and 1 HIGH impact',
+    }),
+  ).toBeInTheDocument();
+});
+
+test('says when none of the drawn variants is P/LP or HIGH impact (#529)', () => {
+  serveVariants({
+    data: { total: 2, variants: [carried(32_316_100, { impact: 'MODERATE' }), carried(32_316_200, { impact: 'LOW' })] },
+  });
+  render(brca2Track());
+
+  expect(
+    screen.getByRole('img', {
+      name: 'Small variants of S1 on chr13:32,316,000–32,317,000: 2, none ClinVar P/LP or HIGH impact',
+    }),
+  ).toBeInTheDocument();
+});
+
+test('an empty region is named as empty (#529)', () => {
+  serveVariants({ data: { total: 0, variants: [] } });
+  render(brca2Track());
+
+  expect(
+    screen.getByRole('img', { name: 'Small variants of S1 on chr13:32,316,000–32,317,000: none' }),
+  ).toBeInTheDocument();
+});
+
+test('a view over the cap is named as too many, not as zero (#529)', () => {
+  serveVariants({ data: { total: 10000, total_is_estimated: true, count_limit: 10000, variants: [] } });
+  render(brca2Track());
+
+  expect(
+    screen.getByRole('img', {
+      name: 'Small variants of S1 on chr13:32,316,000–32,317,000: too many to display; zoom in or apply filters',
+    }),
+  ).toBeInTheDocument();
+});
+
+test('a load or a failure is named as such, never as the held window’s count (#510, #529)', () => {
+  serveVariants({ data: { total: 1, variants: [carried(32_316_100, { clinvar: 'Pathogenic' })] } });
+  const { rerender } = render(brca2Track());
+  expect(screen.getByRole('img', { name: /: 1, of which 1 ClinVar P\/LP$/ })).toBeInTheDocument();
+
+  // A pan keeps the previous window's data on hand while the next one loads…
+  serveVariants({ isLoading: true });
+  rerender(brca2Track(32_316_500));
+  expect(
+    screen.getByRole('img', { name: 'Small variants of S1 on chr13:32,316,500–32,317,500: loading' }),
+  ).toBeInTheDocument();
+
+  // …and a failed request is a failure, not that data and not "none".
+  serveVariants({ isError: true });
+  rerender(brca2Track(32_316_500));
+  expect(
+    screen.getByRole('img', { name: 'Small variants of S1 on chr13:32,316,500–32,317,500: failed to load' }),
+  ).toBeInTheDocument();
+});

@@ -402,4 +402,95 @@ describe('GenomeRepeatExpansionTrack', () => {
       styleReads.mockRestore();
     }
   });
+
+  describe('accessible name (#529)', () => {
+    it('names the drawn loci, the pathogenic ones by name', () => {
+      serve({
+        data: {
+          items: [
+            locus(), // HTT, pathogenic
+            locus({ locus_id: 'FXS_FMR1', display_name: 'FMR1', chr: 'X', status: 'intermediate' }),
+            locus({ locus_id: 'NIID_NOTCH2NLC', display_name: 'NOTCH2NLC', chr: '1', status: 'normal' }),
+            // Off the displayed chromosomes: not drawn, so not counted.
+            locus({ locus_id: 'DM1_DMPK', display_name: 'DMPK', chr: '19' }),
+          ],
+        },
+      });
+      render(track());
+
+      expect(
+        screen.getByRole('img', {
+          name: 'Repeat loci of S1 in view: 3, 1 pathogenic (HTT), 1 intermediate',
+        }),
+      ).toBeInTheDocument();
+    });
+
+    it('names three pathogenic loci and counts the rest, and counts review and unknown', () => {
+      serve({
+        data: {
+          items: [
+            ...['P1', 'P2', 'P3', 'P4', 'P5'].map((name, index) =>
+              locus({ locus_id: name, display_name: name, chr: '1', start: index * 1000 })
+            ),
+            locus({ locus_id: 'R1', chr: '4', status: 'review' }),
+            locus({ locus_id: 'U1', chr: 'X', status: 'unknown' }),
+            // A status the track does not know is drawn, and counted, as unknown.
+            locus({
+              locus_id: 'E1',
+              chr: 'X',
+              start: 600_000,
+              status: 'expanded' as ApiRepeatExpansionTrackItem['status'],
+            }),
+          ],
+        },
+      });
+      render(track());
+
+      expect(
+        screen.getByRole('img', {
+          name: 'Repeat loci of S1 in view: 8, 5 pathogenic (P1, P2, P3 +2 more), 1 needing review, 2 unknown',
+        }),
+      ).toBeInTheDocument();
+    });
+
+    it('says when every drawn locus is normal', () => {
+      serve({
+        data: {
+          items: [
+            locus({ status: 'normal' }),
+            locus({ locus_id: 'FXS_FMR1', display_name: 'FMR1', chr: 'X', status: 'normal' }),
+          ],
+        },
+      });
+      render(track());
+
+      expect(
+        screen.getByRole('img', { name: 'Repeat loci of S1 in view: 2, all normal' })
+      ).toBeInTheDocument();
+    });
+
+    it('an empty view is named as empty', () => {
+      serve({ data: { items: [] } });
+      render(track());
+
+      expect(
+        screen.getByRole('img', { name: 'Repeat loci of S1 in view: none' })
+      ).toBeInTheDocument();
+    });
+
+    it('a load is named as loading, and a failure as a failure — never as zero loci (#510)', () => {
+      serve({ isLoading: true });
+      const { unmount } = render(track());
+      expect(
+        screen.getByRole('img', { name: 'Repeat loci of S1 in view: loading' })
+      ).toBeInTheDocument();
+      unmount();
+
+      serve({ isError: true });
+      render(track());
+      expect(
+        screen.getByRole('img', { name: 'Repeat loci of S1 in view: failed to load' })
+      ).toBeInTheDocument();
+    });
+  });
 });

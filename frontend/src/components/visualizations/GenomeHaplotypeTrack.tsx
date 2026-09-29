@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
 import { drawHaplotypeRiskOverlay, haplotypeRiskPattern } from '../../lib/haplotypeCanvas';
+import { segregationStateLabel } from '../../lib/embryoSegregation';
 import {
   diseaseHaplotypeKindForLane,
   getHaplotypeLaneSignature,
@@ -72,6 +73,8 @@ interface Props {
 }
 
 const isDeletedHaplotype = (value: string): boolean => value === '.';
+
+const chromLabel = (chrom: string): string => (/^chr/i.test(chrom) ? chrom : `chr${chrom}`);
 
 const GenomeHaplotypeTrack: React.FC<Props> = ({
   urls,
@@ -303,13 +306,34 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
   // A failed load has no risk state — not "uninformative", which is a real outcome.
   const shownRiskState = isError ? 'unavailable' : riskState;
 
+  // The accessible name: whose haplotypes, where, and the risk state the track's border
+  // shows, with where it was assessed: the ROI, or else the first chromosome, as
+  // analysisRegion above. A load in flight claims no risk state and a failed one says so
+  // (#510, #529).
+  const trackLabel = (() => {
+    const where = chroms.length === 1 ? `on ${chromLabel(chroms[0])}` : `across ${chroms.length} chromosomes`;
+    const subject = `Haplotypes of ${sampleId} ${where}`;
+    if (isError) return `${subject}: failed to load; risk state: unavailable`;
+    if (isLoading || !layout) return `${subject}: loading`;
+    const riskChrom = riskRegion?.chr || chroms[0];
+    const riskScope = riskRegion
+      ? ` at ${chromLabel(riskChrom)}:${riskRegion.start.toLocaleString()}–${riskRegion.end.toLocaleString()}`
+      : chroms.length > 1
+        ? ` on ${chromLabel(riskChrom)}`
+        : '';
+    return (
+      `${subject}${segments.length ? '' : ': no data'}` +
+      `; risk state${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}`
+    );
+  })();
+
   return (
     <div
       className={`relative haplotype-track haplotype-track--${shownRiskState}`}
       data-risk-state={shownRiskState}
       style={{ width, height }}
     >
-      <canvas ref={canvasRef} aria-label={`Haplotype risk state: ${shownRiskState}`} />
+      <canvas ref={canvasRef} role="img" aria-label={trackLabel} />
       {isLoading && <VizLoadingOverlay message="Loading haplotypes" />}
       {isError && <VizErrorOverlay what="haplotypes" onRetry={() => void refetch()} />}
       {!isLoading && !isError && layout && segments.length === 0 && (
