@@ -1,13 +1,13 @@
 """The per-sample SV upload reads and rewrites only its own source's rows (unit, fakes).
 
-``_fetch_structural_variant_rows`` builds its WHERE from ``_structural_variant_where_clauses``,
-which has no clause for ``filters.source``: that is a display filter (a case-insensitive
-substring match) the page functions apply afterwards. The fake fetch below reproduces the
-real query in that respect: it ignores ``filters.source`` and narrows the rows only for an
-``exact_source`` scope. The upload used to pass the display filter, so its "already
-exists" check and its overwrite merge saw every source's SVs while its replace deleted
-only the uploaded source's rows. ``test_e2e_sv_upload_source_scope`` shows the same
-against real ClickHouse, including the part merge that then dropped the sample's calls.
+The upload reads the family's stored rows with ``fetch_family_structural_variant_rows``
+and writes them back with ``rewrite_family_structural_variants``. Both are faked here with
+the real scope: the read returns exactly the requested source's rows (every source when
+none is given), and the rewrite records the rows and the source whose rows it deletes. The
+"already exists" check and the merge must see the uploaded source's rows only, so that the
+source-scoped rewrite is handed exactly the rows it deletes. ``test_e2e_sv_upload_source_scope``
+shows the same against real ClickHouse, including the part merge that dropped the sample's
+calls when the two scopes differed.
 """
 
 from __future__ import annotations
@@ -18,13 +18,18 @@ from typing import Any
 from fastapi import HTTPException, UploadFile
 import pytest
 
-from backend.app.services import admin_service, clickhouse_family_variants, variant_upload_service
+from backend.app.services import (
+    admin_service,
+    annotation_manifest_service,
+    clickhouse_variant_storage,
+    variant_upload_service,
+)
 from backend.app.services.clickhouse_variant_records import (
+    StoredStructuralVariantRow,
     StructuralVariantCall,
     StructuralVariantRecord,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 
 _SAMPLES = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother", "FATHER": "uuid-father"}
 _DEL_7010 = "1-7010-11990-DEL---"
@@ -113,30 +118,33 @@ class _Session:
 
 
 class _Store:
-    """The family's stored SV records, served the way the real fetch serves them."""
+    """The family's stored SV rows (one project), served with the real read's scope."""
 
     def __init__(self, records: list[StructuralVariantRecord]) -> None:
         self.records = records
         self.fetches: list[dict[str, Any]] = []
         self.replaces: list[dict[str, Any]] = []
 
-    async def fetch(self, _context, filters, *, exact_source=None, **_kwargs):
-        self.fetches.append({"display_source": filters.source, "exact_source": exact_source})
-        # Like the real query: filters.source never reaches the WHERE; exact_source does.
+    async def fetch(self, _assembly, _family, *, source=None):
+        self.fetches.append({"source": source})
+        # Like the real read: exactly the requested source's rows, every source without one.
         return [
-            record
+            StoredStructuralVariantRow(project_id="project-uuid", record=record)
             for record in self.records
-            if exact_source is None or record.source == exact_source
+            if source is None or record.source == source
         ]
 
-    async def replace(self, _assembly, _family, _projects, records, *, source=None) -> None:
-        self.replaces.append({"source": source, "records": list(records)})
+    async def rewrite(self, _assembly, _family, rows, *, source=None) -> None:
+        self.replaces.append({"source": source, "rows": list(rows)})
 
     def written(self) -> dict[str, tuple[str | None, dict[str, str]]]:
         assert len(self.replaces) == 1, self.replaces
         return {
-            record.variant_id: (record.source, {call.sample: call.gt for call in record.calls})
-            for record in self.replaces[0]["records"]
+            row.record.variant_id: (
+                row.record.source,
+                {call.sample: call.gt for call in row.record.calls},
+            )
+            for row in self.replaces[0]["rows"]
         }
 
 
@@ -144,13 +152,17 @@ class _Store:
 def store(monkeypatch: pytest.MonkeyPatch):
     def install(records: list[StructuralVariantRecord]) -> _Store:
         fake = _Store(records)
-        monkeypatch.setattr(variant_upload_service, "_fetch_structural_variant_rows", fake.fetch)
-        monkeypatch.setattr(variant_upload_service, "replace_family_structural_variants", fake.replace)
+        monkeypatch.setattr(variant_upload_service, "fetch_family_structural_variant_rows", fake.fetch)
+        monkeypatch.setattr(variant_upload_service, "rewrite_family_structural_variants", fake.rewrite)
 
         async def no_genes(*_args, **_kwargs):
             return {}
 
+        async def no_provenance(*_args, **_kwargs):
+            return None
+
         monkeypatch.setattr(variant_upload_service, "_fetch_genes_for_chroms", no_genes)
+        monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", no_provenance)
         return fake
 
     return install
@@ -179,8 +191,9 @@ async def test_first_upload_is_judged_and_merged_against_its_own_source_only(sto
     # Before the fix: 409, because PROBAND's NeedlR call counted as a Sniffles one.
     result = await _upload("PROBAND", _sniffles(_DEL_30000_HET), overwrite=False)
 
-    assert result == {"processed": 1, "created": 0, "merged": 1, "source_format": "sniffles"}
-    assert fake.fetches == [{"display_source": None, "exact_source": "sniffles"}]
+    counts = {key: result[key] for key in ("processed", "created", "merged", "source_format")}
+    assert counts == {"processed": 1, "created": 0, "merged": 1, "source_format": "sniffles"}
+    assert fake.fetches == [{"source": "sniffles"}]
     assert fake.replaces[0]["source"] == "sniffles"
     assert fake.written() == {_DEL_30000: ("sniffles", {"MOTHER": "0/1", "PROBAND": "0/1"})}
 
@@ -197,9 +210,9 @@ async def test_overwrite_rewrites_only_the_uploaded_sources_records(store) -> No
 
     await _upload("PROBAND", _sniffles(_DEL_30000_HOM, _DUP_50000_HET), overwrite=True)
 
-    # The replace deletes the Sniffles rows only, so it must be handed Sniffles records
-    # only. Before the fix SVDEL1 (NeedlR, without PROBAND's call) was in this set and was
-    # stored a second time beside the original.
+    # The rewrite deletes the Sniffles rows only, so it must be handed Sniffles rows only.
+    # When the upload read every source, SVDEL1 (NeedlR, without PROBAND's call) was in this
+    # set and was stored a second time beside the original.
     assert fake.replaces[0]["source"] == "sniffles"
     assert fake.written() == {
         _DEL_30000: ("sniffles", {"MOTHER": "0/1", "PROBAND": "1/1"}),
@@ -234,7 +247,7 @@ async def test_manual_uploads_are_scoped_to_the_manual_upload_label(store) -> No
     result = await _upload("PROBAND", manual, overwrite=False, format_hint="auto")
 
     assert result["source_format"] == "manual"
-    assert fake.fetches == [{"display_source": None, "exact_source": "manual_upload"}]
+    assert fake.fetches == [{"source": "manual_upload"}]
     assert fake.replaces[0]["source"] == "manual_upload"
     assert fake.written() == {
         "1-100-200-DEL---": ("manual_upload", {"MOTHER": "0/1", "PROBAND": "0/1"})
@@ -260,38 +273,41 @@ async def test_unknown_source_format_is_refused_before_any_rows_are_read(
 
 
 @pytest.mark.asyncio
-async def test_fetch_scopes_rows_to_the_exact_source_in_sql_before_grouping(monkeypatch) -> None:
+async def test_storage_read_scopes_rows_to_the_exact_source_in_sql(monkeypatch) -> None:
     captured: list[tuple[str, dict[str, Any]]] = []
 
-    async def fake_execute(query: str, params: dict[str, Any]):
-        captured.append((query, dict(params)))
+    async def fake_execute(query: str, params: dict[str, Any] | None = None, data=None):
+        captured.append((query, dict(params or {})))
         return []
 
-    monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
-    filters = StructuralVariantQueryFilters(page=1, page_size=1)
+    async def tables_ready(*_args, **_kwargs):
+        return None
 
-    await clickhouse_family_variants._fetch_structural_variant_rows(
-        _family_context(), filters, exact_source="sniffles"
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+    monkeypatch.setattr(clickhouse_variant_storage, "ensure_clickhouse_variant_tables", tables_ready)
+
+    await clickhouse_variant_storage.fetch_family_structural_variant_rows(
+        "GRCh38", "family-uuid", source="sniffles"
     )
-    await clickhouse_family_variants._fetch_structural_variant_rows(_family_context(), filters)
+    await clickhouse_variant_storage.fetch_family_structural_variant_rows("GRCh38", "family-uuid")
 
     scoped_query, scoped_params = captured[0]
-    # Exact equality, bound as a parameter, in the WHERE (so before the GROUP BY).
-    assert "e.source = %(exact_source)s" in scoped_query
-    assert scoped_query.index("e.source = %(exact_source)s") < scoped_query.index("GROUP BY")
-    assert scoped_params["exact_source"] == "sniffles"
+    # Exact equality, bound as a parameter: the predicate the source-scoped delete uses,
+    # for the rows and for the details read with them.
+    assert scoped_query.count("AND sign = 1 AND source = %(source)s") == 2
+    assert scoped_params == {"family_guid": "family-uuid", "source": "sniffles"}
     assert "'sniffles'" not in scoped_query
-    # The display reads are unchanged.
+    # Without a source the read covers every source, like the family-wide delete.
     unscoped_query, unscoped_params = captured[1]
-    assert "exact_source" not in unscoped_query
-    assert "exact_source" not in unscoped_params
+    assert "source = %(source)s" not in unscoped_query
+    assert unscoped_params == {"family_guid": "family-uuid"}
 
 
 @pytest.mark.asyncio
 async def test_admin_sample_delete_reads_every_source_and_replaces_family_wide(monkeypatch) -> None:
-    # The admin per-sample SV delete does not share the upload's defect: it reads every
-    # source and hands the result to a family-wide replace (no source), which deletes every
-    # source's rows. Pin both halves so they cannot drift apart.
+    # The admin per-sample SV delete reads every source and hands the result to a
+    # family-wide rewrite (no source), which deletes every source's rows. Pin both halves so
+    # they cannot drift apart.
     fake = _Store(
         [
             _record("SVDEL1", "needlr", {"PROBAND": "0/1", "MOTHER": "0/0", "FATHER": "0/1"}),
@@ -320,9 +336,9 @@ async def test_admin_sample_delete_reads_every_source_and_replaces_family_wide(m
     monkeypatch.setattr(admin_service, "_sample_row_or_404", sample_row)
     monkeypatch.setattr(admin_service, "_sample_rows_by_family", sample_rows)
     monkeypatch.setattr(admin_service, "_family_assembly_contexts", contexts)
-    monkeypatch.setattr(admin_service, "_fetch_structural_variant_rows", fake.fetch)
+    monkeypatch.setattr(admin_service, "fetch_family_structural_variant_rows", fake.fetch)
     monkeypatch.setattr(admin_service, "count_family_structural_variants", count)
-    monkeypatch.setattr(admin_service, "replace_family_structural_variants", fake.replace)
+    monkeypatch.setattr(admin_service, "rewrite_family_structural_variants", fake.rewrite)
 
     await admin_service.delete_sample_data_by_type(
         _Session(),  # type: ignore[arg-type]
@@ -331,7 +347,7 @@ async def test_admin_sample_delete_reads_every_source_and_replaces_family_wide(m
         True,
     )
 
-    assert fake.fetches == [{"display_source": None, "exact_source": None}]
+    assert fake.fetches == [{"source": None}]
     assert fake.replaces[0]["source"] is None
     assert fake.written() == {
         "SVDEL1": ("needlr", {"FATHER": "0/1", "PROBAND": "0/1"}),

@@ -21,7 +21,7 @@ from ..schemas import (
     RawImportFileVerifyOut,
     SampleInventoryOut,
 )
-from .clickhouse_family_variants import _fetch_small_variant_rows, _fetch_structural_variant_rows
+from .clickhouse_family_variants import _fetch_small_variant_rows
 from .clickhouse_interval_tracks import (
     delete_interval_track_sources,
     delete_interval_tracks,
@@ -38,15 +38,17 @@ from .clickhouse_variant_storage import (
     delete_family_structural_variants,
     check_clickhouse_variant_integrity,
     ensure_clickhouse_variant_storage_ready,
+    fetch_family_structural_variant_rows,
     get_clickhouse_variant_storage_status,
     list_clickhouse_variant_assemblies,
     optimize_clickhouse_variant_tables,
     rebuild_small_variant_gene_index,
     replace_family_small_variants,
-    replace_family_structural_variants,
+    rewrite_family_structural_variants,
 )
+from .clickhouse_variant_records import StoredStructuralVariantRow
 from .family_metadata_context import FamilyMetadataContext
-from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
+from .family_variant_filters import SmallVariantQueryFilters
 from .raw_import_files_pg import (
     get_raw_import_file,
     list_raw_import_files,
@@ -366,33 +368,31 @@ async def _small_variant_records_without_sample(
     return replacements
 
 
-async def _structural_variant_records_without_sample(
+async def _structural_variant_rows_without_sample(
     contexts: list[FamilyMetadataContext],
-    sample_name: str,
-) -> list[tuple[FamilyMetadataContext, list[Any]]]:
-    """Every source's SV records of each family context, minus ``sample_name``'s calls.
+    sample_row: dict[str, Any],
+) -> list[tuple[FamilyMetadataContext, list[StoredStructuralVariantRow]]]:
+    """Every stored SV row of each family context, minus the sample's calls.
 
-    Deliberately not scoped to a source: the callers hand the result to
-    ``replace_family_structural_variants`` without a ``source``, which deletes all of the
-    family's SV rows, so the records read here must cover every source that delete
-    removes. Scoping one side only would lose (or duplicate) the other sources' SVs, the
-    mismatch the per-sample SV upload had.
+    Read from storage, not the family view, so that everything else is written back as it
+    was stored: every project's rows, every other call (inactive members' included), their
+    phase sets, and the breakend remote ends. A stored call names its sample by id or by
+    uuid; a row left with no call is dropped. Deliberately not scoped to a source: the
+    callers rewrite the whole family (``rewrite_family_structural_variants`` without a
+    ``source``), which deletes every source's rows, so every source's rows are read.
     """
-    replacements: list[tuple[FamilyMetadataContext, list[Any]]] = []
+    sample_ids = {str(sample_row[key]) for key in ("sample_id", "sample_uuid") if sample_row.get(key)}
+    replacements: list[tuple[FamilyMetadataContext, list[StoredStructuralVariantRow]]] = []
     for context in contexts:
         if not context.assembly_name:
             replacements.append((context, []))
             continue
-        records = await _fetch_structural_variant_rows(
-            context,
-            StructuralVariantQueryFilters(page=1, page_size=1),
-        )
-        rewritten = []
-        for record in records:
-            remaining_calls = [call for call in record.calls if call.sample != sample_name]
+        kept: list[StoredStructuralVariantRow] = []
+        for row in await fetch_family_structural_variant_rows(context.assembly_name, context.family_uuid):
+            remaining_calls = [call for call in row.record.calls if call.sample not in sample_ids]
             if remaining_calls:
-                rewritten.append(replace(record, calls=remaining_calls))
-        replacements.append((context, rewritten))
+                kept.append(replace(row, record=replace(row.record, calls=remaining_calls)))
+        replacements.append((context, kept))
     return replacements
 
 
@@ -821,9 +821,9 @@ async def delete_sample_data_by_type(
             family_id=sample_row["family_id"],
             sample_rows=sample_rows,
         )
-        replacements = await _structural_variant_records_without_sample(contexts, sample_row["sample_id"])
+        replacements = await _structural_variant_rows_without_sample(contexts, sample_row)
         before = 0
-        for context, records in replacements:
+        for context, rows in replacements:
             if not context.assembly_name:
                 continue
             before += await count_family_structural_variants(
@@ -831,12 +831,7 @@ async def delete_sample_data_by_type(
                 context.family_uuid,
                 project_ids=context.project_ids,
             )
-            await replace_family_structural_variants(
-                context.assembly_name,
-                context.family_uuid,
-                context.project_ids,
-                records,
-            )
+            await rewrite_family_structural_variants(context.assembly_name, context.family_uuid, rows)
         after = 0
         for context, _records in replacements:
             if not context.assembly_name:
@@ -929,10 +924,7 @@ async def delete_sample_with_data(
     )
 
     small_replacements = await _small_variant_records_without_sample(contexts, sample_row["sample_id"])
-    structural_replacements = await _structural_variant_records_without_sample(
-        contexts,
-        sample_row["sample_id"],
-    )
+    structural_replacements = await _structural_variant_rows_without_sample(contexts, sample_row)
     small_before = 0
     structural_before = 0
     for context, records in small_replacements:
@@ -949,7 +941,7 @@ async def delete_sample_with_data(
             context.project_ids,
             records,
         )
-    for context, records in structural_replacements:
+    for context, structural_rows in structural_replacements:
         if not context.assembly_name:
             continue
         structural_before += await count_family_structural_variants(
@@ -957,11 +949,8 @@ async def delete_sample_with_data(
             context.family_uuid,
             project_ids=context.project_ids,
         )
-        await replace_family_structural_variants(
-            context.assembly_name,
-            context.family_uuid,
-            context.project_ids,
-            records,
+        await rewrite_family_structural_variants(
+            context.assembly_name, context.family_uuid, structural_rows
         )
     small_after = 0
     structural_after = 0
