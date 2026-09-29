@@ -55,10 +55,11 @@ unit-tested on their own, so the wording can change safely.
 
 ## Provenance, drift and sign-out
 
-The report page also shows the case's provenance (the annotation manifest's module versions,
-in the footer), an amber banner for classifications whose evidence changed, the
-classification audit trail, and the **Sign out report** action with its gates. What these
-record and how they work is in [clinical-traceability.md](clinical-traceability.md); how a
+The report page also shows the case's provenance (the CoGA build and the annotation
+manifest's module versions, in the footer, with the device label), an amber banner for
+classifications whose evidence changed, the classification audit trail, and the **Sign out
+report** action with its gates. What these record and how they work is in
+[clinical-traceability.md](clinical-traceability.md); how a
 lab user works with them is in the user guide's clinical report section
 ([clinical-report.md](../frontend/src/content/docs/user-guide/clinical-report.md)).
 

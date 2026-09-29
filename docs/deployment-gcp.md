@@ -370,16 +370,22 @@ manually from the repo root:
 # From the repo root. Stamp the real version/SHA (frozen into signed reports).
 export TAG="manual-$(git rev-parse --short=12 HEAD)"
 export IMG_BASE="europe-west1-docker.pkg.dev/${PROJECT}/gen-ghreg-shared-gbl/coga"
+export PROBLEM_REPORT_URL="<the CMGGMC probleemmelding route>"
 
 gcloud builds submit --config=ci/cloudbuild.backend.yaml \
   --substitutions=_IMAGE=${IMG_BASE}-backend:${TAG},_APP_VERSION=$(cat VERSION),_GIT_SHA=$(git rev-parse --short=12 HEAD) .
 
 gcloud builds submit --config=ci/cloudbuild.frontend.yaml \
-  --substitutions=_IMAGE=${IMG_BASE}-frontend:${TAG} .
+  --substitutions=_IMAGE=${IMG_BASE}-frontend:${TAG},_PROBLEM_REPORT_URL=${PROBLEM_REPORT_URL} .
 ```
 
 Give every build a new tag, as above: Terraform deploys only when the image string
 changes, so an image pushed under a tag it already runs would never roll out.
+
+`_PROBLEM_REPORT_URL` is where **Report a problem** in the app goes: the CMGGMC
+probleemmelding route, as an `https://` or `mailto:` address without commas. It is built
+into the frontend image; without it the app shows no problem-report link
+([TF-15 §7](regulatory/TF-15-instructions-for-use.md)).
 
 Then apply Terraform:
 
@@ -444,6 +450,9 @@ Then open `https://coga.cmgg.be` in a browser and log in with:
 If the page loads and you can log in, the deployment is live. **Change/rotate the
 admin password** and create real user accounts.
 
+The footer of every page names the same version and commit as `/api/version`, and its
+**Report a problem** link opens the CMGGMC route.
+
 **Client addresses.** The load balancer appends `<client-ip>,<lb-ip>` to
 `X-Forwarded-For`, and the backend takes the client `trusted_proxy_hops` (default 2)
 entries from the right, never the client-settable left-most one. After the first
@@ -485,6 +494,7 @@ And these **variables**:
 |----------|-------|------|
 | `GCP_REGION_SHORT` | repository | e.g. `euw1`, used in the SA names |
 | `COGA_DEPLOY_TRIGGER` | repository | `main` (default) or `release`: which event deploys |
+| `COGA_PROBLEM_REPORT_URL` | repository | Where **Report a problem** in the app goes: the CMGGMC probleemmelding route, as an `https://` or `mailto:` address without commas. CI builds it into the frontend image; without it the app shows no problem-report link. |
 | `COGA_TFVARS` | `gcp-deploy` environment | Every other Terraform variable, as HCL (for example `storage_backend = "gcs"`, `app_domain = "..."`). CI writes it to `ci.auto.tfvars` before planning, so a value set once is not reverted by the next deploy; the five values CI passes with `-var` still win. No secrets here: they live in Secret Manager. |
 
 Once configured, merging to `main` deploys automatically, after approval: the deploy job

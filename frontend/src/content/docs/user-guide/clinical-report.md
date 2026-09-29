@@ -4,8 +4,9 @@ context and phenotype overlap — and is where the case is signed out.
 
 ### What the report shows
 
-- A **provenance footer** with the versions behind the data: the pipeline tools, the assembly, the gene
-  loci, the Monarch release and the HPO release. It prints with the report.
+- A **provenance footer** with the CoGA version that produced the page, the in-house IVD statement and
+  the manufacturer, and the versions behind the data: the pipeline tools, the assembly, the gene loci,
+  the Monarch release and the HPO release. It prints with the report.
 - An **evidence-drift** banner when a classification's evidence changed after it was made (for example
   a new ClinVar significance). Re-review those variants.
 - The **Classification audit trail**: who classified, tagged or annotated what, and when. Entries can

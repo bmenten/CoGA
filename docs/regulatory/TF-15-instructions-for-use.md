@@ -20,9 +20,17 @@
 
 ## 1. Device identification (label)
 - **Name:** CoGA — Comprehensive Genomic Analysis.
-- **Version / build:** ‹X.Y.Z (git ‹hash›)›. The version and commit are frozen into every signed report and shown in its sign-out block, and the running version is served at `/api/version`. **🔲 Not yet shown in the app or on unsigned and NIPT reports.**
+- **Version / build:** ‹X.Y.Z (git ‹hash›)›, the version and short commit of the running build as `/api/version` reports it. The footer of every page shows it, and so does the footer of every report, family and NIPT alike: *Software: CoGA X.Y.Z (‹hash›)*. A report asks for it each time it opens, so its footer names the build that produced the page. If the version cannot be loaded, the report footer says so and a printout starts with *Incomplete*. The build that signed a version is frozen into that version and shown in its sign-out block.
 - **Manufacturer:** Center for Medical Genetics Ghent (CMGG), Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent — **in-house IVD per IVDR Article 5(5); not CE-marked; for internal CMGG use only.**
-- **In-app label today:** the footer reads "CoGA, Comprehensive Genomic Analysis · Center for Medical Genetics, Ghent University". It carries no version and no in-house-IVD statement, and names Ghent University rather than the manufacturer above. **🔲** Add the version, the manufacturer and the in-house-IVD / not-CE-marked statement ("IVD", "in-house device") to the in-app label.
+- **In-app label:** the footer of every page, the sign-in page included, reads:
+
+  > CoGA, Comprehensive Genomic Analysis · Version X.Y.Z (‹hash›)
+  >
+  > In-house IVD per IVDR Article 5(5) · Not CE-marked · For internal CMGG use only
+  >
+  > Manufacturer: Center for Medical Genetics, Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent
+
+  Every report footer repeats the last two lines after its software line. The words *In-house IVD* stand in for the IVD symbol. The wording is set in `frontend/src/lib/deviceLabel.ts`; a change to it is a change to the label ([TF-18](TF-18-change-configuration-management.md)).
 
 ## 2. Intended purpose & users
 Full statement in [TF-01](TF-01-intended-purpose.md). Decision-support software for genomic
@@ -70,7 +78,7 @@ a current Chrome or Edge, the Chromium browsers the browser tests use
 ([TF-09d](TF-09d-browser-e2e-verification.md)).
 
 ## 7. Manufacturer & support
-- Report a problem or incident as a **CMGGMC probleemmelding** ([TF-17 §2](TF-17-vigilance-capa.md)) — not through the app footer's "Submit issue / request" link, which opens a public GitHub issue form. **🔲 OWNER:** decide whether the clinical build points that link at CMGGMC (`VITE_GITHUB_ISSUES_URL`), and name the CMGG support contact: ‹contact›.
+- Report a problem or incident as a **CMGGMC probleemmelding** ([TF-17 §2](TF-17-vigilance-capa.md)). **Report a problem**, in the footer of every page and on the *New features* page, opens that route. The route is set when the frontend is built: `VITE_PROBLEM_REPORT_URL`, which the Google Cloud build takes from the repository variable `COGA_PROBLEM_REPORT_URL` ([deployment-gcp.md §10](../deployment-gcp.md#10-cicd-the-normal-path)). A clinical build never links the public GitHub issue form: without the route, it shows no problem-report link. Do not report a clinical problem on GitHub ([SECURITY.md](../../SECURITY.md)). **🔲 OWNER:** give the CMGGMC route for `COGA_PROBLEM_REPORT_URL`, and name the CMGG support contact: ‹contact›.
 - Reference: the in-app user guide (`/docs`), the in-app reference docs and this technical file.
 
 ## 8. Revision

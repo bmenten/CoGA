@@ -98,7 +98,8 @@ The mechanics of executing a release — tagging, building, capturing evidence a
 - [ ] Risk file (TF-06) reviewed for new/affected hazards; controls verified.
 - [ ] SOUP register / SBOM (TF-08/TF-13) reconciled; no unaddressed high-severity vuln.
 - [ ] Change-significance assessed (TF-18); re-validation run if triggered (TF-10).
-- [ ] `VERSION` bumped and the tag matches it ([TF-18 §2](TF-18-change-configuration-management.md)); the version is shown where [TF-15 §1](TF-15-instructions-for-use.md) requires it (**🔲** today only in the sign-out block of a signed report).
+- [ ] `VERSION` bumped and the tag matches it ([TF-18 §2](TF-18-change-configuration-management.md)); the version is shown where [TF-15 §1](TF-15-instructions-for-use.md) requires it: the app footer and every report footer.
+- [ ] The build sets `COGA_PROBLEM_REPORT_URL`, so that **Report a problem** opens the CMGGMC route ([TF-15 §7](TF-15-instructions-for-use.md)).
 - [ ] Release record signed (TF-18); lab director authorization.
 
 ## 7. Mapping to the CMGG report form (H11.1-F12.2)
