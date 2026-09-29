@@ -80,7 +80,9 @@ Deze track plaatst één gekleurde stip per Small Variant (SNV/indel) van het ge
 
 Het genome-overzicht gebruikt `SvTrack`, de per-chromosoom-weergave gebruikt `VariantTrack` (label "SVs"). Beide halen de structurele varianten op via `GET /families/{familyId}/structural-variants`.
 
-**SvTrack (genome-overzicht).** Krijgt één URL binnen en haalt de SV's op met een ruwe `fetch` (met bearer-token uit `storage`). Vijf typen worden in vaste rijen getekend: `DEL, DUP, INV, INS, BND`.
+**SvTrack (genome-overzicht).** Krijgt één URL binnen (`page_size=0`, `track_mode=true`, `sample=<id>`) en haalt de SV's op via `fetchTrackJson`, de gedeelde client met token- en sessieafhandeling; een mislukte aanvraag toont een fout, nooit "geen SV's". De backend leest in track-modus alleen de SV's met een call voor dat sample, tot 50.000 kandidaten. Daarboven zet hij `total_is_estimated`, en dan toont de track "Too many SVs to display genome-wide. Open a chromosome to see them." in plaats van een deel van het genoom te tekenen, met de laatste chromosomen leeg (#585). Vijf typen worden in vaste rijen getekend: `DEL, DUP, INV, INS, BND`.
+
+**VariantTrack (per chromosoom).** Vraagt voor het getoonde venster één pagina van `getTrackVariantLimit(width)` SV's (400–4.000) in track-modus. De backend geeft ook het aantal SV's in beeld terug (`total`). Is dat groter dan de pagina, dan toont de track "Too many SVs to display. Zoom in or apply filters." in plaats van alleen de meest linkse SV's te tekenen, met de rest van het venster leeg (#585).
 
 **Tekenen (canvas).** DEL/DUP als balken, INV als een omkaderde (witte) balk, INS als verticale streep, BND als driehoek. Positionering gebeurt via het genoombrede `layout` (`offset + start`). Hover-detectie is puur wiskundig (rechthoek-hittest), geen extra DOM.
 

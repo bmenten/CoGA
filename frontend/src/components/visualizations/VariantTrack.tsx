@@ -133,16 +133,22 @@ const VariantTrack: React.FC<Props> = ({
     `${familyId}|${sampleId}|${chrom}`,
   );
 
+  // The view holds more SVs than one track page (or than the backend's candidate cap):
+  // drawing the page would show only the left-most SVs, and the rest of the view as if
+  // it had none (#585). Say so instead, as the small-variant track does past its cap.
+  const tooManyVariants = Boolean(
+    data && (data.total_is_estimated || data.total > (data.variants?.length ?? 0)),
+  );
   const variants = React.useMemo(
     () =>
-      (data?.variants || []).filter((v) => {
+      (tooManyVariants ? [] : data?.variants || []).filter((v) => {
         const typeKey = v.type?.toUpperCase() ?? '';
         return (
           isSupportedVariantType(typeKey) &&
           v.genotypes?.some((g) => g.sample === sampleId && hasAltAllele(g.gt))
         );
       }),
-    [data?.variants, sampleId],
+    [data?.variants, sampleId, tooManyVariants],
   );
   const span = regionEnd - regionStart || 1;
   const rowHeight = React.useMemo(() => height / TYPE_ORDER.length, [height]);
@@ -168,9 +174,11 @@ const VariantTrack: React.FC<Props> = ({
     ? 'failed to load'
     : isLoading
       ? 'loading'
-      : items.length === 0
-        ? 'none'
-        : typeSummary;
+      : tooManyVariants
+        ? 'too many to display; zoom in or apply filters'
+        : items.length === 0
+          ? 'none'
+          : typeSummary;
   const chartLabel = `Structural variants of ${sampleId} on ${chartRegion}: ${chartState}`;
 
   const [tooltip, setTooltip] = React.useState<{
@@ -225,7 +233,9 @@ const VariantTrack: React.FC<Props> = ({
             fontSize={12}
             fill={fallbackColors.default}
           >
-            no SVs for this region / sample
+            {tooManyVariants
+              ? 'Too many SVs to display. Zoom in or apply filters.'
+              : 'no SVs for this region / sample'}
           </text>
         )}
         {items.map((v, index) => {

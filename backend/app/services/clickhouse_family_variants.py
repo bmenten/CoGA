@@ -80,6 +80,7 @@ from .clickhouse_variant_queries import (
     _can_use_small_native_page,
     _can_use_structural_native_page,
     _clamp_small_variant_page,
+    _clickhouse_ids_for_sample,
     _collect_annotations,
     _compound_het_partner_map,
     _decode_json_payload,
@@ -1313,6 +1314,7 @@ async def _fetch_structural_variant_rows(
     offset: int = 0,
     track_mode: bool = False,
     include_regions: Sequence[Region] = (),
+    call_sample_names: Sequence[str] = (),
 ) -> list[StructuralVariantRecord]:
     if not context.assembly_name:
         return []
@@ -1321,6 +1323,16 @@ async def _fetch_structural_variant_rows(
     where_clauses, params = _structural_variant_where_clauses(
         context, filters, include_regions=include_regions
     )
+    if call_sample_names:
+        # Only the SVs with a call for these samples, the rule the record filter applies
+        # afterwards anyway; in SQL, a row limit counts those samples' SVs instead of the
+        # whole family's (#585).
+        call_sample_ids: list[str] = []
+        for sample_name in call_sample_names:
+            for sample_id in _clickhouse_ids_for_sample(context, sample_name):
+                _append_unique(call_sample_ids, sample_id)
+        where_clauses.append("hasAny(e.calls.sampleId, %(call_sample_ids)s)")
+        params["call_sample_ids"] = call_sample_ids
     # The genome track never uses the (multi-KB-per-variant) annotation JSON, and we set
     # annotations=[] for it below; not selecting the column means ClickHouse never reads
     # it off disk — the bulk of the remaining per-member fetch time for tens of
@@ -2954,6 +2966,8 @@ async def get_family_structural_variants_page(
         # Same reason as the ranked path: narrowing in SQL means the row cap cannot
         # decide which rows the gene/panel filter sees.
         include_regions=include_regions,
+        # A track draws one sample: the cap should count that sample's SVs (#585).
+        call_sample_names=selected_samples if track_mode and filters.selected_samples else (),
     )
     total_is_estimated = len(records) > _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
     if total_is_estimated:
@@ -3005,14 +3019,12 @@ async def get_family_structural_variants_page(
         )
         for record in page_records
     ]
+    # A track gets the total and the cap as well: without them, a view holding more SVs
+    # than one page, or than the cap, looked complete (#585).
     return VariantPage(
-        total=0 if track_mode else total,
-        total_is_estimated=False if track_mode else total_is_estimated,
-        count_limit=(
-            _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
-            if (not track_mode and total_is_estimated)
-            else None
-        ),
+        total=total,
+        total_is_estimated=total_is_estimated,
+        count_limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP if total_is_estimated else None,
         variants=variants,
         summary=None if track_mode else summary,
     )
