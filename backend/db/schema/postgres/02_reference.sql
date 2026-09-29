@@ -166,10 +166,20 @@ CREATE TABLE IF NOT EXISTS clinical_cnv_kb_jobs (
     inserted integer DEFAULT 0 NOT NULL,
     error text,
     log text,
+    -- The worker running the job and its last sign of life: a running job whose heartbeat is
+    -- older than the stale window has lost its worker, and is closed as failed.
+    worker_id text,
+    heartbeat_at timestamp with time zone,
     CONSTRAINT clinical_cnv_kb_jobs_pkey PRIMARY KEY (id),
     CONSTRAINT clinical_cnv_kb_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
     CONSTRAINT clinical_cnv_kb_jobs_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
 );
+
+-- Added after the table shipped; the baselines re-run on every boot, so an existing
+-- deployment picks the columns up without a migration ledger.
+ALTER TABLE clinical_cnv_kb_jobs
+    ADD COLUMN IF NOT EXISTS worker_id text,
+    ADD COLUMN IF NOT EXISTS heartbeat_at timestamp with time zone;
 
 -- One active rebuild at a time: the index key is a constant, so a second queued or running
 -- job collides with the first. The index it replaces, idx_clinical_cnv_kb_jobs_active, was
@@ -180,6 +190,7 @@ CREATE TABLE IF NOT EXISTS clinical_cnv_kb_jobs (
 -- only the most recently started running build, so that the new index can be built and a
 -- job left queued no longer refuses every rebuild. A no-op once the new index exists: a later
 -- boot never closes an active job.
+-- Benign if an old instance still serving starts a job closed here in the same instant: it then runs.
 DO $$
 BEGIN
     IF NOT EXISTS (
