@@ -195,6 +195,26 @@ out. The variant list also shows sites that fail the quality filter: a low-depth
 `low_depth`, and a site that fails on QUAL alone carries no flag. Its category counts can therefore be
 higher than the Summary's.
 
+The variant list classifies the first 5,000 variants of its search, in genomic order. When more
+match, the page says so: the list stops part-way through the genome, and its count is a lower bound.
+Narrow the search with a gene panel, a gene or a region.
+
+---
+
+## The report
+
+The report uses only the gene panel and the gene of the NIPT page's search. Its **Scope** section names
+them, with the panel's version, and says that no other filter of the page applies: not the categories,
+the inheritance preset, the confidence, the regions, or the frequency and consequence filters. With both
+a panel and a gene, a variant is listed when it matches both. Artifact-list sites are left out, and sites
+that fail the quality filter are listed, as in the variant list.
+
+A report lists at most 500 candidates, the first ones in genomic order. When its scope holds more, or
+more variants match than the variant list classifies, the report says so on screen, above the list and
+at the top of a printout: how many it lists of how many, where the list stops, and why. Each group then
+counts only the candidates it lists. Narrow the scope with a gene panel or a gene, then open the report
+again.
+
 ---
 
 ## Artifact list
