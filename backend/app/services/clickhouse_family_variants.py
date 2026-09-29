@@ -1315,6 +1315,7 @@ async def _fetch_structural_variant_rows(
     track_mode: bool = False,
     include_regions: Sequence[Region] = (),
     call_sample_names: Sequence[str] = (),
+    exact_source: str | None = None,
 ) -> list[StructuralVariantRecord]:
     if not context.assembly_name:
         return []
@@ -1323,6 +1324,15 @@ async def _fetch_structural_variant_rows(
     where_clauses, params = _structural_variant_where_clauses(
         context, filters, include_regions=include_regions
     )
+    if exact_source is not None:
+        # The rows stored under exactly this source label, for a write path that rewrites
+        # one source (per-sample SV upload). It must be the predicate the source-scoped
+        # delete uses (``source = …``), so the rows read for the merge are the rows the
+        # replace removes, and it applies before the GROUP BY, so a record never borrows
+        # calls from another source's row. ``filters.source`` is the display filter, a
+        # case-insensitive substring match applied later in Python.
+        where_clauses.append("e.source = %(exact_source)s")
+        params["exact_source"] = exact_source
     if call_sample_names:
         # Only the SVs with a call for these samples, the rule the record filter applies
         # afterwards anyway; in SQL, a row limit counts those samples' SVs instead of the
