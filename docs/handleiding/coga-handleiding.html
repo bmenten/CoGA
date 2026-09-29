@@ -521,14 +521,7 @@ python docs/handleiding/build_site.py
 <p>Het token draagt alleen de identiteit (het e-mailadres). De projectenlijst zit er <strong>niet</strong> in: bij elk verzoek laadt de backend de gebruiker en zijn projecten vers uit Postgres. Intrekken werkt daardoor meteen. Een gedeactiveerde gebruiker, of iemand die uit een project wordt gehaald, verliest de toegang bij het volgende verzoek, zonder te wachten tot het token verloopt.</p>
 <h2>Projectgebonden toegang: hoe elk dataverzoek wordt ingeperkt</h2>
 <p>Elk verzoek naar een familie, sample of variant gaat door hetzelfde checkpoint. Er zijn twee mechanismen, voor lijsten en voor losse objecten.</p>
-<p><strong>Lijsten filteren in de databank, niet achteraf.</strong> Vraagt een viewer de families op, dan zit de projectfilter in de SQL-query zelf:</p>
-<div class="scroll"><pre><code class="language-sql">EXISTS (
-    SELECT 1 FROM family_projects afp
-    WHERE afp.family_id = f.id
-      AND afp.project_id IN :metadata_project_ids
-)
-</code></pre></div>
-<p>Families buiten zijn projecten komen dus nooit uit de databank; een vergeten filter in de applicatiecode kan ze niet laten lekken. Een viewer zonder projecten krijgt meteen een lege lijst. Voor een beheerder valt de filter weg.</p>
+<p><strong>Lijsten filteren in de databank, niet achteraf.</strong> Vraagt een viewer de families op, dan zit de projectfilter in de SQL-query zelf: een <code>EXISTS</code>-voorwaarde op <code>family_projects</code> laat alleen families door die aan minstens één van zijn projecten hangen. Families buiten zijn projecten komen dus nooit uit de databank; een vergeten filter in de applicatiecode kan ze niet laten lekken. Een viewer zonder projecten krijgt meteen een lege lijst. Voor een beheerder valt de filter weg.</p>
 <p><strong>Losse objecten worden gecontroleerd bij het ophalen.</strong> Vraagt iemand één familie op via haar id, dan controleert de backend of er overlap is tussen de projecten van die familie en die van de gebruiker. Zo niet, dan volgt <code>HTTP 403</code>. Beheerders passeren. Zo kan niemand een familie openen door haar id te raden (bescherming tegen <em>IDOR</em>, <em>Insecure Direct Object Reference</em>).</p>
 <p>Beide controles komen samen in <code>build_family_metadata_context</code>: het gedeelde checkpoint dat vrijwel elke familiegebonden view (varianten, tracks, rapport) eerst doorloopt. Het laadt de familie alleen als de gebruiker ze mag zien, en beperkt de zichtbare projecten tot die van de gebruiker. <code>build_sample_metadata_context</code> doet hetzelfde voor één sample.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/access_control.py</code> (de toegangsregels, o.a. <code>ensure_user_can_access_metadata_projects</code>), <code>backend/app/services/metadata_service.py</code> (de gefilterde queries en <code>get_accessible_family_mapping</code>) en <code>backend/app/services/family_metadata_context.py</code> (het checkpoint).</p>
@@ -2424,7 +2417,7 @@ python docs/handleiding/build_site.py
 <p><strong>Wijzigingen.</strong> Elke ondertekening is een nieuwe versie; een ondertekende versie wordt nooit gewijzigd. In de UI heet de knop dan <em>Amend sign-out</em>.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/report_signout_service.py</code> (<code>sign_out_report</code>, <code>build_report_snapshot</code>).</p>
 <h3>Poort 1 — geen onverklaarde drift</h3>
-<p>Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd (hoofdstuk 10). Voor elke gerapporteerde small variant vergelijkt de controle de bevroren hash van de annotatieset met de huidige. Een ontbrekende hash telt als <code>unknown</code>, en een gerapporteerde classificatie zonder bevroren bewijs als <code>no_snapshot</code>; beide tellen als drift. Is er drift en heeft de ondertekenaar die niet erkend, dan volgt <code>409</code>. Erkennen vraagt een reden (anders <code>422</code>); de erkenning en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen.</p>
+<p>Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd (hoofdstuk 10). Voor elke ACMG-classificatie van een small variant in de familie met bevroren bewijs (gerapporteerd of niet) vergelijkt de controle de bevroren hash van de annotatieset met de huidige. Een ontbrekende hash telt als <code>unknown</code>, en een gerapporteerde classificatie zonder bevroren bewijs als <code>no_snapshot</code>; beide tellen als drift. Is er drift en heeft de ondertekenaar die niet erkend, dan volgt <code>409</code>. Erkennen vraagt een reden (anders <code>422</code>); de erkenning en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen.</p>
 <p><strong>Beperking:</strong> de driftcontrole dekt alleen small variants. Gerapporteerde CNV's en SV's worden wel bevroren, maar nooit op drift gecontroleerd.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>sign_out_report</code> en <code>backend/app/services/classification_drift_service.py</code>.</p>
 <h3>Poort 2 — geen onverklaarde sample-QC-fout</h3>
@@ -2514,11 +2507,11 @@ python docs/handleiding/build_site.py
 <p><strong>Eerlijke reikwijdte.</strong> De keten is <strong>tamper-evident, niet tamper-proof</strong>: ze maakt manipulatie zichtbaar, niet onmogelijk. Ze betrapt iedereen die de keten niet kan herberekenen. De eigenaar van de tabellen kan echter een trigger uitschakelen, een rij wijzigen en de hashes van die rij en alle volgende opnieuw berekenen. Zolang de app als eigenaar draait (hoofdstuk 2), is dat de app zelf. Daarvoor dienen de ankers hieronder. Formuleer het tegenover een regulator dus als "tamper-evident tegen een tegenstander die alleen de databank heeft, tussen bewaarde ankers", nooit als "tamper-proof" of "onveranderlijk".</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/hash_chain.py</code>; de kolommen <code>row_hash</code> en <code>prev_hash</code> in <code>04_traceability.sql</code>.</p>
 <h2>Integriteitsankers</h2>
-<p>Een anker maakt ook een herberekende keten zichtbaar. Bij het maken van een anker legt <code>create_integrity_anchor</code>:</p>
+<p>Een anker maakt ook een herberekende keten zichtbaar. Bij het maken van een anker doet <code>create_integrity_anchor</code> drie dingen:</p>
 <ol>
-<li>de <strong>kop van elke keten</strong> vast (per familie, voor <code>report_signouts</code> en <code>clinical_audit_events</code>: de lengte en de laatste <code>row_hash</code>);</li>
-<li>die koppen samen in één hash, geketend aan het vorige anker, en <strong>ondertekent</strong> het geheel met een Ed25519-sleutel die in de configuratie staat, <strong>nooit in de databank</strong>;</li>
-<li>het anker append-only weg in <code>integrity_anchors</code>.</li>
+<li>de <strong>kop van elke keten</strong> vastleggen (per familie, voor <code>report_signouts</code> en <code>clinical_audit_events</code>: de lengte en de laatste <code>row_hash</code>);</li>
+<li>die koppen samenvatten in één hash, die aan het vorige anker ketenen, en het geheel <strong>ondertekenen</strong> met een Ed25519-sleutel die in de configuratie staat, <strong>nooit in de databank</strong>;</li>
+<li>het anker append-only opslaan in <code>integrity_anchors</code>.</li>
 </ol>
 <p>Wie de sleutel niet heeft, kan een keten wel herberekenen, maar geen geldig ondertekend anker vervalsen. Een controle vergelijkt de huidige ketens met het laatste anker, of loopt de hele ankerketen en alle handtekeningen na, en meldt <code>ok</code>, <code>diverged</code>, <code>chain_broken</code>, <code>signature_invalid</code>, <code>unknown_key</code> of <code>unverifiable_unsigned</code>.</p>
 <p><strong>Wanneer ontstaat een anker?</strong> Een beheerder of een externe planner roept <code>POST /api/admin/integrity/anchor</code> aan; de controles zijn <code>GET /api/admin/integrity/anchor/verify</code> en <code>…/verify-chain</code>. De code plant dit niet in en er is geen scherm voor: hoe vaak een anker wordt gemaakt, is een procedureafspraak.</p>

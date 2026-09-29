@@ -24,17 +24,7 @@ Het token draagt alleen de identiteit (het e-mailadres). De projectenlijst zit e
 
 Elk verzoek naar een familie, sample of variant gaat door hetzelfde checkpoint. Er zijn twee mechanismen, voor lijsten en voor losse objecten.
 
-**Lijsten filteren in de databank, niet achteraf.** Vraagt een viewer de families op, dan zit de projectfilter in de SQL-query zelf:
-
-```sql
-EXISTS (
-    SELECT 1 FROM family_projects afp
-    WHERE afp.family_id = f.id
-      AND afp.project_id IN :metadata_project_ids
-)
-```
-
-Families buiten zijn projecten komen dus nooit uit de databank; een vergeten filter in de applicatiecode kan ze niet laten lekken. Een viewer zonder projecten krijgt meteen een lege lijst. Voor een beheerder valt de filter weg.
+**Lijsten filteren in de databank, niet achteraf.** Vraagt een viewer de families op, dan zit de projectfilter in de SQL-query zelf: een `EXISTS`-voorwaarde op `family_projects` laat alleen families door die aan minstens één van zijn projecten hangen. Families buiten zijn projecten komen dus nooit uit de databank; een vergeten filter in de applicatiecode kan ze niet laten lekken. Een viewer zonder projecten krijgt meteen een lege lijst. Voor een beheerder valt de filter weg.
 
 **Losse objecten worden gecontroleerd bij het ophalen.** Vraagt iemand één familie op via haar id, dan controleert de backend of er overlap is tussen de projecten van die familie en die van de gebruiker. Zo niet, dan volgt `HTTP 403`. Beheerders passeren. Zo kan niemand een familie openen door haar id te raden (bescherming tegen *IDOR*, *Insecure Direct Object Reference*).
 

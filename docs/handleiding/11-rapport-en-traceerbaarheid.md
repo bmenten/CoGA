@@ -49,7 +49,7 @@ Ondertekenen gaat via **`POST /api/families/{id}/report/sign-out`**. De service 
 
 ### Poort 1 — geen onverklaarde drift
 
-Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd (hoofdstuk 10). Voor elke gerapporteerde small variant vergelijkt de controle de bevroren hash van de annotatieset met de huidige. Een ontbrekende hash telt als `unknown`, en een gerapporteerde classificatie zonder bevroren bewijs als `no_snapshot`; beide tellen als drift. Is er drift en heeft de ondertekenaar die niet erkend, dan volgt `409`. Erkennen vraagt een reden (anders `422`); de erkenning en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen.
+Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd (hoofdstuk 10). Voor elke ACMG-classificatie van een small variant in de familie met bevroren bewijs (gerapporteerd of niet) vergelijkt de controle de bevroren hash van de annotatieset met de huidige. Een ontbrekende hash telt als `unknown`, en een gerapporteerde classificatie zonder bevroren bewijs als `no_snapshot`; beide tellen als drift. Is er drift en heeft de ondertekenaar die niet erkend, dan volgt `409`. Erkennen vraagt een reden (anders `422`); de erkenning en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen.
 
 **Beperking:** de driftcontrole dekt alleen small variants. Gerapporteerde CNV's en SV's worden wel bevroren, maar nooit op drift gecontroleerd.
 
@@ -126,11 +126,11 @@ Een trigger houdt de normale applicatie tegen, maar een databankgebruiker met ge
 
 ## Integriteitsankers
 
-Een anker maakt ook een herberekende keten zichtbaar. Bij het maken van een anker legt `create_integrity_anchor`:
+Een anker maakt ook een herberekende keten zichtbaar. Bij het maken van een anker doet `create_integrity_anchor` drie dingen:
 
-1. de **kop van elke keten** vast (per familie, voor `report_signouts` en `clinical_audit_events`: de lengte en de laatste `row_hash`);
-2. die koppen samen in één hash, geketend aan het vorige anker, en **ondertekent** het geheel met een Ed25519-sleutel die in de configuratie staat, **nooit in de databank**;
-3. het anker append-only weg in `integrity_anchors`.
+1. de **kop van elke keten** vastleggen (per familie, voor `report_signouts` en `clinical_audit_events`: de lengte en de laatste `row_hash`);
+2. die koppen samenvatten in één hash, die aan het vorige anker ketenen, en het geheel **ondertekenen** met een Ed25519-sleutel die in de configuratie staat, **nooit in de databank**;
+3. het anker append-only opslaan in `integrity_anchors`.
 
 Wie de sleutel niet heeft, kan een keten wel herberekenen, maar geen geldig ondertekend anker vervalsen. Een controle vergelijkt de huidige ketens met het laatste anker, of loopt de hele ankerketen en alle handtekeningen na, en meldt `ok`, `diverged`, `chain_broken`, `signature_invalid`, `unknown_key` of `unverifiable_unsigned`.
 
