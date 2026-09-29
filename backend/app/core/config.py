@@ -549,6 +549,15 @@ class Settings(BaseSettings):
                 "production must not silently drop accountability events. Set "
                 "APP_ENV=development for local work or AUDIT_LOG_DROP_ALLOWED=false."
             )
+        # 'off' makes audit_log_pg and ui_event_pg write nothing: no request audit log and
+        # no UI-event log. Every action in the interface must stay auditable.
+        if self.audit_log_mode == "off":
+            raise ValueError(
+                "Refusing to start outside development/test with AUDIT_LOG_MODE=off: it "
+                "switches off the request audit log and the UI-event log, and every action "
+                "in the interface must stay auditable. Use AUDIT_LOG_MODE=async (the "
+                "default) or sync. Set APP_ENV=development for local-only work."
+            )
 
         insecure_fields: list[str] = []
         secret_key = self.secret_key.strip()

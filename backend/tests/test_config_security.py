@@ -154,3 +154,28 @@ def test_production_refuses_weak_or_missing_secrets(field, value, named) -> None
 def test_development_does_not_require_production_secrets() -> None:
     settings = Settings(_env_file=None, APP_ENV="development", SECRET_KEY="dev", CLICKHOUSE_PASSWORD="")
     assert settings.is_development is True
+
+
+# --- the request audit log cannot be switched off outside development/test ---
+# AUDIT_LOG_MODE=off makes audit_log_pg and ui_event_pg write nothing, and every action in
+# the interface must stay auditable.
+
+
+@pytest.mark.parametrize("mode", ["off", "OFF", " off "])
+@pytest.mark.parametrize("app_env", ["production", "staging"])
+def test_production_refuses_to_switch_the_audit_log_off(app_env, mode) -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{**_VALID_PRODUCTION, "APP_ENV": app_env, "AUDIT_LOG_MODE": mode})
+    assert "AUDIT_LOG_MODE=off" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("mode", ["async", "sync"])
+def test_production_accepts_an_audit_log_mode_that_writes(mode) -> None:
+    settings = Settings(_env_file=None, **{**_VALID_PRODUCTION, "AUDIT_LOG_MODE": mode})
+    assert settings.audit_log_mode == mode
+
+
+@pytest.mark.parametrize("app_env", ["development", "test"])
+def test_development_may_switch_the_audit_log_off(app_env) -> None:
+    settings = Settings(_env_file=None, APP_ENV=app_env, AUDIT_LOG_MODE="off")
+    assert settings.audit_log_mode == "off"
