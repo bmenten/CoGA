@@ -54,7 +54,11 @@ Hoeveel punten of segmenten een track hoogstens toont, hangt af van haar breedte
 
 ## Circos
 
-De Circos-plot legt alle chromosomen in een cirkel en tekent structurele varianten als bogen ertussen, met D3 op SVG. De pagina haalt de chromosomen met hun banden op (altijd die van GRCh38) en alle SV's van de familie. Een klik op een chromosoom opent de weergave per chromosoom; een klik op een translocatie (BND) opent het genoomoverzicht met beide chromosomen.
+De Circos-plot legt de chromosomen in een cirkel en tekent structurele varianten als bogen ertussen, met D3 op SVG. De pagina neemt de assembly van het project van de familie (`useFamilyReference`, zoals de andere weergaven) en haalt de chromosomen van die assembly op, met hun lengtes en banden (`GET /api/chromosomes/{assembly}/details`); zodra de assembly bekend is, haalt ze ook alle SV's van de familie op. Van de chromosomen 1–22, X en Y tekent ze die welke de assembly heeft, elk op zijn eigen lengte; contigs en het mitochondrion laat ze weg.
+
+Kan de pagina de assembly niet tekenen, dan zegt ze waarom en tekent ze niets. Dat geldt voor een familie zonder gekoppeld project, een familie of projectlijst die niet laadde (met een knop om het opnieuw te proberen), een assembly zonder chromosoomlengtes, een assembly zonder een van de chromosomen 1–22, X en Y, en een assembly met chromosomen die de plot niet kan plaatsen (chr23 en hoger, W, Z). Die laatste noemt ze bij naam: zonder hen zou de plot voor het hele genoom doorgaan.
+
+Een klik op een chromosoom opent de weergave per chromosoom; een klik op een translocatie (BND) opent het genoomoverzicht met beide chromosomen.
 
 **Waar in de code:** `frontend/src/pages/genome/CircosPlotPage.tsx` en `frontend/src/components/visualizations/CircosPlot.tsx`.
 
