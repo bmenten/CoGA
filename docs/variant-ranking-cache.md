@@ -1,147 +1,96 @@
-# Phenotype-prioritised ranking cache
+# Prioritised ranking cache
 
-How CoGA makes the default small-variant view fast: it caches the phenotype-prioritised
-ranking per family, serves narrower panels from broader cached rankings, warms the cache
-in the background, and invalidates automatically when any input changes. This is the
-design reference; the analyst-facing description is the in-app
-[Prioritised ranking & caching](../frontend/src/content/docs/variant-ranking-cache.md)
-reference and the User Guide.
-
----
-
-## Why
-
-The default small-variant view is the **Phenotype priority (Exomiser-style)** preset scoped
-to the **Mendeliome** panel. Computing it costs ~10 s, dominated by per-gene phenotype
-scoring against the Monarch knowledge graph (the ClickHouse candidate fetch is ~1–2 s; the
-phenomizer-style scoring of the candidate genes is ~2–4 s; the rest is segregation, gene
-constraint, and per-variant scoring). Recomputing that on every open is wasteful because
-the result is **deterministic** given its inputs and those inputs rarely change between
-opens.
-
-So the ranked order is cached and reused until an input actually changes.
+The default small-variant view is the **Phenotype priority** preset on the **Mendeliome**
+panel. Computing that ranking takes several seconds, mostly for scoring each gene against
+the patient's phenotype with the Monarch knowledge graph. The result depends only on its
+inputs, so CoGA caches the ranked order per family and reuses it until an input changes.
+This page describes how that cache works and when it misses.
 
 ## What is cached
 
-`family_variant_ranking_cache` (in `03_assay.sql`) stores, per family and
-per query signature, the **compact ranked order** — an ordered list of
-`{variant_id, priority}` (the score breakdown), plus `total`, the truncation flag, and
-provenance. It does **not** store the variant annotations or review state; those are
-re-fetched fresh on every read, so a cached ranking can never serve stale annotations or a
-stale review status.
+`family_variant_ranking_cache` (in `03_assay.sql`) keeps, per family and per query, the
+ranked order as a list of `{variant_id, priority}` (the score breakdown), with the total,
+whether the ranking was truncated, and the query's filters. It does not keep the variant
+annotations or the review state: those are fetched fresh on every read, so a cached ranking
+never shows stale annotations or a stale review status.
 
-The cache is bounded to the few most-recent query signatures per family (older ones are
-pruned on write).
+Only the six most recent queries per family are kept; older rows are removed when a new one
+is stored.
 
-## Freshness: the `inputs_hash`
+## The cache key
 
-A cache row is keyed by `inputs_hash` = SHA-256 of a canonical digest of **everything that
-changes the ranking**:
+Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the ranking:
 
-| Input | Source | Why it matters |
-| --- | --- | --- |
-| Query filters (impact, frequency caps, exclude-ClinVar, genotype/QC sample filters, …) | the request | Different filters → different candidate set / order |
-| Gene panel id **+ panel version** | the request + `gene_panels.version` | Restricts scope; a regenerated panel changes membership |
-| Affected individuals' **HPO terms** | `individual_hpo` (present, affected samples) | The dominant driver of the phenotype score |
-| **Pedigree / affected status** | the family's latest `family_structure_versions.structure_hash` | Drives segregation and which samples are "affected" |
-| **Monarch release** | `max(monarch_gene_disease.release_version)` | The gene↔phenotype graph the scoring reads |
-| **Review-filter state** | resolved review-tag / excluded-variant id sets | Review-tag filters are resolved outside the filter object, so they are folded in explicitly to avoid collisions |
-| Scoring **algorithm version** | a constant in `variant_ranking_cache.py` | Bump to invalidate all rankings when scoring logic changes |
+| Input | Where it comes from |
+| --- | --- |
+| The query filters, without the page | the request |
+| The gene panel and its version | `gene_panels.version` and `external_version` |
+| The present HPO terms of the affected members | `individual_hpo` |
+| The pedigree and who is affected | the family's latest `family_structure_versions.structure_hash` |
+| The family's small-variant data | the ClickHouse `SNV_INDEL/family_data_version` table: every insert, delete or re-import of the family's variants adds a token |
+| The Monarch release | `monarch_gene_disease.release_version` |
+| The HPO ontology release | `hpo_term.release_version` |
+| Gene constraint (pLI, missense-Z) | the latest `gene_info.updated_at` for the assembly |
+| The review-filter state | the review-tag and excluded-variant sets of the query |
+| The assembly and the scoring version | the family, and `_ALGORITHM_VERSION` in `variant_ranking_cache.py` |
 
-Any change flips the hash, so a request whose inputs differ from a cached row simply misses
-and recomputes — **a stale ranking is never served.** Pagination (`page`, `page_size`) is
-*not* part of the hash: the whole ranked order is cached, and any page is sliced from it.
+A request whose inputs differ from every cached row misses and is computed again, so a stale
+ranking is never served. The page number is not part of the key: the whole order is cached
+and each page is a slice of it.
 
-> **Note — variant data.** Re-importing a family's variants changes the ranking but is not
-> covered by the hash (the variant content is in ClickHouse, not cheaply hashable). The
-> import flow therefore **clears** the family's cache on completion (see Invalidation).
+## Serving a narrower panel from a broader one
 
-## Serving a hit
+The panel only decides which variants are in scope; it never changes a variant's score. So
+the ranking for a narrower panel is the broader panel's ranking, restricted to the narrower
+panel's variants, in the same order. Each row therefore also stores `base_hash`: the same
+digest without the panel.
 
-On an exact `inputs_hash` hit (`_serve_ranking_from_cache` in
-`clickhouse_family_variants.py`): take the requested page's slice of the cached order,
-fetch those variant records from ClickHouse by id, attach the cached score breakdown, and
-hydrate review state + internal cohort frequency. Fast (~1 s: a by-id fetch of ~100
-records, no scoring) and always current (records + review state are fresh).
+On a miss, CoGA looks for a cached row with the same `base_hash` that:
 
-## Panel-agnostic: serving a sub-panel from a superset
+1. is complete, not truncated (the ranking considers at most 5,000 candidates, and a
+   truncated one may miss a low-ranked variant of the smaller panel); and
+2. covers the requested panel's genes (a row without a panel covers every gene).
 
-The per-variant scores are **panel-independent** — the panel only restricts *which*
-variants are in scope, it never changes a variant's pathogenicity / rarity / segregation /
-phenotype score. So a narrower panel's ranking is exactly the broader (superset) ranking
-restricted to the narrower panel's variants, **in the same order**.
+It then asks ClickHouse which of that row's variants match the requested panel, with the
+same filter a direct computation uses, and serves the ranked order restricted to them.
+Narrowing from the Mendeliome to a diagnostic sub-panel is therefore instant. When no
+covering row exists, the ranking is computed directly.
 
-To exploit this, each cache row also carries a `base_hash` column = the same
-digest as `inputs_hash` but **with the panel removed**. All panels over the same
-family / phenotype / filters share a `base_hash`.
+## Warming after an edit
 
-On an exact-hash miss, `_serve_subpanel_from_superset`:
+After an edit that changes the ranking, a background task
+(`precompute_family_ranking_safe`) replays the family's most recent prioritised query with
+the new inputs, so the next open is fast too. It only replays a query the family has already
+run; before that there is nothing to warm. Errors are logged and ignored.
 
-1. finds complete (non-truncated) cached rows with the same `base_hash`;
-2. keeps only those whose panel's **genes cover** the requested panel's genes
-   (`requested ⊆ cached`; a row with no panel covers everything);
-3. **re-validates membership against ClickHouse** — fetches which of the superset's
-   variant ids match the requested panel using the *exact* panel filter (the same SQL +
-   Python check the live path uses), so the served set equals a direct compute with **no
-   missed variants**;
-4. filters the superset's ranked order to those ids and serves the page.
+It runs after an HPO term is added, changed or removed, after a member edit (single, batch
+or removal), and after a PED upload or manual family creation.
 
-This generalises the "cache all genes" idea safely:
-
-- The **Mendeliome** (the default) is the superset for its subsets — so narrowing from the
-  Mendeliome to a diagnostic sub-panel is instant.
-- If a **no-panel** (all-genes) prioritised view is ever run, it is cached as a *universal*
-  superset that can serve any panel.
-- The default is **never forced** through a slow, truncation-prone whole-genome scan: a
-  superset is used only when it is complete and covering, else the request computes live.
-
-**Guards.** A truncated superset (more than the ~5,000-candidate ranking window) is never
-used for subsets — it might be missing a low-ranked in-panel variant. A panel with genes
-outside the cached superset is not covered, so it computes live.
-
-## Background warming
-
-After an edit that changes the ranking, the next open should also be fast — not just
-repeat opens. `precompute_family_ranking_safe` (best-effort, its own session, errors
-swallowed) **replays the family's most recent prioritised query** with the now-current
-inputs, storing the result under the new hash. It only ever replays an existing query
-(read from the cache row's provenance) — it never *guesses* the default filters, which
-sidesteps both frontend/backend coupling and the "no HPO entered yet at import" problem.
-
-Scheduled (via `BackgroundTasks`) from the same edit endpoints that already refresh the
-genome-overview haplotype lineage:
-
-- HPO create / update / delete (`routers/families.py`)
-- pedigree / member edits (`routers/families.py`, `routers/ped.py`)
-
-## Invalidation — summary
+## When the cache misses
 
 | Event | Effect |
 | --- | --- |
-| HPO or pedigree/affected edit | `inputs_hash` changes (miss); a background warm pre-computes the new entry |
-| Gene-panel update (e.g. Mendeliome regenerated) | `panel_version` changes → `inputs_hash` changes (miss) |
-| Monarch release refreshed | `monarch_release` changes → all rankings miss |
-| Review-tag / exclude change | review signature changes → miss |
-| Variant **re-import** | the family's cache is **cleared** (`clear_family_ranking_cache`) |
-| Scoring algorithm change (code) | bump `_ALGORITHM_VERSION` → all rankings miss |
+| HPO or member edit | the key changes; the background task computes the new ranking |
+| Structure change through `PUT /families/{family_id}/structure` | the key changes; computed on the next open |
+| Variants added, deleted or re-imported, by any route | the data version changes, so the key changes |
+| Gene panel regenerated | the panel version changes |
+| Monarch, HPO or gene reference refreshed | every ranking that reads it misses |
+| Review tags or exclusions changed | the review signature changes |
+| Scoring code changed | bump `_ALGORITHM_VERSION`; every ranking misses |
 
-## Provenance surfaced to the UI
+A package import also deletes the family's cached rows when it finishes. That only frees
+rows the new data version could never match again.
 
-`VariantPage` carries `ranking_cached` (served from cache?) and `ranking_computed_at` (when
-the ranking was computed). The small-variant results show a subtle
-*"⚡ Prioritised ranking served from cache · computed N min ago"* note. The note is purely
-informational — invalidation is automatic, so a cached ranking is always consistent with
-its inputs.
+## What the user sees
 
-## Files
+The response (`VariantPage`) carries `ranking_cached` and `ranking_computed_at`. The results
+then show "⚡ Prioritised ranking served from cache · computed N min ago". The note is for
+information only; the cache never serves a ranking whose inputs changed.
 
-- Schema: `db/schema/postgres/03_assay.sql`
-- Cache service: `app/services/variant_ranking_cache.py` (`compute_ranking_hashes`,
-  `get_cached_ranking`, `store_ranking`, `find_superset_candidates`,
-  `clear_family_ranking_cache`)
-- Integration: `app/services/clickhouse_family_variants.py`
+## Where the code is
+
+- Cache rows and keys: `backend/app/services/variant_ranking_cache.py`
+- Serving, sub-panel reuse and warming: `backend/app/services/clickhouse_family_variants.py`
   (`_prioritized_small_variants_page`, `_serve_ranking_from_cache`,
   `_serve_subpanel_from_superset`, `precompute_family_ranking_safe`)
-- Warming hooks: `app/routers/families.py`, `app/routers/ped.py`
-- Re-import clear: `app/services/family_package_import.py`
-- Response fields: `VariantPage.ranking_cached` / `ranking_computed_at` in `app/schemas/variants.py`
+- Warming hooks: `backend/app/routers/families.py`, `backend/app/routers/ped.py`
