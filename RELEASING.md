@@ -29,8 +29,10 @@ truth and the tag mirrors it** as `v<VERSION>`. Pre-releases take a SemVer suffi
 `0.1.0-beta.1`, `0.1.0-rc.2`.
 
 ```bash
-# 1a. Bump VERSION
+# 1a. Bump VERSION, and rebuild the handleiding, whose version chip reads it
+#     (CI's handleiding check fails until the rebuilt HTML is committed).
 printf '0.1.0-beta.1\n' > VERSION
+python docs/handleiding/build_site.py
 
 # 1b. Move the CHANGELOG's [Unreleased] heading to the new version, dated.
 #     From the first release onward each entry also carries its TF-18 level —
