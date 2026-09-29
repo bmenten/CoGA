@@ -521,7 +521,7 @@ const ReferenceCatalogPage: React.FC = () => {
     setConfirmAction({
       title: 'Refresh gene metadata',
       message:
-        'Refresh cached human gene metadata (HGNC / Ensembl / ClinGen)? This runs in the background and may take a while.',
+        'Refresh cached human gene metadata (HGNC, ClinGen, GenCC, ClinVar, dbNSFP and NCBI Gene)? This runs in the background and may take a while.',
       confirmLabel: 'Refresh',
       run: performRefreshGeneMetadata,
     });

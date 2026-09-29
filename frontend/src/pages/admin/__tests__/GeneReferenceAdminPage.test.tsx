@@ -70,6 +70,17 @@ describe('GeneReferenceAdminPage', () => {
     });
   });
 
+  it('names the sources the sync reads, and not Ensembl', async () => {
+    renderPage();
+
+    const lead = await screen.findByText(/cached human gene context/i);
+    for (const source of ['HGNC', 'ClinGen', 'GenCC', 'ClinVar', 'dbNSFP', 'NCBI Gene']) {
+      expect(lead).toHaveTextContent(source);
+    }
+    // The sync no longer calls Ensembl: NCBI is its only per-gene request.
+    expect(lead).not.toHaveTextContent(/ensembl/i);
+  });
+
   it('renders status and starts a single-gene refresh job', async () => {
     (api.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: {

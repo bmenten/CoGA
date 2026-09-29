@@ -160,8 +160,9 @@ const GeneReferenceAdminPage: React.FC = () => {
             <p className="page-kicker">Administration</p>
             <h1 className="catalog-card-title">Gene reference sync</h1>
             <p className="catalog-card-copy">
-              Refresh cached human gene context (HGNC, Ensembl, NCBI, ClinGen, GenCC, ClinVar) for
-              one symbol or the full imported catalog.
+              Refresh the cached human gene context for one symbol or the full imported catalog:
+              HGNC, ClinGen, GenCC and ClinVar from their bulk downloads, dbNSFP from the local
+              gene file, and NCBI Gene for the genes dbNSFP does not cover.
             </p>
           </div>
           <div className="surface-card-muted gene-profile-status">

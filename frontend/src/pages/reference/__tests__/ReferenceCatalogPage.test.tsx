@@ -353,9 +353,11 @@ describe('ReferenceCatalogPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /refresh gene metadata/i }));
 
-    expect(
-      await screen.findByText(/refresh cached human gene metadata/i)
-    ).toBeInTheDocument();
+    const prompt = await screen.findByText(/refresh cached human gene metadata/i);
+    expect(prompt).toBeInTheDocument();
+    // The prompt names the sources the sync reads; it no longer calls Ensembl.
+    expect(prompt).toHaveTextContent(/HGNC, ClinGen, GenCC, ClinVar, dbNSFP and NCBI Gene/);
+    expect(prompt).not.toHaveTextContent(/ensembl/i);
     expect(api.post).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
