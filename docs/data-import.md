@@ -421,6 +421,7 @@ or package.
 | Empty viewers or gene search | The assembly's reference data is missing (section 1). |
 | dbNSFP `missing` on every gene | The dbNSFP gene file is not at `GENE_REFERENCE_DBNSFP_GENE_PATH`. |
 
-## 8. Demo data
+## 8. Demo data and helper scripts
 
-Synthetic demo families and their loader are described in [demo/README.md](../demo/README.md).
+Synthetic demo families and their loader are described in [demo/README.md](../demo/README.md);
+the helper scripts are listed in [scripts/README.md](../scripts/README.md).

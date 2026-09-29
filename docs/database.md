@@ -202,14 +202,10 @@ an earlier value.
 
 ## Startup Behavior
 
-When the backend starts it:
-
-1. waits for Postgres;
-2. if `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default), applies the five
-   baseline files and makes sure the admin user exists. With the restricted runtime role,
-   a separate migration step (`backend/app/db_migrate.py`) does this instead, as the table
-   owner;
-3. starts the audit-log and UI-event writers;
-4. loads missing reference data (listed in [data-import.md](data-import.md), section 1);
-5. waits for ClickHouse, creates its database and starts the ClickHouse integrity monitor;
-6. starts the gene-reference worker and the package-import workers.
+On every start the backend re-applies the five Postgres baseline files and makes sure the
+admin user exists, when `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default).
+With the restricted runtime role a separate migration step (`backend/app/db_migrate.py`)
+does this instead, as the table owner. In ClickHouse, startup only creates the database; each
+assembly's tables are created on first use. The full startup order is in
+[application-scheme.md](application-scheme.md), "Startup and background work"; the reference
+data it loads is listed in [data-import.md](data-import.md), section 1.
