@@ -132,7 +132,8 @@ no cross-tenant boundary to protect.
   NIST SP 800-63B-4 for a single-factor password); shorter ones get a 422 before any
   throttle bookkeeping or hashing. Until CR-059 any string was accepted, the empty one
   included. Neither sign-up nor login logs the failed request in a development build any
-  more (its body holds the password).
+  more (its body holds the password). The device owner confirmed this policy on 2026-09-29
+  (CR-088).
 - 🟡 **In transit to datastores (TLS — S-2).** The app now supports TLS to both
   stores: set `POSTGRES_SSLMODE` (e.g. `require`/`verify-full`, passed to asyncpg)
   and `CLICKHOUSE_SECURE=true` (HTTPS; use `CLICKHOUSE_HTTP_PORT=8443`,
