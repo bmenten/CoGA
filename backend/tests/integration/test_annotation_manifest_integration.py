@@ -172,3 +172,167 @@ def test_a_manifest_replacement_is_chained_and_atomic(monkeypatch) -> None:
             await close_postgres_engine()
 
     asyncio.run(_run())
+
+
+# --- an import and a replacement of the same family take turns ---
+
+
+async def _backend_pid(session) -> int:
+    return (await session.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+
+
+async def _wait_until_blocked(sm, pid: int, timeout: float = 10.0) -> None:
+    """Return once backend ``pid`` is waiting on a lock."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    async with sm() as s:
+        while loop.time() < deadline:
+            waiting = (
+                await s.execute(
+                    text("SELECT count(*) FROM pg_locks WHERE pid = :pid AND NOT granted"),
+                    {"pid": pid},
+                )
+            ).scalar_one()
+            if waiting:
+                return
+            await asyncio.sleep(0.05)
+    raise AssertionError(f"backend {pid} never waited on a lock")
+
+
+async def _finish(*tasks) -> None:
+    for task in tasks:
+        if task is not None and not task.done():
+            task.cancel()
+    await asyncio.gather(*(t for t in tasks if t is not None), return_exceptions=True)
+
+
+def test_an_import_cannot_overwrite_a_replacement_in_flight(monkeypatch) -> None:
+    from backend.app.core.postgres import (
+        close_postgres_engine,
+        get_postgres_sessionmaker,
+        init_postgres_schema,
+    )
+    from backend.app.services import annotation_manifest_service as ams
+
+    replacement = {"vep": {"version": "112"}}
+
+    async def _run() -> None:
+        paused, release = asyncio.Event(), asyncio.Event()
+        replace_task = import_task = None
+        try:
+            await init_postgres_schema()
+            sm = get_postgres_sessionmaker()
+            label = f"manifest-race-a-{uuid4()}"
+            async with sm() as s:
+                family_uuid = await _fresh_family(s, label)
+                admin = await _fresh_admin(s)
+                await ams.merge_vcf_header_provenance(
+                    s, family_uuid=family_uuid, assembly_id=None,
+                    modules={"vep": {"version": "110"}}, modality="snv",
+                )
+                await s.commit()
+
+            # Hold the replacement after its overwrite and before its commit.
+            real_record = ams.record_clinical_event
+
+            async def _paused_record(*args, **kwargs):
+                paused.set()
+                await release.wait()
+                await real_record(*args, **kwargs)
+
+            monkeypatch.setattr(ams, "record_clinical_event", _paused_record)
+
+            async def _replace() -> None:
+                async with sm() as s:
+                    await ams.set_family_annotation_manifest(
+                        s, family_id=label, user=admin, modules=replacement
+                    )
+
+            replace_task = asyncio.create_task(_replace())
+            await asyncio.wait_for(paused.wait(), timeout=10)
+
+            # An import of the same family starts while the replacement is in flight.
+            async with sm() as imp:
+                pid = await _backend_pid(imp)
+                import_task = asyncio.create_task(
+                    ams.merge_vcf_header_provenance(
+                        imp, family_uuid=family_uuid, assembly_id=None,
+                        modules={"vep": {"version": "111"}}, modality="snv",
+                    )
+                )
+                await _wait_until_blocked(sm, pid)
+                release.set()
+                await asyncio.wait_for(replace_task, timeout=10)
+                await asyncio.wait_for(import_task, timeout=10)
+                await imp.commit()
+
+            # The import waited, then found the manual manifest and left it alone.
+            async with sm() as s:
+                assert await _stored_manifest(s, family_uuid) == {
+                    "source": "manual", "modules": replacement,
+                }
+        finally:
+            release.set()
+            await _finish(replace_task, import_task)
+            await close_postgres_engine()
+
+    asyncio.run(_run())
+
+
+def test_a_replacement_waits_for_an_import_in_flight_and_records_it_as_the_prior() -> None:
+    from backend.app.core.postgres import (
+        close_postgres_engine,
+        get_postgres_sessionmaker,
+        init_postgres_schema,
+    )
+    from backend.app.services import annotation_manifest_service as ams
+
+    async def _run() -> None:
+        replace_task = None
+        try:
+            await init_postgres_schema()
+            sm = get_postgres_sessionmaker()
+            label = f"manifest-race-b-{uuid4()}"
+            async with sm() as s:
+                family_uuid = await _fresh_family(s, label)
+                admin = await _fresh_admin(s)
+                await ams.merge_vcf_header_provenance(
+                    s, family_uuid=family_uuid, assembly_id=None,
+                    modules={"vep": {"version": "110"}}, modality="snv",
+                )
+                await s.commit()
+
+            started = asyncio.Event()
+            replacer: dict[str, int] = {}
+
+            async def _replace() -> None:
+                async with sm() as s:
+                    replacer["pid"] = await _backend_pid(s)
+                    started.set()
+                    await ams.set_family_annotation_manifest(
+                        s, family_id=label, user=admin, modules={"vep": {"version": "112"}}
+                    )
+
+            async with sm() as imp:
+                # An import has merged its versions but not committed yet.
+                await ams.merge_vcf_header_provenance(
+                    imp, family_uuid=family_uuid, assembly_id=None,
+                    modules={"vep": {"version": "111"}}, modality="snv",
+                )
+                replace_task = asyncio.create_task(_replace())
+                await asyncio.wait_for(started.wait(), timeout=10)
+                await _wait_until_blocked(sm, replacer["pid"])
+                await imp.commit()
+            await asyncio.wait_for(replace_task, timeout=10)
+
+            # The replacement read the manifest the import committed as its prior.
+            async with sm() as s:
+                event = (await _events(s, label))[-1]
+                assert event["action"] == "annotation_manifest"
+                assert event["before"]["modules"]["vep"]["version"] == "111"
+                assert event["before"]["source"] == "vcf_header"
+        finally:
+            await _finish(replace_task)
+            await close_postgres_engine()
+
+    asyncio.run(_run())

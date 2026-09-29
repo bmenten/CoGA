@@ -451,3 +451,80 @@ def test_the_replacement_summary_lists_at_most_six_changes() -> None:
         prior_source="manual", source="manual",
         before={"vep": {"version": "110"}}, after={"vep": {"version": "110", "cache": "x"}},
     ) == "Annotation manifest replaced (was manual, now manual): VEP details changed"
+
+
+# --- an import serialises with a replacement on the same per-family lock ---
+# Without it, a replacement could land between an import's read and its write, and the
+# import would overwrite the manual manifest it never saw.
+
+
+class _MergeSession:
+    """Records each statement with its parameters; savepoints are pass-through."""
+
+    def __init__(self) -> None:
+        self.executed: list[tuple[str, dict]] = []
+
+    def begin_nested(self):
+        return _Savepoint()
+
+    async def execute(self, statement, params=None):
+        self.executed.append((" ".join(str(statement).split()), dict(params or {})))
+
+
+def _patch_stored_row(monkeypatch, session: _MergeSession, row):
+    statements_before_read: list[list[str]] = []
+
+    async def _row(session_, family_uuid):
+        statements_before_read.append([sql for sql, _ in session.executed])
+        return row
+
+    monkeypatch.setattr(ams, "_family_manifest_row", _row)
+    return statements_before_read
+
+
+def test_an_import_takes_the_manifest_lock_before_it_reads_and_writes(monkeypatch) -> None:
+    session = _MergeSession()
+    before_read = _patch_stored_row(
+        monkeypatch, session, {"modules": {"vep": {"version": "110"}}, "source": "vcf_header"}
+    )
+    asyncio.run(
+        ams.merge_vcf_header_provenance(
+            session, family_uuid="u1", assembly_id=None, modules={"vep": {"version": "111"}}
+        )
+    )
+    lock_sql, lock_params = session.executed[0]
+    assert "pg_advisory_xact_lock" in lock_sql
+    # The same key an admin's replacement takes for this family.
+    assert lock_params == {"k": "fam-manifest:u1"}
+    assert before_read == [[lock_sql]]  # locked before the read
+    assert "INSERT INTO family_annotation_manifest" in session.executed[1][0]
+
+
+def test_an_import_still_leaves_a_manual_manifest_alone(monkeypatch) -> None:
+    session = _MergeSession()
+    _patch_stored_row(monkeypatch, session, {"modules": {"vep": {"version": "112"}}, "source": "manual"})
+    asyncio.run(
+        ams.merge_vcf_header_provenance(
+            session, family_uuid="u1", assembly_id=None, modules={"vep": {"version": "111"}}
+        )
+    )
+    assert [sql for sql, _ in session.executed] == [session.executed[0][0]]
+    assert "pg_advisory_xact_lock" in session.executed[0][0]  # the lock, and no write
+
+
+def test_a_replacement_takes_the_same_manifest_lock(monkeypatch) -> None:
+    session, _ = _patch_replacement(monkeypatch)
+    recorded: list[dict] = []
+    original_execute = session.execute
+
+    async def _execute(statement, params=None):
+        recorded.append(dict(params or {}))
+        return await original_execute(statement, params)
+
+    session.execute = _execute
+    asyncio.run(
+        ams.set_family_annotation_manifest(
+            session, family_id="FAM1", user=_manifest_user("admin"), modules={"vep": "112"}
+        )
+    )
+    assert recorded[0] == {"k": "fam-manifest:u1"}

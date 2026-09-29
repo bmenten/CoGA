@@ -145,6 +145,21 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
+async def _lock_family_manifest(session: AsyncSession, family_uuid: str) -> None:
+    """Hold this family's manifest lock until the transaction ends.
+
+    Both writers of ``family_annotation_manifest`` take it before they read the row: an
+    import's merge and an admin's replacement. A replacement therefore never lands
+    between an import's read and its write (the import would overwrite the manual
+    manifest it never saw), and each replacement's audit event records the manifest it
+    really replaced. A replacement waits for an import of the same family to commit.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": f"fam-manifest:{family_uuid}"},
+    )
+
+
 async def _family_manifest_row(session: AsyncSession, family_uuid: str) -> dict[str, Any] | None:
     row = (
         await session.execute(
@@ -388,6 +403,9 @@ async def merge_vcf_header_provenance(
 
     * **Never overwrites a ``manual`` manifest** — an admin's curated provenance
       wins over anything parsed from a header.
+    * **Takes turns with a replacement** — it holds the family's manifest lock from
+      before its read until the import commits, so an admin's replacement cannot land
+      in between and be overwritten.
     * **Refreshes on re-import** — newly parsed versions overwrite stale ones,
       while untouched modules are preserved.
     * **Never raises and never poisons the caller's transaction** — the write runs
@@ -401,6 +419,9 @@ async def merge_vcf_header_provenance(
     recorded_source = source if source != "manual" else "vcf_header"
     try:
         async with session.begin_nested():
+            # Taken inside the SAVEPOINT, but a released savepoint hands its locks to
+            # the enclosing transaction, so it is held until the import commits.
+            await _lock_family_manifest(session, family_uuid)
             existing = await _family_manifest_row(session, family_uuid)
             if existing and existing.get("source") == "manual":
                 return  # respect admin-curated provenance
@@ -447,6 +468,8 @@ async def merge_vcf_header_provenance(
 
 # The audit summary names at most this many module changes; before/after hold them all.
 _SUMMARY_MAX_CHANGES = 6
+# The source of every replacement made through set_family_annotation_manifest.
+_MANUAL_SOURCE = "manual"
 
 
 def _module_version(value: Any) -> str:
@@ -494,14 +517,15 @@ async def set_family_annotation_manifest(
     family_id: str,
     user: CurrentUser,
     modules: dict[str, Any],
-    source: str = "manual",
 ) -> dict[str, Any]:
     """Replace a family's pipeline manifest by hand (admin only), on the audit trail.
 
-    The row is overwritten in place and every later sign-out freezes it into the signed
-    report, so the replacement is recorded as a clinical audit event on the family's
-    hash chain, with the manifest it replaced and the one it wrote, in the same
-    transaction as the overwrite: neither persists without the other.
+    The replacement is always recorded as ``'manual'``: that is what it is, and it is
+    the source an import never overwrites. The row is overwritten in place and every
+    later sign-out freezes it into the signed report, so the replacement is recorded as
+    a clinical audit event on the family's hash chain, with the manifest it replaced and
+    the one it wrote, in the same transaction as the overwrite: neither persists without
+    the other.
     """
     # Also enforced by the route (get_current_admin_user); checked here because this is
     # the one path that writes curated provenance, whoever calls it.
@@ -510,12 +534,7 @@ async def set_family_annotation_manifest(
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user
     )
-    # Serialise replacements of one family's manifest until this transaction ends, so the
-    # "before" each event records is the manifest it really replaced.
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
-        {"k": f"fam-manifest:{context.family_uuid}"},
-    )
+    await _lock_family_manifest(session, context.family_uuid)
     prior = await _pipeline_manifest(
         session, family_uuid=context.family_uuid, family_id=family_id, user=user
     )
@@ -540,7 +559,7 @@ async def set_family_annotation_manifest(
             "family_uuid": context.family_uuid,
             "assembly_id": context.assembly_id,
             "modules": json.dumps(new_modules),
-            "source": source,
+            "source": _MANUAL_SOURCE,
             "recorded_by": getattr(user, "email", None),
         },
     )
@@ -554,7 +573,10 @@ async def set_family_annotation_manifest(
         actor_id=getattr(user, "id", None),
         action="annotation_manifest",
         summary=_manifest_replacement_summary(
-            prior_source=prior["source"], source=source, before=prior["modules"], after=new_modules
+            prior_source=prior["source"],
+            source=_MANUAL_SOURCE,
+            before=prior["modules"],
+            after=new_modules,
         ),
         before={
             "source": prior["source"],
@@ -566,7 +588,7 @@ async def set_family_annotation_manifest(
             ),
             "modules": prior["modules"],
         },
-        after={"source": source, "modules": new_modules},
+        after={"source": _MANUAL_SOURCE, "modules": new_modules},
     )
     await session.commit()
     return await get_family_annotation_manifest(session, family_id=family_id, user=user)

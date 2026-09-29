@@ -63,13 +63,13 @@ async def set_family_annotation_manifest_endpoint(
     # The replacement is recorded on the family's clinical audit chain.
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> AnnotationManifestOut:
+    # payload.source is ignored: a replacement through the API is recorded as 'manual'.
     return AnnotationManifestOut.model_validate(
         await set_family_annotation_manifest(
             session,
             family_id=family_id,
             user=user,
             modules=payload.modules,
-            source=payload.source or "manual",
         )
     )
 
