@@ -207,6 +207,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Dataset importer registry (#528)** — the package import's 15 dataset importers register
   themselves by type and take one import job, replacing a 160-line dispatcher; a test holds the
   registry to the supported dataset types (#598).
+- **Family member dialog (#528)** — the member dialog (metadata draft, HPO phenotypes, removal)
+  moved out of the 2,350-line family page into a component of its own; tests of its flows,
+  recorded before the move, pass after it (#599).
 
 ### Removed
 
