@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-from typing import Any, Iterable, Sequence
+from typing import Any, Collection, Iterable, Sequence
 
 from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
@@ -792,24 +792,141 @@ async def insert_small_variant_records(
         await bump_family_small_variant_data_version(assembly_name, family_uuid)
 
 
-async def replace_family_small_variants(
+# Every column of ``SNV_INDEL/entries``. A rewrite reads and writes back exactly these, so
+# a row it does not change is copied as stored. A column added to the table belongs here.
+SMALL_VARIANT_ENTRY_COLUMNS: tuple[str, ...] = (
+    "key",
+    "variantId",
+    "annotation_version",
+    "annotationSetHash",
+    "project_guid",
+    "family_guid",
+    "sample_type",
+    "xpos",
+    "chrom",
+    "pos",
+    "ref",
+    "alt",
+    "source",
+    "rsid",
+    "is_gnomad_gt_5_percent",
+    "is_annotated_in_any_gene",
+    "gene_symbols",
+    "filters",
+    "qual",
+    "calls.sampleId",
+    "calls.gt",
+    "calls.gq",
+    "calls.dp",
+    "calls.ab",
+    "calls.af",
+    "calls.ad",
+    "calls.ps",
+    "sign",
+)
+# The per-call arrays of an entry row, with the value a missing element is written back as.
+_SMALL_VARIANT_CALL_DEFAULTS: dict[str, Any] = {
+    "calls.sampleId": "",
+    "calls.gt": "",
+    "calls.gq": None,
+    "calls.dp": None,
+    "calls.ab": None,
+    "calls.af": [],
+    "calls.ad": [],
+    "calls.ps": None,
+}
+
+
+def _call_value(entry: dict[str, Any], column: str, index: int) -> Any:
+    values = entry.get(column) or []
+    return values[index] if index < len(values) else _SMALL_VARIANT_CALL_DEFAULTS[column]
+
+
+async def fetch_family_small_variant_entries(
     assembly_name: str,
     family_uuid: str,
-    project_ids: Sequence[str],
-    records: Sequence[SmallVariantRecord],
-    *,
-    annotation_version: str | None = None,
+) -> list[dict[str, Any]]:
+    """The family's live ``SNV_INDEL/entries`` rows exactly as stored, every column, for a
+    write path that rewrites them.
+
+    The scope is the one :func:`delete_family_small_variants` deletes without a source: the
+    family in every project, every callset (the imputed ones the family view never reads
+    included) and every sample, with nothing normalised. Two live rows of one variant in
+    one project and callset, which a merge would collapse to one, come back as one row with
+    the calls of both, taking a sample's call from the row with more calls.
+    """
+    await ensure_clickhouse_variant_tables(assembly_name)
+    columns = ", ".join(f"`{column}`" for column in SMALL_VARIANT_ENTRY_COLUMNS)
+    rows = await _execute(
+        f"""
+        SELECT {columns}
+        FROM {_small_table_name(assembly_name, 'entries')}
+        WHERE family_guid = %(family_guid)s AND sign = 1
+        ORDER BY project_guid, source, key, length(`calls.sampleId`) DESC
+        """,
+        {"family_guid": family_uuid},
+    )
+    entries: list[dict[str, Any]] = []
+    by_identity: dict[tuple[Any, Any, Any], dict[str, Any]] = {}
+    for row in rows or []:
+        entry = dict(zip(SMALL_VARIANT_ENTRY_COLUMNS, row))
+        identity = (entry["project_guid"], entry["source"], entry["key"])
+        existing = by_identity.get(identity)
+        if existing is None:
+            by_identity[identity] = entry
+            entries.append(entry)
+            continue
+        known = set(existing["calls.sampleId"] or [])
+        for index, sample_id in enumerate(entry["calls.sampleId"] or []):
+            if sample_id in known:
+                continue
+            for column in _SMALL_VARIANT_CALL_DEFAULTS:
+                existing[column] = [*(existing[column] or []), _call_value(entry, column, index)]
+    return entries
+
+
+def small_variant_entry_without_samples(
+    entry: dict[str, Any], sample_ids: Collection[str]
+) -> dict[str, Any] | None:
+    """``entry`` without the calls stored under any of ``sample_ids``, every other value as
+    stored; None when no call is left."""
+    keep = [
+        index
+        for index, sample_id in enumerate(entry["calls.sampleId"] or [])
+        if str(sample_id) not in sample_ids
+    ]
+    if not keep:
+        return None
+    kept = dict(entry)
+    for column in _SMALL_VARIANT_CALL_DEFAULTS:
+        kept[column] = [_call_value(entry, column, index) for index in keep]
+    return kept
+
+
+async def rewrite_family_small_variant_entries(
+    assembly_name: str,
+    family_uuid: str,
+    entries: Sequence[dict[str, Any]],
 ) -> None:
+    """Replace the family's small-variant entry rows with ``entries``, written back column
+    for column: the write side of :func:`fetch_family_small_variant_entries`.
+
+    Only ``entries`` and the family summaries built from it are family-scoped. The variant
+    details, annotations and their indexes are shared by every family and keyed by what each
+    entry row names (its key, annotation version and annotation-set hash), so they stay as
+    they are and every rewritten row still finds its own annotation.
+    """
     await delete_family_small_variants(assembly_name, family_uuid)
-    if records:
-        await insert_small_variant_records(
-            assembly_name,
-            family_uuid,
-            project_ids,
-            records,
-            annotation_version=annotation_version,
-        )
-        await refresh_family_small_variant_summaries(assembly_name, family_uuid)
+    if not entries:
+        return
+    columns = ", ".join(f"`{column}`" for column in SMALL_VARIANT_ENTRY_COLUMNS)
+    await _execute_insert_chunks(
+        f"INSERT INTO {_small_table_name(assembly_name, 'entries')} ({columns}) VALUES",
+        [tuple(entry[column] for column in SMALL_VARIANT_ENTRY_COLUMNS) for entry in entries],
+        chunk_size=_SMALL_VARIANT_ENTRY_INSERT_ROWS,
+    )
+    # The refresh also moves the family's data version (it stands for every re-insert).
+    await refresh_family_small_variant_summaries(assembly_name, family_uuid)
 
 
 async def refresh_family_small_variant_summaries(

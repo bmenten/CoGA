@@ -149,16 +149,20 @@ async def _exercise(root: Path) -> dict:
 @pytest.fixture(scope="module")
 def run(tmp_path_factory, request) -> dict:
     from backend.app.core.config import settings
+    from backend.app.services import raw_import_files_pg
     from backend.tests.e2e import _harness
 
     if not (_FIXTURE / "manifest.yaml").exists():
         pytest.skip("golden_trio fixture missing; run scripts/generate_golden_trio.py")
 
-    root = tmp_path_factory.mktemp("golden_sv_index") / "FAM_TRIO"
+    base = tmp_path_factory.mktemp("golden_sv_index")
+    root = base / "FAM_TRIO"
     shutil.copytree(_FIXTURE, root)
 
     mp = pytest.MonkeyPatch()
     mp.setattr(settings, "family_import_roots", [str(root.parent)])
+    # The upload keeps a managed copy of each file; keep it out of the repository's data/.
+    mp.setattr(raw_import_files_pg, "DATA_DIR", base / "data")
     request.addfinalizer(mp.undo)
 
     snapshot = _harness.run_async(lambda: _exercise(root))
