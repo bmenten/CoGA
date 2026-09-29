@@ -135,15 +135,20 @@ async def record_raw_import_file(
     compute_checksum: bool = True,
     file_type: str | None = None,
     metadata: dict[str, Any] | None = None,
+    checksum_path: Path | None = None,
 ) -> None:
     """Upsert a single provenance row.
 
     When ``compute_checksum`` is set and the checksum/size are not supplied, the
-    file at ``storage_path`` is streamed to derive them. Insertion is idempotent on
-    (family, sample, storage_path) so re-imports refresh rather than duplicate.
+    file at ``storage_path`` is streamed to derive them -- or ``checksum_path``, a
+    local copy of it, when ``storage_path`` is not a local file (the staged copy of an
+    object in a bucket). Insertion is idempotent on (family, sample, storage_path) so
+    re-imports refresh rather than duplicate.
     """
     if (sha256 is None or file_size is None) and compute_checksum:
-        computed_sha, computed_size = await asyncio.to_thread(_hash_and_size, Path(storage_path))
+        computed_sha, computed_size = await asyncio.to_thread(
+            _hash_and_size, checksum_path or Path(storage_path)
+        )
         if sha256 is None:
             sha256 = computed_sha
         if file_size is None:

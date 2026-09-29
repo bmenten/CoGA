@@ -19,13 +19,11 @@ keeps its reads (``imports/<family>/bams/<sample>.cram``). These tests pin the c
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from botocore.exceptions import ClientError
 from fastapi import HTTPException
 
 from app.core import object_storage
@@ -46,9 +44,9 @@ from app.services.family_package_common import (
     ParsedPed,
 )
 from app.services.family_package_datasets import DatasetImportJob
+from backend.tests._object_store_fakes import BUCKET, package_objects, stage_under, use_store
 
 
-BUCKET = "phi"
 PED = "F1 S1 0 0 1 2\n"
 ALIGNMENTS_MANIFEST = """schema_version: 1
 family_id: F1
@@ -91,108 +89,6 @@ LEFT_IN_STORE = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Fake object stores: just enough of google-cloud-storage and boto3
-# ---------------------------------------------------------------------------
-
-
-class _GcsBlob:
-    def __init__(self, store: "_FakeGcs", bucket: str, name: str) -> None:
-        self._store, self._bucket, self.name = store, bucket, name
-
-    def exists(self) -> bool:
-        return (self._bucket, self.name) in self._store.objects
-
-    def download_to_filename(self, target: str) -> None:
-        self._store.record_download(self.name)
-        Path(target).write_text(self._store.objects[(self._bucket, self.name)])
-
-
-class _GcsBucket:
-    def __init__(self, store: "_FakeGcs", name: str) -> None:
-        self._store, self._name = store, name
-
-    def blob(self, key: str) -> _GcsBlob:
-        return _GcsBlob(self._store, self._name, key)
-
-
-class _FakeGcs:
-    def __init__(self, objects: dict[str, str]) -> None:
-        self.objects = {(BUCKET, key): body for key, body in objects.items()}
-        self.downloaded: list[str] = []
-        self._lock = threading.Lock()
-
-    def record_download(self, key: str) -> None:
-        with self._lock:  # staging downloads from a thread pool
-            self.downloaded.append(key)
-
-    def bucket(self, name: str) -> _GcsBucket:
-        return _GcsBucket(self, name)
-
-    def list_blobs(self, bucket: str, prefix: str | None = None, delimiter: str | None = None):
-        return [
-            _GcsBlob(self, name_bucket, key)
-            for name_bucket, key in sorted(self.objects)
-            if name_bucket == bucket and key.startswith(prefix or "")
-        ]
-
-
-class _FakeS3(_FakeGcs):
-    def get_paginator(self, name: str) -> "_FakeS3":
-        assert name == "list_objects_v2"
-        return self
-
-    def paginate(self, Bucket: str, Prefix: str):  # noqa: N803 - boto3's keyword names
-        return [
-            {
-                "Contents": [
-                    {"Key": key}
-                    for bucket, key in sorted(self.objects)
-                    if bucket == Bucket and key.startswith(Prefix)
-                ]
-            }
-        ]
-
-    def download_file(self, bucket: str, key: str, target: str) -> None:
-        self.record_download(key)
-        Path(target).write_text(self.objects[(bucket, key)])
-
-    def head_object(self, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
-        if (Bucket, Key) not in self.objects:
-            raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
-        return {}
-
-
-def _use_store(monkeypatch: pytest.MonkeyPatch, scheme: str, objects: dict[str, str]) -> _FakeGcs:
-    """Point the backend at a fake bucket ``phi`` with FAMILY_IMPORT_ROOTS=<scheme>://phi/imports,
-    the layout Terraform sets up (terraform/cloudrun.tf)."""
-    if scheme == "gs":
-        store: _FakeGcs = _FakeGcs(objects)
-        monkeypatch.setattr(object_storage, "_gcs_client", lambda: store)
-        monkeypatch.setattr(settings, "storage_backend", "gcs")
-        monkeypatch.setattr(settings, "gcs_bucket", BUCKET)
-        monkeypatch.setattr(settings, "gcs_prefix", "")
-    else:
-        store = _FakeS3(objects)
-        monkeypatch.setattr(object_storage, "_s3_client", lambda: store)
-        monkeypatch.setattr(settings, "storage_backend", "s3")
-        monkeypatch.setattr(settings, "s3_bucket", BUCKET)
-        monkeypatch.setattr(settings, "s3_prefix", "")
-    monkeypatch.setattr(settings, "family_import_roots", [f"{scheme}://{BUCKET}/imports"])
-    return store
-
-
-def _package_objects(package: dict[str, str], family: str = "F1") -> dict[str, str]:
-    return {f"imports/{family}/{name}": body for name, body in package.items()}
-
-
-def _stage_under(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    staging = (tmp_path / "staging").resolve()
-    staging.mkdir()
-    monkeypatch.setattr(family_package_source, "_staging_root", lambda: staging)
-    return staging
-
-
 def _files_under(root: Path) -> set[str]:
     return {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()}
 
@@ -206,8 +102,8 @@ def _files_under(root: Path) -> set[str]:
 def test_staging_leaves_alignments_and_their_indexes_in_the_store(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, scheme: str
 ) -> None:
-    store = _use_store(monkeypatch, scheme, _package_objects(PACKAGE))
-    _stage_under(monkeypatch, tmp_path)
+    store = use_store(monkeypatch, scheme, package_objects(PACKAGE))
+    stage_under(monkeypatch, tmp_path)
     staged_names = PACKAGE.keys() - LEFT_IN_STORE
 
     with family_package_source.staged_package_source(f"{scheme}://{BUCKET}/imports/F1") as staged:
@@ -225,8 +121,8 @@ def test_staging_leaves_alignments_and_their_indexes_in_the_store(
 def test_a_remote_package_validates_without_downloading_its_alignments(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, scheme: str
 ) -> None:
-    store = _use_store(monkeypatch, scheme, _package_objects(PACKAGE))
-    _stage_under(monkeypatch, tmp_path)
+    store = use_store(monkeypatch, scheme, package_objects(PACKAGE))
+    stage_under(monkeypatch, tmp_path)
 
     result = family_package_validation.validate_family_package(f"{scheme}://{BUCKET}/imports/F1")
 
@@ -257,8 +153,8 @@ def test_a_dataset_that_reads_its_file_cannot_use_one_left_in_the_store(
         "family.ped": PED,
         "bams/S1.bam": "bam",
     }
-    _use_store(monkeypatch, "gs", _package_objects(package))
-    _stage_under(monkeypatch, tmp_path)
+    use_store(monkeypatch, "gs", package_objects(package))
+    stage_under(monkeypatch, tmp_path)
 
     result = family_package_validation.validate_family_package(f"gs://{BUCKET}/imports/F1")
 
@@ -270,8 +166,8 @@ def test_an_alignment_missing_from_the_store_is_still_a_validation_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     package = {**PACKAGE, "manifest.yaml": ALIGNMENTS_MANIFEST.replace("bams/S1.cram\n", "bams/S9.cram\n")}
-    _use_store(monkeypatch, "gs", _package_objects(package))
-    _stage_under(monkeypatch, tmp_path)
+    use_store(monkeypatch, "gs", package_objects(package))
+    stage_under(monkeypatch, tmp_path)
 
     result = family_package_validation.validate_family_package(f"gs://{BUCKET}/imports/F1")
 
@@ -339,7 +235,7 @@ async def _import_alignments(
 async def test_alignments_importer_records_where_a_remote_alignment_lies(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, scheme: str
 ) -> None:
-    _use_store(
+    use_store(
         monkeypatch,
         scheme,
         {"imports/F1/bams/S1.cram": "cram", "imports/F1/bams/S1.cram.crai": "crai"},
@@ -370,7 +266,7 @@ async def test_alignments_importer_records_only_what_the_store_holds(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # S1's CRAM is not in the store; S2's is, but its declared index is not.
-    _use_store(monkeypatch, "gs", {"imports/F1/bams/S2.bam": "bam"})
+    use_store(monkeypatch, "gs", {"imports/F1/bams/S2.bam": "bam"})
     recorded = _capture_alignment_records(monkeypatch)
     source = f"gs://{BUCKET}/imports/F1"
 
@@ -431,6 +327,18 @@ async def test_provenance_names_the_store_location_of_files_left_in_the_store(
 ) -> None:
     (tmp_path / "paraphase" / "S1").mkdir(parents=True)
     (tmp_path / "paraphase" / "S1" / "S1.paraphase.json").write_text("{}")
+    use_store(
+        monkeypatch,
+        "gs",
+        package_objects(
+            {
+                "bams/S1.cram": "cram",
+                "bams/S1.cram.crai": "crai",
+                "paraphase/S1/S1.paraphase.bam": "bam",
+                "paraphase/S1/S1.paraphase.json": "{}",
+            }
+        ),
+    )
     source = f"gs://{BUCKET}/imports/F1"
     bundle = _bundle(
         tmp_path,
@@ -526,7 +434,7 @@ def _sign_urls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scheme", ["gs", "s3"])
 async def test_manifest_signs_the_recorded_objects(monkeypatch: pytest.MonkeyPatch, scheme: str) -> None:
-    _use_store(
+    use_store(
         monkeypatch,
         scheme,
         {"imports/F1/bams/S1.cram": "cram", "imports/F1/bams/S1.cram.crai": "crai"},
@@ -552,7 +460,7 @@ async def test_manifest_signs_the_recorded_objects(monkeypatch: pytest.MonkeyPat
 
 @pytest.mark.asyncio
 async def test_get_and_head_redirect_to_the_recorded_objects(monkeypatch: pytest.MonkeyPatch) -> None:
-    _use_store(
+    use_store(
         monkeypatch,
         "gs",
         {
@@ -610,7 +518,7 @@ async def test_an_untrusted_recorded_location_is_never_signed(
 ) -> None:
     uri = recorded.get("uri") if isinstance(recorded, dict) else None
     key = object_storage.parse_remote_uri(uri).key if isinstance(uri, str) else "imports/F1/bams/S1.cram"
-    _use_store(monkeypatch, "gs", {key: "cram", f"{key}.crai": "crai", "imports/F1/bams/S1.cram": "cram"})
+    use_store(monkeypatch, "gs", {key: "cram", f"{key}.crai": "crai", "imports/F1/bams/S1.cram": "cram"})
     _family_members(monkeypatch, "S1")
     signed = _sign_urls(monkeypatch)
     session: Any = _RecordedAlignmentsSession({"S1": recorded})
@@ -635,7 +543,7 @@ async def test_a_location_another_import_root_allows_is_not_signed_in_the_config
     # FAMILY_IMPORT_ROOTS may name other buckets or stores to import from, but URLs are
     # signed for keys in the configured bucket: signing this key there would serve
     # whatever object happens to have the same name.
-    _use_store(monkeypatch, "gs", {"imports/F1/bams/S1.cram": "cram", "imports/F1/bams/S1.cram.crai": "crai"})
+    use_store(monkeypatch, "gs", {"imports/F1/bams/S1.cram": "cram", "imports/F1/bams/S1.cram.crai": "crai"})
     monkeypatch.setattr(
         settings,
         "family_import_roots",
@@ -656,7 +564,7 @@ async def test_a_location_another_import_root_allows_is_not_signed_in_the_config
 async def test_a_recorded_cram_is_never_paired_with_a_probed_index(monkeypatch: pytest.MonkeyPatch) -> None:
     # The recorded index is gone, but the family-root layout probe holds one. It indexes
     # some other file: IGV would read the recorded CRAM at the wrong offsets.
-    _use_store(monkeypatch, "gs", {"imports/F1/bams/S1.cram": "cram", "F1/S1.cram.crai": "crai"})
+    use_store(monkeypatch, "gs", {"imports/F1/bams/S1.cram": "cram", "F1/S1.cram.crai": "crai"})
     _family_members(monkeypatch, "S1")
     signed = _sign_urls(monkeypatch)
     session: Any = _RecordedAlignmentsSession({"S1": _recorded()})
@@ -672,7 +580,7 @@ async def test_a_recorded_cram_is_never_paired_with_a_probed_index(monkeypatch: 
 async def test_a_recorded_cram_without_a_recorded_index_uses_the_one_beside_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_store(
+    use_store(
         monkeypatch,
         "gs",
         {"imports/F1/bams/S1.cram": "cram", "imports/F1/bams/S1.cram.crai": "crai"},
@@ -692,7 +600,7 @@ async def test_the_layout_probes_still_serve_a_sample_with_no_usable_record(
 ) -> None:
     # S1's recorded object was removed from the store; S2 has no record at all. Both fall
     # back to the conventional <family>/<sample>.cram keys.
-    _use_store(
+    use_store(
         monkeypatch,
         "gs",
         {

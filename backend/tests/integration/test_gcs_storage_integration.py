@@ -19,6 +19,8 @@ taken from GCS_ENDPOINT_URL if set, otherwise a container is started via docker.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -49,7 +51,12 @@ datasets:
       S1:
         file: bams/S1.cram
         index: bams/S1.cram.crai
+  qc:
+    per_sample:
+      S1:
+        read_stats: qc/S1.NanoStats.txt
 """
+_NANOSTATS = b"General summary:\nNumber of reads:  1,000\n"
 
 
 def _wait_ready(endpoint: str, timeout: float = 30.0) -> bool:
@@ -139,6 +146,7 @@ def gcs_backend(gcs_endpoint):
         "imports/F1/bams/S1.cram": b"CRAMDATA",
         "imports/F1/bams/S1.cram.crai": b"CRAIDATA",
         "imports/F1/snv/F1.vcf.gz.csi": b"CSI",
+        "imports/F1/qc/S1.NanoStats.txt": _NANOSTATS,
     }.items():
         bucket.blob(key).upload_from_string(body)
 
@@ -187,7 +195,7 @@ def test_staging_leaves_alignments_in_fake_gcs(gcs_backend, monkeypatch, tmp_pat
     with _import_from_the_bucket(monkeypatch, tmp_path) as staged:
         root = Path(staged.root)
         staged_files = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
-        assert staged_files == ["family.ped", "manifest.yaml", "snv/F1.vcf.gz.csi"]
+        assert staged_files == ["family.ped", "manifest.yaml", "qc/S1.NanoStats.txt", "snv/F1.vcf.gz.csi"]
         assert staged.remote_only_files == {"bams/S1.cram", "bams/S1.cram.crai"}
 
         validation, bundle = load_validated_family_package(
@@ -197,54 +205,44 @@ def test_staging_leaves_alignments_in_fake_gcs(gcs_backend, monkeypatch, tmp_pat
     assert bundle is not None and bundle.remote_only_files == staged.remote_only_files
 
 
-def test_an_alignment_imported_from_fake_gcs_is_served_from_where_it_lies(
-    gcs_backend, monkeypatch, tmp_path
-):
-    """Stage -> validate -> alignments importer (real GCS existence checks, real Postgres
-    write) -> the CRAM endpoint's lookup of the recorded location (real Postgres read,
-    real GCS existence checks). Only the URL signing is faked: it needs IAM SignBlob."""
+def _on_postgres_with_a_fresh_family(body) -> None:
+    """Run ``await body(sessionmaker, family)`` against real Postgres, with a family and
+    one sample made for the test (unique ids: the database is shared by the integration
+    tests), deleted again afterwards."""
+    from types import SimpleNamespace
+
     from sqlalchemy import text
 
     from app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
-    from app.routers import cram
-    from app.schemas import FamilyImportDatasetSummary
-    from app.services import family_package_datasets
-    from app.services.family_metadata_context import SampleMetadataContext
-    from app.services.family_package_validation import load_validated_family_package
 
-    monkeypatch.setattr(
-        cram, "presigned_get_url", lambda key, filename=None, expires=None: f"https://signed.example/{key}"
-    )
-    family_label = f"gcs-it-{uuid4().hex[:8]}"
-    sample_label = f"{family_label}-S1"
-
-    async def _fresh_sample(sm) -> tuple[str, str]:
-        async with sm() as session:
-            family_uuid = (
-                await session.execute(
-                    text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
-                    {"f": family_label},
-                )
-            ).scalar_one()
-            sample_uuid = (
-                await session.execute(
-                    text(
-                        "INSERT INTO samples (sample_id, family_id, sex) "
-                        "VALUES (:s, CAST(:f AS uuid), 'und') RETURNING id::text"
-                    ),
-                    {"s": sample_label, "f": family_uuid},
-                )
-            ).scalar_one()
-            await session.commit()
-        return family_uuid, sample_uuid
+    label = f"gcs-it-{uuid4().hex[:8]}"
 
     async def _run() -> None:
         try:
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
-            family_uuid, sample_uuid = await _fresh_sample(sm)
+            async with sm() as session:
+                family_uuid = (
+                    await session.execute(
+                        text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
+                        {"f": label},
+                    )
+                ).scalar_one()
+                sample_uuid = (
+                    await session.execute(
+                        text(
+                            "INSERT INTO samples (sample_id, family_id, sex) "
+                            "VALUES (:s, CAST(:f AS uuid), 'und') RETURNING id::text"
+                        ),
+                        {"s": f"{label}-S1", "f": family_uuid},
+                    )
+                ).scalar_one()
+                await session.commit()
+            family = SimpleNamespace(
+                label=label, uuid=family_uuid, sample_label=f"{label}-S1", sample_uuid=sample_uuid
+            )
             try:
-                await _import_and_resolve(sm, family_uuid, sample_uuid)
+                await body(sm, family)
             finally:
                 async with sm() as session:
                     await session.execute(
@@ -254,12 +252,31 @@ def test_an_alignment_imported_from_fake_gcs_is_served_from_where_it_lies(
         finally:
             await close_postgres_engine()
 
-    async def _import_and_resolve(sm, family_uuid: str, sample_uuid: str) -> None:
+    asyncio.run(_run())
+
+
+def test_an_alignment_imported_from_fake_gcs_is_served_from_where_it_lies(
+    gcs_backend, monkeypatch, tmp_path
+):
+    """Stage -> validate -> alignments importer (real GCS existence checks, real Postgres
+    write) -> the CRAM endpoint's lookup of the recorded location (real Postgres read,
+    real GCS existence checks). Only the URL signing is faked: it needs IAM SignBlob."""
+    from app.routers import cram
+    from app.schemas import FamilyImportDatasetSummary
+    from app.services import family_package_datasets
+    from app.services.family_metadata_context import SampleMetadataContext
+    from app.services.family_package_validation import load_validated_family_package
+
+    monkeypatch.setattr(
+        cram, "presigned_get_url", lambda key, filename=None, expires=None: f"https://signed.example/{key}"
+    )
+
+    async def body(sm, family) -> None:
         sample_context = SampleMetadataContext(
-            sample_uuid=sample_uuid,
+            sample_uuid=family.sample_uuid,
             sample_id="S1",
-            family_uuid=family_uuid,
-            family_id=family_label,
+            family_uuid=family.uuid,
+            family_id=family.label,
             sex="und",
             project_ids=[],
             assembly_id=None,
@@ -288,13 +305,78 @@ def test_an_alignment_imported_from_fake_gcs_is_served_from_where_it_lies(
         assert result.status == "imported", result.message
 
         async with sm() as session:
-            recorded = await cram._recorded_alignments(session, [sample_label])
-        assert set(recorded) == {sample_label}
+            recorded = await cram._recorded_alignments(session, [family.sample_label])
+        assert set(recorded) == {family.sample_label}
         entry = await asyncio.to_thread(
-            cram._resolve_alignment_manifest_entry, "F1", sample_label, recorded[sample_label]
+            cram._resolve_alignment_manifest_entry, "F1", family.sample_label, recorded[family.sample_label]
         )
         assert entry is not None
         assert entry.url == "https://signed.example/imports/F1/bams/S1.cram"
         assert entry.index_url == "https://signed.example/imports/F1/bams/S1.cram.crai"
 
-    asyncio.run(_run())
+    _on_postgres_with_a_fresh_family(body)
+
+
+def test_remote_object_identity_against_fake_gcs(gcs_backend):
+    identity = s.remote_object_identity(f"gs://{_BUCKET}/imports/F1/bams/S1.cram")
+    assert identity is not None
+    assert (identity["store"], identity["size"]) == ("gcs", len(b"CRAMDATA"))
+    assert identity["generation"]  # the store's own version of the object
+    checksums = {checksum["algorithm"]: checksum for checksum in identity["checksums"]}
+    assert set(checksums) == {"md5", "crc32c"}
+    assert checksums["md5"] == {
+        "algorithm": "md5",
+        "encoding": "base64",
+        "value": base64.b64encode(hashlib.md5(b"CRAMDATA").digest()).decode(),
+    }
+    assert s.remote_object_identity(f"gs://{_BUCKET}/imports/F1/bams/S9.cram") is None
+
+
+def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch, tmp_path):
+    """raw_import_files rows (real Postgres) for a package staged from the bucket: the
+    staged file hashed from its staged copy, the CRAM left in the store identified by the
+    store's record of it, both named by their gs:// URI."""
+    from sqlalchemy import text
+
+    from app.services import family_package_registration
+    from app.services.family_package_validation import load_validated_family_package
+
+    async def body(sm, family) -> None:
+        with _import_from_the_bucket(monkeypatch, tmp_path) as staged:
+            validation, bundle = load_validated_family_package(
+                staged.root, remote_only_files=staged.remote_only_files
+            )
+            assert validation.valid, validation.errors
+            assert bundle is not None
+            bundle.source_uri = staged.source_uri
+            async with sm() as session:
+                await family_package_registration._record_package_raw_files(
+                    session, bundle=bundle, family_uuid=family.uuid
+                )
+                await session.commit()
+        async with sm() as session:
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT storage_path, sha256, file_size, metadata FROM raw_import_files "
+                        "WHERE family_id = CAST(:f AS uuid)"
+                    ),
+                    {"f": family.uuid},
+                )
+            ).mappings().all()
+        by_path = {row["storage_path"]: row for row in rows}
+        source = f"gs://{_BUCKET}/imports/F1"
+        assert set(by_path) == {
+            f"{source}/bams/S1.cram",
+            f"{source}/bams/S1.cram.crai",
+            f"{source}/qc/S1.NanoStats.txt",
+        }
+        stats = by_path[f"{source}/qc/S1.NanoStats.txt"]
+        assert (stats["sha256"], stats["file_size"]) == (hashlib.sha256(_NANOSTATS).hexdigest(), len(_NANOSTATS))
+        cram_row = by_path[f"{source}/bams/S1.cram"]
+        assert (cram_row["sha256"], cram_row["file_size"]) == (None, len(b"CRAMDATA"))
+        store_object = cram_row["metadata"]["store_object"]
+        assert store_object["uri"] == f"{source}/bams/S1.cram" and store_object["generation"]
+        assert {checksum["algorithm"] for checksum in store_object["checksums"]} == {"md5", "crc32c"}
+
+    _on_postgres_with_a_fresh_family(body)

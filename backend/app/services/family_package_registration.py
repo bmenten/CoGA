@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import json
 import logging
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.object_storage import (
     join_remote_uri,
+    remote_object_identity,
 )
 from ..schemas import (
     FamilyImportDatasetSummary,
@@ -204,7 +206,14 @@ async def _record_package_raw_files(
 ) -> None:
     """Record provenance rows for every raw file referenced by the package manifest,
     grouped into family-level and individual-level scope. Files are referenced in
-    place (not copied). Best-effort: never fails the import."""
+    place (not copied). Best-effort: never fails the import.
+
+    Each row identifies its file's content. A local file is hashed where it lies. For a
+    package staged from a bucket the row names the object's URI -- the staging copy is
+    deleted after the import -- and a staged file is hashed from its staged copy, while
+    a file staging left in the store (an alignment) is identified by the store's own
+    record of the object (``remote_object_identity``) under ``metadata.store_object``:
+    its checksums are the store's, not a SHA-256, so ``sha256`` stays empty."""
     try:
         result = await session.execute(
             text(
@@ -228,12 +237,57 @@ async def _record_package_raw_files(
                 return join_remote_uri(bundle.source_uri, str(relative))
             return str(resolved)
 
-        def _in_package(resolved: Path) -> bool:
-            # Staged, or one of the files staging left in the object store (a remote
-            # package's alignments), which the traceability record must still name.
-            return (
-                resolved.is_file()
-                or _display_path(bundle.root, resolved) in bundle.remote_only_files
+        def _held_where(resolved: Path) -> str | None:
+            # "staged" (a file in the package folder), "store" (one staging left in the
+            # object store -- a remote package's alignment, which the traceability
+            # record must still name) or None (not part of the package).
+            if resolved.is_file():
+                return "staged"
+            if _display_path(bundle.root, resolved) in bundle.remote_only_files:
+                return "store"
+            return None
+
+        async def _record(
+            resolved: Path,
+            held: str,
+            *,
+            scope: str,
+            dataset_type: str,
+            sample_uuid: str | None,
+        ) -> None:
+            storage_path = _provenance_path(resolved)
+            content: dict[str, Any] = {}  # how the row identifies the file's content
+            if bundle.source_uri and held == "staged":
+                # Staged from the bucket: the URI is not a local file; hash the copy.
+                content = {"checksum_path": resolved}
+            elif bundle.source_uri:
+                # Left in the store: the store's record of the object, never a hash. A
+                # store error costs this row its identity, not the package its record.
+                try:
+                    identity = await asyncio.to_thread(remote_object_identity, storage_path)
+                except Exception:
+                    logger.warning(
+                        "Could not read the object store's record of %s for provenance",
+                        storage_path,
+                        exc_info=True,
+                    )
+                    identity = None
+                content = {
+                    "compute_checksum": False,
+                    "file_size": identity.get("size") if identity else None,
+                    "metadata": {"store_object": identity} if identity else None,
+                }
+            await record_raw_import_file(
+                session,
+                family_uuid=family_uuid,
+                sample_uuid=sample_uuid,
+                scope=scope,
+                dataset=dataset_type,
+                file_name=resolved.name,
+                storage_path=storage_path,
+                managed=False,
+                source="family_package",
+                **content,
             )
 
         for dataset_type, dataset in bundle.manifest.datasets.items():
@@ -241,18 +295,11 @@ async def _record_package_raw_files(
                 continue
             for value in _dataset_top_level_files(dataset).values():
                 resolved = _resolve_package_path(bundle.root, value)
-                if resolved is None or not _in_package(resolved):
+                held = _held_where(resolved) if resolved is not None else None
+                if resolved is None or held is None:
                     continue
-                await record_raw_import_file(
-                    session,
-                    family_uuid=family_uuid,
-                    sample_uuid=None,
-                    scope="family",
-                    dataset=dataset_type,
-                    file_name=resolved.name,
-                    storage_path=_provenance_path(resolved),
-                    managed=False,
-                    source="family_package",
+                await _record(
+                    resolved, held, scope="family", dataset_type=dataset_type, sample_uuid=None
                 )
             for sample_id, raw_entry in dataset.per_sample.items():
                 if not isinstance(raw_entry, dict):
@@ -266,18 +313,15 @@ async def _record_package_raw_files(
                     ):
                         continue
                     resolved = _resolve_package_path(bundle.root, value)
-                    if resolved is None or not _in_package(resolved):
+                    held = _held_where(resolved) if resolved is not None else None
+                    if resolved is None or held is None:
                         continue
-                    await record_raw_import_file(
-                        session,
-                        family_uuid=family_uuid,
-                        sample_uuid=sample_uuid,
+                    await _record(
+                        resolved,
+                        held,
                         scope="individual",
-                        dataset=dataset_type,
-                        file_name=resolved.name,
-                        storage_path=_provenance_path(resolved),
-                        managed=False,
-                        source="family_package",
+                        dataset_type=dataset_type,
+                        sample_uuid=sample_uuid,
                     )
     except Exception:  # pragma: no cover - provenance is non-critical
         logger.warning("Failed to record raw import file provenance", exc_info=True)

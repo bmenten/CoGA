@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from .config import settings
@@ -244,6 +245,74 @@ def _exists(scheme: str, bucket: str, key: str) -> bool:
         return True
     except ClientError:
         return False
+
+
+# S3's additional checksums, as HEAD Object names them -> the algorithm.
+_S3_CHECKSUM_FIELDS = (
+    ("ChecksumCRC32", "crc32"),
+    ("ChecksumCRC32C", "crc32c"),
+    ("ChecksumCRC64NVME", "crc64nvme"),
+    ("ChecksumSHA1", "sha1"),
+    ("ChecksumSHA256", "sha256"),
+)
+
+
+def remote_object_identity(uri: str) -> dict[str, Any] | None:
+    """The store's own record of an object, for provenance; ``None`` if it is absent.
+
+    Its size, its generation (GCS) or version id (S3; ``None`` in an unversioned
+    bucket), its ETag, and the checksums the store keeps. Every checksum is labelled
+    with its algorithm and encoding, and for S3 with whether it covers the whole object
+    or is a checksum of the parts of a multipart upload: none of them is a SHA-256 the
+    application computed over the bytes, so none belongs where such a hash is expected.
+    An S3 ETag is an opaque identifier (the MD5 only of a plain single-part upload).
+    Blocking -- call from a worker thread in async contexts.
+    """
+    location = parse_remote_uri(uri)
+    if location.scheme == "gs":
+        blob = _gcs_client().bucket(location.bucket).get_blob(location.key)
+        if blob is None:
+            return None
+        return {
+            "store": "gcs",
+            "uri": uri,
+            "size": blob.size,
+            "generation": str(blob.generation) if blob.generation is not None else None,
+            "etag": blob.etag,
+            # A composite object has no MD5; its CRC32C still covers the whole object.
+            "checksums": [
+                {"algorithm": algorithm, "encoding": "base64", "value": value}
+                for algorithm, value in (("md5", blob.md5_hash), ("crc32c", blob.crc32c))
+                if value
+            ],
+        }
+
+    from botocore.exceptions import ClientError
+
+    try:
+        head = _s3_client().head_object(
+            Bucket=location.bucket, Key=location.key, ChecksumMode="ENABLED"
+        )
+    except ClientError:
+        return None
+    checksum_type = head.get("ChecksumType")  # FULL_OBJECT or COMPOSITE
+    return {
+        "store": "s3",
+        "uri": uri,
+        "size": head.get("ContentLength"),
+        "version_id": head.get("VersionId"),
+        "etag": head.get("ETag"),
+        "checksums": [
+            {
+                "algorithm": algorithm,
+                "encoding": "base64",
+                "value": head[field],
+                **({"type": checksum_type} if checksum_type else {}),
+            }
+            for field, algorithm in _S3_CHECKSUM_FIELDS
+            if head.get(field)
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
