@@ -101,6 +101,57 @@ async def test_hpo_admin_summary_reports_not_loaded_when_schema_missing() -> Non
 
 
 @pytest.mark.asyncio
+async def test_hpo_admin_summary_names_the_ontology_file_the_backend_is_configured_to_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The admin page prefills its sync path from this. Its own copy of the path had drifted
+    # from the backend's default: /data/ref-data/hpo/hpo.obo against hp.obo.
+    from backend.app.core.config import Settings
+    from backend.app.schemas.hpo import HpoAdminSummaryOut
+
+    assert Settings.model_fields["hpo_ontology_path"].default == "/data/ref-data/hpo/hp.obo"
+    monkeypatch.setattr(hpo_service.settings, "hpo_ontology_path", "/srv/ref-data/hpo/hp.obo")
+
+    async def tables_available(*_args: object, **_kwargs: object) -> bool:
+        return True
+
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", tables_available)
+    loaded = await get_hpo_admin_summary(
+        _FakeSession(
+            [
+                _FakeResult(
+                    [
+                        {
+                            "total_terms": 2,
+                            "active_terms": 2,
+                            "obsolete_terms": 0,
+                            "release_date": None,
+                            "last_sync_date": None,
+                        }
+                    ]
+                ),
+                _FakeResult([{"release_version": "hp/releases/2026-06-06"}]),
+            ]
+        )
+    )
+    assert loaded["ontology_path"] == "/srv/ref-data/hpo/hp.obo"
+    # The response model carries it, so the endpoint does not drop it.
+    assert HpoAdminSummaryOut(**loaded).ontology_path == "/srv/ref-data/hpo/hp.obo"
+
+    async def tables_missing(*_args: object, **_kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", tables_missing)
+    empty = await get_hpo_admin_summary(_FakeSession([]))
+    # Also before any ontology is installed, when the path matters most.
+    assert empty["ontology_path"] == "/srv/ref-data/hpo/hp.obo"
+
+    # An empty setting names no file; the page then asks for one.
+    monkeypatch.setattr(hpo_service.settings, "hpo_ontology_path", "")
+    assert (await get_hpo_admin_summary(_FakeSession([])))["ontology_path"] is None
+
+
+@pytest.mark.asyncio
 async def test_create_individual_hpo_annotation_returns_service_unavailable_when_hpo_schema_is_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

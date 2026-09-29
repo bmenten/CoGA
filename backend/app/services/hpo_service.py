@@ -114,6 +114,15 @@ def normalize_hpo_id(value: str | None) -> str | None:
     return None
 
 
+def _configured_hpo_ontology_path() -> str | None:
+    """The ontology file the backend is configured to load (``HPO_ONTOLOGY_PATH``).
+
+    The admin page offers it as the file to synchronise, so the page holds no copy of a
+    default that can drift from the backend's.
+    """
+    return settings.hpo_ontology_path or None
+
+
 def _empty_hpo_admin_summary() -> dict[str, Any]:
     return {
         "total_terms": 0,
@@ -124,6 +133,7 @@ def _empty_hpo_admin_summary() -> dict[str, Any]:
         "last_sync_date": None,
         "automatic_update_supported": False,
         "ontology_loaded": False,
+        "ontology_path": _configured_hpo_ontology_path(),
     }
 
 
@@ -1436,6 +1446,7 @@ async def get_hpo_admin_summary(session: AsyncSession) -> dict[str, Any]:
     summary["release_version"] = release_result.scalar_one_or_none()
     summary["automatic_update_supported"] = False
     summary["ontology_loaded"] = int(summary.get("total_terms") or 0) > 0
+    summary["ontology_path"] = _configured_hpo_ontology_path()
     return summary
 
 

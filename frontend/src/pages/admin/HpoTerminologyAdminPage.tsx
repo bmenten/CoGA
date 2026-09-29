@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import PageState from '../../components/PageState';
 import api from '../../lib/api';
+import type { HpoAdminSummaryOut } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 
 type HpoRelation = {
@@ -26,16 +27,8 @@ type HpoAdminTerm = {
   child_count: number;
 };
 
-type HpoAdminSummary = {
-  total_terms: number;
-  active_terms: number;
-  obsolete_terms: number;
-  release_version?: string | null;
-  release_date?: string | null;
-  last_sync_date?: string | null;
-  automatic_update_supported: boolean;
-  ontology_loaded: boolean;
-};
+// As the backend serves it, including the ontology file it is configured to load.
+type HpoAdminSummary = HpoAdminSummaryOut;
 
 type HpoSyncResult = {
   preview_only: boolean;
@@ -92,7 +85,10 @@ const HpoTerminologyAdminPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
-  const [syncPath, setSyncPath] = useState('/data/ref-data/hpo/hpo.obo');
+  // The path the admin typed, if any. Until then the field holds the file the backend is
+  // configured to load, from the summary: the page's own copy of that default had drifted
+  // from the backend's (hpo.obo against hp.obo).
+  const [syncPathDraft, setSyncPathDraft] = useState<string | null>(null);
   const [releaseVersion, setReleaseVersion] = useState('');
   const [releaseDate, setReleaseDate] = useState('');
   const [selectedTermId, setSelectedTermId] = useState<string | null>(null);
@@ -128,6 +124,8 @@ const HpoTerminologyAdminPage: React.FC = () => {
     },
     retry: false,
   });
+  const configuredPath = summaryQuery.data?.ontology_path ?? '';
+  const syncPath = syncPathDraft ?? configuredPath;
 
   const termsQuery = useQuery<HpoAdminTerm[]>({
     queryKey: ['admin', 'hpo', 'terms', appliedSearch],
@@ -302,8 +300,8 @@ const HpoTerminologyAdminPage: React.FC = () => {
             <input
               id="hpo-sync-path"
               value={syncPath}
-              onChange={(event) => setSyncPath(event.target.value)}
-              placeholder="/data/reference/hpo/hp.obo"
+              onChange={(event) => setSyncPathDraft(event.target.value)}
+              placeholder={configuredPath || 'Path to the ontology file on the server'}
             />
           </label>
           <label className="field-label" htmlFor="hpo-release-version">

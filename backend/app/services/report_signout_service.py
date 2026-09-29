@@ -30,8 +30,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.coga_logging import scrub_log
 from ..core.config import settings
 from .annotation_manifest_service import (
+    REFERENCE_MODULE_KEYS,
     UNAVAILABLE_MODULE_VERSION,
     get_family_annotation_manifest,
+    module_label,
 )
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import evaluate_classification_drift
@@ -432,12 +434,35 @@ async def _canonical_sequencing_qc(
     }
 
 
+# The reference-layer modules the software looked up before a snapshot recorded the list
+# (see REFERENCE_MODULE_KEYS): a record signed then holds no HPO release.
+_LEGACY_REFERENCE_MODULES: tuple[str, ...] = ("assembly", "gene_loci", "monarch")
+
+
+def _reference_modules_looked_up(snapshot: Mapping[str, Any]) -> set[str]:
+    """The reference-layer modules the software that built ``snapshot`` looked up."""
+    recorded = snapshot.get("reference_modules")
+    if isinstance(recorded, list):
+        return {str(key) for key in recorded}
+    return set(_LEGACY_REFERENCE_MODULES)
+
+
+def _module_keys(modules: Any) -> set[str]:
+    return {
+        str(module.get("key"))
+        for module in (modules if isinstance(modules, list) else [])
+        if isinstance(module, Mapping)
+    }
+
+
 def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
     """The parts a report snapshot records as unavailable, with the reason (#514).
 
     A lookup that failed while the snapshot was built is frozen as an explicit marker,
     never as an empty block that reads like "nothing there". This lists those markers so
-    the audit event and the report page can say what the signed record lacks.
+    the audit event and the report page can say what the signed record lacks. It also
+    lists a reference module a record signed before CoGA recorded it does not hold (the
+    HPO release): the record cannot say which version its report was produced with.
     """
     if not isinstance(snapshot, Mapping):
         return []
@@ -460,6 +485,18 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
                     "reason": str(module.get("detail") or "version could not be read"),
                 }
             )
+    if "modules" in snapshot:
+        held = _module_keys(snapshot.get("modules"))
+        looked_up = _reference_modules_looked_up(snapshot)
+        for key in REFERENCE_MODULE_KEYS:
+            if key not in looked_up and key not in held:
+                gaps.append(
+                    {
+                        "section": "modules",
+                        "item": module_label(key),
+                        "reason": "signed before CoGA recorded its version",
+                    }
+                )
     return gaps
 
 
@@ -508,6 +545,10 @@ async def build_report_snapshot(
         "family_id": context.family_id,
         "assembly": manifest.get("assembly"),
         "modules": manifest.get("modules", []),
+        # The reference-layer modules looked up for `modules`: one of them missing there
+        # was not loaded at sign-out. A record without this list was signed before CoGA
+        # recorded the HPO release, which is how the sign-out check tells the two apart.
+        "reference_modules": list(REFERENCE_MODULE_KEYS),
         # Build identity of the software that produced this snapshot, frozen into the
         # content hash so a signed report is bound to the exact code that made it.
         # These are build-time constants (no per-call/runtime-varying value), so the
@@ -967,6 +1008,36 @@ def _section_fingerprint(value: Any) -> str:
     return _canonical_hash(json.loads(json.dumps(value, default=str)))
 
 
+def _modules_comparable_with(
+    signed: Mapping[str, Any], current: list[Any]
+) -> tuple[list[Any], list[str]]:
+    """The current modules to compare with a signed record's, and the keys left out.
+
+    A reference-layer module the record neither holds nor looked up postdates it: the HPO
+    release, for a record signed before CoGA recorded it. Like a snapshot section an older
+    record predates, it is not compared, instead of turning every such record into a
+    change to modules nothing in it froze. One the record looked up and does not hold
+    was not loaded then, so its arrival is a change; and a pipeline module is always
+    compared, as one the family's pipeline declared since came with a re-import.
+    """
+    held = _module_keys(signed.get("modules"))
+    looked_up = _reference_modules_looked_up(signed)
+    comparable: list[Any] = []
+    postdating: list[str] = []
+    for module in current:
+        key = module.get("key") if isinstance(module, Mapping) else None
+        if (
+            key is not None
+            and module.get("layer") == "reference"
+            and str(key) not in held
+            and str(key) not in looked_up
+        ):
+            postdating.append(str(key))
+        else:
+            comparable.append(module)
+    return comparable, postdating
+
+
 async def compare_report_with_latest_signout(
     session: AsyncSession,
     *,
@@ -979,7 +1050,9 @@ async def compare_report_with_latest_signout(
     The report page renders live data, so a change after sign-out (a review edit, a new
     report tag, a re-import, a QC cut-off change) would otherwise be printed under the
     "Signed out" banner as if it were the signed record (#508). This rebuilds the
-    snapshot body and compares it, section by section, with the frozen one.
+    snapshot body and compares it, section by section, with the frozen one. A section or
+    reference module the signed record predates is listed in ``not_compared`` (a module
+    as ``modules.<key>``) rather than reported as changed.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -1024,7 +1097,11 @@ async def compare_report_with_latest_signout(
         else:
             not_compared.append(section)
             continue
-        if _section_fingerprint(signed_value) != _section_fingerprint(current.get(section)):
+        current_value = current.get(section)
+        if section == "modules" and isinstance(current_value, list):
+            current_value, postdating = _modules_comparable_with(signed, current_value)
+            not_compared.extend(f"modules.{key}" for key in postdating)
+        if _section_fingerprint(signed_value) != _section_fingerprint(current_value):
             changed.append(section)
     return {
         "family_id": context.family_id,

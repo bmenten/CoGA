@@ -8,7 +8,7 @@ can state its provenance (see docs/clinical-traceability.md). It merges two laye
   ``family_annotation_manifest`` (manual/admin), or captured for free from
   ``family.metadata.annotation_manifest`` when the import manifest declares it.
 * the platform *reference* layer — versions of what CoGA itself loaded (the assembly,
-  the Monarch release), read live from the reference tables.
+  the gene loci, the Monarch and HPO releases), read live from the reference tables.
 """
 
 from __future__ import annotations
@@ -108,7 +108,17 @@ def _fallback_module_label(key: str) -> str:
     return key
 
 
+def module_label(key: str) -> str:
+    """The label a module is shown under: its curated one, or the key verbatim."""
+    return _MODULE_LABELS.get(key, _fallback_module_label(key))
+
+
 _MODULE_ORDER = list(_MODULE_LABELS)
+
+# The reference-layer modules `_platform_modules` looks up. A signed snapshot freezes this
+# list next to its modules, so that one of these missing from the record reads as "not
+# loaded when it was signed" rather than "not looked up by the software that signed it".
+REFERENCE_MODULE_KEYS: tuple[str, ...] = ("assembly", "gene_loci", "monarch", "hpo")
 
 
 def _as_module(value: Any) -> dict[str, Any]:
@@ -220,6 +230,34 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
     except Exception:  # noqa: BLE001 — provenance must never break sign-out
         logger.warning("Monarch-release provenance lookup failed", exc_info=True)
         modules["monarch"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
+    # The HPO release phenotype matching, HPO-driven ranking and the phenotype features ran
+    # on. No table holds it: an import writes its release onto every term in the file, and
+    # a term the new release no longer lists keeps the one it came with. So the loaded
+    # release is the one on the most recently written term, not the highest release string
+    # (an older release re-imported is what is loaded) and not the latest one that has a
+    # release (an import from a file without a data-version header left it unknown).
+    try:
+        async with session.begin_nested():
+            hpo_release = (
+                await session.execute(
+                    text(
+                        "SELECT release_version, release_date FROM hpo_term "
+                        "ORDER BY updated_at DESC LIMIT 1"
+                    )
+                )
+            ).mappings().first()
+        if hpo_release:
+            version = str(hpo_release["release_version"] or "").strip()
+            if version:
+                release_date = hpo_release["release_date"]
+                modules["hpo"] = {"version": version, "detail": str(release_date) if release_date else None}
+            else:
+                # Loaded without a release: say so rather than leave HPO out as if no
+                # ontology were loaded (#514).
+                modules["hpo"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "release not recorded"}
+    except Exception:  # noqa: BLE001 — provenance must never break sign-out
+        logger.warning("HPO-release provenance lookup failed", exc_info=True)
+        modules["hpo"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
     return modules
 
 
@@ -249,7 +287,7 @@ def _module_list(
             {
                 "key": key,
                 # Unknown keys are shown verbatim — see _fallback_module_label.
-                "label": _MODULE_LABELS.get(key, _fallback_module_label(key)),
+                "label": module_label(key),
                 "version": str(version) if version not in (None, "") else None,
                 "detail": str(detail) if detail else None,
                 "layer": layer,

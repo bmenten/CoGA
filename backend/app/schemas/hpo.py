@@ -46,6 +46,9 @@ class HpoAdminSummaryOut(BaseModel):
     last_sync_date: Optional[datetime] = None
     automatic_update_supported: bool = False
     ontology_loaded: bool = False
+    # The ontology file the backend is configured to load (HPO_ONTOLOGY_PATH), which the
+    # admin page offers as the file to synchronise; None when none is configured.
+    ontology_path: Optional[str] = None
 
 
 class HpoOntologySyncRequest(BaseModel):
