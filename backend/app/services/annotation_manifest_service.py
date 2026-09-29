@@ -8,7 +8,7 @@ can state its provenance (see docs/clinical-traceability.md). It merges two laye
   ``family_annotation_manifest`` (manual/admin), or captured for free from
   ``family.metadata.annotation_manifest`` when the import manifest declares it.
 * the platform *reference* layer — versions of what CoGA itself loaded (the assembly,
-  the Monarch release), read live from the reference tables.
+  the gene loci, the Monarch and HPO releases), read live from the reference tables.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .family_metadata_context import build_family_metadata_context
+from .hpo_service import get_loaded_hpo_release
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
 
@@ -108,7 +109,17 @@ def _fallback_module_label(key: str) -> str:
     return key
 
 
+def module_label(key: str) -> str:
+    """The label a module is shown under: its curated one, or the key verbatim."""
+    return _MODULE_LABELS.get(key, _fallback_module_label(key))
+
+
 _MODULE_ORDER = list(_MODULE_LABELS)
+
+# The reference-layer modules `_platform_modules` looks up. A signed snapshot freezes this
+# list next to its modules, so that one of these missing from the record reads as "not
+# loaded when it was signed" rather than "not looked up by the software that signed it".
+REFERENCE_MODULE_KEYS: tuple[str, ...] = ("assembly", "gene_loci", "monarch", "hpo")
 
 
 def _as_module(value: Any) -> dict[str, Any]:
@@ -220,6 +231,24 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
     except Exception:  # noqa: BLE001 — provenance must never break sign-out
         logger.warning("Monarch-release provenance lookup failed", exc_info=True)
         modules["monarch"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
+    # The HPO release phenotype matching, HPO-driven ranking and the phenotype features ran
+    # on: the release of the latest ontology import (see get_loaded_hpo_release, which the
+    # admin summary and the ranking-cache key read too).
+    try:
+        async with session.begin_nested():
+            hpo_release = await get_loaded_hpo_release(session)
+        if hpo_release:
+            version = str(hpo_release["release_version"] or "").strip()
+            if version:
+                release_date = hpo_release["release_date"]
+                modules["hpo"] = {"version": version, "detail": str(release_date) if release_date else None}
+            else:
+                # Loaded without a release: say so rather than leave HPO out as if no
+                # ontology were loaded (#514).
+                modules["hpo"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "release not recorded"}
+    except Exception:  # noqa: BLE001 — provenance must never break sign-out
+        logger.warning("HPO-release provenance lookup failed", exc_info=True)
+        modules["hpo"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
     return modules
 
 
@@ -249,7 +278,7 @@ def _module_list(
             {
                 "key": key,
                 # Unknown keys are shown verbatim — see _fallback_module_label.
-                "label": _MODULE_LABELS.get(key, _fallback_module_label(key)),
+                "label": module_label(key),
                 "version": str(version) if version not in (None, "") else None,
                 "detail": str(detail) if detail else None,
                 "layer": layer,

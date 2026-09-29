@@ -49,7 +49,8 @@ compatible inheritance modes and the matched phenotypes.
 **Why the ranking can be instant.** CoGA keeps the ranking once it is computed; a later open shows
 *⚡ Prioritised ranking served from cache* and when it was computed. It is recomputed automatically when
 anything it depends on changes: the phenotypes, the pedigree, the panel, the filters (including
-review-tag filters), the family's variant data, or the reference data (Monarch, HPO, gene constraint).
+review-tag filters), the family's variant data, or the reference data (the Monarch release, each import
+of the HPO ontology, gene constraint).
 Narrowing from the Mendeliome to a smaller panel is served from the broader ranking.
 
 **Download CSV** exports the list, with *Priority* and *Rank* columns when the ranking is on.

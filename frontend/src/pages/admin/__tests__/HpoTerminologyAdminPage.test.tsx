@@ -38,6 +38,8 @@ const SUMMARY = {
   last_sync_date: '2026-07-01T09:30:00Z',
   automatic_update_supported: false,
   ontology_loaded: true,
+  // The file the backend is configured to load (HPO_ONTOLOGY_PATH, default hp.obo).
+  ontology_path: '/data/ref-data/hpo/hp.obo',
 };
 
 const SEIZURE: Term = {
@@ -174,6 +176,7 @@ describe('HpoTerminologyAdminPage', () => {
         last_sync_date: null,
         automatic_update_supported: true,
         ontology_loaded: false,
+        ontology_path: '/data/ref-data/hpo/hp.obo',
       });
       termsReply = () => [];
       renderPage();
@@ -188,6 +191,18 @@ describe('HpoTerminologyAdminPage', () => {
       expect(statValue('Release date')).toBe('Not installed');
       expect(statValue('Last sync')).toBe('Not synced');
       expect(screen.getByText('Automatic updates available')).toBeInTheDocument();
+    });
+
+    it('says a loaded ontology without a recorded release is unknown, not "Not installed"', async () => {
+      // The summary describes the latest import; one from a file without a release has none.
+      summaryReply = () => ({ ...SUMMARY, release_version: null, release_date: null });
+      renderPage();
+
+      await screen.findByText('Total terms');
+      expect(statValue('Total terms')).toBe('18,954');
+      expect(statValue('Release')).toBe('Unknown');
+      expect(statValue('Release date')).toBe('Unknown');
+      expect(screen.queryByText(/No HPO terminology is installed/)).not.toBeInTheDocument();
     });
 
     it('shows a date it cannot parse as recorded, never as "Invalid Date"', async () => {
@@ -360,6 +375,59 @@ describe('HpoTerminologyAdminPage', () => {
   });
 
   describe('synchronization', () => {
+    it('starts from the file the backend is configured to load, also as the placeholder', async () => {
+      // The page used to prefill its own copy of the path, and it had drifted: hpo.obo while
+      // the backend loads hp.obo, and a placeholder in a directory that does not exist.
+      const user = userEvent.setup();
+      summaryReply = () => ({ ...SUMMARY, ontology_path: '/srv/ref-data/hpo/hp.obo' });
+      mockedPost.mockResolvedValue({
+        data: { preview_only: true, current: SUMMARY, preview: { terms: 19120 }, imported: null },
+      });
+      renderPage();
+
+      const path = await screen.findByLabelText('Ontology file path');
+      expect(path).toHaveValue('/srv/ref-data/hpo/hp.obo');
+      expect(path).toHaveAttribute('placeholder', '/srv/ref-data/hpo/hp.obo');
+      await user.click(screen.getByRole('button', { name: 'Preview changes' }));
+      await waitFor(() =>
+        expect(mockedPost).toHaveBeenCalledWith('/admin/hpo/sync', {
+          path: '/srv/ref-data/hpo/hp.obo',
+          release_version: null,
+          release_date: null,
+          preview_only: true,
+        }),
+      );
+
+      // Cleared, the field shows that file as the hint, not a path of its own.
+      await user.clear(path);
+      expect(path).toHaveValue('');
+      expect(path).toHaveAttribute('placeholder', '/srv/ref-data/hpo/hp.obo');
+    });
+
+    it('asks for a file when the backend names none', async () => {
+      summaryReply = () => ({ ...SUMMARY, ontology_path: null });
+      renderPage();
+
+      const path = await screen.findByLabelText('Ontology file path');
+      expect(path).toHaveValue('');
+      expect(path).toHaveAttribute('placeholder', 'Path to the ontology file on the server');
+      expect(screen.getByRole('button', { name: 'Preview changes' })).toBeDisabled();
+    });
+
+    it('keeps a path the admin typed when the summary is refreshed', async () => {
+      const user = userEvent.setup();
+      const { queryClient } = renderPage();
+
+      const path = await screen.findByLabelText('Ontology file path');
+      await user.clear(path);
+      await user.type(path, '/data/ref-data/hpo/hp-2026-09-01.obo');
+      summaryReply = () => ({ ...SUMMARY, total_terms: 19120 });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'hpo', 'summary'] });
+
+      await waitFor(() => expect(statValue('Total terms')).toBe('19,120'));
+      expect(screen.getByLabelText('Ontology file path')).toHaveValue('/data/ref-data/hpo/hp-2026-09-01.obo');
+    });
+
     it('previews without asking, sending the trimmed path and overrides, and labels the counts', async () => {
       const user = userEvent.setup();
       const confirm = vi.spyOn(window, 'confirm');
@@ -384,7 +452,7 @@ describe('HpoTerminologyAdminPage', () => {
       renderPage();
 
       const path = await screen.findByLabelText('Ontology file path');
-      expect(path).toHaveValue('/data/ref-data/hpo/hpo.obo');
+      expect(path).toHaveValue('/data/ref-data/hpo/hp.obo');
       await user.clear(path);
       await user.type(path, '  /data/ref-data/hpo/hp-2026-09-01.obo  ');
       await user.type(screen.getByLabelText('Release version override'), '  hp/releases/2026-09-01 ');
@@ -461,7 +529,7 @@ describe('HpoTerminologyAdminPage', () => {
       await user.click(screen.getByRole('button', { name: 'Apply sync' }));
 
       expect(confirm).toHaveBeenCalledWith(
-        'Apply the HPO ontology in /data/ref-data/hpo/hpo.obo now? The terminology is replaced as previewed.',
+        'Apply the HPO ontology in /data/ref-data/hpo/hp.obo now? The terminology is replaced as previewed.',
       );
       expect(mockedPost).not.toHaveBeenCalled();
       expect(screen.queryByText('HPO terminology synchronized.')).not.toBeInTheDocument();
@@ -508,7 +576,7 @@ describe('HpoTerminologyAdminPage', () => {
 
       await waitFor(() =>
         expect(mockedPost).toHaveBeenCalledWith('/admin/hpo/sync', {
-          path: '/data/ref-data/hpo/hpo.obo',
+          path: '/data/ref-data/hpo/hp.obo',
           release_version: null,
           release_date: null,
           preview_only: false,

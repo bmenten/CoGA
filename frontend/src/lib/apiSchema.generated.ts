@@ -1181,6 +1181,7 @@ export interface HpoAdminSummaryOut {
   last_sync_date: string | null;
   automatic_update_supported: boolean;
   ontology_loaded: boolean;
+  ontology_path: string | null;
 }
 
 export interface HpoAdminTermOut {
@@ -2248,8 +2249,9 @@ export interface RepeatExpansionUploadResult {
  *
  * ``matches`` is None when the family has never been signed out. ``changed_sections``
  * names the snapshot sections whose content differs from the signed one;
- * ``not_compared`` those the signed snapshot predates and so cannot be compared;
- * ``not_captured`` the parts the signed snapshot records as unavailable.
+ * ``not_compared`` those the signed snapshot predates and so cannot be compared (a
+ * reference module as ``modules.<key>``, e.g. ``modules.hpo``); ``not_captured`` the
+ * parts the signed snapshot records as unavailable or, being older, does not hold.
  */
 export interface ReportSignoutCheckOut {
   family_id: string;

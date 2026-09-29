@@ -114,6 +114,15 @@ def normalize_hpo_id(value: str | None) -> str | None:
     return None
 
 
+def _configured_hpo_ontology_path() -> str | None:
+    """The ontology file the backend is configured to load (``HPO_ONTOLOGY_PATH``).
+
+    The admin page offers it as the file to synchronise, so the page holds no copy of a
+    default that can drift from the backend's.
+    """
+    return settings.hpo_ontology_path or None
+
+
 def _empty_hpo_admin_summary() -> dict[str, Any]:
     return {
         "total_terms": 0,
@@ -124,6 +133,7 @@ def _empty_hpo_admin_summary() -> dict[str, Any]:
         "last_sync_date": None,
         "automatic_update_supported": False,
         "ontology_loaded": False,
+        "ontology_path": _configured_hpo_ontology_path(),
     }
 
 
@@ -1400,6 +1410,31 @@ async def get_hpo_term_details(
     return term
 
 
+async def get_loaded_hpo_release(session: AsyncSession) -> dict[str, Any] | None:
+    """The HPO ontology that is loaded: its release, release date and import time.
+
+    No table holds the release: an import writes it onto every term in the file, and a
+    term the new release no longer lists keeps the release it came with. So the loaded
+    release is the one on the most recently written term. It is not the highest release
+    string (an older release re-imported is what is loaded), nor the latest one recorded
+    (an import from a file without a data-version header left the release unknown). The
+    signed record (annotation manifest), the admin summary and the ranking-cache key all
+    read it here, so they cannot name different releases.
+
+    ``None`` when no ontology is loaded. A failed query raises: each caller decides what
+    a failure means for it.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT release_version, release_date, updated_at AS imported_at "
+                "FROM hpo_term ORDER BY updated_at DESC LIMIT 1"
+            )
+        )
+    ).mappings().first()
+    return dict(row) if row else None
+
+
 async def get_hpo_admin_summary(session: AsyncSession) -> dict[str, Any]:
     try:
         if not await _postgres_tables_available(session, ("hpo_term",)):
@@ -1410,32 +1445,24 @@ async def get_hpo_admin_summary(session: AsyncSession) -> dict[str, Any]:
                 SELECT
                     COUNT(*)::int AS total_terms,
                     COUNT(*) FILTER (WHERE is_obsolete = FALSE)::int AS active_terms,
-                    COUNT(*) FILTER (WHERE is_obsolete = TRUE)::int AS obsolete_terms,
-                    MAX(release_date) AS release_date,
-                    MAX(updated_at) AS last_sync_date
+                    COUNT(*) FILTER (WHERE is_obsolete = TRUE)::int AS obsolete_terms
                 FROM hpo_term
                 """
             )
         )
         summary = dict(result.mappings().one())
-        release_result = await session.execute(
-            text(
-                """
-                SELECT release_version
-                FROM hpo_term
-                WHERE release_version IS NOT NULL
-                ORDER BY updated_at DESC, release_version DESC
-                LIMIT 1
-                """
-            )
-        )
+        loaded = await get_loaded_hpo_release(session) or {}
     except DBAPIError as exc:
         if is_missing_postgres_schema_error(exc):
             return _empty_hpo_admin_summary()
         raise
-    summary["release_version"] = release_result.scalar_one_or_none()
+    # All three describe the latest import, as the signed record reads it.
+    summary["release_version"] = loaded.get("release_version")
+    summary["release_date"] = loaded.get("release_date")
+    summary["last_sync_date"] = loaded.get("imported_at")
     summary["automatic_update_supported"] = False
     summary["ontology_loaded"] = int(summary.get("total_terms") or 0) > 0
+    summary["ontology_path"] = _configured_hpo_ontology_path()
     return summary
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import logging
 import types
 
@@ -155,11 +155,16 @@ class _ProvenanceResult:
         return self._scalar
 
 
-class _ProvenanceSession:
-    """Answers the three platform-module lookups, or fails them all."""
+# The HPO ontology as an import writes it: every term carries the release it came from.
+_HPO_RELEASE_ROW = {"release_version": "hp/releases/2026-06-06", "release_date": date(2026, 6, 6)}
 
-    def __init__(self, *, fail: bool) -> None:
+
+class _ProvenanceSession:
+    """Answers the four platform-module lookups, or fails them all."""
+
+    def __init__(self, *, fail: bool, hpo_row: dict | None = _HPO_RELEASE_ROW) -> None:
         self.fail = fail
+        self.hpo_row = hpo_row  # None: no HPO ontology is loaded
         self.savepoints = 0
 
     def begin_nested(self):
@@ -175,6 +180,8 @@ class _ProvenanceSession:
             return _ProvenanceResult(
                 row={"source": "ucsc ncbiRefSeq", "performed_at": datetime(2026, 9, 1, tzinfo=timezone.utc)}
             )
+        if "FROM hpo_term" in str(statement):
+            return _ProvenanceResult(row=self.hpo_row)
         return _ProvenanceResult(scalar="2026-03-01")
 
 
@@ -190,7 +197,52 @@ def test_platform_modules_read_the_reference_versions() -> None:
         # could not be fetched (#536).
         "gene_loci": {"version": "ucsc ncbiRefSeq", "detail": "imported 2026-09-01"},
         "monarch": {"version": "2026-03-01"},
+        # The HPO release phenotype matching and HPO-driven ranking ran on, with its date.
+        "hpo": {"version": "hp/releases/2026-06-06", "detail": "2026-06-06"},
     }
+
+
+def test_the_hpo_release_is_read_for_a_family_without_an_assembly() -> None:
+    # The ontology is not per assembly: like the Monarch release, it is always looked up.
+    modules = asyncio.run(ams._platform_modules(_ProvenanceSession(fail=False), None))
+    assert modules == {
+        "monarch": {"version": "2026-03-01"},
+        "hpo": {"version": "hp/releases/2026-06-06", "detail": "2026-06-06"},
+    }
+
+
+def test_an_hpo_release_without_a_date_has_no_detail() -> None:
+    session = _ProvenanceSession(fail=False, hpo_row={"release_version": "v2026-06", "release_date": None})
+    modules = asyncio.run(ams._platform_modules(session, None))
+    assert modules["hpo"] == {"version": "v2026-06", "detail": None}
+
+
+def test_an_hpo_ontology_loaded_without_a_release_is_recorded_as_such() -> None:
+    # An ontology file without a data-version header imports with no release. Phenotype
+    # matching still runs on it, so a signed record must say its release is unknown, not
+    # leave HPO out as if none were loaded (#514).
+    for missing in (None, "", "   "):
+        session = _ProvenanceSession(fail=False, hpo_row={"release_version": missing, "release_date": None})
+        modules = asyncio.run(ams._platform_modules(session, None))
+        assert modules["hpo"] == {
+            "version": ams.UNAVAILABLE_MODULE_VERSION,
+            "detail": "release not recorded",
+        }, missing
+
+
+def test_no_hpo_module_without_a_loaded_ontology() -> None:
+    # No terms, nothing phenotype matching could have used: as with Monarch, no module.
+    modules = asyncio.run(ams._platform_modules(_ProvenanceSession(fail=False, hpo_row=None), _ASSEMBLY_ID))
+    assert "hpo" not in modules
+    assert set(modules) == {"assembly", "gene_loci", "monarch"}
+
+
+def test_the_reference_module_list_names_every_platform_module() -> None:
+    # A signed snapshot records this list, so a module missing from its `modules` reads as
+    # "not loaded then" rather than "not looked up" (report_signout_service).
+    modules = asyncio.run(ams._platform_modules(_ProvenanceSession(fail=True), _ASSEMBLY_ID))
+    assert set(modules) == set(ams.REFERENCE_MODULE_KEYS)
+    assert ams.REFERENCE_MODULE_KEYS == ("assembly", "gene_loci", "monarch", "hpo")
 
 
 def test_a_failed_platform_lookup_is_recorded_not_dropped(caplog) -> None:
@@ -202,17 +254,35 @@ def test_a_failed_platform_lookup_is_recorded_not_dropped(caplog) -> None:
         modules = asyncio.run(ams._platform_modules(session, _ASSEMBLY_ID))
 
     marker = {"version": ams.UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
-    assert modules == {"assembly": marker, "gene_loci": marker, "monarch": marker}
+    assert modules == {"assembly": marker, "gene_loci": marker, "monarch": marker, "hpo": marker}
     # Each lookup is its own savepoint, so a failed statement cannot abort the
     # sign-out transaction around it.
-    assert session.savepoints == 3
+    assert session.savepoints == 4
     assert "Reference-assembly provenance lookup failed" in caplog.text
     assert "Gene-locus provenance lookup failed" in caplog.text
     assert "Monarch-release provenance lookup failed" in caplog.text
+    assert "HPO-release provenance lookup failed" in caplog.text
     # The manifest (and so the report footer and the snapshot) shows them as such.
     listed = {m["key"]: (m["version"], m["detail"]) for m in ams._module_list({}, modules)}
     assert listed == {
         "assembly": ("unavailable", "lookup failed"),
         "gene_loci": ("unavailable", "lookup failed"),
         "monarch": ("unavailable", "lookup failed"),
+        "hpo": ("unavailable", "lookup failed"),
     }
+
+
+def test_the_hpo_module_is_listed_under_its_label_on_the_reference_layer() -> None:
+    listed = ams._module_list({}, {"hpo": {"version": "hp/releases/2026-06-06", "detail": "2026-06-06"}})
+    assert listed == [
+        {
+            "key": "hpo",
+            "label": "HPO",
+            "version": "hp/releases/2026-06-06",
+            "detail": "2026-06-06",
+            "layer": "reference",
+            "by_modality": None,
+        }
+    ]
+    assert ams.module_label("hpo") == "HPO"
+    assert ams.module_label("custom_tool") == "custom_tool"

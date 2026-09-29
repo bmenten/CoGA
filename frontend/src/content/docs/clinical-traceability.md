@@ -26,7 +26,7 @@ A footer at the end of the report states when it was generated and which version
 - the **pipeline** layer: the tools that produced the family's annotated input (for example VEP,
   ClinVar, gnomAD, dbNSFP, SpliceAI, GenCC, PanelApp);
 - the **reference** layer: what CoGA itself loaded — the genome assembly (with its release date), the
-  gene loci (their source and import date) and the Monarch release.
+  gene loci (their source and import date), the Monarch release and the HPO release (with its date).
 
 The pipeline versions are taken from the family's import manifest; there is no screen to edit them. A
 version that is not known is left out, never guessed. The footer prints with the report and is part of
@@ -135,9 +135,13 @@ The report page always shows the **current** data and checks it against the late
 **Download signed version N (JSON)** returns the frozen version itself.
 
 **What a signed version could not capture.** If a lookup fails while the version is frozen — the QC
-cut-offs, or the assembly or Monarch version — sign-out still goes ahead, but that part is recorded as
-unavailable, not as empty, and the record says so: *Not captured in signed version 2: …*. The audit
-trail lists the same parts.
+cut-offs, or the version of the assembly, the gene loci, Monarch or HPO — sign-out still goes ahead, but
+that part is recorded as unavailable, not as empty, and the record says so: *Not captured in signed
+version 2: …*. The audit trail lists the same parts. An HPO ontology imported from a file that recorded
+no release is marked the same way (*release not recorded*).
+
+A version signed before CoGA recorded the HPO release does not name it. The record says so (*HPO
+(signed before CoGA recorded its version)*), and that alone does not turn the page amber.
 
 **When part of the report cannot be loaded.** The page never shows a part it could not load as empty.
 If the family or a list of reported variants cannot be loaded, the page shows only *Report could not be

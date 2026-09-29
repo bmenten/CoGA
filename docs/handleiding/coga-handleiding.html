@@ -2387,7 +2387,7 @@ python docs/handleiding/build_site.py
 <tbody>
 <tr>
 <td>Herkomstvoettekst</td>
-<td>De versies van annotatie en referentie (assembly, VEP, ClinVar, gnomAD, GENCODE, Monarch, …), met afwijkingen per modaliteit</td>
+<td>De versies van annotatie en referentie (assembly, VEP, ClinVar, gnomAD, GENCODE, Monarch, HPO, …), met afwijkingen per modaliteit</td>
 <td><code>GET /families/{id}/annotation-manifest</code></td>
 </tr>
 <tr>
@@ -2452,6 +2452,10 @@ python docs/handleiding/build_site.py
 <td>Het volledige annotatie- en referentiemanifest, per modaliteit</td>
 </tr>
 <tr>
+<td><code>reference_modules</code></td>
+<td>De referentiemodules die bij het bevriezen werden opgezocht: ontbreekt er een in <code>modules</code>, dan was die toen niet geladen</td>
+</tr>
+<tr>
 <td><code>software</code></td>
 <td>De build die het snapshot maakte (<code>app_version</code> en <code>git_sha</code>)</td>
 </tr>
@@ -2485,7 +2489,7 @@ python docs/handleiding/build_site.py
 <ul>
 <li><strong>Software:</strong> <code>app_version</code> en <code>git_sha</code>, bij het bouwen van de image vastgelegd.</li>
 <li><strong>Annotatie en pipeline:</strong> het bevroren manifest en, per classificatie, de hash van de annotatieset.</li>
-<li><strong>Referentie:</strong> de assembly, de bron van de genloci die CoGA zelf laadde (GENCODE, of de UCSC-tabel als GENCODE niet lukte) en de Monarch-release.</li>
+<li><strong>Referentie:</strong> de assembly, de bron van de genloci die CoGA zelf laadde (GENCODE, of de UCSC-tabel als GENCODE niet lukte), de Monarch-release en de HPO-release (de release van de laatste import van de ontologie).</li>
 </ul>
 <p><strong>De hash.</strong> De inhoudshash is een SHA-256 over een vaste, op sleutel gesorteerde JSON-codering; lijsten worden vooraf op een stabiele sleutel gesorteerd. De klinische secties zijn deterministisch: dezelfde inhoud geeft dezelfde vingerafdruk, en daarop steunt de controle hieronder. De inhoudshash zelf omvat ook de versie, het tijdstip en de ondertekenaar, en is dus per ondertekening uniek. Een opgeslagen hash wordt altijd herberekend over het snapshot zoals het opgeslagen werd; een versie van vóór een nieuw veld blijft dus geverifieerd.</p>
 <p><strong>Los van ClickHouse.</strong> Het snapshot bevat zelf de waarden die het nodig heeft. Een latere herbouw van ClickHouse of een nieuwe annotatieversie verandert het ondertekende record niet.</p>
@@ -2496,7 +2500,8 @@ python docs/handleiding/build_site.py
 <li>De rapportpagina toont altijd de <strong>huidige</strong> data.</li>
 <li>Een controle (<code>GET /families/{id}/report/sign-out-check</code>) bouwt het snapshot zoals het nu zou worden bevroren en vergelijkt het, sectie per sectie, met de laatste ondertekende versie. Alleen bij een bevestigde overeenkomst toont het record "This page matches signed version N"; anders noemt het de gewijzigde delen, of zegt het dat de controle niet kon draaien.</li>
 <li>Een afdruk die niet het bevestigde ondertekende record is, krijgt bovenaan een melding. Het bevroren record zelf is als JSON te downloaden.</li>
-<li>Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly of van Monarch), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als <em>niet beschikbaar</em>, met de reden. Het auditevent en het ondertekeningsrecord noemen die delen.</li>
+<li>Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly, de genloci, Monarch of HPO), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als <em>niet beschikbaar</em>, met de reden. Een HPO-ontologie uit een bestand zonder release krijgt dezelfde markering. Het auditevent en het ondertekeningsrecord noemen die delen.</li>
+<li>Een versie die ondertekend werd voordat CoGA de HPO-release vastlegde, bevat die release niet. De controle vergelijkt daar niet op (<code>not_compared</code> bevat <code>modules.hpo</code>) en meldt het rapport dus niet als gewijzigd; het record noemt de release als niet vastgelegd.</li>
 <li>Het rapport volledig <strong>uit het snapshot</strong> opbouwen, is nog niet gerealiseerd: het snapshot bevat de verhalende invoer (genprofielen, HGVS, frequenties) nog niet.</li>
 </ul>
 <h2>Append-only, hash-geketend auditspoor</h2>

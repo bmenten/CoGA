@@ -23,7 +23,7 @@ Naast de varianten toont het familierapport drie herkomstelementen, elk met een 
 
 | Element | Toont | Endpoint |
 | --- | --- | --- |
-| Herkomstvoettekst | De versies van annotatie en referentie (assembly, VEP, ClinVar, gnomAD, GENCODE, Monarch, …), met afwijkingen per modaliteit | `GET /families/{id}/annotation-manifest` |
+| Herkomstvoettekst | De versies van annotatie en referentie (assembly, VEP, ClinVar, gnomAD, GENCODE, Monarch, HPO, …), met afwijkingen per modaliteit | `GET /families/{id}/annotation-manifest` |
 | Driftmelding | Classificaties waarvan de annotatie veranderde sinds ze gemaakt werden | `GET /families/{id}/classification-drift` |
 | Klinisch auditspoor | Wie wat classificeerde of tagde, wanneer, met de waarde ervoor en erna | `GET /families/{id}/clinical-audit` |
 
@@ -81,6 +81,7 @@ Staat de vlag en heeft de ondertekenaar ze niet erkend, dan volgt `409` (`gate =
 | --- | --- |
 | `family_id`, `assembly` | De familie en de referentie-assembly |
 | `modules` | Het volledige annotatie- en referentiemanifest, per modaliteit |
+| `reference_modules` | De referentiemodules die bij het bevriezen werden opgezocht: ontbreekt er een in `modules`, dan was die toen niet geladen |
 | `software` | De build die het snapshot maakte (`app_version` en `git_sha`) |
 | `drift` | Het aantal gecontroleerde classificaties en de lijst met drift (ook `no_snapshot`) |
 | `sample_qc` | De volledige sample-QC |
@@ -93,7 +94,7 @@ Bij het ondertekenen komen er de versie, het tijdstip, de ondertekenaar en de er
 
 - **Software:** `app_version` en `git_sha`, bij het bouwen van de image vastgelegd.
 - **Annotatie en pipeline:** het bevroren manifest en, per classificatie, de hash van de annotatieset.
-- **Referentie:** de assembly, de bron van de genloci die CoGA zelf laadde (GENCODE, of de UCSC-tabel als GENCODE niet lukte) en de Monarch-release.
+- **Referentie:** de assembly, de bron van de genloci die CoGA zelf laadde (GENCODE, of de UCSC-tabel als GENCODE niet lukte), de Monarch-release en de HPO-release (de release van de laatste import van de ontologie).
 
 **De hash.** De inhoudshash is een SHA-256 over een vaste, op sleutel gesorteerde JSON-codering; lijsten worden vooraf op een stabiele sleutel gesorteerd. De klinische secties zijn deterministisch: dezelfde inhoud geeft dezelfde vingerafdruk, en daarop steunt de controle hieronder. De inhoudshash zelf omvat ook de versie, het tijdstip en de ondertekenaar, en is dus per ondertekening uniek. Een opgeslagen hash wordt altijd herberekend over het snapshot zoals het opgeslagen werd; een versie van vóór een nieuw veld blijft dus geverifieerd.
 
@@ -108,7 +109,8 @@ Nee, niet vanzelf. In het kort:
 - De rapportpagina toont altijd de **huidige** data.
 - Een controle (`GET /families/{id}/report/sign-out-check`) bouwt het snapshot zoals het nu zou worden bevroren en vergelijkt het, sectie per sectie, met de laatste ondertekende versie. Alleen bij een bevestigde overeenkomst toont het record "This page matches signed version N"; anders noemt het de gewijzigde delen, of zegt het dat de controle niet kon draaien.
 - Een afdruk die niet het bevestigde ondertekende record is, krijgt bovenaan een melding. Het bevroren record zelf is als JSON te downloaden.
-- Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly of van Monarch), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als *niet beschikbaar*, met de reden. Het auditevent en het ondertekeningsrecord noemen die delen.
+- Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly, de genloci, Monarch of HPO), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als *niet beschikbaar*, met de reden. Een HPO-ontologie uit een bestand zonder release krijgt dezelfde markering. Het auditevent en het ondertekeningsrecord noemen die delen.
+- Een versie die ondertekend werd voordat CoGA de HPO-release vastlegde, bevat die release niet. De controle vergelijkt daar niet op (`not_compared` bevat `modules.hpo`) en meldt het rapport dus niet als gewijzigd; het record noemt de release als niet vastgelegd.
 - Het rapport volledig **uit het snapshot** opbouwen, is nog niet gerealiseerd: het snapshot bevat de verhalende invoer (genprofielen, HGVS, frequenties) nog niet.
 
 ## Append-only, hash-geketend auditspoor

@@ -69,6 +69,35 @@ The manifest names versions; it does not detect change. That is the job of the
 annotation changes, and the drift check compares it with the hash frozen at classification
 time. The hash proves that something changed; the manifest says which versions are in use.
 
+## The reference modules
+
+Next to the pipeline versions, the manifest lists what CoGA itself loaded. `_platform_modules`
+(in the same service) reads these live each time the manifest is built, so a sign-out freezes
+the versions in use at that moment.
+
+| Module | What is read |
+| --- | --- |
+| `assembly` | the family's assembly, with its release date |
+| `gene_loci` | the source of the latest gene import for the assembly (GENCODE, or the UCSC table used when GENCODE could not be fetched), with its date |
+| `monarch` | the loaded Monarch release |
+| `hpo` | the release of the latest HPO ontology import, with its release date |
+
+Each lookup runs in its own savepoint, so a failure cannot break the sign-out around it. A
+failed lookup is listed as version `unavailable` with the detail `lookup failed`, never left
+out. A module with nothing loaded is left out.
+
+No table holds the HPO release. An import writes its release onto every term in the file, and
+a term that a newer release no longer lists keeps the release it came with. So the loaded
+release is the one on the most recently written term (`get_loaded_hpo_release` in
+`hpo_service.py`). It is not the highest release string, since an older release can be
+imported again, nor the latest one recorded. An ontology imported from a file without a
+`data-version` header has no release; the module then reads `unavailable` with the detail
+`release not recorded`. The HPO admin page and the cached phenotype ranking
+([variant-ranking-cache.md](variant-ranking-cache.md)) read the release the same way.
+
+When the family's pipeline declares a module under the same key (for example `assembly` from a
+VCF `##reference` line), the pipeline's value is the one listed.
+
 ## Where it is shown
 
 - **Filter pages.** `AnnotationProvenanceSummary.tsx` shows "Annotation versions" at the
@@ -97,7 +126,10 @@ time. The hash proves that something changed; the manifest says which versions a
 - [test_vcf_header_provenance.py](../backend/tests/test_vcf_header_provenance.py): the
   parsers, with realistic headers for every input, and the merge rules.
 - [test_annotation_manifest.py](../backend/tests/test_annotation_manifest.py): the refresh
-  rules and the module list.
+  rules, the module list and the reference modules with their `unavailable` states.
+- [integration/test_hpo_release_provenance.py](../backend/tests/integration/test_hpo_release_provenance.py):
+  the HPO release read from a real database, after a re-import of an older release and after an
+  import without one.
 - [AnnotationProvenanceSummary.test.tsx](../frontend/src/pages/families/__tests__/AnnotationProvenanceSummary.test.tsx):
   the filter-page summary.
 

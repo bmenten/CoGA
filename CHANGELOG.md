@@ -556,6 +556,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   gone quiet for ten minutes is closed as failed; a build stops after
   `CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS` (default two hours); a database holding a stuck job is
   repaired on upgrade (CR-104, #642).
+- **HPO release in the signed record** — a signed report now records the HPO release it was produced
+  with, and a report signed before this is not shown as changed for lacking it; the HPO admin
+  summary and the prioritised-ranking cache follow the release that is actually loaded; the HPO
+  admin page starts from the file the backend loads (`hp.obo`, not `hpo.obo`) (CR-109, #647).
 
 ### Security
 

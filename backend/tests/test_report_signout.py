@@ -8,6 +8,7 @@ from datetime import datetime
 import pytest
 from fastapi import HTTPException
 
+from backend.app.services import annotation_manifest_service as ams
 from backend.app.services import report_signout_service as rss
 from backend.app.services.sample_integrity_qc import (
     MendelianCheck,
@@ -772,15 +773,34 @@ def test_snapshot_gaps_list_what_the_record_could_not_capture() -> None:
             {"key": "clinvar", "label": "ClinVar", "version": "2026-05"},
             {"key": "monarch", "label": "Monarch", "version": "unavailable", "detail": "lookup failed"},
         ],
+        "reference_modules": list(ams.REFERENCE_MODULE_KEYS),
         "sequencing_qc": {"thresholds": {}, "samples": {}, "unavailable": "QC thresholds could not be resolved"},
     }
     assert rss.snapshot_gaps(snapshot) == [
         _QC_GAP,
         {"section": "modules", "item": "Monarch", "reason": "lookup failed"},
     ]
-    complete = {"modules": [{"key": "clinvar", "version": "2026-05"}], "sequencing_qc": {"thresholds": {}, "samples": {}}}
+    complete = {
+        "modules": [{"key": "clinvar", "version": "2026-05"}],
+        # HPO was looked up and none was loaded: nothing to capture, so no gap.
+        "reference_modules": list(ams.REFERENCE_MODULE_KEYS),
+        "sequencing_qc": {"thresholds": {}, "samples": {}},
+    }
     assert rss.snapshot_gaps(complete) == []
     assert rss.snapshot_gaps(None) == []
+
+
+_HPO_PREDATES_GAP = {"section": "modules", "item": "HPO", "reason": "signed before CoGA recorded its version"}
+
+
+def test_snapshot_gaps_name_the_hpo_release_a_record_signed_before_it_was_recorded_lacks() -> None:
+    # A record signed before CoGA froze the HPO release does not say which release its
+    # phenotype matching ran on. It carries no list of the reference modules it looked up.
+    older = {"modules": [{"key": "clinvar", "version": "2026-05"}], "sequencing_qc": {"thresholds": {}, "samples": {}}}
+    assert rss.snapshot_gaps(older) == [_HPO_PREDATES_GAP]
+    # One whose pipeline declared an HPO version holds one, so nothing is missing.
+    declared = {**older, "modules": [*older["modules"], {"key": "hpo", "label": "HPO", "version": "2025-01"}]}
+    assert rss.snapshot_gaps(declared) == []
 
 
 def _capture_audit(monkeypatch) -> dict:
@@ -1446,3 +1466,172 @@ def test_the_sign_out_endpoint_passes_the_import_acknowledgement_on(monkeypatch)
     )
     assert captured["acknowledge_import_incomplete"] is False
     assert captured["import_incomplete_acknowledgement_reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# The HPO release in the signed record
+# ---------------------------------------------------------------------------
+
+_CLINVAR = {"clinvar": "2026-05"}
+_ASSEMBLY = {"assembly": {"version": "GRCh38", "detail": "p14"}}
+_HPO = {"hpo": {"version": "hp/releases/2026-06-06", "detail": "2026-06-06"}}
+
+
+def _patch_manifest(monkeypatch, platform: dict) -> None:
+    """The live manifest: the family's pipeline versions over the given reference layer."""
+
+    async def _manifest(session, *, family_id, user, project_id=None):
+        return {"assembly": "GRCh38", "modules": ams._module_list(_CLINVAR, platform)}
+
+    monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
+
+
+def _signed_before_hpo_was_recorded(monkeypatch) -> dict:
+    """A snapshot as a sign-out made before this change froze it: no HPO module, and no
+    list of the reference modules it looked up."""
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _patch_manifest(monkeypatch, _ASSEMBLY)
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    signed.pop("reference_modules", None)
+    return signed
+
+
+def test_the_snapshot_records_which_reference_modules_it_looked_up(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    snapshot = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert snapshot["reference_modules"] == ["assembly", "gene_loci", "monarch", "hpo"]
+    # Bound into the content hash like the rest of the record.
+    assert rss._canonical_hash(snapshot) != rss._canonical_hash({**snapshot, "reference_modules": []})
+
+
+def test_a_record_signed_before_the_hpo_release_was_recorded_still_verifies(monkeypatch) -> None:
+    # Verification re-hashes the snapshot as stored. It never rebuilds the snapshot or reads
+    # the live manifest, so a record without an HPO module verifies as it did when signed.
+    import json as _json
+    from datetime import datetime, timezone
+
+    signed = _signed_before_hpo_was_recorded(monkeypatch)
+    assert "hpo" not in {m["key"] for m in signed["modules"]}
+    stored = _json.loads(_json.dumps(signed, default=str))  # the JSONB round-trip
+    row = {
+        "version": 1,
+        "id": "1",
+        "signed_out_by": "someone",
+        "signed_out_at": datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc),
+        "content_hash": rss._canonical_hash(stored),
+        "family_identifier": "FAM1",
+        "snapshot": stored,
+        "software_version": None,
+        "git_sha": None,
+        "qc_status": None,
+        "qc_acknowledged": None,
+        "qc_acknowledgement_reason": None,
+        "drift_acknowledged": None,
+        "drift_acknowledgement_reason": None,
+        "prev_hash": None,
+    }
+    row["row_hash"] = rss.chain_row_hash(None, rss._signout_chain_payload(row))
+
+    async def _must_not_rebuild(*args, **kwargs):
+        raise AssertionError("verification must not rebuild the snapshot from live data")
+
+    monkeypatch.setattr(rss, "get_family_annotation_manifest", _must_not_rebuild)
+    monkeypatch.setattr(rss, "build_report_snapshot", _must_not_rebuild)
+
+    class _Rows:
+        def mappings(self):
+            return self
+
+        def first(self):
+            return row
+
+        def all(self):
+            return [row]
+
+    class _RowSession:
+        async def execute(self, *args, **kwargs):
+            return _Rows()
+
+    record = asyncio.run(rss.get_report_signout(_RowSession(), family_id="FAM1", version=1, user=_user()))
+    assert record["verified"] is True
+    chain = asyncio.run(rss.verify_report_signout_chain(_RowSession(), "FAM1"))
+    assert chain.verified is True, chain
+
+
+def test_signout_check_does_not_call_a_record_signed_before_the_hpo_release_changed(monkeypatch) -> None:
+    # The live manifest now carries the HPO release, which a record signed before it was
+    # recorded does not hold. Comparing the module lists as they are would report every
+    # such record as changed ("annotation and pipeline versions") though nothing it froze
+    # changed. Like a snapshot section an older record predates (#508), the module is not
+    # compared, and the record is said not to hold it.
+    signed = _signed_before_hpo_was_recorded(monkeypatch)
+    _patch_manifest(monkeypatch, {**_ASSEMBLY, **_HPO})
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is True, out
+    assert out["changed_sections"] == []
+    assert out["not_compared"] == ["modules.hpo"]
+    assert out["not_captured"] == [_HPO_PREDATES_GAP]
+
+    # Any other module still compares: a changed assembly detail is a change.
+    _patch_manifest(monkeypatch, {"assembly": {"version": "GRCh38", "detail": "p15"}, **_HPO})
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["modules"]
+
+
+def test_signout_check_flags_an_hpo_version_a_family_pipeline_declared_after_sign_out(monkeypatch) -> None:
+    # Only the reference layer's HPO postdates the older record. An HPO version the family's
+    # own pipeline now declares came from a re-import after sign-out: a change.
+    signed = _signed_before_hpo_was_recorded(monkeypatch)
+
+    async def _manifest(session, *, family_id, user, project_id=None):
+        return {"assembly": "GRCh38", "modules": ams._module_list({**_CLINVAR, "hpo": "2025-01"}, _ASSEMBLY)}
+
+    monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["modules"]
+    assert out["not_compared"] == []
+
+
+def test_signout_check_flags_an_hpo_ontology_loaded_after_sign_out(monkeypatch) -> None:
+    # A record signed with this change looked HPO up: without an HPO module, none was
+    # loaded then. An ontology loaded since is a change, not an older record.
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _patch_manifest(monkeypatch, _ASSEMBLY)
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    _patch_manifest(monkeypatch, {**_ASSEMBLY, **_HPO})
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["modules"]
+    assert out["not_compared"] == []
+    assert out["not_captured"] == []
+
+
+def test_signout_check_flags_a_new_hpo_release(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _patch_manifest(monkeypatch, {**_ASSEMBLY, **_HPO})
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert {"key": "hpo", "version": "hp/releases/2026-06-06"}.items() <= next(
+        m for m in signed["modules"] if m["key"] == "hpo"
+    ).items()
+    # Unchanged, it matches.
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is True and out["not_compared"] == []
+
+    _patch_manifest(monkeypatch, {**_ASSEMBLY, "hpo": {"version": "hp/releases/2026-09-01", "detail": "2026-09-01"}})
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["modules"]
