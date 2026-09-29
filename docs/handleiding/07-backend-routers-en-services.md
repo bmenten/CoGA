@@ -1,226 +1,169 @@
 # 7. Backend: routers & services in detail
 
-Dit hoofdstuk beschrijft hoe de API-laag van CoGA is opgebouwd: het vaste patroon **router → service → opslag**, hoe FastAPI afhankelijkheden (sessies, ingelogde gebruiker) automatisch aan elke endpoint doorgeeft, welke rol de Pydantic-schemas spelen, en — het belangrijkst voor een auditor — welke **veiligheids-invarianten overal gelden**: elke databankvraag is geparametriseerd, elke `ORDER BY` komt uit een vaste allowlist, en elke `LIMIT`/`OFFSET` wordt naar een geheel getal geforceerd. Dit hoofdstuk is de "kaart" die de losse feature-hoofdstukken (8 t/m 15) met elkaar verbindt: het legt uit wat ze gemeen hebben, zodat die hoofdstukken zich op hun eigen inhoud kunnen richten.
+Dit hoofdstuk beschrijft hoe de API-laag van CoGA is opgebouwd: het vaste patroon **router → service → opslag**, hoe FastAPI de databanksessie en de ingelogde gebruiker aan elk endpoint geeft, en vooral welke **veiligheidsregels overal gelden**: elke databankvraag is geparametriseerd, elke `ORDER BY` komt uit een vaste lijst, en elke `LIMIT`/`OFFSET` wordt een geheel getal. Het hoofdstuk bevat ook het overzicht van alle routers en de request-logging, die elk verzoek in de auditlog vastlegt.
 
-Een paar begrippen die vaak terugkomen, kort uitgelegd:
-- **Router**: een verzameling HTTP-endpoints (URL's zoals `GET /api/families/...`). In FastAPI is dat een `APIRouter`-object.
-- **Service**: een gewone Python-module met functies die de eigenlijke logica bevatten (databank bevragen, klinische berekeningen). Routers bevatten die logica bewust *niet*.
-- **Dependency injection (DI)**: FastAPI-mechanisme waarbij u in de "handtekening" (de parameterlijst) van een endpoint zegt "ik heb X nodig" (bv. een databanksessie), en het framework X automatisch aanmaakt en meegeeft.
-- **Pydantic-model / schema**: een Python-klasse die de vorm van inkomende en uitgaande JSON beschrijft en valideert.
-- **Geparametriseerde query**: een databankvraag waarbij waarden apart worden meegegeven (als parameters) in plaats van in de tekst geplakt — de standaardverdediging tegen SQL-injectie.
+Enkele begrippen:
 
-## Het architecturale patroon: dunne routers, dikke services
+- **Router:** een groep HTTP-endpoints (bv. `GET /api/families/...`), in FastAPI een `APIRouter`.
+- **Service:** een Python-module met de eigenlijke logica (databankvragen, klinische berekeningen). Routers bevatten die logica bewust niet.
+- **Dependency injection:** in de parameterlijst van een endpoint zeg je "ik heb X nodig" (bv. een databanksessie), en FastAPI maakt X aan en geeft het mee.
+- **Pydantic-model (schema):** een Python-klasse die de vorm van inkomende en uitgaande JSON beschrijft en controleert.
+- **Geparametriseerde query:** een databankvraag waarin waarden apart worden meegegeven in plaats van in de tekst geplakt; de standaardverdediging tegen SQL-injectie.
 
-CoGA hanteert een strikte scheiding in drie lagen:
+## Dunne routers, dikke services
 
-1. **Router (dun).** Doet uitsluitend HTTP-werk: het pad en de query-parameters uitlezen, valideren, de toegangscontrole afdwingen (welke gebruiker, welke rol) en het antwoord als JSON teruggeven. Een router bevat vrijwel geen bedrijfslogica.
-2. **Service (dik).** Bevat de eigenlijke business- en klinische logica: filters bouwen, variantprioritering, ACMG-regels, hash-ketens enzovoort. De services praten met de opslag.
-3. **Opslag.** Twee bronnen: **Postgres** (metadata, review-toestand, audit) via SQLAlchemy in async-modus, en **ClickHouse** (grootschalige variantopslag) via een directe client.
+CoGA houdt drie lagen strikt gescheiden:
 
-**Waar in de code:** de map `backend/app/routers/` bevat laag 1, `backend/app/services/` laag 2, en `backend/app/core/postgres.py` + `backend/app/core/clickhouse.py` vormen de toegangspoorten tot laag 3.
+1. **Router (dun):** leest het pad en de parameters, laat ze valideren, dwingt de toegang af en geeft het antwoord als JSON terug.
+2. **Service (dik):** de klinische en bedrijfslogica, zoals filters, prioritering, ACMG-regels en hash-ketens. Alleen services praten met de opslag.
+3. **Opslag:** Postgres via SQLAlchemy (asynchroon) en ClickHouse via een directe client.
 
-### Eén voorbeeld end-to-end
+Een voorbeeld: `GET /api/families/{family_id}/small-variants`.
 
-Neem de endpoint die één pagina Small Variants van een familie ophaalt.
+- **De router** (`backend/app/routers/families_small_variants.py`) krijgt de paginagrootte als een geheel getal met een ondergrens en een bovengrens; een te grote waarde wordt met `422` geweigerd voor er iets draait. De vele filterparameters leest een aparte dependency in, zodat het gewone endpoint en de CSV-export precies dezelfde filters gebruiken.
+- **Het toegangscheckpoint** `build_family_metadata_context` laadt de familie alleen als de gebruiker ze mag zien, en beperkt de projecten tot die van de gebruiker (hoofdstuk 2). Dat gebeurt vóór er een variantvraag naar ClickHouse gaat.
+- **De service** (`backend/app/services/clickhouse_family_variants.py`) bouwt de ClickHouse-query, met de scoping erin (`e.family_guid = %(family_guid)s`, `e.project_guid IN %(project_ids)s`) en de waarden als parameters.
+- **Het antwoord** wordt tegen een Pydantic-model gecontroleerd en als JSON teruggegeven.
 
-**Stap 1 — router.** In `backend/app/routers/families_small_variants.py` staat de functie `get_family_small_variants`, gekoppeld aan `GET /api/families/{family_id}/small-variants`. Sterk ingekort ziet die er zo uit:
+De router raakt dus nooit rechtstreeks SQL aan, en de service bemoeit zich niet met HTTP of tokens. Zo is voor een reviewer duidelijk waar de toegangscontrole, de validatie en de query-opbouw zitten.
 
-```python
-@router.get("/{family_id}/small-variants", response_model=VariantPage)
-async def get_family_small_variants(
-    family_id: str,
-    page: int = 1,
-    page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
-    # ... (overige filter- en modusparameters weggelaten)
-    filters: Dict[str, Any] = Depends(_family_small_variant_filters),
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> VariantPage:
-```
+## Dependencies: sessie, gebruiker, scoping
 
-Let op vier dingen die de router doet en verder niets:
-- `page_size: int = Query(..., ge=0, le=MAX_VARIANT_PAGE_SIZE)` — FastAPI **valideert** dat de paginagrootte een geheel getal is tussen 0 en een bovengrens; te grote waarden worden met een 422-fout geweigerd vóór er ook maar iets draait.
-- `session = Depends(get_postgres_session)` en `user = Depends(get_current_user)` — de databanksessie en de ingelogde gebruiker worden **geïnjecteerd** (zie volgende sectie).
-- `filters = Depends(_family_small_variant_filters)` — de vele filterparameters worden door een aparte hulp-dependency uitgelezen en gevalideerd, zodat de endpointfunctie overzichtelijk blijft.
-- `response_model=VariantPage` — het antwoord wordt tegen een Pydantic-schema gevalideerd.
+Twee dependencies komen in vrijwel elk beschermd endpoint terug. `get_postgres_session` geeft per verzoek een verse databanksessie en sluit ze achteraf. `get_current_user` controleert het token en laadt de gebruiker (hoofdstuk 5); `get_current_admin_user` eist daarbovenop een beheerdersrol. Een router kan een dependency ook op al zijn endpoints tegelijk leggen: de routers voor DGV, CNV's, chromosomen, blacklist en segmentale duplicaties vragen zo voor elk endpoint, ook een toekomstig, een geldig token.
 
-**Stap 2 — toegangscontrole + context.** De router roept `build_family_metadata_context` aan (in `backend/app/services/family_metadata_context.py`). Die functie zoekt de familie op **die deze gebruiker mag zien** (via `get_accessible_family_mapping`) en beperkt de zichtbare projecten via `_visible_project_ids`: een admin ziet alles, een gewone gebruiker alleen de projecten in `user.metadata_project_ids`. Vraagt de gebruiker een project op dat niet aan de familie is gekoppeld, dan volgt een `HTTPException` (400). Dit is het punt waar de **rij-scoping** (welke data een gebruiker mag benaderen — zie ook [hoofdstuk 2](02-beveiliging-rollen-rechten.md)) wordt afgedwongen, nog vóór er een variant-query naar ClickHouse gaat.
+**Waar in de code:** `backend/app/dependencies.py` en `backend/app/core/postgres.py`.
 
-**Stap 3 — service + opslag.** De router geeft die context door aan `get_family_small_variants_page` (in `backend/app/services/clickhouse_family_variants.py`). Die servicelaag bouwt de ClickHouse-query op met de scoping-clausules erin verweven — bijvoorbeeld `e.family_guid = %(family_guid)s` en `e.project_guid IN %(project_ids)s`, met de waarden als **parameters** — en voert hem uit via `execute_clickhouse` in `backend/app/core/clickhouse.py`.
+## Schemas: validatie en documentatie
 
-**Stap 4 — antwoord.** Het resultaat wordt teruggegeven als een `VariantPage`-Pydantic-model, dat FastAPI naar JSON serialiseert.
+Alle vormen van verzoeken en antwoorden staan in `backend/app/schemas/`, één module per domein. Ze doen drie dingen: ze **controleren invoer** (ongeldige JSON geeft `422` voordat de router draait), ze **leggen de vorm van het antwoord vast** (`response_model=`, zodat onbedoelde velden wegvallen) en ze leveren de **OpenAPI-beschrijving** van de API. Buiten ontwikkeling zijn `/docs`, `/redoc` en `/openapi.json` uitgeschakeld. Omdat alle schemas op één plek staan, kan een reviewer daar nagaan welke gegevens het systeem in- en uitgaan.
 
-De rode draad: de router raakt **nooit** rechtstreeks SQL of ClickHouse aan, en de service bemoeit zich **nooit** met HTTP-statuscodes of tokens. Elke laag heeft één verantwoordelijkheid, wat het voor een reviewer eenvoudig maakt om te controleren waar toegangscontrole, waar validatie en waar de query-opbouw gebeurt.
+## Veiligheidsregels die overal gelden
 
-## Dependency injection: sessies, gebruiker en scoping
+Deze regels zijn niet per functie opnieuw bedacht, maar zitten in enkele gedeelde hulpmiddelen.
 
-FastAPI-DI is het mechanisme dat elke router "gratis" de bouwstenen geeft die hij nodig heeft. In CoGA zijn er twee kern-dependencies die in vrijwel elke beschermde endpoint terugkomen.
+### 1. Alle queries zijn geparametriseerd
 
-**De databanksessie.** `get_postgres_session` (in `backend/app/core/postgres.py`) levert per verzoek een verse async SQLAlchemy-sessie uit een gedeelde `sessionmaker` en sluit die netjes af als het verzoek klaar is (`async with session_factory() as session: yield session`). Elke router die Postgres nodig heeft, schrijft simpelweg `session: AsyncSession = Depends(get_postgres_session)`.
+Waarden gaan nooit als tekst in een query, altijd als losse parameter.
 
-**De ingelogde gebruiker.** `get_current_user` (in `backend/app/dependencies.py`) is de authenticatie-poortwachter. De functie:
-- haalt het bearer-token uit de `Authorization`-header (`oauth2_scheme`);
-- valideert het — ofwel een Azure-SSO-token (`verify_azure_token`) wanneer Azure is geconfigureerd, ofwel een lokaal HS256-JWT (`jwt.decode` met `settings.secret_key`);
-- zoekt de gebruiker op via `get_current_user_by_email` en weigert onbekende of inactieve accounts;
-- kent een lokaal "break-glass"-token (het pad `azure_admin_override`, standaard uitgeschakeld) alleen toe aan een admin, en **logt elk gebruik** van dat noodpad als waarschuwing — een expliciet audit-spoor;
-- zet de gebruiker op `request.state.current_user` — waardoor de logging-middleware (verderop) later weet wie het verzoek deed.
+- **Postgres:** SQLAlchemy met benoemde parameters (`:naam`). Voor een lijst UUID's (bv. `IN :project_ids`) bestaat een hulpfunctie die een veilige, variabele lijst oplevert zonder tekst te plakken.
+- **ClickHouse:** parameters in de vorm `%(naam)s`, die de client bij de server bindt. De querytekst bevat de waarde nooit letterlijk.
 
-Faalt de validatie ook maar ergens, dan volgt steeds dezelfde `credentials_exception` (HTTP 401). Voor endpoints die admin-rechten vereisen, is er de afgeleide dependency `get_current_admin_user`, die bovenop `get_current_user` controleert of de rol in `ADMIN_ROLES = {"admin", "superuser"}` zit en anders een 403 gooit.
+Het enige dat wél in de tekst staat, zijn tabelnamen; die worden afgeleid van de assemblynaam via één functie die alleen veilige tekens toelaat (hoofdstuk 3).
 
-**Scoping op router-niveau.** Een router kan een dependency op *alle* endpoints tegelijk leggen. Zo staat er in `backend/app/routers/dgv.py`: `APIRouter(prefix="/dgv", tags=["dgv"], dependencies=[Depends(get_current_user)])` — elke DGV-endpoint vereist dan automatisch een geldig token, zonder dat het per functie herhaald hoeft te worden.
+**Waar in de code:** `backend/app/core/sql.py` (`uuid_list_bindparam`) en `execute_clickhouse` in `backend/app/core/clickhouse.py`.
 
-**Waar in de code:** `backend/app/dependencies.py` (`get_current_user`, `get_current_admin_user`, `ADMIN_ROLES`) en `backend/app/core/postgres.py` (`get_postgres_session`).
+### 2. `ORDER BY` komt uit een vaste lijst
 
-## Schemas: validatie en levende documentatie
+Een kolomnaam kan in SQL geen parameter zijn. Daarom zet CoGA nooit door de gebruiker aangeleverde tekst in een `ORDER BY`, maar vertaalt het een sorteersleutel via een vaste tabel. In de Variant Explorer valt een onbekende sleutel terug op de standaard (`total_samples`); in de integriteitscontrole van de hash-ketens komen de sorteerkolommen uit een vaste lijst per tabel.
 
-Alle request- en response-vormen staan in het pakket `backend/app/schemas/` (ruim 270 Pydantic-modellen), sinds #528 per domein opgesplitst (`families.py`, `variants.py`, `traceability.py`, …). Alles wordt opnieuw geëxporteerd, dus code importeert nog steeds uit `backend.app.schemas`. Deze modellen doen drie dingen tegelijk:
+**Waar in de code:** `_SORT_EXPR` in `backend/app/services/variant_explorer_service.py` en `_CHAIN_ORDER_COLS` in `backend/app/services/integrity_anchor_service.py`.
 
-- **Inkomende validatie.** Een `...Update`- of `...Request`-model (bv. `FamilyMetadataUpdate`, `SmallVariantReviewUpdate`, `ReportSignoutRequest`) beschrijft precies welke velden mogen binnenkomen en van welk type. Ongeldige JSON wordt met een 422-fout geweigerd nog vóór de router-code draait.
-- **Uitgaande vorm.** Een `...Out`-model (bv. `FamilyOut`, `VariantPage`, `SmallVariantReviewOut`, `IntegrityAnchorOut`) beschrijft wat de API teruggeeft; via `response_model=` in de decorator dwingt FastAPI die vorm af en filtert het onbedoelde velden weg.
-- **OpenAPI-documentatie.** Uit dezelfde modellen genereert FastAPI de interactieve `/docs` (OpenAPI/Swagger). In productie zijn `/docs`, `/redoc` en `/openapi.json` bewust uitgeschakeld (`_docs_kwargs` in `backend/app/main.py`) om schema-onthulling te beperken; de in-process schema-generatie (`app.openapi()`) blijft wel werken.
+### 3. `LIMIT` en `OFFSET` worden gehele getallen
 
-Doordat alle schemas in één pakket staan, kan een reviewer op één plek nagaan welke gegevens het systeem in- en uitgaan — nuttig voor de dataflow-analyse die bij een IVDR-dossier hoort.
+Paginagrenzen gaan altijd door `int(...)`, worden minstens 0 en staan zelf als parameter in de query. Een hoog paginanummer kan bovendien geen onbegrensde scan uitlokken: de pagina wordt geklemd.
 
-**Waar in de code:** `backend/app/schemas/` (per domein één module, alles geëxporteerd in `__init__.py`); de koppeling gebeurt in elke router via `response_model=...` en getypeerde parameters.
+**Waar in de code:** `backend/app/services/clickhouse_variant_queries.py`.
 
-## Veiligheids-invarianten die overal gelden
+### 4. Extra bescherming rond ClickHouse
 
-Dit is voor de auditor het kernstuk van het hoofdstuk. Ongeacht welke endpoint of service u bekijkt, gelden onderstaande regels. Ze zijn niet per feature opnieuw bedacht, maar afgedwongen in enkele gedeelde helpers.
+- **Grenzen per query:** een maximale uitvoeringstijd, querygrootte en geheugengrenzen, zodat één brede filter de server niet onbeperkt bezet. Een query die te zwaar is, geeft een `422` met de vraag de zoekopdracht te verfijnen, geen onduidelijke `500`.
+- **Tijdelijke fouten:** bij een verbroken verbinding herstelt de client zich en probeert hij één keer opnieuw, zonder de query te wijzigen.
 
-### 1. Alle queries zijn geparametriseerd — geen string-interpolatie
+**Waar in de code:** `backend/app/core/clickhouse.py` (grenzen en herstel); de vertaling van een te zware query naar `422` in `backend/app/services/clickhouse_family_variants.py`.
 
-Waarden gaan **nooit** als tekst in een query, maar altijd als losse parameter.
+## Alle routers
 
-- **Postgres.** SQLAlchemy-queries gebruiken benoemde bindparameters (`:naam`) en de sessie geeft de waarden apart mee. Voor lijsten van UUID's is er een speciale helper `uuid_list_bindparam` in `backend/app/core/sql.py`, die een `expanding` bindparameter met UUID-type oplevert — zo kan een `IN :project_ids` veilig een variabel aantal UUID's aan zonder tekstopbouw. Voorbeeld uit `family_metadata_context.py`: `... fp.project_id IN :project_ids`, met de query voorzien van `.bindparams(uuid_list_bindparam("project_ids"))` en de waarden via `uuid_values(project_ids)`.
-- **ClickHouse.** Queries gebruiken de `%(naam)s`-parameterstijl en geven de waarden mee via het `parameters=`-argument van `execute_clickhouse`. Zo staat in `backend/app/services/clickhouse_variant_queries.py` bijvoorbeeld `where_clauses.append("e.project_guid IN %(project_ids)s")` met `params["project_ids"] = tuple(context.project_ids)`. De query-tekst bevat de waarde nooit letterlijk.
+Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. De router `families.py` bindt vijf deelrouters in onder hetzelfde pad `/families`; die hebben daarom geen eigen voorvoegsel. Alleen `health.py` en `lookups.py` hebben helemaal geen voorvoegsel.
 
-**Waar in de code:** `backend/app/core/sql.py` (bindparam-helpers), `backend/app/core/clickhouse.py` (`execute_clickhouse`, dat `parameters` doorgeeft aan de driver).
+| Router | Pad onder `/api` | Doel |
+| --- | --- | --- |
+| `health.py` | `/health`, `/health/ready`, `/version` | Beschikbaarheid en versie; zonder login |
+| `auth.py` | `/auth` | Login, token, registratie, profiel, gebruikersbeheer (hoofdstuk 5) |
+| `ped.py` | `/ped` | Stamboom uploaden of met de hand invoeren |
+| `families.py` | `/families` | Familie, leden, structuur, HPO, fenotype-matching, regio van interesse |
+| `families_small_variants.py` | `/families` (deel) | Small variants: pagina's, export, compound-het, presets, tags, review en ACMG (hoofdstuk 8) |
+| `families_structural_variants.py` | `/families` (deel) | Structurele varianten van een familie |
+| `families_nipt.py` | `/families` (deel) | Monogene NIPT: samenvatting, varianten, dekking |
+| `families_reports.py` | `/families` (deel) | Annotatiemanifest, drift, klinische audit, sample-QC, rapport en ondertekening (hoofdstuk 11) |
+| `families_tracks.py` | `/families` (deel) | Tracks: haplotypes, gefaseerde markers, repeats, mtDNA, Paraphase (hoofdstuk 9) |
+| `family_qc_reports.py` | `/families` | Het QC-rapport van de pipeline, via een kortlevende link en afgeschermd (hoofdstuk 2) |
+| `structural_variants.py` | `/structural-variants` | Structurele varianten van één sample |
+| `cnvs.py` | `/cnvs` | De klinische-CNV-catalogus en CNV's per regio |
+| `variant_explorer.py` | `/variant-explorer` | Varianten over alle toegankelijke projecten heen (hoofdstuk 14) |
+| `genes.py` | `/genes` | Gene Explorer en genen per regio (hoofdstuk 13) |
+| `hpo.py` | `/hpo` | HPO-termen zoeken en importeren (hoofdstuk 12) |
+| `panels.py` | `/panels` | Genpanels, versies, PanelApp |
+| `bed.py` | `/bed` | Interval-tracks ophalen en uploaden |
+| `chromosomes.py` | `/chromosomes` | Chromosoomgroottes en cytobanden |
+| `blacklist.py` · `segmental_duplications.py` · `dgv.py` | `/blacklist` · `/segmental-duplications` · `/dgv` | Referentietracks |
+| `repeat_expansions.py` | `/repeat-expansions` | Repeat-expansies uploaden, catalogus |
+| `projects.py` | `/projects` | Projecten, de eenheid van toegang |
+| `species.py` · `assemblies.py` | `/species` · `/assemblies` | Soorten en assemblies, met hun referentiestatus |
+| `reference.py` | `/reference` | Referentiesequentie en reads rond een positie |
+| `cram.py` | `/cram` | CRAM/BAM voor de genoombrowser, met toegangscontrole |
+| `signal_tracks.py` | `/signal-tracks` | De signaalbestanden van de CNV-caller (bigWig, bedGraph) voor IGV |
+| `family_imports.py` | `/family-imports` | Pakketimport (hoofdstuk 6) |
+| `product.py` | `/product` | De releasecatalogus |
+| `admin.py` | `/admin` | Alle beheerfuncties, elk achter `get_current_admin_user` (hoofdstuk 15) |
+| `ui_events.py` | `/ui-events` | UI-telemetrie (hoofdstuk 15) |
+| `lookups.py` | `/family-statuses`, `/users` | Kleine keuzelijsten voor de UI |
 
-### 2. `ORDER BY` komt uit een vaste allowlist
+## De servicegroepen
 
-De enige plek waar een kolomnaam per definitie niet als parameter kan (SQL laat geen geparametriseerde kolomnamen toe), is de sorteervolgorde. CoGA lost dit op door **nooit** door de gebruiker aangeleverde tekst in een `ORDER BY` te zetten, maar die te vertalen via een vaste tabel:
+`backend/app/services/` is groot. De tabel groepeert de modules naar functie; de namen zijn voorbeelden.
 
-- In de Variant Explorer (`backend/app/services/variant_explorer_service.py`) mapt `_SORT_EXPR` een handvol toegestane sorteersleutels (`total_samples`, `het_samples`, `position`, ...) naar hun kolom-expressie. Onbekende invoer valt terug op `_DEFAULT_SORT` (`"total_samples"`) via `sort = sort if sort in _SORT_EXPR else _DEFAULT_SORT`. Er kan dus alleen op een vooraf goedgekeurde kolom worden gesorteerd.
-- In de integriteits-hashketen (`backend/app/services/integrity_anchor_service.py`) beperkt `_CHAIN_ORDER_COLS` de sorteerkolommen tot een vaste set per tabel; de helper `_order_by` bouwt de clausule alleen daaruit op. De code merkt daar expliciet bij op: *"Fixed set — never interpolate untrusted table names."*
+| Groep | Voorbeelden | Doel |
+| --- | --- | --- |
+| ClickHouse-variantlaag | `clickhouse_variant_storage.py`, `clickhouse_variant_queries.py`, `clickhouse_family_variants.py`, `clickhouse_interval_tracks.py` | Tabellen, query-opbouw en het uitvoeren van variantvragen |
+| Familie en toegang | `family_metadata_context.py`, `metadata_service.py`, `access_control.py`, `family_structure_service.py` | Families, leden en structuur, met toegangsscoping. (`data_scope.py` gaat ondanks de naam over chromosoomnamen, niet over toegang.) |
+| Import | `family_package_*.py`, `variant_upload_service.py`, `raw_import_files_pg.py`, `vcf_header_provenance.py` | Pakketimport en herkomst (hoofdstuk 6) |
+| Filters en prioritering | `family_variant_filters.py`, `variant_prioritization.py`, `variant_ranking_cache.py`, `variant_explorer_service.py` | Filters, scoring, ranking en de ranking-cache (hoofdstukken 8 en 12) |
+| ACMG en review | `acmg_points.py`, `cnv_acmg_points.py`, `small_variant_review_*.py`, `structural_variant_review_pg.py`, `classification_drift_service.py` | Classificatie, tags, reviewtoestand, drift (hoofdstuk 10) |
+| Gespecialiseerde analyses | `nipt_*.py`, `haplotype_lineage_service.py`, `phased_marker_service.py`, `mitochondrial_analysis.py`, `paraphase_pg.py`, `sample_integrity_*.py` | NIPT, PGT, mtDNA, Paraphase, sample-QC (hoofdstuk 8) |
+| Fenotype | `hpo_service.py`, `monarch_*.py` | HPO en Monarch (hoofdstuk 12) |
+| Referentiedata | `gene_info_*.py`, `reference_*_service.py`, `panel_metadata_service.py`, `panelapp_service.py` | Genreferentie, referentietracks, panels (hoofdstuk 13) |
+| Traceerbaarheid | `audit_log_pg.py`, `clinical_audit_service.py`, `report_signout_service.py`, `hash_chain.py`, `integrity_anchor_service.py`, `event_pipeline.py` | Auditlog, klinische audit, ondertekening, hash-ketens, ankers (hoofdstuk 11) |
+| Robuustheid | `upload_safety.py`, `bounded_download.py`, `auth_rate_limit_pg.py` | Begrensde uploads en downloads, rate limiting |
 
-### 3. `LIMIT`/`OFFSET` worden naar gehele getallen geforceerd
+## Request-logging: elk verzoek laat een spoor na
 
-Paginatie-grenzen worden altijd door `int(...)` gehaald en naar minimaal 0 geklemd, zodat er geen willekeurige tekst in kan sluipen. In `clickhouse_variant_queries.py`:
+Twee onderdelen zorgen dat elk HTTP-verzoek wordt gelogd en geaudit.
 
-```python
-params["limit"] = max(int(limit), 0)
-params["offset"] = max(int(offset), 0)
-return f"{query}\n        LIMIT %(limit)s OFFSET %(offset)s"
-```
+**Gestructureerde logging.** Alle backendlogs verschijnen als JSON-regels. Stuurtekens (ook regeleinden) in waarden worden vervangen voordat ze in een logregel komen, zodat niemand valse logregels kan invoegen (*log forging*).
 
-De `LIMIT`/`OFFSET`-waarden staan bovendien zélf als parameter in de query. Aan de router-kant vangt FastAPI het al eerder af met typering en grenzen, bijvoorbeeld `page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE)`.
+**De request-logging-middleware** legt elk verzoek vast in de append-only tabel `audit_log_events`:
 
-### 4. Extra hardening rond ClickHouse
+- **Wie:** gebruiker, e-mailadres en rol, uit de gebruiker die `get_current_user` aan het verzoek hing.
+- **Wat:** methode, route, status, duur, IP en user-agent. Van een querystring worden standaard alleen de sleutels bewaard (`AUDIT_LOG_QUERY_STRING_MODE`), zodat te zien is welke filters een zoekopdracht gebruikte, zonder hun waarden.
+- **De inhoud van een wijziging:** bij `POST`, `PUT`, `PATCH` en `DELETE` wordt de body bewaard, met gevoelige velden (wachtwoord, token, geheim, …) gemaskeerd, ook in het formulier van `/auth/token`. Een body die niet te lezen is, wordt niet ruw bewaard. De middleware leidt ook af welke entiteit en welke velden werden gewijzigd.
+- **Scheiding van klinische gegevens en applicatielog:** de body (mogelijk klinische gegevens) komt alleen in de afgeschermde auditdatabank, nooit in de gewone applicatielog.
 
-Naast bovenstaande gelden in `backend/app/core/clickhouse.py` nog enkele beschermingen die de opslaglaag robuust én veilig houden:
-- **Dataset-sleutel gesaneerd.** `clickhouse_dataset_key` is de enige plek waar de assembly-naam (bv. `GRCh38`) in een tabelpad terechtkomt; alles buiten `[A-Za-z0-9._-]` wordt vervangen door `_`, zodat de naam veilig te interpoleren is en ingestie en leespad gegarandeerd hetzelfde pad gebruiken.
-- **Per-query begrenzing.** `_clickhouse_query_settings` legt `max_execution_time`, `max_query_size` en geheugen-/spill-grenzen op, zodat één brede filter de request-worker niet eindeloos kan bezetten.
-- **Transiënte fouten.** `execute_clickhouse` en `insert_clickhouse` herstellen de gedeelde client en proberen één keer opnieuw bij een verbroken socket of gelockte sessie, wat sporadische 500-fouten voorkomt zonder de query-inhoud te wijzigen.
+Mislukt het wegschrijven, dan wordt dat zelf gelogd; het verzoek van de gebruiker faalt er niet door. De auditregels lopen via een wachtrij die in productie nooit stil iets laat vallen: bij een volle wachtrij schrijft de backend synchroon, en een regel die echt niet op te slaan is, wordt met inhoud gelogd en geteld. Alleen in ontwikkeling mag een volle wachtrij regels laten vallen (`AUDIT_LOG_DROP_ALLOWED`; daarbuiten weigert de backend te starten). Let wel: met `AUDIT_LOG_MODE=off` schrijft de backend geen auditregels, en die waarde wordt buiten ontwikkeling niet geweigerd. De standaard is `async`, en geen van de meegeleverde opstellingen zet `off`.
 
-## Overzicht: alle routers
+**Waar in de code:** `backend/app/core/coga_logging.py` (JSON-logging), `backend/app/middleware/request_logging.py` (de middleware), `backend/app/services/audit_log_pg.py` en `event_pipeline.py` (wegschrijven zonder verlies).
 
-Alle routers worden verzameld in `backend/app/routers/__init__.py` (de lijst `all_routers`) en in `backend/app/main.py` onder het pad-voorvoegsel `/api` gemonteerd. De `families`-router bindt daarnaast nog **vijf sub-routers** in (Small Variants, structurele varianten, NIPT, rapporten, tracks) onder hetzelfde `/families`-pad; die sub-routers hebben daarom zelf géén eigen voorvoegsel.
+### De volgorde van de middleware
 
-| Router (bestand) | Pad onder `/api` | Doel |
-|---|---|---|
-| `health.py` | `/health`, `/version`, `/health/ready` | Liveness/readiness-checks; geen auth. |
-| `auth.py` | `/auth` | Login, token-uitgifte (`/auth/token`), self-service accountacties. Zie [hoofdstuk 5](05-login-authenticatie.md). |
-| `ped.py` | `/ped` | Pedigree (stamboom) uploaden/uitlezen. |
-| `families.py` | `/families` | Familie-metadata, leden, structuurversies, HPO-annotaties, Monarch-fenotypescores, region-of-interest. Kern-router; bindt de sub-routers hieronder in. |
-| `families_small_variants.py` | `/families` (sub) | Small Variants: paginering, export (CSV), compound-het, filter-presets, tags, review/ACMG. Zie [hoofdstuk 8](08-filterpaginas-en-api.md). |
-| `families_structural_variants.py` | `/families` (sub) | Structurele varianten van een familie. |
-| `families_nipt.py` | `/families` (sub) | NIPT-resultaten per familie (samenvatting, varianten, coverage). |
-| `families_reports.py` | `/families` (sub) | Annotatie-manifest, classification-drift, klinische audit, rapporten en sign-out. Zie [hoofdstuk 11](11-rapport-en-traceerbaarheid.md). |
-| `families_tracks.py` | `/families` (sub) | Visualisatie-tracks (haplotypes, gefaseerde markers, repeat-expansies) per familie. Zie [hoofdstuk 9](09-visualisaties.md). |
-| `structural_variants.py` | `/structural-variants` | Structurele varianten buiten de familiecontext. |
-| `cnvs.py` | *(geen eigen voorvoegsel)* `/{assembly}/{chrom}`, `/{assembly}/catalog`, `/entry/{cnv_id}` | Copy-number-varianten en hun catalogus/scoring. |
-| `variant_explorer.py` | `/variant-explorer` | Cohort-brede variantverkenning. Zie [hoofdstuk 14](14-variant-explorer.md). |
-| `genes.py` | `/genes` | Gene Explorer, genreferentie/versies. Zie [hoofdstuk 13](13-gene-explorer.md). |
-| `hpo.py` | `/hpo` | HPO-ontologie: termen, zoeken, prioritering. Zie [hoofdstuk 12](12-hpo-monarch-prioritisatie.md). |
-| `panels.py` | `/panels` | Genpanels (o.a. PanelApp-integratie). |
-| `bed.py` | `/bed` | BED-regio's en interval-berekeningen. |
-| `chromosomes.py` | *(geen eigen voorvoegsel)* `/{assembly}`, `/{assembly}/details`, `/{assembly}/{chrom}` | Chromosoom-metadata voor visualisaties. |
-| `blacklist.py` | *(geen eigen voorvoegsel)* `/{assembly}/{chrom}` | Blacklist-regio's. |
-| `segmental_duplications.py` | *(geen eigen voorvoegsel)* `/{assembly}/{chrom}` | Segmentale duplicaties (referentietrack). |
-| `dgv.py` | `/dgv` | Database of Genomic Variants; volledige router achter `get_current_user`. |
-| `repeat_expansions.py` | `/repeat-expansions` | TRGT/repeat-expansie-analyse en -catalogus. |
-| `projects.py` | `/projects` | Projecten (de scoping-eenheid voor toegang). |
-| `species.py` | `/species` | Soorten. |
-| `assemblies.py` | `/assemblies` | Genoom-assemblies (GRCh38, T2T, ...). |
-| `reference.py` | `/reference` | Referentiegenoom en referentiebronnen. |
-| `cram.py` | `/cram` | CRAM/BAM-uitlevering voor IGV-achtige weergave. |
-| `family_imports.py` | `/family-imports` | Import van familie-pakketten (manifest, voortgang, status). Zie [hoofdstuk 6](06-import-pipeline.md). |
-| `product.py` | `/product` | Productinfo, o.a. GitHub-release-catalogus (`/product/releases`, versie/traceerbaarheid). |
-| `admin.py` | `/admin` | Adminfunctionaliteit; achter `get_current_admin_user`. Zie [hoofdstuk 15](15-overige-modules-en-admin.md). |
-| `ui_events.py` | `/ui-events` | Front-end telemetrie/gebruikersgebeurtenissen (audit van UI-acties). |
-| `lookups.py` | *(geen eigen voorvoegsel)* `/family-statuses`, `/users` | Kleine keuzelijsten (familie-statussen, gebruikersreferenties) voor de UI. |
+In Starlette (waarop FastAPI draait) is de laatst geregistreerde middleware de buitenste. Van binnen (dicht bij de route) naar buiten (dicht bij de client):
 
-## Overzicht: de servicegroepen
+1. `CORSMiddleware` — alleen toegelaten origins mogen de API met credentials aanroepen.
+2. `log_request_response` — de request-logging hierboven.
+3. `normalize_api_collection_root_paths` — aanvaardt collectiepaden met én zonder slash op het einde.
+4. `security_headers_middleware` — zet de security-headers op elk antwoord (hoofdstuk 2).
+5. `TrustedProxyClientMiddleware` — als laatste geregistreerd, dus de buitenste: bepaalt het echte client-IP (`TRUSTED_PROXY_HOPS`) voordat logging, rate limiting en audit het lezen.
 
-De servicelaag is groot; onderstaande tabel groepeert de modules in `backend/app/services/` naar functie. De namen zijn representatief, niet uitputtend.
-
-| Servicegroep | Kernbestanden | Doel |
-|---|---|---|
-| **ClickHouse-variantlaag** | `clickhouse_variant_storage.py`, `clickhouse_variant_queries.py`, `clickhouse_variant_records.py`, `clickhouse_variant_rows.py`, `clickhouse_variant_ids.py`, `clickhouse_small_variants.py`, `clickhouse_family_variants.py`, `clickhouse_interval_tracks.py`, `clickhouse_integrity_monitor.py` | Opbouw en uitvoering van variant-queries tegen ClickHouse. De "leaf"-modules `clickhouse_variant_queries.py` (het *bouwen* van de SQL-tekst + parameters, met allowlist- en int-coercie) en `clickhouse_variant_records.py` (het *parsen* van ruwe rijen naar records) scheiden query-opbouw van resultaatverwerking. Code importeert hun helpers rechtstreeks uit die twee modules; `clickhouse_family_variants.py` exporteert ze niet opnieuw, en de opslag- en rijmodules hangen niet van die familielaag af (#528). |
-| **Familie-metadata & context** | `family_metadata_context.py`, `family_service.py`, `family_member_management_service.py`, `family_structure_service.py`, `family_status_service.py`, `metadata_service.py`, `data_scope.py` | Familie/lid/structuur opzoeken met **toegangs-scoping**; `data_scope.py` normaliseert chromosoomnamen (bv. `chr1` → `1`) en scheidt primaire chromosomen van ALT/scaffold-contigs. |
-| **Import-pipeline** | `family_package_*.py` (o.a. `_manifest`, `_validation`, `_import`, `_registration`, `_datasets`, `_variants`), `variant_upload_service.py`, `raw_import_files_pg.py`, `vcf_header_provenance.py` | Pakket-import: manifest lezen, valideren, registreren, varianten laden; provenance van VCF-headers. Code importeert elke helper uit de module die hem definieert; de orkestratie in `family_package_import.py` exporteert ze niet opnieuw (#528). Zie [hoofdstuk 6](06-import-pipeline.md). |
-| **Filters & prioritisatie** | `family_variant_filters.py`, `variant_prioritization.py`, `variant_ranking_cache.py`, `variant_explorer_service.py`, `variant_annotation_parser.py` | Filterlogica, variant-scoring/-ranking (incl. de sorteer-allowlist `_SORT_EXPR`), annotatie parsen. |
-| **ACMG & review** | `acmg_points.py`, `cnv_acmg_points.py`, `small_variant_review_*.py`, `structural_variant_review_pg.py`, `classification_drift_service.py` | Semi-automatische ACMG-classificatie, tags/presets, review-toestand, drift-detectie. Ook hier importeert code uit de definiërende module: `small_variant_review_pg.py` exporteert de ACMG-, opslag-, tag- en presethelpers niet opnieuw (#528). Zie [hoofdstuk 10](10-tagging-en-acmg-classificatie.md). |
-| **NIPT** | `nipt.py`, `nipt_analysis.py`, `nipt_coverage.py`, `nipt_service.py`, `nipt_artifact_pg.py` | Niet-invasieve prenatale test: fetale fractie, classificaties, coverage, artefacten. |
-| **Haplotype & lineage** | `haplotype_lineage_service.py`, `phased_marker_service.py`, `paraphase_pg.py` | Haplotype-blokken, gefaseerde markers, lineage/IBD, Paraphase. |
-| **HPO / Monarch** | `hpo_service.py`, `monarch_ingest.py`, `monarch_phenotype_score.py`, `monarch_semsim.py` | HPO-ontologie beheren, Monarch-fenotype-scoring en semantische similariteit. Zie [hoofdstuk 12](12-hpo-monarch-prioritisatie.md). |
-| **Gen-/referentie-metadata** | `gene_metadata_service.py`, `gene_info_external.py`, `gene_info_bulk_sources.py`, `gene_info_jobs_pg.py`, `reference_metadata_service.py`, `reference_source_service.py`, `panel_metadata_service.py`, `panelapp_service.py`, `github_releases_service.py` | Genreferentie verversen (achtergrond-job), referentietracks, panels, externe bron-lookups. |
-| **Traceerbaarheid & integriteit** | `audit_log_pg.py`, `clinical_audit_service.py`, `report_signout_service.py`, `hash_chain.py`, `integrity_anchor_service.py`, `sample_integrity_service.py`, `sample_integrity_qc.py`, `ui_event_pg.py`, `event_pipeline.py` | Append-only audit-log, klinische audit, rapport-sign-out, hash-ketens en verankering, sample-integriteit-QC. Zie [hoofdstuk 11](11-rapport-en-traceerbaarheid.md). |
-| **Infrastructuur/robuustheid** | `bounded_download.py`, `upload_safety.py`, `auth_rate_limit_pg.py`, `review_pg_utils.py` | Begrensde downloads, veilige uploads, login-rate-limiting, gedeelde DB-hulpjes. |
-
-## Logging en audit: elk verzoek laat een spoor na
-
-Traceerbaarheid begint bij de vaststelling dat **elk** HTTP-verzoek gelogd én geaudit wordt. Twee samenwerkende onderdelen zorgen daarvoor.
-
-**Gestructureerde JSON-logging.** `configure_json_logging` in `backend/app/core/coga_logging.py` installeert één `JsonLogFormatter` op de root-logger, zodat alle backend-logs als JSON-regels verschijnen (met `timestamp`, `severity`, `message`, en optioneel `user`, `httpRequest`, `dbUpdate`, `traceback`). Cruciaal voor veiligheid is `scrub_log`: die vervangt stuurtekens (inclusief CR/LF) in waarden vóór ze in een logregel komen, wat **log-forging** (CWE-117) tegengaat.
-
-**De request-logging-middleware.** `log_request_response` in `backend/app/middleware/request_logging.py` wikkelt elk verzoek en doet, samengevat:
-- **De aanvrager identificeren.** Via `request.state.current_user` (door `get_current_user` gezet) weet de middleware wie het verzoek deed — gebruikers-id, e-mail en rol komen in het spoor (`_get_request_user`).
-- **Het verzoek-lichaam vastleggen, maar veilig.** Voor muterende methodes (POST/PUT/PATCH/DELETE) wordt de body vastgelegd, maar `_sanitize_for_logging` maskeert gevoelige sleutels (`password`, `secret`, `token`, ...) tot `***`. Form-encoded logins (`/api/auth/token`) worden expliciet ontleed en gemaskeerd, zodat een wachtwoord nooit in klare tekst wordt opgeslagen; onparseerbare bodies worden niet ruw bewaard maar vervangen door een placeholder ("fail closed"). Query-parameters worden gesaneerd via `_sanitize_query_param` (patiënt-/familie-/projectidentificatoren worden gemaskeerd; de sterkte is instelbaar via `audit_log_query_string_mode`).
-- **Scheiding van PHI en applicatielog.** Het verzoek-lichaam (mogelijk klinische PHI, tot ~25 KB) wordt **niet** naar de stdout-applicatielog geschreven; het gaat uitsluitend naar de toegang-gecontroleerde audit-databank (kolom `audit_log_events.request_body`).
-- **De mutatie afleiden.** `_derive_db_update` herleidt uit pad en methode welke entiteit werd aangemaakt/gewijzigd/verwijderd (het API-voorvoegsel wordt weggestript, zodat er bv. `families` staat en niet `api`) en welke velden — zodat het audit-spoor "wie wijzigde wat" bevat, zonder de volledige waarden.
-- **Naar de audit-DB schrijven.** Via `write_audit_log_event` (uit `services/audit_log_pg.py`) wordt een volledig `AuditLogEventPayload` weggeschreven: gebruiker, methode, route, status, duur, IP, user-agent, de mutatie en eventuele fout. Faalt dat wegschrijven, dan wordt dat zelf als waarschuwing gelogd — het verzoek zelf wordt niet stukgemaakt.
-
-De statuscode bepaalt het log-niveau: ≥500 → `error` (met traceback), ≥400 → `warning`, overig → `info`. Zo is elke fout en elke mutatie achteraf reconstrueerbaar.
-
-**Waar in de code:** `backend/app/core/coga_logging.py` (formatter + `scrub_log`), `backend/app/middleware/request_logging.py` (`log_request_response`), `backend/app/services/audit_log_pg.py` (`write_audit_log_event`).
-
-### Waar de middlewares worden aangehaakt
-
-De volgorde van de middlewares is bewust en staat in `backend/app/main.py`. Ze worden in deze vololgorde geregistreerd; in Starlette is de **laatst geregistreerde de buitenste**, dus van binnen (dichtst bij de route) naar buiten (dichtst bij de client):
-1. `CORSMiddleware` — alleen toegestane origins (`settings.cors_origins`, eventueel `cors_origin_regex`) mogen de API met credentials aanroepen.
-2. `log_request_response` — de audit-/loglaag hierboven.
-3. `normalize_api_collection_root_paths` — accepteert collectiepaden met én zonder afsluitende slash.
-4. `security_headers_middleware` — als **laatst geregistreerd, dus buitenste**, stempelt het de hardening-headers op elk antwoord.
-
-De beveiligingsheaders in `backend/app/middleware/security_headers.py` zetten op elk antwoord onder meer `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, een maximaal strikte `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` (de API levert immers alleen JSON), `Referrer-Policy: no-referrer` en cross-origin-isolatie (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-site`). HSTS is opt-in (`settings.enable_hsts`) zodat het nooit over plein HTTP verschijnt. `setdefault` zorgt dat een route die bewust zelf een header zette, niet wordt overschreven.
+**Waar in de code:** het einde van `backend/app/main.py`; `backend/app/middleware/`.
 
 ## Belangrijkste bestanden
 
 | Bestand | Rol |
-|---|---|
-| `backend/app/main.py` | Bouwt de FastAPI-app: monteert alle routers onder `/api`, hangt de middleware-keten op, regelt lifespan, schakelt `/docs` uit in productie. |
-| `backend/app/routers/__init__.py` | Verzamelt alle routers in `all_routers`. |
-| `backend/app/dependencies.py` | Authenticatie-dependencies `get_current_user` / `get_current_admin_user`, wachtwoord- en token-helpers, `ADMIN_ROLES`. |
-| `backend/app/schemas/` | Alle Pydantic-request/response-modellen, per domein één module; validatie en OpenAPI-documentatie. |
-| `backend/app/core/sql.py` | SQL-veiligheidshelpers: UUID-bindparameters (`uuid_list_bindparam`), schema-fout-detectie. |
-| `backend/app/core/postgres.py` | Postgres-engine/sessie (`get_postgres_session`), schema-initialisatie. |
-| `backend/app/core/clickhouse.py` | ClickHouse-client, `execute_clickhouse`/`insert_clickhouse` (geparametriseerd), dataset-sleutel-sanitisatie, per-query-begrenzing. |
-| `backend/app/services/clickhouse_variant_queries.py` | Bouwt de variant-SQL: geparametriseerde clausules, int-coerced `LIMIT`/`OFFSET`. |
-| `backend/app/services/clickhouse_variant_records.py` | Parseert ruwe ClickHouse-rijen naar variant-records/annotaties. |
-| `backend/app/services/variant_explorer_service.py` | Voorbeeld van de `ORDER BY`-allowlist (`_SORT_EXPR`, `_DEFAULT_SORT`). |
-| `backend/app/services/family_metadata_context.py` | Dwingt per-gebruiker project-/familiescoping af (`_visible_project_ids`, `build_family_metadata_context`). |
-| `backend/app/core/coga_logging.py` | JSON-logformatter en `scrub_log` (anti-log-forging). |
-| `backend/app/middleware/request_logging.py` | Logt en audit elk verzoek; maskeert gevoelige velden; scheidt PHI van applicatielog. |
-| `backend/app/middleware/security_headers.py` | Zet hardening-response-headers op elk antwoord. |
-| `backend/app/core/http_resilience.py` | Bounded retry/backoff voor uitgaande calls naar externe referentie-API's (HGNC/Ensembl/NCBI/ClinGen/PanelApp) in achtergrond-jobs. |
+| --- | --- |
+| `backend/app/main.py` | Hangt de routers onder `/api` en zet de middlewareketen op |
+| `backend/app/routers/__init__.py` | De lijst van alle routers |
+| `backend/app/dependencies.py` | `get_current_user` en `get_current_admin_user` |
+| `backend/app/schemas/` | Alle request- en response-modellen |
+| `backend/app/core/sql.py` · `backend/app/core/clickhouse.py` | Geparametriseerde queries in Postgres en ClickHouse, grenzen per query |
+| `backend/app/services/clickhouse_variant_queries.py` | De opbouw van de variantqueries, met gehele `LIMIT`/`OFFSET` |
+| `backend/app/services/family_metadata_context.py` | Het toegangscheckpoint voor familiedata |
+| `backend/app/middleware/request_logging.py` | Logt en audit elk verzoek, met maskering |
+| `backend/app/core/coga_logging.py` | JSON-logging en bescherming tegen valse logregels |
