@@ -63,3 +63,64 @@ def test_dead_sample_projects_route_is_removed(viewer_client) -> None:
         "/api/admin/samples/SAMPLE1/projects", json={"project_ids": []}
     )
     assert response.status_code == 404
+
+
+# --- replacing a family's annotation manifest is admin-only ---
+# Every later sign-out freezes this manifest into the signed report as its provenance,
+# so a family's viewers may read it but not replace it.
+
+_MANIFEST_PATH = "/api/families/FAM1/annotation-manifest"
+_MANIFEST_BODY = {"modules": {"vep": {"version": "112"}}}
+
+
+def _record_manifest_writes(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    from backend.app.routers import families_reports
+
+    calls: list[dict] = []
+
+    async def _set_manifest(session, **kwargs):
+        calls.append(kwargs)
+        return {"family_id": "FAM1", "source": kwargs.get("source"), "modules": []}
+
+    monkeypatch.setattr(families_reports, "set_family_annotation_manifest", _set_manifest)
+    return calls
+
+
+def test_a_viewer_cannot_replace_a_family_annotation_manifest(viewer_client, monkeypatch) -> None:
+    calls = _record_manifest_writes(monkeypatch)
+    response = viewer_client.put(_MANIFEST_PATH, json=_MANIFEST_BODY)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Admin access required"
+    assert calls == []  # refused before the manifest service is reached
+
+
+@pytest.mark.parametrize("role", ["admin", "superuser"])
+def test_an_admin_can_replace_a_family_annotation_manifest(monkeypatch, role) -> None:
+    calls = _record_manifest_writes(monkeypatch)
+    original_overrides = dict(app.dependency_overrides)
+    app.state.skip_startup_tasks = True
+    admin = CurrentUser(
+        id="a1",
+        username=f"{role}@example.com",
+        email=f"{role}@example.com",
+        role=role,
+        created_at=datetime.now(timezone.utc),
+    )
+
+    async def override_get_postgres_session():
+        yield _FakeSession()
+
+    async def override_get_current_user():
+        return admin
+
+    app.dependency_overrides[get_postgres_session] = override_get_postgres_session
+    app.dependency_overrides[get_current_user] = override_get_current_user
+    try:
+        with TestClient(app) as client:
+            response = client.put(_MANIFEST_PATH, json=_MANIFEST_BODY)
+    finally:
+        app.dependency_overrides = original_overrides
+    assert response.status_code == 200, response.text
+    assert len(calls) == 1
+    assert calls[0]["user"].role == role
+    assert calls[0]["modules"] == _MANIFEST_BODY["modules"]

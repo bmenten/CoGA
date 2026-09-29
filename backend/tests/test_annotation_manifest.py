@@ -5,6 +5,9 @@ from datetime import date, datetime, timezone
 import logging
 import types
 
+from fastapi import HTTPException
+import pytest
+
 from backend.app.services import annotation_manifest_service as ams
 
 
@@ -286,3 +289,165 @@ def test_the_hpo_module_is_listed_under_its_label_on_the_reference_layer() -> No
     ]
     assert ams.module_label("hpo") == "HPO"
     assert ams.module_label("custom_tool") == "custom_tool"
+
+
+# --- replacing a family's manifest: admin-only, and it leaves a clinical audit event ---
+# Every later sign-out freezes this manifest into the signed report, and the row is
+# overwritten in place, so the replacement itself must be on the family's chain.
+
+
+class _ManifestWriteSession:
+    """Records the statements a manifest replacement runs, and its commits."""
+
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+        self.commits = 0
+
+    async def execute(self, statement, params=None):
+        self.statements.append(" ".join(str(statement).split()))
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+
+def _manifest_user(role: str):
+    return types.SimpleNamespace(
+        id="00000000-0000-0000-0000-0000000000aa",
+        username=f"{role}-user",
+        email=f"{role}@example.org",
+        role=role,
+    )
+
+
+def _patch_replacement(monkeypatch, *, stored_row=None, captured=None):
+    session = _ManifestWriteSession()
+    events: list[dict] = []
+
+    async def _context(session_, *, family_identifier, user, project_id=None):
+        return types.SimpleNamespace(
+            family_uuid="u1", family_id="FAM1", assembly_id=None, assembly_name="GRCh38"
+        )
+
+    async def _row(session_, family_uuid):
+        return stored_row
+
+    async def _family(session_, family_id, user):
+        return types.SimpleNamespace(metadata={"annotation_manifest": captured} if captured else {})
+
+    async def _event(session_, **kwargs):
+        # Snapshot what the transaction had done when the event was written.
+        events.append({**kwargs, "_statements": list(session.statements), "_commits": session.commits})
+
+    async def _manifest(session_, *, family_id, user, project_id=None):
+        return {"family_id": "FAM1", "modules": []}
+
+    monkeypatch.setattr(ams, "build_family_metadata_context", _context)
+    monkeypatch.setattr(ams, "_family_manifest_row", _row)
+    monkeypatch.setattr(ams, "get_family_record", _family)
+    monkeypatch.setattr(ams, "record_clinical_event", _event, raising=False)
+    monkeypatch.setattr(ams, "get_family_annotation_manifest", _manifest)
+    return session, events
+
+
+def test_a_viewer_cannot_replace_the_manifest_even_through_the_service(monkeypatch) -> None:
+    # Defence in depth behind the route's admin dependency: the service is the one place
+    # that writes curated provenance.
+    session, events = _patch_replacement(monkeypatch)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(
+            ams.set_family_annotation_manifest(
+                session, family_id="FAM1", user=_manifest_user("viewer"), modules={"vep": "112"}
+            )
+        )
+    assert excinfo.value.status_code == 403
+    assert session.statements == [] and session.commits == 0 and events == []
+
+
+@pytest.mark.parametrize("role", ["admin", "superuser"])
+def test_replacing_the_manifest_records_the_prior_and_new_modules(monkeypatch, role) -> None:
+    stored = {
+        "modules": {"vep": {"version": "110", "cache": "110_GRCh38"}, "snpeff": "5.1"},
+        "source": "vcf_header",
+        "recorded_by": "import (vcf_header)",
+        "recorded_at": datetime(2026, 9, 1, tzinfo=timezone.utc),
+    }
+    session, events = _patch_replacement(monkeypatch, stored_row=stored)
+    user = _manifest_user(role)
+    new_modules = {"vep": {"version": "112"}, "clinvar": "2026-09"}
+
+    asyncio.run(
+        ams.set_family_annotation_manifest(
+            session, family_id="FAM1", user=user, modules=new_modules
+        )
+    )
+
+    assert len(events) == 1
+    event = events[0]
+    assert event["action"] == "annotation_manifest"
+    assert (event["family_uuid"], event["family_identifier"], event["variant_id"]) == ("u1", "FAM1", None)
+    assert (event["actor"], event["actor_id"]) == (user.username, user.id)
+    assert event["before"] == {
+        "source": "vcf_header",
+        "recorded_by": "import (vcf_header)",
+        "recorded_at": "2026-09-01T00:00:00+00:00",
+        "modules": stored["modules"],
+    }
+    assert event["after"] == {"source": "manual", "modules": new_modules}
+    assert event["summary"] == (
+        "Annotation manifest replaced (was vcf_header, now manual): "
+        "VEP 110 → 112; SnpEff removed; ClinVar added"
+    )
+    # One transaction: the event is written after the overwrite and before the commit,
+    # so neither can persist without the other.
+    assert any("INSERT INTO family_annotation_manifest" in s for s in event["_statements"])
+    assert event["_commits"] == 0
+    assert session.commits == 1
+    # Concurrent replacements are serialised, so each event's "before" is the true prior.
+    assert "pg_advisory_xact_lock" in session.statements[0]
+
+
+def test_replacing_the_manifest_the_import_captured_records_it_as_the_prior(monkeypatch) -> None:
+    # No recorded row: the report showed the manifest the import captured into
+    # family.metadata, so that is what the replacement supersedes.
+    session, events = _patch_replacement(monkeypatch, captured={"clinvar": "2026-05"})
+    asyncio.run(
+        ams.set_family_annotation_manifest(
+            session, family_id="FAM1", user=_manifest_user("admin"), modules={"clinvar": "2026-09"}
+        )
+    )
+    assert events[0]["before"] == {
+        "source": "manifest",
+        "recorded_by": None,
+        "recorded_at": None,
+        "modules": {"clinvar": "2026-05"},
+    }
+    assert events[0]["summary"] == (
+        "Annotation manifest replaced (was manifest, now manual): ClinVar 2026-05 → 2026-09"
+    )
+
+
+def test_a_first_manifest_is_recorded_with_no_prior(monkeypatch) -> None:
+    session, events = _patch_replacement(monkeypatch)
+    asyncio.run(
+        ams.set_family_annotation_manifest(
+            session, family_id="FAM1", user=_manifest_user("admin"), modules={"vep": "112"}
+        )
+    )
+    assert events[0]["before"] == {"source": None, "recorded_by": None, "recorded_at": None, "modules": {}}
+    assert events[0]["summary"] == "Annotation manifest recorded (manual): VEP added"
+
+
+def test_the_replacement_summary_lists_at_most_six_changes() -> None:
+    before = {f"tool{i}": "1" for i in range(9)}
+    after = {f"tool{i}": "2" for i in range(9)}
+    summary = ams._manifest_replacement_summary(
+        prior_source="manual", source="manual", before=before, after=after
+    )
+    assert summary.endswith("tool5 1 → 2; and 3 more")
+    assert ams._manifest_replacement_summary(
+        prior_source="manual", source="manual", before={"vep": "110"}, after={"vep": {"version": "110"}}
+    ) == "Annotation manifest replaced (was manual, now manual): no module changed"
+    assert ams._manifest_replacement_summary(
+        prior_source="manual", source="manual",
+        before={"vep": {"version": "110"}}, after={"vep": {"version": "110", "cache": "x"}},
+    ) == "Annotation manifest replaced (was manual, now manual): VEP details changed"

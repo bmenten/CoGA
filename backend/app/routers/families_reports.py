@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
-from ..dependencies import get_current_user
+from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import (
     SampleIntegrityCategoryQcOut,
     SampleIntegrityFetalSexCheckOut,
@@ -59,7 +59,9 @@ async def set_family_annotation_manifest_endpoint(
     family_id: str,
     payload: AnnotationManifestUpdate,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
+    # Admin only: every later sign-out freezes this manifest into the signed report.
+    # The replacement is recorded on the family's clinical audit chain.
+    user: CurrentUser = Depends(get_current_admin_user),
 ) -> AnnotationManifestOut:
     return AnnotationManifestOut.model_validate(
         await set_family_annotation_manifest(
