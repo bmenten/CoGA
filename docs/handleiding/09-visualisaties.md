@@ -124,7 +124,9 @@ De Circos-plot legt alle chromosomen in een cirkel en tekent structurele variant
 
 **Data.** De pagina `frontend/src/pages/genome/CircosPlotPage.tsx` haalt twee dingen op:
 1. de chromosoom-scaffolds via `GET /chromosomes/GRCh38/details` (alle chromosomen mét banden), en
-2. de structurele varianten via `GET /families/{familyId}/structural-variants` met `page_size=0` (= alle SV's, geen paginering).
+2. de structurele varianten via `GET /families/{familyId}/structural-variants` met `page_size=0` (= alle SV's, geen paginering). De backend leest hoogstens 50.000 kandidaten; daarboven zet hij `total_is_estimated`, en dan tekent de plot geen verbindingen maar meldt hij dat er te veel SV's zijn om te tekenen, in plaats van de laatste chromosomen zonder verbindingen te tonen (#589).
+
+Mislukt een van beide aanvragen, dan zegt de pagina dat, met een knop om het opnieuw te proberen. Een mislukte chromosoomaanvraag blijft dus niet eindeloos "laden", en een mislukte SV-aanvraag leest niet als een familie zonder SV's (#589).
 
 **Tekenen (D3 op SVG).** `frontend/src/components/visualizations/CircosPlot.tsx` gebruikt **D3** intensief: het rekent per chromosoom een hoeksegment uit (evenredig met chromosoomlengte, met tussenruimte), tekent de cytobanden als ring-sectoren (met dezelfde `getStainColor`/`getBandGradientStops`-helpers als het ideogram), en tekent per variant een radiale verbinding: DEL/DUP als dikke bogen (`d3.linkRadial`), INV/BND als gebogen lijnen (kwadratische curves) tussen bron- en doelpositie, INS als klein radiaal streepje. Kleur per SV-type komt uit CSS-variabelen (`--color-variant-del/dup/ins/inv/bnd`). Belangrijk voor performance: de tekencode gebruikt **keyed joins** (per chromosoom/variant), zodat bij het aan/uitzetten van chromosomen alleen de gewijzigde knopen muteren in plaats van de hele SVG opnieuw op te bouwen.
 
