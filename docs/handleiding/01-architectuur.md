@@ -216,6 +216,8 @@ De client-side routing gebruikt `react-router` met `BrowserRouter` en geneste `R
 | `backend/app/core/config.py` | Centrale instellingen (`Settings`), `/api`-prefix en fail-closed veiligheidsvalidatie |
 | `frontend/src/index.tsx` | Frontend-startpunt en de volledige route-boom met auth/admin-bewakers |
 | `frontend/src/lib/api.ts` | De gedeelde axios-client: `/api`-basis, JWT-injectie en 401-afhandeling |
+| `frontend/src/lib/apiSchema.generated.ts` | De API-typen, gegenereerd uit het OpenAPI-schema van de backend (`scripts/generate-api-types.py`); CI faalt als het bestand verouderd is (#528). Genereer in de backend-omgeving (`backend/requirements-dev.txt`): het schema hangt af van de FastAPI- en Pydantic-versie, en het script waarschuwt bij een andere versie |
+| `frontend/src/lib/apiContract.ts` | Toetst de handgeschreven typen in `apiTypes.ts` aan de gegenereerde: `tsc` faalt als een respons niet meer past bij het type dat hem leest (#528) |
 | `frontend/src/components/Layout.tsx` | De visuele schil rond alle pagina's |
 | `frontend/vite.config.mts` | De dev-proxy die `/api` naar de backend doorstuurt |
 | `docker-compose.yml` / `docker-compose.dev.yml` | Orchestratie van de vier services (productie- en ontwikkelvariant) |

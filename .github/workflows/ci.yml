@@ -36,6 +36,11 @@ jobs:
       - name: Type-check the clinical-critical modules (mypy)
         # The modules listed in mypy.ini (#526).
         run: mypy
+      - name: Frontend API types match the backend's schema
+        # frontend/src/lib/apiSchema.generated.ts is generated from the OpenAPI schema;
+        # a backend model change must regenerate it (#528). The frontend job's tsc then
+        # checks the hand-written types against it (src/lib/apiContract.ts).
+        run: python scripts/generate-api-types.py --check
       - name: Run tests with coverage
         # The suite is self-contained (Postgres/ClickHouse access is mocked), so
         # no service containers are required. Honours pytest.ini testpaths
