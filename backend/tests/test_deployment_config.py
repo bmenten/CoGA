@@ -85,6 +85,29 @@ def test_the_browser_may_read_the_phi_bucket_only_from_the_app() -> None:
     assert exposed and {'"Range"', '"Content-Range"', '"Content-Length"'} <= {h.strip() for h in exposed.group(1).split(",")}
 
 
+def _backend_bucket_roles() -> dict[str, list[str]]:
+    """The roles storage.tf grants the backend's account, by bucket resource name."""
+    storage = (REPO / "terraform" / "storage.tf").read_text()
+    roles: dict[str, list[str]] = {}
+    for body in re.findall(r'resource "google_storage_bucket_iam_member" "\w+"\s*\{(.*?)\n\}', storage, re.S):
+        bucket = re.search(r"^\s*bucket\s*=\s*google_storage_bucket\.(\w+)\.name$", body, re.M)
+        role = re.search(r'^\s*role\s*=\s*"([^"]+)"$', body, re.M)
+        member = re.search(r'^\s*member\s*=\s*"([^"]+)"$', body, re.M)
+        assert bucket and role and member, f"a bucket grant this test cannot read: {body}"
+        if member.group(1) == "serviceAccount:${local.backend_sa_email}":
+            roles.setdefault(bucket.group(1), []).append(role.group(1))
+    return roles
+
+
+def test_the_backend_account_can_only_read_the_buckets() -> None:
+    # The refdata volume is read-only and its files are loaded out of band, so the
+    # write-capable roles/storage.objectUser the account held there was excess privilege.
+    assert _backend_bucket_roles() == {
+        "phi": ["roles/storage.objectViewer"],
+        "refdata": ["roles/storage.objectViewer"],
+    }
+
+
 def test_terraform_sets_the_client_ip_hops_and_import_roots() -> None:
     cloudrun = (REPO / "terraform" / "cloudrun.tf").read_text()
     assert 'name  = "TRUSTED_PROXY_HOPS"' in cloudrun
