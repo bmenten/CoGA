@@ -854,15 +854,15 @@ async def get_family(
 <p>Waarom dit géén poort is: <code>isAdmin()</code> vertrouwt op een waarde in <code>localStorage</code> die een gebruiker technisch zelf kan aanpassen. Dat zou hem hooguit de admin-<em>schermen</em> tonen — maar élk data- of actieverzoek gaat alsnog naar de backend, die <code>get_current_admin_user</code>/scoping opnieuw en gezaghebbend uitvoert. De frontend-guard voorkomt dus enkel een lelijke of verwarrende UI, niet ongeoorloofde toegang.</p>
 <p>De frontend versterkt dit nog met twee gewoontes in <code>frontend/src/lib/api.ts</code>: een <em>request-interceptor</em> hangt automatisch de <code>Authorization: Bearer &lt;token&gt;</code>-header aan elk verzoek (behalve <code>/auth/login</code> en <code>/auth/signup</code>), en een <em>response-interceptor</em> wist bij een <code>HTTP 401</code> de sessie en stuurt terug naar <code>/login</code>. Zo leidt een verlopen of ingetrokken token meteen tot uitloggen.</p>
 <h2>Databank least-privilege: de runtime-rol <code>coga_app</code></h2>
-<p>Zelfs áls de applicatie ooit gecompromitteerd raakt, mag ze niet in staat zijn om de <em>append-only</em> bewijstabellen (audit-log, klinische audit, ondertekende rapporten) te herschrijven. "Append-only" betekent: er mag enkel bijgeschreven worden, nooit gewijzigd of verwijderd. Daarom bestaat er een aparte, sterk beperkte databankrol.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/db/schema/postgres/040_app_runtime_role_privileges.sql</code>. Deze migratie maakt de rol <code>coga_app</code> aan met alleen de nodige rechten: <code>SELECT, INSERT, UPDATE, DELETE</code> op de gewone tabellen, maar voor de drie append-only tabellen <code>audit_log_events</code>, <code>clinical_audit_events</code> en <code>report_signouts</code> worden <code>UPDATE, DELETE, TRUNCATE</code> expliciet ingetrokken (<code>REVOKE</code>). Als niet-eigenaar kan <code>coga_app</code> bovendien geen <code>ALTER TABLE ... DISABLE TRIGGER</code> doen en geen <code>SET session_replication_role</code> (superuser-only). Gevolg: de runtime kan wél nieuwe auditregels toevoegen, maar geen bestaande audit-rij of ondertekend rapport wijzigen, verwijderen of "her-ketenen".</p>
+<p>Zelfs áls de applicatie ooit gecompromitteerd raakt, mag ze niet in staat zijn om de <em>append-only</em> bewijstabellen (audit-log, klinische audit, ondertekende rapporten, integriteitsankers) te herschrijven. "Append-only" betekent: er mag enkel bijgeschreven worden, nooit gewijzigd of verwijderd. Daarom bestaat er een aparte, sterk beperkte databankrol.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/db/schema/postgres/05_grants.sql</code>, het laatste van de vijf baseline-bestanden. Het maakt de rol <code>coga_app</code> aan met alleen de nodige rechten: <code>SELECT, INSERT, UPDATE, DELETE</code> op de gewone tabellen, maar voor de vier append-only tabellen <code>audit_log_events</code>, <code>clinical_audit_events</code>, <code>report_signouts</code> en <code>integrity_anchors</code> worden <code>UPDATE, DELETE, TRUNCATE</code> expliciet ingetrokken (<code>REVOKE</code>). Als niet-eigenaar kan <code>coga_app</code> bovendien geen <code>ALTER TABLE ... DISABLE TRIGGER</code> doen en geen <code>SET session_replication_role</code> (superuser-only). Gevolg: de runtime kan wél nieuwe auditregels toevoegen, maar geen bestaande audit-rij, ondertekend rapport of integriteitsanker wijzigen, verwijderen of "her-ketenen".</p>
 <p>De rol wordt <em>in fallback-modus</em> geleverd: hij bestaat als <code>NOLOGIN</code> en de applicatie draait voorlopig nog als de tabel-eigenaar. De echte omschakeling (de "DSN-flip", waarbij DSN staat voor de databank-connectiestring) is een louter operationele configuratiewijziging, geen codewijziging: <code>POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false</code> zetten (zodat de app geen eigenaar-only DDL — tabellen aanmaken/wijzigen — meer probeert), de schema-migraties apart draaien als eigenaar (<code>python -m backend.app.db_migrate</code>), en de app laten inloggen als <code>coga_app</code>.</p>
 <p>Op Google Cloud is die omschakeling één Terraform-variabele: <code>db_runtime_role = "coga_app"</code>. Een aparte Cloud Run-job, <code>coga-db-migrate</code> (<code>terraform/migrate.tf</code>), draait dan vóór elke uitrol de schema-migratie als eigenaar en zet met <code>POSTGRES_APP_PASSWORD</code> ook de login van <code>coga_app</code> aan, zodat niemand met de hand SQL moet draaien op een databank die alleen een privé-adres heeft. De job draait onder een eigen serviceaccount, zodat de API het wachtwoord van de eigenaar niet meer kan lezen, ook niet via Secret Manager.</p>
-<p class="waar"><strong>Waar in de code:</strong> de stap-voor-stap-procedure, de verificatie en de rollback staan in <code>docs/db-runtime-role-runbook.md</code>; de bijhorende instelling in <code>backend/app/core/config.py</code> (<code>postgres_run_schema_migrations_on_startup</code>). Belangrijk voor toekomstige schema's: de <code>ALTER DEFAULT PRIVILEGES</code> uit 040 geeft elke <em>nieuwe</em> tabel automatisch volledige CRUD aan <code>coga_app</code>; daarom moet elke nieuwe append-only tabel de <code>REVOKE UPDATE, DELETE, TRUNCATE ... FROM coga_app</code> herhalen (dit staat ook als expliciete waarschuwing in het bestand zelf).</p>
+<p class="waar"><strong>Waar in de code:</strong> de stap-voor-stap-procedure, de verificatie en de rollback staan in <code>docs/db-runtime-role-runbook.md</code>; de bijhorende instelling in <code>backend/app/core/config.py</code> (<code>postgres_run_schema_migrations_on_startup</code>). Belangrijk voor toekomstige schema's: de brede <code>GRANT ... ON ALL TABLES</code> en de <code>ALTER DEFAULT PRIVILEGES</code> in <code>05_grants.sql</code> geven elke <em>nieuwe</em> tabel automatisch volledige CRUD aan <code>coga_app</code>; daarom moet elke nieuwe append-only tabel in dat bestand dezelfde <code>REVOKE UPDATE, DELETE, TRUNCATE ... FROM coga_app</code> krijgen, ná de brede <code>GRANT</code> (dit staat ook als expliciete waarschuwing in het bestand zelf).</p>
 <h2>Overige hardening</h2>
 <h3>Rate limiting &amp; login-lockout</h3>
 <p>Brute-force op wachtwoorden en accountopsomming worden geremd met een oplopende (exponentiële) backoff, opgeslagen in Postgres.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/auth_rate_limit_pg.py</code>, met de tabel <code>auth_login_attempts</code> uit <code>backend/db/schema/postgres/010_auth_login_attempts.sql</code>. Elke mislukte login wordt geteld per scope (<code>email</code> én <code>remote_ip</code>); vanaf een drempel (<code>login_rate_limit_threshold</code>, standaard 5) volgt een lockout die exponentieel oploopt tot een maximum (<code>_backoff_seconds</code>). Login zelf zit in <code>backend/app/routers/auth.py</code>: <code>_authenticate_and_issue_token</code> weigert bij een actieve throttle met <code>HTTP 429 + Retry-After</code>, en gebruikt een <em>dummy</em> bcrypt-verificatie (<code>_DUMMY_LOGIN_PASSWORD_HASH</code>) voor onbestaande accounts zodat de responstijd niet verraadt welke e-mails bestaan (bescherming tegen account-enumeratie via timing). Signup wordt apart per bron-IP gethrottled (<code>get_signup_throttle_state</code> / <code>record_signup_attempt</code>); ook de <code>signup</code>-flow geeft bewust een identieke bevestiging voor nieuwe én bestaande e-mails, zodat het endpoint geen accounts kan opsommen.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/auth_rate_limit_pg.py</code>, met de tabel <code>auth_login_attempts</code> uit <code>backend/db/schema/postgres/01_access.sql</code>. Elke mislukte login wordt geteld per scope (<code>email</code> én <code>remote_ip</code>); vanaf een drempel (<code>login_rate_limit_threshold</code>, standaard 5) volgt een lockout die exponentieel oploopt tot een maximum (<code>_backoff_seconds</code>). Login zelf zit in <code>backend/app/routers/auth.py</code>: <code>_authenticate_and_issue_token</code> weigert bij een actieve throttle met <code>HTTP 429 + Retry-After</code>, en gebruikt een <em>dummy</em> bcrypt-verificatie (<code>_DUMMY_LOGIN_PASSWORD_HASH</code>) voor onbestaande accounts zodat de responstijd niet verraadt welke e-mails bestaan (bescherming tegen account-enumeratie via timing). Signup wordt apart per bron-IP gethrottled (<code>get_signup_throttle_state</code> / <code>record_signup_attempt</code>); ook de <code>signup</code>-flow geeft bewust een identieke bevestiging voor nieuwe én bestaande e-mails, zodat het endpoint geen accounts kan opsommen.</p>
 <h3>Security-headers, CORS en geheimen</h3>
 <p><strong>Security-headers.</strong> Elk API-antwoord krijgt strikte hardening-headers, waaronder een maximaal-strikte Content-Security-Policy (<code>default-src 'none'; frame-ancestors 'none'</code>), <code>X-Frame-Options: DENY</code>, <code>X-Content-Type-Options: nosniff</code>, <code>Referrer-Policy: no-referrer</code> en Cross-Origin-Opener/Resource-Policy. HSTS is opt-in (enkel waar TLS ervoor staat).
 <strong>Waar in de code:</strong> <code>backend/app/middleware/security_headers.py</code> (<code>security_headers_middleware</code>, <code>_STATIC_HEADERS</code>).</p>
@@ -954,19 +954,15 @@ async def get_family(
 </tr>
 <tr>
 <td><code>backend/db/schema/postgres/01_access.sql</code></td>
-<td><code>users</code>-tabel + rol-constraint (<code>admin</code>/<code>superuser</code>/<code>viewer</code>), koppeltabel <code>project_users</code></td>
+<td><code>users</code>-tabel + rol-constraint (<code>admin</code>/<code>superuser</code>/<code>viewer</code>), koppeltabel <code>project_users</code>, en <code>auth_login_attempts</code> (de tabel achter de login-/signup-throttling)</td>
 </tr>
 <tr>
 <td><code>backend/db/schema/postgres/03_assay.sql</code></td>
 <td>Koppeltabellen <code>family_projects</code> / <code>sample_projects</code></td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/040_app_runtime_role_privileges.sql</code></td>
+<td><code>backend/db/schema/postgres/05_grants.sql</code></td>
 <td>Least-privilege runtime-rol <code>coga_app</code> + revoke op append-only tabellen</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/010_auth_login_attempts.sql</code></td>
-<td>Tabel achter de login-/signup-throttling</td>
 </tr>
 <tr>
 <td><code>frontend/src/components/RequireAuth.tsx</code> · <code>RequireAdmin.tsx</code> · <code>SessionRedirect.tsx</code></td>
@@ -1427,7 +1423,7 @@ async def get_family(
 <ul>
 <li><strong>Secret-beheer.</strong> Lokaal weigert de backend te starten met placeholder-secrets (<code>validate_security_defaults</code>). In GCP komen alle geheimen uit Secret Manager en worden ze pas bij runtime in de container geïnjecteerd, niet in images of Terraform-state ingebakken. <code>SECRET_KEY</code> (JWT-ondertekening) en <code>INTEGRITY_ANCHOR_SIGNING_KEY</code> (integriteitsankers) moeten verschillende waarden hebben — een gedocumenteerde eis, waarbij de deploygids (§5.5) ze met aparte <code>openssl rand</code>-oproepen genereert.</li>
 <li><strong>TLS naar de datastores.</strong> Postgres via de Cloud SQL Python-Connector (mTLS, "verify-full"-graad over privé-IP; instelling <code>postgres_use_cloud_sql_connector</code>, connectorlogica <code>_cloud_sql_connect</code> in <code>backend/app/core/postgres.py</code>). ClickHouse over HTTPS met een private CA die de backend verifieert (<code>CLICKHOUSE_SECURE/VERIFY/CA_CERT</code>, afgehandeld in <code>_create_clickhouse_client</code> in <code>backend/app/core/clickhouse.py</code>). Encryptie-at-rest via CMEK op Cloud SQL, disks en buckets.</li>
-<li><strong>Beperkte runtime-DB-rol.</strong> Het schemabestand <code>backend/db/schema/postgres/040_app_runtime_role_privileges.sql</code> maakt de rol <code>coga_app</code> aan die géén DDL kan draaien en géén <code>UPDATE</code>/<code>DELETE</code> op de append-only audit-, report-signout- en hash-chain-tabellen mag. Dat sluit een "owner-bypass" op de append-only- en hash-chain-controles. De rol wordt momenteel in "fallback"-modus (<code>NOLOGIN</code>) uitgeleverd tot een gecoördineerde DSN-flip; tot dan boot de app nog als eigenaar (zie <code>docs/db-runtime-role-runbook.md</code>).</li>
+<li><strong>Beperkte runtime-DB-rol.</strong> Het schemabestand <code>backend/db/schema/postgres/05_grants.sql</code> maakt de rol <code>coga_app</code> aan die géén DDL kan draaien en géén <code>UPDATE</code>/<code>DELETE</code> op de append-only audit-, report-signout- en ankertabellen (<code>audit_log_events</code>, <code>clinical_audit_events</code>, <code>report_signouts</code>, <code>integrity_anchors</code>) mag. Dat sluit een "owner-bypass" op de append-only- en hash-chain-controles. De rol wordt momenteel in "fallback"-modus (<code>NOLOGIN</code>) uitgeleverd tot een gecoördineerde DSN-flip; tot dan boot de app nog als eigenaar (zie <code>docs/db-runtime-role-runbook.md</code>).</li>
 <li><strong>Reproduceerbaarheid.</strong> Container-images zijn per digest vastgepind; <code>APP_VERSION</code>/<code>GIT_SHA</code> worden bij build-time ingebakken en in elk ondertekend rapport bevroren; de HPO-release, het dbNSFP-bestand (<code>dbNSFP5.4_gene.gz</code>) en de GENCODE-uitgave (<code>REFERENCE_GENCODE_GTF_URL</code>) zijn gepinde referentieversies, en elk gecacht gen-record legt per bron vast wélke uitgave hem beantwoordde (zie hoofdstuk <a href="#hs-13">13-gene-explorer.md</a>). Zo is voor elke analyse achteraf exact te reconstrueren welke code én welke referentiedata gebruikt zijn.</li>
 <li><strong>Auditing vanaf boot.</strong> De audit-log-worker start vóór de seeding, en de ClickHouse-integriteitsmonitor draait vanaf opstart, zodat gebeurtenissen en datacorruptie van meet af aan worden vastgelegd.</li>
 </ul>
@@ -1463,7 +1459,7 @@ async def get_family(
 </tr>
 <tr>
 <td><code>backend/db/schema/postgres/*.sql</code></td>
-<td>Genummerde Postgres-schemabestanden (001–042), incl. <code>040_app_runtime_role_privileges.sql</code></td>
+<td>De vijf Postgres-baseline-bestanden (<code>01_access.sql</code> t/m <code>05_grants.sql</code>), incl. de runtime-rol <code>coga_app</code> in <code>05_grants.sql</code></td>
 </tr>
 <tr>
 <td><code>backend/db/schema/clickhouse/001_coga_variant_storage.sql</code></td>
@@ -1716,7 +1712,7 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 </tr>
 </tbody>
 </table></div>
-<p class="waar"><strong>Waar in de code:</strong> het schema in <code>backend/db/schema/postgres/010_auth_login_attempts.sql</code>; de logica in <code>backend/app/services/auth_rate_limit_pg.py</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> het schema in <code>backend/db/schema/postgres/01_access.sql</code>; de logica in <code>backend/app/services/auth_rate_limit_pg.py</code>.</p>
 <p>De werking (functies <code>record_failed_login</code>, <code>get_login_throttle_state</code>, <code>clear_login_failures</code>):</p>
 <ul>
 <li>Elke mislukte login verhoogt de teller voor <strong>twee</strong> bereiken tegelijk: het ingevoerde e-mailadres én het bron-IP (<code>_scope_rows</code>). Dat maakt zowel het bestoken van één account als het rondstrooien over vele accounts moeilijk.</li>
@@ -1772,7 +1768,7 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 <li><strong>Accountability wordt niet stilletjes weggegooid.</strong> In productie weigert de config om <code>AUDIT_LOG_DROP_ALLOWED=true</code> te accepteren (<code>validate_security_defaults</code> in <code>backend/app/core/config.py</code>), zodat auditgebeurtenissen bij een volle wachtrij niet zomaar verloren gaan.</li>
 <li><strong>Korte tokenlevensduur + harde 401-afhandeling</strong> beperken de gevolgen van een gelekt token: het verloopt na 2 uur en elke <code>401</code> wist automatisch de clientsessie.</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>log_request_response</code>, <code>_get_request_user</code>, <code>_sanitize_for_logging</code>, <code>_parse_request_body</code> in <code>backend/app/middleware/request_logging.py</code>; <code>auth_login_attempts</code> in <code>backend/db/schema/postgres/010_auth_login_attempts.sql</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>log_request_response</code>, <code>_get_request_user</code>, <code>_sanitize_for_logging</code>, <code>_parse_request_body</code> in <code>backend/app/middleware/request_logging.py</code>; <code>auth_login_attempts</code> in <code>backend/db/schema/postgres/01_access.sql</code>.</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
 <thead>
@@ -1803,12 +1799,8 @@ def verify_password(plain_password: str, hashed_password: str) -&gt; bool:
 <td>Rate limiting / lockout-logica (back-off, scopes email/IP/signup)</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/010_auth_login_attempts.sql</code></td>
-<td>Tabel <code>auth_login_attempts</code> voor mislukte-pogingtellers en lockouts</td>
-</tr>
-<tr>
 <td><code>backend/db/schema/postgres/01_access.sql</code></td>
-<td>Tabel <code>users</code> (o.a. <code>hashed_password</code>, <code>role</code>, <code>is_active</code>)</td>
+<td>Tabel <code>users</code> (o.a. <code>hashed_password</code>, <code>role</code>, <code>is_active</code>) en tabel <code>auth_login_attempts</code> voor mislukte-pogingtellers en lockouts</td>
 </tr>
 <tr>
 <td><code>backend/app/services/metadata_service.py</code></td>
@@ -2186,7 +2178,7 @@ weergaven) en <code>AnnotationProvenanceSummary.tsx</code> (versies).</p>
 <h2>Import-job-tracking en foutafhandeling</h2>
 <h3>De job-tabel en statussen</h3>
 <p>Elke import is een rij in <code>family_import_jobs</code>. De statussen zijn afgedwongen door een <code>CHECK</code>-constraint: <code>queued → validating → running → completed | failed</code>.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/db/schema/postgres/007_family_import_jobs.sql</code>. De rij bewaart naast de status ook <code>validation_errors</code>, <code>validation_warnings</code>, <code>logs</code>, <code>dataset_summaries</code> en <code>metadata</code> (JSONB), plus tijdstempels <code>requested_at</code>, <code>started_at</code>, <code>heartbeat_at</code>, <code>completed_at</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> de tabel <code>family_import_jobs</code> in <code>backend/db/schema/postgres/03_assay.sql</code>. De rij bewaart naast de status ook <code>validation_errors</code>, <code>validation_warnings</code>, <code>logs</code>, <code>dataset_summaries</code> en <code>metadata</code> (JSONB), plus tijdstempels <code>requested_at</code>, <code>started_at</code>, <code>heartbeat_at</code>, <code>completed_at</code>.</p>
 <p>De worker "claimt" de volgende taak atomair met <code>FOR UPDATE SKIP LOCKED</code>, zodat meerdere workers (instelbaar via <code>FAMILY_IMPORT_WORKER_COUNT</code>, standaard 1) elkaar niet in de weg zitten. Een taak waarvan de <code>heartbeat_at</code> te oud is (<code>FAMILY_IMPORT_STALE_HEARTBEAT</code>, 10 min) wordt als vastgelopen beschouwd en opnieuw geclaimd. Tijdens lange imports wordt de heartbeat/voortgang doorlopend bijgewerkt.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_jobs.py</code> (<code>claim_next_family_import_job</code>, <code>_update_job_progress</code>, <code>queue_family_import_job</code>). De autorisatie is fijnmazig: <code>get_family_import_job</code> en <code>list_family_import_jobs</code> tonen niet-admins alleen hun eigen jobs — al is de router zelf al admin-only.</p>
 <h3>"Fail-clean": nooit een stil half-geïmporteerde familie</h3>
@@ -2199,7 +2191,7 @@ weergaven) en <code>AnnotationProvenanceSummary.tsx</code> (versies).</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>_execute_family_package_import_local</code> in <code>family_package_import.py</code> (het uitgebreide "Fail-clean"-blok), met helpers <code>_delete_family_shell</code>, <code>_flag_family_import_incomplete</code> en <code>_clear_family_import_incomplete</code> in <code>family_package_registration.py</code>. Dezelfde compensatie-gedachte zit ook in de dataset-importers zelf: <code>_import_snv_dataset</code> en <code>_import_haplotypes_dataset</code> (in <code>family_package_datasets.py</code>) verwijderen bij een fout hun eigen (deels weggeschreven) rijen, maar scopen dat naar hun eigen <code>source</code> (<code>clair3</code> respectievelijk <code>glimpse2</code>) zodat een mislukte SNV-import nooit een reeds geïmporteerde GLIMPSE2-callset of haar haplotype-blokken wist.</p>
 <h2>Provenance en het annotation manifest</h2>
 <p>Naast de per-bestand-hashing legt CoGA per familie een <strong>annotation manifest</strong> aan: één rij met een vrije JSONB-map <code>modules</code> van <code>{ toolKey: { version, detail, by_modality } }</code>. Dit is cruciaal voor latere rapport-traceerbaarheid — een resultaat moet herleidbaar zijn naar precies de tool- en databankversies die het produceerden (IVDR-vereiste).</p>
-<p class="waar"><strong>Waar in de code:</strong> schema <code>backend/db/schema/postgres/030_family_annotation_manifest.sql</code> (kolommen <code>modules</code>, <code>source</code>, <code>recorded_by</code>, <code>recorded_at</code>, <code>assembly_id</code>; <code>source</code> is <code>'vcf_header'</code>, <code>'manifest'</code> of <code>'manual'</code>; <code>UNIQUE (family_id)</code> — precies één rij per familie). De schrijf- en leesdienst is <code>backend/app/services/annotation_manifest_service.py</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> de tabel <code>family_annotation_manifest</code> in <code>backend/db/schema/postgres/04_traceability.sql</code> (kolommen <code>modules</code>, <code>source</code>, <code>recorded_by</code>, <code>recorded_at</code>, <code>assembly_id</code>; <code>source</code> is <code>'vcf_header'</code>, <code>'manifest'</code> of <code>'manual'</code>; <code>UNIQUE (family_id)</code> — precies één rij per familie). De schrijf- en leesdienst is <code>backend/app/services/annotation_manifest_service.py</code>.</p>
 <p>De belangrijkste regels van <code>merge_vcf_header_provenance</code> (met helper <code>_refresh_modules</code>):</p>
 <ul>
 <li><strong>Verversen bij her-import</strong> — nieuw geparste versies overschrijven de oude <em>per sleutel</em>, terwijl modules die de nieuwe invoer niet noemt behouden blijven (het her-importeren van alleen de SV-VCF wist de SNV-afgeleide VEP/gnomAD-versies niet).</li>
@@ -2211,7 +2203,7 @@ weergaven) en <code>AnnotationProvenanceSummary.tsx</code> (versies).</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>variant_upload_service.py</code> (het <code>merge_vcf_header_provenance</code>-blok onderaan <code>upload_family_small_variant_file</code>) en <code>family_package_datasets.py</code> (<code>_import_sv_needlr_dataset</code>).</p>
 <h2>Logging en volledige traceerbaarheid</h2>
 <p>Het traceerbaarheidsregister bij uitstek is de tabel <strong><code>raw_import_files</code></strong>: één rij per fysiek bronbestand, met bestandsnaam, type, scope (<code>family</code> of <code>individual</code>), gekoppeld sample, opslagpad, byte-grootte, SHA-256-checksum en herkomst (<code>source</code>). De insertie is idempotent op <code>(family_id, sample_id, storage_path)</code> (een uniek index met een placeholder-UUID voor een leeg sample), zodat een her-import de bestaande rij ververst in plaats van dubbelen te maken.</p>
-<p class="waar"><strong>Waar in de code:</strong> schema <code>backend/db/schema/postgres/017_raw_import_files.sql</code>; de schrijffunctie <code>record_raw_import_file</code> en het pakket-gedreven <code>_record_package_raw_files</code> in respectievelijk <code>raw_import_files_pg.py</code> en <code>family_package_registration.py</code>. Pakketbestanden worden <em>in place</em> geregistreerd (<code>managed=False</code>) — CoGA verplaatst of verwijdert ze niet; alleen web-uploads worden als beheerde kopie onder <code>data/raw_imports/</code> bewaard. Voor een S3-pakket wordt bovendien de duurzame <code>s3://</code>-URI vastgelegd (de staging-map verdwijnt immers na afloop).</p>
+<p class="waar"><strong>Waar in de code:</strong> de tabel <code>raw_import_files</code> in <code>backend/db/schema/postgres/04_traceability.sql</code>; de schrijffunctie <code>record_raw_import_file</code> en het pakket-gedreven <code>_record_package_raw_files</code> in respectievelijk <code>raw_import_files_pg.py</code> en <code>family_package_registration.py</code>. Pakketbestanden worden <em>in place</em> geregistreerd (<code>managed=False</code>) — CoGA verplaatst of verwijdert ze niet; alleen web-uploads worden als beheerde kopie onder <code>data/raw_imports/</code> bewaard. Voor een S3-pakket wordt bovendien de duurzame <code>s3://</code>-URI vastgelegd (de staging-map verdwijnt immers na afloop).</p>
 <p>Wat kan een auditor hierdoor achteraf reconstrueren? Per familie: welke ruwe bestanden zijn ingelezen, met welke checksum (verifieerbaar via <code>verify_raw_import_file</code>), in welke dataset; welke tool- en databankversies gebruikt zijn (<code>family_annotation_manifest</code>); en de volledige loop van de importtaak — status, tijdstempels, logregels, validatiefouten/-waarschuwingen en per-dataset resultaat (<code>family_import_jobs</code>). Samen sluit dit de keten van <em>geannoteerde VCF → weggeschreven data → herkomst → rapport</em>.</p>
 <p>Naast deze registers logt de import ook een leesbare regel per stap (bv. <em>"Dataset snv: imported."</em>, <em>"Family package import completed."</em>), zichtbaar in de job-rij en in de frontend.</p>
 <p class="waar"><strong>Waar in de code:</strong> de <code>logs</code>-lijst die door <code>_execute_family_package_import_local</code> wordt opgebouwd en via <code>_update_job_progress</code> wordt weggeschreven.</p>
@@ -2301,16 +2293,12 @@ weergaven) en <code>AnnotationProvenanceSummary.tsx</code> (versies).</p>
 <td>Begrensde, bomb-veilige (de)compressie van uploads en downloads</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/007_family_import_jobs.sql</code></td>
-<td>Job-tabel met status-constraint en JSONB-logs/samenvattingen</td>
+<td><code>backend/db/schema/postgres/03_assay.sql</code></td>
+<td>Job-tabel <code>family_import_jobs</code> met status-constraint en JSONB-logs/samenvattingen</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/017_raw_import_files.sql</code></td>
-<td>Ruwe-bestand-provenance met unieke identiteit per (familie, sample, pad)</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/030_family_annotation_manifest.sql</code></td>
-<td>Per-familie annotatie-/versiemanifest voor rapport-traceerbaarheid</td>
+<td><code>backend/db/schema/postgres/04_traceability.sql</code></td>
+<td>Ruwe-bestand-provenance <code>raw_import_files</code> met unieke identiteit per (familie, sample, pad); per-familie annotatie-/versiemanifest <code>family_annotation_manifest</code> voor rapport-traceerbaarheid</td>
 </tr>
 <tr>
 <td><code>frontend/src/pages/dashboard/FamilyPackageImportPanel.tsx</code></td>
@@ -3566,16 +3554,16 @@ if context.project_ids:
 </table></div>
 <p>Voor elke tag wordt bovendien <strong>tag-metadata</strong> bijgehouden: <em>wie</em> de tag zette en <em>wanneer</em> (<code>updated_by</code> / <code>updated_at</code> per tag). Dat maakt tagging traceerbaar tot op de individuele tag.</p>
 <p class="waar"><strong>Waar in de code:</strong> de opslaglaag is <code>upsert_small_variant_review</code> in <code>backend/app/services/small_variant_review_pg.py</code>. De per-tag-herkomst wordt geserialiseerd door <code>_serialize_tag_metadata</code> (in datzelfde bestand) en samengevoegd door de helper <code>_merge_tag_metadata</code> uit <code>backend/app/services/review_pg_utils.py</code>.</p>
-<h3>Project-gescoopte tag-definities (schema 006)</h3>
+<h3>Project-gescoopte tag-definities</h3>
 <p>Welke tags <em>bestaan</em> wordt bepaald door <strong>tag-definities</strong>. Er zijn twee soorten:</p>
 <ul>
 <li><strong>Systeemtags</strong> (ingebouwd): vast in <code>DEFAULT_SMALL_VARIANT_TAGS</code> in <code>backend/app/services/small_variant_review_tags.py</code>. Deze omvatten collaboratie-tags (<code>review</code>, <code>send_for_validation</code>, <code>validated</code>, <code>report</code>, <code>excluded</code>, …) én de classificatietags (<code>acmg_class_1</code>..<code>acmg_class_5</code>, de VUS-subtiers <code>acmg_vus_hot</code> / <code>acmg_vus_warm</code> / <code>acmg_vus_cold</code>, en <code>secondary_finding</code>). Systeemtags kunnen <strong>niet</strong> worden bewerkt of verwijderd.</li>
 <li><strong>Custom tags</strong>: door een admin aangemaakt, opgeslagen in de tabel <code>small_variant_tag_definitions</code>.</li>
 </ul>
-<p>Custom tags hebben een <strong>scope</strong>: <code>global</code> (zichtbaar in alle projecten) of <code>project</code> (gebonden aan één project). Een project-tag kan bovendien met extra projecten <em>gedeeld</em> worden via de koppeltabel <code>small_variant_tag_definition_project_links</code>. Dit hele scope-mechanisme is toegevoegd in migratie 006.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/db/schema/postgres/006_project_scoped_variant_tags.sql</code> voegt de kolommen <code>scope</code> en <code>project_id</code> toe met CHECK-constraints (globaal ⇒ geen project; project ⇒ verplicht project) en maakt de koppeltabel aan. De zichtbaarheidslogica (welke tags mag deze reviewer in deze familie/projecten gebruiken) zit in <code>list_small_variant_tag_definitions</code> in <code>small_variant_review_tags.py</code>.</p>
+<p>Custom tags hebben een <strong>scope</strong>: <code>global</code> (zichtbaar in alle projecten) of <code>project</code> (gebonden aan één project). Een project-tag kan bovendien met extra projecten <em>gedeeld</em> worden via de koppeltabel <code>small_variant_tag_definition_project_links</code>. Dit hele scope-mechanisme zit in <code>03_assay.sql</code> (voorheen migratie 006).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/db/schema/postgres/03_assay.sql</code> definieert de kolommen <code>scope</code> en <code>project_id</code> van <code>small_variant_tag_definitions</code> met CHECK-constraints (globaal ⇒ geen project; project ⇒ verplicht project) en maakt de koppeltabel aan. De zichtbaarheidslogica (welke tags mag deze reviewer in deze familie/projecten gebruiken) zit in <code>list_small_variant_tag_definitions</code> in <code>small_variant_review_tags.py</code>.</p>
 <blockquote>
-<p><strong>Traceerbaarheid &amp; idempotentie:</strong> schema 006 bevat een expliciete waarschuwing (commentaarblok vanaf regel 24) dat een eerdere <em>backfill</em>-<code>UPDATE</code> is verwijderd. Omdat de schema-initialisatie élk <code>.sql</code>-bestand bij <em>elke</em> opstart opnieuw uitvoert (er is geen migratie-ledger), zette die onvoorwaardelijke UPDATE bij elke herstart alle project-tags terug naar <code>global</code> — stille dataverlies. Les: schema-bestanden moeten idempotent zijn en mogen geen destructieve datamutaties bevatten. Een nieuwe database heeft géén backfill nodig, want de kolom <code>scope</code> krijgt de default <code>global</code>.</p>
+<p><strong>Traceerbaarheid &amp; idempotentie:</strong> het vroegere schemabestand 006 bevatte een expliciete waarschuwing dat een eerdere <em>backfill</em>-<code>UPDATE</code> was verwijderd. Omdat de schema-initialisatie élk <code>.sql</code>-bestand bij <em>elke</em> opstart opnieuw uitvoert (er is geen migratie-ledger), zette die onvoorwaardelijke UPDATE bij elke herstart alle project-tags terug naar <code>global</code> — stille dataverlies. <code>03_assay.sql</code> maakt de kolommen nu meteen in hun eindvorm aan, zonder backfill (zie <a href="#hs-3">hoofdstuk 3</a>). Les: schema-bestanden moeten idempotent zijn en mogen geen destructieve datamutaties bevatten. Een nieuwe database heeft géén backfill nodig, want de kolom <code>scope</code> krijgt de default <code>global</code>.</p>
 </blockquote>
 <h3>Validatie bij het opslaan</h3>
 <p>Bij het opslaan van een review controleert de backend dat <em>elke</em> opgegeven tag ook echt bestaat in de toegestane set voor die familie/projecten. Onbekende tags leveren een <code>400</code>-fout. Deze query wordt lui uitgevoerd: alleen wanneer de payload daadwerkelijk tags bevat, wordt de (relatief dure) join naar de toegestane tags uitgevoerd — hij draait hooguit één keer per opslag.</p>
@@ -3780,7 +3768,7 @@ if context.project_ids:
 <p><strong>Verschil met SNV in één zin:</strong> SNV gebruikt discrete sterkten met vaste punten en een stand-alone BA1-override; CNV gebruikt continue, geklemde puntenbereiken die per verlies/winst verschillen en géén BA1-analoog kennen.</p>
 <hr />
 <h2>Deel 4 — Persistentie &amp; het evidence-snapshot</h2>
-<h3>De ACMG-kolommen (schema 025 / 026)</h3>
+<h3>De ACMG-kolommen</h3>
 <p>De volledige per-criterium-blob wordt als JSONB bewaard, samen met het herberekende totaal en de klasse-sleutel (gedenormaliseerd voor filteren en samenvattingen):</p>
 <div class="scroll"><table>
 <thead>
@@ -3794,26 +3782,26 @@ if context.project_ids:
 <tr>
 <td><code>acmg</code> (JSONB), <code>acmg_point_total</code> (INTEGER), <code>acmg_class</code> (TEXT)</td>
 <td><code>small_variant_reviews</code></td>
-<td><code>025_acmg_classification.sql</code></td>
+<td><code>03_assay.sql</code></td>
 </tr>
 <tr>
 <td><code>cnv_acmg</code> (JSONB), <code>cnv_point_total</code> (DOUBLE PRECISION), <code>cnv_class</code> (TEXT)</td>
 <td><code>structural_variant_reviews</code></td>
-<td><code>026_structural_acmg_classification.sql</code></td>
+<td><code>03_assay.sql</code></td>
 </tr>
 </tbody>
 </table></div>
 <p>De blob bevat de criteria (code, sterkte/punten, evidence-tekst, <code>accepted</code>-vlag, <code>auto_suggested</code>-vlag), het <code>point_total</code>, de <code>classification</code>-label en voor SNV de <code>vus_tier</code>. Zo is een classificatie <strong>reproduceerbaar en auditeerbaar</strong>: men kan exact terugzien welke criteria met welke sterkte en welk bewijs zijn toegepast.</p>
 <p>Bij het opslaan schrijft de modal de berekende klasse ook terug als review-tag (<code>acmg_class_N</code>, plus <code>acmg_vus_&lt;tier&gt;</code> voor een VUS), zodat kaarten en samenvattingen ze oppikken. Herclassificeren buiten de VUS-band laat de tier-tag automatisch weg.</p>
 <p class="waar"><strong>Waar in de code:</strong> de auto-managed tags worden in <code>handleSave</code> (<code>AcmgClassificationModal.tsx</code>) toegevoegd; de opslag loopt via <code>upsert_small_variant_review</code> en de repository-<code>_insert_review_row</code> / <code>_update_review_row</code>.</p>
-<h3>Het bevroren evidence-snapshot (schema 031)</h3>
+<h3>Het bevroren evidence-snapshot</h3>
 <p>Dit is de kern van klinische traceerbaarheid. Op het moment van classificeren vriest CoGA de <em>evidence</em> in waarop de classificatie steunde, in de JSONB-kolom <code>acmg_evidence_snapshot</code>:</p>
 <ul>
 <li><code>annotation_version</code> en <code>annotation_set_hash</code> — de identiteit van de annotatieset; de hash is de goedkope <strong>drift-sleutel</strong> (verandert zodra <em>enige</em> annotatie verandert);</li>
 <li><code>clinvar</code> — de meest beslissingsrelevante waarde, uit de per-transcript-annotaties;</li>
 <li><code>captured_at</code> — het tijdstip.</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>build_evidence_snapshot</code> in <code>backend/app/services/small_variant_review_acmg.py</code>; het snapshot wordt gevuld in <code>upsert_small_variant_review</code> (<code>acmg_evidence_snapshot = build_evidence_snapshot(variant, now) if normalized_acmg else None</code>). De kolom komt uit <code>backend/db/schema/postgres/031_classification_evidence_snapshot.sql</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>build_evidence_snapshot</code> in <code>backend/app/services/small_variant_review_acmg.py</code>; het snapshot wordt gevuld in <code>upsert_small_variant_review</code> (<code>acmg_evidence_snapshot = build_evidence_snapshot(variant, now) if normalized_acmg else None</code>). De kolom staat in de tabeldefinitie van <code>small_variant_reviews</code> in <code>backend/db/schema/postgres/03_assay.sql</code>.</p>
 <h3>De onveranderlijke klinische audittrail</h3>
 <p>Naast het snapshot schrijft elke <em>Small-Variant</em>-review-wijziging een before→after-record in de <strong>append-only</strong> <code>clinical_audit_events</code>-tabel, in dezelfde transactie als de wijziging: <em>wie</em> welke variant classificeerde/taggde, <em>wanneer</em>, en <em>wat</em> veranderde (klasse, criteria-codes, tags, notitie). Dit is de klinische <em>actie</em>-log, los van de HTTP-<em>toegangs</em>-log <code>audit_log_pg</code>. De records worden bovendien in een <strong>hash-chain</strong> aan elkaar gebonden (per familie), zodat wissen, herordenen of bewerken van een record detecteerbaar is.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>record_review_changes</code> (aangeroepen als <code>_audit()</code> in <code>upsert_small_variant_review</code>, vóór de <code>commit</code>), met <code>diff_review_changes</code> en <code>record_clinical_event</code> in <code>backend/app/services/clinical_audit_service.py</code>; de hashketen zit in <code>chain_row_hash</code> / <code>verify_chain</code> uit <code>backend/app/services/hash_chain.py</code>.</p>
@@ -3957,20 +3945,8 @@ if context.project_ids:
 <td>Tamper-evidence hashketen (<code>chain_row_hash</code>, <code>verify_chain</code>).</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/006_project_scoped_variant_tags.sql</code></td>
-<td>Project-scope + koppeltabel voor tag-definities.</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/025_acmg_classification.sql</code></td>
-<td>ACMG-kolommen op <code>small_variant_reviews</code>.</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/026_structural_acmg_classification.sql</code></td>
-<td>CNV-ACMG-kolommen op <code>structural_variant_reviews</code>.</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/031_classification_evidence_snapshot.sql</code></td>
-<td><code>acmg_evidence_snapshot</code>-kolom (drift-sleutel).</td>
+<td><code>backend/db/schema/postgres/03_assay.sql</code></td>
+<td>Project-scope + koppeltabel voor tag-definities; ACMG-kolommen en de <code>acmg_evidence_snapshot</code>-kolom (drift-sleutel) op <code>small_variant_reviews</code>; CNV-ACMG-kolommen op <code>structural_variant_reviews</code>.</td>
 </tr>
 </tbody>
 </table></div>
@@ -4110,11 +4086,11 @@ if context.project_ids:
 <h2>Append-only, hash-geketende audit- en sign-out-trail</h2>
 <p>CoGA houdt <strong>twee</strong> verschillende auditlogs bij, met verschillende doelen:</p>
 <ul>
-<li><strong>HTTP-toegangslog</strong> — <code>audit_log_events</code> (<code>004_audit_logs.sql</code>), geschreven door <code>backend/app/services/audit_log_pg.py</code>: elke HTTP-request (methode, pad, statuscode, gebruiker). Infrastructureel, afgeleid uit method+path+body.</li>
-<li><strong>Klinische actielog</strong> — <code>clinical_audit_events</code> (<code>032_clinical_audit_events.sql</code>), geschreven door <code>backend/app/services/clinical_audit_service.py</code>: semantische klinische acties (classificatie, tag toegevoegd/verwijderd, notitie bewerkt, rapport afgetekend), mét veld-niveau <code>before</code>/<code>after</code>. Deze wordt geschreven <strong>in dezelfde transactie</strong> als de wijziging zelf (<code>record_review_changes</code>, <code>diff_review_changes</code>), zodat de trail nooit uit de pas loopt met de data.</li>
+<li><strong>HTTP-toegangslog</strong> — <code>audit_log_events</code> (<code>04_traceability.sql</code>), geschreven door <code>backend/app/services/audit_log_pg.py</code>: elke HTTP-request (methode, pad, statuscode, gebruiker). Infrastructureel, afgeleid uit method+path+body.</li>
+<li><strong>Klinische actielog</strong> — <code>clinical_audit_events</code> (<code>04_traceability.sql</code>), geschreven door <code>backend/app/services/clinical_audit_service.py</code>: semantische klinische acties (classificatie, tag toegevoegd/verwijderd, notitie bewerkt, rapport afgetekend), mét veld-niveau <code>before</code>/<code>after</code>. Deze wordt geschreven <strong>in dezelfde transactie</strong> als de wijziging zelf (<code>record_review_changes</code>, <code>diff_review_changes</code>), zodat de trail nooit uit de pas loopt met de data.</li>
 </ul>
 <p>Beide zijn op databankniveau <strong>append-only</strong>: een trigger blokkeert <code>DELETE</code> volledig en <code>UPDATE</code> behalve de ene toegestane uitzondering — het <code>ON DELETE SET NULL</code>-cascaden dat de foreign keys <code>user_id</code>/<code>actor_id</code>/<code>family_id</code> op NULL zet als een account of familie verwijderd wordt (de gedenormaliseerde velden bewaren dan nog de identiteit). De vergelijking gebeurt kolom-agnostisch (<code>to_jsonb(NEW) - 'actor_id' - 'family_id'</code> vergeleken met dezelfde uitdrukking op de oude rij), zodat nieuw toegevoegde kolommen automatisch beschermd blijven.</p>
-<p class="waar"><strong>Waar in de code:</strong> triggers in <code>029_audit_log_immutable.sql</code>, <code>032_clinical_audit_events.sql</code>, <code>033_report_signouts.sql</code> (en <code>041_integrity_anchors.sql</code>, zie verder).</p>
+<p class="waar"><strong>Waar in de code:</strong> de triggerfuncties <code>audit_log_events_block_mutation</code>, <code>clinical_audit_events_block_mutation</code> en <code>report_signouts_block_mutation</code> met hun triggers, alle in <code>backend/db/schema/postgres/04_traceability.sql</code> (daar staat ook <code>integrity_anchors_block_mutation</code>, zie verder).</p>
 <h3>Wat een hash-keten is — en waarom ze manipulatie zichtbaar maakt</h3>
 <p>Append-only-triggers <em>verhinderen</em> dat de normale applicatiepaden een regel wijzigen. Maar een geprivilegieerde databankgebruiker die de trigger kan uitschakelen, zou dat kunnen omzeilen. Daartegen legt CoGA een <strong>hash-keten</strong> over de twee klinische tabellen.</p>
 <p>Stel u de regels voor als schakels in een ketting. Elke regel krijgt een <code>row_hash</code>: een SHA-256 over de <em>onveranderlijke inhoud van die regel</em> <strong>plus de <code>row_hash</code> van de vorige regel</strong> (<code>chain_row_hash(prev_hash, payload)</code> = <code>SHA-256(prev_hash ‖ "\n" ‖ canonical(payload))</code>; de allereerste regel gebruikt de tekst <code>GENESIS</code>). Gevolg:</p>
@@ -4128,30 +4104,30 @@ if context.project_ids:
 <li>De keten is <strong>gepartitioneerd op de onveranderlijke <code>family_identifier</code></strong> (de menselijke familie-id), niet op de muteerbare <code>family_id</code> (de UUID die het cascaden op NULL zet). Zo blijft de getekende historie van een verwijderde familie verifieerbaar.</li>
 <li>De gehashte payload <strong>sluit de FK-kolommen uit</strong> die het cascaden mag nullen, en bindt in plaats daarvan de gedenormaliseerde identiteit. Een legitieme account-/familieverwijdering breekt de keten dus niet.</li>
 </ul>
-<p><strong>Eerlijke reikwijdte (belangrijk voor het review board).</strong> De hash-keten is <strong>tamper-EVIDENT, niet tamper-proof</strong> (manipulatie wordt <em>zichtbaar</em>, maar niet <em>onmogelijk</em> gemaakt). Ze detecteert manipulatie door iedereen die de keten <em>niet kan herberekenen</em>. Maar de tabel-<em>eigenaar</em> (tot de niet-eigenaar-runtime-rol <code>coga_app</code> volledig is uitgerold, is dat de app-DB-rol zelf — zie <code>040_app_runtime_role_privileges.sql</code>) kan de trigger uitschakelen, een interne regel bewerken en vervolgens <code>row_hash</code>/<code>prev_hash</code> voor die regel én alle opvolgers herrekenen tot een zelf-consistente keten. Dat sluit het volgende blok — de externe ankers — af. Deze reikwijdte staat expliciet in de docstrings van <code>hash_chain.py</code> en <code>integrity_anchor_service.py</code> en moet in regulator-taal zo geformuleerd blijven ("tamper-evident tegen een database-only tegenstander, tussen bewaarde ankers"), nooit "tamper-proof" of "immutable".</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/hash_chain.py</code> (<code>chain_row_hash</code>, <code>verify_chain</code>, <code>ChainVerification</code>); ketenschrijving in <code>clinical_audit_service.record_clinical_event</code> en <code>report_signout_service.sign_out_report</code>; hash-kolommen toegevoegd in <code>038_clinical_audit_hash_chain.sql</code> en <code>039_report_signouts_hash_chain.sql</code>.</p>
+<p><strong>Eerlijke reikwijdte (belangrijk voor het review board).</strong> De hash-keten is <strong>tamper-EVIDENT, niet tamper-proof</strong> (manipulatie wordt <em>zichtbaar</em>, maar niet <em>onmogelijk</em> gemaakt). Ze detecteert manipulatie door iedereen die de keten <em>niet kan herberekenen</em>. Maar de tabel-<em>eigenaar</em> (tot de niet-eigenaar-runtime-rol <code>coga_app</code> volledig is uitgerold, is dat de app-DB-rol zelf — zie <code>05_grants.sql</code>) kan de trigger uitschakelen, een interne regel bewerken en vervolgens <code>row_hash</code>/<code>prev_hash</code> voor die regel én alle opvolgers herrekenen tot een zelf-consistente keten. Dat sluit het volgende blok — de externe ankers — af. Deze reikwijdte staat expliciet in de docstrings van <code>hash_chain.py</code> en <code>integrity_anchor_service.py</code> en moet in regulator-taal zo geformuleerd blijven ("tamper-evident tegen een database-only tegenstander, tussen bewaarde ankers"), nooit "tamper-proof" of "immutable".</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/hash_chain.py</code> (<code>chain_row_hash</code>, <code>verify_chain</code>, <code>ChainVerification</code>); ketenschrijving in <code>clinical_audit_service.record_clinical_event</code> en <code>report_signout_service.sign_out_report</code>; de hash-kolommen <code>row_hash</code>/<code>prev_hash</code> staan in de tabeldefinities van <code>clinical_audit_events</code> en <code>report_signouts</code> in <code>04_traceability.sql</code>.</p>
 <h2>Integriteitsankers: de keten extern verifieerbaar maken</h2>
 <p>Om ook de "eigenaar die de trigger uitschakelt en herketent" detecteerbaar te maken, bestaat er een <strong>extern getekend anker</strong>. <code>backend/app/services/integrity_anchor_service.py</code> (<code>create_integrity_anchor</code>) doet periodiek het volgende:</p>
 <ol>
 <li><strong>Alle keten-koppen vastleggen</strong> (<code>_capture_heads</code>): voor elke familie, voor beide tabellen (<code>report_signouts</code> en <code>clinical_audit_events</code>), de hoogte (<code>height</code>) en de <code>head_row_hash</code>.</li>
 <li>Deze koppen <strong>canoniek hashen</strong> tot een <code>anchor_root</code>, ze aan het vorige anker ketenen (<code>prev_anchor_hash</code> → <code>anchor_hash</code>), en het geheel <strong>ondertekenen met een Ed25519-privésleutel</strong> (een moderne digitale-handtekening­techniek) die in app-config/omgeving zit — <strong>nooit in de databank</strong>.</li>
-<li>Het anker <strong>append-only</strong> wegschrijven in <code>integrity_anchors</code> (<code>041_integrity_anchors.sql</code>).</li>
+<li>Het anker <strong>append-only</strong> wegschrijven in <code>integrity_anchors</code> (<code>04_traceability.sql</code>).</li>
 </ol>
 <p>Waarom dit werkt: een eigenaar zonder de privésleutel kan een geketende regel wel <em>herrekenen</em>, maar kan <strong>geen geldig getekend anker vervalsen</strong>. De divergentie tussen de live keten en het laatst <em>getekende</em> anker wordt dan zichtbaar voor een verifier die de databank niet vertrouwt. <code>verify_against_latest_anchor</code> (koppen van het laatste anker vs. de live ketens) en <code>verify_anchor_chain</code> (de volledige ankerketen + alle handtekeningen) geven statussen als <code>ok</code>, <code>diverged</code>, <code>chain_broken</code>, <code>signature_invalid</code>, <code>unknown_key</code> en <code>unverifiable_unsigned</code>.</p>
-<p>De docstring van de service formuleert de trustgrens eerlijk: de aanpak detecteert interne herketening/inkorting tussen bewaarde ankers, maar verdedigt <strong>niet</strong> tegen een tegenstander die de tekensleutel bezit (host-compromittering — daarvoor is een HSM, een hardware-sleutelmodule, nodig), en detecteert het wissen van de <em>laatste</em> ankers alleen als er een out-of-band bewaarde kopie is. Die out-of-band export is bewust een nog niet-gekoppelde naad (<code>export_anchor</code>, momenteel een no-op — een functie die nog niets doet). De tabel is bovendien strikt vergrendeld voor de runtime-rol: <code>GRANT SELECT, INSERT</code> gevolgd door <code>REVOKE UPDATE, DELETE, TRUNCATE</code> (regels 52-53 van <code>041</code>, in lijn met de runtime-rol uit <code>040</code>).</p>
+<p>De docstring van de service formuleert de trustgrens eerlijk: de aanpak detecteert interne herketening/inkorting tussen bewaarde ankers, maar verdedigt <strong>niet</strong> tegen een tegenstander die de tekensleutel bezit (host-compromittering — daarvoor is een HSM, een hardware-sleutelmodule, nodig), en detecteert het wissen van de <em>laatste</em> ankers alleen als er een out-of-band bewaarde kopie is. Die out-of-band export is bewust een nog niet-gekoppelde naad (<code>export_anchor</code>, momenteel een no-op — een functie die nog niets doet). De tabel is bovendien strikt vergrendeld voor de runtime-rol: <code>05_grants.sql</code> trekt na de brede <code>GRANT</code> weer <code>UPDATE, DELETE, TRUNCATE</code> in (<code>REVOKE</code>), net als voor de andere append-only tabellen, zodat <code>coga_app</code> er enkel <code>SELECT</code> en <code>INSERT</code> op houdt.</p>
 <h3>Integriteit van de variantopslag (ClickHouse)</h3>
 <p>De ankers dekken de Postgres-ketens. De grootschalige variantopslag in ClickHouse wordt bewaakt door <strong><code>backend/app/services/clickhouse_integrity_monitor.py</code></strong>: kort na opstart en daarna op een vast interval draait <code>run_integrity_sweep</code> de controle <code>check_clickhouse_variant_integrity</code> over elke assembly. Bij status <code>corrupt</code> of <code>missing</code> (in <code>_ALERT_STATUSES</code>) escaleert het naar een <code>ERROR</code>-log — de alert-haak — <em>vóór</em> de corruptie zich als query-500's manifesteert. Het laatste resultaat per assembly wordt gecached voor admin/health-surfacing (<code>last_integrity_results</code>).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/integrity_anchor_service.py</code> (<code>create_integrity_anchor</code>, <code>verify_against_latest_anchor</code>, <code>verify_anchor_chain</code>); schema <code>041_integrity_anchors.sql</code>; <code>backend/app/services/clickhouse_integrity_monitor.py</code> (<code>run_integrity_sweep</code>).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/integrity_anchor_service.py</code> (<code>create_integrity_anchor</code>, <code>verify_against_latest_anchor</code>, <code>verify_anchor_chain</code>); schema <code>04_traceability.sql</code> (tabel + trigger) en <code>05_grants.sql</code> (runtime-rolrechten); <code>backend/app/services/clickhouse_integrity_monitor.py</code> (<code>run_integrity_sweep</code>).</p>
 <h2>De volledige traceerbaarheidsketen, stap voor stap</h2>
 <p>Dit is het hart van de explainability-boodschap: elk gerapporteerd resultaat is herleidbaar tot exact wat het produceerde. De keten, met per stap de plaats in de code:</p>
 <ol>
-<li><strong>Ruw bestand → hash.</strong> Bij import wordt elk bronbestand vastgelegd in <code>raw_import_files</code> met <code>file_name</code>, <code>storage_path</code>, <code>file_size</code>, <code>source</code> en een <strong><code>sha256</code></strong>-integriteitshash. <em>(<code>backend/db/schema/postgres/017_raw_import_files.sql</code>; importpijplijn — hoofdstuk <a href="#hs-6">06-import-pipeline.md</a>.)</em></li>
-<li><strong>Annotatie-manifest.</strong> De <code>##</code>-headers van de VCF-bestanden worden geparsed en per familie opgeslagen in <code>family_annotation_manifest</code> (bron <code>vcf_header</code>, <code>manifest</code> of <code>manual</code>); versies verversen bij re-import, maar een handmatig gecureerde (<code>manual</code>) manifest wint en wordt nooit overschreven. <em>(<code>backend/app/services/annotation_manifest_service.py</code> — <code>merge_vcf_header_provenance</code>, <code>get_family_annotation_manifest</code>; schema <code>030</code>; zie <code>docs/annotation-provenance.md</code>.)</em></li>
+<li><strong>Ruw bestand → hash.</strong> Bij import wordt elk bronbestand vastgelegd in <code>raw_import_files</code> met <code>file_name</code>, <code>storage_path</code>, <code>file_size</code>, <code>source</code> en een <strong><code>sha256</code></strong>-integriteitshash. <em>(<code>backend/db/schema/postgres/04_traceability.sql</code>; importpijplijn — hoofdstuk <a href="#hs-6">06-import-pipeline.md</a>.)</em></li>
+<li><strong>Annotatie-manifest.</strong> De <code>##</code>-headers van de VCF-bestanden worden geparsed en per familie opgeslagen in <code>family_annotation_manifest</code> (bron <code>vcf_header</code>, <code>manifest</code> of <code>manual</code>); versies verversen bij re-import, maar een handmatig gecureerde (<code>manual</code>) manifest wint en wordt nooit overschreven. <em>(<code>backend/app/services/annotation_manifest_service.py</code> — <code>merge_vcf_header_provenance</code>, <code>get_family_annotation_manifest</code>; schema <code>04_traceability.sql</code>; zie <code>docs/annotation-provenance.md</code>.)</em></li>
 <li><strong>Variant in ClickHouse.</strong> Elke variant draagt een <code>annotationSetHash</code> — een inhoudsvingerafdruk die vastpint welke annotatie-set gold. <em>(zie hoofdstuk <a href="#hs-3">03-databankstructuren.md</a>.)</em></li>
-<li><strong>Review / ACMG-evidence-snapshot.</strong> Bij elke ACMG-save wordt de geziene evidence (annotation-set-hash, ClinVar-significantie, moduleversies) bevroren in <code>small_variant_reviews.acmg_evidence_snapshot</code>. <em>(<code>031_classification_evidence_snapshot.sql</code>; hoofdstuk <a href="#hs-10">10-tagging-en-acmg-classificatie.md</a>.)</em></li>
+<li><strong>Review / ACMG-evidence-snapshot.</strong> Bij elke ACMG-save wordt de geziene evidence (annotation-set-hash, ClinVar-significantie, moduleversies) bevroren in <code>small_variant_reviews.acmg_evidence_snapshot</code>. <em>(<code>03_assay.sql</code>; hoofdstuk <a href="#hs-10">10-tagging-en-acmg-classificatie.md</a>.)</em></li>
 <li><strong>Gating.</strong> Voor sign-out worden <strong>drift</strong> (bevroren vs. huidige annotation-set-hash) en <strong>Sample-QC</strong> (swap-detectie) geëvalueerd; niet-groen moet expliciet worden erkend, bij QC met een verplichte reden. <em>(<code>report_signout_service.sign_out_report</code>; <code>classification_drift_service</code>; <code>sample_integrity_service</code>.)</em></li>
-<li><strong>Bevroren rapport.</strong> Het snapshot — manifest, software-<code>version</code>+<code>git_sha</code>, driftstatus, Sample-QC, gerapporteerde varianten met evidence — wordt content-gehasht en append-only weggeschreven als nieuwe <code>version</code>. <em>(<code>report_signout_service.build_report_snapshot</code> + insert in <code>report_signouts</code>; schema <code>033</code>.)</em></li>
-<li><strong>Hash-geketende sign-out + anker.</strong> De sign-out-regel wordt in de per-familie hash-keten gehangen (<code>row_hash</code>/<code>prev_hash</code>), er wordt een <code>sign_out</code>-event in de klinische audittrail geschreven, en periodiek verzegelt een Ed25519-getekend integriteitsanker de keten-koppen extern. <em>(<code>hash_chain</code>, <code>clinical_audit_service.record_clinical_event</code>, <code>integrity_anchor_service</code>; schema's <code>038</code>/<code>039</code>/<code>041</code>.)</em></li>
+<li><strong>Bevroren rapport.</strong> Het snapshot — manifest, software-<code>version</code>+<code>git_sha</code>, driftstatus, Sample-QC, gerapporteerde varianten met evidence — wordt content-gehasht en append-only weggeschreven als nieuwe <code>version</code>. <em>(<code>report_signout_service.build_report_snapshot</code> + insert in <code>report_signouts</code>; schema <code>04_traceability.sql</code>.)</em></li>
+<li><strong>Hash-geketende sign-out + anker.</strong> De sign-out-regel wordt in de per-familie hash-keten gehangen (<code>row_hash</code>/<code>prev_hash</code>), er wordt een <code>sign_out</code>-event in de klinische audittrail geschreven, en periodiek verzegelt een Ed25519-getekend integriteitsanker de keten-koppen extern. <em>(<code>hash_chain</code>, <code>clinical_audit_service.record_clinical_event</code>, <code>integrity_anchor_service</code>; schema <code>04_traceability.sql</code>.)</em></li>
 </ol>
 <p>Zo loopt een auditor van de SHA-256 van het ruwe bestand, via de versies die het annoteerden en de exacte evidence achter elke classificatie, tot een ondertekend rapport waarvan de integriteit extern verifieerbaar is.</p>
 <h2>Veiligheid &amp; traceerbaarheid — waar het wordt afgedwongen</h2>
@@ -4177,19 +4153,19 @@ if context.project_ids:
 </tr>
 <tr>
 <td>Onveranderlijkheid van audit- en sign-out-regels (append-only)</td>
-<td>DB-triggers in <code>029</code>, <code>032</code>, <code>033</code>, <code>041</code></td>
+<td>DB-triggers in <code>04_traceability.sql</code></td>
 </tr>
 <tr>
 <td>Manipulatiedetectie binnen een keten (per familie)</td>
-<td><code>hash_chain.py</code>, ketenkolommen <code>038</code>/<code>039</code></td>
+<td><code>hash_chain.py</code>, ketenkolommen <code>row_hash</code>/<code>prev_hash</code> in <code>04_traceability.sql</code></td>
 </tr>
 <tr>
 <td>Externe, sleutelgebaseerde verzegeling van keten-koppen</td>
-<td><code>integrity_anchor_service.py</code>, schema <code>041</code></td>
+<td><code>integrity_anchor_service.py</code>, tabel <code>integrity_anchors</code> in <code>04_traceability.sql</code></td>
 </tr>
 <tr>
 <td>Runtime-rol zonder UPDATE/DELETE op de append-only tabellen</td>
-<td><code>040_app_runtime_role_privileges.sql</code>, <code>041</code></td>
+<td><code>05_grants.sql</code></td>
 </tr>
 <tr>
 <td>Integriteitsbewaking variantopslag (ClickHouse)</td>
@@ -4249,32 +4225,16 @@ if context.project_ids:
 <td>HTTP-toegangslog (<code>audit_log_events</code>)</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/032_clinical_audit_events.sql</code></td>
-<td>Klinische audittabel + append-only trigger</td>
+<td><code>backend/db/schema/postgres/04_traceability.sql</code></td>
+<td>HTTP-audittabel, klinische audittabel en sign-out-snapshottabel, elk met append-only trigger; hash-keten-kolommen op de klinische audit- en sign-out-tabel; ankertabel + trigger; ruwe-bestandprovenance met SHA-256; annotatiemanifest</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/033_report_signouts.sql</code></td>
-<td>Sign-out-snapshottabel + append-only trigger</td>
+<td><code>backend/db/schema/postgres/05_grants.sql</code></td>
+<td>Restrictieve runtime-rol (<code>coga_app</code>), REVOKE UPDATE/DELETE/TRUNCATE op de append-only tabellen (incl. de ankertabel)</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/038_…</code> / <code>039_…_hash_chain.sql</code></td>
-<td>Hash-keten-kolommen op beide tabellen</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/040_app_runtime_role_privileges.sql</code></td>
-<td>Restrictieve runtime-rol (<code>coga_app</code>), REVOKE UPDATE/DELETE</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/041_integrity_anchors.sql</code></td>
-<td>Ankertabel + trigger + runtime-rolrechten</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/031_classification_evidence_snapshot.sql</code></td>
-<td>Bevroren ACMG-evidence per classificatie</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/017_raw_import_files.sql</code></td>
-<td>Ruwe-bestandprovenance met SHA-256</td>
+<td><code>backend/db/schema/postgres/03_assay.sql</code></td>
+<td>Bevroren ACMG-evidence per classificatie (<code>small_variant_reviews.acmg_evidence_snapshot</code>)</td>
 </tr>
 <tr>
 <td><code>frontend/src/pages/families/FamilyReportPage.tsx</code></td>
@@ -4305,7 +4265,7 @@ if context.project_ids:
 </ul>
 <h2>HPO: het fenotype-woordenboek</h2>
 <h3>Wat wordt opgeslagen</h3>
-<p>De HPO-ontologie wordt in Postgres opgeslagen in vier tabellen, gedefinieerd in <code>backend/db/schema/postgres/015_hpo.sql</code>:</p>
+<p>De HPO-ontologie wordt in Postgres opgeslagen in vier tabellen, gedefinieerd in <code>backend/db/schema/postgres/02_reference.sql</code>:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -4332,8 +4292,8 @@ if context.project_ids:
 </tr>
 </tbody>
 </table></div>
-<p>De aparte tabel <code>individual_hpo</code> koppelt waargenomen fenotypes aan een concreet familielid (via <code>family_id</code> en een <code>sample_id</code> die naar <code>samples(id)</code> verwijst), met een <code>status</code> van <code>present</code>, <code>absent</code> of <code>unknown</code>. Alleen <code>present</code>-termen tellen mee voor prioritisatie.</p>
-<p class="waar"><strong>Waar in de code:</strong> het schema in <code>backend/db/schema/postgres/015_hpo.sql</code>; de laadlogica in <code>backend/app/services/hpo_service.py</code>.</p>
+<p>De aparte tabel <code>individual_hpo</code> (in <code>03_assay.sql</code>, bij de familie- en samplegegevens) koppelt waargenomen fenotypes aan een concreet familielid (via <code>family_id</code> en een <code>sample_id</code> die naar <code>samples(id)</code> verwijst), met een <code>status</code> van <code>present</code>, <code>absent</code> of <code>unknown</code>. Alleen <code>present</code>-termen tellen mee voor prioritisatie.</p>
+<p class="waar"><strong>Waar in de code:</strong> het schema in <code>backend/db/schema/postgres/02_reference.sql</code> (de HPO-tabellen) en <code>03_assay.sql</code> (<code>individual_hpo</code>); de laadlogica in <code>backend/app/services/hpo_service.py</code>.</p>
 <h3>Hoe de ontologie geladen en versiebeheerd wordt</h3>
 <p>Het inlezen gebeurt in <code>hpo_service.py</code>. Een bron-bestand (<code>hp.obo</code> of <code>hp.json</code>, de officiële HPO-releaseformaten) wordt geparseerd door <code>parse_hpo_obo_text</code> of <code>parse_hpo_json_text</code> en vervolgens weggeschreven door <code>import_hpo_ontology</code>. Die functie:</p>
 <ol>
@@ -4371,11 +4331,11 @@ if context.project_ids:
 </thead>
 <tbody>
 <tr>
-<td><code>monarch_gene_disease</code> (<code>026_monarch_associations.sql</code>)</td>
+<td><code>monarch_gene_disease</code> (<code>02_reference.sql</code>)</td>
 <td>Eén rij per <code>(hgnc_id, mondo_id)</code>. Aggregeert <code>predicates</code> en <code>sources</code>; <code>predicate</code> bevat de <em>sterkste</em> relatie; <code>causal</code> is <code>TRUE</code> als een causale relatie (<code>biolink:causes</code>) aanwezig is; <code>release_version</code> bewaart de Monarch-release.</td>
 </tr>
 <tr>
-<td><code>monarch_disease_phenotype</code> (<code>027_monarch_disease_phenotype.sql</code>)</td>
+<td><code>monarch_disease_phenotype</code> (<code>02_reference.sql</code>)</td>
 <td>Eén rij per <code>(mondo_id, hpo_id)</code>. <code>negated = TRUE</code> markeert een <em>uitgesloten</em> fenotype (de ziekte presenteert dit specifiek níet); bij tegenstrijdige bronnen wint de aanwezige assertie.</td>
 </tr>
 </tbody>
@@ -4457,7 +4417,7 @@ if source:
 <h2>De ranking-cache: snel én reproduceerbaar</h2>
 <p>Het prioritiseren kost ~10 s (vooral het per-gen fenotype-scoren). Omdat de uitkomst <strong>deterministisch</strong> is gegeven de invoer, en die invoer zelden verandert tussen twee keer openen, wordt de gerangschikte volgorde gecachet. Het ontwerp staat in <code>docs/variant-ranking-cache.md</code>; de code in <code>backend/app/services/variant_ranking_cache.py</code>.</p>
 <h3>Wat wordt gecachet</h3>
-<p>De tabel <code>family_variant_ranking_cache</code> (<code>035_family_variant_ranking_cache.sql</code>, uitgebreid door <code>036_ranking_cache_superset.sql</code>) bewaart per familie en per query-signatuur de <strong>compacte gerangschikte volgorde</strong> — een geordende lijst van <code>{variant_id, priority}</code> plus <code>total</code>, de truncatie-vlag en provenance. Bewust wordt de variant-<em>annotatie</em> en de <em>review-status</em> níet meegecachet: die worden bij elk verzoek vers uit ClickHouse/Postgres gehaald. Zo kan een gecachete ranking nooit verouderde annotaties of een verouderde reviewstatus serveren.</p>
+<p>De tabel <code>family_variant_ranking_cache</code> (<code>03_assay.sql</code>) bewaart per familie en per query-signatuur de <strong>compacte gerangschikte volgorde</strong> — een geordende lijst van <code>{variant_id, priority}</code> plus <code>total</code>, de truncatie-vlag en provenance. Bewust wordt de variant-<em>annotatie</em> en de <em>review-status</em> níet meegecachet: die worden bij elk verzoek vers uit ClickHouse/Postgres gehaald. Zo kan een gecachete ranking nooit verouderde annotaties of een verouderde reviewstatus serveren.</p>
 <h3>Vers houden via de <code>inputs_hash</code></h3>
 <p>Elke cacherij is gesleuteld op <code>inputs_hash</code> = SHA-256 van een canonieke samenvatting van <strong>alles wat de ranking verandert</strong> (<code>compute_ranking_hashes</code>):</p>
 <div class="scroll"><table>
@@ -4563,8 +4523,8 @@ if source:
 </thead>
 <tbody>
 <tr>
-<td><code>backend/db/schema/postgres/015_hpo.sql</code></td>
-<td>HPO-tabellen: <code>hpo_term</code>, <code>hpo_synonym</code>, <code>hpo_edge</code>, <code>hpo_closure</code>, <code>individual_hpo</code></td>
+<td><code>backend/db/schema/postgres/02_reference.sql</code></td>
+<td>HPO-tabellen <code>hpo_term</code>, <code>hpo_synonym</code>, <code>hpo_edge</code>, <code>hpo_closure</code>; Monarch-tabellen <code>monarch_gene_disease</code> (gen → ziekte) en <code>monarch_disease_phenotype</code> (ziekte → fenotype)</td>
 </tr>
 <tr>
 <td><code>backend/app/services/hpo_service.py</code></td>
@@ -4573,14 +4533,6 @@ if source:
 <tr>
 <td><code>backend/app/routers/hpo.py</code></td>
 <td>HPO-browser-endpoints (<code>/hpo/search</code>, <code>/hpo/{id}</code>, <code>/hpo/import</code>)</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/026_monarch_associations.sql</code></td>
-<td><code>monarch_gene_disease</code> (gen → ziekte)</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/027_monarch_disease_phenotype.sql</code></td>
-<td><code>monarch_disease_phenotype</code> (ziekte → fenotype)</td>
 </tr>
 <tr>
 <td><code>backend/app/services/monarch_ingest.py</code></td>
@@ -4607,8 +4559,8 @@ if source:
 <td>Prioritaire pagina, superset-serveren, achtergrond-opwarming</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/035_family_variant_ranking_cache.sql</code>, <code>036_ranking_cache_superset.sql</code></td>
-<td>Cachetabel + <code>base_hash</code>/<code>panel_id</code> voor superset-serveren</td>
+<td><code>backend/db/schema/postgres/03_assay.sql</code></td>
+<td><code>individual_hpo</code> (fenotypes per familielid); cachetabel <code>family_variant_ranking_cache</code> + <code>base_hash</code>/<code>panel_id</code> voor superset-serveren</td>
 </tr>
 <tr>
 <td><code>backend/app/routers/admin.py</code></td>
@@ -4813,11 +4765,11 @@ onderaan het gen-profiel zichtbaar is.</p>
 <p><strong>PanelApp</strong> is een aparte bron met een eigen service, <code>backend/app/services/panelapp_service.py</code>. Die wordt niet gebruikt voor gen-verrijking maar voor het <strong>importeren van genpanels</strong> (Genomics England PanelApp) — <code>search_panelapp_panels</code>, <code>fetch_panelapp_panel</code> en <code>extract_panelapp_import_content</code>. Belangrijk voor traceerbaarheid: de import-metadata bevat expliciet <code>panelapp_id</code>, <code>version</code>, <code>version_created</code>, <code>status</code> en een <code>source_url</code> (zie het <code>metadata</code>-blok in <code>extract_panelapp_import_content</code>). Deze panels verschijnen daarna als "Panel-lidmaatschap" op het gen-profiel. De aanroepende endpoints staan in <code>backend/app/routers/panels.py</code> (<code>GET /panels/panelapp/search</code>, <code>POST /panels/import/panelapp</code>).</p>
 <h2>Caching in Postgres: waarom en waar</h2>
 <p>De externe bronnen worden <strong>niet live per paginabezoek</strong> bevraagd. Dat zou traag, fragiel (afhankelijk van externe uptime) en niet-reproduceerbaar zijn — twee reviewers zouden verschillende data zien. In plaats daarvan cachet CoGA de verrijking in Postgres, en leest de pagina uitsluitend uit die cache.</p>
-<p>De centrale cachetabel is <strong><code>gene_info</code></strong>, gedefinieerd in <code>backend/db/schema/postgres/001_metadata.sql</code>. Één rij per <code>(assembly_id, hgnc_symbol)</code> (uniek), met kolommen voor <code>display_name</code>, <code>summary</code>, <code>aliases</code>, ids (<code>ensembl_gene_id</code>, <code>ncbi_gene_id</code>, <code>hgnc_id</code>, <code>omim_gene_id</code>), <code>homologs</code>, de JSONB-kolom <code>source_status</code> (de provenance-status per bron) en de JSONB-kolom <code>extra</code> (constraint-metrieken en ziekte-associaties). <code>updated_at</code> legt vast wanneer de rij voor het laatst is ververst.</p>
-<p>Voor performante zoek- en lookup-queries zijn in <strong><code>backend/db/schema/postgres/042_gene_search_indexes.sql</code></strong> expressie-indexen aangelegd op de <code>genes</code>- en <code>gene_info</code>-tabellen. Zonder deze indexen zou elke toetsaanslag in de autocomplete (<code>upper(hgnc_symbol) LIKE 'PREFIX%'</code>) en elke panel-/regio-resolve een sequentiële scan over 120.000+ rijen veroorzaken. De indexen dekken exact de query-predicaten: <code>text_pattern_ops</code> voor de prefix-<code>LIKE</code> van <code>search_genes</code>, en losse <code>upper()</code>/<code>lower()</code>-indexen op symbool, gene-id en transcript-id zodat de query-planner een BitmapOr kan doen in plaats van te scannen.</p>
+<p>De centrale cachetabel is <strong><code>gene_info</code></strong>, gedefinieerd in <code>backend/db/schema/postgres/02_reference.sql</code>. Één rij per <code>(assembly_id, hgnc_symbol)</code> (uniek), met kolommen voor <code>display_name</code>, <code>summary</code>, <code>aliases</code>, ids (<code>ensembl_gene_id</code>, <code>ncbi_gene_id</code>, <code>hgnc_id</code>, <code>omim_gene_id</code>), <code>homologs</code>, de JSONB-kolom <code>source_status</code> (de provenance-status per bron) en de JSONB-kolom <code>extra</code> (constraint-metrieken en ziekte-associaties). <code>updated_at</code> legt vast wanneer de rij voor het laatst is ververst.</p>
+<p>Voor performante zoek- en lookup-queries zijn in <strong><code>backend/db/schema/postgres/02_reference.sql</code></strong>, direct na de <code>CREATE TABLE</code> van <code>genes</code> en <code>gene_info</code>, expressie-indexen aangelegd op beide tabellen. Zonder deze indexen zou elke toetsaanslag in de autocomplete (<code>upper(hgnc_symbol) LIKE 'PREFIX%'</code>) en elke panel-/regio-resolve een sequentiële scan over 120.000+ rijen veroorzaken. De indexen dekken exact de query-predicaten: <code>text_pattern_ops</code> voor de prefix-<code>LIKE</code> van <code>search_genes</code>, en losse <code>upper()</code>/<code>lower()</code>-indexen op symbool, gene-id en transcript-id zodat de query-planner een BitmapOr kan doen in plaats van te scannen.</p>
 <p class="waar"><strong>Waar in de code:</strong> het lezen uit de cache gebeurt in <code>build_gene_profile</code> (<code>gene_metadata_service.py</code>); het schrijven in <code>_upsert_gene_info_row</code> (<code>gene_info_jobs_pg.py</code>), met een <code>INSERT … ON CONFLICT (assembly_id, hgnc_symbol) DO UPDATE</code> zodat een sync bestaande rijen bijwerkt zonder duplicaten.</p>
 <h2>Refresh-jobs &amp; worker</h2>
-<p>Omdat een volledige sync van alle humane genen duizenden externe verrijkingen omvat, draait dit als achtergrond-job, niet inline in een webverzoek. De job-tabel is <strong><code>gene_info_refresh_jobs</code></strong> in <code>001_metadata.sql</code>.</p>
+<p>Omdat een volledige sync van alle humane genen duizenden externe verrijkingen omvat, draait dit als achtergrond-job, niet inline in een webverzoek. De job-tabel is <strong><code>gene_info_refresh_jobs</code></strong> in <code>02_reference.sql</code>.</p>
 <h3>De job-tabel</h3>
 <p>Kernkolommen: <code>scope</code> (<code>'symbol'</code> voor één gen, <code>'all_human'</code> voor de hele catalogus), <code>symbol</code>, <code>status</code> (<code>'queued' → 'running' → 'completed'/'failed'</code>), <code>active_slot</code>, <code>worker_id</code>, <code>requested_by</code>, tijdstempels (<code>requested_at</code>, <code>started_at</code>, <code>heartbeat_at</code>, <code>completed_at</code>) en voortgangstellers (<code>total_symbols</code>, <code>completed_symbols</code>, <code>updated_records</code>, <code>current_symbol</code>).</p>
 <p>Cruciaal voor veiligheid: <code>active_slot TEXT UNIQUE</code>. Er bestaat één logische slot-waarde (<code>ACTIVE_GENE_REFERENCE_SLOT = "gene_reference"</code>), en omdat de kolom uniek is, kan er nooit meer dan één actieve job tegelijk bestaan. Een tweede insert botst op de unieke constraint en de service vertaalt dat naar een <strong>HTTP 409</strong> ("A gene reference refresh job is already active"). Dit is databank-afgedwongen wederzijdse uitsluiting, geen best-effort applicatielogica.</p>
@@ -4837,7 +4789,7 @@ onderaan het gen-profiel zichtbaar is.</p>
 <h2>Versiecontrole van referentiedatasets</h2>
 <p>Dit is het hart van reproduceerbaarheid onder IVDR: elke geïmporteerde referentiedataset en elke paneelversie wordt vastgelegd met <strong>bron + versie + tijdstip + wie</strong>, zodat een ondertekend rapport altijd aan een concrete, terugvindbare dataset-staat gebonden kan worden.</p>
 <h3>Referentiedataset-imports</h3>
-<p>Elke import van referentiedata (cytobanden, genen, blacklist, klinische CNV's, segmentale duplicaties, DGV) loopt via één enkel schrijfpad, <code>apply_reference_dataset_text</code> in <code>backend/app/services/reference_metadata_service.py</code>. Aan het eind van dat pad schrijft de functie — ongeacht of de import van een handmatige upload, een UCSC-import of een CNV-kennisbank-rebuild kwam — een rij naar <strong><code>reference_dataset_imports</code></strong> (schema <code>backend/db/schema/postgres/021_reference_dataset_imports.sql</code>):</p>
+<p>Elke import van referentiedata (cytobanden, genen, blacklist, klinische CNV's, segmentale duplicaties, DGV) loopt via één enkel schrijfpad, <code>apply_reference_dataset_text</code> in <code>backend/app/services/reference_metadata_service.py</code>. Aan het eind van dat pad schrijft de functie — ongeacht of de import van een handmatige upload, een UCSC-import of een CNV-kennisbank-rebuild kwam — een rij naar <strong><code>reference_dataset_imports</code></strong> (schema <code>backend/db/schema/postgres/02_reference.sql</code>):</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -4879,8 +4831,8 @@ onderaan het gen-profiel zichtbaar is.</p>
 <p>Omdat álle imports door dit ene pad gaan, is er één uniforme, chronologische audit-feed. <code>list_recent_reference_imports</code> en <code>list_reference_statuses</code> (in hetzelfde bestand) lezen deze tabel voor het "Recent reference activity"- en het per-dataset "laatst bijgewerkt / door / aantal"-overzicht.</p>
 <p>De <strong>UCSC-import</strong> zelf zit in <code>backend/app/services/reference_source_service.py</code> (<code>import_reference_from_ucsc</code>, <code>_download_genes</code>, <code>_download_cytobands</code>). Die haalt gentabellen en cytobanden op bij UCSC en roept per dataset <code>apply_reference_dataset_text(..., source="ucsc")</code> aan, waardoor de import automatisch in <code>reference_dataset_imports</code> belandt. Merk op: <code>_download_genes</code> probeert de tracks in volgorde <code>ncbiRefSeqCurated → ncbiRefSeq → refGene → ensGene</code>, wat de bron-track van de geïmporteerde genen bepaalt. Een veiligheidsdetail: <code>_safe_ucsc_genome</code> valideert het assembly-identifier tegen een strikt patroon (<code>_UCSC_GENOME_RE</code>) voordat het in een download-URL wordt geïnterpoleerd, wat een request-forgery (SSRF)-risico op de vaste UCSC-host afsluit.</p>
 <h3>Genpaneelbronnen en -versies</h3>
-<p>Genpanels dragen hun herkomst in de kolommen die schema <strong><code>013_gene_panel_sources.sql</code></strong> aan <code>gene_panels</code> toevoegt: <code>source</code>, <code>external_id</code>, <code>external_version</code>, <code>external_url</code>, <code>source_updated_at</code>, <code>source_metadata</code>. Een uniek index op <code>(source, external_id)</code> voorkomt dat hetzelfde externe panel (bv. een PanelApp-panel) dubbel wordt geïmporteerd.</p>
-<p>De echte versiecontrole komt van schema <strong><code>034_gene_panel_versions.sql</code></strong>. Dit voegt een <code>version</code>-teller aan <code>gene_panels</code> toe en introduceert de tabel <strong><code>gene_panel_versions</code></strong>: bij elke wijziging van een panel wordt een <strong>onveranderlijke momentopname</strong> gearchiveerd met <code>version</code>, <code>name</code>, <code>source</code>, <code>external_version</code> (bv. de PanelApp- of Monarch-release), <code>gene_count</code>, de volledige <code>genes</code>- en <code>regions</code>-JSONB, <code>source_metadata</code>, plus <code>created_by</code> én <code>created_by_email</code> (het e-mailadres wordt gedenormaliseerd opgeslagen zodat de auteur traceerbaar blijft, zelfs als het account later verdwijnt). Het commentaar in het schema vat het principe samen: het live panel is altijd gelijk aan de laatste versie-momentopname, en een update overschrijft of verwijdert nooit de vorige inhoud — die blijft getimestampeerd bewaard en opvraagbaar.</p>
+<p>Genpanels dragen hun herkomst in deze kolommen van <code>gene_panels</code> (schema <strong><code>02_reference.sql</code></strong>): <code>source</code>, <code>external_id</code>, <code>external_version</code>, <code>external_url</code>, <code>source_updated_at</code>, <code>source_metadata</code>. Een uniek index op <code>(source, external_id)</code> voorkomt dat hetzelfde externe panel (bv. een PanelApp-panel) dubbel wordt geïmporteerd.</p>
+<p>De echte versiecontrole zit in hetzelfde baseline-bestand. <code>gene_panels</code> draagt een <code>version</code>-teller, en de tabel <strong><code>gene_panel_versions</code></strong> houdt de geschiedenis bij: bij elke wijziging van een panel wordt een <strong>onveranderlijke momentopname</strong> gearchiveerd met <code>version</code>, <code>name</code>, <code>source</code>, <code>external_version</code> (bv. de PanelApp- of Monarch-release), <code>gene_count</code>, de volledige <code>genes</code>- en <code>regions</code>-JSONB, <code>source_metadata</code>, plus <code>created_by</code> én <code>created_by_email</code> (het e-mailadres wordt gedenormaliseerd opgeslagen zodat de auteur traceerbaar blijft, zelfs als het account later verdwijnt). Het principe: het live panel is altijd gelijk aan de laatste versie-momentopname, en een update overschrijft of verwijdert nooit de vorige inhoud — die blijft getimestampeerd bewaard en opvraagbaar.</p>
 <p>De schrijf- en leeslogica staat in <code>backend/app/services/panel_metadata_service.py</code> (<code>_snapshot_panel_version</code>, <code>list_panel_versions</code>, <code>get_panel_version</code>), ontsloten via <code>GET /panels/{panel_id}/versions</code> en <code>GET /panels/{panel_id}/versions/{version}</code> in <code>backend/app/routers/panels.py</code>. Zo kan een reviewer voor elk rapport terug naar de exacte paneelversie die op dat moment gold.</p>
 <h3>Waarom dit reproduceerbaarheid en rapport-binding ondersteunt</h3>
 <p>De combinatie is bewust: <code>reference_dataset_imports</code> legt vast welke <em>referentie-genen/cytobanden/CNV's</em> actief waren en wanneer; <code>gene_panel_versions</code> legt vast welke exacte <em>genset</em> een panel op een moment had; <code>gene_info.source_status</code> legt per gen vast uit welke externe bronnen (met <code>fetched_at</code>) de verrijking kwam. Voor de externe applicatie-releasecontext biedt <code>backend/app/services/github_releases_service.py</code> bovendien een gecachte GitHub-release-catalogus (<code>get_github_release_catalog</code>), zodat de software-versie zelf ook zichtbaar is. Samen geven ze een auditor het volledige antwoord op "welke referentiedata-versie lag ten grondslag aan dit rapport?".</p>
@@ -4949,24 +4901,8 @@ onderaan het gen-profiel zichtbaar is.</p>
 <td>Gecachte GitHub-release-catalogus (software-versiecontext)</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/001_metadata.sql</code></td>
-<td>Tabellen <code>genes</code>, <code>gene_info</code>, <code>gene_info_refresh_jobs</code>, <code>gene_panels</code></td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/013_gene_panel_sources.sql</code></td>
-<td>Paneel-herkomstkolommen (<code>source</code>, <code>external_id</code>, <code>external_version</code>, …)</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/021_reference_dataset_imports.sql</code></td>
-<td>Audit-tabel voor elke referentiedataset-import</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/034_gene_panel_versions.sql</code></td>
-<td>Onveranderlijke paneelversie-momentopnamen</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/042_gene_search_indexes.sql</code></td>
-<td>Expressie-indexen voor gen-autocomplete en constraint-lookups</td>
+<td><code>backend/db/schema/postgres/02_reference.sql</code></td>
+<td>Tabellen <code>genes</code>, <code>gene_info</code>, <code>gene_info_refresh_jobs</code>, <code>gene_panels</code> (met de paneel-herkomstkolommen <code>source</code>, <code>external_id</code>, <code>external_version</code>, …) en <code>gene_panel_versions</code> (onveranderlijke paneelversie-momentopnamen); de audit-tabel <code>reference_dataset_imports</code> voor elke referentiedataset-import; de expressie-indexen voor gen-autocomplete en constraint-lookups</td>
 </tr>
 <tr>
 <td><code>backend/app/routers/admin.py</code></td>
@@ -5222,12 +5158,13 @@ else:
 - <code>GET /cnvs/{assembly}/catalog</code> — de doorzoekbare catalogus (functie <code>list_clinical_cnv_catalog</code>; <code>limit</code> begrensd op 1–2000).
 - <code>GET /cnvs/{assembly}/{chrom}</code> — CNV's die een genomisch bereik overlappen (functie <code>get_clinical_cnvs</code>, met <code>start</code>/<code>end</code>-parameters); wordt gebruikt door de visualisaties (zie <a href="#hs-9">hoofdstuk 9</a>).</p>
 <p>De letterlijke prefix-routes (<code>/entry/...</code>, <code>/{assembly}/catalog</code>) staan bewust vóór de generieke <code>/{assembly}/{chrom}</code> zodat ze in de match-volgorde voorrang krijgen (een commentaarregel in het bestand legt dit uit). De echte data-ophaal zit in <code>reference_metadata_service</code> (<code>get_clinical_cnv_by_id_data</code>, <code>list_clinical_cnvs_catalog_data</code>, <code>get_clinical_cnvs_data</code>).</p>
-<p><strong>Databankstructuur (traceerbaarheid &amp; provenance).</strong> De curatie-velden zijn additief toegevoegd via idempotente migraties (<code>ADD COLUMN IF NOT EXISTS</code>), zodat oude installaties veilig meegroeien:
-- <code>018_clinical_cnv_details.sql</code> voegt <code>omim_id</code>, <code>decipher_id</code> en <code>description</code> toe. Als deze ontbreken, valt de detailpagina terug op afgeleide links (OMIM-zoekopdracht op naam, DECIPHER-regio).
-- <code>020_clinical_cnv_enrichment.sql</code> voegt <code>cytoband</code>, <code>source_id</code> (ISCA-regio-id), <code>omim_title</code>, <code>orpha_id</code> en <code>orpha_name</code> toe — verrijkingsvelden die door de kennisbank-build worden gevuld.</p>
+<p><strong>Databankstructuur (traceerbaarheid &amp; provenance).</strong> De curatie-velden staan in de tabeldefinitie van <code>clinical_cnvs</code> in <code>02_reference.sql</code> (voorheen additief toegevoegd door de migraties 018 en 020):
+- <code>omim_id</code>, <code>decipher_id</code> en <code>description</code>. Als deze ontbreken, valt de detailpagina terug op afgeleide links (OMIM-zoekopdracht op naam, DECIPHER-regio).
+- <code>cytoband</code>, <code>source_id</code> (ISCA-regio-id), <code>omim_title</code>, <code>orpha_id</code> en <code>orpha_name</code> — verrijkingsvelden die door de kennisbank-build worden gevuld.</p>
+<p>Kolommen die pas later bijkwamen, zoals de ClinVar-tellingen hieronder, volgen in <code>02_reference.sql</code> nog als idempotente <code>ADD COLUMN IF NOT EXISTS</code>, zodat een bestaande installatie veilig meegroeit.</p>
 <p><strong>Kennisbank herbouwen (admin).</strong> De service <code>backend/app/services/clinical_cnv_kb_jobs.py</code> verzorgt de door de admin getriggerde herbouw van de kennisbank. Kernpunten voor veiligheid en traceerbaarheid:
 - Het zware build-script (<code>scripts/clinical_cnv_knowledgebase.py</code>, dat externe bronnen zoals ClinVar ophaalt) draait als een <strong>geïsoleerd subprocess</strong> (<code>asyncio.create_subprocess_exec</code>), zodat de netwerkfetches en optionele afhankelijkheden nooit het API-proces raken. Het resultaat is een TSV die via de standaard reference-loader (<code>apply_reference_dataset_text</code>) in de tabel <code>clinical_cnvs</code> wordt geladen.
-- De voortgang wordt bijgehouden in tabel <code>clinical_cnv_kb_jobs</code> (migratie <code>019_clinical_cnv_kb_jobs.sql</code>): status <code>queued/running/completed/failed</code>, <code>requested_by</code>, tijdstempels (<code>requested_at</code>/<code>started_at</code>/<code>completed_at</code>), een <code>inserted</code>-teller, en een foutmelding (<code>error</code>) plus stderr-staart (<code>log</code>).
+- De voortgang wordt bijgehouden in tabel <code>clinical_cnv_kb_jobs</code> (in <code>02_reference.sql</code>): status <code>queued/running/completed/failed</code>, <code>requested_by</code>, tijdstempels (<code>requested_at</code>/<code>started_at</code>/<code>completed_at</code>), een <code>inserted</code>-teller, en een foutmelding (<code>error</code>) plus stderr-staart (<code>log</code>).
 - Een <strong>partiële unieke index</strong> (<code>idx_clinical_cnv_kb_jobs_active</code> op <code>(status)</code> met <code>WHERE status IN ('queued','running')</code>) dwingt af dat er hooguit één herbouw tegelijk loopt; een tweede poging krijgt netjes een 409.
 - <strong>ClinVar-steun (#566).</strong> Per regio telt de build de pathogene ClinVar-CNV's die de regio voor minstens 30 % wederzijds overlappen, gesplitst in verlies (<code>clinvar_pathogenic_loss_count</code>) en winst (<code>clinvar_pathogenic_gain_count</code>). De kant komt eerst uit ClinVars kolom <code>Type</code> (<code>copy number loss</code>/<code>gain</code>, <code>Deletion</code>/<code>Duplication</code>), dan uit het kopieaantal dat een array-record in zijn ISCN-naam draagt (<code>…)x1</code> verlies, <code>…)x3</code> winst; op X en Y alleen <code>x0</code> en <code>x3</code> of meer, want daar hangt het normale aantal af van het geslacht), en pas dan uit woorden in de naam (<code>clinvar_cnv_side</code>). De loader bewaart ze in <code>clinical_cnvs</code> (<code>clinvar_pathogenic_loss_count</code>, <code>…_gain_count</code>, <code>…_accessions</code>), en de Clinical CNV Explorer en de detailpagina tonen ze (#624). De build schrijft de tellingen pas nadat ClinVar werkelijk is geraadpleegd; een kennisbank zonder ClinVar (<code>--skip-clinvar</code>, of een BED-bestand) staat als NULL in de tabel en leest in de app als "not recorded", nooit als 0.
 - Beschikbaarheid is defensief: ontbreekt het script op de server, dan meldt <code>get_clinical_cnv_kb_status</code> dat (<code>available: false</code>) en weigert <code>queue_clinical_cnv_kb_rebuild</code> met een 503.</p>
@@ -5237,7 +5174,7 @@ else:
 <p><strong>Backend router.</strong> <code>backend/app/routers/panels.py</code> scheidt lees- van schrijfrechten heel expliciet:
 - Lezen (<code>get_current_user</code>): <code>GET /panels/</code> (lijst), <code>GET /panels/{panel_id}</code>, plus versiegeschiedenis <code>GET /panels/{panel_id}/versions</code> en <code>.../versions/{version}</code>, en de PanelApp-zoekopdracht <code>GET /panels/panelapp/search</code>.
 - Schrijven (<code>get_current_admin_user</code>): <code>POST /panels/</code> (aanmaken), <code>PUT /panels/{panel_id}</code>, <code>DELETE /panels/{panel_id}</code>, de PanelApp-import (<code>POST /panels/import/panelapp</code>) en de Mendeliome-hergeneratie (<code>POST /panels/mendeliome/regenerate</code>).</p>
-<p><strong>Versiebeheer (traceerbaarheid).</strong> In <code>backend/app/services/panel_metadata_service.py</code> zorgt <code>_snapshot_panel_version</code> dat elke wijziging aan een paneel een onveranderlijke versie-snapshot vastlegt; <code>list_panel_versions</code> / <code>get_panel_version</code> maken die geschiedenis opvraagbaar. Zo is voor elke rapportage terug te vinden welke genset op welk moment gold — belangrijk in de IVDR-context. De snapshots worden bewaard in tabel <code>gene_panel_versions</code> (migratie <code>034_gene_panel_versions.sql</code>).</p>
+<p><strong>Versiebeheer (traceerbaarheid).</strong> In <code>backend/app/services/panel_metadata_service.py</code> zorgt <code>_snapshot_panel_version</code> dat elke wijziging aan een paneel een onveranderlijke versie-snapshot vastlegt; <code>list_panel_versions</code> / <code>get_panel_version</code> maken die geschiedenis opvraagbaar. Zo is voor elke rapportage terug te vinden welke genset op welk moment gold — belangrijk in de IVDR-context. De snapshots worden bewaard in tabel <code>gene_panel_versions</code> (in <code>02_reference.sql</code>).</p>
 <p><strong>Externe bron: PanelApp.</strong> <code>backend/app/services/panelapp_service.py</code> haalt panelen op bij Genomics England PanelApp (<code>PANELAPP_API_ROOT = "https://panelapp.genomicsengland.co.uk/api/v1"</code>). De frontend (<code>GenePanelsPage.tsx</code>) laat admins zoeken (<code>search_panelapp</code>) en importeren (<code>import_panelapp_panel</code>) met keuzes voor confidence-niveau, assembly en het al dan niet meenemen van regio's en STR's. De importmetadata (bron, PanelApp-id, versie) wordt bij het paneel bewaard, zodat de herkomst traceerbaar blijft.</p>
 <p><strong>Mendeliome.</strong> Een speciaal, gegenereerd paneel ("Mendeliome", constante <code>MENDELIOME_SOURCE = "mendeliome"</code>) wordt afgeleid uit de Monarch-kennisgraaf via <code>regenerate_mendeliome</code>. De genselectie (<code>_select_mendeliome_genes</code>) neemt genen uit tabel <code>monarch_gene_disease</code> met de predicaten <code>causes</code> en <code>gene_associated_with_condition</code> (<code>_MENDELIOME_PREDICATES</code>). Dit paneel wordt automatisch her-geversioneerd wanneer een nieuwe Monarch-release wordt geladen — zie de best-effort aanroep <code>await regenerate_mendeliome(session, user)</code> binnen <code>refresh_monarch_associations</code> in <code>admin.py</code>. Meer over Monarch in <a href="#hs-12">hoofdstuk 12</a>.</p>
 <p><strong>Frontend-detail.</strong> <code>frontend/src/pages/panels/GenePanelDetailPage.tsx</code> toont één paneel met zijn genen/regio's en versiehistoriek; <code>GenePanelsPage.tsx</code> toont de catalogus en de PanelApp-importworkflow. Schrijfacties zijn in de UI verborgen voor niet-admins, maar de echte afdwinging zit altijd server-side in de router.</p>
@@ -5350,7 +5287,7 @@ else:
 - <strong>Paden worden gemaskeerd</strong> (<code>_mask_path</code>): UUID's en numerieke id-segmenten worden <code>:id</code>, en query-strings worden gereduceerd tot hun (gesorteerde) sleutels. Zo belanden klinische identifiers nooit in de opslag.
 - <strong>Detail-blob wordt gesaneerd</strong> (<code>_sanitize_detail</code>): sleutels die op <code>password</code>, <code>secret</code>, <code>token</code>, <code>authorization</code>, <code>api_key</code>, <code>access_key</code> beginnen worden <code>***</code>; geneste structuren worden vervangen door alleen hun type (bv. <code>[dict]</code>), zodat een token diep in een payload niet per ongeluk verbatim wordt opgeslagen.
 - De acteur (user-id/e-mail/rol) komt uit het token; IP en user-agent uit de request.</p>
-<p><strong>Duurzame opslag.</strong> <code>backend/app/services/ui_event_pg.py</code> schrijft events naar de Postgres-tabel <code>ui_events</code> (migratie <code>023_ui_events.sql</code>). In de <code>async</code>-modus lopen ze via een begrensde <code>asyncio.Queue</code> en een achtergrond-worker die in batches wegschrijft (<code>start_ui_event_worker</code>, <code>write_ui_event</code>). De gedeelde duurzaamheidslaag <code>backend/app/services/event_pipeline.py</code> — die ook de HTTP-audittrail bedient — garandeert dat een accountability-event nooit stil verloren gaat:
+<p><strong>Duurzame opslag.</strong> <code>backend/app/services/ui_event_pg.py</code> schrijft events naar de Postgres-tabel <code>ui_events</code> (in <code>04_traceability.sql</code>). In de <code>async</code>-modus lopen ze via een begrensde <code>asyncio.Queue</code> en een achtergrond-worker die in batches wegschrijft (<code>start_ui_event_worker</code>, <code>write_ui_event</code>). De gedeelde duurzaamheidslaag <code>backend/app/services/event_pipeline.py</code> — die ook de HTTP-audittrail bedient — garandeert dat een accountability-event nooit stil verloren gaat:
 - Bij een volle queue in productie wordt backpressure toegepast en zo nodig synchroon weggeschreven (<code>enqueue_event</code>); een echt onopslaanbaar event wordt met zijn volledige (reeds gesaniteerde) payload gelogd én geteld, nooit stil gedropt (<code>_record_unpersisted</code>).
 - Batch-writes worden met begrensde backoff herprobeerd (<code>write_event_batch_with_retry</code>).
 - Alleen in niet-productie (<code>AUDIT_LOG_DROP_ALLOWED</code>) mag een vol queue met een WARN droppen — de settings-validator weigert dit in productie.</p>
@@ -5362,10 +5299,10 @@ else:
 <li><strong><code>family_structure_service.py</code></strong> — <code>update_family_structure_for_admin</code> valideert en herschrijft de volledige gezinsstructuur: leden, ouder-kind- en partner-relaties, met een relatie-graafvalidatie (<code>_validate_relationship_graph</code>) die inconsistente stambomen weigert, plus het opnieuw genereren van PED-tekst. Bij verwijderen van een lid wordt bijbehorende genomische data opgeruimd (<code>_clear_family_genomic_data</code>).</li>
 <li><strong><code>family_member_management_service.py</code></strong> — fijnmaziger beheer per lid: <code>get_family_member_impact_for_user</code> toont vooraf de impact van een verandering (hoeveel data eraan hangt), <code>update_family_member_for_admin</code> / <code>update_family_members_batch_for_admin</code> wijzigen leden, en <code>delete_family_member_for_admin</code> verwijdert een lid. Een hernoeming/verwijdering wordt geblokkeerd wanneer er nog genomische data aan hangt (<code>_rename_block_reason</code>) — een veiligheidsrem tegen dataverlies.</li>
 </ul>
-<p>De onderliggende migraties (zoals gevraagd, <code>011</code>/<code>014</code>/<code>024</code>) bouwen dit incrementeel op:
-- <code>011_pgt_family_roles.sql</code> — breidt de toegestane ledenrollen uit (voegt o.a. <code>embryo</code> en <code>relative</code> toe aan de rol-constraint), nodig voor PGT/embryo-families.
-- <code>014_family_structure_relationships.sql</code> — voegt <code>clinical_status</code>/<code>carrier_status</code> (+ carrier-detailkolommen) toe aan <code>family_members</code> en introduceert de tabel <code>family_relationships</code> (relatietypes <code>parent_child</code> / <code>couple</code>).
-- <code>024_family_metadata.sql</code> — de catalogustabel <code>family_statuses</code> (met geseede default-statussen) plus de kolommen <code>families.status_id</code>, <code>assigned_to_id</code> en <code>reviewed_by_id</code>, elk met <code>ON DELETE SET NULL</code>.</p>
+<p>De onderliggende tabellen staan in hun eindvorm in <code>03_assay.sql</code> (voorheen bouwden de migraties <code>011</code>/<code>014</code>/<code>024</code> dit incrementeel op):
+- <strong>Ledenrollen</strong> — de rol-constraint van <code>family_members</code> laat o.a. <code>embryo</code> en <code>relative</code> toe, nodig voor PGT/embryo-families.
+- <strong>Status en relaties</strong> — <code>family_members</code> draagt <code>clinical_status</code>/<code>carrier_status</code> (+ carrier-detailkolommen), en de tabel <code>family_relationships</code> legt de relaties tussen leden vast (relatietypes <code>parent_child</code> / <code>couple</code>).
+- <strong>Workflow-metadata</strong> — de catalogustabel <code>family_statuses</code> (met geseede default-statussen) plus de kolommen <code>families.status_id</code>, <code>assigned_to_id</code> en <code>reviewed_by_id</code>, elk met <code>ON DELETE SET NULL</code>.</p>
 <p>Deze services worden aangesproken vanuit de admin- en familie-detailschermen; de stamboomlogica sluit aan op de haplotype-/pedigree-context uit <a href="#hs-9">hoofdstuk 9</a>.</p>
 <h2>Dekkingschecklist</h2>
 <p>Bevestiging dat elke top-level bron-map in de handleiding aan bod komt:</p>
@@ -5433,8 +5370,8 @@ else:
 <td>Admin-getriggerde, geïsoleerde herbouw van de CNV-kennisbank + job-tracking</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/018–020_*.sql</code></td>
-<td>Curatie- en verrijkingskolommen + <code>clinical_cnv_kb_jobs</code>-tabel</td>
+<td><code>backend/db/schema/postgres/02_reference.sql</code></td>
+<td><code>clinical_cnvs</code> met de curatie- en verrijkingskolommen + <code>clinical_cnv_kb_jobs</code>-tabel</td>
 </tr>
 <tr>
 <td><code>backend/app/routers/panels.py</code></td>

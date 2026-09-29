@@ -23,8 +23,8 @@ this section is the current truth. ✅ shipped · ◐ partial · ☐ open._
 
 - ✅ **P1-1** version + git-SHA identity: build-injected (`core/config.py`), exposed in `/health`, shown in the report footer, and **frozen into the sign-out snapshot** (`report_signout_service.py`).
 - ✅ **P1-2** Sample-QC sign-out gate — _the top clinical-safety item_: a hard `fail` (sample/pedigree swap, TF-06 H4 S5) now **blocks sign-out** with acknowledge-with-reason (409), and QC is frozen into the snapshot + content hash.
-- ✅ **P1-3** runtime app-role privilege separation (migration `040`, `test_app_role_privileges.py`, `db-runtime-role-runbook.md`).
-- ✅ **P1-4** hash-chained audit + sign-out tables with a verifier and integrity anchors (migrations `038`/`039`/`041`, `hash_chain.py`, `integrity_anchor_service.py`).
+- ✅ **P1-3** runtime app-role privilege separation (migration `040`, since #373 `05_grants.sql`; `test_app_role_privileges.py`, `db-runtime-role-runbook.md`).
+- ✅ **P1-4** hash-chained audit + sign-out tables with a verifier and integrity anchors (migrations `038`/`039`/`041`, since #373 in `04_traceability.sql`; `hash_chain.py`, `integrity_anchor_service.py`).
 - ✅ **P1-5** integration tests that exercise the privilege/trigger enforcement and the anchors.
 - ✅ **P1-6** CI security scanning that fails the build (gitleaks + CodeQL v4).
 - ✅ **P1-7** security-headers middleware + `/docs` disabled in prod _(confirm non-root container `USER`)_.
@@ -386,9 +386,9 @@ So the workplan doesn't waste effort re-investigating verified-good ground:
   independent for the reported-variants portion; the ranking-cache `inputs_hash` is computed
   over sorted sets.
 - **Dossier/engineering cross-check:** all 43 RTM-cited test files and 20 implementation
-  files exist; append-only triggers (029/032/033) are real; branch protection *is* enabled;
-  dependencies *are* hash-locked; SBOM *is* auto-generated — several TF "open actions" are in
-  fact closed (reconcile per F-12).
+  files exist; append-only triggers (029/032/033, now in `04_traceability.sql`) are real; branch
+  protection *is* enabled; dependencies *are* hash-locked; SBOM *is* auto-generated — several
+  TF "open actions" are in fact closed (reconcile per F-12).
 - **Tests:** ~662 backend + ~388 frontend tests, catalogue-enforced; clinical-logic unit
   tests (ACMG/CNV/prioritization/de-novo/Sample-QC/drift) assert real thresholds and
   abstain-on-degraded behaviour, not just smoke; de-flaking handled with readiness gates, not

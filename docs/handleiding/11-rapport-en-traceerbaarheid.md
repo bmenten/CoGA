@@ -106,12 +106,12 @@ Bij het feitelijke aftekenen worden hier nog `version`, `generated_at`, `signed_
 
 CoGA houdt **twee** verschillende auditlogs bij, met verschillende doelen:
 
-- **HTTP-toegangslog** — `audit_log_events` (`004_audit_logs.sql`), geschreven door `backend/app/services/audit_log_pg.py`: elke HTTP-request (methode, pad, statuscode, gebruiker). Infrastructureel, afgeleid uit method+path+body.
-- **Klinische actielog** — `clinical_audit_events` (`032_clinical_audit_events.sql`), geschreven door `backend/app/services/clinical_audit_service.py`: semantische klinische acties (classificatie, tag toegevoegd/verwijderd, notitie bewerkt, rapport afgetekend), mét veld-niveau `before`/`after`. Deze wordt geschreven **in dezelfde transactie** als de wijziging zelf (`record_review_changes`, `diff_review_changes`), zodat de trail nooit uit de pas loopt met de data.
+- **HTTP-toegangslog** — `audit_log_events` (`04_traceability.sql`), geschreven door `backend/app/services/audit_log_pg.py`: elke HTTP-request (methode, pad, statuscode, gebruiker). Infrastructureel, afgeleid uit method+path+body.
+- **Klinische actielog** — `clinical_audit_events` (`04_traceability.sql`), geschreven door `backend/app/services/clinical_audit_service.py`: semantische klinische acties (classificatie, tag toegevoegd/verwijderd, notitie bewerkt, rapport afgetekend), mét veld-niveau `before`/`after`. Deze wordt geschreven **in dezelfde transactie** als de wijziging zelf (`record_review_changes`, `diff_review_changes`), zodat de trail nooit uit de pas loopt met de data.
 
 Beide zijn op databankniveau **append-only**: een trigger blokkeert `DELETE` volledig en `UPDATE` behalve de ene toegestane uitzondering — het `ON DELETE SET NULL`-cascaden dat de foreign keys `user_id`/`actor_id`/`family_id` op NULL zet als een account of familie verwijderd wordt (de gedenormaliseerde velden bewaren dan nog de identiteit). De vergelijking gebeurt kolom-agnostisch (`to_jsonb(NEW) - 'actor_id' - 'family_id'` vergeleken met dezelfde uitdrukking op de oude rij), zodat nieuw toegevoegde kolommen automatisch beschermd blijven.
 
-**Waar in de code:** triggers in `029_audit_log_immutable.sql`, `032_clinical_audit_events.sql`, `033_report_signouts.sql` (en `041_integrity_anchors.sql`, zie verder).
+**Waar in de code:** de triggerfuncties `audit_log_events_block_mutation`, `clinical_audit_events_block_mutation` en `report_signouts_block_mutation` met hun triggers, alle in `backend/db/schema/postgres/04_traceability.sql` (daar staat ook `integrity_anchors_block_mutation`, zie verder).
 
 ### Wat een hash-keten is — en waarom ze manipulatie zichtbaar maakt
 
@@ -129,9 +129,9 @@ Twee ontwerpkeuzes zijn cruciaal voor robuustheid:
 - De keten is **gepartitioneerd op de onveranderlijke `family_identifier`** (de menselijke familie-id), niet op de muteerbare `family_id` (de UUID die het cascaden op NULL zet). Zo blijft de getekende historie van een verwijderde familie verifieerbaar.
 - De gehashte payload **sluit de FK-kolommen uit** die het cascaden mag nullen, en bindt in plaats daarvan de gedenormaliseerde identiteit. Een legitieme account-/familieverwijdering breekt de keten dus niet.
 
-**Eerlijke reikwijdte (belangrijk voor het review board).** De hash-keten is **tamper-EVIDENT, niet tamper-proof** (manipulatie wordt *zichtbaar*, maar niet *onmogelijk* gemaakt). Ze detecteert manipulatie door iedereen die de keten *niet kan herberekenen*. Maar de tabel-*eigenaar* (tot de niet-eigenaar-runtime-rol `coga_app` volledig is uitgerold, is dat de app-DB-rol zelf — zie `040_app_runtime_role_privileges.sql`) kan de trigger uitschakelen, een interne regel bewerken en vervolgens `row_hash`/`prev_hash` voor die regel én alle opvolgers herrekenen tot een zelf-consistente keten. Dat sluit het volgende blok — de externe ankers — af. Deze reikwijdte staat expliciet in de docstrings van `hash_chain.py` en `integrity_anchor_service.py` en moet in regulator-taal zo geformuleerd blijven ("tamper-evident tegen een database-only tegenstander, tussen bewaarde ankers"), nooit "tamper-proof" of "immutable".
+**Eerlijke reikwijdte (belangrijk voor het review board).** De hash-keten is **tamper-EVIDENT, niet tamper-proof** (manipulatie wordt *zichtbaar*, maar niet *onmogelijk* gemaakt). Ze detecteert manipulatie door iedereen die de keten *niet kan herberekenen*. Maar de tabel-*eigenaar* (tot de niet-eigenaar-runtime-rol `coga_app` volledig is uitgerold, is dat de app-DB-rol zelf — zie `05_grants.sql`) kan de trigger uitschakelen, een interne regel bewerken en vervolgens `row_hash`/`prev_hash` voor die regel én alle opvolgers herrekenen tot een zelf-consistente keten. Dat sluit het volgende blok — de externe ankers — af. Deze reikwijdte staat expliciet in de docstrings van `hash_chain.py` en `integrity_anchor_service.py` en moet in regulator-taal zo geformuleerd blijven ("tamper-evident tegen een database-only tegenstander, tussen bewaarde ankers"), nooit "tamper-proof" of "immutable".
 
-**Waar in de code:** `backend/app/services/hash_chain.py` (`chain_row_hash`, `verify_chain`, `ChainVerification`); ketenschrijving in `clinical_audit_service.record_clinical_event` en `report_signout_service.sign_out_report`; hash-kolommen toegevoegd in `038_clinical_audit_hash_chain.sql` en `039_report_signouts_hash_chain.sql`.
+**Waar in de code:** `backend/app/services/hash_chain.py` (`chain_row_hash`, `verify_chain`, `ChainVerification`); ketenschrijving in `clinical_audit_service.record_clinical_event` en `report_signout_service.sign_out_report`; de hash-kolommen `row_hash`/`prev_hash` staan in de tabeldefinities van `clinical_audit_events` en `report_signouts` in `04_traceability.sql`.
 
 ## Integriteitsankers: de keten extern verifieerbaar maken
 
@@ -139,29 +139,29 @@ Om ook de "eigenaar die de trigger uitschakelt en herketent" detecteerbaar te ma
 
 1. **Alle keten-koppen vastleggen** (`_capture_heads`): voor elke familie, voor beide tabellen (`report_signouts` en `clinical_audit_events`), de hoogte (`height`) en de `head_row_hash`.
 2. Deze koppen **canoniek hashen** tot een `anchor_root`, ze aan het vorige anker ketenen (`prev_anchor_hash` → `anchor_hash`), en het geheel **ondertekenen met een Ed25519-privésleutel** (een moderne digitale-handtekening­techniek) die in app-config/omgeving zit — **nooit in de databank**.
-3. Het anker **append-only** wegschrijven in `integrity_anchors` (`041_integrity_anchors.sql`).
+3. Het anker **append-only** wegschrijven in `integrity_anchors` (`04_traceability.sql`).
 
 Waarom dit werkt: een eigenaar zonder de privésleutel kan een geketende regel wel *herrekenen*, maar kan **geen geldig getekend anker vervalsen**. De divergentie tussen de live keten en het laatst *getekende* anker wordt dan zichtbaar voor een verifier die de databank niet vertrouwt. `verify_against_latest_anchor` (koppen van het laatste anker vs. de live ketens) en `verify_anchor_chain` (de volledige ankerketen + alle handtekeningen) geven statussen als `ok`, `diverged`, `chain_broken`, `signature_invalid`, `unknown_key` en `unverifiable_unsigned`.
 
-De docstring van de service formuleert de trustgrens eerlijk: de aanpak detecteert interne herketening/inkorting tussen bewaarde ankers, maar verdedigt **niet** tegen een tegenstander die de tekensleutel bezit (host-compromittering — daarvoor is een HSM, een hardware-sleutelmodule, nodig), en detecteert het wissen van de *laatste* ankers alleen als er een out-of-band bewaarde kopie is. Die out-of-band export is bewust een nog niet-gekoppelde naad (`export_anchor`, momenteel een no-op — een functie die nog niets doet). De tabel is bovendien strikt vergrendeld voor de runtime-rol: `GRANT SELECT, INSERT` gevolgd door `REVOKE UPDATE, DELETE, TRUNCATE` (regels 52-53 van `041`, in lijn met de runtime-rol uit `040`).
+De docstring van de service formuleert de trustgrens eerlijk: de aanpak detecteert interne herketening/inkorting tussen bewaarde ankers, maar verdedigt **niet** tegen een tegenstander die de tekensleutel bezit (host-compromittering — daarvoor is een HSM, een hardware-sleutelmodule, nodig), en detecteert het wissen van de *laatste* ankers alleen als er een out-of-band bewaarde kopie is. Die out-of-band export is bewust een nog niet-gekoppelde naad (`export_anchor`, momenteel een no-op — een functie die nog niets doet). De tabel is bovendien strikt vergrendeld voor de runtime-rol: `05_grants.sql` trekt na de brede `GRANT` weer `UPDATE, DELETE, TRUNCATE` in (`REVOKE`), net als voor de andere append-only tabellen, zodat `coga_app` er enkel `SELECT` en `INSERT` op houdt.
 
 ### Integriteit van de variantopslag (ClickHouse)
 
 De ankers dekken de Postgres-ketens. De grootschalige variantopslag in ClickHouse wordt bewaakt door **`backend/app/services/clickhouse_integrity_monitor.py`**: kort na opstart en daarna op een vast interval draait `run_integrity_sweep` de controle `check_clickhouse_variant_integrity` over elke assembly. Bij status `corrupt` of `missing` (in `_ALERT_STATUSES`) escaleert het naar een `ERROR`-log — de alert-haak — *vóór* de corruptie zich als query-500's manifesteert. Het laatste resultaat per assembly wordt gecached voor admin/health-surfacing (`last_integrity_results`).
 
-**Waar in de code:** `backend/app/services/integrity_anchor_service.py` (`create_integrity_anchor`, `verify_against_latest_anchor`, `verify_anchor_chain`); schema `041_integrity_anchors.sql`; `backend/app/services/clickhouse_integrity_monitor.py` (`run_integrity_sweep`).
+**Waar in de code:** `backend/app/services/integrity_anchor_service.py` (`create_integrity_anchor`, `verify_against_latest_anchor`, `verify_anchor_chain`); schema `04_traceability.sql` (tabel + trigger) en `05_grants.sql` (runtime-rolrechten); `backend/app/services/clickhouse_integrity_monitor.py` (`run_integrity_sweep`).
 
 ## De volledige traceerbaarheidsketen, stap voor stap
 
 Dit is het hart van de explainability-boodschap: elk gerapporteerd resultaat is herleidbaar tot exact wat het produceerde. De keten, met per stap de plaats in de code:
 
-1. **Ruw bestand → hash.** Bij import wordt elk bronbestand vastgelegd in `raw_import_files` met `file_name`, `storage_path`, `file_size`, `source` en een **`sha256`**-integriteitshash. *(`backend/db/schema/postgres/017_raw_import_files.sql`; importpijplijn — hoofdstuk [06-import-pipeline.md](06-import-pipeline.md).)*
-2. **Annotatie-manifest.** De `##`-headers van de VCF-bestanden worden geparsed en per familie opgeslagen in `family_annotation_manifest` (bron `vcf_header`, `manifest` of `manual`); versies verversen bij re-import, maar een handmatig gecureerde (`manual`) manifest wint en wordt nooit overschreven. *(`backend/app/services/annotation_manifest_service.py` — `merge_vcf_header_provenance`, `get_family_annotation_manifest`; schema `030`; zie `docs/annotation-provenance.md`.)*
+1. **Ruw bestand → hash.** Bij import wordt elk bronbestand vastgelegd in `raw_import_files` met `file_name`, `storage_path`, `file_size`, `source` en een **`sha256`**-integriteitshash. *(`backend/db/schema/postgres/04_traceability.sql`; importpijplijn — hoofdstuk [06-import-pipeline.md](06-import-pipeline.md).)*
+2. **Annotatie-manifest.** De `##`-headers van de VCF-bestanden worden geparsed en per familie opgeslagen in `family_annotation_manifest` (bron `vcf_header`, `manifest` of `manual`); versies verversen bij re-import, maar een handmatig gecureerde (`manual`) manifest wint en wordt nooit overschreven. *(`backend/app/services/annotation_manifest_service.py` — `merge_vcf_header_provenance`, `get_family_annotation_manifest`; schema `04_traceability.sql`; zie `docs/annotation-provenance.md`.)*
 3. **Variant in ClickHouse.** Elke variant draagt een `annotationSetHash` — een inhoudsvingerafdruk die vastpint welke annotatie-set gold. *(zie hoofdstuk [03-databankstructuren.md](03-databankstructuren.md).)*
-4. **Review / ACMG-evidence-snapshot.** Bij elke ACMG-save wordt de geziene evidence (annotation-set-hash, ClinVar-significantie, moduleversies) bevroren in `small_variant_reviews.acmg_evidence_snapshot`. *(`031_classification_evidence_snapshot.sql`; hoofdstuk [10-tagging-en-acmg-classificatie.md](10-tagging-en-acmg-classificatie.md).)*
+4. **Review / ACMG-evidence-snapshot.** Bij elke ACMG-save wordt de geziene evidence (annotation-set-hash, ClinVar-significantie, moduleversies) bevroren in `small_variant_reviews.acmg_evidence_snapshot`. *(`03_assay.sql`; hoofdstuk [10-tagging-en-acmg-classificatie.md](10-tagging-en-acmg-classificatie.md).)*
 5. **Gating.** Voor sign-out worden **drift** (bevroren vs. huidige annotation-set-hash) en **Sample-QC** (swap-detectie) geëvalueerd; niet-groen moet expliciet worden erkend, bij QC met een verplichte reden. *(`report_signout_service.sign_out_report`; `classification_drift_service`; `sample_integrity_service`.)*
-6. **Bevroren rapport.** Het snapshot — manifest, software-`version`+`git_sha`, driftstatus, Sample-QC, gerapporteerde varianten met evidence — wordt content-gehasht en append-only weggeschreven als nieuwe `version`. *(`report_signout_service.build_report_snapshot` + insert in `report_signouts`; schema `033`.)*
-7. **Hash-geketende sign-out + anker.** De sign-out-regel wordt in de per-familie hash-keten gehangen (`row_hash`/`prev_hash`), er wordt een `sign_out`-event in de klinische audittrail geschreven, en periodiek verzegelt een Ed25519-getekend integriteitsanker de keten-koppen extern. *(`hash_chain`, `clinical_audit_service.record_clinical_event`, `integrity_anchor_service`; schema's `038`/`039`/`041`.)*
+6. **Bevroren rapport.** Het snapshot — manifest, software-`version`+`git_sha`, driftstatus, Sample-QC, gerapporteerde varianten met evidence — wordt content-gehasht en append-only weggeschreven als nieuwe `version`. *(`report_signout_service.build_report_snapshot` + insert in `report_signouts`; schema `04_traceability.sql`.)*
+7. **Hash-geketende sign-out + anker.** De sign-out-regel wordt in de per-familie hash-keten gehangen (`row_hash`/`prev_hash`), er wordt een `sign_out`-event in de klinische audittrail geschreven, en periodiek verzegelt een Ed25519-getekend integriteitsanker de keten-koppen extern. *(`hash_chain`, `clinical_audit_service.record_clinical_event`, `integrity_anchor_service`; schema `04_traceability.sql`.)*
 
 Zo loopt een auditor van de SHA-256 van het ruwe bestand, via de versies die het annoteerden en de exacte evidence achter elke classificatie, tot een ondertekend rapport waarvan de integriteit extern verifieerbaar is.
 
@@ -172,10 +172,10 @@ Zo loopt een auditor van de SHA-256 van het ruwe bestand, via de versies die het
 | Toegangscontrole / projectscoping op alle rapportendpoints | `families_reports.py` (`get_current_user`) + `build_family_metadata_context` |
 | Gate op classificatie-drift vóór sign-out (409 tenzij erkend) | `report_signout_service.sign_out_report` |
 | Gate op Sample-QC vóór sign-out (409, en 422 zonder reden) | `report_signout_service.sign_out_report`, `_unverifiable_swap_checks` |
-| Onveranderlijkheid van audit- en sign-out-regels (append-only) | DB-triggers in `029`, `032`, `033`, `041` |
-| Manipulatiedetectie binnen een keten (per familie) | `hash_chain.py`, ketenkolommen `038`/`039` |
-| Externe, sleutelgebaseerde verzegeling van keten-koppen | `integrity_anchor_service.py`, schema `041` |
-| Runtime-rol zonder UPDATE/DELETE op de append-only tabellen | `040_app_runtime_role_privileges.sql`, `041` |
+| Onveranderlijkheid van audit- en sign-out-regels (append-only) | DB-triggers in `04_traceability.sql` |
+| Manipulatiedetectie binnen een keten (per familie) | `hash_chain.py`, ketenkolommen `row_hash`/`prev_hash` in `04_traceability.sql` |
+| Externe, sleutelgebaseerde verzegeling van keten-koppen | `integrity_anchor_service.py`, tabel `integrity_anchors` in `04_traceability.sql` |
+| Runtime-rol zonder UPDATE/DELETE op de append-only tabellen | `05_grants.sql` |
 | Integriteitsbewaking variantopslag (ClickHouse) | `clickhouse_integrity_monitor.py` |
 | Herverificatie content-hash bij elke leesactie van een sign-out | `report_signout_service.get_report_signout` (`verified`) |
 
@@ -196,13 +196,9 @@ Deze hele keten is de technische invulling van de traceerbaarheidseis onder IVDR
 | `backend/app/services/annotation_manifest_service.py` | Per-familie annotatie/referentie-manifest (provenance-footer) |
 | `backend/app/services/clickhouse_integrity_monitor.py` | Geplande integriteitsbewaking van de variantopslag |
 | `backend/app/services/audit_log_pg.py` | HTTP-toegangslog (`audit_log_events`) |
-| `backend/db/schema/postgres/032_clinical_audit_events.sql` | Klinische audittabel + append-only trigger |
-| `backend/db/schema/postgres/033_report_signouts.sql` | Sign-out-snapshottabel + append-only trigger |
-| `backend/db/schema/postgres/038_…` / `039_…_hash_chain.sql` | Hash-keten-kolommen op beide tabellen |
-| `backend/db/schema/postgres/040_app_runtime_role_privileges.sql` | Restrictieve runtime-rol (`coga_app`), REVOKE UPDATE/DELETE |
-| `backend/db/schema/postgres/041_integrity_anchors.sql` | Ankertabel + trigger + runtime-rolrechten |
-| `backend/db/schema/postgres/031_classification_evidence_snapshot.sql` | Bevroren ACMG-evidence per classificatie |
-| `backend/db/schema/postgres/017_raw_import_files.sql` | Ruwe-bestandprovenance met SHA-256 |
+| `backend/db/schema/postgres/04_traceability.sql` | HTTP-audittabel, klinische audittabel en sign-out-snapshottabel, elk met append-only trigger; hash-keten-kolommen op de klinische audit- en sign-out-tabel; ankertabel + trigger; ruwe-bestandprovenance met SHA-256; annotatiemanifest |
+| `backend/db/schema/postgres/05_grants.sql` | Restrictieve runtime-rol (`coga_app`), REVOKE UPDATE/DELETE/TRUNCATE op de append-only tabellen (incl. de ankertabel) |
+| `backend/db/schema/postgres/03_assay.sql` | Bevroren ACMG-evidence per classificatie (`small_variant_reviews.acmg_evidence_snapshot`) |
 | `frontend/src/pages/families/FamilyReportPage.tsx` | Familierapport, provenance-footer, drift-banner, sign-out + QC-modal |
 | `frontend/src/pages/families/FamilyNiptReportPage.tsx` | Monogeen-NIPT-rapport |
 | `frontend/src/pages/families/reportNarrative.ts` | Prozahelpers voor de rapportzinnen (los getest) |

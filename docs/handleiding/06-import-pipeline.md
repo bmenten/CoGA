@@ -186,7 +186,7 @@ Let op: **NIPT-artefacten** (`nipt_artifact_variants`, Postgres) worden *niet* d
 
 Elke import is een rij in `family_import_jobs`. De statussen zijn afgedwongen door een `CHECK`-constraint: `queued → validating → running → completed | failed`.
 
-**Waar in de code:** `backend/db/schema/postgres/007_family_import_jobs.sql`. De rij bewaart naast de status ook `validation_errors`, `validation_warnings`, `logs`, `dataset_summaries` en `metadata` (JSONB), plus tijdstempels `requested_at`, `started_at`, `heartbeat_at`, `completed_at`.
+**Waar in de code:** de tabel `family_import_jobs` in `backend/db/schema/postgres/03_assay.sql`. De rij bewaart naast de status ook `validation_errors`, `validation_warnings`, `logs`, `dataset_summaries` en `metadata` (JSONB), plus tijdstempels `requested_at`, `started_at`, `heartbeat_at`, `completed_at`.
 
 De worker "claimt" de volgende taak atomair met `FOR UPDATE SKIP LOCKED`, zodat meerdere workers (instelbaar via `FAMILY_IMPORT_WORKER_COUNT`, standaard 1) elkaar niet in de weg zitten. Een taak waarvan de `heartbeat_at` te oud is (`FAMILY_IMPORT_STALE_HEARTBEAT`, 10 min) wordt als vastgelopen beschouwd en opnieuw geclaimd. Tijdens lange imports wordt de heartbeat/voortgang doorlopend bijgewerkt.
 
@@ -206,7 +206,7 @@ De foutafhandeling is expliciet ontworpen om nooit een misleidend-onvolledige to
 
 Naast de per-bestand-hashing legt CoGA per familie een **annotation manifest** aan: één rij met een vrije JSONB-map `modules` van `{ toolKey: { version, detail, by_modality } }`. Dit is cruciaal voor latere rapport-traceerbaarheid — een resultaat moet herleidbaar zijn naar precies de tool- en databankversies die het produceerden (IVDR-vereiste).
 
-**Waar in de code:** schema `backend/db/schema/postgres/030_family_annotation_manifest.sql` (kolommen `modules`, `source`, `recorded_by`, `recorded_at`, `assembly_id`; `source` is `'vcf_header'`, `'manifest'` of `'manual'`; `UNIQUE (family_id)` — precies één rij per familie). De schrijf- en leesdienst is `backend/app/services/annotation_manifest_service.py`.
+**Waar in de code:** de tabel `family_annotation_manifest` in `backend/db/schema/postgres/04_traceability.sql` (kolommen `modules`, `source`, `recorded_by`, `recorded_at`, `assembly_id`; `source` is `'vcf_header'`, `'manifest'` of `'manual'`; `UNIQUE (family_id)` — precies één rij per familie). De schrijf- en leesdienst is `backend/app/services/annotation_manifest_service.py`.
 
 De belangrijkste regels van `merge_vcf_header_provenance` (met helper `_refresh_modules`):
 
@@ -223,7 +223,7 @@ De import-hooks roepen deze samenvoeging aan vlak nadat de varianten zijn wegges
 
 Het traceerbaarheidsregister bij uitstek is de tabel **`raw_import_files`**: één rij per fysiek bronbestand, met bestandsnaam, type, scope (`family` of `individual`), gekoppeld sample, opslagpad, byte-grootte, SHA-256-checksum en herkomst (`source`). De insertie is idempotent op `(family_id, sample_id, storage_path)` (een uniek index met een placeholder-UUID voor een leeg sample), zodat een her-import de bestaande rij ververst in plaats van dubbelen te maken.
 
-**Waar in de code:** schema `backend/db/schema/postgres/017_raw_import_files.sql`; de schrijffunctie `record_raw_import_file` en het pakket-gedreven `_record_package_raw_files` in respectievelijk `raw_import_files_pg.py` en `family_package_registration.py`. Pakketbestanden worden *in place* geregistreerd (`managed=False`) — CoGA verplaatst of verwijdert ze niet; alleen web-uploads worden als beheerde kopie onder `data/raw_imports/` bewaard. Voor een S3-pakket wordt bovendien de duurzame `s3://`-URI vastgelegd (de staging-map verdwijnt immers na afloop).
+**Waar in de code:** de tabel `raw_import_files` in `backend/db/schema/postgres/04_traceability.sql`; de schrijffunctie `record_raw_import_file` en het pakket-gedreven `_record_package_raw_files` in respectievelijk `raw_import_files_pg.py` en `family_package_registration.py`. Pakketbestanden worden *in place* geregistreerd (`managed=False`) — CoGA verplaatst of verwijdert ze niet; alleen web-uploads worden als beheerde kopie onder `data/raw_imports/` bewaard. Voor een S3-pakket wordt bovendien de duurzame `s3://`-URI vastgelegd (de staging-map verdwijnt immers na afloop).
 
 Wat kan een auditor hierdoor achteraf reconstrueren? Per familie: welke ruwe bestanden zijn ingelezen, met welke checksum (verifieerbaar via `verify_raw_import_file`), in welke dataset; welke tool- en databankversies gebruikt zijn (`family_annotation_manifest`); en de volledige loop van de importtaak — status, tijdstempels, logregels, validatiefouten/-waarschuwingen en per-dataset resultaat (`family_import_jobs`). Samen sluit dit de keten van *geannoteerde VCF → weggeschreven data → herkomst → rapport*.
 
@@ -267,9 +267,8 @@ De verplichte dry-run-eerst-workflow (gedocumenteerd in `docs/data-import.md`) z
 | `backend/app/services/annotation_manifest_service.py` | Schrijft/leest `family_annotation_manifest`; refresh- en manual-wins-regels |
 | `backend/app/services/raw_import_files_pg.py` | Provenance-register van ruwe bestanden: hashing, verificatie, opslag |
 | `backend/app/services/upload_safety.py` / `bounded_download.py` | Begrensde, bomb-veilige (de)compressie van uploads en downloads |
-| `backend/db/schema/postgres/007_family_import_jobs.sql` | Job-tabel met status-constraint en JSONB-logs/samenvattingen |
-| `backend/db/schema/postgres/017_raw_import_files.sql` | Ruwe-bestand-provenance met unieke identiteit per (familie, sample, pad) |
-| `backend/db/schema/postgres/030_family_annotation_manifest.sql` | Per-familie annotatie-/versiemanifest voor rapport-traceerbaarheid |
+| `backend/db/schema/postgres/03_assay.sql` | Job-tabel `family_import_jobs` met status-constraint en JSONB-logs/samenvattingen |
+| `backend/db/schema/postgres/04_traceability.sql` | Ruwe-bestand-provenance `raw_import_files` met unieke identiteit per (familie, sample, pad); per-familie annotatie-/versiemanifest `family_annotation_manifest` voor rapport-traceerbaarheid |
 | `frontend/src/pages/dashboard/FamilyPackageImportPanel.tsx` | Adminpaneel: mapkeuze, manifest, dry-run, import starten en volgen |
 
 Voor de bredere context van de databanktabellen zie [hoofdstuk 3](03-databankstructuren.md); voor toegangscontrole en rollen [hoofdstuk 2](02-beveiliging-rollen-rechten.md); voor hoe deze provenance uiteindelijk in het ondertekende rapport wordt bevroren [hoofdstuk 11](11-rapport-en-traceerbaarheid.md).

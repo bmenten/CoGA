@@ -2,9 +2,9 @@
 
 Schema `05_grants.sql` creates a **restricted runtime role
 `coga_app`** and revokes `UPDATE`/`DELETE`/`TRUNCATE` on the append-only tables
-(`audit_log_events`, `clinical_audit_events`, `report_signouts`). It ships in
-**fallback mode**: the role exists (`NOLOGIN`) but the application still connects as the
-table **owner**, so nothing changes at runtime yet.
+(`audit_log_events`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`). It
+ships in **fallback mode**: the role exists (`NOLOGIN`) but the application still connects
+as the table **owner**, so nothing changes at runtime yet.
 
 This runbook performs the **coordinated DSN flip** that makes the application connect as
 `coga_app`. That is what actually closes P1-4's owner-bypass gap: as a non-owner the
@@ -145,6 +145,6 @@ login, unused.
 
 ## Future schema changes
 
-Any **new append-only table** must repeat the `REVOKE UPDATE, DELETE, TRUNCATE … FROM
-coga_app;` from migration 040 — the `ALTER DEFAULT PRIVILEGES` in 040 otherwise grants the
-new table full CRUD to `coga_app`.
+Any **new append-only table** must get the same `REVOKE UPDATE, DELETE, TRUNCATE … FROM
+coga_app;` in `05_grants.sql`, after the broad `GRANT` — the `GRANT … ON ALL TABLES` and the
+`ALTER DEFAULT PRIVILEGES` in that file otherwise give the new table full CRUD for `coga_app`.
