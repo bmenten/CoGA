@@ -42,6 +42,40 @@ describe('classifyEmbryosAtRoi (dominant)', () => {
     expect(out.E_RISK.uninformative).toBe(false);
   });
 
+  it('calls an embryo with no haplotype over the ROI uninformative, never unaffected', () => {
+    // The disease haplotype resolves (paternal 1), but these embryos have no block at the
+    // ROI: one has blocks only in the flank the ROI view fetches, one none at all. They
+    // used to read "Unaffected", the badge of an embryo seen not to carry it.
+    const withMissing: HaplotypeMemberLike[] = [
+      ...members,
+      { sample_id: 'E_FLANK', role: 'embryo', affected: false, sex: 'female' },
+      { sample_id: 'E_NONE', role: 'embryo', affected: false, sex: 'female' },
+    ];
+    const withMissingSamples: HaplotypeSampleLike[] = [
+      ...samples,
+      {
+        sample: 'E_FLANK',
+        segments: [
+          seg('0', '1', 'paternal', 'maternal', 0, 900_000),
+          seg('0', '1', 'paternal', 'maternal', 1_100_000, 2_000_000),
+        ],
+      },
+    ];
+    const out = byId(
+      classifyEmbryosAtRoi({ members: withMissing, samples: withMissingSamples, inheritanceModel: 'AD', region }),
+    );
+    for (const id of ['E_FLANK', 'E_NONE']) {
+      expect(out[id].state).toBe('uninformative');
+      expect(out[id].uninformative).toBe(true);
+      // The reason is this embryo's missing data, not an unresolved disease haplotype.
+      expect(out[id].roiNotCovered).toBe(true);
+    }
+    // The embryos with data at the ROI keep their calls.
+    expect(out.E_RISK.state).toBe('affected_or_at_risk');
+    expect(out.E_CLEAR.state).toBe('unaffected_non_carrier');
+    expect(out.E_CLEAR.roiNotCovered).toBe(false);
+  });
+
   it('flags uninformative when the disease haplotype cannot be resolved', () => {
     // A single affected member with a homozygous block is ambiguous -> uninformative.
     const lone: HaplotypeMemberLike[] = [
@@ -55,6 +89,8 @@ describe('classifyEmbryosAtRoi (dominant)', () => {
     const out = byId(classifyEmbryosAtRoi({ members: lone, samples: loneSamples, inheritanceModel: 'AD', region }));
     expect(out.E1.state).toBe('uninformative');
     expect(out.E1.uninformative).toBe(true);
+    // No disease haplotype to call against: that, not the embryo's data, is the reason.
+    expect(out.E1.roiNotCovered).toBe(false);
   });
 });
 

@@ -588,6 +588,76 @@ describe('FamilyDetailPage', () => {
     }
   });
 
+  // No data at the ROI is not an unaffected embryo. The embryo badge used to read
+  // "Unaffected" for an embryo whose haplotype has no block over the ROI.
+  it('reads an embryo with no haplotype over the ROI as uninformative, not unaffected', async () => {
+    localStorage.setItem('role', 'viewer');
+    mockApiState.members = [
+      { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' },
+      { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
+      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'female' },
+      { sample_id: 'E2', role: 'embryo', affected: false, sex: 'female' },
+    ];
+    // Blocks over the ROI (chr17:43,044,295–43,125,482), or wherever `at` puts them.
+    const block = (hap1: string, hap2: string, lineage: [string, string], at = [43_000_000, 43_200_000]) => ({
+      chr: '17',
+      start: at[0],
+      end: at[1],
+      hap1,
+      hap2,
+      hap1_lineage: lineage[0],
+      hap2_lineage: lineage[1],
+    });
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation((url: string, config?: unknown) =>
+      url === '/families/F1/haplotypes'
+        ? Promise.resolve({
+            data: {
+              chr: '17',
+              samples: [
+                // The affected father and proband share paternal 1: the dominant haplotype.
+                { sample: 'FATHER', segments: [block('0', '1', ['paternal', 'paternal'])] },
+                { sample: 'PROBAND', segments: [block('1', '0', ['paternal', 'maternal'])] },
+                // E1's only block is in the flank the ROI view fetches, past the ROI.
+                { sample: 'E1', segments: [block('0', '1', ['paternal', 'maternal'], [43_600_000, 44_000_000])] },
+                // E2 inherited paternal 0 across the ROI.
+                { sample: 'E2', segments: [block('0', '1', ['paternal', 'maternal'])] },
+              ],
+            },
+          })
+        : working(url, config),
+    );
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1']}>
+            <Routes>
+              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const rowOf = async (sampleId: string) =>
+        (await screen.findByRole('button', { name: sampleId })).closest('tr') as HTMLElement;
+
+      const e1 = await rowOf('E1');
+      expect(await within(e1).findByText('Uninformative')).toHaveClass('segregation-badge--uninformative');
+      expect(within(e1).queryByText('Unaffected')).not.toBeInTheDocument();
+      // The warning says why: this embryo's data, not an unresolved disease haplotype.
+      expect(
+        within(e1).getByRole('button', { name: /this embryo's haplotype does not cover the ROI/i }),
+      ).toHaveTextContent('⚠ uninformative');
+
+      // An embryo seen across the ROI keeps its call.
+      expect(within(await rowOf('E2')).getByText('Unaffected')).toHaveClass(
+        'segregation-badge--unaffected_non_carrier',
+      );
+    } finally {
+      get.mockImplementation(working);
+    }
+  });
+
   // #607 — a failed request on the family page is said as such, never as missing data.
   describe('when a request fails', () => {
     const renderWithFailing = (matches: (url: string) => boolean) => {

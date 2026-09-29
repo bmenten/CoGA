@@ -9,14 +9,16 @@
  *   - recombinationNearRoi: a haplotype block boundary (crossover) falls inside or
  *     very close to the ROI, so the embryo's haplotype changes across the locus and
  *     the call is uncertain;
- *   - uninformative: the analysis could not resolve a disease haplotype at the ROI
- *     (no informative markers / greyed lineage), so no call can be made.
+ *   - uninformative: no call can be made — either the analysis could not resolve a
+ *     disease haplotype at the ROI (no informative markers / greyed lineage), or the
+ *     embryo's own haplotype does not cover the ROI on the parental side the call needs
+ *     (missing data is never read as "does not carry the risk haplotype").
  *
  * This is DERIVED FROM THE ANALYSIS — it is not entered by an analyst or user.
  */
 import {
+  assessSampleHaplotypeRisk,
   inferDiseaseHaplotypes,
-  interpretSampleHaplotypeRisk,
   normalizeHaplotypeChrom,
   resolveHaplotypeInheritanceModel,
   type HaplotypeMemberLike,
@@ -36,8 +38,11 @@ export interface EmbryoClassification {
   state: HaplotypeRiskState;
   /** A crossover falls inside/near the ROI — the call across the locus is uncertain. */
   recombinationNearRoi: boolean;
-  /** No disease haplotype could be resolved at the ROI (no call can be made). */
+  /** No call can be made at the ROI (see `roiNotCovered` for which reason). */
   uninformative: boolean;
+  /** Uninformative because this embryo's own haplotype does not cover the ROI on a parental
+   * side the call needs (missing data), not because no disease haplotype was resolved. */
+  roiNotCovered: boolean;
 }
 
 const segmentsForSample = (
@@ -91,11 +96,12 @@ export const classifyEmbryosAtRoi = ({
   return members
     .filter((member) => String(member.role || '').toLowerCase() === 'embryo')
     .map((member) => {
-      const state = interpretSampleHaplotypeRisk({ model, samples, member, region });
+      const { state, roiNotCovered } = assessSampleHaplotypeRisk({ model, samples, member, region });
       return {
         sampleId: member.sample_id,
         state,
         uninformative: state === 'uninformative' || !model.informative,
+        roiNotCovered,
         recombinationNearRoi: hasRecombinationNearRoi(segmentsForSample(samples, member.sample_id), region),
       };
     });

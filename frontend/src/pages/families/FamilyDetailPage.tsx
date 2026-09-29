@@ -1648,7 +1648,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                           {embryoClass?.uninformative && !embryoClass.recombinationNearRoi && (
                             <InfoTip
                               className="segregation-warning"
-                              label="No disease haplotype could be resolved at the ROI (uninformative markers)."
+                              label={
+                                embryoClass.roiNotCovered
+                                  ? "This embryo's haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made."
+                                  : 'No disease haplotype could be resolved at the ROI (uninformative markers).'
+                              }
                             >
                               ⚠ uninformative
                             </InfoTip>

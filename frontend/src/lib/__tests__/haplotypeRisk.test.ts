@@ -7,6 +7,7 @@ import {
   interpretSampleHaplotypeRisk,
   type HaplotypeMemberLike,
   type HaplotypeSampleLike,
+  type HaplotypeSegmentLike,
 } from '../haplotypeRisk';
 
 const region = { chr: '1', start: 40, end: 60 };
@@ -385,6 +386,231 @@ describe('pedigree-aware lineage tags override role-based origin', () => {
       { origin: 'paternal', value: '1', kind: 'recessive-paternal' },
       { origin: 'maternal', value: '0', kind: 'recessive-maternal' },
     ]);
+  });
+});
+
+// No data is not a clear side. A negative call (Unaffected, or the clear side of a Carrier
+// call) must rest on the member's OWN haplotype at the ROI, on the parental side that call
+// needs. It used to rest on "no risk haplotype found", which is also what a member with no
+// block over the ROI finds, so an embryo without data there was called Unaffected.
+describe('a negative call needs the member\'s own haplotype across the ROI', () => {
+  type Seg = HaplotypeSegmentLike;
+  const block = (start: number, end: number, hap1: string, hap2: string, extra: Partial<Seg> = {}): Seg => ({
+    chr: '1',
+    start,
+    end,
+    hap1,
+    hap2,
+    ...extra,
+  });
+  const riskOf = (
+    samples: HaplotypeSampleLike[],
+    members: HaplotypeMemberLike[],
+    inheritanceModel: string,
+    member: HaplotypeMemberLike,
+    roi: { chr: string; start: number; end: number } = region,
+  ) =>
+    interpretSampleHaplotypeRisk({
+      model: inferDiseaseHaplotypes({ samples, members, inheritanceModel, region: roi }),
+      samples,
+      member,
+      region: roi,
+    });
+
+  describe('dominant: the affected father and proband share paternal 1 at the ROI', () => {
+    const father: HaplotypeMemberLike = { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' };
+    const proband: HaplotypeMemberLike = { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' };
+    const embryo: HaplotypeMemberLike = { sample_id: 'EMBRYO', role: 'embryo', affected: false, sex: 'female' };
+    const family: HaplotypeSampleLike[] = [
+      { sample: 'FATHER', segments: [block(0, 100, '0', '1')] },
+      { sample: 'PROBAND', segments: [block(0, 100, '1', '0')] },
+    ];
+    const members = [father, proband, embryo];
+    const withEmbryo = (segments: Seg[] | null) =>
+      segments === null ? family : [...family, { sample: 'EMBRYO', segments }];
+    const embryoRisk = (segments: Seg[] | null) => riskOf(withEmbryo(segments), members, 'AD', embryo);
+
+    it('resolves the disease haplotype the embryo calls below are made against', () => {
+      const model = inferDiseaseHaplotypes({ samples: family, members, inheritanceModel: 'AD', region });
+      expect(model.signatures).toEqual([{ origin: 'paternal', value: '1', kind: 'dominant' }]);
+    });
+
+    it.each([
+      ['has blocks on the chromosome but none over the ROI', [block(0, 30, '0', '1'), block(70, 100, '0', '1')]],
+      ['has no haplotype blocks at all', null],
+      ['has no blocks in the response (empty list)', []],
+      ['has a block over only part of the ROI', [block(0, 50, '0', '1')]],
+      [
+        'is grey at the ROI (lineage unknown on both lanes)',
+        [block(0, 100, '0', '1', { hap1_lineage: 'unknown', hap2_lineage: 'unknown' })],
+      ],
+      [
+        'is grey on the risk side (paternal lane untransmitted)',
+        [block(0, 100, '0', '1', { hap1_lineage: 'untransmitted', hap2_lineage: 'maternal' })],
+      ],
+      ['has its paternal homolog unconfirmed (?) at the ROI', [block(0, 100, '?', '1')]],
+      ['has its paternal homolog deleted (.) at the ROI', [block(0, 100, '.', '1')]],
+      [
+        'carries a paternal homolog only up to a gap inside the ROI',
+        [block(0, 45, '0', '1'), block(55, 100, '0', '1')],
+      ],
+    ])('is uninformative, not unaffected, when the embryo %s', (_label, segments) => {
+      expect(embryoRisk(segments)).toBe('uninformative');
+    });
+
+    it('still calls an embryo at risk when it carries the risk haplotype over part of the ROI', () => {
+      // A positive call stays conservative: the risk haplotype seen anywhere at the ROI.
+      expect(embryoRisk([block(0, 50, '1', '0')])).toBe('affected_or_at_risk');
+    });
+
+    it('still calls an embryo unaffected when adjacent blocks cover the ROI between them', () => {
+      expect(embryoRisk([block(0, 50, '0', '1'), block(50, 100, '0', '0')])).toBe('unaffected_non_carrier');
+      // Blocks written as closed intervals (end + 1 = next start) leave no position uncovered.
+      expect(embryoRisk([block(0, 49, '0', '1'), block(50, 100, '0', '0')])).toBe('unaffected_non_carrier');
+    });
+
+    it('does not need the other parent\'s side: a donor family\'s embryo is called on the known side', () => {
+      // Single-parent (donor) PGT: the donor lane is grey by construction. The dominant
+      // haplotype is paternal, so the paternal lane alone decides.
+      expect(
+        embryoRisk([block(0, 100, '0', '0', { hap1_lineage: 'paternal', hap2_lineage: 'untransmitted' })]),
+      ).toBe('unaffected_non_carrier');
+    });
+
+    it('does not take an unconfirmed side (?) the affected share for the disease haplotype', () => {
+      // Before the first informative site of a side the trio block builder writes '?'. Two
+      // affected children with '?' there share no known homolog; reading '?' as one made it
+      // the "disease haplotype", and every embryo with a confirmed paternal homolog read
+      // unaffected against it.
+      const sib: HaplotypeMemberLike = { sample_id: 'SIB', role: 'sibling', affected: true, sex: 'male' };
+      const samples: HaplotypeSampleLike[] = [
+        { sample: 'PROBAND', segments: [block(0, 100, '?', '0')] },
+        { sample: 'SIB', segments: [block(0, 100, '?', '1')] },
+        { sample: 'EMBRYO', segments: [block(0, 100, '0', '1')] },
+      ];
+      const affectedChildren = [proband, sib, embryo];
+      const model = inferDiseaseHaplotypes({ samples, members: affectedChildren, inheritanceModel: 'AD', region });
+      expect(model.informative).toBe(false);
+      expect(interpretSampleHaplotypeRisk({ model, samples, member: embryo, region })).toBe('uninformative');
+    });
+
+    it('reads a single-position ROI covered by the block around it', () => {
+      const point = { chr: '1', start: 50, end: 50 };
+      const samples = withEmbryo([block(0, 100, '0', '1')]);
+      expect(riskOf(samples, members, 'AD', embryo, point)).toBe('unaffected_non_carrier');
+      expect(riskOf(withEmbryo([block(60, 100, '0', '1')]), members, 'AD', embryo, point)).toBe('uninformative');
+    });
+  });
+
+  describe('recessive: the affected proband resolves paternal 1 and maternal 0', () => {
+    const proband: HaplotypeMemberLike = { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' };
+    const embryo: HaplotypeMemberLike = { sample_id: 'EMBRYO', role: 'embryo', affected: false, sex: 'female' };
+    const embryoRisk = (segments: Seg[] | null) =>
+      riskOf(
+        [
+          { sample: 'PROBAND', segments: [block(0, 100, '1', '0')] },
+          ...(segments === null ? [] : [{ sample: 'EMBRYO', segments }]),
+        ],
+        [proband, embryo],
+        'AR',
+        embryo,
+      );
+
+    it.each([
+      ['has no haplotype blocks at all', null],
+      ['has blocks only outside the ROI', [block(70, 100, '0', '1')]],
+      ['is clear on the paternal side but has no maternal homolog at the ROI', [block(0, 100, '0', '.')]],
+      [
+        'is clear on the maternal side but grey on the paternal side',
+        [block(0, 100, '0', '1', { hap1_lineage: 'unknown', hap2_lineage: 'maternal' })],
+      ],
+    ])('is uninformative, not unaffected, when the embryo %s', (_label, segments) => {
+      expect(embryoRisk(segments)).toBe('uninformative');
+    });
+
+    it('is uninformative, not a carrier, when the other side is missing at the ROI', () => {
+      // A carrier call says the other homolog is clear; with no maternal homolog seen the
+      // embryo may as well be affected.
+      expect(embryoRisk([block(0, 100, '1', '.')])).toBe('uninformative');
+      // Maternal 1 (clear) seen over only part of the ROI: maternal 0 may be past it.
+      expect(embryoRisk([block(0, 50, '1', '1')])).toBe('uninformative');
+    });
+
+    it('still makes the calls it has the data for', () => {
+      expect(embryoRisk([block(0, 100, '1', '0')])).toBe('affected_or_at_risk');
+      expect(embryoRisk([block(0, 50, '1', '0')])).toBe('affected_or_at_risk');
+      expect(embryoRisk([block(0, 100, '1', '1')])).toBe('carrier');
+      expect(embryoRisk([block(0, 100, '0', '1')])).toBe('unaffected_non_carrier');
+    });
+  });
+
+  describe('X-linked: a son has one X, from his mother', () => {
+    const xRoi = { chr: 'X', start: 40, end: 60 };
+    const xBlock = (start: number, end: number, hap1: string, hap2: string): Seg =>
+      block(start, end, hap1, hap2, { chr: 'X' });
+
+    describe('recessive, resolved from an affected son (maternal 1)', () => {
+      const affectedSon: HaplotypeMemberLike = { sample_id: 'SON', role: 'proband', affected: true, sex: 'male' };
+      const risk = (member: HaplotypeMemberLike, segments: Seg[]) =>
+        riskOf(
+          [
+            { sample: 'SON', segments: [xBlock(0, 100, '0', '1')] },
+            { sample: member.sample_id, segments },
+          ],
+          [affectedSon, member],
+          'XLR',
+          member,
+          xRoi,
+        );
+      const maleEmbryo: HaplotypeMemberLike = { sample_id: 'E_MALE', role: 'embryo', affected: false, sex: 'male' };
+      const femaleEmbryo: HaplotypeMemberLike = {
+        sample_id: 'E_FEMALE',
+        role: 'embryo',
+        affected: false,
+        sex: 'female',
+      };
+
+      it('is uninformative for a male embryo with no X block over the ROI', () => {
+        expect(risk(maleEmbryo, [xBlock(70, 100, '?', '0')])).toBe('uninformative');
+        expect(risk(maleEmbryo, [xBlock(0, 100, '?', '?')])).toBe('uninformative');
+      });
+
+      it('is uninformative for a female embryo whose maternal homolog is missing at the ROI', () => {
+        expect(risk(femaleEmbryo, [xBlock(0, 100, '0', '.')])).toBe('uninformative');
+      });
+
+      it('still calls a son from his maternal X alone, and a daughter carrier from hers', () => {
+        // The trio block builder never confirms a son's paternal X side ('?'); his call rests
+        // on the X he has.
+        expect(risk(maleEmbryo, [xBlock(0, 100, '?', '0')])).toBe('unaffected_non_carrier');
+        expect(risk(maleEmbryo, [xBlock(0, 100, '?', '1')])).toBe('affected_or_at_risk');
+        expect(risk(femaleEmbryo, [xBlock(0, 100, '0', '1')])).toBe('carrier');
+        expect(risk(femaleEmbryo, [xBlock(0, 100, '0', '0')])).toBe('unaffected_non_carrier');
+      });
+    });
+
+    describe('dominant, from an affected father and daughter (paternal 1)', () => {
+      const father: HaplotypeMemberLike = { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' };
+      const daughter: HaplotypeMemberLike = { sample_id: 'DAUGHTER', role: 'proband', affected: true, sex: 'female' };
+      const son: HaplotypeMemberLike = { sample_id: 'E_SON', role: 'embryo', affected: false, sex: 'male' };
+      const risk = (segments: Seg[]) =>
+        riskOf(
+          [
+            { sample: 'FATHER', segments: [xBlock(0, 100, '1', '1')] },
+            { sample: 'DAUGHTER', segments: [xBlock(0, 100, '1', '0')] },
+            { sample: 'E_SON', segments },
+          ],
+          [father, daughter, son],
+          'XLD',
+          son,
+          xRoi,
+        );
+
+      it('calls a son unaffected on his maternal X, and uninformative without it', () => {
+        expect(risk([xBlock(0, 100, '?', '0')])).toBe('unaffected_non_carrier');
+        expect(risk([xBlock(70, 100, '?', '0')])).toBe('uninformative');
+      });
+    });
   });
 });
 

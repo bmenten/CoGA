@@ -201,6 +201,39 @@ const segmentOverlapsRegion = (segment: HaplotypeSegmentLike, region: HaplotypeR
 const buildSegmentMap = (samples: HaplotypeSampleLike[]): Map<string, HaplotypeSegmentLike[]> =>
   new Map(samples.map((sample) => [sample.sample, sample.segments || []]));
 
+// A lane value names one of a parent's homologs only when it is a homolog label (0, 1, …).
+// The trio block builder writes '?' for a side whose inherited homolog is not confirmed yet,
+// and '.' (a deleted homolog) or '' (no value) name none either.
+const isHomologLabel = (value: string): boolean => /^\d+$/.test(value);
+
+interface HomologInRegion {
+  signature: HaplotypeSignature;
+  /** The extent of the block the homolog was seen in. */
+  start: number;
+  end: number;
+}
+
+/** The homologs a member carries in its blocks over the region, each with its block's extent.
+ * A grey lane (untransmitted or unknown lineage) and a lane without a homolog label carry
+ * none: there the member's haplotype is missing data, not a homolog it does not carry. */
+const homologsInRegion = (
+  member: HaplotypeMemberLike,
+  segmentsBySample: Map<string, HaplotypeSegmentLike[]>,
+  region: HaplotypeRiskRegion,
+): HomologInRegion[] => {
+  const homologs: HomologInRegion[] = [];
+  const segments = segmentsBySample.get(member.sample_id) || [];
+  segments.forEach((segment) => {
+    if (!segmentOverlapsRegion(segment, region)) return;
+    getRenderableHaplotypeLanes(member, segment, region.chr || segment.chr).forEach((lane) => {
+      const signature = getHaplotypeLaneSignature(member, segment, lane, region.chr || segment.chr);
+      if (!signature || !isHomologLabel(signature.value)) return;
+      homologs.push({ signature, start: segment.start, end: segment.end });
+    });
+  });
+  return homologs;
+};
+
 const carriedSignatureKeysForMember = (
   member: HaplotypeMemberLike,
   segmentsBySample: Map<string, HaplotypeSegmentLike[]>,
@@ -208,17 +241,41 @@ const carriedSignatureKeysForMember = (
   origin?: HaplotypeOrigin,
 ): Set<string> => {
   const keys = new Set<string>();
-  const segments = segmentsBySample.get(member.sample_id) || [];
-  segments.forEach((segment) => {
-    if (!segmentOverlapsRegion(segment, region)) return;
-    getRenderableHaplotypeLanes(member, segment, region.chr || segment.chr).forEach((lane) => {
-      const signature = getHaplotypeLaneSignature(member, segment, lane, region.chr || segment.chr);
-      if (!signature || (origin && signature.origin !== origin)) return;
-      keys.add(signatureKey(signature));
-    });
+  homologsInRegion(member, segmentsBySample, region).forEach(({ signature }) => {
+    if (origin && signature.origin !== origin) return;
+    keys.add(signatureKey(signature));
   });
   return keys;
 };
+
+/**
+ * Whether the member's blocks name a homolog of this parental side at every position of the
+ * region. Block extents are read inclusively, like the overlap test above, and blocks that
+ * abut (end + 1 = next start) are contiguous; any other gap, or a region only partly
+ * reached, is not covered.
+ */
+const coversRegionOnSide = (
+  homologs: HomologInRegion[],
+  region: HaplotypeRiskRegion,
+  origin: HaplotypeOrigin,
+): boolean => {
+  if (!(region.end >= region.start)) return false;
+  const spans = homologs
+    .filter((homolog) => homolog.signature.origin === origin)
+    .sort((a, b) => a.start - b.start);
+  let coveredTo = region.start - 1;
+  for (const span of spans) {
+    if (span.start > coveredTo + 1) return false;
+    coveredTo = Math.max(coveredTo, span.end);
+    if (coveredTo >= region.end) return true;
+  }
+  return false;
+};
+
+/** The one X a male member has, as the colouring labels it: his mother's, or, for the father
+ * himself, the family's paternal side. */
+const maleXOrigin = (member: HaplotypeMemberLike): HaplotypeOrigin =>
+  normalizeRole(member.role) === 'father' ? 'paternal' : 'maternal';
 
 const intersectCandidateKeys = (
   members: HaplotypeMemberLike[],
@@ -382,7 +439,27 @@ export const diseaseHaplotypeKindForLane = (
   return matched?.kind || null;
 };
 
-export const interpretSampleHaplotypeRisk = ({
+export interface HaplotypeRiskAssessment {
+  state: HaplotypeRiskState;
+  /** The call is uninformative because the member's own haplotype does not cover the ROI on a
+   * parental side the call needs (missing data), not because no disease haplotype was resolved. */
+  roiNotCovered: boolean;
+}
+
+/**
+ * The member's risk state at the region, and whether an uninformative call is down to the
+ * member's own missing data there.
+ *
+ * A positive call needs the risk haplotype seen anywhere in the region; that stays the
+ * conservative direction. A negative call needs more than not finding it. Unaffected, and the
+ * clear side of a Carrier call, rest on the member's own haplotype: a homolog of that
+ * parental side seen at every position of the region. No block over the region, a block over
+ * only part of it, a grey lane or an unconfirmed homolog is missing data (the member may
+ * carry the risk haplotype there), so the call is uninformative. The sides a call needs are
+ * those a risk haplotype was resolved on; a male on X is called on his one X, since a son
+ * cannot inherit his father's.
+ */
+export const assessSampleHaplotypeRisk = ({
   model,
   samples,
   member,
@@ -392,16 +469,26 @@ export const interpretSampleHaplotypeRisk = ({
   samples: HaplotypeSampleLike[];
   member: HaplotypeMemberLike;
   region: HaplotypeRiskRegion;
-}): HaplotypeRiskState => {
-  if (!model.informative) return 'uninformative';
-  const carried = carriedSignatureKeysForMember(member, buildSegmentMap(samples), region);
+}): HaplotypeRiskAssessment => {
+  const call = (state: HaplotypeRiskState): HaplotypeRiskAssessment => ({ state, roiNotCovered: false });
+  if (!model.informative) return call('uninformative');
+  const homologs = homologsInRegion(member, buildSegmentMap(samples), region);
+  const carried = new Set(homologs.map(({ signature }) => signatureKey(signature)));
   const hasKind = (kind: DiseaseHaplotypeKind): boolean =>
     model.signatures.some((signature) => signature.kind === kind && carried.has(signatureKey(signature)));
+  // The call, when the member's haplotype covers the region on every one of these sides.
+  const clearOn = (sides: HaplotypeOrigin[], state: HaplotypeRiskState): HaplotypeRiskAssessment =>
+    sides.every((side) => coversRegionOnSide(homologs, region, side))
+      ? call(state)
+      : { state: 'uninformative', roiNotCovered: true };
+  const riskSides: HaplotypeOrigin[] = isMaleOnX(member, region.chr)
+    ? [maleXOrigin(member)]
+    : Array.from(new Set(model.signatures.map((signature) => signature.origin)));
 
   if (model.mode === 'dominant' || model.mode === 'x_linked_dominant') {
     return hasKind(model.mode === 'dominant' ? 'dominant' : 'x-linked')
-      ? 'affected_or_at_risk'
-      : 'unaffected_non_carrier';
+      ? call('affected_or_at_risk')
+      : clearOn(riskSides, 'unaffected_non_carrier');
   }
 
   if (model.mode === 'recessive') {
@@ -410,25 +497,33 @@ export const interpretSampleHaplotypeRisk = ({
     const modelHasBoth =
       model.signatures.some((signature) => signature.kind === 'recessive-paternal') &&
       model.signatures.some((signature) => signature.kind === 'recessive-maternal');
-    if (!modelHasBoth) return 'uninformative';
-    if (hasPaternal && hasMaternal) return 'affected_or_at_risk';
-    if (hasPaternal || hasMaternal) return 'carrier';
-    return 'unaffected_non_carrier';
+    if (!modelHasBoth) return call('uninformative');
+    if (hasPaternal && hasMaternal) return call('affected_or_at_risk');
+    // A carrier's other homolog must be seen clear; an unaffected member's both.
+    if (hasPaternal) return clearOn(['maternal'], 'carrier');
+    if (hasMaternal) return clearOn(['paternal'], 'carrier');
+    return clearOn(['paternal', 'maternal'], 'unaffected_non_carrier');
   }
 
   if (model.mode === 'x_linked_recessive') {
     const matchingSignatures = model.signatures.filter((signature) => carried.has(signatureKey(signature)));
     if (normalizeSex(member.sex) === 'male') {
-      return matchingSignatures.length > 0 ? 'affected_or_at_risk' : 'unaffected_non_carrier';
+      return matchingSignatures.length > 0
+        ? call('affected_or_at_risk')
+        : clearOn(riskSides, 'unaffected_non_carrier');
     }
     const matchingOrigins = new Set(matchingSignatures.map((signature) => signature.origin));
-    if (matchingOrigins.size >= 2) return 'affected_or_at_risk';
-    if (matchingOrigins.size === 1) return 'carrier';
-    return 'unaffected_non_carrier';
+    if (matchingOrigins.size >= 2) return call('affected_or_at_risk');
+    const clearSides = riskSides.filter((side) => !matchingOrigins.has(side));
+    return clearOn(clearSides, matchingOrigins.size === 1 ? 'carrier' : 'unaffected_non_carrier');
   }
 
-  return 'uninformative';
+  return call('uninformative');
 };
+
+export const interpretSampleHaplotypeRisk = (
+  args: Parameters<typeof assessSampleHaplotypeRisk>[0],
+): HaplotypeRiskState => assessSampleHaplotypeRisk(args).state;
 
 export const defaultHaplotypeRiskRegion = (chrom: string, start: number, end: number): HaplotypeRiskRegion => ({
   chr: chrom,
