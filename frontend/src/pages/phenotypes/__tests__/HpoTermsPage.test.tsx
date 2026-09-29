@@ -79,4 +79,25 @@ describe('HpoTermsPage', () => {
     renderAt('/hpo?term=HP:0001250');
     expect(screen.queryByRole('link', { name: 'Back to SVs' })).not.toBeInTheDocument();
   });
+
+  it('returns to the SV page it came from, with its project and filters (#526)', () => {
+    // The link used to drop project_id, which scopes review saves and tag definitions.
+    const from = '/families/F1/structural-variants?project_id=P1&type=DEL&gene=TRNT1';
+    renderAt(`/hpo?term=HP:0001250&family_id=F1&from=${encodeURIComponent(from)}`);
+    expect(screen.getByRole('link', { name: 'Back to SVs' })).toHaveAttribute('href', from);
+  });
+
+  it('never sends Back to SVs off the family pages, and encodes the family id', () => {
+    const { unmount } = renderAt(
+      `/hpo?term=HP:0001250&family_id=${encodeURIComponent('FAM/1')}&from=${encodeURIComponent('https://example.org/x')}`,
+    );
+    expect(screen.getByRole('link', { name: 'Back to SVs' })).toHaveAttribute(
+      'href',
+      '/families/FAM%2F1/structural-variants',
+    );
+    unmount();
+
+    renderAt(`/hpo?term=HP:0001250&from=${encodeURIComponent('/admin/users')}`);
+    expect(screen.queryByRole('link', { name: 'Back to SVs' })).not.toBeInTheDocument();
+  });
 });

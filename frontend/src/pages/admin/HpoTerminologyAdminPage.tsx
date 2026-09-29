@@ -57,7 +57,12 @@ const formatNumber = (value?: number | null) =>
 const formatDate = (value?: string | null) => {
   if (!value) return 'Not installed';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+  if (Number.isNaN(date.getTime())) return value;
+  // A date-only value is parsed as UTC midnight: shown in local time it fell a day early
+  // west of UTC (2026-06-06 as 6/5/2026), so show it in UTC (#526).
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? date.toLocaleDateString(undefined, { timeZone: 'UTC' })
+    : date.toLocaleDateString();
 };
 
 const formatDateTime = (value?: string | null) => {
@@ -92,6 +97,10 @@ const HpoTerminologyAdminPage: React.FC = () => {
   const [releaseDate, setReleaseDate] = useState('');
   const [selectedTermId, setSelectedTermId] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<HpoSyncResult | null>(null);
+  // The request the shown result answers. Apply goes out only for exactly the previewed
+  // file and overrides: it used to take whatever the fields held, with or without a
+  // preview, while the preview of another file stayed on screen (#526).
+  const [resultRequest, setResultRequest] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -153,18 +162,26 @@ const HpoTerminologyAdminPage: React.FC = () => {
     );
   }, [selectedTerm, terms]);
 
+  const syncRequest = {
+    path: syncPath.trim(),
+    release_version: releaseVersion.trim() || null,
+    release_date: releaseDate || null,
+  };
+  const syncRequestKey = JSON.stringify(syncRequest);
+  const shownResult = resultRequest === syncRequestKey ? syncResult : null;
+  const previewedCurrentRequest = Boolean(shownResult?.preview_only);
+
   const syncMutation = useMutation({
-    mutationFn: async (previewOnly: boolean) => {
+    mutationFn: async ({ previewOnly }: { previewOnly: boolean; requestKey: string }) => {
       const response = await api.post('/admin/hpo/sync', {
-        path: syncPath.trim(),
-        release_version: releaseVersion.trim() || null,
-        release_date: releaseDate || null,
+        ...syncRequest,
         preview_only: previewOnly,
       });
       return response.data as HpoSyncResult;
     },
-    onSuccess: async (result) => {
+    onSuccess: async (result, { requestKey }) => {
       setSyncResult(result);
+      setResultRequest(requestKey);
       setStatus({
         tone: 'success',
         message: result.preview_only
@@ -206,6 +223,12 @@ const HpoTerminologyAdminPage: React.FC = () => {
 
   const summary = summaryQuery.data;
   const canSync = syncPath.trim().length > 0 && !syncMutation.isPending;
+  const canApply = canSync && previewedCurrentRequest;
+  const pendingAction = syncMutation.isPending
+    ? syncMutation.variables?.previewOnly
+      ? 'preview'
+      : 'apply'
+    : null;
   const ontologyLoaded = summary?.ontology_loaded ?? false;
 
   return (
@@ -307,24 +330,31 @@ const HpoTerminologyAdminPage: React.FC = () => {
             type="button"
             className="button-secondary"
             disabled={!canSync}
-            onClick={() => syncMutation.mutate(true)}
+            onClick={() => syncMutation.mutate({ previewOnly: true, requestKey: syncRequestKey })}
           >
-            {syncMutation.isPending ? 'Checking...' : 'Preview changes'}
+            {pendingAction === 'preview' ? 'Checking...' : 'Preview changes'}
           </button>
           <button
             type="button"
             className="form-button"
-            disabled={!canSync}
+            disabled={!canApply}
             onClick={() => {
-              if (window.confirm('Apply this HPO ontology update now?')) {
-                syncMutation.mutate(false);
+              if (
+                window.confirm(
+                  `Apply the HPO ontology in ${syncRequest.path} now? The terminology is replaced as previewed.`,
+                )
+              ) {
+                syncMutation.mutate({ previewOnly: false, requestKey: syncRequestKey });
               }
             }}
           >
-            {syncMutation.isPending ? 'Synchronizing...' : 'Apply sync'}
+            {pendingAction === 'apply' ? 'Synchronizing...' : 'Apply sync'}
           </button>
         </div>
-        {syncResult ? (
+        {!previewedCurrentRequest && syncPath.trim() && !syncMutation.isPending ? (
+          <p className="table-subtle">Preview these settings first; Apply sync applies what was previewed.</p>
+        ) : null}
+        {shownResult ? (
           <div className="data-table-shell overflow-x-auto">
             <table className="analysis-table">
               <thead>
@@ -334,7 +364,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(syncResult.preview).map(([key, value]) => (
+                {Object.entries(shownResult.preview).map(([key, value]) => (
                   <tr key={key}>
                     <td>{previewLabels[key] || key}</td>
                     <td>{formatNumber(value)}</td>

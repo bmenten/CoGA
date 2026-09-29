@@ -57,3 +57,29 @@ describe('StructuralVariantCards frequencies heading', () => {
     expect(screen.getByText('Frequencies')).toBeInTheDocument();
   });
 });
+
+describe('StructuralVariantCards HPO link', () => {
+  it('carries the SV page, with its project and filters, so the HPO page can return to it (#526)', () => {
+    const withHpo = {
+      ...variant,
+      annotation_extra: { hpo_terms: 'HP:0001250;HP:0000707' },
+    } as unknown as StructuralVariant;
+    render(
+      <MemoryRouter initialEntries={['/families/F1/structural-variants?project_id=P1&type=DEL']}>
+        <StructuralVariantCards
+          familyId="F1"
+          projectId="P1"
+          linkSearch=""
+          members={[]}
+          variants={[withHpo]}
+          tags={[]}
+        />
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link', { name: /HP:0001250/ });
+    const params = new URLSearchParams((link.getAttribute('href') ?? '').split('?')[1]);
+    expect(params.getAll('term')).toEqual(['HP:0001250', 'HP:0000707']);
+    expect(params.get('family_id')).toBe('F1');
+    expect(params.get('from')).toBe('/families/F1/structural-variants?project_id=P1&type=DEL');
+  });
+});

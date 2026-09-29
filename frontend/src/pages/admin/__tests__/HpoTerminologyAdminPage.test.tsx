@@ -148,6 +148,22 @@ describe('HpoTerminologyAdminPage', () => {
       expect(screen.queryByText(/No HPO terminology is installed/)).not.toBeInTheDocument();
     });
 
+    it('shows a date-only release date on its own day, also west of UTC (#526)', async () => {
+      // 2026-06-06 parsed as UTC midnight read as 6/5/2026 in New York.
+      const previousTz = process.env.TZ;
+      process.env.TZ = 'America/New_York';
+      try {
+        renderPage();
+        await screen.findByText('Total terms');
+        expect(statValue('Release date')).toBe(
+          new Date(Date.UTC(2026, 5, 6)).toLocaleDateString(undefined, { timeZone: 'UTC' }),
+        );
+        expect(statValue('Release date')).not.toBe(new Date('2026-06-06').toLocaleDateString());
+      } finally {
+        process.env.TZ = previousTz;
+      }
+    });
+
     it('warns when no terminology is installed and reads the missing release plainly', async () => {
       summaryReply = () => ({
         total_terms: 0,
@@ -399,16 +415,68 @@ describe('HpoTerminologyAdminPage', () => {
       ]);
     });
 
-    it('does not apply a sync the admin declines to confirm', async () => {
+    const PREVIEW_REPLY = {
+      data: {
+        preview_only: true,
+        release_version: 'hp/releases/2026-09-01',
+        release_date: '2026-09-01',
+        current: SUMMARY,
+        preview: { terms: 19120 },
+        imported: null,
+      },
+    };
+
+    it('applies only what was previewed: no Apply before a preview, nor after the path changes (#526)', async () => {
       const user = userEvent.setup();
-      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      mockedPost.mockResolvedValue(PREVIEW_REPLY);
       renderPage();
 
-      await user.click(await screen.findByRole('button', { name: 'Apply sync' }));
+      const apply = await screen.findByRole('button', { name: 'Apply sync' });
+      // Apply used to send whatever the fields held, with or without a preview.
+      expect(apply).toBeDisabled();
+      expect(screen.getByText(/Preview these settings first/)).toBeInTheDocument();
 
-      expect(confirm).toHaveBeenCalledWith('Apply this HPO ontology update now?');
+      await user.click(screen.getByRole('button', { name: 'Preview changes' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Apply sync' })).toBeEnabled());
+      expect(screen.getByRole('columnheader', { name: 'Change' })).toBeInTheDocument();
+
+      // Another file: the preview on screen no longer describes it, so it goes, and so
+      // does Apply, until that file is previewed.
+      const path = screen.getByLabelText('Ontology file path');
+      await user.clear(path);
+      await user.type(path, '/data/ref-data/hpo/other.obo');
+      expect(screen.getByRole('button', { name: 'Apply sync' })).toBeDisabled();
+      expect(screen.queryByRole('columnheader', { name: 'Change' })).not.toBeInTheDocument();
+    });
+
+    it('does not apply a sync the admin declines to confirm, and names the file it asks about', async () => {
+      const user = userEvent.setup();
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+      mockedPost.mockResolvedValue(PREVIEW_REPLY);
+      renderPage();
+
+      await user.click(await screen.findByRole('button', { name: 'Preview changes' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Apply sync' })).toBeEnabled());
+      mockedPost.mockClear();
+      await user.click(screen.getByRole('button', { name: 'Apply sync' }));
+
+      expect(confirm).toHaveBeenCalledWith(
+        'Apply the HPO ontology in /data/ref-data/hpo/hpo.obo now? The terminology is replaced as previewed.',
+      );
       expect(mockedPost).not.toHaveBeenCalled();
       expect(screen.queryByText('HPO terminology synchronized.')).not.toBeInTheDocument();
+    });
+
+    it('labels only the running action as busy', async () => {
+      const user = userEvent.setup();
+      mockedPost.mockReturnValue(new Promise(() => undefined));
+      renderPage();
+
+      await user.click(await screen.findByRole('button', { name: 'Preview changes' }));
+      // Both are disabled while a request runs, but only the preview says it is checking.
+      expect(screen.getByRole('button', { name: 'Checking...' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Apply sync' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Synchronizing...' })).not.toBeInTheDocument();
     });
 
     it('applies once confirmed, then shows the new release and invalidates cached HPO lookups', async () => {
@@ -432,7 +500,11 @@ describe('HpoTerminologyAdminPage', () => {
       // A phenotype lookup cached by another page (e.g. a family's HPO picker).
       queryClient.setQueryData(['hpo', 'search', 'seiz'], [SEIZURE]);
 
-      await user.click(await screen.findByRole('button', { name: 'Apply sync' }));
+      // Apply follows a preview of the same settings.
+      mockedPost.mockResolvedValueOnce(PREVIEW_REPLY);
+      await user.click(await screen.findByRole('button', { name: 'Preview changes' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Apply sync' })).toBeEnabled());
+      await user.click(screen.getByRole('button', { name: 'Apply sync' }));
 
       await waitFor(() =>
         expect(mockedPost).toHaveBeenCalledWith('/admin/hpo/sync', {
