@@ -359,7 +359,8 @@ The `snv` dataset takes three optional settings:
 | `pipeline_info` | tool versions in the annotation manifest; run parameters on the family |
 
 Each caller's rows carry their own source tag, so re-importing one callset never removes
-another. The track viewers draw one track per caller
+another, and two callers' rows of one variant stay two rows in storage
+([database.md](database.md#row-identity)). The track viewers draw one track per caller
 (`GET /families/{family_id}/track-availability` lists them). The three HiFiCNV files are
 also served unchanged to the genome browser (IGV), from the bucket for a package in a bucket.
 
