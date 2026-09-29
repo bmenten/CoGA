@@ -595,6 +595,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **In-app docs and clinical notes trimmed and corrected** — the reference docs lab users follow
+  were re-checked against the code and state the known limits plainly; the user guide has fifteen
+  sections instead of twenty; the clinical notes in `docs/` keep developer detail only, and the NIPT
+  classification note is merged into `docs/monogenic-nipt.md` (CR-103, #641).
 - **Technical and deployment docs trimmed and corrected** — the Google Cloud guide no longer
   generates an integrity-anchor key the backend refuses (it must be 32 bytes); the data-import
   guide is rewritten at half the length; the database reference lists every table; the
