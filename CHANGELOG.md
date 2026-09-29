@@ -564,6 +564,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   running build (version and short commit), the in-house-IVD status and the manufacturer; "Report a
   problem" goes to the CMGG route set by `VITE_PROBLEM_REPORT_URL`, and a production build without it
   no longer links the public GitHub issue form (CR-110, #648).
+- **SV/CNV review changes are audited** — SV/CNV classification (the ClinGen scoring included), tag
+  and note changes, and a cleared small-variant review, now write hash-chained clinical audit events
+  (CR-111, #649).
 
 ### Security
 

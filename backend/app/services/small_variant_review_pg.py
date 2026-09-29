@@ -515,6 +515,19 @@ async def upsert_small_variant_review(
             )
         compound_het_data = _compound_het_clear_payload()
 
+    async def _audit(new_state: dict[str, Any]) -> None:
+        # The before -> after of this save in the immutable clinical audit trail (Phase 2),
+        # in the save's transaction.
+        await record_review_changes(
+            session,
+            family_uuid=context.family_uuid,
+            family_identifier=context.family_id,
+            variant_id=variant_id,
+            user=user,
+            existing=existing,
+            new_state=new_state,
+        )
+
     if (
         normalized_note is None
         and normalized_classification is None
@@ -522,6 +535,9 @@ async def upsert_small_variant_review(
         and not compound_het_requested
         and normalized_acmg is None
     ):
+        # Clearing a review removes its classification, tags and note: audited like any
+        # other change, whether the row is deleted or kept for its compound-het pairing.
+        cleared_state: dict[str, Any] = {"acmg_class": None, "acmg": None, "tags": [], "note": None}
         if existing is not None and _document_has_compound_het_review(existing):
             data = {
                 "variant_key": variant.variant_key if variant is not None else None,
@@ -543,6 +559,7 @@ async def upsert_small_variant_review(
                 review_id=existing["id"],
                 fields=data,
             )
+            await _audit(cleared_state)
             await session.commit()
             updated = await _fetch_review_row(
                 session,
@@ -554,6 +571,7 @@ async def upsert_small_variant_review(
             return _serialize_review(updated)
         if existing is not None:
             await _delete_review_row(session, existing["id"])
+            await _audit(cleared_state)
             await session.commit()
         return SmallVariantReviewOut(variant_id=variant_id, tags=[])
 
@@ -590,17 +608,6 @@ async def upsert_small_variant_review(
         "note": normalized_note,
     }
 
-    async def _audit() -> None:
-        await record_review_changes(
-            session,
-            family_uuid=context.family_uuid,
-            family_identifier=context.family_id,
-            variant_id=variant_id,
-            user=user,
-            existing=existing,
-            new_state=new_state,
-        )
-
     if existing is not None:
         merged = {**existing, **data}
         if _review_document_has_any_content(merged):
@@ -609,7 +616,7 @@ async def upsert_small_variant_review(
                 review_id=existing["id"],
                 fields=merged,
             )
-            await _audit()
+            await _audit(new_state)
             await session.commit()
             updated = await _fetch_review_row(
                 session,
@@ -620,7 +627,7 @@ async def upsert_small_variant_review(
                 raise HTTPException(status_code=500, detail="Review update failed")
             return _serialize_review(updated)
         await _delete_review_row(session, existing["id"])
-        await _audit()
+        await _audit(new_state)
         await session.commit()
         return SmallVariantReviewOut(variant_id=variant_id, tags=[])
 
@@ -634,7 +641,7 @@ async def upsert_small_variant_review(
             },
             created_at=now,
         )
-        await _audit()
+        await _audit(new_state)
         await session.commit()
         created = await _fetch_review_row(
             session,

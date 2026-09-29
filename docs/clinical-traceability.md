@@ -16,7 +16,7 @@ Code comments refer to four parts by number: Phase 0 (the annotation manifest), 
 | --- | --- | --- |
 | Annotation manifest | `family_annotation_manifest` | per family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
 | Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot` | for each ACMG classification of a small variant, what the classifier saw |
-| Clinical audit trail | `clinical_audit_events` | who changed a classification, tags or note, or signed out, when, with before and after |
+| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, or signed out, when, with before and after |
 | Signed reports | `report_signouts` | each sign-out as a frozen, versioned, content-hashed snapshot |
 | HTTP audit log | `audit_log_events` | every API request, with the user and a masked body |
 
@@ -35,8 +35,15 @@ version, its annotation-set hash and its ClinVar significance, with the time. Th
 changes whenever any annotation of the variant changes, so it is the drift key.
 
 **The clinical audit trail** is written in the same transaction as the change it describes,
-so it cannot drift from the data. Its actions are `classification` (with the ACMG class and
-criteria), `tags`, `note` and `sign_out`. `GET /families/{family_id}/clinical-audit` returns a
+so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
+to it, and so does sign-out. Its actions are `classification`, `tags`, `note` and `sign_out`.
+For a small variant, `classification` holds the ACMG class and the accepted criteria. For a
+structural variant or CNV, it holds the reviewer's classification and the CNV (ClinGen)
+scoring: the class, the kind, the point total and each accepted criterion with its points.
+Points are recorded as the database reads them back, so a total of -0.0 is stored as 0 and the
+chain still verifies. These events carry `metadata.modality = "sv"`, so an SV id is never read
+as a small variant's. A save that clears or deletes a review is recorded like any other
+change. `GET /families/{family_id}/clinical-audit` returns a
 family's trail, and the report shows it as the classification audit trail. Two people saving
 the same review cannot silently overwrite each other: a save that carries the
 `expected_updated_at` it loaded is refused with 409 `review_conflict` when the review changed
@@ -157,9 +164,11 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 - The report page renders live data. The snapshot does not hold everything the page draws (gene
   profiles, HGVS, frequencies), so the page cannot be rebuilt from it; the sign-out check above
   guards the difference. There is no byte-stable PDF; the report is printed from the browser.
-- Structural-variant and CNV review saves write no clinical audit events, and their
-  classifications have no evidence snapshot, so they are not drift-checked. Pedigree, member
-  and HPO edits appear only in the HTTP audit log.
+- Structural-variant and CNV classifications have no evidence snapshot, so they are not
+  drift-checked. The review of a compound-heterozygous pair (its classification, tags and note)
+  writes no clinical audit event. Nor do pedigree, member and HPO edits: they appear in the HTTP
+  audit log, and pedigree and member edits also as structure versions
+  (`family_structure_versions`, which is neither append-only nor chained).
 - Anchors are made by hand: nothing in the code, CI or Terraform calls
   `POST /admin/integrity/anchor` on a schedule.
 - The export of each anchor to a store outside the database is not implemented (the

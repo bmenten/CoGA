@@ -1,7 +1,8 @@
 """End-to-end tamper-evidence hash-chain integrity (real Postgres, smoke job).
 
 Proves the per-family chains hold against real Postgres:
-- the REAL writers (``record_clinical_event``; ``sign_out_report``) produce a chain that
+- the REAL writers (``record_clinical_event``; ``sign_out_report``; the structural-variant
+  / CNV review save ``upsert_structural_variant_review``) produce a chain that
   ``verify_*_chain`` accepts (genuine positive control, not the helper verifying itself);
 - a privileged mutation that BYPASSES the append-only trigger and does NOT recompute the
   hashes (``DISABLE TRIGGER`` — careless owner / any non-owner role) is DETECTED & localised;
@@ -220,6 +221,139 @@ def test_clinical_audit_chain_survives_account_and_family_deletion() -> None:
                 famdel = await verify_clinical_audit_chain(s, label_a)
                 assert famdel.verified and famdel.rows_checked == 3, famdel
                 assert (await verify_clinical_audit_chain(s, label_b)).verified
+        finally:
+            await close_postgres_engine()
+
+    asyncio.run(_run())
+
+
+def test_structural_variant_review_saves_are_chained_and_verify() -> None:
+    """SV / CNV review saves are on the family's clinical chain: the REAL
+    ``upsert_structural_variant_review`` against real Postgres records a ClinGen
+    classification, tag and note edits, a rescoring whose point total rounds to -0.0, a
+    cleared CNV scoring and the deletion of the review — interleaved with a small-variant
+    event on the same family — and the chain still verifies after the JSONB round-trip
+    (Postgres reads a stored -0.0 back as 0, so an unnormalised one would not)."""
+    from backend.app.core.postgres import (
+        close_postgres_engine,
+        get_postgres_sessionmaker,
+        init_postgres_schema,
+    )
+    from backend.app.schemas import (
+        CnvAcmgClassificationPayload,
+        CnvAcmgCriterion,
+        SmallVariantReviewUpdate,
+    )
+    from backend.app.services.clinical_audit_service import (
+        record_review_changes,
+        verify_clinical_audit_chain,
+    )
+    from backend.app.services.structural_variant_review_pg import (
+        upsert_structural_variant_review,
+    )
+
+    def _loss(*criteria: tuple[str, float]) -> CnvAcmgClassificationPayload:
+        return CnvAcmgClassificationPayload(
+            kind="loss",
+            criteria=[CnvAcmgCriterion(code=c, points=p, accepted=True) for c, p in criteria],
+        )
+
+    sv_id = "1-100000-250000-DEL---"
+    reported = {"tags": ["report"], "note": "reported CNV"}
+    saves = [
+        SmallVariantReviewUpdate(classification="Pathogenic - class 5", cnv_acmg=_loss(("2A", 1.0))),
+        SmallVariantReviewUpdate(
+            classification="Pathogenic - class 5", cnv_acmg=_loss(("2A", 1.0)), **reported
+        ),
+        # 0.30 + 0.15 - 0.45 rounds to a -0.0 point total (VUS).
+        SmallVariantReviewUpdate(
+            classification="VUS - class 3",
+            cnv_acmg=_loss(("4C", 0.30), ("2H", 0.15), ("5D", -0.45)),
+            **reported,
+        ),
+        SmallVariantReviewUpdate(classification="VUS - class 3", cnv_acmg=_loss(), **reported),
+        SmallVariantReviewUpdate(),  # everything cleared: the review is deleted
+    ]
+
+    async def _run() -> None:
+        try:
+            await init_postgres_schema()
+            sm = get_postgres_sessionmaker()
+            label = f"sv-audit-{uuid4()}"
+            async with sm() as s:
+                fam = await _fresh_family(s, label)
+                await s.commit()
+            context = SimpleNamespace(family_uuid=fam, family_id=label, project_ids=[])
+            user = SimpleNamespace(id=None, username="sv-reviewer", email="svr@x.org")
+
+            for index, payload in enumerate(saves):
+                async with sm() as s:
+                    await upsert_structural_variant_review(
+                        s, context=context, variant_id=sv_id, payload=payload, user=user
+                    )
+                if index == 1:  # a small-variant save on the same family, same chain
+                    async with sm() as s:
+                        await record_review_changes(
+                            s,
+                            family_uuid=fam,
+                            family_identifier=label,
+                            variant_id="1-2000-C-T",
+                            user=user,
+                            existing=None,
+                            new_state={
+                                "acmg_class": "acmg_class_4",
+                                "acmg": {"criteria": [{"code": "PM2", "accepted": True}]},
+                                "tags": [],
+                                "note": None,
+                            },
+                        )
+                        await s.commit()
+
+            async with sm() as s:
+                chain = await verify_clinical_audit_chain(s, label)
+                rows = (
+                    await s.execute(
+                        text(
+                            "SELECT variant_id, action, summary, after, metadata, row_hash "
+                            "FROM clinical_audit_events WHERE family_identifier = :f "
+                            "ORDER BY created_at ASC, id ASC"
+                        ),
+                        {"f": label},
+                    )
+                ).mappings().all()
+                review_left = (
+                    await s.execute(
+                        text(
+                            "SELECT count(*) FROM structural_variant_reviews "
+                            "WHERE family_id = CAST(:f AS uuid)"
+                        ),
+                        {"f": fam},
+                    )
+                ).scalar_one()
+
+            assert chain.verified and chain.rows_checked == len(rows) == 9, (chain, rows)
+            assert all(row["row_hash"] for row in rows)
+            sv_rows = [row for row in rows if row["variant_id"] == sv_id]
+            assert [row["action"] for row in sv_rows] == [
+                "classification",  # classified
+                "tags", "note",  # reported
+                "classification",  # rescored
+                "classification",  # CNV scoring cleared
+                "classification", "tags", "note",  # review deleted
+            ]
+            assert all(row["metadata"] == {"modality": "sv"} for row in sv_rows)
+            [small] = [row for row in rows if row["variant_id"] == "1-2000-C-T"]
+            assert small["metadata"] == {}
+            rescored = sv_rows[3]["after"]
+            assert rescored["cnv_class"] == "cnv_class_3" and rescored["cnv_point_total"] == 0.0
+            assert rescored["cnv_criteria"] == [
+                {"code": "2H", "points": 0.15},
+                {"code": "4C", "points": 0.3},
+                {"code": "5D", "points": -0.45},
+            ]
+            assert sv_rows[4]["summary"] == "CNV classification VUS - class 3 → unclassified"
+            assert sv_rows[5]["summary"] == "Classification VUS - class 3 → unclassified"
+            assert review_left == 0
         finally:
             await close_postgres_engine()
 
