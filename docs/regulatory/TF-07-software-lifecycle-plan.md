@@ -80,10 +80,7 @@ Per H11.1-OP5 (CMGG roles):
 The role holders are drawn from the CMGG bio-IT group; the authoritative register is the CMGG
 **kwaliteitshandboek (KHB)** and organigram, of which this table is a project-specific extract.
 
-> **🔲 OWNER:** the titles here and in [INPUTS A3](INPUTS-QUESTIONNAIRE.md) differ ("Lab
-> director / Head of CMGG" vs "Head of department"); confirm them, and who signs the
-> declaration ([TF-04 §6](TF-04-declaration-of-conformity.md)) as "Head of Center for Medical
-> Genetics".
+> **🔲 OWNER:** the role titles are to be confirmed ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)).
 
 > **Segregation of duties — recorded, not resolved.** The **developer, project lead and lab
 > director are the same person** (Björn Menten), so implementation and release authorization are

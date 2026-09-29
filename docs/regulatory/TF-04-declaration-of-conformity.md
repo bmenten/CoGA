@@ -86,7 +86,7 @@ FAGG-AFMPS**) upon request (Art. 5(5)(e)).
 
 ### 6. Signatures
 
-**🔲 OWNER:** confirm who signs as Head of Center for Medical Genetics ([TF-07 §3](TF-07-software-lifecycle-plan.md), [INPUTS A3](INPUTS-QUESTIONNAIRE.md)).
+**🔲 OWNER:** who signs as Head of Center for Medical Genetics ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)).
 
 | Role | Name | Signature | Date |
 | --- | --- | --- | --- |
