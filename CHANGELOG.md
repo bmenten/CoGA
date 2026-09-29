@@ -201,6 +201,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **User guide in Markdown (#528)** — the in-app guide's 20 sections are Markdown files under
   `content/docs/user-guide/` instead of 2,000 lines of JSX; a test holds each section to the text
   it had before the move (#596).
+- **Generated API types (#528)** — the frontend's API types are generated from the backend's
+  OpenAPI schema, CI fails when they are stale, and `tsc` checks the hand-written types against
+  them; a family member's `sequencing_qc` may be null, and two stale NIPT types are gone (#597).
 
 ### Removed
 

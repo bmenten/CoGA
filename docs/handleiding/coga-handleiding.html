@@ -738,6 +738,14 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 <td>De gedeelde axios-client: <code>/api</code>-basis, JWT-injectie en 401-afhandeling</td>
 </tr>
 <tr>
+<td><code>frontend/src/lib/apiSchema.generated.ts</code></td>
+<td>De API-typen, gegenereerd uit het OpenAPI-schema van de backend (<code>scripts/generate-api-types.py</code>); CI faalt als het bestand verouderd is (#528). Genereer in de backend-omgeving (<code>backend/requirements-dev.txt</code>): het schema hangt af van de FastAPI- en Pydantic-versie, en het script waarschuwt bij een andere versie</td>
+</tr>
+<tr>
+<td><code>frontend/src/lib/apiContract.ts</code></td>
+<td>Toetst de handgeschreven typen in <code>apiTypes.ts</code> aan de gegenereerde: <code>tsc</code> faalt als een respons niet meer past bij het type dat hem leest (#528)</td>
+</tr>
+<tr>
 <td><code>frontend/src/components/Layout.tsx</code></td>
 <td>De visuele schil rond alle pagina's</td>
 </tr>
@@ -3524,7 +3532,7 @@ if context.project_ids:
 <li><strong>Dragerschap</strong> — <code>carrier_status</code>: <code>unknown</code> / <code>not_carrier</code> / <code>carrier</code>. Dit zegt of het individu de variant/het risico-allel <em>draagt</em>, ongeacht of het ziek is.</li>
 </ul>
 <p>Deze scheiding is klinisch essentieel: bij recessieve aandoeningen is een ouder vaak <em>drager maar niet aangedaan</em>. De ACMG-segregatielogica (PP1/BS4, zie verder) redeneert daarom over de combinatie van beide assen, niet over één samengevoegde "rol".</p>
-<p class="waar"><strong>Waar in de code:</strong> het datamodel in <code>frontend/src/lib/apiTypes.ts</code> (<code>clinical_status</code> en <code>carrier_status</code> als aparte velden op een familielid). De ACMG-familiecontext in <code>AcmgClassificationModal.tsx</code> markeert een lid als "aangedaan" via <code>Boolean(member.affected) || member.clinical_status === 'affected'</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> het datamodel in <code>frontend/src/lib/apiTypes.ts</code> (sinds #528 getoetst aan de uit het backend-schema gegenereerde typen in <code>apiSchema.generated.ts</code>) (<code>clinical_status</code> en <code>carrier_status</code> als aparte velden op een familielid). De ACMG-familiecontext in <code>AcmgClassificationModal.tsx</code> markeert een lid als "aangedaan" via <code>Boolean(member.affected) || member.clinical_status === 'affected'</code>.</p>
 <hr />
 <h2>Deel 1 — Variant-tagging</h2>
 <h3>Wat wordt vastgelegd</h3>

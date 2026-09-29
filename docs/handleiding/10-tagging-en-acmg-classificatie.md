@@ -20,7 +20,7 @@ Voordat we bij classificatie komen: CoGA houdt op *familielid*-niveau twee volle
 
 Deze scheiding is klinisch essentieel: bij recessieve aandoeningen is een ouder vaak *drager maar niet aangedaan*. De ACMG-segregatielogica (PP1/BS4, zie verder) redeneert daarom over de combinatie van beide assen, niet over één samengevoegde "rol".
 
-**Waar in de code:** het datamodel in `frontend/src/lib/apiTypes.ts` (`clinical_status` en `carrier_status` als aparte velden op een familielid). De ACMG-familiecontext in `AcmgClassificationModal.tsx` markeert een lid als "aangedaan" via `Boolean(member.affected) || member.clinical_status === 'affected'`.
+**Waar in de code:** het datamodel in `frontend/src/lib/apiTypes.ts` (sinds #528 getoetst aan de uit het backend-schema gegenereerde typen in `apiSchema.generated.ts`) (`clinical_status` en `carrier_status` als aparte velden op een familielid). De ACMG-familiecontext in `AcmgClassificationModal.tsx` markeert een lid als "aangedaan" via `Boolean(member.affected) || member.clinical_status === 'affected'`.
 
 ---
 
