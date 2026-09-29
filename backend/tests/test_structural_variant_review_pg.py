@@ -453,6 +453,25 @@ def test_deleting_a_review_records_what_was_removed() -> None:
     ]
 
 
+def test_a_save_that_keeps_the_scoring_records_only_what_changed() -> None:
+    table = _ReviewTable()
+    _save(
+        table,
+        SmallVariantReviewUpdate(
+            classification="Pathogenic - class 5",
+            note="scored",
+            cnv_acmg=_payload("loss", ("2A", 1.0, True)),
+        ),
+    )
+    table.audit.clear()
+    # The review dialog: no cnv_acmg, so the scoring is kept and not recorded as cleared.
+    _save(table, SmallVariantReviewUpdate(classification="Pathogenic - class 5", note="scored, noted"))
+
+    assert [(event["action"], event["summary"]) for event in _audit_rows(table)] == [
+        ("note", "Note updated")
+    ]
+
+
 def test_the_recorded_events_form_a_verifiable_chain() -> None:
     table = _ReviewTable()
     _save(table, SmallVariantReviewUpdate(note="n1", cnv_acmg=_payload("loss", ("2A", 1.0, True))))
@@ -464,7 +483,7 @@ def test_the_recorded_events_form_a_verifiable_chain() -> None:
             cnv_acmg=_payload("loss", ("4C", 0.30, True), ("2H", 0.15, True), ("5D", -0.45, True)),
         ),
     )
-    _save(table, SmallVariantReviewUpdate())
+    _save(table, SmallVariantReviewUpdate(cnv_acmg=None))  # clears the scoring: the review is deleted
 
     rows = _audit_rows(table)
     assert len(rows) == 6
