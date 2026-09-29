@@ -2285,6 +2285,7 @@ export interface ReportSignoutDetail {
   import_incomplete_acknowledgement_reason: string | null;
   verified: boolean | null;
   snapshot: Record<string, unknown> | null;
+  not_captured: ReportSnapshotGapOut[];
 }
 
 export interface ReportSignoutListOut {

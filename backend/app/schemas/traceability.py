@@ -98,6 +98,14 @@ class ReportSignoutRequest(BaseModel):
     import_incomplete_acknowledgement_reason: Optional[str] = None
 
 
+class ReportSnapshotGapOut(BaseModel):
+    """A part of a signed snapshot that was frozen as unavailable, and why (#514)."""
+
+    section: str
+    item: str
+    reason: str
+
+
 class ReportSignoutSummary(BaseModel):
     version: int
     signed_out_by: str
@@ -133,20 +141,15 @@ class ReportSignoutDetail(ReportSignoutSummary):
     """A frozen, content-hashed report snapshot."""
 
     snapshot: Optional[Dict[str, Any]] = None
+    # What this version's snapshot froze as unavailable or, being older, does not hold. The
+    # report page renders a signed version from its snapshot alone, so it names these.
+    not_captured: List[ReportSnapshotGapOut] = Field(default_factory=list)
 
 
 class ReportSignoutListOut(BaseModel):
     family_id: str
     latest: Optional[ReportSignoutSummary] = None
     signouts: List[ReportSignoutSummary] = Field(default_factory=list)
-
-
-class ReportSnapshotGapOut(BaseModel):
-    """A part of a signed snapshot that was frozen as unavailable, and why (#514)."""
-
-    section: str
-    item: str
-    reason: str
 
 
 class ReportSignoutCheckOut(BaseModel):

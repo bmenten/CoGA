@@ -8,6 +8,7 @@ from datetime import datetime
 import pytest
 from fastapi import HTTPException
 
+from backend.app.schemas import ReportSignoutDetail
 from backend.app.services import annotation_manifest_service as ams
 from backend.app.services import report_signout_service as rss
 from backend.app.services.sample_integrity_qc import (
@@ -832,6 +833,8 @@ def test_sign_out_audit_records_what_the_snapshot_could_not_capture(monkeypatch)
     assert out["snapshot"]["sequencing_qc"]["unavailable"] == "QC thresholds could not be resolved"
     assert captured["after"]["not_captured"] == [_QC_GAP]
     assert "1 part(s) not captured" in captured["summary"]
+    # So does the response, as a read of the new version would.
+    assert out["not_captured"] == [_QC_GAP]
 
 
 def test_a_complete_sign_out_records_no_gaps(monkeypatch) -> None:
@@ -841,10 +844,11 @@ def test_a_complete_sign_out_records_no_gaps(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0)
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _complete_qc)
     captured = _capture_audit(monkeypatch)
-    asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
 
     assert captured["after"]["not_captured"] == []
     assert "not captured" not in captured["summary"]
+    assert out["not_captured"] == []
 
 
 def test_acknowledging_drift_without_a_reason_is_422(monkeypatch) -> None:
@@ -1370,6 +1374,61 @@ def test_a_sign_out_made_before_the_import_gate_still_verifies(monkeypatch) -> N
     assert detail["import_incomplete_acknowledgement_reason"] is None
     assert detail["import_incomplete_failed_datasets"] is None
     assert detail["import_incomplete_job_id"] is None
+
+
+# The report page renders a signed version from its record alone, whichever version it is,
+# so reading one says what that record lacks, as the sign-out check does for the latest.
+
+
+def _detail_of(monkeypatch, row: dict) -> dict:
+    _patch_common(monkeypatch, drifted_count=0)
+    return asyncio.run(
+        rss.get_report_signout(_RowsSession([row]), family_id="FAM1", version=1, user=_user())
+    )
+
+
+def test_a_signed_version_names_what_its_record_could_not_capture(monkeypatch) -> None:
+    snapshot = {
+        **_PRE_GATE_SNAPSHOT,
+        "modules": [
+            {"key": "clinvar", "label": "ClinVar", "version": "2026-05"},
+            {"key": "monarch", "label": "Monarch", "version": "unavailable", "detail": "lookup failed"},
+        ],
+        "reference_modules": list(ams.REFERENCE_MODULE_KEYS),
+        "sequencing_qc": {"thresholds": {}, "samples": {}, "unavailable": "QC thresholds could not be resolved"},
+    }
+    row = {**_pre_gate_row(), "snapshot": snapshot, "content_hash": rss._canonical_hash(snapshot)}
+
+    detail = _detail_of(monkeypatch, row)
+
+    assert detail["verified"] is True
+    gaps = [_QC_GAP, {"section": "modules", "item": "Monarch", "reason": "lookup failed"}]
+    assert detail["not_captured"] == gaps
+    # The endpoint's response model carries them.
+    assert ReportSignoutDetail.model_validate(detail).model_dump()["not_captured"] == gaps
+
+
+def test_a_version_signed_before_the_hpo_release_was_recorded_names_it(monkeypatch) -> None:
+    # The pinned record holds no list of the reference modules it looked up.
+    assert _detail_of(monkeypatch, _pre_gate_row())["not_captured"] == [_HPO_PREDATES_GAP]
+
+
+def test_a_complete_signed_version_names_nothing_missing(monkeypatch) -> None:
+    snapshot = {**_PRE_GATE_SNAPSHOT, "reference_modules": list(ams.REFERENCE_MODULE_KEYS)}
+    row = {**_pre_gate_row(), "snapshot": snapshot, "content_hash": rss._canonical_hash(snapshot)}
+    assert _detail_of(monkeypatch, row)["not_captured"] == []
+
+
+def test_a_signed_version_read_back_as_text_is_served_as_the_record(monkeypatch) -> None:
+    # A driver without the jsonb codec hands the snapshot back as JSON text. It is verified
+    # and served as the object it is, which the page renders and the schema declares.
+    row = {**_pre_gate_row(), "snapshot": json.dumps(_PRE_GATE_SNAPSHOT)}
+
+    detail = _detail_of(monkeypatch, row)
+
+    assert detail["verified"] is True
+    assert detail["snapshot"] == _PRE_GATE_SNAPSHOT
+    assert ReportSignoutDetail.model_validate(detail).snapshot == _PRE_GATE_SNAPSHOT
 
 
 def test_serialize_signout_exposes_the_frozen_import_acknowledgement() -> None:
