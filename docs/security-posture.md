@@ -59,9 +59,9 @@ through the checkpoint above. No unscoped PHI endpoint was found.
 
 **Session tokens.** Tokens are bearer JWTs kept in `localStorage`. Moving them to HttpOnly
 cookies would add CSRF surface and rework the Azure and telemetry paths, so the damage an XSS
-could do is bounded instead by a strict CSP (`default-src 'none'`, §4) and a 2-hour token
-lifetime (`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request re-checks `is_active`, so
-deactivating a user ends their access at once. A leaked token of a still-active user stays
+could do is bounded instead by the app's CSP, which allows no inline or outside scripts
+(§4a), and by a 2-hour token lifetime (`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request
+re-checks `is_active`, so deactivating a user ends their access at once. A leaked token of a still-active user stays
 valid until it expires; there is no revocation list. For a single-lab internal deployment
 this is an **accepted residual**.
 
@@ -163,8 +163,10 @@ What the application relies on there:
   or what the trusted proxy in front of it added) plus `X-Forwarded-Proto` and `-Host`, so a
   browser cannot choose the address the backend throttles and audits. On Cloud Run the load
   balancer sends `/api` straight to the backend; this proxy is the path for Docker Compose.
-- ✅ **Headers** (`frontend/securityHeaders.mjs`): a strict CSP, and a `Permissions-Policy`
-  that denies the camera, microphone, geolocation, payment, USB and the other device APIs.
+- ✅ **Headers** (`frontend/securityHeaders.mjs`): a CSP that allows scripts only from the app
+  itself (`script-src 'self'`), no framing and no plugins, and a `Permissions-Policy` that
+  denies the camera, microphone, geolocation, payment, USB and the other device APIs. API
+  responses carry `default-src 'none'` (`backend/app/middleware/security_headers.py`).
 - 🟡 **CSP `connect-src`** is `'self' https:` by default, because IGV loads genomes from a
   changing set of hosts and a signed CRAM URL points at the object store. A deployment that
   knows its hosts narrows it with `CSP_CONNECT_SRC`. `style-src` keeps `'unsafe-inline'`
