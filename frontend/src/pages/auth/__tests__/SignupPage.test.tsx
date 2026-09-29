@@ -98,16 +98,57 @@ describe('SignupPage', () => {
     expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'password');
   });
 
-  it('hands a registered user to the login page with nothing carried in the URL', async () => {
+  it('says the account awaits an administrator, rather than sending the user to a login that fails (#526)', async () => {
     const user = userEvent.setup();
-    mockedPost.mockResolvedValue({ data: { detail: 'Registration received.' } });
+    const ACK =
+      'Registration received. An administrator will review the request and activate the account if approved.';
+    mockedPost.mockResolvedValue({ data: { detail: ACK } });
     renderPage();
 
     await fillIn(user);
     await submit(user);
 
-    // Exact match: no query string or fragment, so the password cannot be in either.
-    expect(await screen.findByText('Login page at /login')).toBeInTheDocument();
+    // Before, the page went straight to /login, where signing in failed as "User not
+    // active" with no word of why.
+    expect(await screen.findByRole('status')).toHaveTextContent(ACK);
+    expect(screen.getByText(/sign in once your account has been activated/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Login page at/)).not.toBeInTheDocument();
+    // The form, and the password in it, is gone; the link back to login stays.
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Return to login' })).toHaveAttribute('href', '/login');
+  });
+
+  it('asks for every field and a password of at least 15 characters before sending anything', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const password = screen.getByLabelText('Password') as HTMLInputElement;
+    expect(password).toHaveAttribute('minLength', '15');
+    expect(password).toBeRequired();
+    expect(password).toHaveAccessibleDescription(/At least 15 characters/);
+    for (const label of ['First Name', 'Last Name', 'Email', 'Affiliation']) {
+      expect(screen.getByLabelText(label)).toBeRequired();
+    }
+    expect(screen.getByLabelText('Email')).toHaveAttribute('type', 'email');
+
+    // An empty form is not sent (the API accepted an empty password).
+    await submit(user);
+    expect(mockedPost).not.toHaveBeenCalled();
+  });
+
+  it('sends one request however often Sign Up is pressed while it is in flight', async () => {
+    const user = userEvent.setup();
+    let finish: (value: unknown) => void = () => undefined;
+    mockedPost.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    renderPage();
+
+    await fillIn(user);
+    await submit(user);
+    expect(screen.getByRole('button', { name: 'Signing up…' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Signing up…' }));
+    expect(mockedPost).toHaveBeenCalledTimes(1);
+    finish({ data: { detail: 'Registration received.' } });
+    expect(await screen.findByRole('status')).toHaveTextContent('Registration received.');
   });
 
   it('shows the API’s reason when a registration is refused, announced, and stays on the form', async () => {
@@ -143,7 +184,8 @@ describe('SignupPage', () => {
     });
     renderPage();
 
-    await fillIn(user, { ...REGISTRATION, Email: 'not-an-email' });
+    // A well-formed address the API still refuses (the browser checks the form first).
+    await fillIn(user, { ...REGISTRATION, Email: 'ann@example.invalid' });
     await submit(user);
 
     expect(
@@ -228,5 +270,31 @@ describe('SignupPage', () => {
     const logged = consoleSpies.flatMap((spy) => spy.mock.calls.flat().map(stringify));
     expect(logged.filter((line) => line.includes(PASSWORD))).toEqual([]);
     consoleSpies.forEach((spy) => expect(spy).not.toHaveBeenCalledWith(failure));
+  });
+
+  it('logs only the message in a development build, never the request with the password (#526)', async () => {
+    vi.stubEnv('DEV', true);
+    vi.stubEnv('MODE', 'development');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    const failure = {
+      ...RATE_LIMITED,
+      message: 'Request failed with status code 429',
+      config: {
+        url: '/auth/signup',
+        data: JSON.stringify({ email: 'ann.lee@example.com', password: PASSWORD }),
+      },
+    };
+    mockedPost.mockRejectedValue(failure);
+    renderPage();
+
+    await fillIn(user);
+    await submit(user);
+    expect(await screen.findByText(RATE_LIMITED_DETAIL)).toBeInTheDocument();
+
+    // It used to log the error object, whose config.data is the request body.
+    expect(errorSpy).toHaveBeenCalledWith('Sign up failed:', RATE_LIMITED_DETAIL);
+    const logged = errorSpy.mock.calls.flat().map(stringify);
+    expect(logged.filter((line) => line.includes(PASSWORD))).toEqual([]);
   });
 });

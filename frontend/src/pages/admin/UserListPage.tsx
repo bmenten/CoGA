@@ -30,6 +30,12 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 
 const UserListPage: React.FC = () => {
   const queryClient = useQueryClient();
+  // What the last (de)activation did: a refused one used to leave only a checkbox
+  // snapping back, with no word of why (#526).
+  const [activationStatus, setActivationStatus] = React.useState<{
+    tone: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   const {
     data: users = [],
@@ -67,8 +73,22 @@ const UserListPage: React.FC = () => {
       });
       return response.data as User;
     },
-    onSuccess: async () => {
+    onMutate: () => setActivationStatus(null),
+    onSuccess: async (_updated, user) => {
+      setActivationStatus({
+        tone: 'success',
+        text: `${user.email} is now ${user.is_active ? 'inactive' : 'active'}.`,
+      });
       await queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+    onError: (error, user) => {
+      setActivationStatus({
+        tone: 'error',
+        text: `Could not ${user.is_active ? 'deactivate' : 'activate'} ${user.email}: ${getErrorMessage(
+          error,
+          'the request failed',
+        )}`,
+      });
     },
   });
 
@@ -110,6 +130,16 @@ const UserListPage: React.FC = () => {
         </div>
       </section>
       <div className="surface-card">
+        {activationStatus ? (
+          <p
+            className={`status-note ${
+              activationStatus.tone === 'error' ? 'status-note--error' : 'status-note--success'
+            }`}
+            role={activationStatus.tone === 'error' ? 'alert' : 'status'}
+          >
+            {activationStatus.text}
+          </p>
+        ) : null}
         <div className="data-table-shell overflow-x-auto">
           <table className="analysis-table">
             <thead>
@@ -134,6 +164,7 @@ const UserListPage: React.FC = () => {
                 <td className="table-cell-center">
                   <input
                     type="checkbox"
+                    aria-label={`Active: ${u.email}`}
                     checked={u.is_active}
                     disabled={
                       toggleActiveMutation.isPending &&

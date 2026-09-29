@@ -182,6 +182,7 @@ describe('UserListPage', () => {
     // carries the activation flag and nothing else.
     expect(body).toStrictEqual({ is_active: false });
     expect(mockedGet.mock.calls.filter(([requested]) => requested === '/auth/users')).toHaveLength(2);
+    expect(screen.getByRole('status')).toHaveTextContent('ann@example.com is now inactive.');
   });
 
   it('activating a pending registration PATCHes is_active=true', async () => {
@@ -258,6 +259,16 @@ describe('UserListPage', () => {
     // checkbox is usable again for a retry.
     expect(annBox).toBeChecked();
     expect(annBox).toBeEnabled();
+    // And the page says so, with the reason: the checkbox snapping back was all it showed (#526).
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Could not deactivate ann@example.com: Database unavailable',
+    );
+  });
+
+  it('names each activation checkbox after its account', async () => {
+    renderPage();
+    await screen.findByRole('table');
+    expect(screen.getByRole('checkbox', { name: 'Active: ann@example.com' })).toBeInTheDocument();
   });
 
   it('has no role or project-access editor: the activation checkbox is the only control', async () => {
