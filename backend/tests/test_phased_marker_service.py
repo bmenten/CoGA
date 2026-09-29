@@ -7,7 +7,7 @@ from backend.app.services.phased_marker_service import (
     compute_phased_markers,
     get_family_phased_markers_response,
 )
-from backend.app.services.variant_upload_service import _parent_sample_names
+from backend.app.services.haplotype_block_builder import _parent_sample_names
 
 
 def _context(sample_rows, relationship_rows):

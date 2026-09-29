@@ -260,7 +260,9 @@ De verplichte dry-run-eerst-workflow (gedocumenteerd in `docs/data-import.md`) z
 | `backend/app/services/family_package_registration.py` | Familie/sample registreren, provenance vastleggen, compensatie/incompleet-vlag |
 | `backend/app/services/family_package_jobs.py` | Job-levenscyclus: wachtrij, atomair claimen, voortgang/heartbeat |
 | `backend/app/services/family_package_variants.py` | NeedlR-SV-parser en Paraphase-rijen naar Postgres |
-| `backend/app/services/variant_upload_service.py` | SNV/GLIMPSE2-loader; haplotype-blokken; SNV-header-provenance |
+| `backend/app/services/variant_upload_service.py` | SNV/GLIMPSE2-loader; SNV-header-provenance |
+| `backend/app/services/haplotype_block_builder.py` | Haplotype-blokken uit de GLIMPSE2-genotypes: segregatiehaplotypes (beide ouders aanwezig) of blokken per phase set |
+| `backend/app/services/annotation_table_parser.py` | VEP-TSV- en mutserve-annotatietabellen, geïndexeerd per variant |
 | `backend/app/services/vcf_header_provenance.py` | Best-effort parser van tool-/databankversies uit VCF-headers |
 | `backend/app/services/annotation_manifest_service.py` | Schrijft/leest `family_annotation_manifest`; refresh- en manual-wins-regels |
 | `backend/app/services/raw_import_files_pg.py` | Provenance-register van ruwe bestanden: hashing, verificatie, opslag |

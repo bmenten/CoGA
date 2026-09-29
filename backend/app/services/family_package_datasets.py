@@ -41,7 +41,8 @@ from .repeat_expansion_pg import (
     ingest_trgt_text,
 )
 from .upload_safety import read_path_text_bounded
-from .variant_upload_service import parse_mutserve_annotation_path, upload_family_small_variant_file
+from .annotation_table_parser import parse_mutserve_annotation_path
+from .variant_upload_service import upload_family_small_variant_file
 
 from .family_package_bigwig import autosomal_median, open_bigwig
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map  # noqa: F401

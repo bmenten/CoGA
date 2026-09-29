@@ -180,6 +180,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Frontend lint rules (#526)** — ESLint enforces the React hooks rules and the jsx-a11y
   accessibility rules. `any` is now a warning, and `npm run lint` fails when the warning count
   rises above its budget of 67 (#575).
+- **Small-variant loader split (#528)** — the VEP and mutserve annotation-table parsers and the
+  haplotype-block builder leave the 1,900-line upload module for modules of their own. The
+  builder is now a class fed one record at a time; a test built from its recorded output shows
+  the blocks are unchanged (#578).
 
 ### Removed
 

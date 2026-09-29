@@ -37,7 +37,7 @@ from .clickhouse_family_variants import fetch_imputed_phased_genotypes
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .family_metadata_context import FamilyMetadataContext
 from .haplotype_lineage_service import build_pedigree, founder_shade_map
-from .variant_upload_service import (
+from .haplotype_block_builder import (
     _parent_sample_names,
     _phased_haplotype_alleles,
     _transmitted_parent_haplotype,

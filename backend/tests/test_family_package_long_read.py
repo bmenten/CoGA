@@ -30,7 +30,7 @@ from app.services.family_package_import import (
 )
 from app.services.clickhouse_variant_ids import build_small_variant_id
 from app.services.family_package_common import ManifestDataset
-from app.services.variant_upload_service import parse_mutserve_annotation_path
+from app.services.annotation_table_parser import parse_mutserve_annotation_path
 
 
 PACBIO_SNV_PATTERNS = NAMING_SCHEMES["standard_v1"]["datasets"]["snv"]
