@@ -28,6 +28,7 @@ type StructuralVariantFilterFormProps = Pick<
   | 'activeFilterChips'
   | 'applyPreset'
   | 'draftFilters'
+  | 'draftLocationProblem'
   | 'handleGtToggle'
   | 'handleReset'
   | 'handleSampleFieldChange'
@@ -118,6 +119,7 @@ const StructuralVariantFilterForm = ({
   activeFilterChips,
   applyPreset,
   draftFilters,
+  draftLocationProblem,
   handleGtToggle,
   handleReset,
   handleSampleFieldChange,
@@ -569,6 +571,12 @@ const StructuralVariantFilterForm = ({
                   onChange={handleDraftFieldChange}
                 />
               </div>
+              {/* A location that is neither a gene nor a region is named, not searched (#604). */}
+              {draftLocationProblem ? (
+                <div className="variant-workspace-feedback variant-workspace-feedback--error" role="alert">
+                  {draftLocationProblem} Nothing was searched.
+                </div>
+              ) : null}
             </div>
           </details>
 

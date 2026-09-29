@@ -21,11 +21,12 @@ from sqlalchemy import bindparam, text
 from typing import TYPE_CHECKING, Any
 
 from .clickhouse_family_variants import (
+    _fetch_gene_regions,
     _fetch_panel_constraints,
     _fetch_small_variant_rows,
     _hydrate_small_variant_outs,
 )
-from .clickhouse_variant_queries import _small_variant_out, _split_gene_terms
+from .clickhouse_variant_queries import _parse_interval_regions, _small_variant_out, _split_gene_terms
 from .clickhouse_variant_records import (
     PanelFilterConstraints,
     SmallVariantCall,
@@ -439,6 +440,18 @@ async def get_family_nipt_variants(
         session, assembly_id=context.assembly_id, assay_key=assay_key
     )
 
+    # The location filters, as the family search applies them: the interval list, the
+    # excluded intervals and the excluded genes were sent, chipped and never applied here
+    # (#604). Read before the cohort work, so an unreadable interval fails fast.
+    filters = _build_nipt_query_filters(query_filters or {})
+    include_regions = _parse_interval_regions(filters.intervals)
+    exclude_regions = _parse_interval_regions(filters.exclude_intervals, label="Excluded interval")
+    exclude_gene_regions = (
+        await _fetch_gene_regions(session, gene_query=filters.exclude_gene, assembly_id=context.assembly_id)
+        if filters.exclude_gene
+        else []
+    )
+
     # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are
     # rarely inside the clinical filter), then the filtered subset is classified
     # against that FF. Both steps are CPU work over many sites, so they run in a
@@ -448,7 +461,6 @@ async def get_family_nipt_variants(
         _estimate_cohort_fetal_fraction, cohort_records, trio, qc, external_ff
     )
 
-    filters = _build_nipt_query_filters(query_filters or {})
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
         panel_constraints = await _fetch_panel_constraints(
@@ -461,6 +473,10 @@ async def get_family_nipt_variants(
         context,
         filters,
         panel_constraints=panel_constraints,
+        include_regions=include_regions,
+        exclude_regions=exclude_regions,
+        exclude_gene_regions=exclude_gene_regions,
+        exclude_gene_terms=_split_gene_terms(filters.exclude_gene),
         limit=_NIPT_VARIANT_FETCH_LIMIT,
     )
     classified, observations = await asyncio.to_thread(

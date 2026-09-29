@@ -3,7 +3,10 @@ from a broad genome to a short candidate list quickly, then save the recipe as a
 
 ### Filter dimensions
 
-- **Location** — gene symbols, genomic regions/intervals, or a gene panel.
+- **Location** — gene symbols, genomic regions/intervals, or a gene panel. Write an interval as
+  `chr13:32315086-32400266` (an en dash, or a single position, also works), one per line. An entry
+  that cannot be read, such as a BED line (BED is 0-based) or an end before its start, is named under
+  its field and nothing is searched: an interval is never dropped from the search unnoticed.
 - **Inheritance** — de novo / dominant, recessive (homozygous), compound heterozygous, and X-linked
   models, plus expanded carrier screening for couples.
 - **Variant type** — SNV, indel, or MNV.

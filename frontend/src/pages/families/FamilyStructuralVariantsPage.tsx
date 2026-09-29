@@ -15,6 +15,7 @@ import StructuralVariantFilterForm from './StructuralVariantFilterForm';
 import StructuralVariantResults from './StructuralVariantResults';
 import {
   buildStructuralPresetPayload,
+  structuralLocationProblem,
   useStructuralVariantSearchState,
   type StructuralGenePanel,
   type StructuralSummary,
@@ -117,6 +118,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     applyPreset,
     applySavedPreset,
     draftFilters,
+    draftLocationProblem,
     filters,
     goToPage,
     handleGtToggle,
@@ -191,6 +193,10 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery<StructuralVariantPage>({
     queryKey: ['family', familyId, 'structural-variants', requestQueryString],
     queryFn: async () => {
+      // A location from the URL that reads as neither a gene nor a region fails the
+      // search: sent on, it was searched as a gene name and read as no SVs (#604).
+      const locationProblem = structuralLocationProblem(filters);
+      if (locationProblem) throw new Error(locationProblem);
       const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(requestQueryString)}`);
       return res.data as StructuralVariantPage;
     },
@@ -362,6 +368,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           applyPreset={applyPreset}
           applySavedPreset={applySavedPreset}
           draftFilters={draftFilters}
+          draftLocationProblem={draftLocationProblem}
           feedback={workspaceFeedback}
           handleGtToggle={handleGtToggle}
           handleReset={handleReset}

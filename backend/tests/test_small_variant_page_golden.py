@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 from pydantic import BaseModel
 
 from backend.app.schemas import SmallVariantSummaryOut, VariantPage
@@ -163,7 +164,10 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         "exclude_ids": {"v5"},
         "count": (2, False),
     },
+    # Refused (422), no longer answered as a page without variants (#604).
     "intervals_unparseable": {"request": {"intervals": "not an interval"}},
+    # A list of blank lines restricts nothing; it used to be answered as empty (#604).
+    "intervals_blank_lines": {"request": {"intervals": " \n \n", "page_size": 10}},
     "intervals_and_exclusions": {
         "request": {
             "intervals": "1:50-450",
@@ -295,11 +299,14 @@ async def _run(scenario: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> dic
         monkeypatch.setattr(hub, name, fake)
 
     request = {"page": 1, "page_size": 100, **scenario["request"]}
-    page = await hub.get_family_small_variants_page(
-        "<session>",  # type: ignore[arg-type]
-        context=_context(),
-        **request,
-    )
+    try:
+        page = await hub.get_family_small_variants_page(
+            "<session>",  # type: ignore[arg-type]
+            context=_context(),
+            **request,
+        )
+    except HTTPException as refused:
+        return {"calls": calls, "refused": {"status": refused.status_code, "detail": refused.detail}}
     return {"calls": calls, "page": page.model_dump(mode="json", exclude_defaults=True)}
 
 
@@ -318,7 +325,8 @@ async def test_small_variant_page_matches_the_recorded_behaviour(monkeypatch: py
     assert sorted(observed) == sorted(expected), "scenario set changed"
     for name in SCENARIOS:
         assert observed[name]["calls"] == expected[name]["calls"], f"{name}: collaborator calls differ"
-        assert observed[name]["page"] == expected[name]["page"], f"{name}: page differs"
+        assert observed[name].get("page") == expected[name].get("page"), f"{name}: page differs"
+        assert observed[name].get("refused") == expected[name].get("refused"), f"{name}: refusal differs"
 
 
 def test_the_scenarios_reach_every_path() -> None:
@@ -333,3 +341,5 @@ def test_the_scenarios_reach_every_path() -> None:
     assert expected["candidates_capped"]["page"]["total_is_estimated"] is True
     assert "_fetch_gene_regions" in called["recessive_with_gene"]
     assert "get_sv_hit_genes" in called["sv_second_hit"]
+    assert expected["intervals_unparseable"]["refused"]["status"] == 422
+    assert "_fetch_small_variant_rows" not in called["intervals_unparseable"]

@@ -1,10 +1,11 @@
-import { renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import {
   STRUCTURAL_ALL_GT_GROUPS,
   STRUCTURAL_REF_GT_GROUP,
   buildStructuralPresetPayload,
   cloneSingleSampleFilter,
+  structuralLocationProblem,
   useStructuralVariantSearchState,
 } from '../structuralVariantSearch';
 
@@ -96,5 +97,34 @@ describe('cloneSingleSampleFilter', () => {
     });
     expect(payload.sample_filters.PROBAND.gt).toEqual([...STRUCTURAL_ALL_GT_GROUPS]);
     expect(payload.sample_filters.PROBAND.qual).toBe('30');
+  });
+});
+
+// #604 — a location that reads as neither a gene nor a region is named, not searched:
+// sent on as a gene name, it matched nothing and read as a family without SVs.
+describe('a location that cannot be read', () => {
+  it('names the problem, or none', () => {
+    expect(structuralLocationProblem({ locus: 'chr1:100-' })).toBe(
+      "Location 'chr1:100-' is not a gene or chr:start-end.",
+    );
+    expect(structuralLocationProblem({ locus: 'chr1:1,000–2,000' })).toBeNull();
+    expect(structuralLocationProblem({ locus: 'BRCA1' })).toBeNull();
+    expect(structuralLocationProblem({ locus: '' })).toBeNull();
+  });
+
+  it('is not applied from the draft, and says why', async () => {
+    const navigate = vi.fn();
+    const { result } = renderHook(() =>
+      useStructuralVariantSearchState({ family, locationSearch: '?gene=BRCA1', navigate, panelsLoaded: true }),
+    );
+    await waitFor(() => expect(result.current.filters.gene).toBe('BRCA1'));
+    navigate.mockClear();
+
+    act(() => result.current.setDraftFilterValue('locus', '1:-200'));
+    act(() => result.current.handleSearch({ preventDefault: () => {} } as never));
+
+    expect(result.current.draftLocationProblem).toBe("Location '1:-200' is not a gene or chr:start-end.");
+    expect(result.current.filters.locus).toBe('');
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

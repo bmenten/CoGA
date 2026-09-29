@@ -2089,7 +2089,8 @@ async def _resolve_small_variant_scope(
     has_notes: bool,
 ) -> _SmallVariantScope | None:
     """The request's scope, or None when it can match nothing: a panel without genes or
-    regions, a review selection no variant has, or interval text that parses to no region."""
+    regions, or a review selection no variant has. An interval list that does not parse is
+    refused, not answered as empty (#604)."""
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
         panel_constraints = await _fetch_panel_constraints(
@@ -2122,13 +2123,8 @@ async def _resolve_small_variant_scope(
         else set()
     )
 
-    include_regions: list[Region] = []
-    if filters.intervals:
-        interval_regions = _parse_interval_regions(filters.intervals)
-        if not interval_regions:
-            return None
-        include_regions.extend(interval_regions)
-    exclude_regions = _parse_interval_regions(filters.exclude_intervals)
+    include_regions = _parse_interval_regions(filters.intervals)
+    exclude_regions = _parse_interval_regions(filters.exclude_intervals, label="Excluded interval")
     exclude_gene_regions = (
         await _fetch_gene_regions(session, gene_query=filters.exclude_gene, assembly_id=context.assembly_id)
         if filters.exclude_gene

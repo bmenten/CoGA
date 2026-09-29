@@ -1060,6 +1060,287 @@
    ]
   }
  },
+ "intervals_blank_lines": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "intervals": " \n \n",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 11,
+     "offset": 0,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "intervals": " \n \n",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2",
+      "v3",
+      "v4",
+      "v5"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 5,
+   "unfiltered_total": 42,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 200,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v2",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 200,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 400,
+     "gene": "GENE3",
+     "gene_symbols": [
+      "GENE3"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v4",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 400,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 500,
+     "gene": "GENE4",
+     "gene_symbols": [
+      "GENE4"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v5",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 500,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
  "intervals_unparseable": {
   "calls": [
    [
@@ -1070,13 +1351,9 @@
     {}
    ]
   ],
-  "page": {
-   "small_variant_summary": {
-    "indel_count": 2,
-    "snv_count": 40,
-    "total_variants": 42
-   },
-   "total": 0
+  "refused": {
+   "detail": "Interval 'not an interval' is not chr:start-end.",
+   "status": 422
   }
  },
  "native_empty_page": {

@@ -9,6 +9,7 @@ import {
   resolveCarrierScreeningCoupleMembers,
   type FamilyMember,
   type GenePanel,
+  type LocationProblems,
   type SmallFilterState,
   type SmallVariantSearchState,
 } from './smallVariantSearch';
@@ -197,7 +198,17 @@ export interface FilterSectionForm
   clinvarOptions: FilterOption[];
   standardTagOptions: FilterOption[];
   customTagOptions: FilterOption[];
+  /** Draft location filters that cannot be read, shown under their fields (#604). */
+  draftLocationProblems?: LocationProblems | null;
 }
+
+/** The unreadable entries of a location field, named so the search is not run on them. */
+const LocationProblemList = ({ problems }: { problems: string[] }) =>
+  problems.length ? (
+    <div className="variant-workspace-feedback variant-workspace-feedback--error" role="alert">
+      {problems.join(' ')} Nothing was searched.
+    </div>
+  ) : null;
 
 export const PhenotypeFilterSection = ({ form }: { form: FilterSectionForm }) => {
   const {
@@ -1300,6 +1311,7 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
 export const LocationsFilterSection = ({ form }: { form: FilterSectionForm }) => {
   const {
     draftFilters,
+    draftLocationProblems,
     handleDraftFieldChange,
     handleSectionToggle,
     offers,
@@ -1360,6 +1372,7 @@ export const LocationsFilterSection = ({ form }: { form: FilterSectionForm }) =>
             onChange={handleDraftFieldChange}
           />
         ) : null}
+        <LocationProblemList problems={draftLocationProblems?.include ?? []} />
       </div>
     </FilterSection>
   );
@@ -1370,6 +1383,7 @@ export const ExcludeFilterSection = ({ form }: { form: FilterSectionForm }) => {
     clinvarOptions,
     customTagOptions,
     draftFilters,
+    draftLocationProblems,
     handleDraftFieldChange,
     handleSectionToggle,
     offers,
@@ -1538,6 +1552,7 @@ export const ExcludeFilterSection = ({ form }: { form: FilterSectionForm }) => {
             onChange={handleDraftFieldChange}
           />
         ) : null}
+        <LocationProblemList problems={draftLocationProblems?.exclude ?? []} />
       </div>
     </FilterSection>
   );

@@ -235,6 +235,29 @@ describe('FamilyStructuralVariantsPage', () => {
       expect(screen.getByText('All variants —')).toBeInTheDocument();
     });
 
+    // #604 — a location that reads as neither a gene nor a region is not searched as a
+    // gene name: from the form it is named under its field, from a URL it fails the search.
+    it('names an unreadable location under its field instead of searching it', async () => {
+      renderAt();
+      await waitFor(() => expect(screen.getByText('Showing 1')).toBeInTheDocument());
+      const searchesBefore = get.mock.calls.length;
+
+      fireEvent.change(screen.getByPlaceholderText('Gene or region'), { target: { value: 'chr1:100-' } });
+      fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
+
+      expect(await screen.findByText(/Location 'chr1:100-' is not a gene or chr:start-end\. Nothing was searched\./)).toBeInTheDocument();
+      expect(get.mock.calls.slice(searchesBefore).some(([url]) => String(url).includes('gene=chr1'))).toBe(false);
+    });
+
+    it('fails a search whose URL carries an unreadable location', async () => {
+      renderAt('/families/F1/structural-variants?page=1&locus=chr1%3A100-');
+
+      expect(
+        await screen.findByText(/Could not load the structural variants — this is not an empty result\. Location 'chr1:100-' is not a gene or chr:start-end/),
+      ).toBeInTheDocument();
+      expect(get.mock.calls.some(([url]) => String(url).includes('gene=chr1'))).toBe(false);
+    });
+
     it('keeps an applied panel visible when the panel list could not be loaded', async () => {
       failing((url) => url === '/panels');
       renderAt('/families/F1/structural-variants?page=1&panel_id=P1');

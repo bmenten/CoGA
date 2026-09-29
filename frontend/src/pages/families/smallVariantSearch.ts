@@ -11,7 +11,7 @@ import {
   parseCommaSeparatedValues,
   parseSerializedGenotypeSelection,
 } from '../../lib/sampleFilterState';
-import { parseGeneOrRegionInput } from '../../lib/variantSearch';
+import { intervalListProblems, parseGeneOrRegionInput } from '../../lib/variantSearch';
 import type { AcmgMitoContext } from '../../lib/acmg';
 
 export interface SmallVariantGenotype {
@@ -1086,6 +1086,35 @@ export const buildCompactGenotypeSummary = (
     })
     .filter((entry) => entry.gt !== '—');
 
+/** The location filters that cannot be searched as written, by where they are set. */
+export interface LocationProblems {
+  /** The locus (from a link) and the interval list. */
+  include: string[];
+  /** The excluded intervals. */
+  exclude: string[];
+}
+
+/**
+ * The location filters that cannot be read as written. Sent on, a malformed locus was
+ * searched as a gene name, and an unreadable interval was skipped, so the search covered
+ * less than it asked, or read as a family without variants (#604).
+ */
+export const smallVariantLocationProblems = (
+  filters: Pick<SmallFilterState, 'locus' | 'intervals' | 'exclude_intervals'>,
+): LocationProblems => {
+  const locus = parseGeneOrRegionInput(filters.locus);
+  return {
+    include: [
+      ...(locus?.kind === 'invalid' ? [locus.problem] : []),
+      ...intervalListProblems(filters.intervals),
+    ],
+    exclude: intervalListProblems(filters.exclude_intervals, 'Excluded interval'),
+  };
+};
+
+export const hasLocationProblems = (problems: LocationProblems | null): problems is LocationProblems =>
+  Boolean(problems && problems.include.length + problems.exclude.length > 0);
+
 export const buildSmallVariantQueryParams = (
   currentFilters: SmallFilterState,
   currentSampleFilters: Record<string, SmallVariantSampleFilter>,
@@ -1464,6 +1493,9 @@ export const useSmallVariantSearchState = ({
 
   const [filters, setFilters] = useState(emptyFilters);
   const [draftFilters, setDraftFilters] = useState(emptyFilters);
+  // Draft location filters that cannot be read, named under their fields instead of
+  // searched (#604).
+  const [draftLocationProblems, setDraftLocationProblems] = useState<LocationProblems | null>(null);
   const [sampleFilters, setSampleFilters] = useState<Record<string, SmallVariantSampleFilter>>({});
   const [sampleDraftFilters, setSampleDraftFilters] = useState<Record<
     string,
@@ -1709,6 +1741,12 @@ export const useSmallVariantSearchState = ({
 
   const handleApply = (event: FormEvent) => {
     event.preventDefault();
+    const locationProblems = smallVariantLocationProblems(draftFilters);
+    if (hasLocationProblems(locationProblems)) {
+      setDraftLocationProblems(locationProblems);
+      return;
+    }
+    setDraftLocationProblems(null);
     const nextSampleFilters = cloneSampleFilters(sampleDraftFilters);
     // Record the deliberate variant query (the substantive search intent) in the UI
     // telemetry. Keys/counts only — no filter values — so it stays PHI-free.
@@ -1727,6 +1765,7 @@ export const useSmallVariantSearchState = ({
 
   const handleReset = () => {
     if (!family) return;
+    setDraftLocationProblems(null);
     const resetSampleFilters = buildDefaultSampleFilters(family.members);
     setDraftFilters(emptyFilters);
     setFilters(emptyFilters);
@@ -1807,6 +1846,7 @@ export const useSmallVariantSearchState = ({
     filters,
     goToPage,
     handleApply,
+    draftLocationProblems,
     handleFilterChange,
     handleGtToggle,
     handleReset,
