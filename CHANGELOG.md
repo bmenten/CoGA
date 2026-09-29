@@ -493,6 +493,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   assessed", and an X variant carried only by the father read "Inherited from a parent". Where a son
   is hemizygous, the parent who passes him that chromosome now decides, as in the de novo filter;
   the backend says where that is (`hemizygous_in_males`) (#622).
+- **ClinVar support counts in the CNV knowledgebase build** — the build read a ClinVar CNV's
+  loss/gain side from words in its name only. An array record, named in ISCN notation
+  (`…(chr7:73330452-74799773)x1`), therefore counted toward neither side of a region's support. The
+  side now comes from ClinVar's `Type`, then from the copy number in the name (on X and Y only `x0`
+  and `x3` or more), and only then from the name's words. CoGA does not load these counts into
+  `clinical_cnvs`, so nothing the app shows changes (#623).
 
 ### Security
 
