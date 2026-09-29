@@ -7,6 +7,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import FamilyPageHeader from './FamilyPageHeader';
 import { useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
+import QueryFailure from '../../components/QueryFailure';
 import LoadingBar from '../../components/LoadingBar';
 import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
@@ -77,7 +78,13 @@ const FamilySmallVariantsPage: React.FC = () => {
     familyId && family && (!(family.projects?.length) || projectId),
   );
 
-  const { data: panels = [], isLoading: panelsLoading } = useQuery<GenePanel[]>({
+  const {
+    data: panels = [],
+    isLoading: panelsLoading,
+    isError: panelsFailed,
+    error: panelsError,
+    refetch: refetchPanels,
+  } = useQuery<GenePanel[]>({
     queryKey: ['panels'],
     enabled: Boolean(familyId),
     queryFn: async () => {
@@ -411,6 +418,15 @@ const FamilySmallVariantsPage: React.FC = () => {
                   </div>
                 ) : null}
       </FamilyPageHeader>
+
+      {panelsFailed ? (
+        <QueryFailure
+          what="the gene panel list"
+          error={panelsError}
+          onRetry={() => void refetchPanels()}
+          consequence="Panels cannot be chosen, and the default Mendeliome scope is not applied."
+        />
+      ) : null}
 
       <div className="variant-results-region">
         {isFetching ? <LoadingBar label="Loading variants" /> : null}

@@ -362,6 +362,40 @@ describe('FamilySmallVariantsPage', () => {
     expect(await screen.findByText('Showing 7')).toBeInTheDocument();
   });
 
+  // #606 — a failed panel list used to leave the select at "Any gene panel" while the
+  // panel from the URL was still applied, and to drop the default Mendeliome scope unsaid.
+  it('keeps an applied panel visible when the panel list could not be loaded', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { members: [], projects: [] } });
+      }
+      if (url === '/panels') {
+        return Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+      }
+      if (url.startsWith('/families/F1/small-variants?')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants?page=1&panel_id=P1']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(/Could not load the gene panel list — this is not an empty result/)).toHaveTextContent(
+      /Panels cannot be chosen, and the default Mendeliome scope is not applied/,
+    );
+    const panelSelect = screen.getByRole('combobox', { name: 'Quick gene panel' });
+    expect(panelSelect).toHaveValue('P1');
+    expect(within(panelSelect).getByRole('option', { name: 'Panel P1 (not in the panel list)' })).toBeInTheDocument();
+  });
+
   it('formats bounded variant totals as 1000+', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {

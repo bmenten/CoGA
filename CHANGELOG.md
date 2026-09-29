@@ -434,6 +434,14 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   its reported variants. They mark each part that could not be loaded where it belongs, and a
   printout then starts with "Incomplete — … could not be loaded". While the sign-out record is
   unknown, sign-out is not offered (#612).
+- **SV and NIPT searches that read a failure as no variants** — a failed SV search showed an
+  empty table and "Showing 0", and a failed NIPT search showed "No variants match the current
+  search". A failed NIPT summary hid the fetal fraction and its low-confidence and disagreement
+  warnings, and counted every category and filter step as 0. A failed coverage QC stayed
+  "Loading coverage…". A failed panel list left the select at "Any gene panel" while a panel
+  from the URL was still applied, and dropped the default Mendeliome scope without a word.
+  Each is now said where the result would be, with the server's reason and a retry. The counts
+  read "—", and an applied panel stays visible in the select (#613).
 
 ### Security
 

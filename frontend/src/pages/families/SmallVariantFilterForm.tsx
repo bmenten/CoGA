@@ -82,8 +82,9 @@ type SmallVariantFilterFormProps = Pick<
    * untouched.
    */
   mode?: 'small-variant' | 'nipt';
-  /** NIPT: per-category variant counts, shown next to each category option. */
-  categoryCounts?: Record<string, number>;
+  /** NIPT: per-category variant counts, shown next to each category option; null when
+   * they could not be loaded, so they read as unknown rather than 0 (#606). */
+  categoryCounts?: Record<string, number> | null;
   /** NIPT: labels for the eight maternal/fetal categories. */
   categoryLabels?: Record<number, string>;
   /**

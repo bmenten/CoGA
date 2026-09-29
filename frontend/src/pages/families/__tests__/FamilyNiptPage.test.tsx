@@ -222,4 +222,66 @@ describe('FamilyNiptPage', () => {
       ).toBeInTheDocument();
     });
   });
+
+  // #606 — a failed request is said as such: never as no variants, no fetal fraction, or
+  // zero counts.
+  describe('when a request fails', () => {
+    const failing = (...urls: string[]) =>
+      apiMock.get.mockImplementation((url: string) => {
+        if (urls.includes(url)) {
+          return Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+        }
+        if (url === '/families/NIPT001') {
+          return Promise.resolve({
+            data: { family_id: 'NIPT001', members: [], metadata: { analysis_type: 'monogenic_nipt' } },
+          });
+        }
+        if (url === '/families/NIPT001/nipt/summary') {
+          return Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              fetal_fraction: FETAL_FRACTION,
+              category_counts: { '1': 1 },
+              filter_counts: { total_in: 100, failed_quality: 5, failed_artifact: 3, passed: 92 },
+            },
+          });
+        }
+        if (url === '/families/NIPT001/nipt/variants') {
+          return Promise.resolve({ data: { family_id: 'NIPT001', total: 0, variants: [] } });
+        }
+        return Promise.resolve({ data: [] });
+      });
+
+    it('says a failed variant search failed, not that no variants match', async () => {
+      failing('/families/NIPT001/nipt/variants');
+      renderPage('NIPT001');
+
+      expect(await screen.findByText(/Could not load the NIPT variants — this is not an empty result/)).toBeInTheDocument();
+      expect(screen.queryByText(/No variants match the current search/)).not.toBeInTheDocument();
+    });
+
+    it('says the fetal fraction could not be loaded, and counts nothing as zero', async () => {
+      failing('/families/NIPT001/nipt/summary');
+      renderPage('NIPT001');
+
+      expect(await screen.findByText('Fetal fraction could not be loaded')).toBeInTheDocument();
+      expect(
+        screen.getByText(/Could not load the fetal-fraction estimate — this is not an empty result/),
+      ).toHaveTextContent(/low-confidence and disagreement warnings, and the filter and category counts, are unknown/);
+      // The funnel and the category options read as unknown, not 0.
+      expect(screen.queryByText(/Fetal fraction —/)).not.toBeInTheDocument();
+      expect(screen.getAllByText(/ —$/).length).toBeGreaterThan(0);
+      const categoryCounts = document.querySelectorAll('.nipt-category-option-count');
+      expect(categoryCounts.length).toBeGreaterThan(0);
+      categoryCounts.forEach((count) => expect(count.textContent).toBe('—'));
+    });
+
+    it('says the coverage QC could not be loaded, instead of loading for good', async () => {
+      failing('/families/NIPT001/nipt/coverage');
+      renderPage('NIPT001');
+
+      expect(await screen.findByText(/Could not load the coverage QC — this is not an empty result/)).toBeInTheDocument();
+      expect(screen.queryByText('Loading coverage…')).not.toBeInTheDocument();
+    });
+  });
 });
