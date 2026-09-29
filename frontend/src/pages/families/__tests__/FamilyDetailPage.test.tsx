@@ -739,6 +739,144 @@ describe('FamilyDetailPage', () => {
     confirm.mockRestore();
   });
 
+  // #528: the member dialog's own flows, recorded before it moved into its own component.
+  const openS1AsAdmin = async () => {
+    localStorage.setItem('role', 'admin');
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+    const dialog = await screen.findByRole('dialog', { name: /family member details/i });
+    // The member's details load after the dialog opens.
+    await within(dialog).findByLabelText(/identifier/i);
+    return dialog;
+  };
+
+  it('adds a phenotype to a member from the HPO search', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({ data: {} });
+    const dialog = await openS1AsAdmin();
+
+    // A term is picked once the search has answered: type, then choose the match.
+    fireEvent.change(within(dialog).getByLabelText('HPO term'), { target: { value: 'HP:000125' } });
+    await waitFor(() =>
+      expect(dialog.querySelector('datalist option[value]')).not.toBeNull(),
+    );
+    fireEvent.change(within(dialog).getByLabelText('HPO term'), { target: { value: 'HP:0001250' } });
+    fireEvent.change(within(dialog).getByLabelText(/^note$/i), { target: { value: ' seen at 4 y ' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /add phenotype/i }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/families/F1/members/S1/hpo', {
+        hpo_id: 'HP:0001250',
+        status: 'present',
+        source: 'manual',
+        note: 'seen at 4 y',
+      }),
+    );
+    expect(await within(dialog).findByText('Phenotype annotation saved.')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('HPO term')).toHaveValue('');
+  });
+
+  it('says so when a phenotype cannot be saved', async () => {
+    vi.mocked(api.post).mockRejectedValueOnce(new Error('boom'));
+    const dialog = await openS1AsAdmin();
+    fireEvent.change(within(dialog).getByLabelText('HPO term'), { target: { value: 'HP:000125' } });
+    await waitFor(() => expect(dialog.querySelector('datalist option[value]')).not.toBeNull());
+    fireEvent.change(within(dialog).getByLabelText('HPO term'), { target: { value: 'HP:0001250' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /add phenotype/i }));
+
+    expect(await within(dialog).findByText(/boom|Failed to save phenotype annotation/)).toBeInTheDocument();
+  });
+
+  it('removes a phenotype from a member', async () => {
+    mockApiState.hpoAnnotations = [
+      {
+        id: 'hpo1',
+        sample_id: 'S1',
+        hpo_id: 'HP:0001250',
+        label: 'Seizure',
+        definition: null,
+        status: 'present',
+        onset: null,
+        evidence: null,
+        source: 'manual',
+        note: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ];
+    vi.mocked(api.delete).mockResolvedValueOnce({ data: {} });
+    const dialog = await openS1AsAdmin();
+
+    fireEvent.click(await within(dialog).findByRole('button', { name: /^remove$/i }));
+
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/families/F1/hpo/hpo1'));
+    expect(await within(dialog).findByText('Phenotype annotation removed.')).toBeInTheDocument();
+  });
+
+  it('does not offer to remove the family’s last member', async () => {
+    const dialog = await openS1AsAdmin();
+    expect(within(dialog).getByRole('button', { name: /remove member/i })).toBeDisabled();
+  });
+
+  it('removes a member only once the removal is confirmed', async () => {
+    mockApiState.members = [
+      { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
+      { sample_id: 'S2', role: 'mother', affected: false, sex: 'female' },
+    ];
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    vi.mocked(api.delete).mockResolvedValueOnce({
+      data: {
+        family: {
+          _id: 'fam1',
+          family_id: 'F1',
+          members: [],
+          relationships: [],
+          pedigree: null,
+          projects: ['p1'],
+          metadata: {},
+          roi: null,
+        },
+      },
+    });
+    const dialog = await openS1AsAdmin();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /remove member/i }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0][0]).toContain('Remove S1 from the active family?');
+    expect(api.delete).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /remove member/i }));
+    await waitFor(() =>
+      expect(api.delete).toHaveBeenCalledWith('/families/F1/members/S1', { params: { confirm: true } }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /family member details/i })).not.toBeInTheDocument(),
+    );
+    confirm.mockRestore();
+  });
+
+  it('keeps a member edit pending after Apply, and says so', async () => {
+    const dialog = await openS1AsAdmin();
+    fireEvent.change(within(dialog).getByLabelText('Carrier status'), { target: { value: 'carrier' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /apply to pending/i }));
+
+    expect(
+      await within(dialog).findByText('Member changes are pending. Save pending updates to commit them together.'),
+    ).toBeInTheDocument();
+    // Reopened, the dialog shows the pending edit, not the saved value.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+    expect(await screen.findByLabelText('Carrier status')).toHaveValue('carrier');
+  });
+
   it('preserves the selected project in variant workspace links', async () => {
     localStorage.setItem('role', 'viewer');
     const queryClient = createTestQueryClient();
