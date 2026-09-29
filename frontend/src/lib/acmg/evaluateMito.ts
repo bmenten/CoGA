@@ -157,8 +157,9 @@ function evaluateMaternalSegregation(
   notApplicable: (code: AcmgCriterionCode, evidence: string) => void,
 ): void {
   const calls = mito.calls ?? [];
-  const maternal = (mito.maternalTransmission ?? '').toLowerCase();
-  const maternalShared = maternal.includes('maternal');
+  // Only 'maternal_shared' says the proband's mother passed the variant on (the backend reads
+  // her from the pedigree links). 'maternal_not_observed' and 'maternal_only' say she did not.
+  const maternalShared = (mito.maternalTransmission ?? '').toLowerCase() === 'maternal_shared';
 
   const affectedCarriers = calls.filter(
     (c) => c.affected && c.zygosity && CARRIER_ZYGOSITY.has(c.zygosity),

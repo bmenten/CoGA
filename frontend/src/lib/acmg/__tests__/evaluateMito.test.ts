@@ -113,6 +113,24 @@ describe('evaluateMitoAcmg', () => {
     expect(find(evaluateMitoAcmg(baseVariant, mito), 'PP1')?.disposition).toBe('consider');
   });
 
+  // Only 'maternal_shared' says the mother passed the variant on. 'maternal_not_observed' (the
+  // mother does not carry it) and 'maternal_only' contain "maternal" too, and offered PP1.
+  it.each(['maternal_not_observed', 'maternal_only', 'family_private'])(
+    'does not offer PP1 when the transmission is %s',
+    (maternalTransmission) => {
+      const mito: AcmgMitoContext = {
+        category: 'protein coding',
+        maternalTransmission,
+        calls: [
+          { sampleId: 'P', role: 'proband', affected: true, zygosity: 'heteroplasmic', alleleFraction: 0.6 },
+          { sampleId: 'S', role: 'sibling', affected: true, zygosity: 'heteroplasmic', alleleFraction: 0.4 },
+        ],
+      };
+
+      expect(find(evaluateMitoAcmg(baseVariant, mito), 'PP1')?.disposition).toBe('not_applicable');
+    },
+  );
+
   it('derives BS4 when an affected maternal relative lacks the variant', () => {
     const mito: AcmgMitoContext = {
       category: 'protein coding',

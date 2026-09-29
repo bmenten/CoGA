@@ -73,7 +73,22 @@ def _family_context() -> FamilyMetadataContext:
         affected_sample_names=["PROBAND"],
         assembly_id="assembly-uuid",
         assembly_name="GRCh38",
+        # The pedigree links, as loaded with the family: they, not the roles, name the parents.
+        relationship_rows=[
+            _parent_link("DAD", "PROBAND", "father"),
+            _parent_link("MOM", "PROBAND", "mother"),
+        ],
     )
+
+
+def _parent_link(parent: str, child: str, role: str) -> dict[str, str]:
+    return {
+        "relationship_type": "parent_child",
+        "sample_id_a": parent,
+        "sample_id_b": child,
+        "role_a": role,
+        "role_b": "child",
+    }
 
 
 def _mt_record() -> SmallVariantRecord:
@@ -303,3 +318,96 @@ def test_clinical_significance_reads_a_conflicting_record_as_uncertain(
     annotation: dict[str, str], expected: str
 ) -> None:
     assert mitochondrial_analysis._clinical_significance(annotation) == expected
+
+
+def _three_generation_context() -> FamilyMetadataContext:
+    """A proband, a brother, the parents and the paternal grandparents, with the roles a PED
+    import gives them: everyone who has a child is a "father" or a "mother"."""
+    rows = [
+        ("PROBAND", "proband", "female", True),
+        ("SIB", "sibling", "male", False),
+        ("MOM", "mother", "female", False),
+        ("DAD", "father", "male", False),
+        ("PGM", "mother", "female", False),
+        ("PGF", "father", "male", False),
+    ]
+    return FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="three_generations",
+        project_ids=["project-uuid"],
+        sample_rows=[
+            {
+                "sample_uuid": f"uuid-{sample_id}",
+                "sample_id": sample_id,
+                "role": role,
+                "affected": affected,
+                "sex": sex,
+                "sample_metadata": {},
+            }
+            for sample_id, role, sex, affected in rows
+        ],
+        sample_uuid_to_name={f"uuid-{sample_id}": sample_id for sample_id, *_ in rows},
+        sample_name_to_uuid={sample_id: f"uuid-{sample_id}" for sample_id, *_ in rows},
+        affected_sample_names=["PROBAND"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+        relationship_rows=[
+            _parent_link("DAD", "PROBAND", "father"),
+            _parent_link("MOM", "PROBAND", "mother"),
+            _parent_link("DAD", "SIB", "father"),
+            _parent_link("MOM", "SIB", "mother"),
+            _parent_link("PGF", "DAD", "father"),
+            _parent_link("PGM", "DAD", "mother"),
+        ],
+    )
+
+
+# The transmission is read along the proband's maternal line, with the parents the pedigree
+# links to the proband. By role, the paternal grandmother was a "mother": a variant she and the
+# proband carry read as maternally transmitted, and the mt ACMG evaluator could offer PP1.
+@pytest.mark.parametrize(
+    ("carriers", "expected"),
+    [
+        ({"PROBAND", "PGM"}, "maternal_not_observed"),
+        ({"PROBAND", "DAD", "PGM"}, "maternal_not_observed"),
+        # Nor is the paternal grandfather the father.
+        ({"PGF"}, "family_private"),
+        ({"PROBAND", "MOM"}, "maternal_shared"),
+        # A child of the same mother shares her mtDNA.
+        ({"SIB", "MOM"}, "maternal_shared"),
+        ({"MOM"}, "maternal_only"),
+        ({"DAD"}, "father_only"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_maternal_transmission_follows_the_mother_the_pedigree_links_to_the_proband(
+    monkeypatch: pytest.MonkeyPatch, carriers: set[str], expected: str
+) -> None:
+    context = _three_generation_context()
+    record = _mt_record()
+    record.calls = [
+        SmallVariantCall(sample=sample_id, gt="0/1", gq=None, dp=400, af=[0.4], ad=[240, 160], ps=None)
+        if sample_id in carriers
+        else SmallVariantCall(sample=sample_id, gt="0/0", gq=None, dp=400, af=[0.0], ad=[400, 0], ps=None)
+        for sample_id in context.sample_name_to_uuid
+    ]
+
+    async def fake_fetch_mt_records(_context):
+        return [record]
+
+    async def fake_coverage_by_sample(_context):
+        return {}
+
+    async def fake_thresholds(_session, *, family_uuid):  # noqa: ANN001, ANN202
+        return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
+
+    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
+    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
+    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", fake_thresholds)
+
+    response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
+        None,  # type: ignore[arg-type]
+        context=context,
+    )
+
+    assert response.variants[0].maternal_transmission == expected
