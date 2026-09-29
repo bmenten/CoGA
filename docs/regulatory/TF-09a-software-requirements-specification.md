@@ -105,7 +105,7 @@
 | REQ-TRACE-001 | Maintain a per-family annotation/version manifest, merging the pipeline layer over the platform layer in a canonical order. | C | H8 |
 | REQ-TRACE-002 | Freeze a per-classification evidence snapshot (annotation hash + key evidence) at classification time. | C | H8 |
 | REQ-TRACE-003 | Detect evidence drift (stored vs current annotation hash) and surface from→to changes. | C | H8 |
-| REQ-TRACE-004 | Record an append-only clinical audit trail with field-level before/after, one entry per change, in the same transaction as the review save. | C | H9, H8 |
+| REQ-TRACE-004 | Record an append-only clinical audit trail with field-level before/after, one entry per change, in the same transaction as the review save, for small-variant, structural-variant and CNV reviews alike: for a CNV, its ClinGen class, points and accepted criteria; a cleared or deleted review included. | C | H9, H8 |
 | REQ-TRACE-005 | Produce a frozen, versioned, SHA-256 content-hashed sign-out snapshot; the hash is stable and order-independent; signed snapshots are never mutated (amend = new version). | C | H9 |
 | REQ-TRACE-006 | Gate sign-out on unacknowledged evidence drift: reject unless the analyst acknowledges it with a reason, which is frozen into the signed record and the audit trail. | C | H8 |
 | REQ-TRACE-007 | Render a signed-out report **from the frozen snapshot**, not by re-querying live stores. **Not yet implemented** — see [TF-09b §3](TF-09b-requirements-traceability-matrix.md). | C | H9 |

@@ -123,11 +123,11 @@ De evaluator is voorzichtig: hij stelt alleen voor op basis van wat de SV betrou
 
 De volledige beoordeling per criterium wordt als JSON bewaard, met het herberekende totaal en de klasse ernaast (voor filters en samenvattingen): `acmg`, `acmg_point_total` en `acmg_class` op `small_variant_reviews`, en `cnv_acmg`, `cnv_point_total` en `cnv_class` op `structural_variant_reviews`. Zo is achteraf te zien welke criteria met welke sterkte en welk bewijs werden toegepast.
 
-**Het bewijssnapshot.** Bij het classificeren van een small variant bevriest CoGA het bewijs in `acmg_evidence_snapshot`: de annotatieversie en de **hash van de annotatieset** (die verandert zodra enige annotatie verandert), de ClinVar-waarde en het tijdstip. Elke wijziging van een small-variantreview schrijft bovendien, in dezelfde transactie, een voor-en-na-regel in het append-only, hash-geketende **klinische auditspoor** (hoofdstuk 11): wie, wanneer en wat veranderde (klasse, criteria, tags, notitie).
+**Het bewijssnapshot.** Bij het classificeren van een small variant bevriest CoGA het bewijs in `acmg_evidence_snapshot`: de annotatieversie en de **hash van de annotatieset** (die verandert zodra enige annotatie verandert), de ClinVar-waarde en het tijdstip. Elke wijziging van een review, van een small variant, een SV of een CNV, schrijft bovendien, in dezelfde transactie, een voor-en-na-regel in het append-only, hash-geketende **klinische auditspoor** (hoofdstuk 11): wie, wanneer en wat veranderde (klasse, criteria, tags, notitie). Bij een CNV hoort bij de klasse ook de ClinGen-score: de soort, het puntentotaal en elk aanvaard criterium met zijn punten. Ook het leegmaken of wissen van een review wordt vastgelegd.
 
-**Beperking.** Alleen classificaties van small variants krijgen een bewijssnapshot, een driftcontrole en regels in het klinische auditspoor. Een wijziging aan een CNV- of SV-review staat alleen in de HTTP-auditlog en, na het ondertekenen, in het bevroren rapport.
+**Beperking.** Alleen classificaties van small variants krijgen een bewijssnapshot en een driftcontrole. CNV- en SV-classificaties worden bij het ondertekenen wel bevroren, maar niet op drift gecontroleerd. De review van een compound-heterozygoot paar schrijft geen regel in het klinische auditspoor.
 
-**Waar in de code:** `build_evidence_snapshot` in `backend/app/services/small_variant_review_acmg.py`; het auditspoor in `backend/app/services/clinical_audit_service.py`.
+**Waar in de code:** `build_evidence_snapshot` in `backend/app/services/small_variant_review_acmg.py`; het auditspoor in `backend/app/services/clinical_audit_service.py` (`record_review_changes` voor small variants, `record_structural_review_changes` voor SV's en CNV's).
 
 ## Deel 5 — Classificatiedrift
 

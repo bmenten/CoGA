@@ -59,16 +59,19 @@ it, but sign-out does: it counts as drift and needs an acknowledgement (see *The
 ## 3. Classification audit trail — who did what, when
 
 The **Classification audit trail** lists, most recent first, every clinical action on the family's
-variants: who classified, tagged or annotated which variant, when, and what changed (before → after),
-including each sign-out.
+small variants, structural variants and CNVs: who classified, tagged or annotated which variant, when,
+and what changed (before → after), including each sign-out. For a CNV it also lists each change to
+its ClinGen classification (the class, the points or the criteria). Clearing a review is listed too.
 
 - *Classification VUS (class 3) → Likely pathogenic (class 4)*
+- *CNV classification VUS - class 3 → Pathogenic - class 5*
 - *Tags added report*
 - *Report signed out (v2) — 3 reported variant(s)*
 
 Each entry is written together with the change itself, and entries can never be changed or deleted.
 This is the record of clinical actions; the record of who opened what (**Admin → Audit Logs**) is
-separate.
+separate. Changes to the pedigree, the family members or their phenotypes, and the review of a
+compound-heterozygous pair, are not in this trail; **Admin → Audit Logs** records them.
 
 ## 4. Case sign-out — freeze the result
 
