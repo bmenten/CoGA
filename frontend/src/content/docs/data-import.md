@@ -50,8 +50,9 @@ the **ClinVar P/LP** column of the Clinical CNV explorer. A knowledgebase built 
 "—" there, which means *not recorded*, not zero.
 
 **Gene reference refresh.** From the Reference catalogue an administrator can refresh the cached gene
-information for all human genes. The refresh reads a local dbNSFP gene file and public sources (ClinGen,
-GenCC, ClinVar, HGNC, Ensembl, NCBI) for every gene. It adds identifiers, names and aliases, disease
+information for all human genes. The refresh reads a local dbNSFP gene file and the downloads of HGNC,
+ClinGen, GenCC and ClinVar for every gene, and asks NCBI Gene for a summary of the genes that dbNSFP does
+not cover. It adds identifiers, names and aliases, disease
 context (OMIM, Orphanet, GenCC), ClinGen dosage, HPO and pathway terms, expression and constraint
 metrics.
 

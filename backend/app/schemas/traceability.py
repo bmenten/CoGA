@@ -34,6 +34,8 @@ class AnnotationManifestUpdate(BaseModel):
     """Record/override a family's upstream annotation module versions."""
 
     modules: Dict[str, Any] = Field(default_factory=dict)
+    # Ignored: a replacement is always recorded as 'manual'. Kept so the request schema
+    # and the generated API types stay stable.
     source: Optional[str] = "manual"
 
 

@@ -17,13 +17,15 @@ import json
 import logging
 from typing import Any, Mapping
 
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import build_family_metadata_context
 from .hpo_service import get_loaded_hpo_release
 from .metadata_service import get_family_record
-from .access_control import CurrentUser
+from .access_control import CurrentUser, is_admin_user
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +143,21 @@ def _as_dict(value: Any) -> dict[str, Any]:
         except json.JSONDecodeError:
             return {}
     return {}
+
+
+async def _lock_family_manifest(session: AsyncSession, family_uuid: str) -> None:
+    """Hold this family's manifest lock until the transaction ends.
+
+    Both writers of ``family_annotation_manifest`` take it before they read the row: an
+    import's merge and an admin's replacement. A replacement therefore never lands
+    between an import's read and its write (the import would overwrite the manual
+    manifest it never saw), and each replacement's audit event records the manifest it
+    really replaced. A replacement waits for an import of the same family to commit.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": f"fam-manifest:{family_uuid}"},
+    )
 
 
 async def _family_manifest_row(session: AsyncSession, family_uuid: str) -> dict[str, Any] | None:
@@ -294,39 +311,44 @@ def _module_list(
     return result
 
 
+async def _pipeline_manifest(
+    session: AsyncSession, *, family_uuid: str, family_id: str, user: CurrentUser
+) -> dict[str, Any]:
+    """The family's pipeline layer as its report states it: the recorded row, else the
+    manifest the import captured into ``family.metadata`` (source ``'manifest'``)."""
+    row = await _family_manifest_row(session, family_uuid)
+    if row and _as_dict(row.get("modules")):
+        return {
+            "modules": _as_dict(row.get("modules")),
+            "source": row.get("source"),
+            "recorded_at": row.get("recorded_at"),
+            "recorded_by": row.get("recorded_by"),
+        }
+    # Fall back to the manifest the import captured into family.metadata.
+    family = await get_family_record(session, family_id, user)
+    captured = (getattr(family, "metadata", None) or {}).get("annotation_manifest")
+    if isinstance(captured, dict):
+        return {"modules": captured, "source": "manifest", "recorded_at": None, "recorded_by": None}
+    return {"modules": {}, "source": None, "recorded_at": None, "recorded_by": None}
+
+
 async def get_family_annotation_manifest(
     session: AsyncSession, *, family_id: str, user: CurrentUser, project_id: str | None = None
 ) -> dict[str, Any]:
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
-    row = await _family_manifest_row(session, context.family_uuid)
-
-    pipeline_modules: dict[str, Any] = {}
-    source: str | None = None
-    recorded_at = None
-    recorded_by: str | None = None
-    if row and _as_dict(row.get("modules")):
-        pipeline_modules = _as_dict(row.get("modules"))
-        source = row.get("source")
-        recorded_at = row.get("recorded_at")
-        recorded_by = row.get("recorded_by")
-    else:
-        # Fall back to the manifest the import captured into family.metadata.
-        family = await get_family_record(session, family_id, user)
-        captured = (getattr(family, "metadata", None) or {}).get("annotation_manifest")
-        if isinstance(captured, dict):
-            pipeline_modules = captured
-            source = "manifest"
-
+    pipeline = await _pipeline_manifest(
+        session, family_uuid=context.family_uuid, family_id=family_id, user=user
+    )
     platform_modules = await _platform_modules(session, context.assembly_id)
     return {
         "family_id": context.family_id,
         "assembly": context.assembly_name,
-        "source": source,
-        "recorded_at": recorded_at,
-        "recorded_by": recorded_by,
-        "modules": _module_list(pipeline_modules, platform_modules),
+        "source": pipeline["source"],
+        "recorded_at": pipeline["recorded_at"],
+        "recorded_by": pipeline["recorded_by"],
+        "modules": _module_list(pipeline["modules"], platform_modules),
     }
 
 
@@ -381,6 +403,9 @@ async def merge_vcf_header_provenance(
 
     * **Never overwrites a ``manual`` manifest** — an admin's curated provenance
       wins over anything parsed from a header.
+    * **Takes turns with a replacement** — it holds the family's manifest lock from
+      before its read until the import commits, so an admin's replacement cannot land
+      in between and be overwritten.
     * **Refreshes on re-import** — newly parsed versions overwrite stale ones,
       while untouched modules are preserved.
     * **Never raises and never poisons the caller's transaction** — the write runs
@@ -394,6 +419,9 @@ async def merge_vcf_header_provenance(
     recorded_source = source if source != "manual" else "vcf_header"
     try:
         async with session.begin_nested():
+            # Taken inside the SAVEPOINT, but a released savepoint hands its locks to
+            # the enclosing transaction, so it is held until the import commits.
+            await _lock_family_manifest(session, family_uuid)
             existing = await _family_manifest_row(session, family_uuid)
             if existing and existing.get("source") == "manual":
                 return  # respect admin-curated provenance
@@ -438,17 +466,79 @@ async def merge_vcf_header_provenance(
         logger.warning("%s provenance capture failed for family %s", recorded_source, family_uuid, exc_info=True)
 
 
+# The audit summary names at most this many module changes; before/after hold them all.
+_SUMMARY_MAX_CHANGES = 6
+# The source of every replacement made through set_family_annotation_manifest.
+_MANUAL_SOURCE = "manual"
+
+
+def _module_version(value: Any) -> str:
+    version = _as_module(value).get("version")
+    return str(version) if version not in (None, "") else "no version"
+
+
+def _manifest_changes(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[str]:
+    """One line per module the replacement adds, removes or changes, in display order."""
+    keys = set(before) | set(after)
+    ordered = [k for k in _MODULE_ORDER if k in keys] + sorted(k for k in keys if k not in _MODULE_ORDER)
+    changes: list[str] = []
+    for key in ordered:
+        label = _MODULE_LABELS.get(key, _fallback_module_label(key))
+        if key not in before:
+            changes.append(f"{label} added")
+        elif key not in after:
+            changes.append(f"{label} removed")
+        elif _as_module(before[key]) != _as_module(after[key]):
+            old, new = _module_version(before[key]), _module_version(after[key])
+            changes.append(f"{label} {old} → {new}" if old != new else f"{label} details changed")
+    return changes
+
+
+def _manifest_replacement_summary(
+    *,
+    prior_source: str | None,
+    source: str,
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> str:
+    """The audit trail's one-line account of a manifest replacement."""
+    changes = _manifest_changes(before, after)
+    listed = "; ".join(changes[:_SUMMARY_MAX_CHANGES]) or "no module changed"
+    if len(changes) > _SUMMARY_MAX_CHANGES:
+        listed += f"; and {len(changes) - _SUMMARY_MAX_CHANGES} more"
+    if prior_source is None:
+        return f"Annotation manifest recorded ({source}): {listed}"
+    return f"Annotation manifest replaced (was {prior_source}, now {source}): {listed}"
+
+
 async def set_family_annotation_manifest(
     session: AsyncSession,
     *,
     family_id: str,
     user: CurrentUser,
     modules: dict[str, Any],
-    source: str = "manual",
 ) -> dict[str, Any]:
+    """Replace a family's pipeline manifest by hand (admin only), on the audit trail.
+
+    The replacement is always recorded as ``'manual'``: that is what it is, and it is
+    the source an import never overwrites. The row is overwritten in place and every
+    later sign-out freezes it into the signed report, so the replacement is recorded as
+    a clinical audit event on the family's hash chain, with the manifest it replaced and
+    the one it wrote, in the same transaction as the overwrite: neither persists without
+    the other.
+    """
+    # Also enforced by the route (get_current_admin_user); checked here because this is
+    # the one path that writes curated provenance, whoever calls it.
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user
     )
+    await _lock_family_manifest(session, context.family_uuid)
+    prior = await _pipeline_manifest(
+        session, family_uuid=context.family_uuid, family_id=family_id, user=user
+    )
+    new_modules = modules or {}
     await session.execute(
         text(
             """
@@ -468,10 +558,37 @@ async def set_family_annotation_manifest(
         {
             "family_uuid": context.family_uuid,
             "assembly_id": context.assembly_id,
-            "modules": json.dumps(modules or {}),
-            "source": source,
+            "modules": json.dumps(new_modules),
+            "source": _MANUAL_SOURCE,
             "recorded_by": getattr(user, "email", None),
         },
+    )
+    prior_recorded_at = prior["recorded_at"]
+    await record_clinical_event(
+        session,
+        family_uuid=context.family_uuid,
+        family_identifier=context.family_id,
+        variant_id=None,
+        actor=getattr(user, "username", None) or getattr(user, "email", "") or "unknown",
+        actor_id=getattr(user, "id", None),
+        action="annotation_manifest",
+        summary=_manifest_replacement_summary(
+            prior_source=prior["source"],
+            source=_MANUAL_SOURCE,
+            before=prior["modules"],
+            after=new_modules,
+        ),
+        before={
+            "source": prior["source"],
+            "recorded_by": prior["recorded_by"],
+            "recorded_at": (
+                prior_recorded_at.isoformat()
+                if hasattr(prior_recorded_at, "isoformat")
+                else prior_recorded_at
+            ),
+            "modules": prior["modules"],
+        },
+        after={"source": _MANUAL_SOURCE, "modules": new_modules},
     )
     await session.commit()
     return await get_family_annotation_manifest(session, family_id=family_id, user=user)

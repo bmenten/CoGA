@@ -28,16 +28,18 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   multi-project cases.
 - ✅ **Admin-only changes.** Structure changes and deletions of families and data (member and
   structure edits, region of interest, project assignment, family and sample deletions),
-  reference data, imports and uploads require `get_current_admin_user`. A user with access
-  to a family can edit its phenotypes, reviews and saved filters.
+  replacing a family's annotation manifest, reference data, imports and uploads require
+  `get_current_admin_user`. A user with access to a family can edit its phenotypes, reviews
+  and saved filters.
 - ✅ **Scoped downloads.** The CRAM/BAM endpoints check family and sample access before they
   hand out a signed URL (`routers/cram.py`).
 - ✅ **No weak secrets outside development.** `Settings.validate_security_defaults` refuses to
   start when `SECRET_KEY` is a placeholder or shorter than 32 characters, when
   `CLICKHOUSE_PASSWORD` is empty or a placeholder, when `POSTGRES_PASSWORD` or
   `ADMIN_PASSWORD` is a placeholder, or when `INTEGRITY_ANCHOR_SIGNING_KEY` is not the base64
-  of a 32-byte Ed25519 seed. An unsigned integrity anchor is refused as well. Passwords are
-  stored as bcrypt hashes.
+  of a 32-byte Ed25519 seed or is the same value as `SECRET_KEY` (then whoever can mint a
+  session token could also sign an integrity anchor). An unsigned integrity anchor is refused
+  as well. Passwords are stored as bcrypt hashes.
 - ✅ **Passwords at sign-up** need at least 15 characters (`SIGNUP_PASSWORD_MIN_LENGTH`,
   following NIST SP 800-63B-4 for a single-factor password); a shorter one gets a 422 before
   any throttling or hashing. The device owner confirmed this policy (TF-18 CR-088).
@@ -88,9 +90,10 @@ are colleagues, so there is no tenant boundary to protect.
 - ✅ **No silent loss (S-5).** A full queue applies backpressure for up to
   `AUDIT_LOG_BACKPRESSURE_TIMEOUT_SECONDS` and then writes the event directly; the worker
   retries failed writes (`AUDIT_LOG_MAX_WRITE_ATTEMPTS`); an event that still cannot be stored
-  is logged at ERROR with its (already masked) payload and counted for alerting. Dropping
-  events (`AUDIT_LOG_DROP_ALLOWED=true`) is refused outside development
-  (`services/event_pipeline.py`).
+  is logged at ERROR with its (already masked) payload and counted for alerting. Outside
+  development the backend refuses to start with `AUDIT_LOG_DROP_ALLOWED=true`, which drops
+  events (`services/event_pipeline.py`), or with `AUDIT_LOG_MODE=off`, which writes no
+  request or UI-event log at all (`core/config.py`).
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the
@@ -192,7 +195,7 @@ Every suppressed advisory is recorded in
 The application layer applies project-scoped access consistently, with no cross-project IDOR
 found, keeps a durable append-only audit trail, needs a signed-in user for reference data,
 throttles sign-ups and logins, bounds input sizes, decompression and paths, and refuses to
-start on weak secrets. S-5 (audit durability), S-6 (required checks) and S-7 (dependency
-pinning) are closed. The open items are deployment-level: S-1, S-2, S-3 and S-8 are written
+start on weak or shared secrets or with the request audit log switched off. S-5 (audit
+durability), S-6 (required checks) and S-7 (dependency pinning) are closed. The open items are deployment-level: S-1, S-2, S-3 and S-8 are written
 in Terraform and wait for the first deployment and its evidence; S-4 is open. See
 [TF-13 §3](regulatory/TF-13-cybersecurity.md).

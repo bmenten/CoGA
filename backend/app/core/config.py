@@ -48,8 +48,9 @@ class Settings(BaseSettings):
     enable_hsts: bool = Field(default=False, alias="ENABLE_HSTS")
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
     # Ed25519 private signing key (base64 of the 32-byte seed) for integrity anchors —
-    # MUST be distinct from SECRET_KEY and stored outside the DB. Unset ⇒ anchors are
-    # written 'unsigned' (a non-owner-only checkpoint; see integrity_anchor_service.py).
+    # MUST be distinct from SECRET_KEY (refused outside development/test) and stored
+    # outside the DB. Unset ⇒ anchors are written 'unsigned' (a non-owner-only
+    # checkpoint; see integrity_anchor_service.py).
     integrity_anchor_signing_key: str = Field(default="", alias="INTEGRITY_ANCHOR_SIGNING_KEY")
     algorithm: str = "HS256"
     # Session token lifetime. Kept short (2h) to bound the blast radius of a leaked
@@ -549,6 +550,15 @@ class Settings(BaseSettings):
                 "production must not silently drop accountability events. Set "
                 "APP_ENV=development for local work or AUDIT_LOG_DROP_ALLOWED=false."
             )
+        # 'off' makes audit_log_pg and ui_event_pg write nothing: no request audit log and
+        # no UI-event log. Every action in the interface must stay auditable.
+        if self.audit_log_mode == "off":
+            raise ValueError(
+                "Refusing to start outside development/test with AUDIT_LOG_MODE=off: it "
+                "switches off the request audit log and the UI-event log, and every action "
+                "in the interface must stay auditable. Use AUDIT_LOG_MODE=async (the "
+                "default) or sync. Set APP_ENV=development for local-only work."
+            )
 
         insecure_fields: list[str] = []
         secret_key = self.secret_key.strip()
@@ -581,6 +591,17 @@ class Settings(BaseSettings):
                 "(python -c 'import secrets; print(secrets.token_urlsafe(48))'); "
                 "CLICKHOUSE_PASSWORD must be set; INTEGRITY_ANCHOR_SIGNING_KEY must be the "
                 "base64 of a 32-byte Ed25519 seed (python -c 'import base64, os; "
+                "print(base64.b64encode(os.urandom(32)).decode())'). "
+                "Set APP_ENV=development for local-only work."
+            )
+        # The anchor key must be a separate secret: with the same value, whoever can mint
+        # a session token can also sign an integrity anchor (see integrity_anchor_service).
+        if self.integrity_anchor_signing_key.strip() == secret_key:
+            raise ValueError(
+                "Refusing to start outside development/test: INTEGRITY_ANCHOR_SIGNING_KEY "
+                "is the same value as SECRET_KEY. The integrity-anchor signing key must be a "
+                "separate secret, so that whoever can mint session tokens cannot also sign "
+                "integrity anchors. Generate a new one (python -c 'import base64, os; "
                 "print(base64.b64encode(os.urandom(32)).decode())'). "
                 "Set APP_ENV=development for local-only work."
             )
