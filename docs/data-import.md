@@ -440,9 +440,13 @@ calls are checked and replaced:
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another
   caller's upload), stay as they are.
+- The caller the VCF header names is recorded in the family's annotation manifest
+  ([annotation-provenance.md](annotation-provenance.md)).
 
 Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls
-from every source.
+from every source. Both this delete and an upload rewrite the stored rows, and write every
+call they do not change back as stored: with its phase set and breakend end, in its project,
+an inactive member's included.
 
 ## 7. Troubleshooting
 

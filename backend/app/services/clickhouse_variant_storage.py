@@ -6,8 +6,17 @@ from typing import Any, Iterable, Sequence
 
 from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
-from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
-from .clickhouse_variant_records import SmallVariantRecord, StructuralVariantRecord
+from .clickhouse_variant_queries import (
+    IMPUTED_SMALL_VARIANT_SOURCES,
+    _collect_annotations,
+    _decode_json_payload,
+)
+from .clickhouse_variant_records import (
+    SmallVariantRecord,
+    StoredStructuralVariantRow,
+    StructuralVariantCall,
+    StructuralVariantRecord,
+)
 from .clickhouse_variant_ids import (
     _expected_clickhouse_variant_tables,
     _require_clickhouse_identifier,
@@ -960,6 +969,153 @@ async def replace_family_structural_variants(
     await delete_family_structural_variants(assembly_name, family_uuid, source=source)
     if records:
         await insert_structural_variant_records(assembly_name, family_uuid, project_ids, records)
+
+
+def _indexed_value(values: Any, index: int) -> Any:
+    return values[index] if isinstance(values, (list, tuple)) and index < len(values) else None
+
+
+async def fetch_family_structural_variant_rows(
+    assembly_name: str,
+    family_uuid: str,
+    *,
+    source: str | None = None,
+) -> list[StoredStructuralVariantRow]:
+    """The family's live SV rows exactly as stored, for a write path that rewrites them.
+
+    The scope is the one :func:`delete_family_structural_variants` deletes: the family, and
+    exactly ``source`` when it is given. No project, sample or display filter applies and
+    nothing is normalised, so a row written back from here is the row that was stored.
+    The details come from their latest version (``FINAL``), read for these rows' keys only
+    (the details' sort key, so the index narrows the read). Two live rows of one SV in one
+    project, which a merge would collapse to one, come back as one row with the calls of
+    both, taking a sample's call from the row with more calls.
+    """
+    await ensure_clickhouse_variant_tables(assembly_name)
+    entries_table = _structural_table_name(assembly_name, "entries")
+    details_table = _structural_table_name(assembly_name, "variants/details")
+    params: dict[str, Any] = {"family_guid": family_uuid}
+    source_clause = ""
+    if source is not None:
+        source_clause = " AND source = %(source)s"
+        params["source"] = source
+    rows = await _execute(
+        f"""
+        SELECT
+            e.project_guid, e.key, e.variantId, e.source, e.chrom, e.start, e.end, e.svType,
+            e.gene_symbols, e.`calls.sampleId`, e.`calls.gt`, e.`calls.qual`,
+            e.`calls.readSupport`, e.`calls.filter`, e.`calls.ps`, e.`calls.cn`,
+            d.remoteChrom, d.remoteStart, d.remoteEnd, d.svLen, d.filters, d.annotationsJson
+        FROM (
+            SELECT *
+            FROM {entries_table}
+            WHERE family_guid = %(family_guid)s AND sign = 1{source_clause}
+        ) AS e
+        LEFT JOIN (
+            SELECT key, remoteChrom, remoteStart, remoteEnd, svLen, filters, annotationsJson
+            FROM {details_table} FINAL
+            WHERE key IN (
+                SELECT key
+                FROM {entries_table}
+                WHERE family_guid = %(family_guid)s AND sign = 1{source_clause}
+            )
+        ) AS d ON d.key = e.key
+        ORDER BY e.project_guid, e.source, e.key, length(e.`calls.sampleId`) DESC
+        """,
+        params,
+    )
+    stored: list[StoredStructuralVariantRow] = []
+    by_identity: dict[tuple[str, str, int], StoredStructuralVariantRow] = {}
+    for (
+        project_guid,
+        key,
+        variant_id,
+        row_source,
+        chrom,
+        start,
+        end,
+        sv_type,
+        gene_symbols,
+        sample_ids,
+        gts,
+        quals,
+        read_supports,
+        call_filters,
+        phase_sets,
+        copy_numbers,
+        remote_chrom,
+        remote_start,
+        remote_end,
+        sv_len,
+        filters,
+        annotations_json,
+    ) in rows or []:
+        calls: list[StructuralVariantCall] = []
+        for index, sample_id in enumerate(sample_ids or []):
+            qual = _indexed_value(quals, index)
+            read_support = _indexed_value(read_supports, index)
+            phase_set = _indexed_value(phase_sets, index)
+            copy_number = _indexed_value(copy_numbers, index)
+            calls.append(
+                StructuralVariantCall(
+                    sample=str(sample_id),
+                    gt=str(_indexed_value(gts, index) or ""),
+                    qual=None if qual is None else float(qual),
+                    read_support=None if read_support is None else int(read_support),
+                    filter=_indexed_value(call_filters, index),
+                    phase_set=None if phase_set is None else int(phase_set),
+                    copy_number=None if copy_number is None else int(copy_number),
+                )
+            )
+        identity = (str(project_guid), str(row_source), int(key))
+        existing = by_identity.get(identity)
+        if existing is not None:
+            known = {call.sample for call in existing.record.calls}
+            existing.record.calls.extend(call for call in calls if call.sample not in known)
+            continue
+        row = StoredStructuralVariantRow(
+            project_id=str(project_guid),
+            record=StructuralVariantRecord(
+                variant_key=int(key),
+                variant_id=str(variant_id),
+                chr=str(chrom),
+                start=int(start),
+                end=int(end),
+                sv_type=str(sv_type or ""),
+                source=str(row_source),
+                remote_chr=None if remote_chrom in (None, "") else str(remote_chrom),
+                remote_start=None if remote_start is None else int(remote_start),
+                remote_end=None if remote_end is None else int(remote_end),
+                sv_len=None if sv_len is None else int(sv_len),
+                filters=[str(value) for value in filters or []],
+                gene_symbols=[str(value) for value in gene_symbols or []],
+                annotations=_collect_annotations(_decode_json_payload(annotations_json)),
+                calls=calls,
+            ),
+        )
+        by_identity[identity] = row
+        stored.append(row)
+    return stored
+
+
+async def rewrite_family_structural_variants(
+    assembly_name: str,
+    family_uuid: str,
+    rows: Sequence[StoredStructuralVariantRow],
+    *,
+    source: str | None = None,
+) -> None:
+    """Replace the family's SV rows (exactly ``source``'s, or all) with ``rows``.
+
+    The write side of :func:`fetch_family_structural_variant_rows`: it deletes what that
+    read covers, then writes each row under its own project.
+    """
+    await delete_family_structural_variants(assembly_name, family_uuid, source=source)
+    records_by_project: dict[str, list[StructuralVariantRecord]] = {}
+    for row in rows:
+        records_by_project.setdefault(row.project_id, []).append(row.record)
+    for project_id, records in records_by_project.items():
+        await insert_structural_variant_records(assembly_name, family_uuid, [project_id], records)
 
 
 async def count_family_small_variants(

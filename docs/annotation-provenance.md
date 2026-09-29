@@ -19,7 +19,7 @@ The `##` header lines are parsed by
 | Input | Captured by | What is read |
 | --- | --- | --- |
 | Small variants (SNV/indel), package or direct upload | `variant_upload_service.upload_family_small_variant_file` | the VCF header: caller (`##source`, `##DeepVariant_version`, `##GATKCommandLine`), annotation engine (`##VEP=…` with the gnomAD, ClinVar, dbNSFP, SpliceAI, dbSNP, COSMIC, SIFT, PolyPhen, assembly and GENCODE releases it embeds; `##SnpEffVersion`; `##bcftools_*Version`); and, when the annotation comes as a separate VEP table, that file's `## … version …` lines (`extract_vep_tab_provenance`) |
-| Structural variants from a package (NeedlR) | `family_package_datasets._import_sv_needlr_dataset` | the SV caller (`##source=Sniffles2_…`, Spectre, NeedlR), `##reference`, `##fileDate`, and database releases named in the `##INFO` descriptions (`extract_info_description_provenance`: GENCODE, OMIM, GenCC, gnomAD, GIAB, ClinVar, dbSNP, COSMIC, each tied to a version-shaped token) |
+| Structural variants, from a package (NeedlR) or a per-sample upload (Sniffles, Spectre) | `family_package_datasets._import_sv_needlr_dataset`, `variant_upload_service.upload_structural_variant_file` | the SV caller (`##source=Sniffles2_…`, Spectre, NeedlR), `##reference`, `##fileDate`, and database releases named in the `##INFO` descriptions (`extract_info_description_provenance`: GENCODE, OMIM, GenCC, gnomAD, GIAB, ClinVar, dbSNP, COSMIC, each tied to a version-shaped token) |
 | Repeat expansions (TRGT), family or per sample | `repeat_expansion_pg.ingest_family_trgt_text`, `ingest_trgt_text` | `##trgtVersion`, `##trgtCommand`, `##source=TRGT`, `##reference` |
 | The pipeline run record of a long-read package | `family_package_datasets._import_pipeline_info_dataset` | not a VCF: the Nextflow `software_versions.yaml`, recorded with `source='manifest'`. It names every tool behind the data, including tools whose outputs carry no version. The run parameters go to `families.metadata["pipeline"]`. |
 
@@ -118,8 +118,8 @@ VCF `##reference` line), the pipeline's value is the one listed.
 
 ## Limitations
 
-- Direct structural-variant uploads and HiFiCNV CNV files are not header-parsed for
-  provenance. For long-read packages the pipeline run record names their tools.
+- HiFiCNV CNV files are not header-parsed for provenance, and a manual TSV of structural
+  variants has no header. For long-read packages the pipeline run record names their tools.
 - Paraphase results are JSON, with no header. Their version is recorded only if the package
   declares it.
 - Mining free-text `##INFO` descriptions is more fragile than reading a `##VEP=` line, hence
@@ -140,6 +140,8 @@ VCF `##reference` line), the pipeline's value is the one listed.
 - [integration/test_annotation_manifest_integration.py](../backend/tests/integration/test_annotation_manifest_integration.py):
   a replacement on the family's hash chain, and an import and a replacement taking turns, on
   real Postgres.
+- [test_sv_rewrite_keeps_every_call.py](../backend/tests/test_sv_rewrite_keeps_every_call.py):
+  a per-sample SV upload records its caller and the releases its `##INFO` lines cite.
 - [AnnotationProvenanceSummary.test.tsx](../frontend/src/pages/families/__tests__/AnnotationProvenanceSummary.test.tsx):
   the filter-page summary.
 

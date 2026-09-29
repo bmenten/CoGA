@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import gzip
 import io
+import itertools
 import json
 import logging
 import math
@@ -17,20 +18,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .annotation_table_parser import VepAnnotationLookup, _coerce_int, _parse_vep_tsv_annotation_lines
 from .bed_service import get_track_presence_by_sample
 from .upload_safety import decode_upload_text
-from .clickhouse_family_variants import _fetch_structural_variant_rows
 from .clickhouse_variant_records import (
     SmallVariantCall,
     SmallVariantRecord,
+    StoredStructuralVariantRow,
     StructuralVariantCall,
     StructuralVariantRecord,
 )
 from .clickhouse_variant_ids import build_small_variant_id, build_structural_variant_id
+from .clickhouse_variant_rows import _normalized_project_ids
 from .clickhouse_variant_storage import (
     count_family_small_variants,
     delete_family_small_variants,
+    fetch_family_structural_variant_rows,
     insert_small_variant_records,
     refresh_family_small_variant_summaries,
-    replace_family_structural_variants,
+    rewrite_family_structural_variants,
 )
 from .clickhouse_interval_tracks import (
     delete_interval_track_sources,
@@ -41,7 +44,6 @@ from .clickhouse_interval_tracks import (
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .haplotype_block_builder import HaplotypeBlockBuilder
-from .family_variant_filters import StructuralVariantQueryFilters
 from .structural_variant_ingest import (
     ParsedStructuralVariant,
     StructuralVariantRecordFormat,
@@ -54,6 +56,7 @@ from .variant_annotation_parser import (
 )
 from .vcf_header_provenance import (
     extract_header_provenance,
+    extract_info_description_provenance,
     merge_module_maps,
 )
 
@@ -852,6 +855,74 @@ def _structural_record_call(
     )
 
 
+def _with_uploaded_calls(
+    record: StructuralVariantRecord, uploaded: StructuralVariantRecord
+) -> StructuralVariantRecord:
+    """``record`` with the uploaded sample's calls added. Its own fields are kept, the
+    filters and genes are joined, and the calls are sorted by sample."""
+    return replace(
+        record,
+        filters=list(dict.fromkeys([*record.filters, *uploaded.filters])),
+        gene_symbols=list(dict.fromkeys([*record.gene_symbols, *uploaded.gene_symbols])),
+        calls=sorted([*record.calls, *uploaded.calls], key=lambda item: item.sample),
+    )
+
+
+def _rows_with_uploaded_calls(
+    stored_rows: Sequence[StoredStructuralVariantRow],
+    other_calls_by_row: Sequence[list[StructuralVariantCall]],
+    uploaded: dict[str, StructuralVariantRecord],
+    *,
+    project_ids: Sequence[str],
+) -> list[StoredStructuralVariantRow]:
+    """The source's rows after a per-sample upload.
+
+    Each stored row keeps its project and the other samples' calls as stored, and takes the
+    uploaded calls for its SV; a row with no other call is replaced by the uploaded record,
+    or dropped when the upload does not have that SV. An uploaded SV gets a row in each of
+    the family's projects that has none, with the stored record's fields when another
+    project holds it.
+    """
+    rows: list[StoredStructuralVariantRow] = []
+    covered: set[tuple[str, str]] = set()
+    templates: dict[str, StructuralVariantRecord] = {}
+    for row, other_calls in zip(stored_rows, other_calls_by_row):
+        variant_id = row.record.variant_id
+        new = uploaded.get(variant_id)
+        if other_calls:
+            record = replace(row.record, calls=other_calls)
+            templates.setdefault(variant_id, record)
+            if new is not None:
+                record = _with_uploaded_calls(record, new)
+        elif new is not None:
+            record = replace(new, variant_key=row.record.variant_key)
+        else:
+            continue
+        if new is not None:
+            covered.add((row.project_id, variant_id))
+        rows.append(replace(row, record=record))
+    for project_id in project_ids:
+        for variant_id, new in uploaded.items():
+            if (project_id, variant_id) in covered:
+                continue
+            template = templates.get(variant_id)
+            record = new if template is None else _with_uploaded_calls(replace(template, calls=[]), new)
+            rows.append(StoredStructuralVariantRow(project_id=project_id, record=record))
+    return rows
+
+
+def _structural_variant_header_provenance(text_value: str) -> dict[str, dict[str, Any]]:
+    """The tool and database versions a structural-variant VCF's meta-header names: the
+    caller (``##source=Sniffles2_2.2``, ``##source=Spectre``), ``##reference``, and the
+    database releases in the ``##INFO`` descriptions, as the NeedlR package import reads
+    them. A manual TSV has no meta-header and yields nothing."""
+    header_lines = list(itertools.takewhile(lambda line: line.startswith("##"), io.StringIO(text_value)))
+    return merge_module_maps(
+        extract_header_provenance(header_lines, modality="sv").as_modules(),
+        extract_info_description_provenance(header_lines),
+    )
+
+
 async def upload_structural_variant_file(
     session: AsyncSession,
     *,
@@ -870,31 +941,32 @@ async def upload_structural_variant_file(
     text_value = await _decode_upload_text(file, kind="Structural variant")
     resolved_format = _detect_structural_variant_format(text_value, file.filename, format_hint)
     source_label = STRUCTURAL_VARIANT_SOURCE_LABELS[resolved_format]
-    # Only this source's rows: the conflict check is about them, and they are exactly what
-    # the source-scoped replace below deletes. (``filters.source`` is a display filter that
-    # never reaches the SQL. Reading every source let another caller's calls block the
-    # upload, and an overwrite re-inserted those SVs beside their originals.)
-    existing_records = await _fetch_structural_variant_rows(
-        family_context,
-        StructuralVariantQueryFilters(page=1, page_size=1),
-        exact_source=source_label,
+    # A stored call names its sample by id or by uuid.
+    sample_ids = {value for value in (sample_context.sample_id, sample_context.sample_uuid) if value}
+    # This source's rows as stored, in every project and with every call: the conflict
+    # check is about them, and they are exactly what the source-scoped rewrite below
+    # deletes. Everything in them but this sample's calls is written back unchanged.
+    stored_rows = await fetch_family_structural_variant_rows(
+        family_context.assembly_name,
+        family_context.family_uuid,
+        source=source_label,
     )
     sample_has_existing = any(
-        any(call.sample == sample_context.sample_id for call in record.calls)
-        for record in existing_records
+        call.sample in sample_ids for row in stored_rows for call in row.record.calls
     )
     if sample_has_existing and not overwrite:
         raise HTTPException(
             status_code=409,
             detail="Structural variants already exist for this sample and source",
         )
+    other_calls_by_row = [
+        [call for call in row.record.calls if call.sample not in sample_ids] for row in stored_rows
+    ]
+    variants_with_other_calls = {
+        row.record.variant_id for row, calls in zip(stored_rows, other_calls_by_row) if calls
+    }
 
-    merged: dict[str, StructuralVariantRecord] = {}
-    for existing in existing_records:
-        remaining_calls = [call for call in existing.calls if call.sample != sample_context.sample_id]
-        if remaining_calls:
-            merged[existing.variant_id] = replace(existing, calls=remaining_calls)
-
+    uploaded: dict[str, StructuralVariantRecord] = {}
     parsed_records = list(iter_structural_variant_records(text_value, resolved_format))
     # Resolve overlapping gene symbols up front: one query for the genes on the
     # chromosomes this file touches, then in-memory interval overlap, instead of a
@@ -931,9 +1003,9 @@ async def upload_structural_variant_file(
                 end=window_key[2],
             )
             gene_symbol_cache[window_key] = gene_symbols
-        record = merged.get(variant_id)
+        record = uploaded.get(variant_id)
         if record is None:
-            merged[variant_id] = StructuralVariantRecord(
+            uploaded[variant_id] = StructuralVariantRecord(
                 variant_key=None,
                 variant_id=variant_id,
                 chr=normalize_chromosome(parsed.chrom),
@@ -950,10 +1022,13 @@ async def upload_structural_variant_file(
                 annotations=[{"info": parsed.info}] if parsed.info else [],
                 calls=[call],
             )
-            created += 1
+            if variant_id in variants_with_other_calls:
+                merged_count += 1
+            else:
+                created += 1
             continue
         updated_calls = [*record.calls, call]
-        merged[variant_id] = replace(
+        uploaded[variant_id] = replace(
             record,
             filters=list(dict.fromkeys([*record.filters, *([] if parsed.filter in (None, "", ".") else [str(parsed.filter)])])),
             gene_symbols=list(dict.fromkeys([*record.gene_symbols, *gene_symbols])),
@@ -964,11 +1039,15 @@ async def upload_structural_variant_file(
     if processed == 0:
         raise HTTPException(status_code=400, detail="No valid structural-variant records found")
 
-    await replace_family_structural_variants(
+    await rewrite_family_structural_variants(
         family_context.assembly_name,
         family_context.family_uuid,
-        family_context.project_ids,
-        list(merged.values()),
+        _rows_with_uploaded_calls(
+            stored_rows,
+            other_calls_by_row,
+            uploaded,
+            project_ids=_normalized_project_ids(family_context.project_ids),
+        ),
         source=source_label,
     )
     metadata_result = await session.execute(
@@ -992,10 +1071,24 @@ async def upload_structural_variant_file(
             "metadata_json": json.dumps(metadata),
         },
     )
+    # The caller and database versions the VCF header names go into the family's
+    # annotation manifest, as for a small-variant upload (best-effort; never fails the
+    # upload). It joins this transaction, so it commits with the upload's records.
+    from .annotation_manifest_service import merge_vcf_header_provenance
+
+    annotation_provenance = _structural_variant_header_provenance(text_value)
+    await merge_vcf_header_provenance(
+        session,
+        family_uuid=family_context.family_uuid,
+        assembly_id=family_context.assembly_id,
+        modules=annotation_provenance,
+        modality="sv",
+    )
     await session.commit()
     return {
         "processed": processed,
         "created": created,
         "merged": merged_count,
         "source_format": resolved_format,
+        "annotation_provenance": annotation_provenance,
     }

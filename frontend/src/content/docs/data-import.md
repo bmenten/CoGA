@@ -192,9 +192,12 @@ calls apart:
 - Replacing them changes only that sample's calls from that caller. The other samples' calls, and the
   calls of every other source (a package's NeedlR or HiFiCNV calls, another caller's upload), stay as
   they are.
+- The caller and its version, as the file's header names them, are added to the family's annotation
+  versions.
 
 Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
-source.
+source. The upload and this delete leave every other call as it was, with its phase, including the calls
+of a member removed from the family.
 
 ---
 

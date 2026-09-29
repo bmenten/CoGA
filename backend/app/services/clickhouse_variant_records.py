@@ -167,15 +167,31 @@ class StructuralVariantRecord:
     source: str | None
     remote_chr: str | None
     remote_start: int | None
-    # Populated only by the write path (upload/import → storage writes the
-    # details-table remoteEnd). The read path does not fetch it (never
-    # surfaced by _structural_variant_out), so read-built records leave it None.
+    # Written by the write paths (the details-table remoteEnd) and read back by the storage
+    # read they rewrite from (StoredStructuralVariantRow). The family view does not fetch
+    # it (never surfaced by _structural_variant_out), so view-built records leave it None.
     remote_end: int | None
     sv_len: int | None
     filters: list[str]
     gene_symbols: list[str]
     annotations: list[dict[str, Any]]
     calls: list[StructuralVariantCall]
+
+
+@dataclass(slots=True)
+class StoredStructuralVariantRow:
+    """One live row of a family's ``SV/entries`` exactly as stored, with its details.
+
+    A write path that rewrites a family's SVs to change one sample's calls (the per-sample
+    upload, the admin per-sample delete) starts from these rather than from the family
+    view, so everything it does not mean to change is written back as it was: the project
+    the row is written under, every call (samples the view does not show included, under
+    the sample id they were stored with), each call's phase set and copy number, the
+    genotype as stored, and the breakend's remote end.
+    """
+
+    project_id: str
+    record: StructuralVariantRecord
 
 
 def _casefold(value: Any) -> str:
