@@ -190,7 +190,15 @@ export function evaluateAcmg(
     const hc = variant.lof === 'HC';
     const haplo = (gene?.clingenDosageHaploinsufficiency ?? '').toLowerCase();
     const lofMechanism = haplo.includes('sufficient evidence');
-    if (lofMechanism) {
+    if (gene?.unavailable) {
+      // Not "unconfirmed": whether the gene has a LOF mechanism was never looked up (#609).
+      add(
+        'PVS1',
+        'strong',
+        `${effect} predicted null${hc ? ' (LOFTEE high-confidence)' : ''}; the gene profile could not be loaded, so its LOF mechanism (ClinGen haploinsufficiency) is not assessed — review before applying.`,
+        'consider',
+      );
+    } else if (lofMechanism) {
       add(
         'PVS1',
         hc ? 'very_strong' : 'strong',
@@ -250,7 +258,13 @@ export function evaluateAcmg(
     add(
       'BS2',
       recessive ? 'strong' : 'supporting',
-      `${variant.gnomad_hom_count} homozygote(s) in gnomAD${recessive ? ' for a recessive-associated gene' : ' (confirm inheritance mode)'}.`,
+      `${variant.gnomad_hom_count} homozygote(s) in gnomAD${
+        recessive
+          ? ' for a recessive-associated gene'
+          : gene?.unavailable
+            ? ' (the gene profile could not be loaded: confirm inheritance mode)'
+            : ' (confirm inheritance mode)'
+      }.`,
       recessive ? 'applies' : 'consider',
     );
   } else {
@@ -369,6 +383,27 @@ function evaluateFamily(
   }
 }
 
+/**
+ * PP4 when the lookup it needs failed: surfaced for review, never auto-applied, and never
+ * read as "no phenotype match" (#609).
+ */
+export function pp4NotAssessed(
+  gene: AcmgGeneContext | undefined,
+  phenotype: AcmgPhenotypeContext | undefined,
+): AcmgSuggestion | null {
+  const missing = [
+    gene?.unavailable ? "the gene's HPO associations" : null,
+    phenotype?.probandHpoUnavailable ? "the family's HPO terms" : null,
+  ].filter(Boolean);
+  if (!missing.length) return null;
+  return {
+    code: 'PP4',
+    strength: 'supporting',
+    evidence: `Not assessed: ${missing.join(' and ')} could not be loaded. Review the phenotype match by hand.`,
+    disposition: 'consider',
+  };
+}
+
 // PP4: phenotype specific for the gene. Scales strength from the Monarch
 // gene↔proband phenotype score when present, otherwise falls back to a binary
 // HPO-ID overlap at Supporting. Returns at most one suggestion.
@@ -380,6 +415,9 @@ function pp4Suggestion(
   const geneHpo = new Set(gene?.geneHpoIds ?? []);
   const overlap = probandHpo.filter((id) => geneHpo.has(id));
   const score = phenotype?.phenotypeScore;
+  // Without a usable score the overlap is all there is, and it needs both lookups.
+  const notAssessed = score != null && score >= PP4_SUPPORTING_SCORE ? null : pp4NotAssessed(gene, phenotype);
+  if (notAssessed) return [notAssessed];
 
   const matchedLabels = (phenotype?.phenotypeMatches ?? [])
     .map((m) => m.label || m.hpo_id)

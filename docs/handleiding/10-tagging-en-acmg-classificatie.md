@@ -121,7 +121,7 @@ De belangrijkste automatische regels (drempels als benoemde constanten bovenaan 
 
 | Criterium | Databron | Regel (samengevat) |
 | --- | --- | --- |
-| **PVS1** | consequence + LOFTEE + ClinGen-dosage | Predicted-null effect (`stop_gained`, `frameshift_variant`, canonieke splice, `start_lost`, `transcript_ablation`). *Very strong* als LOFTEE=`HC` én het LOF-mechanisme bewezen is (ClinGen "sufficient evidence"); anders *Strong* (applies); is het LOF-mechanisme onbevestigd, dan *Strong* als **Consider**. |
+| **PVS1** | consequence + LOFTEE + ClinGen-dosage | Predicted-null effect (`stop_gained`, `frameshift_variant`, canonieke splice, `start_lost`, `transcript_ablation`). *Very strong* als LOFTEE=`HC` én het LOF-mechanisme bewezen is (ClinGen "sufficient evidence"); anders *Strong* (applies); is het LOF-mechanisme onbevestigd, dan *Strong* als **Consider**. Kon het genprofiel niet geladen worden (`AcmgGeneContext.unavailable`), dan zegt het bewijs dat het mechanisme *niet beoordeeld* is, niet dat het onbevestigd is; hetzelfde geldt voor BS2 en voor PP4 zonder score, ook bij mislukte HPO-termen (`probandHpoUnavailable`, #616). |
 | **PM2** | gnomAD-frequentie | Afwezig of AF < 1×10⁻⁴ → Supporting (ClinGen-downgrade). |
 | **BA1** | gnomAD-frequentie | AF ≥ 5% → *stand-alone* benigne override. |
 | **BS1 / BS2** | gnomAD-frequentie / homozygoten | AF 1–5% → BS1 (Strong); homozygoten aanwezig → BS2 (Strong als gen recessief, anders Consider/Supporting). |

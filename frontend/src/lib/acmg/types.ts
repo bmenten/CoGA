@@ -124,6 +124,9 @@ export interface AcmgGeneContext {
   modesOfInheritance?: string[];
   // HPO ids associated with the gene (gene → phenotype).
   geneHpoIds?: string[];
+  // The gene profile could not be loaded: each gene-derived fact above is unknown, not
+  // absent, and the criteria that read it say so instead of a negative finding (#609).
+  unavailable?: boolean;
 }
 
 // Phenotype context for PP4 (proband HPO terms observed as present), plus the
@@ -135,6 +138,8 @@ export interface AcmgPhenotypeContext {
   phenotypeScore?: number | null;
   // Top matched HPO terms behind the score (for the PP4 evidence string).
   phenotypeMatches?: { hpo_id: string; label?: string | null }[];
+  // The proband's HPO terms could not be loaded: unknown, not none (#609).
+  probandHpoUnavailable?: boolean;
 }
 
 // One family member's genotype call for this variant (for de-novo / segregation).

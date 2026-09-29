@@ -3654,7 +3654,7 @@ if context.project_ids:
 <tr>
 <td><strong>PVS1</strong></td>
 <td>consequence + LOFTEE + ClinGen-dosage</td>
-<td>Predicted-null effect (<code>stop_gained</code>, <code>frameshift_variant</code>, canonieke splice, <code>start_lost</code>, <code>transcript_ablation</code>). <em>Very strong</em> als LOFTEE=<code>HC</code> én het LOF-mechanisme bewezen is (ClinGen "sufficient evidence"); anders <em>Strong</em> (applies); is het LOF-mechanisme onbevestigd, dan <em>Strong</em> als <strong>Consider</strong>.</td>
+<td>Predicted-null effect (<code>stop_gained</code>, <code>frameshift_variant</code>, canonieke splice, <code>start_lost</code>, <code>transcript_ablation</code>). <em>Very strong</em> als LOFTEE=<code>HC</code> én het LOF-mechanisme bewezen is (ClinGen "sufficient evidence"); anders <em>Strong</em> (applies); is het LOF-mechanisme onbevestigd, dan <em>Strong</em> als <strong>Consider</strong>. Kon het genprofiel niet geladen worden (<code>AcmgGeneContext.unavailable</code>), dan zegt het bewijs dat het mechanisme <em>niet beoordeeld</em> is, niet dat het onbevestigd is; hetzelfde geldt voor BS2 en voor PP4 zonder score, ook bij mislukte HPO-termen (<code>probandHpoUnavailable</code>, #616).</td>
 </tr>
 <tr>
 <td><strong>PM2</strong></td>

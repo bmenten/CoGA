@@ -466,6 +466,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   An unreadable entry is now named under its field before the search, and refused by the server
   (422) if it arrives in a URL. An en-dash range and a single position are read. The NIPT search
   applies all three filters (#615).
+- **ACMG suggestions that changed without notice** — when the gene profile could not be loaded,
+  the ACMG dialog said nothing. PVS1's evidence read "LOF disease mechanism is unconfirmed", as
+  if the gene had been checked, and PP4 was not offered when the HPO terms failed. The dialog
+  now names the failed lookup, with a retry. PVS1, BS2 and PP4 say they are not assessed and are
+  offered for review. No point total changes (#616).
 
 ### Security
 

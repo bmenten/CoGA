@@ -122,4 +122,18 @@ describe('evaluateMitoAcmg', () => {
     expect(pp4?.evidence).toContain('heteroplasmy');
     expect(codes(suggestions)).toContain('PP4');
   });
+
+  // #609 — without the gene profile or the HPO terms the overlap is unknown, not absent.
+  it('offers PP4 for review when a lookup it needs failed', () => {
+    const mito: AcmgMitoContext = { category: 'protein coding', calls: [] };
+    const pp4 = find(
+      evaluateMitoAcmg(baseVariant, mito, { geneHpoIds: ['HP:0001250'] }, { probandHpoUnavailable: true }),
+      'PP4',
+    );
+
+    expect(pp4?.disposition).toBe('consider');
+    expect(pp4?.evidence).toBe(
+      "Not assessed: the family's HPO terms could not be loaded. Review the phenotype match by hand.",
+    );
+  });
 });

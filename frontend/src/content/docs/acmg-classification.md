@@ -67,7 +67,10 @@ criterion for the exact evidence string behind its state.
 
 The data sources are the `SmallVariant` record (consequence, gnomAD, in-silico,
 ClinVar), the gene profile (ClinGen dosage, GenCC inheritance, gene–phenotype HPO),
-the family genotypes, and the proband's present HPO terms.
+the family genotypes, and the proband's present HPO terms. If the gene profile or the
+HPO terms cannot be loaded, the dialog says so, with a **Retry**. The criteria that read
+them — PVS1, BS2 and PP4 — then say they are *not assessed* and are offered as
+**Consider**. They are never scored as a negative finding.
 
 | Criterion | State | Rule |
 | --- | --- | --- |

@@ -230,3 +230,45 @@ describe('buildInitialSelections', () => {
     expect(selections[0]).toMatchObject({ accepted: true, strength: 'very_strong' });
   });
 });
+
+// #609 — a lookup that failed is unknown, not a negative finding: the criteria that read it
+// say so, and are surfaced for review rather than silently changed.
+describe('evaluateAcmg when a lookup failed', () => {
+  it('does not call the LOF mechanism unconfirmed when the gene profile could not be loaded', () => {
+    const pvs1 = find(evaluateAcmg({ effect: 'stop_gained', lof: 'HC' }, { unavailable: true }), 'PVS1');
+
+    expect(pvs1?.disposition).toBe('consider');
+    expect(pvs1?.evidence).toMatch(/the gene profile could not be loaded, so its LOF mechanism .* is not assessed/);
+    expect(pvs1?.evidence).not.toMatch(/unconfirmed/);
+  });
+
+  it('asks to confirm the inheritance mode for BS2 when the gene profile could not be loaded', () => {
+    const bs2 = find(
+      evaluateAcmg({ effect: 'missense_variant', gnomad_af: 0.001, gnomad_hom_count: 3 }, { unavailable: true }),
+      'BS2',
+    );
+
+    expect(bs2?.disposition).toBe('consider');
+    expect(bs2?.evidence).toMatch(/the gene profile could not be loaded: confirm inheritance mode/);
+  });
+
+  it.each([
+    ['the gene profile', { unavailable: true }, { probandHpoIds: ['HP:1'] }, "the gene's HPO associations"],
+    ['the HPO terms', { geneHpoIds: ['HP:1'] }, { probandHpoUnavailable: true }, "the family's HPO terms"],
+  ])('offers PP4 for review, not as no match, when %s could not be loaded', (_what, gene, phenotype, missing) => {
+    const pp4 = find(evaluateAcmg({ effect: 'missense_variant' }, gene, phenotype), 'PP4');
+
+    expect(pp4?.disposition).toBe('consider');
+    expect(pp4?.evidence).toBe(`Not assessed: ${missing} could not be loaded. Review the phenotype match by hand.`);
+  });
+
+  it('still applies PP4 from a phenotype score, which needs neither lookup', () => {
+    const pp4 = find(
+      evaluateAcmg({ effect: 'missense_variant' }, { unavailable: true }, { probandHpoUnavailable: true, phenotypeScore: 0.7 }),
+      'PP4',
+    );
+
+    expect(pp4?.disposition).toBe('applies');
+    expect(pp4?.strength).toBe('moderate');
+  });
+});

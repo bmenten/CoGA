@@ -361,8 +361,8 @@ no build and no CSP), and `E2E_BACKEND_PORT` moves the backend off port 8000 whe
 | [frontend/src/lib/__tests__/storage.test.ts](../frontend/src/lib/__tests__/storage.test.ts) | localStorage fallback / session persistence. |
 | [frontend/src/lib/__tests__/trackSampling.test.ts](../frontend/src/lib/__tests__/trackSampling.test.ts) | Adaptive track window / point-segment-variant limits. |
 | [frontend/src/lib/__tests__/variantSearch.test.ts](../frontend/src/lib/__tests__/variantSearch.test.ts) | The shared locus box (#526): chromosome:start[-end] with or without chr and thousands separators, a single position as a one-base region; anything else, trimmed, is a gene; nothing is nothing (CR-067). An en-dash range reads as a region; a colon or a BED-like line that does not parse, or an end before its start, reads as neither a gene nor a region; `intervalListProblems` names each unreadable interval entry as the backend refuses it (CR-080). |
-| [frontend/src/lib/acmg/__tests__/evaluate.test.ts](../frontend/src/lib/acmg/__tests__/evaluate.test.ts) | ACMG criterion auto-suggestion for small variants. |
-| [frontend/src/lib/acmg/__tests__/evaluateMito.test.ts](../frontend/src/lib/acmg/__tests__/evaluateMito.test.ts) | Mitochondrial ACMG criterion evaluation. |
+| [frontend/src/lib/acmg/__tests__/evaluate.test.ts](../frontend/src/lib/acmg/__tests__/evaluate.test.ts) | ACMG criterion auto-suggestion for small variants. With the gene profile or the HPO terms failed (CR-081): PVS1 and BS2 say the gene profile could not be loaded, not an unconfirmed mechanism; PP4 is offered as Consider, "Not assessed", unless a phenotype score applies it. |
+| [frontend/src/lib/acmg/__tests__/evaluateMito.test.ts](../frontend/src/lib/acmg/__tests__/evaluateMito.test.ts) | Mitochondrial ACMG criterion evaluation. PP4 is offered for review when a lookup it needs failed (CR-081). |
 | [frontend/src/lib/acmg/__tests__/score.test.ts](../frontend/src/lib/acmg/__tests__/score.test.ts) | ACMG classification computation from criterion selections. |
 
 ### Visualization components
@@ -411,7 +411,7 @@ no build and no CSP), and `E2E_BACKEND_PORT` moves the backend off port 8000 whe
 ### Family workspace pages & parts
 | Test file | Purpose |
 | --- | --- |
-| [frontend/src/pages/families/__tests__/AcmgClassificationModal.test.tsx](../frontend/src/pages/families/__tests__/AcmgClassificationModal.test.tsx) | ACMG modal: criterion selection, server-recompute, payload emission. |
+| [frontend/src/pages/families/__tests__/AcmgClassificationModal.test.tsx](../frontend/src/pages/families/__tests__/AcmgClassificationModal.test.tsx) | ACMG modal: criterion selection, server-recompute, payload emission. A failed gene profile or HPO lookup is said in the dialog, with a retry; PVS1 is not read as an unconfirmed mechanism, and PP4 is suggested for review (CR-081). |
 | [frontend/src/pages/families/__tests__/AcmgScaleBar.test.tsx](../frontend/src/pages/families/__tests__/AcmgScaleBar.test.tsx) | ACMG scale readout: class, signed points, VUS tier, BA1 override. |
 | [frontend/src/pages/families/__tests__/AnnotationProvenanceSummary.test.tsx](../frontend/src/pages/families/__tests__/AnnotationProvenanceSummary.test.tsx) | Filter-page annotation-provenance summary: module versions, source label, show-more toggle. |
 | [frontend/src/pages/families/__tests__/CnvAcmgClassificationModal.test.tsx](../frontend/src/pages/families/__tests__/CnvAcmgClassificationModal.test.tsx) | CNV ACMG modal: kind toggle, overridable criteria, recompute→save. |
