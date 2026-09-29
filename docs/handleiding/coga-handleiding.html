@@ -1796,404 +1796,177 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </table></div>
 </section><section id="hs-8" class="chapter">
 <h1>8. Filterpagina's ↔ API</h1>
-<p>Dit hoofdstuk beschrijft hoe CoGA, nádat een package correct is geïmporteerd (zie <a href="#hs-6">hoofdstuk 6</a>), de juiste varianten voor een familie <em>filtert</em> en <em>toont</em>. De hele keten wordt gevolgd: van de filtervelden die de analist in de browser invult, via de opbouw van de API-aanvraag, de backend-filterservice die er een veilige ClickHouse-query van maakt, de verrijking met metadata en review-status uit Postgres, tot de weergave in tabel en kaarten. In <strong>deel A</strong> komen de twee grootste en meest representatieve datatypes aan bod: de <em>Small Variants</em> (SNV/indel — puntmutaties en kleine inserties/deleties) en de <em>structural variants</em> (SV — grote deleties, duplicaties, enz.). <strong>Deel B</strong> van dit hoofdstuk behandelt dezelfde keten voor de overige modaliteiten (mitochondriaal, Paraphase, TRGT/tandem repeats, NIPT en PGT) en sluit af met de gezamenlijke bestandentabel voor het hele hoofdstuk.</p>
-<p>Enkele begrippen die telkens terugkomen. Een <strong>endpoint</strong> is een URL waarop de backend luistert (bv. <code>GET /families/FAM01/small-variants</code>). Een <strong>queryparameter</strong> is een <code>?sleutel=waarde</code>-paar in die URL; zo geeft de frontend de filterkeuzes door. <strong>ClickHouse</strong> is de kolomgeoriënteerde database waarin de vele variantrijen staan; <strong>Postgres</strong> bevat de metadata (families, samples, panels) én de handmatige review-toestand (classificaties, tags, notities). Een <strong>geparametriseerde query</strong> is een query waarin gebruikerswaarden niet in de SQL-tekst worden geplakt maar apart als parameters worden meegegeven — dat is de kern van de bescherming tegen SQL-injectie (het injecteren van kwaadaardige SQL via een invoerveld).</p>
-<h2>Het algemene stramien</h2>
-<p>Voor élk variantdatatype in CoGA verloopt het zoeken volgens hetzelfde vaste patroon. Wie dit patroon eenmaal begrijpt, herkent het in alle filterpagina's terug:</p>
+<p>Dit hoofdstuk beschrijft hoe CoGA, nadat een pakket correct is geïmporteerd (hoofdstuk 6), de juiste varianten van een familie <em>filtert</em> en <em>toont</em>. Deel A volgt de hele keten voor de twee grootste datatypes: de <em>small variants</em> (SNV's en indels: puntmutaties en kleine inserties of deleties) en de <em>structurele varianten</em> (SV's: grote deleties, duplicaties, …). Deel B vat dezelfde keten samen voor de gespecialiseerde analyses: mitochondriaal DNA en sample-QC, Paraphase, repeat-expansies, monogene NIPT en PGT. De klinische regels voor labogebruikers staan in de app, onder <em>Docs</em>; dit hoofdstuk wijst aan waar ze in de code zitten.</p>
+<p>Een <strong>endpoint</strong> is een URL waarop de backend luistert; een <strong>queryparameter</strong> is een <code>?sleutel=waarde</code>-paar in die URL, waarmee de frontend de filterkeuzes doorgeeft. Een <strong>geparametriseerde query</strong> geeft gebruikerswaarden apart mee in plaats van ze in de SQL-tekst te plakken (hoofdstuk 7).</p>
+<h2>Het vaste stramien</h2>
+<p>Voor elk variantdatatype verloopt zoeken op dezelfde manier:</p>
 <ol>
-<li><strong>Filter in de UI</strong> — de analist vult een filterformulier in (frequentie, effect, genen, genotype per sample, tags…).</li>
-<li><strong>Queryparameters</strong> — de frontend zet die keuzes om in een querystring en doet een HTTP-aanvraag naar het endpoint.</li>
-<li><strong>Endpoint</strong> — een FastAPI-router ontvangt de aanvraag, controleert de toegang en bouwt de <em>metadata-context</em> van de familie.</li>
-<li><strong>Filterservice</strong> — een service vertaalt de parameters naar een <strong>geparametriseerde</strong> ClickHouse-query, met paginatie (het opdelen in pagina's) en een begrensde telling.</li>
-<li><strong>Join met Postgres</strong> — de ruwe variantrijen uit ClickHouse worden verrijkt met genmetadata, review/ACMG-status, tags en interne cohortfrequentie uit Postgres.</li>
-<li><strong>Render</strong> — het resultaat wordt in de browser als tabel of kaarten getoond, met paginatie.</li>
+<li><strong>Filter in de UI:</strong> de analist vult een filterformulier in (frequentie, effect, genen, genotype per sample, tags, …).</li>
+<li><strong>Queryparameters:</strong> de frontend zet de keuzes om in een querystring en vraagt het endpoint op.</li>
+<li><strong>Endpoint:</strong> de router controleert de toegang en bouwt de context van de familie (hoofdstuk 2).</li>
+<li><strong>Filterservice:</strong> een service maakt er een geparametriseerde ClickHouse-query van, met paginering en een begrensde telling.</li>
+<li><strong>Koppeling met Postgres:</strong> de variantrijen worden aangevuld met reviewtoestand, tags, genmetadata en de frequentie in het eigen cohort.</li>
+<li><strong>Weergave:</strong> de browser toont het resultaat als tabel of kaarten.</li>
 </ol>
-<p class="waar"><strong>Waar in de code:</strong> de scheiding is consequent doorgevoerd — routers in <code>backend/app/routers/</code> (stap 3), filterservices in <code>backend/app/services/clickhouse_family_variants.py</code> en <code>backend/app/services/clickhouse_variant_queries.py</code> (stap 4-5), de React-pagina's in <code>frontend/src/pages/families/</code> (stap 1-2 en 6).</p>
-<h2>Small variants: het filterformulier in de UI</h2>
-<p>De small-variantpagina is <code>frontend/src/pages/families/FamilySmallVariantsPage.tsx</code>. Die component (herbruikbaar UI-blok) haalt de familie op (<code>GET /families/{familyId}</code>), laadt de beschikbare genpanels, en delegeert alle filterlogica aan de hook <code>useSmallVariantSearchState</code> (in <code>frontend/src/pages/families/smallVariantSearch.ts</code>). Een <em>hook</em> is een herbruikbaar stukje React-logica dat toestand beheert. Het formulier zelf staat in <code>frontend/src/pages/families/SmallVariantFilterForm.tsx</code>.</p>
-<p>Het formulier is opgedeeld in secties, elk met een groep gerelateerde filters. De onderstaande tabel volgt uit de queryparameters die de frontend opbouwt (<code>buildSmallVariantQueryParams</code>) en die de backend accepteert (de dependency <code>_family_small_variant_filters</code>):</p>
+<p class="waar"><strong>Waar in de code:</strong> de routers in <code>backend/app/routers/</code>, de filterservices in <code>backend/app/services/clickhouse_family_variants.py</code> en <code>clickhouse_variant_queries.py</code>, de pagina's in <code>frontend/src/pages/families/</code>.</p>
+<h2>Deel A — Small variants</h2>
+<h3>Het filterformulier</h3>
+<p>De pagina <code>FamilySmallVariantsPage.tsx</code> laadt de familie en de genpanels; de zoektoestand zit in <code>smallVariantSearch.ts</code> en het formulier in <code>SmallVariantFilterForm.tsx</code>. Het formulier heeft groepen filters:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
-<th>Filtergroep</th>
-<th>Voorbeelden van velden</th>
+<th>Groep</th>
+<th>Voorbeelden</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Locus / gen</strong></td>
-<td>genlijst (meerdere genen), chromosoom + start/end, <code>intervals</code>, <code>transcript</code>, <code>exclude_gene</code>, <code>exclude_intervals</code></td>
+<td>Locus en gen</td>
+<td>genen, chromosoom met begin en einde, een lijst intervallen, transcript, uit te sluiten genen en intervallen</td>
 </tr>
 <tr>
-<td><strong>Overerving (inheritance)</strong></td>
-<td>overervingsmodel (de-novo/dominant, recessief, X-gebonden, compound-het), genotype-snelkeuzes per lid, <em>expanded carrier screening</em></td>
+<td>Overerving</td>
+<td>overervingsmodel (de novo/dominant, recessief, X-gebonden, compound heterozygoot), genotype per familielid, <em>expanded carrier screening</em></td>
 </tr>
 <tr>
-<td><strong>Kwaliteit (per sample)</strong></td>
-<td>genotype-kwaliteit (GQ/<code>qual</code>), leesdiepte (DP), allelfractie (AF), alt-diepte (<code>ad_alt</code>)</td>
+<td>Kwaliteit per sample</td>
+<td>genotypekwaliteit, leesdiepte, allelfractie, alt-diepte</td>
 </tr>
 <tr>
-<td><strong>Frequentie</strong></td>
-<td><code>max_gnomad_af</code>, <code>max_gnomad_exomes_af</code>, <code>max_gnomad_genomes_af</code>, <code>max_gnomad_popmax_af</code>, <code>max_topmed_af</code>, <code>max_gnomad_ac</code>, <code>max_gnomad_hom_count</code>, <code>max_gnomad_hemi_count</code></td>
+<td>Frequentie</td>
+<td>maximale frequentie in gnomAD (exomen, genomen, popmax), TOPMed, aantallen homo- en hemizygoten</td>
 </tr>
 <tr>
-<td><strong>Effect / impact</strong></td>
-<td><code>impact</code> (HIGH/MODERATE/…), <code>effect</code> (annotatietermen), <code>canonical_only</code>, <code>mane_only</code>, <code>lof_only</code></td>
+<td>Effect</td>
+<td>impact (HIGH, MODERATE, …), effecttermen, alleen canonieke of MANE-transcripten, alleen loss-of-function</td>
 </tr>
 <tr>
-<td><strong>ClinVar</strong></td>
-<td>in te sluiten status (<code>clinvar</code>), uit te sluiten status (<code>exclude_clinvar</code>), en "P/LP overruled de frequentiefilter" (<code>clinvar_overrides_frequency</code>)</td>
+<td>ClinVar</td>
+<td>in te sluiten en uit te sluiten status, en "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentiefilter"</td>
 </tr>
 <tr>
-<td><strong>Predictiescores</strong></td>
-<td><code>min_cadd</code>, <code>min_revel</code>, <code>min_spliceai</code>, <code>sift</code>, <code>polyphen</code></td>
+<td>Voorspellers</td>
+<td>CADD, REVEL, SpliceAI, SIFT, PolyPhen</td>
 </tr>
 <tr>
-<td><strong>Panel</strong></td>
-<td><code>panel_id</code> (standaard het Mendeliome-panel)</td>
+<td>Panel en tweede hit</td>
+<td>een genpanel (standaard het Mendeliome), en "alleen genen die ook door een SV geraakt worden"</td>
 </tr>
 <tr>
-<td><strong>Structural second hit</strong></td>
-<td><code>require_sv_second_hit</code> — beperk tot genen die óók door een SV geraakt worden</td>
-</tr>
-<tr>
-<td><strong>Review / tags</strong></td>
-<td><code>classification</code> (ACMG-klasse), <code>review_tag</code>, <code>exclude_review_tag</code>, <code>has_notes</code></td>
+<td>Review</td>
+<td>ACMG-klasse, tags, "heeft notities"</td>
 </tr>
 </tbody>
 </table></div>
-<p class="waar"><strong>Waar in de code:</strong> de secties en velden staan in <code>SmallVariantFilterForm.tsx</code>; de standaardinstelling bij een verse opening — het fenotype-prioriteringspreset (<code>phenotype_priority</code>) plus het Mendeliome-panel als scope — wordt gezet in de hook <code>useSmallVariantSearchState</code> (het <code>useEffect</code>-blok dat de default één keer per familie toepast, met de <code>mendeliomePanelId</code> afgeleid uit de panellijst).</p>
-<h3>Hoe de frontend de aanvraag opbouwt</h3>
-<p>De filterkeuzes worden tot een querystring geserialiseerd (omgezet in tekst) door <code>buildSmallVariantQueryParams</code> in <code>smallVariantSearch.ts</code>. Die functie start met <code>page</code> en <code>page_size=100</code> en voegt daarna elke actieve filter toe als queryparameter. Lijstfilters worden <em>herhaalde</em> parameters (<code>params.append('impact', …)</code> per waarde), enkelvoudige filters gebruiken <code>params.set(...)</code>.</p>
-<p>Twee details zijn belangrijk voor traceerbaarheid:</p>
+<p>Bij een nieuwe familie start de pagina met de fenotypeprioritering en het Mendeliome-panel als scope.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/families/SmallVariantFilterForm.tsx</code> en <code>smallVariantSearch.ts</code>.</p>
+<h3>Van formulier naar verzoek</h3>
+<p><code>buildSmallVariantQueryParams</code> zet de keuzes om in een querystring. Twee details zijn belangrijk voor de traceerbaarheid:</p>
 <ul>
-<li><strong>Standaardwaarden expliciet meesturen.</strong> <code>prioritize</code> (fenotype-prioritering) en <code>clinvar_overrides_frequency</code> staan standaard aan; ze worden altíjd expliciet als <code>'true'</code>/<code>'false'</code> meegestuurd, zodat een uitgezette toestand de heen-en-terug door de URL overleeft (<code>params.set('prioritize', … === 'true' ? 'true' : 'false')</code>).</li>
-<li><strong>Sample-filter-codering.</strong> Een genotype/kwaliteitsfilter per sample wordt in één parameter samengeperst:
-  <code>sample_filter = [sample, gt.join('|'), qual, dp, af, ad_alt].join(':')</code>
-  Dus bv. <code>sample_filter=child:0/1|1/1:20:10:0.2:5</code>. Deze compacte codering wordt aan de backend-kant weer uit elkaar getrokken.</li>
-<li><strong>Genotypes als klassen (#511).</strong> De backend leest de genotypes in een sample-filter als <strong>klassen</strong>, niet als letterlijke strings: <code>hom_alt</code> (alle allelen dezelfde ALT, ook haploïd <code>1</code> en <code>2/2</code>), <code>het</code> (minstens één ALT-allel, ook multi-allelisch <code>1/2</code> en een half-call <code>./1</code>), <code>hom_ref</code> (alle allelen <code>0</code>, ook haploïd <code>0</code>) en <code>no_call</code>. De Hom-groep <code>1/1|1|1</code> vindt dus ook een hemizygote <code>1</code> op chrX bij een man of op chrM. Eén definitie (<code>backend/app/services/genotypes.py</code>, gespiegeld in <code>frontend/src/lib/genotypes.ts</code>) bedient de filters, de overervingsfilters, de tellingen en de track-aanwezigheid; in ClickHouse is dat een set-lookup over alle genotype-strings tot drie tekens plus een exacte allel-per-allel-terugval voor langere strings.</li>
-<li><strong>De novo bij een zoon op X en Y (#545).</strong> Buiten de pseudo-autosomale regio's (PAR1, PAR2) heeft een man één X en één Y: een de-novovariant daar is hemizygoot en staat als haploïd <code>1</code> of als <code>1/1</code> in de VCF, nooit als <code>0/1</code>. Het de-novo/dominant-patroon telt zo'n <code>hom_alt</code>-call bij een aangedane man als één kopie, in ClickHouse (<code>_small_hemizygous_position_condition</code>) en in Python (<code>_record_matches_de_novo_dominant</code>). De strikte de-novomodus (<code>_record_matches_de_novo</code>, die het segregatiegewicht van de prioritering voedt) volgt de overdracht: een zoon krijgt zijn X van zijn moeder en zijn Y van zijn vader, dus alleen die ouder moet betrouwbaar referentie zijn. De andere ouder hoeft niet gegenotypeerd te zijn, maar mag de ALT niet dragen: een ALT bij beide mannen wijst op een artefact (X–Y-homologie). Een moeder-zoonduo volstaat voor de X. De PAR-grenzen komen per assembly uit <code>backend/app/services/sex_chromosomes.py</code> (GRC-coördinaten voor GRCh38 en GRCh37); in een PAR, bij een dochter en op een assembly zonder bekende PAR-grenzen gelden de diploïde regels.</li>
+<li><strong>Standaardwaarden gaan expliciet mee.</strong> De fenotypeprioritering en de ClinVar-uitzondering op het frequentiefilter staan standaard aan en worden altijd als <code>true</code> of <code>false</code> meegestuurd, zodat een uitgezette keuze in de URL bewaard blijft.</li>
+<li><strong>Een filter per sample</strong> gaat als één parameter mee: <code>sample_filter=&lt;sample&gt;:&lt;genotypes&gt;:&lt;kwaliteit&gt;:&lt;diepte&gt;:&lt;allelfractie&gt;:&lt;alt-diepte&gt;</code>, bijvoorbeeld <code>child:0/1|1/1:20:10:0.2:5</code>.</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>buildSmallVariantQueryParams</code> in <code>frontend/src/pages/families/smallVariantSearch.ts</code>; de gedeelde genotype-parsinghulpen <code>parseSerializedGenotypeSelection</code> en <code>parseExplicitSampleFilterMap</code> in <code>frontend/src/lib/sampleFilterState.ts</code>. De HTTP-aanvraag zelf loopt via de gedeelde axios-client <code>frontend/src/lib/api.ts</code>, die via een <em>request-interceptor</em> automatisch het <code>Authorization: Bearer …</code>-token toevoegt en via een <em>response-interceptor</em> bij een 401 (niet-geautoriseerd) naar <code>/login</code> stuurt.</p>
-<h2>Small variants: het backend-endpoint en de filterservice</h2>
-<p>De aanvraag komt binnen op <code>GET /{family_id}/small-variants</code>, afgehandeld door <code>get_family_small_variants</code> in <code>backend/app/routers/families_small_variants.py</code>. De router doet drie dingen:</p>
-<ol>
-<li><strong>Paginatie begrenzen</strong> — <code>page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE)</code>. <code>MAX_VARIANT_PAGE_SIZE</code> (afgeleid van <code>_SMALL_TRACK_RESULT_LIMIT</code>) begrenst de paginagrootte; een te grote pagina kan dus geen dure diepe scan afdwingen.</li>
-<li><strong>Filters parsen</strong> — alle filter-queryparameters worden gebundeld door de FastAPI-dependency <code>_family_small_variant_filters</code>. Die functie is bewust gedeeld tussen het pagineringsendpoint en het CSV-export-endpoint (<code>export_family_small_variants_csv</code>), zodat beide exact dezelfde filtering toepassen; de telling is niet een apart endpoint maar de <code>count_only</code>-modus van hetzelfde pagineringsendpoint.</li>
-<li><strong>Toegang en context</strong> — <code>build_family_metadata_context(session, family_identifier=family_id, user=user, project_id=…)</code> laadt de familie, de samples en de toegankelijke projecten, én dwingt af dat de gebruiker deze familie mág zien (zie <a href="#hs-2">hoofdstuk 2</a>).</li>
-</ol>
-<p>Daarna roept de router de eigenlijke filterservice aan: <code>get_family_small_variants_page</code> in <code>backend/app/services/clickhouse_family_variants.py</code>.</p>
-<h3>Van parameters naar een SmallVariantQueryFilters</h3>
-<p>In de service worden de losse parameters eerst in één <em>dataclass</em> (een simpel gegevensobject met vaste velden) <code>SmallVariantQueryFilters</code> gegoten, gedefinieerd in <code>backend/app/services/family_variant_filters.py</code>. Diezelfde module bevat ook de parser voor de sample-filtercodering: <code>parse_small_variant_sample_filter</code> splitst de <code>sample:gt:qual:dp:af:ad</code>-string in een <code>SmallVariantSampleFilter</code>, en <code>parse_genotype_filter</code> vertaalt tokens als <code>het</code>/<code>hom</code>/<code>ref</code> naar de concrete genotype-strings (<code>0/1</code>, <code>1/1</code>, …) via <code>GENOTYPE_ALIASES</code>. Dit is precies het spiegelbeeld van de frontend-codering, zodat beide kanten dezelfde taal spreken.</p>
-<p><code>get_family_small_variants_page</code> kiest vervolgens een uitvoeringspad, in deze volgorde (sinds #528 elk pad een eigen functie):</p>
+<p>De backend leest genotypes als <strong>klassen</strong>, niet als letterlijke tekst: <em>hom_alt</em> (alle allelen dezelfde ALT, ook een haploïde <code>1</code>), <em>het</em> (minstens één ALT, ook <code>1/2</code> of <code>./1</code>), <em>hom_ref</em> (alle allelen <code>0</code>) en <em>no_call</em>. Een filter op "Hom" vindt dus ook een hemizygote <code>1</code> op chrX bij een man of op chrM. Eén definitie bedient alle filters, tellingen en tracks.</p>
+<p><strong>De novo bij een zoon op X en Y.</strong> Buiten de pseudo-autosomale regio's heeft een man één X en één Y. Een de-novovariant daar staat als <code>1</code> of <code>1/1</code> in de VCF, nooit als <code>0/1</code>. Het de-novo/dominant-patroon telt zo'n call bij een aangedane man als één kopie. De strikte de-novocontrole volgt de overdracht: een zoon krijgt zijn X van zijn moeder en zijn Y van zijn vader, dus alleen die ouder moet betrouwbaar referentie zijn; de andere ouder mag de variant niet dragen (dat wijst op een artefact). De grenzen van de pseudo-autosomale regio's staan per assembly vast (GRCh38 en GRCh37); op een assembly zonder bekende grenzen gelden de diploïde regels.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/families/smallVariantSearch.ts</code>; de genotypeklassen in <code>backend/app/services/genotypes.py</code> (gespiegeld in <code>frontend/src/lib/genotypes.ts</code>); de PAR-grenzen in <code>backend/app/services/sex_chromosomes.py</code>.</p>
+<h3>Het endpoint en de filterservice</h3>
+<p><code>GET /api/families/{family_id}/small-variants</code> begrenst de paginagrootte, leest alle filters in via één gedeelde dependency (dezelfde als de CSV-export) en bouwt het toegangscheckpoint van de familie. Daarna kiest de service een weg:</p>
 <ul>
-<li><strong><code>count_only</code></strong>: enkel een aanwezigheidscheck voor het familiedashboard. <code>_family_has_small_variants</code> doet een <code>LIMIT 1</code> op de geïndexeerde <code>family_guid</code>-kolom en geeft in feite 0 of 1 terug.</li>
-<li><strong>Afbakening</strong>: <code>_resolve_small_variant_scope</code> bepaalt één keer waartoe de vraag naast de filters beperkt is:</li>
-<li>het panel (<code>_fetch_panel_constraints</code>, genen en regio's uit Postgres);</li>
-<li>de review-selecties (<code>classification</code>, <code>review_tag</code> en <code>has_notes</code>, en de uit te sluiten tags), die éérst in Postgres tot verzamelingen variant-id's worden opgelost (<code>list_matching_small_variant_review_ids</code>);</li>
-<li>de intervallijst;</li>
-<li>de uit te sluiten regio's en genen.</li>
+<li>een <strong>aanwezigheidscontrole</strong> (<code>count_only</code>) voor het dashboard: "heeft deze familie small variants?";</li>
+<li>eerst de <strong>afbakening</strong>: panel, reviewselecties, intervallen en uitgesloten regio's. Kan de vraag niets opleveren (bv. een panel zonder genen), dan is het antwoord meteen een lege pagina. Een intervalregel die niet te lezen is (bv. een BED-regel of een einde vóór het begin), wordt met <code>422</code> geweigerd en bij naam genoemd; het formulier meldt zulke regels al vóór het zoeken;</li>
+<li>de <strong>fenotypeprioritering</strong> (standaard aan), met een cache (hoofdstuk 12);</li>
+<li>de <strong>track-modus</strong> voor de genoombrowser: boven een grens geeft die alleen de telling terug, zodat de track kan zeggen dat er te veel varianten zijn;</li>
+<li>anders filtert en pagineert <strong>ClickHouse</strong> zelf, of haalt de service een begrensde kandidatenset op en past in Python toe wat ClickHouse niet kan (gensymbolen, dragerscreening, overerving tussen varianten zoals compound-het).</li>
 </ul>
-<p>Kan de vraag niets opleveren, dan is het antwoord meteen een lege pagina: een panel zonder genen of regio's, of een review-selectie die geen variant heeft. Een intervallijst wordt gelezen door <code>_parse_interval_regions</code> (<code>clickhouse_variant_queries.py</code>): <code>chr:start-end</code> met een koppelteken of een en-dash, of <code>chr:positie</code> voor één base. Een regel die niet zo te lezen is, zoals een BED-regel (0-gebaseerd) of een einde vóór het begin, wordt met een 422 geweigerd en bij naam genoemd. Vroeger werd zo'n regel overgeslagen, waardoor de zoekopdracht minder dekte dan gevraagd, of een lijst zonder leesbare regel als een lege pagina terugkwam (#615). Het formulier noemt zulke regels al vóór de zoekopdracht (<code>smallVariantLocationProblems</code>). De NIPT-zoekopdracht past de intervallijst, de uitgesloten intervallen en de uitgesloten genen nu ook toe; eerder werden die meegestuurd en getoond, maar genegeerd. Het resultaat, een <code>_SmallVariantScope</code>, gaat met <code>row_filters()</code> in elke ophaling en telling.
-- <strong><code>prioritize</code></strong> (standaard aan): delegeert naar <code>_prioritized_small_variants_page</code>, de fenotype-gestuurde rangschikking met caching (zie verder).
-- <strong>Track met een grens</strong>: <code>_small_variants_track_page</code> geeft boven de grens van de track alleen de telling terug, zodat de track kan zeggen dat er te veel varianten zijn om te tekenen.
-- <strong>Native pad</strong>: <code>_small_variants_native_page</code>, als <code>_can_use_small_native_page</code> bepaalt dat de filter volledig in ClickHouse kan draaien. ClickHouse filtert en pagineert dan zelf, met een begrensde telling.
-- <strong>Python-pad</strong>: <code>_small_variants_candidate_page</code> haalt een begrensde kandidatenset op en past daarop toe wat ClickHouse niet kan: gensymbolen, dragerscreening en de steekproef van een track. Met een overervingsmodus die paren of een ouder-kindvergelijking vereist (compound-het, recessief, …) bundelt <code>_small_variants_inheritance_page</code> compound-het-paren als groep.</p>
-<p>Een karakteriseringstest (<code>backend/tests/test_small_variant_page_golden.py</code>) legt per pad vast welke ophalingen en tellingen de functie doet en welke pagina ze teruggeeft.</p>
-<h3>De geparametriseerde ClickHouse-query</h3>
-<p>Het hart van de veiligheid zit in <code>_small_variant_where_clauses</code> (en de bredere samensteller <code>_small_query_filter_parts</code>) in <code>backend/app/services/clickhouse_variant_queries.py</code>. Deze functie bouwt een lijst WHERE-clausules (filtervoorwaarden) op als tekst, maar <strong>elke gebruikerswaarde gaat als parameter mee</strong>, nooit als ingeplakte string. Uit de code:</p>
-<div class="scroll"><pre><code class="language-python">where_clauses = [&quot;e.family_guid = %(family_guid)s&quot;, &quot;e.sign = 1&quot;]
-params = {&quot;family_guid&quot;: context.family_uuid}
-if context.project_ids:
-    where_clauses.append(&quot;e.project_guid IN %(project_ids)s&quot;)
-    params[&quot;project_ids&quot;] = tuple(context.project_ids)
-</code></pre></div>
-<p>De <code>%(naam)s</code>-plaatshouders worden door de ClickHouse-driver veilig ingevuld. Zo worden ook chromosoom, positievenster, frequentiedrempels, gen-termen, ClinVar-status en de genotype/QC-sample-filters toegevoegd — telkens als parameter. Wat níet van de gebruiker komt maar wél in de SQL-tekst staat, zijn de <em>tabelnamen</em>; die worden per assembly (genoomreferentie) opgebouwd via <code>_small_table_name</code>, dat de assembly-naam door <code>_require_clickhouse_identifier</code> loodst — een strikte identifiercontrole (via <code>clickhouse_dataset_key</code>) die verhindert dat er iets anders dan een geldige, bekende tabelnaam in de query belandt.</p>
-<p>De eigenlijke rij-ophaal gebeurt in <code>_fetch_small_variant_rows</code>. Belangrijke eigenschappen:</p>
+<p><strong>De query zelf</strong> begint altijd met de familie en <code>sign = 1</code>, voegt de projectfilter toe en daarna elke filter, telkens als parameter. De rijen worden per variant ontdubbeld en op genomische positie gesorteerd; die volgorde is niet door de gebruiker te sturen (de sorteerknoppen in de tabel werken in de browser). De volledige annotatie per variant wordt per pagina apart opgehaald. De <strong>telling</strong> is begrensd: boven een grens toont de UI een "+"-teller in plaats van een dure volledige telling. Een te zware query geeft een <code>422</code> met de vraag de zoekopdracht te verfijnen.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/families_small_variants.py</code>; <code>get_family_small_variants_page</code> in <code>backend/app/services/clickhouse_family_variants.py</code>; de WHERE-bouwers in <code>clickhouse_variant_queries.py</code>; de filterset in <code>family_variant_filters.py</code>.</p>
+<h3>Aanvullen met Postgres</h3>
+<p>Voor elke pagina worden de rijen aangevuld met:</p>
 <ul>
-<li><strong>Deduplicatie</strong> — de <code>entries</code>-tabel is een CollapsingMergeTree (een ClickHouse-tabeltype dat oude en nieuwe rijen via een <code>sign</code>-kolom "wegstreept"); de query groepeert met <code>GROUP BY e.key</code> en <code>any(...)</code>-aggregaties zodat er precies één rij per variant overblijft (bij replica-vertraging kunnen anders meerdere <code>sign=1</code>-rijen tegelijk bestaan).</li>
-<li><strong>Vaste, reproduceerbare sortering</strong> — <code>ORDER BY any(e.xpos), key</code>, dus op genomische positie met een unieke tiebreaker. De sorteervolgorde is dus <em>niet</em> door de gebruiker te sturen; de kolom-sorteerknopjes in de tabel werken client-side.</li>
-<li><strong>Paginatie</strong> — <code>_append_limit_offset</code> voegt <code>LIMIT %(limit)s OFFSET %(offset)s</code> toe (opnieuw als parameters); <code>_clamp_small_variant_page</code> begrenst de pagina zodat een extreem hoog paginanummer geen gigantische OFFSET-scan kan uitlokken.</li>
-<li><strong>Annotatie-join</strong> — de meerdere-KB-grote annotatie-JSON zit niet in <code>entries</code> maar in de <code>variants/details</code>-tabel (kolom <code>annotationsJson</code>); die wordt per pagina apart opgehaald door <code>_fetch_small_variant_detail_map</code> en aan de rijen gekoppeld.</li>
+<li>de <strong>review</strong>: klasse, ACMG-criteria, tags en notitie uit Postgres (hoofdstuk 10);</li>
+<li>de <strong>frequentie in het eigen cohort</strong> over de toegankelijke projecten, zodat terugkerende artefacten opvallen;</li>
+<li><strong>genconstraint</strong> uit de tabel <code>gene_info</code>;</li>
+<li>een markering als een <strong>structurele variant</strong> hetzelfde gen raakt (de "tweede hit", hieronder).</li>
 </ul>
-<p>De <strong>telling</strong> loopt via <code>_count_small_variant_rows_bounded</code>, die het aantal begrenst op <code>_SMALL_COUNT_LIMIT</code>. Daarom toont de UI soms een "+"-teller: een begrensde teller in plaats van een dure volledige telling (het antwoord draagt hiervoor <code>total_is_estimated</code>). Als ClickHouse een query weigert omdat die te zwaar is, vertaalt <code>_execute_clickhouse</code> dat via <code>_CLICKHOUSE_QUERY_TOO_HEAVY_MARKERS</code> naar een nette <strong>HTTP 422</strong> met een concrete boodschap ("verfijn de zoekopdracht met een regio, gen of striktere drempels"), in plaats van een ondoorzichtige 500-fout.</p>
-<h3>De fenotype-rangschikking en de ranking-cache</h3>
-<p>Het standaardbeeld (fenotype-prioritering + Mendeliome) is duur om te berekenen (de genscoring tegen de Monarch-kennisgraaf domineert). Daarom wordt de <em>gerangschikte volgorde</em> per familie gecachet (tussentijds opgeslagen). <code>_prioritized_small_variants_page</code> berekent een <code>inputs_hash</code> via <code>compute_ranking_hashes</code> in <code>backend/app/services/variant_ranking_cache.py</code>: een SHA-256 (een cryptografische vingerafdruk) over álles wat de rangschikking beïnvloedt — de filters, de HPO-termen (fenotypecodes) van de aangedane individuen, een pedigree-handtekening (<code>structure_hash</code>), de Monarch-release, de panelversie, de review-filterstaat en een algoritme-versienummer (<code>_ALGORITHM_VERSION</code>).</p>
-<p>Het cruciale veiligheidskenmerk: <strong>elke wijziging in een input verandert de hash, dus een verouderde rangschikking wordt nooit geserveerd</strong> — een misser leidt tot herberekening. De cache (Postgres-tabel <code>family_variant_ranking_cache</code>) bewaart enkel de compacte volgorde; de annotaties en review-status worden bij élke weergave vers opnieuw opgehaald. Een tweede hash zonder het panel (<code>base_hash</code>) laat een smaller (sub)panel bedienen uit een bredere, volledige cache (<code>_serve_subpanel_from_superset</code>), na hervalidatie tegen ClickHouse. De UI krijgt dit mee via <code>ranking_cached</code> en <code>ranking_computed_at</code> op het antwoord.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>variant_ranking_cache.py</code> (hashing en Postgres-cache), <code>_prioritized_small_variants_page</code> / <code>_serve_ranking_from_cache</code> / <code>_serve_subpanel_from_superset</code> in <code>clickhouse_family_variants.py</code>, en het ontwerpdocument <code>docs/variant-ranking-cache.md</code>.</p>
-<h2>Join &amp; verrijking: van ClickHouse-rij naar getoonde variant</h2>
-<p>De ruwe records uit ClickHouse worden eerst tot API-objecten (<code>VariantOut</code>) omgezet door <code>_small_variant_out</code>, en daarna verrijkt door <code>_hydrate_small_variant_outs</code> (beide in <code>clickhouse_family_variants.py</code>). Die verrijkingsstap combineert bronnen:</p>
-<ul>
-<li><strong>Review/ACMG-status en tags</strong> — <code>get_small_variant_review_map</code> haalt per variant-id de opgeslagen review op uit Postgres (module <code>small_variant_review_pg.py</code>) en zet die op <code>variant.review</code>.</li>
-<li><strong>Interne cohortfrequentie</strong> — <code>_fetch_internal_cohort_map</code> telt in ClickHouse over de toegankelijke projecten hoe vaak elke variant in het eigen cohort voorkomt (hom/het/samples/families), zodat recurrente artefacten zichtbaar worden.</li>
-<li><strong>Genconstraint-metrieken</strong> — <code>_fetch_gene_constraint_metric_map</code> haalt gen-constraintmaten op uit de Postgres-tabel <code>gene_info</code>.</li>
-<li><strong>SV "second hit"</strong> — <code>_attach_sv_second_hits</code> markeert een SNV waarvan het gen óók door een structurele variant geraakt wordt (zie verder).</li>
-</ul>
-<p>Een terminologische precisie: de module <code>backend/app/services/clickhouse_variant_rows.py</code> is de <em>schrijf</em>-kant: die bouwt bij import de entry- en annotatie-index-rijen die naar ClickHouse worden weggeschreven (bv. <code>_small_variant_entry_rows</code>, <code>_small_annotation_index_row</code>). De <em>lees</em>-kant-verrijking die de getoonde variant samenstelt, gebeurt in <code>_hydrate_small_variant_outs</code>. Beide leunen op gedeelde annotatiehulpjes uit <code>backend/app/services/clickhouse_variant_records.py</code> (de dataclasses <code>SmallVariantRecord</code> en <code>SmallVariantCall</code>, en helpers als <code>_annotation_gene</code> en <code>_annotation_clinvar</code>).</p>
-<h2>Small variants: de weergave</h2>
-<p>Het antwoord (een <code>VariantPage</code> met <code>variants</code>, eventueel <code>variant_groups</code> voor compound-het-paren, <code>total</code>, <code>small_variant_summary</code> en de ranking-provenance) wordt in de browser gerenderd:</p>
-<ul>
-<li><strong><code>SmallVariantResults.tsx</code></strong> — de omhullende sectie. Toont een teller, een weergaveschakelaar (Auto/Table/Cards; "Auto" toont tot <code>CARD_VIEW_THRESHOLD</code> (100) kaarten, daarboven een tabel), de CSV-exportknop (die het endpoint <code>/families/{familyId}/small-variants/export</code> met dezelfde querystring aanroept), en statusmeldingen: een waarschuwing bij <code>ranking_truncated</code> (te veel kandidaten om volledig te rangschikken) en de subtiele "⚡ Prioritised ranking served from cache"-noot bij <code>ranking_cached</code>. Compound-het-paren worden apart als paar-kaarten getoond (<code>SmallVariantPairCards.tsx</code>), losse varianten daaronder.</li>
-<li><strong><code>SmallVariantTable.tsx</code></strong> — de tabelweergave met kolommen o.a. Chr, Position, End, Gene, Ref, Alt, Impact, Effect, Review, Genotypes, IGV en View. De kolommen positie (Chr/Position), gen, impact en — bij fenotype-prioritering — de prioriteitsscore (Score) zijn client-side sorteerbaar.</li>
-<li><strong><code>SmallVariantCards.tsx</code></strong> — de kaartweergave (rijkere per-variant-context).</li>
-<li><strong><code>ResultsPagination.tsx</code></strong> — een eenvoudige Prev/Next-balk met "Page x of y"; het paginatotaal (<code>totalPages</code>) wordt door de pagina berekend als <code>Math.ceil((data?.total ?? 0) / 100)</code> in <code>FamilySmallVariantsPage.tsx</code>.</li>
-</ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/families/SmallVariantResults.tsx</code>, <code>SmallVariantTable.tsx</code>, <code>ResultsPagination.tsx</code>. De review-mutaties (tag togglen, review opslaan) lopen via <code>FamilySmallVariantsPage.tsx</code> en spreken de <code>PUT /{family_id}/small-variants/{variant_id}/review</code>-endpoints aan (zie <a href="#hs-10">hoofdstuk 10</a>).</p>
-<h3>Compound-heterozygote paren</h3>
-<p>Bij een autosomaal-recessieve aandoening is één losse heterozygote variant meestal niet ziekteveroorzakend: een dragervariant op één allel wordt gecompenseerd door het gezonde tweede allel. Twee <em>verschillende</em> heterozygote varianten in hetzelfde gen kunnen samen wél oorzakelijk zijn — mits ze <strong>in trans</strong> liggen, dat wil zeggen één op elk allel. Dan is het gen biallelisch geraakt (beide kopieën defect) en zijn de twee varianten samen kandidaat-oorzakelijk. Liggen beide op hetzelfde allel (<strong>in cis</strong>), dan is het tweede allel nog intact en is de combinatie meestal een toevalstreffer. Het onderscheid trans/cis is dus beslissend, en CoGA velt daarom per paar een expliciet oordeel.</p>
-<p>Omdat zo'n bevinding alleen betekenis heeft als de twee "hits" <em>samen</em> worden beoordeeld, groepeert CoGA kandidaat-varianten als <strong>paar</strong> in plaats van ze als losse rijen te tonen. In de resultatenlijst verschijnen ze bovenaan als pair-cards met het label "Compound het pair", elk met de fase-status (in trans / in cis / onbekend) van de twee partnervarianten. Zo beoordeelt de analist beide varianten in het gen als één geheel.</p>
-<p>De backend leidt het paar af via segregatie in de familie. Een paar wordt gevormd wanneer beide varianten heterozygoot zijn in <strong>álle</strong> aangedane familieleden en <strong>niet beide</strong> aanwezig zijn in enig niet-aangedaan lid — die combinatie impliceert dat de twee varianten van verschillende ouders komen en dus in trans liggen. Waar fasering beschikbaar is (een gedeelde phase set) verfijnt die het trans/cis-oordeel rechtstreeks. De paarvorming zit in <code>_records_form_compound_het_pair</code> en <code>_compound_het_pairs</code>; het aparte endpoint dat de kandidaat-paren oplevert is <code>get_family_small_variant_compound_het_candidates</code>.</p>
-<p>Een bijzondere vorm is de <strong>cross-type "second hit"</strong>: een heterozygote Small Variant gecombineerd met een overlappende structurele variant (bijvoorbeeld een deletie) in hetzelfde gen. De deletie verwijdert de tweede genkopie en "unmaskt" daarmee de heterozygote SNV op het overgebleven allel — functioneel opnieuw biallelisch. De filter <code>require_sv_second_hit</code> beperkt de resultaten tot genen waar zo'n SV-tweede-hit bestaat; de trans/cis-logica hiervan staat beschreven in <code>docs/snv-sv-compound-het.md</code>.</p>
-<p class="waar"><strong>Waar in de code:</strong> frontend <code>frontend/src/pages/families/SmallVariantPairCards.tsx</code> (de pair-cards) en <code>frontend/src/pages/families/smallVariantSearch.ts</code> (<code>group_type: 'compound_het'</code>), met de fase-status-labels in <code>frontend/src/pages/families/smallVariantResultUtils.ts</code> (<code>formatCompoundHetPhaseStatus</code>). Backend: <code>_records_form_compound_het_pair</code> / <code>_compound_het_pairs</code> in <code>backend/app/services/clickhouse_variant_queries.py</code> (toegepast vanuit <code>get_family_compound_het_candidates</code> in <code>clickhouse_family_variants.py</code>), het endpoint <code>get_family_small_variant_compound_het_candidates</code> in <code>backend/app/routers/families_small_variants.py</code>, en de SV-tweede-hit-index in <code>backend/app/services/sv_gene_index_service.py</code>.</p>
-<h3>Expanded Carrier Screening (ECS)</h3>
-<p>Expanded Carrier Screening is een <em>reproductieve</em> toepassing: geen zoektocht naar de oorzaak bij een patiënt, maar een draagerschapsscreening voor een <strong>koppel</strong> dat een kinderwens heeft. De vraag is niet "welke variant maakt deze persoon ziek", maar "lopen deze twee partners samen risico op een aangedaan kind". Voor autosomaal-recessieve aandoeningen is dat risico er wanneer <strong>beide</strong> partners drager zijn van een (heterozygote) kwalificerende variant in <strong>hetzelfde</strong> gen. CoGA toont daarom enkel de genen waar beide partners zo'n variant dragen; alle overige varianten zijn voor deze vraag irrelevant.</p>
-<p>Praktisch verloopt dit via een filter-preset "Expanded carrier screening" op de Small-Variants-filterpagina. De preset is alleen beschikbaar wanneer de frontend een koppel kan afleiden: <code>resolveCarrierScreeningCoupleMembers</code> identificeert de twee partners binnen de familie, en bij inschakelen zet het formulier de parameter <code>expanded_carrier_screening=true</code>. De backend retourneert vervolgens alleen genen waar beide partners aan de dragercriteria voldoen.</p>
-<p class="waar"><strong>Waar in de code:</strong> frontend <code>frontend/src/pages/families/smallVariantSearch.ts</code> (<code>resolveCarrierScreeningCoupleMembers</code> en de queryparameter) en <code>frontend/src/pages/families/SmallVariantFilterForm.tsx</code> (de preset-tegel). Backend: de endpoint-parameter <code>expanded_carrier_screening</code> in <code>backend/app/routers/families_small_variants.py</code>, het filterveld in <code>backend/app/services/family_variant_filters.py</code>, en de eigenlijke logica <code>_filter_expanded_carrier_screening</code> (met de koppel-partners via <code>_carrier_partner_names</code>) in <code>backend/app/services/clickhouse_variant_queries.py</code>, toegepast vanuit <code>clickhouse_family_variants.py</code>.</p>
-<p>Het verschil met compound-het is subtiel maar belangrijk. Beide draaien om "twee hits in één gen", maar met een ander subject en doel: bij <strong>compound-het</strong> zitten de twee hits bij <em>één</em> individu (biallelisch → ziekte in die patiënt), terwijl het bij <strong>ECS</strong> gaat om één drager-variant bij <em>elk</em> van twee partners in hetzelfde gen (een reproductief risico voor het toekomstige nageslacht, niet voor de partners zelf).</p>
-<h2>Structural variants</h2>
-<p>De structurele-variantpagina volgt exact hetzelfde stramien, met eigen bestanden en enkele wezenlijke verschillen door de aard van SV's (ze hebben een start én een end, een type als DEL/DUP/INV, en géén per-transcript annotatie-indexen zoals SNV's).</p>
-<p><strong>Frontend.</strong> <code>frontend/src/pages/families/FamilyStructuralVariantsPage.tsx</code> gebruikt de hook <code>useStructuralVariantSearchState</code> (uit <code>frontend/src/pages/families/structuralVariantSearch.ts</code>) en het formulier <code>StructuralVariantFilterForm.tsx</code>. De filtergroepen omvatten onder meer: type (DEL/DUP/…), <code>length</code> en <code>min_length</code>, <code>source</code>, <code>region_flags</code>, populatiefrequentie-drempels (<code>max_control_af</code>, <code>max_population_af</code>), <code>min_pli</code>, fenotype-velden (<code>phenotype</code>, <code>hpo</code>, <code>moi</code>, <code>gencc_support</code>), gen/<code>panel_id</code>, <code>inheritance</code>, en per-sample genotype/kwaliteit. Merk op dat de SV-pagina náást de gefilterde query een tweede, filterloze aanvraag doet (<code>page=1&amp;page_size=1</code>) om het "All variants"-totaal te tonen.</p>
-<p><strong>Endpoint.</strong> <code>GET /{family_id}/structural-variants</code> in <code>backend/app/routers/families_structural_variants.py</code> → service <code>get_family_structural_variants_page</code>. Er bestaat daarnaast een sample-gerichte variant <code>GET /{sample_id}</code> in <code>backend/app/routers/structural_variants.py</code> (voor de SV's van één individu), die intern dezelfde service aanroept met <code>samples=[sample_context.sample_id]</code>.</p>
-<p><strong>Service en query.</strong> <code>get_family_structural_variants_page</code> (in <code>clickhouse_family_variants.py</code>) bouwt een <code>StructuralVariantQueryFilters</code> en gebruikt <code>_structural_variant_where_clauses</code> (in <code>clickhouse_variant_queries.py</code>) voor de basis-WHERE — opnieuw met <code>family_guid</code>, <code>sign = 1</code>, <code>project_guid IN …</code>, de sample-zichtbaarheidscontrole, chromosoom en positievenster, alles geparametriseerd. De rij-ophaal <code>_fetch_structural_variant_rows</code> joint links de <code>variants/details</code>-tabel voor de annotatie-JSON.</p>
-<p>De belangrijkste <strong>verschillen t.o.v. small variants</strong>:</p>
+<h3>De weergave</h3>
+<p><code>SmallVariantResults.tsx</code> toont de teller, de keuze tussen tabel en kaarten ("Auto" kiest kaarten voor een klein aantal, anders een tabel), de CSV-export met dezelfde querystring, een waarschuwing als er te veel kandidaten waren om volledig te rangschikken, en een melding als de rangschikking uit de cache komt. Compound-heterozygote paren verschijnen bovenaan als paarkaarten. De tabel (<code>SmallVariantTable.tsx</code>) is in de browser sorteerbaar op positie, gen, impact en, bij prioritering, de score.</p>
+<h3>Compound heterozygoot, tweede hit en dragerscreening</h3>
+<p>Bij een recessieve aandoening is één heterozygote variant meestal niet oorzakelijk; twee verschillende heterozygote varianten in hetzelfde gen kunnen dat wel zijn, als ze <strong>in trans</strong> liggen (één op elk allel). CoGA toont zulke kandidaten daarom als <strong>paar</strong>, met hun fase (<em>in trans</em>, <em>in cis</em> of onbekend). Een paar ontstaat wanneer beide varianten heterozygoot zijn bij alle aangedane leden en geen niet-aangedaan lid beide draagt; een gedeelde <em>phase set</em> verfijnt het oordeel.</p>
+<p>Een <strong>tweede hit</strong> is een heterozygote small variant samen met een structurele variant (bv. een deletie) in hetzelfde gen: de deletie verwijdert de tweede kopie. Per familie houdt CoGA een index bij van welke genen door een SV geraakt worden; de SNV-pagina gebruikt die als markering en als filter. De regels voor trans en cis staan in de app (<em>Docs → SNV + SV compound heterozygosity</em>, <code>frontend/src/content/docs/sv-second-hit.md</code>) en in <code>docs/snv-sv-compound-het.md</code>.</p>
+<p><strong>Expanded carrier screening</strong> is een reproductieve vraag: lopen twee partners samen risico op een aangedaan kind? CoGA toont dan alleen genen waarin <strong>beide</strong> partners een kwalificerende variant dragen. De keuze is alleen beschikbaar als de frontend een koppel in de familie herkent. Het verschil met compound-het: daar zitten twee hits bij één persoon; hier één hit bij elk van twee partners.</p>
+<p class="waar"><strong>Waar in de code:</strong> de paren in <code>clickhouse_variant_queries.py</code> en <code>SmallVariantPairCards.tsx</code>; de SV-index in <code>backend/app/services/sv_gene_index_service.py</code>; de dragerscreening in <code>clickhouse_variant_queries.py</code> en <code>smallVariantSearch.ts</code>.</p>
+<h2>Deel A — Structurele varianten</h2>
+<p>De SV-pagina volgt hetzelfde stramien, met eigen bestanden (<code>FamilyStructuralVariantsPage.tsx</code>, <code>structuralVariantSearch.ts</code>, <code>StructuralVariantFilterForm.tsx</code>). De filters omvatten type (DEL, DUP, …), lengte, bron, regiovlaggen, frequentie in controles en populatie, genconstraint, fenotypevelden, gen of panel, overerving en genotype per sample. Naast de gefilterde vraag doet de pagina één vraag zonder filters, om het totaal "All variants" te tonen.</p>
+<p>Het endpoint is <code>GET /api/families/{family_id}/structural-variants</code>; voor de SV's van één sample bestaat <code>GET /api/structural-variants/{sample_id}</code>, met dezelfde service. De verschillen met small variants:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Aspect</th>
 <th>Small variants</th>
-<th>Structural variants</th>
+<th>Structurele varianten</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Native vs. Python</td>
-<td>veel native paden</td>
-<td><code>_can_use_structural_native_page</code>; anders <strong>eerst ophalen, dan in Python filteren</strong> met een harde cap (<code>_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP = 50000</code>) — boven de cap is <code>total</code> een schatting (<code>total_is_estimated</code>)</td>
-</tr>
-<tr>
-<td>Annotatie-index</td>
-<td>aparte annotatie-index-tabellen</td>
-<td>geen; matching op annotatie gebeurt in Python via <code>_structural_record_matches</code></td>
+<td>Filteren</td>
+<td>Vooral in ClickHouse, met annotatie-indexen</td>
+<td>Deels in ClickHouse; anders eerst ophalen en in Python filteren, met een harde grens. Boven die grens is het totaal een schatting</td>
 </tr>
 <tr>
 <td>Cytoband</td>
-<td>n.v.t.</td>
-<td><code>_fetch_structural_cytoband_map</code> leest de banden uit de Postgres-tabel <code>chromosomes</code> (kolom <code>bands</code>)</td>
+<td>—</td>
+<td>Uit de Postgres-tabel <code>chromosomes</code></td>
 </tr>
 <tr>
 <td>Review</td>
 <td><code>small_variant_review_pg.py</code></td>
-<td><code>structural_variant_review_pg.py</code> (<code>get_structural_variant_review_map</code>)</td>
+<td><code>structural_variant_review_pg.py</code></td>
 </tr>
 <tr>
 <td>Track-modus</td>
-<td>idem</td>
-<td><code>track_mode</code> levert versmald JSON terug voor de genoombrowser, zonder review/cytoband</td>
+<td>Ja</td>
+<td>Ja, zonder review en cytoband</td>
 </tr>
 </tbody>
 </table></div>
-<p><strong>SV↔SNV "second hit".</strong> De koppeling tussen beide werelden loopt via <code>backend/app/services/sv_gene_index_service.py</code>. Bij de eerste behoefte wordt per familie een index <code>gen → [SV's]</code> opgebouwd (<code>store_sv_gene_index</code>, in de Postgres-tabellen <code>family_sv_gene_index</code> en <code>family_sv_gene_index_status</code>) door een ClickHouse-scan. De SNV-pagina gebruikt die index tweeledig: als <em>badge</em> (<code>sv_second_hit</code>, met een trans/cis-verdict via <code>summarize_second_hit</code>) en als <em>filter</em> (<code>require_sv_second_hit</code>, dat via <code>get_sv_hit_genes</code> de SV-gerelateerde genen als extra beperking oplegt). Het ontwerp en de trans/cis-logica staan beschreven in <code>docs/snv-sv-compound-het.md</code>.</p>
-<p><strong>Weergave.</strong> <code>StructuralVariantResults.tsx</code> toont de tabel, de type/bron-samenvatting (<code>StructuralVariantSummaryTable.tsx</code>), CSV-export en dezelfde <code>ResultsPagination</code>.</p>
-<h2>Veiligheid &amp; traceerbaarheid in dit subsysteem</h2>
-<p>Elk van de bovenstaande query's is <strong>project- en familie-gescoped</strong>, en die scoping (afbakening) is niet optioneel maar zit in de gedeelde WHERE-bouwers:</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/families_structural_variants.py</code>; <code>get_family_structural_variants_page</code> in <code>clickhouse_family_variants.py</code>.</p>
+<h2>Veiligheid en traceerbaarheid in deel A</h2>
 <ul>
-<li><strong>Toegangscontrole aan de poort.</strong> Elk endpoint hangt aan <code>Depends(get_current_user)</code> (of <code>Depends(get_current_admin_user)</code> voor uploads en tag-beheer), en roept <code>build_family_metadata_context</code> aan, dat verifieert dat de ingelogde gebruiker deze familie mag zien. De frontend-axios-client (<code>frontend/src/lib/api.ts</code>) stuurt daartoe altijd het bearer-token mee. Zie <a href="#hs-2">hoofdstuk 2</a> voor de details.</li>
-<li><strong>Verplichte scoping in élke query.</strong> <code>_small_variant_where_clauses</code> en <code>_structural_variant_where_clauses</code> beginnen altijd met <code>e.family_guid = %(family_guid)s</code> en voegen <code>e.project_guid IN %(project_ids)s</code> toe uit de context. Bovendien filtert <code>hasAny(e.calls.sampleId, %(visible_sample_ids)s)</code> op de voor de gebruiker zichtbare samples; is die lijst leeg, dan wordt de clausule letterlijk <code>"0"</code> toegevoegd (waardoor de query gegarandeerd nul rijen teruggeeft). Een gebruiker kan dus geen data zien van een familie, project of sample waartoe hij geen recht heeft — ook niet door parameters te manipuleren.</li>
-<li><strong>Injectiebescherming.</strong> Gebruikerswaarden gaan uitsluitend als <code>%(naam)s</code>-parameters de query in; tabelnamen worden via <code>_require_clickhouse_identifier</code> gevalideerd. Pagina- en paginagroottes worden geklemd (<code>Query(..., le=MAX_VARIANT_PAGE_SIZE)</code>, <code>_clamp_small_variant_page</code>), en te zware query's worden als HTTP 422 teruggegeven i.p.v. de server te belasten.</li>
-<li><strong>Een mislukte aanvraag is geen leeg resultaat</strong> (#510, #613). Mislukt de zoekopdracht, dan tonen de SV-, NIPT- en explorerpagina's <code>components/QueryFailure.tsx</code> op de plaats van de resultaten: "Could not load … — this is not an empty result", met de reden van de server, wat het betekent en een Retry. De tellers tonen dan "—", niet 0. Een mislukte panellijst zegt dat panelen niet te kiezen zijn en dat de standaard Mendeliome-scope niet is toegepast; een panel uit de URL blijft in de keuzelijst zichtbaar. Een mislukte NIPT-samenvatting laat de foetale fractie en haar waarschuwingen niet stil weg.</li>
-<li><strong>Provenance &amp; reproduceerbaarheid.</strong> De ranking-cache is per-input gehasht, zodat een getoonde rangschikking altijd consistent is met exact die inputs (HPO, pedigree, panelversie, Monarch-release, algoritmeversie); annotaties en review-status worden bij elke weergave vers opgehaald zodat de cache nooit een verouderde klinische status kan tonen. De CSV-export gebruikt exact dezelfde filter-dependency als het scherm, zodat de download overeenkomt met wat de analist zag, en cellen worden ontdaan van formule-injectie via <code>csv_safe_cell</code> (in <code>backend/app/core/csv_export.py</code>).</li>
+<li><strong>Toegang aan de poort.</strong> Elk endpoint vraagt <code>get_current_user</code> (uploads en tagbeheer <code>get_current_admin_user</code>) en doorloopt het toegangscheckpoint van de familie.</li>
+<li><strong>Scoping in elke query.</strong> De WHERE-bouwers beginnen altijd met de familie en voegen de projectfilter toe. Daarnaast beperkt een filter de rijen tot de samples die de gebruiker mag zien; is die lijst leeg, dan krijgt de query een voorwaarde die niets oplevert. Parameters manipuleren helpt dus niet.</li>
+<li><strong>Geen injectie.</strong> Waarden gaan alleen als parameter mee; tabelnamen komen uit een veilige functie; paginagroottes en paginanummers worden begrensd.</li>
+<li><strong>Een mislukte vraag is geen leeg resultaat.</strong> Mislukt een zoekopdracht, dan tonen de filterpagina's "Could not load … — this is not an empty result", met de reden en een knop om opnieuw te proberen; tellers tonen dan "—", niet 0. Een mislukte panellijst zegt dat de standaard-Mendeliome-scope niet is toegepast.</li>
+<li><strong>De export is wat de analist zag.</strong> De CSV-export gebruikt dezelfde filters als het scherm, en cellen worden ontdaan van formule-injectie (<code>csv_safe_cell</code> in <code>backend/app/core/csv_export.py</code>).</li>
 </ul>
-<p>Hiermee is de keten voor small en structural variants volledig: van filterveld tot geverifieerde, project-gescopede weergave. In deel B van dit hoofdstuk volgt dezelfde analyse voor de mitochondriale, Paraphase-, TRGT-, NIPT- en PGT-modules, gevolgd door de gezamenlijke "Belangrijkste bestanden"-tabel.</p>
-<h2>Mitochondriaal (mtDNA) + Sample QC</h2>
-<h3>Wat de mtDNA-pagina oplost</h3>
-<p>Mitochondriaal DNA (mtDNA, het kleine circulaire genoom van 16.569 basen in de mitochondriën) erft uitsluitend via de moeder over en komt in elke cel in vele kopieën voor. Daardoor is een variant niet gewoon "aan/uit": hij kan in een deel van de kopieën zitten (<strong>heteroplasmie</strong>) of in bijna alle (<strong>homoplasmie</strong>). De pagina toont per variant de allelfractie (VAF, het percentage kopieën dat de variant draagt) per familielid, en groepeert moeders en kinderen samen tegenover de vader (die zijn mtDNA niet doorgeeft).</p>
-<p class="waar"><strong>Waar in de code:</strong> frontend <code>frontend/src/pages/families/FamilyMitoDNAAnalysisPage.tsx</code>; endpoint <code>GET /families/{family_id}/mitochondrial-dna</code> in <code>backend/app/routers/families_tracks.py</code> (functie <code>get_family_mitochondrial_dna</code>), die doorschakelt naar <code>get_family_mitochondrial_analysis_response</code> in <code>backend/app/services/mitochondrial_analysis.py</code>.</p>
-<h3>Van filter naar weergave</h3>
-<p>De mtDNA-varianten leven in dezelfde ClickHouse-variantopslag als de gewone Small Variants; de service haalt ze op met een filter op chromosoom <code>MT</code> via de gedeelde leeshelper <code>_fetch_small_variant_rows</code>. Er is dus geen aparte tabel, maar wel een aparte interpretatielaag:</p>
+<h2>Deel B — Gespecialiseerde analyses</h2>
+<h3>Mitochondriaal DNA en sample-QC</h3>
+<p><strong>mtDNA.</strong> Mitochondriaal DNA erft alleen via de moeder en komt in vele kopieën per cel voor. Een variant kan dus in een deel van de kopieën zitten (<strong>heteroplasmie</strong>) of in bijna alle (<strong>homoplasmie</strong>). De mtDNA-pagina toont per variant de allelfractie per familielid en deelt elke call in als homoplasmisch, heteroplasmisch, laag niveau of referentie, met vaste drempels in de service. Ze koppelt elke positie aan een mitochondriaal gen of gebied, met een link naar MITOMAP, en toont of een variant via de moederlijn wordt gedeeld (een variant alleen bij de vader is verdacht). Classificeren gebruikt dezelfde ACMG-dialoog als small variants, met een eigen mtDNA-evaluator (hoofdstuk 10). Per sample toont de pagina dekking en een QC-status; de grenzen komen uit het QC-profiel van de familie (<em>Admin → Sequencing QC Thresholds</em>, hoofdstuk 15). Zonder ingestelde grens telt een metriek niet mee: de status is dan <em>skip</em>, geen <em>pass</em>.</p>
+<p><strong>Sample-QC.</strong> Deze pagina controleert of de juiste data aan de juiste persoon hangt: een verwisseld sample of een verkeerde stamboom geeft anders ongemerkt een foute overervingsredenering. Drie controles rekenen op de genotypes zelf: <strong>geslacht</strong> (uit de heterozygotie op X, vergeleken met het geregistreerde geslacht), <strong>verwantschap</strong> (KING-kinship en IBS0 per paar, vergeleken met de stamboom) en de <strong>Mendel-foutgraad</strong> (genotypes die het kind niet van zijn ouders kan hebben). Elke controle geeft <em>pass</em>, <em>warn</em>, <em>fail</em> of <em>skip</em>; de slechtste bepaalt het geheel. Welke controles draaien, hangt af van de toepassing (WGS-familie, PGT, NIPT, koppel, één sample); bij NIPT komt het vaderschap uit de cfDNA-analyse. Kan een controle niet draaien, dan verschijnt een waarschuwing, geen stille <em>pass</em>. Een <em>fail</em> blokkeert het ondertekenen tot hij erkend is (hoofdstuk 11). De regels voor het labo staan in de app (<em>Docs → Sample-integrity QC</em>, <code>frontend/src/content/docs/sample-qc.md</code>).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/mitochondrial_analysis.py</code>; <code>sample_integrity_qc.py</code> (de rekenkern) en <code>sample_integrity_service.py</code> (laden en toepassingsprofielen); de pagina's <code>FamilyMitoDNAAnalysisPage.tsx</code> en <code>FamilySampleQcPage.tsx</code>.</p>
+<h3>Paraphase: paraloge genen</h3>
+<p>Sommige belangrijke genen liggen in regio's met bijna-identieke kopieën, zoals <em>SMN1/SMN2</em> of <em>PMS2</em>; gewone variant-calling faalt daar. <strong>Paraphase</strong> (een externe tool) bepaalt voor die regio's het kopieaantal, de reads per onderscheidende positie en de haplotypes. CoGA bewaart het resultaat in <code>sample_paraphase_results</code> en duidt het met een catalogus van medische regio's (<code>data/ref-data/paraphase-medical-regions.json</code>). Die legt per locus vast welke velden klinisch tellen, welke aandoeningen erbij horen en, waar mogelijk, een regel die uit het kopieaantal <em>normal</em>, <em>carrier</em> of <em>pathogenic</em> afleidt; zonder regel wordt een afwijkend signaal <em>review</em>. De pagina toont per locus een kaart met de duiding en per sample de status.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/paraphase_pg.py</code>; de pagina <code>FamilyParaphasePage.tsx</code>.</p>
+<h3>Repeat-expansies (TRGT)</h3>
+<p>Bij een repeat-expansieziekte wordt een kort motief te vaak herhaald (bv. <code>CAG</code> in <em>HTT</em>). <strong>TRGT</strong> bepaalt per locus de allellengtes. Bij de import wordt elk locus gekoppeld aan de catalogus <code>repeat_loci</code> (een ingebouwde lijst plus STRchive, met drempels per locus), en krijgt elk allel de status <em>normal</em>, <em>intermediate</em> of <em>pathogenic</em>. De calls staan in <code>repeat_expansions</code>; de versie van TRGT uit de VCF-header komt in het annotatiemanifest. Bij het tonen worden de allelen opnieuw beoordeeld tegen de <strong>huidige</strong> drempels, zodat een bijgewerkte drempel meteen doorwerkt. Voor een X-gebonden locus bij een man vervalt het tweede (fantoom-)allel, want een man heeft één X. Uploaden los van een pakket kan alleen een beheerder.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/repeat_expansion_pg.py</code> en <code>repeat_expansion_catalog.py</code>; de pagina <code>FamilyRepeatExpansionsPage.tsx</code>.</p>
+<h3>Monogene NIPT</h3>
+<p>Monogene NIPT onderzoekt een zwangerschap op enkelgenaandoeningen via <strong>celvrij DNA (cfDNA)</strong> in het bloed van de moeder, samen met een sample van de vader. Het cfDNA is een mengsel: vooral maternaal DNA met een kleine <strong>foetale fractie</strong>. De foetus wordt nooit zelf gesequenced; zijn genotype volgt uit hoe ver de allelfractie in het cfDNA afwijkt van wat de moeder alleen zou geven. Een familie is een NIPT-familie als haar analysetype <code>monogenic_nipt</code> is en het cfDNA-sample de assay <code>nipt_cfdna</code> draagt.</p>
+<p>CoGA deelt elke variant in bij één van acht categorieën (combinaties van de toestand bij moeder en foetus), schat de foetale fractie uit de sites die alleen de vader draagt (met een betrouwbaarheidsinterval), en classificeert elke variant met een statistisch model tegen de verwachte allelfracties. Vooraf vallen varianten van lage kwaliteit en bekende terugkerende artefacten (per assay bijgehouden in <code>nipt_artifact_variants</code>) weg; de pagina toont die trechter. De endpoints leveren een samenvatting, de geclassificeerde varianten (met de gewone small-variantfilters plus categorie, betrouwbaarheid en overervingspresets) en de dekking van de doelregio's. Het rapport draagt een disclaimer dat de classificaties bevestigd moeten worden met een invasieve diagnostische test. Is de familie geen NIPT-familie, dan zegt de pagina dat.</p>
+<p>De klinische uitleg staat in de app (<em>Docs → Monogenic NIPT (cfDNA)</em>, <code>frontend/src/content/docs/monogenic-nipt.md</code>), het ontwerp in <code>docs/monogenic-nipt.md</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/nipt.py</code> (het trio), <code>nipt_analysis.py</code> (de rekenkern), <code>nipt_service.py</code> (koppeling met de data), <code>nipt_coverage.py</code> en <code>nipt_artifact_pg.py</code>; <code>backend/app/routers/families_nipt.py</code>; de pagina's <code>FamilyNiptPage.tsx</code> en <code>FamilyNiptReportPage.tsx</code>.</p>
+<h3>PGT: haplotype-segregatie</h3>
+<p>Bij preïmplantatie genetische testing (PGT) maakt een koppel, of één ouder met een donor, embryo's, en een bekende aandoening segregeert in de familie. De vraag per embryo: erfde het het ziekte-haplotype? CoGA kleurt de twee haplotypes van elk lid naar de grootouderlijke stamvader waarvan ze afstammen (<em>identity by descent</em>), en bepaalt welk haplotype het ziekte-allel draagt. De track heeft twee lagen: <strong>gekleurde haplotypeblokken</strong> (de opgekuiste interpretatie) en de <strong>ruwe gefaseerde markers</strong>, één punt per informatieve site, bewust zonder groeperen of middelen, zodat faseringsruis en de exacte plaats van een recombinatie zichtbaar blijven.</p>
+<p>De opgeslagen blokken zijn alleen betekenisvol voor de kernfamilie. Het rolveld van een familielid is plat (<code>mother</code>/<code>father</code> geldt ook voor een grootouder), dus CoGA herberekent de kleur van verwanten uit de ruwe genotypes en volgt de stamboom naar buiten. Een lid dat niet zeker te plaatsen is, blijft grijs, nooit fout gekleurd; op de geslachtschromosomen en mtDNA blijven verwanten grijs. Een familie met <strong>één bekende ouder</strong> (bv. met een donor) wordt ondersteund: de donorzijde blijft grijs. De ruwe markers worden alleen voor de kinderen van de indexouders berekend, met per kind een QC (het aantal informatieve sites en de Mendel-foutgraad). De indeling van elk embryo (<em>affected or at risk</em>, <em>carrier</em>, <em>unaffected non-carrier</em> of <em>uninformative</em>) gebeurt in de frontend, met een waarschuwing bij een recombinatie dicht bij de regio van interesse. De pagina <em>ROI marker review</em> toont de ruwe genotypes rond die regio, zodat de analist een verrassende uitkomst kan natrekken.</p>
+<p>Deze keuzes staan in <code>docs/haplotype-segregation-analysis.md</code>; de uitleg voor het labo in de app (<em>Docs → Haplotype segregation analysis</em>, <code>frontend/src/content/docs/haplotype-segregation.md</code>).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/haplotype_lineage_service.py</code> (kleuring, ook met één ouder) en <code>phased_marker_service.py</code> (ruwe markers en QC); <code>frontend/src/lib/haplotypeRisk.ts</code> en <code>embryoSegregation.ts</code> (embryo-indeling); de pagina <code>FamilyRoiMarkersPage.tsx</code>.</p>
+<h2>Veiligheid en traceerbaarheid over alle analyses</h2>
 <ul>
-<li><strong>Heteroplasmie/VAF-classificatie</strong> — de functie <code>_zygosity</code> in <code>mitochondrial_analysis.py</code> bepaalt per call <code>homoplasmic</code> (VAF ≥ 95%, constante <code>HOMOPLASMY_THRESHOLD</code>), <code>heteroplasmic</code> (VAF ≥ 2%, <code>HETEROPLASMY_THRESHOLD</code>), <code>low_level</code> of <code>reference</code>. De VAF komt uit het VCF-veld <code>AF</code> of, bij ontbreken, uit de verhouding alt-reads/leesdiepte (<code>_allele_fraction</code>).</li>
-<li><strong>Locus-annotatie</strong> — elke positie wordt via de vaste tabel <code>MT_LOCI</code> (in het servicebestand) aan een mitochondrieel gen/regio gekoppeld (<code>tRNA</code>, <code>rRNA</code>, <code>protein coding</code>, <code>control region</code>), plus een klinische betekenis (<code>_clinical_significance</code>) en een MITOMAP-zoeklink. MITOMAP is de referentiedatabank voor mitochondriële varianten.</li>
-<li><strong>Maternale-lijn-controle</strong> — <code>_maternal_transmission</code> classificeert of een variant maternaal wordt gedeeld (<code>maternal_shared</code>), alleen bij de moeder zit (<code>maternal_only</code>), alleen bij de vader (<code>father_only</code>, verdacht want mtDNA erft niet paternaal over), enzovoort. De UI biedt hiervoor de filterknop "Maternal review".</li>
-</ul>
-<p>De frontend voegt daar client-side filters aan toe (zoektekst, gnomAD-frequentiedrempel, synonieme varianten verbergen, scope "Clinical / Heteroplasmic / Homoplasmic / Maternal review"). Het combineert mtDNA met het <strong>nucleaire mito-genpanel</strong> doordat een mtDNA-variant naar een <code>SmallVariant</code>-vorm wordt vertaald (<code>toSmallVariantForAcmg</code>) en dezelfde ACMG-classificatiemodal en dezelfde review-endpoint gebruikt als de Small Variants — zie hoofdstuk <a href="#hs-10">10 — Tagging &amp; ACMG</a>. De heteroplasmie- en maternale-transmissiecontext wordt daarbij als <code>mito</code>-context meegegeven aan de ACMG-evaluator.</p>
-<p class="waar"><strong>Waar in de code:</strong> review-koppeling via <code>_attach_reviews</code> (mtDNA-service) en <code>get_small_variant_review_map</code>; VAF-drempels als constanten bovenaan <code>mitochondrial_analysis.py</code>.</p>
-<h3>Coverage en QC per sample</h3>
-<p>Naast varianten toont de pagina per sample de haplogroep, gemiddelde leesdiepte, breedte van dekking en een QC-status. Coverage komt uit de ClickHouse interval-tracks (<code>_coverage_by_sample</code>), met terugval op de leesdiepte uit de variant-calls als er geen coverage-track is. <code>_sample_qc</code> zet dit om in een status uit de app-brede QC-woordenlijst (<code>pass</code> / <code>warn</code> / <code>fail</code> / <code>skip</code>). De grenswaarden staan niet in de code maar in het QC-drempelprofiel van de familie (<strong>Admin → Sequencing QC Thresholds</strong>, metrieken <code>mtdna.contamination</code> en <code>mtdna.mean_depth</code>). Is er voor een metriek geen grens ingesteld, dan telt die metriek niet mee: het sample krijgt <code>skip</code> in plaats van een <code>pass</code> op grond van een controle die niet bestaat. Bij een <code>count_only</code>-aanvraag wordt alleen goedkoop gecheckt of er data is (<code>_has_mt_coverage</code> gebruikt een <code>LIMIT 1</code>-probe), zodat het familie-dashboard de mtDNA-tegel kan tonen zonder de volledige track te streamen.</p>
-<h3>Sample QC: verwantschap, geslacht en sample-swaps</h3>
-<p>De <strong>Sample-integriteit-QC</strong> is een aparte, kritische pagina die controleert of de juiste sequentiedata aan de juiste persoon hangt. In een stamboomgedreven pijplijn is de stilste fout een verwisseld sample (sample-swap) of een verkeerd geregistreerde verwantschap: de varianten kloppen dan wel, maar worden aan de verkeerde persoon toegeschreven, waardoor de overervingsredenering ongemerkt fout gaat.</p>
-<p>Drie referentievrije controles (dat wil zeggen: ze hebben geen externe referentie nodig, ze rekenen puur op de genotypes zelf) draaien op de genotypes:</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Controle</th>
-<th>Wat wordt gemeten</th>
-<th>Waar</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Geslachtsconcordantie</strong></td>
-<td>Uit het genotype afgeleid geslacht (heterozygotie op chromosoom X) versus het geregistreerde geslacht</td>
-<td><code>infer_sex</code> / <code>_evaluate_sex</code></td>
-</tr>
-<tr>
-<td><strong>Verwantschap</strong></td>
-<td>KING-robuuste verwantschap (kinship) + IBS0 tussen sample-paren, vergeleken met wat de stamboom beweert (ouder-kind / broer-zus / onverwant)</td>
-<td><code>king_relatedness</code>, <code>classify_relatedness</code></td>
-</tr>
-<tr>
-<td><strong>Mendeliaanse foutgraad</strong></td>
-<td>Aandeel sites waar het kind een genotype heeft dat de ouders niet kunnen voortbrengen</td>
-<td><code>mendelian_stats</code>, <code>_mendelian_check</code></td>
-</tr>
-</tbody>
-</table></div>
-<p>Elke controle geeft een status <code>pass</code>/<code>warn</code>/<code>fail</code>/<code>skip</code>; de slechtste bepaalt de totaalstatus (<code>_worst</code>). Een geslacht dat niet klopt levert bijvoorbeeld expliciet de boodschap "possible sample swap or mislabel".</p>
-<p class="waar"><strong>Waar in de code:</strong> de zuivere reken-kern (unit-testbaar, geen invoer/uitvoer naar databanken) staat in <code>backend/app/services/sample_integrity_qc.py</code>; de laadlaag die genotypes uit ClickHouse haalt en de stamboom oplost in <code>backend/app/services/sample_integrity_service.py</code> (<code>get_family_sample_integrity_qc</code>); endpoint <code>GET /families/{family_id}/qc/sample-integrity</code> in <code>backend/app/routers/families_reports.py</code>; frontend <code>frontend/src/pages/families/FamilySampleQcPage.tsx</code>.</p>
-<h3>Toepassingsprofielen: elk datatype andere controles</h3>
-<p>Een generieke QC zou fout zijn, omdat CoGA verschillende toepassingen met verschillende inputmodaliteiten draait. <code>resolve_application</code> leidt de toepassing af uit het analysetype en de familievorm, en <code>profile_for</code> bepaalt welke controles draaien:</p>
-<ul>
-<li><strong>wgs</strong> (WGS-familie) — geslacht, verwantschap én Mendeliaans.</li>
-<li><strong>pgt</strong> (shallow-WGS met geïmputeerde genotypes) — geslacht plus de eis dat elk embryo een echt eerstegraads kind van beide ouders is.</li>
-<li><strong>nipt</strong> — geen genotype-verwantschap (het cfDNA is een mengsel), maar <strong>vaderschap uit de cfDNA-classificatie</strong> (categorieën 7/8), plus foetale geslachtscontrole en een controle op de categorieverdeling. Zie de NIPT-sectie hieronder.</li>
-<li><strong>couple</strong> (dragerpaar, BEGECS) — geslacht per partner; het paar wordt geacht onverwant te zijn (de verwantschapscheck flagt consanguïniteit).</li>
-<li><strong>single</strong> (enkel sample) — alleen geslacht.</li>
-</ul>
-<p>De NIPT-specifieke controles (<code>evaluate_paternity</code>, <code>evaluate_fetal_sex</code>, <code>evaluate_nipt_category_qc</code>) draaien via <code>_nipt_checks</code> in <code>sample_integrity_service.py</code>, dat de NIPT-analyse hergebruikt.</p>
-<h3>Weergave en traceerbaarheid</h3>
-<p>De frontend rolt per sample de deelcontroles op tot één ring-status op de stamboomtekening (<code>buildQcStatusBySample</code>) en toont een verwantschapsmatrix met kinship (φ) en IBS0, gekleurd per afgeleide relatie. Rood omlijnde cellen zijn paren waarvan de waargenomen relatie de stamboom tegenspreekt.</p>
-<p><strong>Veiligheid &amp; traceerbaarheid:</strong> Sample-QC is een gate vóór interpretatie. De degradatie is bewust "zichtbaar in plaats van stil": als genotypes of de cfDNA-analyse niet laden, faalt de pagina niet met een 500-fout, maar verschijnt een <code>warning</code> met een notitie (zie de <code>except</code>-takken in <code>sample_integrity_service.py</code>, met <code>scrub_log</code> om gevoelige waarden uit de logs te houden). QC-bevindingen werken door naar de rapport-gating: een <code>fail</code> moet worden opgelost vóór een rapport wordt ondertekend — zie hoofdstuk <a href="#hs-11">11 — Rapport &amp; traceerbaarheid</a>.</p>
-<h2>Paraphase: moeilijke, paraloge genen</h2>
-<h3>Wat Paraphase oplost</h3>
-<p>Sommige medisch belangrijke genen liggen in gedupliceerde genomische regio's met bijna-identieke kopieën (paralogen/pseudogenen), zoals <em>SMN1/SMN2</em> (spinale musculaire atrofie) of <em>PMS2</em>. Standaard variant-calling faalt daar, omdat reads niet eenduidig aan één kopie zijn toe te wijzen. <strong>Paraphase</strong> is een externe tool (die vóór CoGA draait) die deze regio's als geheel fenotypeert: kopieaantallen (copy number, CN), read-tellingen per allel-onderscheidende positie en samengestelde haplotypes.</p>
-<p>CoGA slaat die resultaten op in de Postgres-tabel <code>sample_paraphase_results</code> (kolommen o.a. <code>gene_symbol</code>, <code>total_cn</code>, <code>gene_cn</code>, <code>highest_total_cn</code>, en een JSON-<code>payload</code> met alle ruwe velden).</p>
-<h3>Van tabel naar klinische duiding</h3>
-<p>De service leest de rijen per sample en verrijkt ze met een <strong>medische-regiocatalogus</strong> uit het JSON-bestand <code>data/ref-data/paraphase-medical-regions.json</code> (<code>load_paraphase_medical_regions</code>; 14 regio's). Die catalogus bepaalt welke velden klinisch relevant zijn per locus, welke disorders eraan hangen, en — belangrijk — een <strong>status_rule</strong>: een regel die uit een CN-metriek automatisch <code>normal</code>/<code>carrier</code>/<code>pathogenic</code> afleidt (<code>_clinical_status</code>, <code>_condition_met</code>). Voor loci zonder automatische regel wordt elk niet-baseline-signaal als <code>review</code> gemarkeerd.</p>
-<p>De service groepeert per gen, sorteert de klinisch relevante loci en de loci met CN-signaal bovenaan, en levert per sample de metrieken (<code>_extract_copy_number_metrics</code>, <code>_extract_read_metrics</code>, <code>_extract_haplotype_groups</code>, <code>_extract_extra_fields</code>). Een <code>count_only</code>-pad telt alleen de distincte genen voor de dashboard-tegel.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/paraphase_pg.py</code> (<code>get_family_paraphase_table_response</code>); endpoint <code>GET /families/{family_id}/paraphase</code> in <code>backend/app/routers/families_tracks.py</code>; frontend <code>frontend/src/pages/families/FamilyParaphasePage.tsx</code>.</p>
-<h3>Weergave</h3>
-<p>De frontend toont per locus een kaart met de klinische interpretatie, gekoppelde disorders (OMIM-links) en per sample een statuslabel (<code>Pathogenic</code>/<code>Carrier</code>/<code>Normal</code>/<code>Review</code>/<code>No-call</code>) met de klinisch gemarkeerde CN-metrieken. Een "Extra info"-knop opent de volledige, locus-agnostische technische uitlezing (haplotypegroepen, read-metrieken, fase-regio). Filters: zoeken op gen, "Copy-number changes only" en de scope "Only clinical / Show all". Een "Chromosome view"-link opent de geanalyseerde regio in de chromosoomweergave (hoofdstuk <a href="#hs-9">9 — Visualisaties</a>).</p>
-<h2>TRGT repeat-expansies</h2>
-<h3>Wat de repeat-pagina toont</h3>
-<p>Repeat-expansies zijn ziekten waarbij een kort DNA-motief (bijv. <code>CAG</code> in <em>HTT</em> bij de ziekte van Huntington) te vaak wordt herhaald. <strong>TRGT</strong> (Tandem Repeat Genotyper) is de externe caller die per locus de allel-lengtes bepaalt. CoGA toont per locus de familiecalls met een driekleurige status: grijs = normaal, oranje = grijze zone/intermediair, rood = pathogeen.</p>
-<h3>Ingest (met traceerbaarheid)</h3>
-<p>De TRGT-output is een VCF; de import parseert per regel de repeat-velden (<code>AL</code> = allel-lengte in basen, <code>MC</code> = motief-kopieaantallen, <code>AP</code>/<code>AM</code> = puriteit/methylatie, enz.) en resolveert elk locus tegen de <strong>catalogus</strong> in de Postgres-tabel <code>repeat_loci</code>. Die catalogus wordt geseed uit twee bronnen: een ingebouwde lijst <code>BUILTIN_REPEAT_LOCI</code> (o.a. <em>HTT</em>, <em>FMR1</em>, <em>DMPK</em>, met <code>warning_min</code>/<code>pathogenic_min</code>-drempels) en het STRchive-referentiebestand <code>data/ref-data/STRchive-loci.json</code> (<code>seed_builtin_repeat_catalog</code> seeded beide). Elke allel krijgt een status via <code>classify_repeat_count</code> (≥ <code>pathogenic_min</code> → <code>pathogenic</code>, ≥ <code>warning_min</code> → <code>intermediate</code>, anders <code>normal</code>).</p>
-<p>De calls worden opgeslagen in de Postgres-tabel <code>repeat_expansions</code>. Bij een familie-upload wordt bovendien de <strong>TRGT-caller-versie uit de VCF-header</strong> vastgelegd in het annotatie-manifest van de familie (<code>merge_vcf_header_provenance</code>, modaliteit <code>repeats</code>) — provenance die in het rapport terugkomt.</p>
-<p class="waar"><strong>Waar in de code:</strong> upload-router <code>backend/app/routers/repeat_expansions.py</code> (<code>POST /repeat-expansions/upload/{sample_id}</code>, admin-only via <code>get_current_admin_user</code>); ingest en tabelweergave in <code>backend/app/services/repeat_expansion_pg.py</code> (<code>ingest_trgt_text</code>, <code>ingest_family_trgt_text</code>, <code>get_family_repeat_expansion_table_response</code>); catalogus in <code>backend/app/services/repeat_expansion_catalog.py</code>.</p>
-<h3>Van API naar weergave</h3>
-<p>De familie-tabel-endpoint <code>GET /families/{family_id}/repeat-expansions</code> (in <code>families_tracks.py</code>) leest de opgeslagen calls, herclassificeert de allelen tegen de actuele catalogusdrempels (via een <code>LEFT JOIN LATERAL</code> op <code>repeat_loci</code>, zodat een later bijgewerkte drempel meteen doorwerkt) en groepeert per locus. Een aparte per-sample track-endpoint <code>GET /families/{family_id}/repeat-expansions/sample/{sample_id}</code> levert de allel-lengtes voor de chromosoomweergave. De frontend (<code>FamilyRepeatExpansionsPage.tsx</code>) toont de tabel met per familielid de allel-repeat-tellingen, drempels ("orange ≥ … · red ≥ …"), OMIM-links en filters op gen/ziekte plus "Aberrant only".</p>
-<p>Een detail met klinische betekenis: voor een X-gebonden locus bij een mannelijk sample wordt het tweede (fantoom-)allel weggelaten (<code>_normalize_x_male_alleles</code>), omdat mannen hemizygoot zijn op X (één X-chromosoom, dus maar één echt allel).</p>
-<h2>Monogene NIPT</h2>
-<h3>De klinische vraag</h3>
-<p>Monogene NIPT (niet-invasieve prenatale test) screent een zwangerschap op enkelgen-aandoeningen uit <strong>celvrij DNA (cfDNA) in maternaal plasma</strong>, gekruist met een vaderlijk sample. Het plasma-cfDNA is een <strong>mengsel</strong>: overwegend maternaal DNA met een kleine <strong>foetale fractie (FF)</strong>. De foetus wordt nooit direct gesequenced; zijn genotype wordt afgeleid uit hoe ver de allelfractie in het cfDNA afwijkt van de zuivere maternale verwachtingen (0%, 50%, 100%), in verhouding tot de FF.</p>
-<p>Het datamodel is een <strong>trio (vader, moeder, foetus) met slechts twee fysieke samples</strong>: de vaderlijke germline-VCF en de maternale-plasma-cfDNA (geüpload als het sample van de moeder). De foetus is een placeholder-node zonder eigen data.</p>
-<p class="waar"><strong>Waar in de code:</strong> domeinmodel en trio-resolutie in <code>backend/app/services/nipt.py</code> (<code>resolve_nipt_trio</code>; een familie is NIPT wanneer <code>families.metadata.analysis_type = "monogenic_nipt"</code> en het cfDNA-sample <code>assay = "nipt_cfdna"</code> draagt — constanten <code>MONOGENIC_NIPT_ANALYSIS_TYPE</code> en <code>NIPT_CFDNA_ASSAY</code>). Ontwerp: <code>docs/monogenic-nipt.md</code>.</p>
-<h3>Het categoriemodel en de foetale fractie</h3>
-<p>Voor een biallelisch site is de verwachte cfDNA-VAF <code>VAF = m·(1−FF) + f·FF</code>, met <code>m</code> en <code>f</code> de maternale en foetale alt-kopiefracties (0, ½, 1). Dat levert acht categorieën (<code>_CATEGORY_AXES</code>, <code>_expected_vaf</code> en <code>_CATEGORY_LABELS</code> in <code>nipt_analysis.py</code>):</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Cat</th>
-<th>Maternale/foetale toestand</th>
-<th>Verwachte VAF</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1</td>
-<td>de novo in foetus</td>
-<td>FF/2 (laag)</td>
-</tr>
-<tr>
-<td>2</td>
-<td>moeder het, foetus erft niet</td>
-<td>50% − FF/2</td>
-</tr>
-<tr>
-<td>3</td>
-<td>moeder het, foetus het</td>
-<td>50%</td>
-</tr>
-<tr>
-<td>4</td>
-<td>moeder het, foetus hom</td>
-<td>50% + FF/2</td>
-</tr>
-<tr>
-<td>5</td>
-<td>moeder hom, foetus het</td>
-<td>100% − FF/2</td>
-</tr>
-<tr>
-<td>6</td>
-<td>moeder hom, foetus hom</td>
-<td>100%</td>
-</tr>
-<tr>
-<td>7</td>
-<td>afwezig bij moeder, van vader → doorgegeven</td>
-<td>FF/2</td>
-</tr>
-<tr>
-<td>8</td>
-<td>vader hom-alt, afwezig in cfDNA (vals-negatief, QC-signaal)</td>
-<td>~0</td>
-</tr>
-</tbody>
-</table></div>
-<p>De <strong>foetale fractie</strong> wordt geschat als <code>2 × (Σ alt-reads / Σ diepte)</code> over categorie-7-sites (vader draagt, moeder hom-ref, aanwezig in cfDNA op een schone <code>FF/2</code>), met een Wilson-betrouwbaarheidsinterval en een per-site-mediaan als kruiscontrole. Een eventuele externe FF wordt vastgelegd en bij afwijking gemarkeerd, maar overschrijft de berekende schatting niet standaard (alleen wanneer <code>prefer_external</code> is gezet). Categorie 8 is het complementaire vals-negatief-signaal.</p>
-<p>Elke variant wordt daarna geclassificeerd met een <strong>beta-binomiale likelihood</strong> tegen de FF-bepaalde centra (<code>classify_site</code>, <code>_log_beta_binom</code>), met een softmax-vertrouwensscore (<code>_softmax</code>). Een zeldzame de-novo (categorie 1) krijgt een lage prior zodat hij sterk bewijs nodig heeft.</p>
-<p class="waar"><strong>Waar in de code:</strong> de zuivere reken-kern (geen invoer/uitvoer naar databanken) in <code>backend/app/services/nipt_analysis.py</code> (<code>estimate_fetal_fraction</code>, <code>classify_site</code>, <code>run_nipt_analysis</code>, plus foetaal geslacht via <code>infer_fetal_sex</code>).</p>
-<h3>Wiring: endpoint → service → data</h3>
-<p><code>run_family_nipt_analysis</code> in <code>backend/app/services/nipt_service.py</code> resolveert het trio, laadt de gekoppelde vader- en cfDNA-calls uit de ClickHouse-variantopslag (de <code>entries</code>-tabel, via de gedeelde <code>_fetch_small_variant_rows</code>), bouwt per site een <code>NiptSiteObservation</code> en draait de kern. Twee filters lopen ervoor: een <strong>kwaliteitsfilter</strong> (diepte/QUAL) en een <strong>recurrent-artefact-filter</strong> (panel-of-normals), met tellingen zodat de UI de trechter "total → quality-filtered → artifact-filtered → analysed" kan tonen.</p>
-<p>De artefactlijst staat in de Postgres-tabel <code>nipt_artifact_variants</code>, gescoped per <code>(assembly_id, assay_key)</code> — omdat recurrente artefacten capture-/chemie-specifiek zijn (<code>backend/app/services/nipt_artifact_pg.py</code>; <code>load_nipt_artifact_ids</code> levert de snelle lidmaatschapsset, met auto-seed uit cohort-recurrentie via <code>fetch_recurrent_small_variant_ids</code>).</p>
-<p>Endpoints in <code>backend/app/routers/families_nipt.py</code>:</p>
-<ul>
-<li><code>GET /{family_id}/nipt/summary</code> — FF, categorie-tellingen, filter-tellingen.</li>
-<li><code>GET /{family_id}/nipt/variants</code> — geclassificeerde varianten. Hergebruikt de volledige Small-Variant-filterset (<code>_build_nipt_query_filters</code> → <code>SmallVariantQueryFilters</code>) plus NIPT-specifieke filters <code>category</code>, <code>min_confidence</code> en een overervingspreset <code>inheritance</code> (<code>de_novo</code>/<code>paternal_dominant</code>/<code>maternal_dominant</code>/<code>recessive_at_risk</code>). De recessieve preset (<code>_recessive_at_risk_variants</code>) groepeert de kandidaten per gen: een gen is at-risk wanneer beide ouders er een dragervariant hebben.</li>
-<li><code>GET /{family_id}/nipt/coverage</code> — on-target dekking per doelregio (gen/panel/ROI) en overall mediaan, met een QC-vlag voor genen die onvoldoende geïnterrogeerd zijn.</li>
-</ul>
-<p class="waar"><strong>Waar in de code:</strong> dekkingskern in <code>backend/app/services/nipt_coverage.py</code> (lengte-gewogen mediaan, <code>evaluate_low_coverage</code>); doelregio-resolutie in <code>nipt_service.py</code> (<code>_resolve_nipt_target_regions</code>).</p>
-<h3>Weergave</h3>
-<p>De hoofdpagina toont een FF-gauge (met CI en het aantal cat-7-sites), de filtertrechter, de categorie-tellingen en de on-target-dekkings-QC, met daaronder de hergebruikte Small-Variant-resultatenlijst waarin per variant een NIPT-classificatieblok verschijnt. Het <strong>rapport</strong> groepeert de kandidaten per afgeleide overerving en draagt een verplichte disclaimer dat NIPT-classificaties beslissingsondersteuning uit cfDNA zijn die met een invasieve diagnostische test bevestigd moeten worden.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/families/FamilyNiptPage.tsx</code>, <code>frontend/src/pages/families/FamilyNiptReportPage.tsx</code>, en het classificatieblok <code>frontend/src/pages/families/NiptClassificationBlock.tsx</code>. Merk op dat de pagina zich afschermt: is de familie niet als <code>monogenic_nipt</code> getagd, dan verschijnt een "Not a monogenic NIPT family"-toestand.</p>
-<h2>PGT haplotype-segregatie en ROI-markers</h2>
-<h3>De klinische vraag</h3>
-<p>Bij preïmplantatie-genetische testing (PGT) produceert een paar (of één ouder + donor) embryo's, en een bekende ziekte segregeert in één of beide families. Per embryo is de vraag: erfde het de ziekte-haplotype(s)? CoGA kleurt elk individu's twee haplotypes naar de grootouderlijke stamvader-homolog waarvan ze afstammen (identity-by-descent, IBD — gedeeld doordat het van een gemeenschappelijke voorouder komt), en identificeert welk stamvader-haplotype het ziekte-allel draagt.</p>
-<p class="waar"><strong>Waar in de code:</strong> ontwerp in <code>docs/haplotype-segregation-analysis.md</code>. Endpoints in <code>backend/app/routers/families_tracks.py</code>: <code>GET /{family_id}/haplotypes</code>, <code>/haplotypes/batch</code> en <code>/phased-markers</code>, elk via <code>family_service</code> (<code>get_family_haplotypes_for_user</code>, <code>get_family_haplotypes_batch_for_user</code>, <code>get_family_phased_markers_for_user</code>).</p>
-<h3>Twee lagen: gekleurde blokken en ruwe markers</h3>
-<p>De track tekent twee complementaire lagen:</p>
-<ol>
-<li><strong>Gekleurde haplotype-blokken</strong> (de gepolijste interpretatielaag) — per lid twee lanen (de twee homologen); een blok is een stuk chromosoom dat van één stamvader-haplotype afstamt en herkleurt bij elke recombinatie.</li>
-<li><strong>Ruwe phased-marker-overlay</strong> (de diagnostische laag) — één punt per informatief geïmputeerd site, <strong>zonder binning, smoothing of stemmen</strong> (geen middeling of meerderheidsbesluit over naburige markers). Juist omdat hij ruw is, legt hij bloot wat de blokken verbergen: geïsoleerde fase-switches, jitter aan recombinatiegrenzen en de exacte crossover-positie. Dit is een bewuste ontwerpkeuze (vastgelegd in de projectmemory: "Phased imputed markers stay raw").</li>
-</ol>
-<p>De kleurcode: donker-/lichtblauw = paternale stamvader-homolog 0/1, donker-/lichtgroen = maternaal, grijs = untransmitted/onbekend. De absolute donker-vs-licht is willekeurig (uit de ruwe fasering); wat telt is <strong>consistentie</strong> — dezelfde fysieke grootouder-haplotype houdt dezelfde tint door de hele familie.</p>
-<h3>IBD-stamvaderkleuring</h3>
-<p>De opgeslagen haplotype-blokken (gebouwd bij upload) zijn alleen betekenisvol voor de <strong>index-kernfamilie</strong> (vader, moeder, hun directe kinderen/embryo's), want dat is wat de trio-fasering grondt. Relatieven (grootouder, oom/tante) zitten niet in die fasering, en hun opgeslagen blokken zijn biologisch betekenisloos. Erger: het platte rolmodel hergebruikt <code>mother</code>/<code>father</code> voor elke ouder, dus een paternale grootmoeder staat als <code>role = "mother"</code> opgeslagen — een naïeve kleurder zou haar volledig groen verven (dit is expliciet vastgelegd in de projectmemory "Haplotype lineage pedigree").</p>
-<p>Daarom <strong>herberekent CoGA elke relatief-kleur uit de ruwe phased-genotypes</strong> en propageert stamvader-identiteit naar buiten door de stamboom (BFS — breadth-first search, laag voor laag langs ouder-kind-randen). Voor elke relatief die vanaf een reeds gekleurd lid bereikt wordt, worden zijn twee homologen via IBD gematcht tegen die van het lid; de gedeelde homolog erft de kleur, de andere wordt grijs. Zo krijgt een paternale grootmoeder exact één homolog gekleurd — precies wat toelaat af te lezen <em>welk</em> paternaal haplotype het dominante ziekte-allel draagt. De matching is recombinatie-bewust: een gedeeld haplotype wisselt van lane bij elke meiotische crossover, maar een switch wordt pas gecommit als een run van tegensprekende markers lang én breed genoeg is (<code>LINEAGE_SWITCH_MIN_MARKERS = 50</code>, <code>LINEAGE_SWITCH_MIN_SPAN = 500.000</code>), zodat echte crossovers de track splitsen maar ruis niet.</p>
-<p>Een lid dat CoGA niet met vertrouwen kan plaatsen wordt <strong>volledig grijs</strong> — nooit fout gekleurd. Op geslachtschromosomen en mtDNA (waar de diploïde twee-homolog-aanname breekt) blijven relatieven bewust grijs.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/haplotype_lineage_service.py</code> (<code>annotate_lineage</code>: bouwt de stamboom, identificeert de embryo-verankerde kern via <code>identify_core</code>, propageert kleur per IBD, segmenteert per recombinatie, grijst niet-autosomen/onplaatsbare leden). Zuiver, zonder invoer/uitvoer naar databanken.</p>
-<h3>Single-parent (donor) families</h3>
-<p>CoGA ondersteunt embryo's met slechts <strong>één bekende ouder</strong> (bijv. een alleenstaande vrouw of een donor-gameet), terwijl de aandoening in de familie van de bekende ouder segregeert (vastgelegd in de projectmemory "Single-parent analysis"). De kern wordt op de embryo's verankerd: de bekende ouder is de ouder van de embryo's, de donorzijde is simpelweg afwezig. De twee homologen van de bekende ouder zijn de stamvaders (één per grootouder), gekleurd door ze op te sporen tot de aangedane grootouder; de embryo's krijgen de van-de-bekende-ouder-afgeleide lane gekleurd en de donor-lane grijs.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>identify_core</code> (met de terugval naar single-parent-data) en de single-parent-tak in <code>annotate_lineage</code>; de foutieve aanname "elke aandoening segregeert in een koppel" wordt hier bewust doorbroken.</p>
-<h3>Ruwe phased markers (diagnostisch)</h3>
-<p>De marker-service levert per site de ruwe homolog-lane-waarden. Voor een kind: welke ouderlijke homolog (0/1) op elke zijde is geërfd, gemapt naar de weergegeven tint van het opgeslagen blok van de ouder (zodat marker en blok genoom-breed overeenstemmen). Voor een ouder: de allelen op zijn eigen twee homologen. Er is <strong>geen binning</strong>: geïsoleerde single-marker-switches blijven zichtbaar, want de overlay bestaat juist om faseringsruis te tonen.</p>
-<p>De markers worden alleen berekend voor de <strong>eigen kinderen van de index-ouders</strong> (single-parent: de kinderen van de ene bekende ouder). De transmissielogica op een relatief draaien zou biologisch achterstevoren zijn en toevallige ruis geven; relatieven verschijnen wel (voor de tooltip) maar zonder marker-dots. Per kind rapporteert de service ook een QC: het aantal jointly-informative sites (<code>informative_sites</code>) en de <strong>Mendel-foutgraad</strong> (<code>mendel_errors</code>/<code>mendel_rate</code> — impossibele transmissies, een rode vlag voor sample-swap of verkeerde stamboom). Een fetch-truncatiegarde onderdrukt de overlay bij te veel sites ("zoom in").</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/phased_marker_service.py</code> (<code>compute_phased_markers</code>, <code>get_family_phased_markers_response</code>), inclusief de single-parent-modus (<code>_transmitted_single_parent_haplotype</code>).</p>
-<h3>Embryoclassificatie en de ROI-marker-pagina</h3>
-<p>De uiteindelijke <strong>embryoclassificatie</strong> (<code>affected_or_at_risk</code>, <code>carrier</code>, <code>unaffected_non_carrier</code>, <code>uninformative</code>) wordt aan de frontend afgeleid uit de gekleurde blokken over de region-of-interest (ROI). <code>haplotypeRisk.ts</code> leidt de ziekte-haplotype-signatuur af per overervingsmodel (<code>inferDiseaseHaplotypes</code>: dominant = de enige haplotype gedeeld door aangedane/obligate leden; recessief = een dragerhaplotype per zijde; X-gebonden = geslacht-bewust) en <code>interpretSampleHaplotypeRisk</code> classificeert elk embryo. Cruciaal: de pedigree-bewuste lineage-tags van de backend zijn <strong>autoritatief boven de platte <code>role</code></strong> (<code>getHaplotypeLaneSignature</code>).</p>
-<p><code>embryoSegregation.ts</code> (<code>classifyEmbryosAtRoi</code>) voegt daar twee klinische waarschuwingen aan toe: <code>recombinationNearRoi</code> (een crossover binnen of vlak bij de ROI maakt de call onzeker) en <code>uninformative</code> (geen ziekte-haplotype resolveerbaar).</p>
-<p>De <strong>ROI-marker-pagina</strong> (<code>FamilyRoiMarkersPage.tsx</code>) toont een leden × markers-rooster van de ruwe phased-genotypes over de ROI: per marker het nucleotide-allel boven een doorlopende lineage-gekleurde band, met de ROI omkaderd, flankerende markers gedimd, Mendel-fouten donkeroranje gemarkeerd en blok-mismatches (ruwe marker versus opgeschoond blok) lichteroranje. Het spiegelt de backend-Mendel-check client-side (<code>mendelianConsistent</code>) zodat de analist een verrassende embryo-call tegen de onderliggende data kan hertoetsen.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/haplotypeRisk.ts</code>, <code>frontend/src/lib/embryoSegregation.ts</code>, <code>frontend/src/pages/families/FamilyRoiMarkersPage.tsx</code>.</p>
-<h2>Veiligheid &amp; traceerbaarheid over alle datatypes</h2>
-<ul>
-<li><strong>Project-scoping en toegang</strong> — alle endpoints in dit hoofdstuk lopen via <code>get_current_user</code> (of <code>get_current_admin_user</code> bij de TRGT-upload) en bouwen hun data via <code>build_family_metadata_context(session, family_identifier=…, user=…, project_id=…)</code>. Die context dwingt af dat de gebruiker de familie in het opgegeven project mag zien; bij de haplotype-/phased-marker-endpoints gebeurt die contextbouw in de <code>family_service</code>-laag. Geen enkele service leest variant- of trackdata buiten die gecontroleerde context om. Zie hoofdstuk <a href="#hs-2">02 — Beveiliging, rollen &amp; rechten</a>.</li>
-<li><strong>Provenance</strong> — de TRGT-ingest legt de caller-versie uit de VCF-header vast in het annotatie-manifest; NIPT-artefacten zijn per assay gescoped en handmatig gecureerd of auto-geseed met bronvermelding (<code>source = curated | auto</code>).</li>
-<li><strong>Gate op het rapport</strong> — Sample-QC-bevindingen (sample-swap, geslacht, Mendeliaans) zijn een expliciete voorwaarde vóór een rapport wordt ondertekend; hun degradatie is zichtbaar (<code>warning</code>) in plaats van stil. De doorwerking naar de rapport-gating staat in hoofdstuk <a href="#hs-11">11 — Rapport &amp; traceerbaarheid</a>.</li>
-<li><strong>Afgeleid, niet ingevoerd</strong> — de NIPT-categorieën, de FF, de haplotype-kleuring en de embryoclassificatie zijn allemaal <em>berekend</em> uit de twee VCF's / de phased-genotypes en de stamboom, niet door een analist ingetypt. Dat maakt elke conclusie herleidbaar tot de invoerdata.</li>
+<li><strong>Toegang:</strong> alle endpoints vragen <code>get_current_user</code> (de TRGT-upload <code>get_current_admin_user</code>) en bouwen hun data via het toegangscheckpoint van de familie.</li>
+<li><strong>Herkomst:</strong> de TRGT-versie komt uit de VCF-header in het annotatiemanifest; NIPT-artefacten zijn per assay bijgehouden, met hun bron (gecureerd of automatisch).</li>
+<li><strong>Poort vóór het rapport:</strong> een sample-QC-fout moet erkend worden voordat een rapport ondertekend kan worden (hoofdstuk 11).</li>
+<li><strong>Berekend, niet ingetypt:</strong> de NIPT-categorieën, de foetale fractie, de haplotypekleuring en de embryo-indeling zijn berekend uit de VCF's en de stamboom, dus herleidbaar tot de invoer.</li>
 </ul>
 <h2>Belangrijkste bestanden</h2>
-<p>Onderstaande tabel dekt heel hoofdstuk 8 (deel A én B).</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -2203,140 +1976,52 @@ if context.project_ids:
 </thead>
 <tbody>
 <tr>
-<td><code>backend/app/routers/families_small_variants.py</code></td>
-<td>Endpoints voor Small Variants — deel A</td>
+<td><code>backend/app/routers/families_small_variants.py</code> · <code>families_structural_variants.py</code></td>
+<td>Endpoints voor small en structurele varianten</td>
 </tr>
 <tr>
 <td><code>backend/app/services/clickhouse_family_variants.py</code></td>
-<td>Gedeelde ClickHouse-leeslaag voor Small Variants (<code>_fetch_small_variant_rows</code>), hergebruikt door mtDNA en NIPT — deel A</td>
+<td>De filterservices en de weg van een vraag</td>
 </tr>
 <tr>
-<td><code>backend/app/services/family_variant_filters.py</code></td>
-<td><code>SmallVariantQueryFilters</code>: de gedeelde filterset — deel A</td>
+<td><code>backend/app/services/clickhouse_variant_queries.py</code></td>
+<td>Geparametriseerde WHERE-bouwers, paren, dragerscreening</td>
 </tr>
 <tr>
-<td><code>backend/app/routers/families_structural_variants.py</code></td>
-<td>Endpoints voor structurele varianten (SV) — deel A</td>
+<td><code>backend/app/services/family_variant_filters.py</code> · <code>genotypes.py</code></td>
+<td>De filterset en de genotypeklassen</td>
 </tr>
 <tr>
-<td><code>backend/app/routers/families_tracks.py</code></td>
-<td>Endpoints voor mtDNA, Paraphase, repeats, haplotypes en phased-markers</td>
+<td><code>backend/app/routers/families_tracks.py</code> · <code>families_nipt.py</code> · <code>families_reports.py</code></td>
+<td>mtDNA, Paraphase, repeats, haplotypes; NIPT; sample-QC</td>
 </tr>
 <tr>
-<td><code>backend/app/services/mitochondrial_analysis.py</code></td>
-<td>mtDNA-analyse: heteroplasmie/VAF, loci-annotatie, maternale transmissie, QC</td>
+<td><code>backend/app/services/mitochondrial_analysis.py</code> · <code>sample_integrity_service.py</code></td>
+<td>mtDNA-duiding; sample-QC</td>
 </tr>
 <tr>
-<td><code>backend/app/services/sample_integrity_qc.py</code></td>
-<td>Zuivere QC-kern: geslacht, KING-verwantschap, Mendeliaans, NIPT-vaderschap/categorie</td>
+<td><code>backend/app/services/paraphase_pg.py</code> · <code>repeat_expansion_pg.py</code></td>
+<td>Paraphase; repeat-expansies</td>
 </tr>
 <tr>
-<td><code>backend/app/services/sample_integrity_service.py</code></td>
-<td>Laad-/wiringlaag: toepassingsprofiel, genotype-bron, degradatie tot warning</td>
+<td><code>backend/app/services/nipt_service.py</code> · <code>nipt_analysis.py</code></td>
+<td>Monogene NIPT</td>
 </tr>
 <tr>
-<td><code>backend/app/routers/families_reports.py</code></td>
-<td>Endpoint <code>qc/sample-integrity</code> (en rapport-gating)</td>
+<td><code>backend/app/services/haplotype_lineage_service.py</code> · <code>phased_marker_service.py</code></td>
+<td>PGT: kleuring en ruwe markers</td>
 </tr>
 <tr>
-<td><code>backend/app/services/paraphase_pg.py</code></td>
-<td>Paraphase: <code>sample_paraphase_results</code> + medische-regiocatalogus → klinische status</td>
+<td><code>frontend/src/pages/families/FamilySmallVariantsPage.tsx</code> · <code>smallVariantSearch.ts</code></td>
+<td>Small-variantpagina en zoektoestand</td>
 </tr>
 <tr>
-<td><code>data/ref-data/paraphase-medical-regions.json</code></td>
-<td>Klinische regiocatalogus voor Paraphase</td>
+<td><code>frontend/src/pages/families/FamilyStructuralVariantsPage.tsx</code></td>
+<td>SV-pagina</td>
 </tr>
 <tr>
-<td><code>backend/app/routers/repeat_expansions.py</code></td>
-<td>Admin-upload van TRGT-repeats</td>
-</tr>
-<tr>
-<td><code>backend/app/services/repeat_expansion_pg.py</code></td>
-<td>TRGT-ingest + familietabel; <code>repeat_expansions</code> + <code>repeat_loci</code>-catalogus</td>
-</tr>
-<tr>
-<td><code>backend/app/services/repeat_expansion_catalog.py</code></td>
-<td>Ingebouwde repeat-loci met drempels (STRchive vult aan)</td>
-</tr>
-<tr>
-<td><code>backend/app/routers/families_nipt.py</code></td>
-<td>NIPT-endpoints: summary, variants, coverage</td>
-</tr>
-<tr>
-<td><code>backend/app/services/nipt.py</code></td>
-<td>NIPT-domeinmodel en trio-resolutie</td>
-</tr>
-<tr>
-<td><code>backend/app/services/nipt_service.py</code></td>
-<td>Wiring NIPT-kern aan ClickHouse-data + preset-/coverage-logica</td>
-</tr>
-<tr>
-<td><code>backend/app/services/nipt_analysis.py</code></td>
-<td>Zuivere NIPT-kern: FF-schatting, 8-categorie-classificatie, foetaal geslacht</td>
-</tr>
-<tr>
-<td><code>backend/app/services/nipt_coverage.py</code></td>
-<td>Lengte-gewogen on-target dekkings-QC</td>
-</tr>
-<tr>
-<td><code>backend/app/services/nipt_artifact_pg.py</code></td>
-<td>Per-assay recurrent-artefactlijst (<code>nipt_artifact_variants</code>)</td>
-</tr>
-<tr>
-<td><code>backend/app/services/haplotype_lineage_service.py</code></td>
-<td>Pedigree-IBD stamvaderkleuring, recombinatie-segmentatie, single-parent-kern</td>
-</tr>
-<tr>
-<td><code>backend/app/services/phased_marker_service.py</code></td>
-<td>Ruwe per-site phased markers + per-kind QC (informatieve sites, Mendel-fouten)</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/FamilyMitoDNAAnalysisPage.tsx</code></td>
-<td>mtDNA-weergave, filters en ACMG-koppeling</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/FamilySampleQcPage.tsx</code></td>
-<td>Sample-QC: stamboomringen, verwantschapsmatrix, NIPT-checks</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/FamilyParaphasePage.tsx</code></td>
-<td>Paraphase-locuskaarten en filters</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/FamilyRepeatExpansionsPage.tsx</code></td>
-<td>TRGT-repeattabel met drempels</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/FamilyNiptPage.tsx</code></td>
-<td>NIPT-dashboard: FF, trechter, coverage, variantlijst</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/FamilyNiptReportPage.tsx</code></td>
-<td>NIPT-rapport gegroepeerd per overerving</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/NiptClassificationBlock.tsx</code></td>
-<td>Per-variant NIPT-classificatieblok</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/FamilyRoiMarkersPage.tsx</code></td>
-<td>ROI-marker-rooster met Mendel-/blok-vlaggen</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/haplotypeRisk.ts</code></td>
-<td>Ziekte-haplotype-inferentie + embryoclassificatie per overervingsmodel</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/embryoSegregation.ts</code></td>
-<td>Embryo-ROI-classificatie + recombinatie-/uninformatief-waarschuwingen</td>
-</tr>
-<tr>
-<td><code>docs/monogenic-nipt.md</code></td>
-<td>Ontwerpreferentie monogene NIPT</td>
-</tr>
-<tr>
-<td><code>docs/haplotype-segregation-analysis.md</code></td>
-<td>Ontwerpreferentie PGT-haplotype-segregatie</td>
+<td><code>frontend/src/lib/haplotypeRisk.ts</code> · <code>embryoSegregation.ts</code></td>
+<td>Embryo-indeling</td>
 </tr>
 </tbody>
 </table></div>
