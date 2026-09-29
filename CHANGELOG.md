@@ -567,6 +567,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **SV/CNV review changes are audited** — SV/CNV classification (the ClinGen scoring included), tag
   and note changes, and a cleared small-variant review, now write hash-chained clinical audit events
   (CR-111, #649).
+- **PGT embryo calls** — an embryo without its own haplotype across the ROI reads *uninformative*,
+  not *unaffected*, and a recessive embryo whose other homolog is unseen is not called a carrier;
+  an unconfirmed phasing side no longer defines the disease haplotype; an X-linked recessive embryo
+  of unrecorded sex is not called a carrier when a son would be affected (a "sex unknown" warning
+  gives both calls); a male embryo at a pseudo-autosomal locus is read on both copies, so a paternal
+  risk haplotype there is called (CR-114, #652).
 
 ### Security
 
