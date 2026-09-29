@@ -149,7 +149,12 @@ Omdat de repository privé is, worden externe links naar `.md`-bestanden vermede
 - **Bron:** `frontend/src/content/docs/*.md` — negen Markdown-referenties (`data-import.md`, `sample-qc.md`, `monarch-integration.md`, `acmg-classification.md`, `haplotype-segregation.md`, `monogenic-nipt.md`, `variant-ranking-cache.md`, `sv-second-hit.md`, `clinical-traceability.md`).
 - **Registratie:** `frontend/src/pages/docs/referenceDocs.ts` importeert elk bestand met Vite's `?raw`-suffix (zodat de tekst als string wordt ingebed) en koppelt er een `slug`, `title` en `summary` aan. Een nieuwe referentie voeg je toe door een `.md` te droppen en hier te registreren (dit staat ook in de comment bovenaan het bestand).
 - **Rendering:** `frontend/src/pages/docs/ReferenceDocPage.tsx` zoekt het doc op via `referenceDocBySlug.get(slug)` en rendert de Markdown met `react-markdown` + `remark-gfm`. Interne links (`/...`) gaan via React Router; externe links openen in een nieuw tabblad (`target="_blank" rel="noreferrer"`).
-- **Gebruikersgids:** `frontend/src/pages/docs/UserGuidePage.tsx` is de handgeschreven gebruikersgids die per sectie naar de betreffende schermen linkt en doorverwijst naar de diepere referentiedocs.
+- **Gebruikersgids:** `frontend/src/pages/docs/UserGuidePage.tsx` is de gebruikersgids die per sectie naar de betreffende schermen linkt en doorverwijst naar de diepere referentiedocs. Sinds #528 staat de tekst van elke sectie in Markdown, in `frontend/src/content/docs/user-guide/<id>.md`. `userGuideSections.ts` bevat de lijst van secties: `id`, titel, samenvatting en snelkoppelingen. Drie conventies staan voor de eigen blokken van de gids:
+  - een blockquote (`> …`) is een callout;
+  - een ```` ```cards ````-blok met één regel `Titel | Tekst` per kaart is een kaartenrooster;
+  - een alinea met één link die de titel `"further-reading"` heeft, is het blok *In-depth reference*.
+
+  De gids hoort bij de informatie voor veiligheid (TF-15). Daarom houdt `UserGuideContent.test.tsx` elke sectie bij wat de JSX-gids zei (`fixtures/user-guide-content.json`). Een bedoelde tekstwijziging vraagt een nieuwe momentopname (`COGA_REGENERATE_GOLDEN=1`).
 
 **Waar in de code:** `frontend/src/pages/docs/` (schermen) en `frontend/src/content/docs/` (inhoud).
 

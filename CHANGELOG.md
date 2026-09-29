@@ -198,6 +198,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Small-variant page split (#528)** — the 441-line function behind every small-variant page
   resolves the request's scope once and serves each path from a function of its own; a test
   recorded before the split shows every path makes the same calls and returns the same page (#595).
+- **User guide in Markdown (#528)** — the in-app guide's 20 sections are Markdown files under
+  `content/docs/user-guide/` instead of 2,000 lines of JSX; a test holds each section to the text
+  it had before the move (#596).
 
 ### Removed
 
