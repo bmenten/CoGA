@@ -4,15 +4,16 @@
 | --- | --- |
 | Document ID | TF-14 |
 | Version | v0.1 DRAFT |
-| Status | Draft for internal review — **requires UZ Gent DPO consultation** |
+| Status | Draft for internal review. A DPIA signed with the UZ Gent DPO exists outside this repository (owner, 2026-09-29); this draft is to be reconciled with it and filed (#518). |
 | Owner | ‹CMGG software lead + UZ Gent DPO› |
 | Approver | ‹UZ Gent Data Protection Officer› |
 | Date | 2026-06-25 |
 | Basis | GDPR (EU) 2016/679 Art. 9 (special-category data), Art. 35 (DPIA); Belgian data-protection law |
 
 > A DPIA is **required** (GDPR Art. 35): CoGA processes **genetic and health data** (special
-> category) on a large scale in a clinical setting. This draft frames the assessment; it must
-> be completed and signed off with the **UZ Gent DPO**.
+> category) on a large scale in a clinical setting. A DPIA signed with the UZ Gent DPO exists
+> outside this repository (owner, 2026-09-29); this draft is to be reconciled with it and filed
+> (#518).
 
 ---
 
@@ -24,7 +25,7 @@
 | Data subjects | Patients, pregnant individuals + partner, prospective parents/couples, embryos (and, via family/pedigree, relatives). |
 | Categories of data | **Special category:** genetic data (variants, genotypes, haplotypes), health/clinical status, phenotype (HPO), reproductive/pregnancy data; identifiers/pedigree metadata; user account data (staff). |
 | Processing operations | Ingestion of validated genomic files, storage (Postgres + ClickHouse + file/object store), filtering/analysis/visualization, classification, reporting, audit logging. |
-| Hosting / processors | **Google Cloud** is the production target, deployed with Terraform (owner decision, recorded 2026-09-29, CR-089); it is codified in `terraform/` and not yet applied, so no patient data is processed yet. Google Cloud will store and process the data as a **processor**: Cloud SQL, a ClickHouse VM and CMEK-encrypted storage buckets in the configured region (default `europe-west1`), served through an HTTPS load balancer that go-live restricts to institutional networks (#364). Docker Compose is used for local development on synthetic data only. As stated by the owner on 2026-09-29, the DPIA is signed and the data-processing agreement with Google is being signed. **🔲 OWNER/DPO (#518):** reconcile this draft with the signed DPIA and file both it and the executed agreement; record the region, any sub-processors and transfers. |
+| Hosting / processors | **Google Cloud** is the production target, deployed with Terraform (owner decision, CR-089). It is codified in `terraform/` and not yet applied, so no patient data is processed yet. Google Cloud will store and process the data as a **processor** on the institution's behalf: Cloud SQL, a ClickHouse VM and CMEK-encrypted storage buckets in the configured region (default `europe-west1`), served through an HTTPS load balancer that go-live restricts to institutional networks ([TF-13 §3](TF-13-cybersecurity.md)). Docker Compose is used for local development on synthetic data only. As stated by the owner on 2026-09-29, the data-processing agreement with Google is being signed. **🔲 OWNER/DPO (#518):** file the signed DPIA and the executed agreement with this file; record the region, any sub-processors and transfers; settle whether Google is a *processor* (this file, TF-02) or a *sub-processor* ([deployment-gcp.md §13](../deployment-gcp.md)). |
 | Scale & duration | All CMGG cases across the five applications; retention per clinical/legal record requirements. |
 
 ## 2. Lawful basis & special-category condition
@@ -46,9 +47,9 @@ cascade that nulls `user_id` while preserving the actor record.›
 
 ## 5. Security measures
 Per [TF-13 Cybersecurity](TF-13-cybersecurity.md): RBAC, append-only audit, authentication,
-PHI download scoping, refuse-to-start on default secrets; **plus the open deployment items**
-(encryption at rest, TLS, secrets management, byte-level download audit) which are
-**prerequisites** for processing real PHI at clinical scale.
+PHI download scoping, refuse-to-start on default secrets. The open deployment items and the
+go-live switches of [TF-13 §3](TF-13-cybersecurity.md) are **prerequisites** for processing real
+patient data.
 
 ## 6. Risk assessment to rights & freedoms
 | Risk | Mitigation | Residual |
@@ -58,9 +59,9 @@ PHI download scoping, refuse-to-start on default secrets; **plus the open deploy
 | Incidental findings / familial implications | Clinical governance, reporting policy ‹CMGG SOP› | ‹…› |
 | Data integrity / wrong record | Immutable audit, content-hash, provenance | ‹…› |
 | Breach (confidentiality) | TF-13 controls + incident process (TF-17) + breach notification per GDPR Art. 33/34 | ‹…› |
-| Processing by a cloud provider (Google Cloud deployment only) | Data-processing agreement, EU region, CMEK encryption at rest, TLS in transit, least-privilege service accounts, audit logging (TF-13; `terraform/`) | ‹… — owner/DPO, #518› |
+| Processing by a cloud provider | Data-processing agreement, EU region, CMEK encryption at rest, TLS in transit, least-privilege service accounts, audit logging (TF-13; `terraform/`) | ‹… — owner/DPO, #518› |
 
 ## 7. Consultation & sign-off
-- **UZ Gent DPO opinion:** ‹to be recorded›. Per the governing SOP **H11.1-OP5 §4.2**, the DPO's advice is obtained during the **functional-analysis** phase whenever personal data is processed — so DPO consultation is a standing step of CoGA's lifecycle, not a one-off.
+- **UZ Gent DPO opinion:** to be copied from the signed DPIA when it is filed (#518). Per the governing SOP **H11.1-OP5 §4.2**, the DPO's advice is obtained during the **functional-analysis** phase whenever personal data is processed — so DPO consultation is a standing step of CoGA's lifecycle, not a one-off.
 - Prior consultation with the supervisory authority (Belgian DPA) **only if** high residual risk cannot be mitigated (Art. 36) — ‹assess with DPO›.
 - Review on material change to processing or device (TF-18) and at the PMS cadence (TF-16).

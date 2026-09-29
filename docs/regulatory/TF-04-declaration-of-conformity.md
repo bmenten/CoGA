@@ -47,8 +47,8 @@ the relevant general safety and performance requirements of Annex I.
 > legal person declares** — and that the accreditation relied on covers it. This is not a
 > wording preference; it determines whether the declaration is valid.
 >
-> **Also time-critical:** the cited certificate **expires 2026-09-10**. Renewal will change the
-> version and validity window quoted above, and the citation must be updated with it.
+> **Also:** the validity of the certificate version cited above ended on **2026-09-10**.
+> **🔲 RA:** cite the current certificate (version and validity window) from BELAC.
 
 ### 2. Device identification
 
@@ -57,7 +57,7 @@ the relevant general safety and performance requirements of Annex I.
 | Device name | CoGA — Comprehensive Genomic Analysis |
 | Device type | Software (standalone in-house IVD / MDSW) |
 | Version covered by this declaration | ‹X.Y.Z (git ‹hash›)› |
-| Risk class (informative) | **Class C** per IVDR Annex VIII. Declaration validity is not contingent on a class for in-house devices; stated for transparency. Matches the IEC 62304 software safety class ([TF-07](TF-07-software-lifecycle-plan.md), [TF-09a](TF-09a-software-requirements-specification.md)). |
+| Risk class (informative) | **Class C** per IVDR Annex VIII. Declaration validity is not contingent on a class for in-house devices; stated for transparency. Separately, the software safety class under IEC 62304 is also C ([TF-07 §1](TF-07-software-lifecycle-plan.md)). |
 | Intended purpose | Decision-support software for filtering, visualization and interpretation of genomic data from validated NGS workflows, across five clinical applications: monogenic NIPT screening, expanded carrier screening (long-read), preimplantation genetic testing (PGT), rare-disorder diagnostics (long-read), and combined mtDNA + nuclear mitochondrial-disease testing (ONT long-read adaptive sampling). Full statement: [TF-01](TF-01-intended-purpose.md). |
 | Intended users / setting | Trained clinical laboratory professionals within CMGG, ISO 15189-accredited laboratory. |
 
@@ -86,6 +86,8 @@ FAGG-AFMPS**) upon request (Art. 5(5)(e)).
 
 ### 6. Signatures
 
+**🔲 OWNER:** who signs as Head of Center for Medical Genetics ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)).
+
 | Role | Name | Signature | Date |
 | --- | --- | --- | --- |
 | Head of Center for Medical Genetics | ‹…› | | |
@@ -96,5 +98,5 @@ FAGG-AFMPS**) upon request (Art. 5(5)(e)).
 
 > **Equivalence justification (Art. 5(5)(d)).** A separate justification that no equivalent
 > CE-marked device meets the target patient group's needs is maintained in
-> [TF-05](TF-05-equivalence-justification.md). Per the transitional timeline this condition
-> applies from 26 May 2028; CMGG prepares it ahead of that date.
+> [TF-05](TF-05-equivalence-justification.md). For when this condition applies, see
+> [README §1](README.md).

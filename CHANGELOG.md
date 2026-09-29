@@ -588,6 +588,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Technical file checked against the code** — every document in `docs/regulatory/` was re-read
+  against the code. The Sample QC checks, the version display, the in-app label, the problem-report
+  route and several requirement statuses now say what CoGA does, with open gaps marked for the
+  owner (CR-098, #636).
 - **Overview deck removed** — the seven-slide overview deck in `docs/overview-deck/`, with its
   PDF and slide images, is removed at the owner's request; nothing linked to it (CR-097, #635).
 - **Schema references repointed** — the handleiding, the runtime-role runbook and three other

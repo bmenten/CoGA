@@ -15,11 +15,8 @@
 > the **existing engineering practice** of the project and the gaps to formalize.
 >
 > **Governing procedure.** This plan implements, for CoGA, CMGG's controlled software
-> procedure **`H11.1-OP5` "Methodologie voor softwareontwikkeling"** (v1, 16-04-2026).
-> Per that SOP, **IEC 62304 is applied "as inspiration"** (a guideline), alongside
-> ISO/IEC 27001 (information security), GDPR, and ISO 15189:2022 — IVDR is the regulation.
-> Where this document cites 62304 clauses, they structure the work; they are not a claim of
-> certified 62304 compliance.
+> procedure **`H11.1-OP5`** ([README §1a](README.md)). Where this document cites IEC 62304
+> clauses, they structure the work; they are not a claim of certified 62304 compliance.
 
 ---
 
@@ -51,11 +48,11 @@ validation per method [TF-10](TF-10-performance-evaluation-plan.md)) → **opera
 | IEC 62304 process | How CoGA realizes it | Evidence / location |
 | --- | --- | --- |
 | 5.1 Development planning | This document; per-feature design docs | `docs/`, this file |
-| 5.2 Requirements analysis | Software Requirements Spec (to formalize) + per-feature "clinical question" sections | TF-09 §SRS; `docs/*.md` |
-| 5.3 Architectural design | [application-scheme.md](../application-scheme.md), [storage-architecture.md](../storage-architecture.md), [TF-02](TF-02-device-description.md) | `docs/` |
+| 5.2 Requirements analysis | [TF-09a Software Requirements Specification](TF-09a-software-requirements-specification.md) + per-feature "clinical question" sections | TF-09a; `docs/*.md` |
+| 5.3 Architectural design | [application-scheme.md](../application-scheme.md), [TF-02](TF-02-device-description.md) | `docs/` |
 | 5.4 Detailed design | Per-feature design docs; code-level docstrings | `docs/`, source |
-| 5.5 Implementation & unit verification | Python/TypeScript implementation + pytest/vitest unit tests | `backend/tests`, `frontend/src/**/*.test.tsx` |
-| 5.6 Integration & integration testing | Smoke suite booting real Postgres+ClickHouse | `backend/tests/integration` |
+| 5.5 Implementation & unit verification | Python/TypeScript implementation + pytest/vitest unit tests | `backend/tests`, `frontend/src/**/*.test.ts(x)` |
+| 5.6 Integration & integration testing | Integration tests against real Postgres + ClickHouse (CI `smoke` job) | `backend/tests/integration` |
 | 5.7 System testing | Performance/concordance evaluation; end-to-end fixtures | [TF-10](TF-10-performance-evaluation-plan.md), TF-09 |
 | 5.8 Release | Tagged version + build identifier; release checklist | TF-18 |
 | 6 Maintenance | Bugfix/enhancement under same gates; change control | TF-18 |
@@ -83,6 +80,8 @@ Per H11.1-OP5 (CMGG roles):
 The role holders are drawn from the CMGG bio-IT group; the authoritative register is the CMGG
 **kwaliteitshandboek (KHB)** and organigram, of which this table is a project-specific extract.
 
+> **🔲 OWNER:** the role titles are to be confirmed ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)).
+
 > **Segregation of duties — recorded, not resolved.** The **developer, project lead and lab
 > director are the same person** (Björn Menten), so implementation and release authorization are
 > not independent. Two controls compensate and must therefore hold:
@@ -100,11 +99,11 @@ The role holders are drawn from the CMGG bio-IT group; the authoritative registe
 ## 4. Development environment & tooling
 
 - **Environment separation (H11.1-OP5):** development never happens directly on a production system — it uses a dedicated dev environment, or the test environment where none exists.
-- **Registration & identifier:** CoGA is registered in the CMGGMC **ICT module** with a software number **`Sxxxx`**; semantic versioning `x.y.z` (see [TF-18](TF-18-change-configuration-management.md)); only **major** versions are recorded in the CMGGMC ICT "Software" section.
-- Languages/runtimes: Python 3.12 (backend), Node 22 / TypeScript 6 (frontend).
-- Source control: Git/GitHub; feature branches; pull/merge requests with code review via a project-specific checklist (DevOps); **branch protection with ten required status checks**, strict (up-to-date-before-merge), enforced on `main` — see [TF-09 §1](TF-09-verification-validation.md). An approving review is **not** mechanically required (no `required_pull_request_reviews`), so the 4-eye rule is a process commitment pending enforcement at the first beta release ([TF-18 §6](TF-18-change-configuration-management.md)).
+- **Registration & identifier:** CoGA is to be registered in the CMGGMC **ICT module** with a software number **`Sxxxx`** (**🔲** not yet assigned); semantic versioning `x.y.z` (see [TF-18 §2](TF-18-change-configuration-management.md)); only **major** versions are recorded in the CMGGMC ICT "Software" section.
+- Languages/runtimes: Python (backend), Node.js / TypeScript (frontend); the versions are in [TF-08](TF-08-soup-register.md).
+- Source control: Git/GitHub; feature branches; pull requests, reviewed as set out in [`CONTRIBUTING.md`](../../CONTRIBUTING.md). Branch protection, its required checks and its limits (no approving review is required yet): [TF-18 §6](TF-18-change-configuration-management.md).
 - Build/packaging: Docker / Docker Compose; pinned `backend/requirements.txt`, `frontend/package-lock.json`.
-- CI: GitHub Actions (`.github/workflows/ci.yml`) — backend pytest, real-startup smoke, frontend tsc+eslint+vitest.
+- CI: GitHub Actions (`.github/workflows/ci.yml`, `security.yml`, `build.yml`); the verification gates are described in [TF-09 §1](TF-09-verification-validation.md).
 - Tool validation: development tools (linters, test runners, CI) are not part of the device; their adequacy is evidenced by the gates they enforce. Compilers/build tools are configuration-controlled via pinned versions.
 
 ## 5. Deliverables per increment

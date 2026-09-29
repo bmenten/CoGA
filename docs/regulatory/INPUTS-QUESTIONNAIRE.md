@@ -7,24 +7,22 @@
 | Owner | ‹CMGG software lead› |
 | Date | 2026-06-25 |
 
-> Group A–F below feed specific documents (cited). Answers will be folded into the controlled
-> documents. "—" = not yet answered.
+> Groups A–F below feed specific documents (cited). Answers are folded into the controlled
+> documents. ✅ = answered · ◐ = partly answered · "—" = not yet answered.
 >
-> **Several items are now answered by the governing SOP `H11.1-OP5`** (and folded into the TF
-> docs): the device-identifier scheme (CMGGMC software number `Sxxxx` + semantic versioning),
-> the role structure (bio-IT SPOC, IT coördinator, projectverantwoordelijke, business
-> contactpersoon, kwaliteitscel, DPO), the change-control model (patch/minor/major), and the
-> validation split (bio-IT vs clinical, templates H11.1-F12.2 / F11 / F2 / F13). Remaining
-> items are mostly **names/dates** and **per-application clinical comparators/thresholds**.
+> The governing SOP `H11.1-OP5` already answers the identifier scheme, the roles, the change
+> control and the validation split; those answers are in the TF documents
+> ([README §1a](README.md)). What remains is mostly **names and dates** and the
+> **per-application clinical comparators and thresholds**.
 
 ---
 
 ## A. Regulatory & institutional identity → TF-04, TF-05, README
 | # | Question | Answer |
 | --- | --- | --- |
-| A1 | Exact legal manufacturer name & address (CMGG / UZ Gent) for the declaration | ✅ **Center for Medical Genetics, Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent** |
-| A2 | BELAC ISO 15189 accreditation number and the relevant scope reference | ✅ **351-MED** (ISO 15189 — Medical laboratories). Scope: [351-MED scope PDF](https://ng3.economie.fgov.be/NI/belac/medilabs/scope_pdf/351-MED.pdf) |
-| A3 | Named responsible persons: device owner, quality/RA lead, lab director, (Art. 15 PRRC-equivalent if used) | ✅ Developer & project lead: **Björn Menten**; Lab director: **Björn Menten**; IT-coördinator / independent reviewer: **Tom Sante**; Head of department: **Fransiska Malfait**; Kwaliteitsbeheerder: **Greta Vandercruyssen**. See [TF-07 §3](TF-07-software-lifecycle-plan.md) — note the recorded developer/lab-director concentration. |
+| A1 | Exact legal manufacturer name & address (CMGG / UZ Gent) for the declaration | ✅ **Center for Medical Genetics, Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent**. 🔲 RA: the accreditation certificate is issued to Universiteit Gent, so confirm which legal person declares ([TF-04 §1](TF-04-declaration-of-conformity.md)). |
+| A2 | BELAC ISO 15189 accreditation number and the relevant scope reference | ✅ **351-MED** (ISO 15189 — Medical laboratories). Scope: [351-MED scope PDF](https://ng3.economie.fgov.be/NI/belac/medilabs/scope_pdf/351-MED.pdf). 🔲 The certificate version cited in TF-04 §1 was valid until 2026-09-10: cite the current one. |
+| A3 | Named responsible persons: device owner, quality/RA lead, lab director, (Art. 15 PRRC-equivalent if used) | ✅ Developer & project lead: **Björn Menten**; Lab director: **Björn Menten**; IT-coördinator / independent reviewer: **Tom Sante**; Head of department: **Fransiska Malfait**; Kwaliteitsbeheerder: **Greta Vandercruyssen**. See [TF-07 §3](TF-07-software-lifecycle-plan.md) — note the recorded developer/lab-director concentration. 🔲 OWNER: TF-07 §3 calls the lab director "Lab director / Head of CMGG"; confirm the titles and who signs [TF-04 §6](TF-04-declaration-of-conformity.md) as "Head of Center for Medical Genetics". |
 | A4 | Confirm device scope: **one device, five applications** (recommended) vs separate files | ✅ **One device, five applications** (may be extended in future). PGT-mitoDNA is a **sub-scope of the PGT application**, not a sixth application. |
 | A5 | Confirm IVDR Annex VIII risk class to state for transparency (expected Class C) | ✅ **Class C** |
 | A6 | Confirm Belgian in-house transitional dates & any national provisions with FAMHP | 🔲 **Open** — to confirm with FAMHP / RA. |
@@ -59,20 +57,20 @@
 | D1 | Confirm IEC 62304 safety class (C) and any justified lower-class decomposition | ✅ **Class C**; no lower-class decomposition claimed. |
 | D2 | Named role holders incl. **independent reviewer** for Class C | ✅ Holders are from the **CMGG bio-IT group** (authoritative register: KHB + organigram); named for CoGA in [TF-07 §3](TF-07-software-lifecycle-plan.md). **Independent reviewer: Tom Sante.** |
 | D3 | Device version / UDI-equivalent scheme & where reference-data versions attach | ✅ Answered by H11.1-OP5: CMGGMC software number **`Sxxxx`** + semantic `x.y.z`; reference-data versions attach via the per-case manifest. Still needed: the **assigned `Sxxxx`**. |
-| D4 | Approval to **pin all backend runtime dependencies** to exact versions | ✅ **Approved.** Already implemented — `backend/requirements.txt` is `pip-compile --generate-hashes` with 83 hash-verified pins, installed via `--require-hashes` ([TF-08](TF-08-soup-register.md)). |
-| D5 | Production Postgres & ClickHouse versions; pin container base-image digests | — |
-| D6 | Confirm SRS will be produced as a controlled document / requirements register | — |
-| D7 | Enforce CI gates as **required status checks** on `main`? (owner + date) | ✅ **Done** — ten required checks, strict enforcement. Still open: enable `enforce_admins`, and require an approving review (4-eye). |
+| D4 | Approval to **pin all backend runtime dependencies** to exact versions | ✅ **Approved and implemented.** `backend/requirements.txt` pins every package to an exact, hash-verified version and is installed with `--require-hashes` ([TF-08 §A.1](TF-08-soup-register.md)). |
+| D5 | Production Postgres & ClickHouse versions; pin container base-image digests | ✅ PostgreSQL 16 (Cloud SQL `POSTGRES_16` on Google Cloud) and ClickHouse 26.8 LTS; every container image is pinned by digest ([TF-08 §A.3](TF-08-soup-register.md)). |
+| D6 | Confirm SRS will be produced as a controlled document / requirements register | ✅ Yes — [TF-09a](TF-09a-software-requirements-specification.md) is the SRS, revised under change control (TF-18). |
+| D7 | Enforce CI gates as **required status checks** on `main`? (owner + date) | ✅ **Done**, with strict enforcement. Still open: `enforce_admins` and a required approving review (4-eye). See [TF-18 §6](TF-18-change-configuration-management.md). |
 
 ## E. Security, usability & data protection → TF-12, TF-13, TF-14
 | # | Question | Answer |
 | --- | --- | --- |
-| E1 | Production deployment topology (managed PG/CH, TLS, secrets manager, network isolation, S3/CloudTrail) — owner & target date for S-1…S-8 | — |
+| E1 | Production deployment topology (managed PG/CH, TLS, secrets manager, network isolation, download audit) — owner & target date for S-1…S-8 | ◐ Decided: Google Cloud, codified in `terraform/` and not yet applied ([TF-02 §10](TF-02-device-description.md)); open items and go-live switches in [TF-13 §3](TF-13-cybersecurity.md). Open: owner and target date for the first apply and for each go-live switch. |
 | E2 | Vulnerability-disclosure handling with UZ Gent IT security | — |
 | E3 | Summative usability evaluation: participant count per user group, schedule, facilitator | — |
-| E4 | DPO consultation date; lawful basis & Art. 9 condition confirmation | — |
+| E4 | DPO consultation date; lawful basis & Art. 9 condition confirmation | ◐ A DPIA signed with the UZ Gent DPO exists outside this repository (owner, 2026-09-29). [TF-14](TF-14-dpia.md) is to be reconciled with it and filed, including the lawful basis and the Art. 9 condition (#518). |
 | E5 | Pseudonymization extent within CoGA; retention period; erasure-vs-record-keeping policy | — |
-| E6 | Supported browser(s) for the IFU minimum-requirements section | — |
+| E6 | Supported browser(s) for the IFU minimum-requirements section | — (proposal to confirm: a current Chrome or Edge — the browser tests run in Chromium only, [TF-09d](TF-09d-browser-e2e-verification.md)) |
 
 ## F. Post-market & vigilance → TF-16, TF-17
 | # | Question | Answer |
@@ -80,4 +78,4 @@
 | F1 | PMS review cadence (e.g. annual) and PMS-report owner | — |
 | F2 | PMS quantitative indicators & action thresholds | — |
 | F3 | FAMHP in-house-device serious-incident reportability criteria, timelines & channel | — |
-| F4 | User intake/support & incident-reporting contact for the IFU | — |
+| F4 | User intake/support & incident-reporting contact for the IFU | ◐ Problems and incidents are reported as a CMGGMC probleemmelding ([TF-17 §2](TF-17-vigilance-capa.md)); the support contact is still to be named ([TF-15 §7](TF-15-instructions-for-use.md)). |

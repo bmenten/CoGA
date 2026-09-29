@@ -12,16 +12,17 @@
 
 > The IFU is the controlled "information for safety." For an internal web application the
 > "label" is the in-app identification (version, manufacturer, in-house-IVD statement) and
-> this IFU is the reference manual, complemented by the in-app user guide (`/docs`). Content
-> is drawn from TF-01, TF-02, TF-06, TF-10/11, TF-13.
+> this IFU is the reference manual, complemented by the in-app user guide (`/docs`) and the
+> in-app reference docs (`/docs/reference/<slug>`). Content is drawn from TF-01, TF-02, TF-06,
+> TF-10/11, TF-13.
 
 ---
 
 ## 1. Device identification (label)
 - **Name:** CoGA — Comprehensive Genomic Analysis.
-- **Version / build:** displayed in-app and in every report footer ‹X.Y.Z (git ‹hash›)›.
-- **Manufacturer:** Center for Medical Genetics Ghent (CMGG), UZ Gent — **in-house IVD per IVDR Article 5(5); not CE-marked; for internal CMGG use only.**
-- **Symbol/equivalent:** "IVD", "in-house device", manufacturer identity. **🔲 confirm labelling presentation in-app.**
+- **Version / build:** ‹X.Y.Z (git ‹hash›)›. The version and commit are frozen into every signed report and shown in its sign-out block, and the running version is served at `/api/version`. **🔲 Not yet shown in the app or on unsigned and NIPT reports.**
+- **Manufacturer:** Center for Medical Genetics Ghent (CMGG), Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent — **in-house IVD per IVDR Article 5(5); not CE-marked; for internal CMGG use only.**
+- **In-app label today:** the footer reads "CoGA, Comprehensive Genomic Analysis · Center for Medical Genetics, Ghent University". It carries no version and no in-house-IVD statement, and names Ghent University rather than the manufacturer above. **🔲** Add the version, the manufacturer and the in-house-IVD / not-CE-marked statement ("IVD", "in-house device") to the in-app label.
 
 ## 2. Intended purpose & users
 Full statement in [TF-01](TF-01-intended-purpose.md). Decision-support software for genomic
@@ -36,34 +37,41 @@ trained clinical laboratory professionals only**, in an ISO 15189-accredited lab
 3. **Screening vs diagnosis** — NIPT and carrier-screening results are screening; at-risk findings require confirmatory diagnostic testing.
 4. **Inferred genotypes** — NIPT fetal genotype and PGT embryo haplotype are inferred, not observed; **check the QC signals** (fetal fraction & CI, informative-marker count, Mendel-error rate, recombination proximity) before trusting a call.
 5. **Validated scope only** — use only within the validated panels/assays/assemblies/populations (TF-11); use outside is off-label. The validated reference assembly is **GRCh38**: a family on any other assembly is labelled *Not validated for clinical use* and its report cannot be signed out.
-6. **Sample identity & data integrity** — **review the Sample QC** (relatedness, sex, Mendelian consistency, maternal-lineage) to confirm sample identity and rule out sample swaps/contamination before sign-out — mandatory for family/trio and combined mtDNA/nuclear (mitochondrial) cases.
+6. **Sample identity & data integrity** — **review the Sample QC** before sign-out to confirm sample identity and rule out sample swaps or contamination (the checks are listed in TF-01 §4 condition 7); for mitochondrial cases, also compare the samples' mtDNA haplogroups. This is mandatory for family/trio and combined mtDNA/nuclear (mitochondrial) cases. CoGA blocks sign-out when a Sample QC check fails or cannot be verified, unless you record a reason.
 7. **Authorised signatories only** — only personnel the laboratory has authorised as signatories may sign out a report. CoGA lets any member of the project sign out and does not check signing authority itself; it records who signed each version in the signed record and the audit trail (TF-06 H15).
-7. **Not for** primary variant calling, somatic/oncology use, patient/home use, or non-accredited settings.
+8. **Not for** primary variant calling, somatic/oncology use, patient/home use, or non-accredited settings.
 
 ## 4. Instructions for safe use (per application)
 ‹Step-by-step operating instructions per application, referencing the in-app user guide.
 For each: required inputs, how to set up the family/pedigree, how to run and read the
 analysis, and **how to interpret each QC/warning signal and what to do when it fires.**›
-- Monogenic NIPT — see [monogenic-nipt.md](../monogenic-nipt.md); read FF, CI, category-8 dropout, external-FF disagreement.
-- PGT — see [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md); read informative markers, Mendel errors, recombination near ROI, "uninformative" results, donor-family limits.
+- Monogenic NIPT — see the in-app reference *Monogenic NIPT (cfDNA)* (`/docs/reference/monogenic-nipt`); read FF, CI, category-8 dropout, external-FF disagreement.
+- PGT — see *Haplotype segregation analysis* (`/docs/reference/haplotype-segregation`); read informative markers, Mendel errors, recombination near ROI, "uninformative" results, donor-family limits.
 - Carrier screening — couple-wise at-risk interpretation; reportable-variant confirmation.
-- Rare-disorder — multi-data-type review (SNV/SV/repeat/Paraphase/mtDNA); ACMG classification is overridable.
-- Mitochondrial (ONT adaptive sampling) — review the complete mtDNA (heteroplasmy %, maternal transmission, haplogroup) **and** the nuclear mito-gene panel together; **review the Sample QC for maternal-lineage/sample-swap integrity** before sign-out.
+- Rare-disorder — multi-data-type review (SNV/SV/repeat/Paraphase/mtDNA); ACMG classification is overridable (*Semi-automatic ACMG classification*, `/docs/reference/acmg-classification`).
+- Mitochondrial (ONT adaptive sampling) — review the complete mtDNA (heteroplasmy %, maternal transmission, haplogroup) **and** the nuclear mito-gene panel together; **review the Sample QC and compare the samples' haplogroups** before sign-out.
+- All applications — Sample QC: *Sample-integrity QC* (`/docs/reference/sample-qc`); sign-out: *Report traceability & sign-out* (`/docs/reference/clinical-traceability`).
 
 ## 5. Interpretation of results & residual risks
 Outputs are candidates/pre-evaluations with QC. Residual risks the user must be aware of are
 listed per TF-06 (e.g. possibility of a missed variant if a filter is too aggressive,
 uninformative/ambiguous calls, drift if reference data changed). The provenance footer and
-drift indicators support correct interpretation.
+drift indicators support correct interpretation. The report page shows live data: it says when
+it no longer matches the signed version, and the signed version itself can be downloaded.
 
-## 6. Minimum IT & security requirements (IVDR §16.4)
-From [TF-13 §7](TF-13-cybersecurity.md): operate only within the UZ Gent/CMGG managed
-environment with TLS, encrypted datastores, managed secrets, network isolation, institutional
-identity, and operational logging. Supported browser(s): ‹specify›.
+## 6. Minimum IT & security requirements (IVDR Annex I §16.4)
+Operate CoGA only in the UZ Gent/CMGG Google Cloud project built from `terraform/`
+([TF-02 §10](TF-02-device-description.md)), with the go-live switches of
+[TF-13 §3](TF-13-cybersecurity.md) on. That gives: TLS at the load balancer and to the
+datastores; encrypted datastores; secrets in a secrets manager; datastores on a private
+network with no public address; access only from institutional networks, with institutional
+identity; and operational logging. **Supported browser:** 🔲 to confirm (INPUTS E6) — proposed:
+a current Chrome or Edge, the Chromium browsers the browser tests use
+([TF-09d](TF-09d-browser-e2e-verification.md)).
 
 ## 7. Manufacturer & support
-- CMGG contact for support and **to report a problem/incident**: ‹contact›.
-- Reference to the in-app user guide (`/docs`) and to this technical file.
+- Report a problem or incident as a **CMGGMC probleemmelding** ([TF-17 §2](TF-17-vigilance-capa.md)) — not through the app footer's "Submit issue / request" link, which opens a public GitHub issue form. **🔲 OWNER:** decide whether the clinical build points that link at CMGGMC (`VITE_GITHUB_ISSUES_URL`), and name the CMGG support contact: ‹contact›.
+- Reference: the in-app user guide (`/docs`), the in-app reference docs and this technical file.
 
 ## 8. Revision
 The IFU is updated on any change affecting intended purpose, limitations, validated scope,

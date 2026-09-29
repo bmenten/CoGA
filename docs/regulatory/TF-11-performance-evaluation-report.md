@@ -14,14 +14,9 @@
 > TF-10 and states the **claimed performance** and **validated scope**. It is the document
 > a competent authority reads to judge GSPR §9.1. Sections are stubbed; fill on execution.
 >
-> **CMGG forms.** In CMGG's QMS this content is captured on the controlled templates: the
-> per-application **clinical validation** on **H11.1-F11** (`VAL-Pxx`, mapping in
-> [TF-10 §7](TF-10-performance-evaluation-plan.md)) and the **software** bio-IT validation on
-> **H11.1-F12.2** (`VAL-Sxx`, mapping in [TF-09 §7](TF-09-verification-validation.md)). This
-> document is the consolidated evidence those signed forms draw from; each form ends with the
-> conclusion **"voldoet / voldoet voorlopig / voldoet niet"** and a dated **vrijgave voor de
-> diagnostiek**, bekrachtigd by the eindverantwoordelijke(n) + kwaliteitsbeheerder (+ IT-team
-> coördinator for software).
+> **CMGG forms.** This report is the consolidated evidence the signed CMGG validation forms
+> draw from; which form is used when is set out in
+> [TF-18 §4b](TF-18-change-configuration-management.md).
 
 ---
 
@@ -50,7 +45,7 @@ Discordance adjudication: ‹table — case, CoGA call, comparator, root cause, 
 | False "unaffected" on at-risk embryo | ‹…› | | 0 | |
 | Direct-mutation PPA/NPA | ‹…› | | ‹…› | |
 | Aneuploidy per-chromosome OPA | ‹…› | | ‹…› | |
-| Large SV (≥10 Mb) concordance | ‹…› | | ‹…› | |
+| Large SV (> 10 Mb) concordance | ‹…› | | ‹…› | |
 | Uninformative rate (incl. donor families) | ‹…› | | characterized | |
 
 ### 3.3 Rare-disorder WGS trios (30)
@@ -76,10 +71,10 @@ Discordance adjudication: ‹table — case, CoGA call, comparator, root cause, 
 | Heteroplasmy quantitation agreement (Bland–Altman) | ‹…› | within ‹±X%› | |
 | Nuclear mito-gene causal-variant detection + ACMG concordance | ‹…› | 100% / within 1 tier | |
 | Maternal-inheritance concordance | ‹…› | ‹…› | |
-| Sample-QC sample-swap / maternal-lineage detection | ‹…› | correct on controls | |
+| Sample-swap detection (Sample QC + haplogroup comparison) | ‹…› | correct on controls | |
 
 ## 4. Reproducibility & robustness
-‹Content-hash reproducibility result; inter-operator subset; degraded-input behavior; optional GIAB/GeT-RM analytical baseline.›
+‹Content-hash reproducibility result; inter-operator subset; degraded-input behavior; GIAB analytical baseline (TF-10 §2).›
 
 ## 5. Discordance analysis & defects
 ‹All discordances, root causes, any CoGA defects found, fixes + re-test, residual.›

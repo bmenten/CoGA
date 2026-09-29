@@ -8,13 +8,14 @@
 | Owner | ‹CMGG quality› |
 | Approver | ‹Lab director› |
 | Date | 2026-06-25 |
-| Basis | IVDR Art. 82 (in-house vigilance), Art. 88 (trend); integrated with the CMGG ISO 15189 nonconformity/CAPA system |
+| Basis | IVDR **Article 5(5)(i)** (review of clinical-use experience, corrective action); serious-incident and trend reporting modelled on IVDR Art. 82 and Art. 83 (verify with RA); integrated with the CMGG ISO 15189 nonconformity/CAPA system |
 
 > Defines how problems with CoGA are detected, reported, investigated, and corrected.
 > Integrates with the existing CMGG ISO 15189 nonconformity/CAPA process rather than creating
 > a parallel one. **🔲 INPUT NEEDED:** confirm the Belgian in-house-device reporting
-> expectations with FAMHP and the CMGG quality manager (Art. 82 lets Member States set
-> vigilance requirements for in-house devices).
+> expectations with FAMHP and the CMGG quality manager. IVDR Art. 82–83 apply directly to
+> devices made available on the market; for in-house devices, Art. 5(5) lets Member States
+> require further information from health institutions.
 
 ---
 
@@ -25,7 +26,7 @@
 
 ## 2. Detection & intake
 Incidents/near-misses are detected via clinical-use review, the QC/drift signals, user
-reports (TF-15 contact), audit logs, or testing, and are registered as **CMGGMC
+reports ([TF-15 §7](TF-15-instructions-for-use.md)), audit logs, or testing, and are registered as **CMGGMC
 probleemmeldingen** per the H11.1-OP5 §6 operational phase. All are logged in the incident
 register with: date, reporter, **software number + version (`Sxxxx` `x.y.z`)**, application,
 affected case(s), description, and immediate containment. Where possible a **test covering the
@@ -38,7 +39,7 @@ of exactly what produced an affected report and identification of other potentia
 cases (same version/filter/reference data).
 
 ## 4. Reporting to the competent authority
-- Serious incidents and trends are reported to **FAMHP** as required for in-house devices under IVDR Art. 82/88 and Belgian national provisions. **🔲 INPUT NEEDED:** confirm reportability criteria, timelines, and channel with CMGG RA/FAMHP.
+- Serious incidents and trends are reported to **FAMHP** as Belgian national provisions require for in-house devices, following IVDR Art. 82 (serious incidents) and Art. 83 (trends). **🔲 INPUT NEEDED:** confirm reportability criteria, timelines, and channel with CMGG RA/FAMHP.
 - A breach of personal data follows the separate **GDPR Art. 33/34** notification path (DPO; see TF-14).
 
 ## 5. Investigation, correction & CAPA

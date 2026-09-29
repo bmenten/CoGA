@@ -20,7 +20,7 @@
 | Type | Software as a Medical Device (in-house IVD), standalone (MDSW per MDCG 2019-11) |
 | Manufacturer | Center for Medical Genetics Ghent (CMGG), Ghent University Hospital |
 | Device identifier | CMGGMC **software number `Sxxxx`** (assigned in the CMGGMC ICT module per H11.1-OP5) — the UDI-DI-equivalent for this in-house device. **🔲 INPUT NEEDED:** the assigned `Sxxxx`. |
-| Version identifier | Semantic version `x.y.z` + git commit hash, shown in-app and in every report footer (see §8); change control in [TF-18](TF-18-change-configuration-management.md). |
+| Version identifier | Semantic version `x.y.z` + git commit hash ([TF-18 §2](TF-18-change-configuration-management.md)). Frozen into every signed report and shown in its sign-out block; served at `/api/version`. **🔲 Not yet shown in the app or on unsigned and NIPT reports** ([TF-15 §1](TF-15-instructions-for-use.md)). |
 | Form of delivery | Server-deployed web application, used internally at CMGG; no physical media, no transfer to third parties. |
 
 ## 2. Intended purpose
@@ -40,7 +40,7 @@ separate validation/accreditation.
   ┌────────────────────── OUT OF SCOPE (separately validated & accredited) ──────────────────────┐
   │  Specimen → wet-lab assay → sequencing → alignment/variant-calling → annotation (Nextflow)    │
   └───────────────────────────────────────────────┬───────────────────────────────────────────────┘
-                                                   │  annotated VCF, coverage/segment/CNV/APCD tracks,
+                                                   │  annotated VCF, coverage/segment/CNV/APCAD tracks,
                                                    │  repeat/Paraphase/mtDNA results, pedigree metadata
   ┌────────────────────────────────────────────────▼──────────────────────────── CoGA (THIS DEVICE) ┐
   │  Ingestion → storage (Postgres metadata + ClickHouse variants) → filtering/aggregation →         │
@@ -63,7 +63,7 @@ these upstream modules are captured per family and frozen into the report
 | --- | --- | --- |
 | Annotated VCF (SNV/indel) | Single- or multi-sample, with VEP/ClinVar/gnomAD/dbNSFP/SpliceAI annotations; site QUAL and per-call GT/DP/AF/AD. For the mitochondrial app (3.5) this includes the nuclear mito-gene panel from the ONT adaptive-sampling run. | All applications |
 | Structural-variant VCF | SV calls | PGT (large SV), rare-disorder |
-| Interval tracks | Coverage, segments, copy-number, APCD, haplotype-lineage, in BED-like form | PGT (aneuploidy/SV/coverage), NIPT (coverage), rare-disorder |
+| Interval tracks | Coverage, segments, copy-number, APCAD (allele fraction), haplotype-lineage, in BED-like form | PGT (aneuploidy/SV/coverage), NIPT (coverage), rare-disorder |
 | Phased/imputed markers | Per-site phased genotypes for haplotype segregation | PGT |
 | Repeat expansions (TRGT), Paraphase, mtDNA results | Per-sample specialized caller outputs; the **complete-mtDNA** call set from ONT adaptive sampling drives the mitochondrial app | Rare-disorder, mitochondrial (3.5) |
 | Copy-number VCF (depth-based caller) | Per-sample CNV calls with copy number, confidence intervals and overlapping genes; ingested as reviewable structural variants alongside the alignment-based SV calls | Rare-disorder, PGT |
@@ -81,7 +81,7 @@ these upstream modules are captured per family and frozen into the report
 | Ingestion | Parse multi-sample VCF and tracks into Postgres/ClickHouse | [data-import.md](../data-import.md) |
 | Family-scoped variant query | Filter SNV/SV by gene/panel/frequency/consequence/ROI; trio inheritance via genotype matching | [application-scheme.md](../application-scheme.md) |
 | Global Small Variant Explorer | Cross-project variant-centric aggregation with carrier counts | README |
-| Semi-automatic ACMG/AMP classifier | Pre-position ACMG criteria, server-recompute points/class on save; overridable | [acmg-classification.md](../acmg-classification.md) |
+| Semi-automatic ACMG/AMP classifier | Pre-position ACMG criteria, server-recompute points/class on save; overridable | In-app reference ([source](../../frontend/src/content/docs/acmg-classification.md)); [acmg-classification.md](../acmg-classification.md) |
 | Monogenic-NIPT analysis | Fetal-fraction estimation, 8-category VAF zygosity classification, inheritance presets, coverage/QC funnels | [monogenic-nipt.md](../monogenic-nipt.md) |
 | PGT haplotype segregation | Pedigree-IBD founder colouring, disease-haplotype inference, derived embryo classification + QC | [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md) |
 | Structural / CNV / aneuploidy review | SV second-hit, large-SV and aneuploidy interval tracks | [snv-sv-compound-het.md](../snv-sv-compound-het.md) |
@@ -94,7 +94,7 @@ these upstream modules are captured per family and frozen into the report
 - Filtered/prioritized candidate-variant lists with annotations and internal/external frequencies.
 - Semi-automatic ACMG/AMP classification (5-class + VUS sub-tier), fully overridable, server-recomputed.
 - Application-specific derived calls: NIPT fetal-fraction + per-variant category; PGT per-embryo ROI classification with QC; aneuploidy/large-SV review.
-- A **reproducible, content-hashed, version-pinned, signed-out clinical report** with a provenance footer and an immutable clinical audit trail.
+- A **signed-out clinical report** with a provenance footer, and an immutable clinical audit trail. Each signed version is frozen, content-hashed and downloadable; the report page itself shows live data and says when it no longer matches the signed version (TF-06 H9).
 
 > No output is an autonomous diagnosis. All outputs are reviewed and signed out by a
 > qualified professional (TF-01 §4).
@@ -108,7 +108,7 @@ these upstream modules are captured per family and frozen into the report
 - **Filesystem / object store:** reference FASTA and BAM/CRAM for visualization (presigned, access-checked).
 
 A complete component list with versions and risk classification of third-party
-components is maintained in **TF-08 SOUP Register** (planned).
+components is maintained in the [TF-08 SOUP Register](TF-08-soup-register.md).
 
 ## 8. Integrity, reproducibility & traceability features (design elements)
 
@@ -117,7 +117,8 @@ These are both product features and risk controls / GSPR evidence:
 - **Per-family annotation/version manifest** and report **provenance footer**.
 - **Per-classification evidence snapshot** frozen at classification time; **evidence-drift detection** flags when underlying data changed.
 - **Immutable, append-only clinical audit trail** (who classified/tagged/edited/signed, with field-level deltas).
-- **Frozen, versioned, SHA-256 content-hashed case sign-out**; amendments create new versions, signed snapshots are never mutated; sign-out is **gated on unacknowledged evidence drift**.
+- **Frozen, versioned, SHA-256 content-hashed case sign-out**; amendments create new versions and signed snapshots are never changed. Sign-out is **refused** for a family on an assembly outside the validated set (no override), and **blocked** by unacknowledged evidence drift or by a failed or unverifiable Sample QC until the analyst records a reason.
+- The report page shows live data and is **checked against the latest signed version**: it says when the two differ, and the signed version can be downloaded. Rendering a signed report from its frozen record is not yet implemented (REQ-TRACE-007).
 - **Server-side recomputation** of ACMG scores so stored classifications never depend on the browser.
 
 Reference: [clinical-traceability.md](../clinical-traceability.md).
@@ -133,24 +134,18 @@ governed by **TF-18**.
 ## 10. Operating environment & deployment
 
 - Containerized. **Production target: Google Cloud**, deployed with Terraform (owner decision,
-  recorded 2026-09-29, CR-089). There is **no production deployment yet**; only local
-  development runs.
-  - **Google Cloud** — codified in `terraform/`, **not yet applied**: Cloud Run services behind
-    an external HTTPS load balancer (TLS 1.2+, Cloud Armor), Cloud SQL, a ClickHouse VM and
-    CMEK-encrypted buckets in the configured region (default `europe-west1`). The load
-    balancer is **internet-facing by default**. The go-live switches, each off by default and
-    each its own change-controlled deployment, restrict it to institutional networks, run the
-    API as the restricted database role and lock down the ClickHouse VM's egress (#364;
-    `docs/deployment-gcp.md` §12.7–12.10).
-  - **Docker Compose** — local development and verification, on synthetic data only. The
-    databases and the API are bound to the host's loopback; only the web UI is published.
+  CR-089). There is **no production deployment yet**: the configuration in `terraform/` is
+  written but has never been applied. It describes Cloud Run services behind an external
+  HTTPS load balancer (TLS 1.2+, Cloud Armor), Cloud SQL, a ClickHouse VM and CMEK-encrypted
+  buckets in the configured region (default `europe-west1`). The load balancer is
+  **internet-facing** until the go-live switches are on; those switches and the other open
+  security items are listed in [TF-13 §3](TF-13-cybersecurity.md).
+- **Docker Compose** is for local development and verification, on synthetic data only. The
+  databases and the API are bound to the host's loopback; only the web UI is published.
 - Authentication via JWT (HS256), optional Azure AD; project-scoped RBAC; admin-gated mutations.
-- The **device** is not transferred to any other legal entity (Art. 5(5)(a)). **PHI:** in the
-  Google Cloud deployment it is stored and processed by Google Cloud as a **processor** on the
-  institution's behalf. As stated by the owner on 2026-09-29, the DPIA is signed and the
-  data-processing agreement with Google is being signed. **🔲 OWNER (#518):** file the signed
-  DPIA and the executed agreement with the technical file, confirm the region, and confirm
-  the load balancer is restricted to institutional networks before go-live (#364).
+- The **device** is not transferred to any other legal entity (Art. 5(5)(a)). Hosting of
+  patient data by Google Cloud, the DPIA and the data-processing agreement:
+  [TF-14 §1](TF-14-dpia.md).
 
 ## 11. Standards & common specifications applied
 

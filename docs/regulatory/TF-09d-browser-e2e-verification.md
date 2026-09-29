@@ -10,24 +10,23 @@
 | Date | 2026-06-29 |
 | Parent | [TF-09 — Verification & Validation](TF-09-verification-validation.md) |
 | Sibling | [TF-09c — End-to-End Pipeline Verification](TF-09c-e2e-pipeline-verification.md) |
-| Standards | IEC 62304 §5.7 (system testing), §16.1 (reproducibility); IVDR Annex I §20.4.1; usability boundary to IEC 62366-1 ([TF-12](TF-12-usability.md)) |
+| Standards | IEC 62304 §5.7 (system testing); IVDR Annex I §16.1 (repeatability), §20.4.1; usability boundary to IEC 62366-1 ([TF-12](TF-12-usability.md)) |
 
 > Controlled companion to [TF-09](TF-09-verification-validation.md) and sibling to
 > [TF-09c](TF-09c-e2e-pipeline-verification.md). Where TF-09c verifies the device boundary at the
 > **headless pipeline/API level** (ingestion → datastores → query/API → review/audit → signed
 > report), TF-09d verifies that **same boundary through the actual graphical user interface a
-> clinician uses** — a real **Chromium** browser driving the deployed React UI against a *live*
-> backend (uvicorn) and *live* Postgres 16 + ClickHouse 26.8. Since #526 the UI is the **production
-> build** served by the production frontend server (`server.mjs`, with its enforcing
-> Content-Security-Policy and `/api` proxy), not the development server, and every journey fails if
-> the browser reports a CSP violation.
+> clinician uses** — a real **Chromium** browser driving the React UI against a *live* backend
+> (uvicorn) and *live* Postgres and ClickHouse. The UI is the **production build**, served by the
+> production frontend server (`server.mjs`, with its enforcing Content-Security-Policy and `/api`
+> proxy), and every journey fails if the browser reports a CSP violation.
 >
 > It documents two things an external reviewer or auditor needs: **(1)** the automated browser
 > verification (the Playwright suite + CI `e2e-playwright` job), and **(2)** a **step-by-step
 > manual reproduction procedure** (§4) so the verification can be **independently re-run and
 > visually witnessed** — either by watching the automated journeys execute in a headed browser or
-> by clicking through the same journeys by hand. This operationalises the *acceptatietesten in een
-> omgeving die de productie benadert* expectation of H11.1-OP5 at the GUI level.
+> by clicking through the same journeys by hand. It runs on synthetic data, so it does not replace
+> the acceptance testing on real data that H11.1-OP5 expects ([TF-09](TF-09-verification-validation.md)).
 
 ---
 
@@ -35,8 +34,7 @@
 
 The browser verification exercises the intended-use workflows end-to-end **as rendered**, catching
 defects the API-level suite cannot (routing, authentication round-trip in the SPA, data→view
-wiring, visualisation render). It is deliberately **thin and behavioural** — it asserts that the
-right screen appears and the visualisation draws, not chart-pixel correctness.
+wiring, visualisation render). It is deliberately thin; its limits are in §10.
 
 | Aspect | [TF-09c](TF-09c-e2e-pipeline-verification.md) (pipeline) | **TF-09d (browser)** |
 | --- | --- | --- |
@@ -66,10 +64,9 @@ verify one consistent ground truth. No patient data is involved.
 | E2E password | `e2e-playwright-pw` | `E2E_USER_PASSWORD` |
 | Golden family id | `FAM_TRIO` | — |
 
-> The seed creates a **dedicated, known-credential** user precisely because the production admin is
-> seeded from a secret and its password is unknowable to the test. The seed and the spec read the
-> same env vars, so credentials stay in sync. The user is created in the **test** database, not a
-> clinical one (`APP_ENV=test`, bootstrap loads disabled).
+> The seed creates a dedicated test user, since the production admin's password comes from a
+> secret. Seed and specs read the same environment variables, and the user exists only in the
+> **test** database (`APP_ENV=test`).
 
 ## 3. Verified journeys & evidence
 
@@ -80,7 +77,8 @@ operational catalogue is in [docs/testing.md](../testing.md) ("Browser end-to-en
 | --- | --- | --- |
 | Authentication | [auth.spec.ts](../../frontend/e2e/auth.spec.ts) | Bad credentials stay on `/login` (no auth bypass); the seeded user logs in via the real form and lands authenticated on `/dashboard`. |
 | Family workspace + genome view | [family.spec.ts](../../frontend/e2e/family.spec.ts) | Opens the golden family workspace (stays authenticated, identifier rendered); the genome overview draws its tracks/ideogram (`canvas`/`svg` present) — confirms frontend↔backend wiring and that the visualisation renders. |
-| Clinical report sign-out | [signout.spec.ts](../../frontend/e2e/signout.spec.ts) | The seeded report-tagged variant renders; clicking **Sign out report** handles the evidence-drift `confirm()` and the sample-QC override dialog, and the signed-out **version advances** — the clinical traceability control of [clinical-traceability.md](../clinical-traceability.md) witnessed through the UI. |
+| Clinical report sign-out | [signout.spec.ts](../../frontend/e2e/signout.spec.ts) | The seeded report-tagged variant renders; clicking **Sign out report** opens each acknowledge-with-reason dialog that applies (evidence drift, then Sample QC), a reason is typed in each, the signed-out **version advances**, and the page then matches the signed version — the clinical traceability control of [clinical-traceability.md](../clinical-traceability.md) witnessed through the UI. |
+| Security headers | [security-headers.spec.ts](../../frontend/e2e/security-headers.spec.ts) | The production frontend server sends its security headers: a Content-Security-Policy (`default-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`), `X-Content-Type-Options: nosniff` and a Permissions-Policy. |
 
 ## 4. Manual reproduction procedure (for external reviewers / auditors)
 
@@ -99,7 +97,7 @@ workstation. It is the controlled, citable form of "examining the e2e validation
 ### 4.1 Bring up the stack and seed the data
 
 ```bash
-# 1. Start the datastores (same images as CI: postgres:16, clickhouse-server:26.8)
+# 1. Start the datastores (the same images as CI)
 docker compose up -d postgres clickhouse
 
 # 2. Seed the synthetic golden trio + the known e2e login user (idempotent)
@@ -159,7 +157,8 @@ Then open **http://127.0.0.1:4173** and reproduce §3 by hand:
 | 2 | Log in as `e2e.playwright@example.com` / `e2e-playwright-pw` | Lands authenticated on `/dashboard`. |
 | 3 | Open `Families → FAM_TRIO` | Family workspace renders with the `FAM_TRIO` identifier. |
 | 4 | Open the family's **Genome overview** | Ideogram / track visualisation draws (SVG/canvas). |
-| 5 | Open the family **Report**, click **Sign out report**, accept the drift confirm + QC override | Report signs out; the signed-out **version number increments**. |
+| 5 | Open the family **Report**, click **Sign out report**, and type a reason in each override dialog that appears (evidence drift, then Sample QC) | Report signs out; the signed-out **version number increments**, and the page says it matches the signed version. |
+| 6 | Reload `/login` with the browser's network panel open | The response carries a Content-Security-Policy (`default-src 'self'`, `frame-ancestors 'none'`) and `X-Content-Type-Options: nosniff`. |
 
 > The default credentials are non-secret test values; override via `E2E_USER_EMAIL` /
 > `E2E_USER_PASSWORD` at seed time if your environment requires it.
@@ -183,8 +182,10 @@ The browser verification **passes** when, against a freshly seeded test stack, a
   `/dashboard`;
 - the `FAM_TRIO` workspace renders authenticated, and the genome overview draws its
   visualisation (SVG/canvas present);
-- the clinical report signs out from the browser — the drift and sample-QC gates behave as designed
-  and the signed-out **version advances**;
+- the clinical report signs out from the browser — each override dialog that appears (evidence
+  drift, then Sample QC) takes a reason, the signed-out **version advances**, and the page then
+  matches the signed version;
+- the production frontend server sends its security headers;
 - all journeys in §3 are green in the Playwright report.
 
 Any deviation is a verification finding handled per [TF-09 §5](TF-09-verification-validation.md)
@@ -194,40 +195,30 @@ Any deviation is a verification finding handled per [TF-09 §5](TF-09-verificati
 
 - **Locally / for audit:** the §4 procedure (`npx playwright test`, with the datastores up and the
   data seeded).
-- **CI:** the **`e2e-playwright`** job in `.github/workflows/ci.yml` provisions `postgres:16` +
-  `clickhouse/clickhouse-server:26.8`, seeds the golden trio + e2e user, installs Chromium, runs the
-  journeys on every PR and push to `main`, and uploads the report (§5). It is a **required status
-  check** on `main` with strict enforcement — a failing browser journey blocks the merge. Browser
-  e2e is inherently the **flakiest** gate, so the promotion this section previously proposed was
-  made only once stability had been demonstrated (see
-  [TF-09 §1](TF-09-verification-validation.md)).
+- **CI:** the **`e2e-playwright`** job in `.github/workflows/ci.yml` provisions the datastores,
+  seeds the golden trio + e2e user, installs Chromium, runs the journeys on every PR and push to
+  `main`, and uploads the report (§5). It is a **required status check**
+  ([TF-18 §6](TF-18-change-configuration-management.md)), so a failing browser journey blocks the
+  merge.
 
 ## 8. Mapping to the CMGG report form (H11.1-F12.2)
 
-Feeds the bio-IT ingangsvalidatie ([TF-09 §7](TF-09-verification-validation.md)):
-
-| H11.1-F12.2 axis | Evidence here |
-| --- | --- |
-| **Gebruiksvriendelijkheid** (usability) | The intended-use workflows are exercised **as rendered** (login → workspace → genome → sign-out). This is *behavioural verification of the GUI paths*, **not** the summative usability evaluation, which remains [TF-12](TF-12-usability.md). |
-| **Accuraatheid / juistheid** | The view layer presents the golden-trio results wired from the same fixture verified per-stage in [TF-09c](TF-09c-e2e-pipeline-verification.md); data→view wiring is asserted at the screen. |
-| **Traceerbaarheid** | In-browser report **sign-out with version increment** witnessed end-to-end — the traceability control of [clinical-traceability.md](../clinical-traceability.md) observed through the operator UI. |
-| **EFFECTIVE UITVOERING / reproduceerbaarheid** | The run is reproducible from a deterministic synthetic fixture and an idempotent seed; CI re-runs it on every change and retains the report. |
+This document is evidence for the validation axes of the bio-IT ingangsvalidatie; the mapping
+is in [TF-09 §7](TF-09-verification-validation.md).
 
 ## 9. Reproducibility & data handling
 
 - **Synthetic, deterministic, idempotent.** The fixture and seed are version-controlled; the same
   commit yields the same journeys against the same data. Re-running the seed does not duplicate.
 - **No PHI.** Only the synthetic golden trio is loaded, into the local **test** datastores.
-- **Non-pixel visualisation assertions.** The suite asserts a visualisation *renders* (SVG/canvas
-  present), deliberately avoiding brittle chart-internal/pixel checks; chart correctness is covered
-  by frontend component tests and the per-feature logic tests (TF-09b RTM).
 
 ## 10. Limitations / out of scope
 
-- **Shallow by design** — a required, blocking check (§7), but it asserts that a journey completes
-  and the view renders, not that the rendered content is clinically correct.
-- **Shallow by design** — verifies that the right screen appears and the visualisation draws, **not**
-  chart correctness or exhaustive review flows.
+- **Shallow by design** — a required, blocking check (§7), but it asserts that a journey completes,
+  the right screen appears and a visualisation draws (SVG/canvas present). It does not check that
+  the rendered content is clinically correct, chart internals or exhaustive review flows; chart
+  correctness is covered by the frontend component tests and the per-feature logic tests (TF-09b
+  RTM).
 - **Chromium only** — cross-browser/responsive coverage is not in scope here.
 - **Not summative usability** — formative/summative usability engineering is [TF-12](TF-12-usability.md)
   (IEC 62366-1).

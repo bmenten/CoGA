@@ -49,7 +49,7 @@ each release; it is not maintained by hand. **Reconciled with the lockfile on 20
 | clickhouse-connect[async] | 1.9.0 | ClickHouse client (variant store) | H | CVE/changelog |
 | pydantic / pydantic-settings | 2.13.5 / 2.15.0 | Data validation, settings | H | Changelog |
 | **PyJWT[crypto]** (+ cryptography) | **2.15.0** (+ 50.0.0) | JWT signing/verification (HS256 local, RS256 Azure) | **H (security)** | CVE watch (auth) |
-| bcrypt | 5.0.0 | Password hashing, called directly; the stored `$2b$` hashes verify unchanged | **H (security)** | CVE watch. Replaced the unmaintained passlib 1.7.4 (last release 2020), which had held bcrypt at 3.2.0 (#525) |
+| bcrypt | 5.0.0 | Password hashing, called directly (no passlib wrapper); the stored `$2b$` hashes verify unchanged | **H (security)** | CVE watch |
 | pysam / pyfaidx | 0.24.1 / 0.9.0.4 | VCF/BAM/FASTA access | H | Changelog |
 | pyBigWig | 0.3.26 | bigWig signal-track reading (HiFiCNV read depth and minor allele fraction) | M | Changelog |
 | pandas / numpy | 2.3.3 / 2.2.6 | CNV knowledgebase build, analysis | M | Changelog |
@@ -60,12 +60,12 @@ each release; it is not maintained by hand. **Reconciled with the lockfile on 20
 | cloud-sql-python-connector[asyncpg] | 1.22.0 | mTLS to Cloud SQL Postgres (`POSTGRES_USE_CLOUD_SQL_CONNECTOR=true`) | H (security) | CVE |
 | PyYAML, python-dotenv, python-multipart, tqdm, greenlet | 6.0.3, 1.2.3, 0.0.32, 4.70.1, 3.5.6 | Support utilities | L–M | CVE watch |
 
-> **Removed dependency.** `python-jose[cryptography]` was previously listed here for JWT
-> verification. JWT handling migrated to **PyJWT**, which verifies via the `cryptography` backend
-> and does not depend on `ecdsa` — this dropped the no-fix `ecdsa` Minerva advisory
-> (GHSA-wj6h-64fc-37mp). `python-jose`, `ecdsa`, `rsa` and `pyasn1` are absent from the lockfile,
-> and the dependency-audit gate now blocks on any advisory, including their reappearance.
-> See [SECURITY-AUDIT-ALLOWLIST.md §1a](../../SECURITY-AUDIT-ALLOWLIST.md).
+> **JWT stack.** JWTs are handled by **PyJWT**, which verifies via the `cryptography` backend
+> and does not depend on `ecdsa`, so the no-fix `ecdsa` Minerva advisory (GHSA-wj6h-64fc-37mp)
+> does not apply. `python-jose`, `ecdsa` and `rsa` are absent from the lockfile; `pyasn1` is
+> present only through `google-auth` (via `pyasn1-modules`), not through the JWT stack. The
+> dependency-audit gate blocks on any advisory. See
+> [SECURITY-AUDIT-ALLOWLIST.md §1a](../../SECURITY-AUDIT-ALLOWLIST.md).
 
 ### A.2 Frontend (Node 22 / TypeScript 6)
 
@@ -87,8 +87,7 @@ Versions as locked in `frontend/package-lock.json`.
 The `dependencies` of `frontend/package.json` are exactly the browser-bundle libraries and
 express, so the blocking production audit (`scripts/audit-frontend-prod.mjs`) covers everything
 that reaches a user's browser or serves it. The build-only items are `devDependencies`: they
-are not installed in the production image, and the non-blocking dev-tree audit reports them
-(#530).
+are not installed in the production image, and the non-blocking dev-tree audit reports them.
 
 ### A.3 Datastores & base images (configuration-controlled)
 
@@ -99,12 +98,12 @@ are not installed in the production image, and the non-blocking dev-tree audit r
 | Backend base image | `python:3.12-slim@sha256:f77ac9e…` (Python 3.12.14) | Runtime packaging | M |
 | Frontend base image | `node:22-alpine@sha256:0a7108b…` | Runtime packaging | M |
 
-All container images are pinned by digest in the Dockerfiles, compose, CI (#520) and
-Terraform; the digests are the authoritative identity, the tags are for reading.
-Dependabot proposes a new digest when a pinned tag is rebuilt, for the Dockerfiles and
-compose (#525). It proposes no new version line, because a new Python, Node, PostgreSQL or
-ClickHouse line is a runtime change with its own change record (A.4). The CI service images
-and the Terraform ClickHouse image are not covered and are updated by hand alongside.
+All container images are pinned by digest in the Dockerfiles, compose, CI and Terraform; the
+digests are the authoritative identity, the tags are for reading. Dependabot proposes a new
+digest when a pinned tag is rebuilt, for the Dockerfiles and compose. It proposes no new
+version line, because a new Python, Node, PostgreSQL or ClickHouse line is a runtime change
+with its own change record (A.4). The CI service images and the Terraform ClickHouse image are
+not covered and are updated by hand alongside.
 
 ### A.4 Runtime platform support status
 
@@ -112,8 +111,8 @@ The platforms the device runs on are SOUP too. Their support status, as of 2026-
 
 | Platform | Version | Where | Support status | Action |
 | --- | --- | --- | --- | --- |
-| Python | 3.12 | backend image, CI | Supported (security fixes until October 2028) | Moved from 3.10, which reached end of life in October 2026 (#523) |
-| ClickHouse | 26.8 LTS | compose, CI, Terraform VM | Supported (the 26.8 LTS line until 2027-08-27) | Moved from 25.3 LTS, out of support since 2026-03-20 (#524) |
+| Python | 3.12 | backend image, CI | Supported (security fixes until October 2028) | Moved from 3.10, which reaches end of life in October 2026 |
+| ClickHouse | 26.8 LTS | compose, CI, Terraform VM | Supported (the 26.8 LTS line until 2027-08-27) | Moved from 25.3 LTS, out of support since 2026-03-20 |
 | PostgreSQL | 16 | compose, CI, Cloud SQL | Supported (until November 2028) | — |
 | Node.js | 22 LTS | frontend image, CI | Supported (maintenance LTS until April 2027) | — |
 

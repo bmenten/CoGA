@@ -19,14 +19,12 @@
 > [TF-11 Performance Evaluation Report](TF-11-performance-evaluation-report.md).
 >
 > **In CMGG QMS terms (H11.1-OP5 §5.2 / H11.1-OP1 §8):** this is the **klinische validatie**
-> performed **per analysis/method** that uses CoGA — distinct from the software's bio-IT
-> ingangsvalidatie ([TF-09](TF-09-verification-validation.md)). It is coordinated by the
-> **business contactpersoon** with the bio-IT team, on template **H11.1-F11** (initial,
-> `VAL-procedurenummer`) / **H11.1-F2** (follow-up). The performance characteristics it
-> compares — using real data and external benchmark datasets (e.g. **GIAB**) where available
-> — are **accuracy, precision, reportable range, reference interval (where applicable), and
-> positive/negative controls**; the concordance metrics in §2–§3 below are how those map onto
-> CoGA's qualitative/interpretive outputs.
+> performed **per analysis/method** that uses CoGA, distinct from the software's bio-IT
+> ingangsvalidatie ([TF-09](TF-09-verification-validation.md)), and coordinated by the
+> **business contactpersoon** with the bio-IT team. The SOP's performance characteristics
+> (accuracy, precision, reportable range, reference interval where applicable, positive/negative
+> controls) become the concordance metrics of §2–§3; how they map onto the CMGG form
+> (H11.1-F11, report `VAL-Pxx`) is in §7.
 
 ---
 
@@ -94,12 +92,12 @@ effect on agreement estimates noted.
 
 ### 3.2 PGT (100 embryos)
 - **Units of analysis:** per-embryo **ROI segregation call** (affected/at-risk · carrier · unaffected · uninformative); **direct mutation** genotype; **aneuploidy** status; **large (>10 Mb) SV** status.
-- **Inputs:** shallow-WGS per-embryo and family VCFs, phased/imputed markers, segment/CN/APCD tracks, pedigree (incl. single-parent/donor).
+- **Inputs:** shallow-WGS per-embryo and family VCFs, phased/imputed markers, segment/CN/APCAD tracks, pedigree (incl. single-parent/donor).
 - **Metrics:**
   - Haplotype segregation: concordance of per-embryo call vs comparator (and vs born-child/confirmatory outcome where available); rate and handling of **uninformative** calls.
   - Direct mutation detection: PPA/NPA vs comparator genotype.
-  - Aneuploidy: per-chromosome PPA/NPA/OPA vs comparator; **resolution/limit-of-detection claim to define**.
-  - Large SV: detection concordance at the **≥10 Mb** claimed threshold; characterize the size/type detection limit.
+  - Aneuploidy: per-chromosome PPA/NPA/OPA vs comparator, at the claimed limit of **> 35 % mosaicism** (TF-01 §3.3).
+  - Large SV: detection concordance at the claimed **> 10 Mb** threshold; characterize the size/type detection limit.
 - **Proposed acceptance (confirm):** 100% concordance on **informative** embryo segregation calls; no **false "unaffected"** on truly at-risk embryos (the safety-critical error); aneuploidy and >10 Mb SV concordance ≥‹threshold›.
 - **Edge cases:** recombination near the ROI, sparse informative markers, donor/single-parent families (expected "uninformative" for recessive — verify safe behavior), mosaic embryos, sex chromosomes.
 
@@ -109,28 +107,29 @@ effect on agreement estimates noted.
 - **Metrics:** concordance of the reported causal/candidate variant(s) with the established diagnosis; PPA for known causal variants across **each data type** (SNV/indel, SV, repeat, Paraphase, mtDNA); ACMG-class concordance; de novo / inheritance-mode concordance via the trio logic.
 - **Proposed acceptance (confirm):** 100% detection of the known causal variant(s) among CoGA candidates for previously-solved trios; ACMG class within one tier and same actionability; correct inheritance/de-novo assignment.
 - **Edge cases:** each non-SNV data type represented; compound-het (SNV+SV second hit); repeat-expansion and Paraphase-resolved loci; mtDNA heteroplasmy.
+- **🔲 OWNER (clinical):** TF-01 §3.4 also claims proband-only analysis, but this protocol validates trios only. Add a proband-only arm, or narrow the claim.
 
 ### 3.4 Monogenic NIPT (30 samples)
 - **Units of analysis:** **fetal-fraction estimate** (quantitative QC, vs comparator/known FF); **per-variant zygosity category**; and the **inheritance-preset conclusions** (de novo, paternal/maternal dominant, recessive at-risk).
 - **Inputs:** combined two-sample (paternal + cfDNA) annotated VCFs, coverage, pedigree; external FF where available.
 - **Metrics:**
-  - FF: bias and correlation (Pearson/Deming, Bland–Altman) of CoGA's cat-7 estimate vs comparator FF; agreement with external FF (disagreement-flag behavior).
-  - Category assignment & inheritance calls: PPA/NPA/OPA vs the confirmed fetal genotype/comparator; **false-negative rate** (category-8 dropout behavior).
+  - FF: bias and correlation (Pearson/Deming, Bland–Altman) of CoGA's fetal-fraction estimate (from paternally inherited variants, category 7) vs comparator FF; agreement with external FF (disagreement-flag behavior).
+  - Category assignment & inheritance calls: PPA/NPA/OPA vs the confirmed fetal genotype/comparator; **false-negative rate** (paternal homozygous variants missing from the cfDNA, category 8).
 - **Proposed acceptance (confirm):** FF within ‹±X absolute / ±Y%› of comparator; **no missed at-risk fetal calls** (false-negative is the safety-critical error for a screening test); category concordance ≥‹threshold› at adequate FF/coverage; correct low-confidence behavior at low FF/depth (no forced calls).
 - **Edge cases:** low fetal fraction, low depth, category-8 dropout, FF disagreement with external estimate.
 
 ### 3.5 Mitochondrial disease — ONT adaptive sampling (N to define)
 - **Units of analysis:** the **mtDNA variant + heteroplasmy** call set (variant detection and heteroplasmy fraction), the **nuclear mito-gene** variant/diagnostic conclusion, and the combined **diagnostic conclusion**.
 - **Inputs:** annotated VCF(s)/tracks from the validated ONT adaptive-sampling run (complete mtDNA + nuclear mito-gene panel); HPO; pedigree (incl. mother where available).
-- **Metrics:** mtDNA variant PPA/NPA vs comparator; **heteroplasmy quantitation** agreement (bias/correlation, Bland–Altman) vs an orthogonal method; nuclear mito-gene causal-variant detection + ACMG-class concordance; maternal-inheritance concordance; **Sample-QC sample-swap/maternal-lineage detection** exercised (deliberate-mismatch controls where feasible).
-- **Proposed acceptance (confirm):** 100% detection of known causal mtDNA/nuclear variant(s); heteroplasmy within ‹±X%› of comparator; correct maternal-lineage QC behaviour; no missed causal variant.
+- **Metrics:** mtDNA variant PPA/NPA vs comparator; **heteroplasmy quantitation** agreement (bias/correlation, Bland–Altman) vs an orthogonal method; nuclear mito-gene causal-variant detection + ACMG-class concordance; maternal-inheritance concordance; **sample-swap detection** exercised — the Sample QC and the analyst's haplogroup comparison (deliberate-mismatch controls where feasible).
+- **Proposed acceptance (confirm):** 100% detection of known causal mtDNA/nuclear variant(s); heteroplasmy within ‹±X%› of comparator; swaps caught on the mismatch controls; no missed causal variant.
 - **Edge cases:** low heteroplasmy near the limit of detection, homoplasmy, mtDNA coverage gaps, nuclear–mtDNA dual findings, single- vs multi-tissue heteroplasmy.
-- **🔲 INPUT NEEDED:** validation N, comparator method(s), heteroplasmy-agreement tolerance, and tissue scope.
+- **🔲 INPUT NEEDED:** validation N, comparator method(s), heteroplasmy-agreement tolerance, and which tissues are validated.
 
 ## 4. Reproducibility, robustness & cross-cutting checks
 - **Reproducibility/repeatability:** same validated input → identical signed report (content-hash equality); re-analysis by a second analyst (inter-operator) on a subset.
 - **Robustness:** behavior on degraded inputs (low coverage, missing tracks, malformed VCF) — should fail safe / warn, not silently mis-call.
-- **Analytical baseline (optional, recommended):** for SNV/indel handling, a concordance run against a reference material (e.g. **GIAB / Coriell / GeT-RM**) processed through the validated upstream pipeline, to characterize CoGA's variant-handling independently of case-mix.
+- **Analytical baseline:** the GIAB run of §2 (C6).
 - **Software V&V cross-reference:** unit/integration/system tests and requirements traceability are in [TF-09](TF-09-verification-validation.md); this plan covers the *clinical/analytical concordance* layer above them.
 
 ## 5. Acceptance, discordance handling & reporting
@@ -150,8 +149,9 @@ TF-18 change control, which defines when re-validation is required.
 ## 7. Mapping to the CMGG report form (H11.1-F11)
 
 Each clinical application's evaluation is reported **per method/analysis** on **template
-H11.1-F11** (v6, 05-01-2023), filename `VAL-Pxx jaartal` (xx follows the analysis-protocol
-code H10.1-Pxx), signed by the laboratoriumverantwoordelijke(n) and kwaliteitsbeheerder.
+H11.1-F11** (v6, 05-01-2023) as report `VAL-Pxx` (xx follows the analysis-protocol code
+H10.1-Pxx; the form adds the year to the file name), signed by the
+laboratoriumverantwoordelijke(n) and kwaliteitsbeheerder.
 CoGA's qualitative/interpretive outputs map onto the form's performance vocabulary as follows:
 
 | H11.1-F11 parameter | For CoGA |
@@ -160,7 +160,7 @@ CoGA's qualitative/interpretive outputs map onto the form's performance vocabula
 | **Analytical performance** — qualitative: **analytische sensitiviteit / specificiteit** | = **PPA / NPA** vs the validated comparator (§2–§3). Genetic-test target: **~100% sensitivity** (no missed at-risk/causal call) — CoGA's safety-critical error in each §3 protocol. |
 | Trueness / precision (quantitative) | NIPT FF bias (Bland–Altman) + repeatability; mtDNA heteroplasmy agreement (§3.5). |
 | Herhaalbaarheid / reproduceerbaarheid | Content-hash reproducibility + inter-operator subset (§4). |
-| Vergelijking met een 2e onafhankelijke methode; controlemateriaal; **3/n regel**; EKE/interlab | The comparator assay is the independent method; reference materials (GIAB/GeT-RM, §4); estimate sens/spec with the **3/n rule** when control counts are small; EKE/interlab where available. |
+| Vergelijking met een 2e onafhankelijke methode; controlemateriaal; **3/n regel**; EKE/interlab | The comparator assay is the independent method; reference material (the GIAB baseline, §2); estimate sens/spec with the **3/n rule** when control counts are small; EKE/interlab where available. |
 | Robuustheid, detectielimiet | Degraded-input fail-safe (REQ-PERF-003); >10 Mb SV / aneuploidy / heteroplasmy detection limits (§3.2, §3.5). |
 | Risico op staalverwisseling; subjectiviteit | Sample QC (sample-swap, TF-06 H4); inter-operator/blind re-read on a subset (§4). |
 | **Clinical performance** — diagnostische sens/spec, PPV/NPV, likelihood ratio, verwachte waarden | The signed-out clinical conclusion vs the established diagnosis (§3); for new applications, accumulate via PMPF (§6). |
