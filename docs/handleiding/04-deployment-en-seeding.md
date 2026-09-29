@@ -1,225 +1,146 @@
 # 4. Initiële deployment & seeding
 
-Dit hoofdstuk beschrijft hoe CoGA vanaf een leeg systeem naar een draaiend platform komt: hoe de databankstructuren worden aangemaakt, hoe de eerste beheerder (admin) en alle referentiedata (soort/assembly GRCh38, cytobanden, genen, ingebouwde tracks, HPO) worden "geseed" (initieel gevuld), en in welke volgorde `backend/app/main.py` dat allemaal orchestreert bij het opstarten. Zowel de lokale Docker-stack als de productie-uitrol op Google Cloud met Terraform komen aan bod. De rode draad blijft veiligheid en traceerbaarheid: welke stap wordt afgedwongen, waar in de code, en hoe reproduceerbaarheid gewaarborgd is.
+Dit hoofdstuk beschrijft hoe CoGA van een leeg systeem tot een draaiend platform komt: hoe de databankstructuren ontstaan, hoe de eerste beheerder en de referentiedata worden *geseed* (voor het eerst gevuld), en in welke volgorde de backend dat bij het opstarten doet. Zowel de Docker-opstelling als de uitrol op Google Cloud met Terraform komen aan bod. De stap-voor-stapgidsen staan in het Engels: `docs/development.md` (lokaal) en `docs/deployment-gcp.md` (Google Cloud).
 
-> Kort woordenlijstje dat hieronder terugkomt: een **container** is een geïsoleerd draaiend softwarepakket; **Docker Compose** start meerdere containers samen vanuit één beschrijvingsbestand; een **DSN** (Data Source Name) is de verbindingsstring naar een databank; **DDL** (Data Definition Language) is SQL die tabellen *aanmaakt/wijzigt* (`CREATE TABLE`, `ALTER TABLE`); **idempotent** betekent dat een handeling veilig meermaals kan draaien zonder extra effect; **seeding** is het initieel vullen van een lege databank met basis- of referentiegegevens.
+Een paar begrippen. Een **container** is een afgeschermd draaiend softwarepakket; **Docker Compose** start meerdere containers samen vanuit één bestand. **DDL** is SQL die tabellen aanmaakt of wijzigt. **Idempotent** betekent: veilig meermaals uit te voeren zonder extra effect.
 
 ## Van nul naar een draaiende stack
 
-CoGA bestaat uit vier onderdelen die als aparte containers draaien: een PostgreSQL-databank (metadata en reviewstatus), een ClickHouse-databank (de grootschalige variantopslag), de FastAPI-backend en de React-frontend. Lokaal worden die samengebracht door `docker-compose.yml`.
+CoGA bestaat uit vier containers: Postgres (metadata en reviewtoestand), ClickHouse (de variantopslag), de FastAPI-backend en de React-frontend.
 
-### De productie-stijl lokale stack
+### De Docker-opstelling
 
-`docker-compose.yml` definieert de vier `services` (`postgres`, `clickhouse`, `backend`, `frontend`). Een paar bewuste keuzes zijn hier relevant voor traceerbaarheid en robuustheid:
+`docker-compose.yml` beschrijft de vier diensten. Enkele keuzes zijn belangrijk voor traceerbaarheid en robuustheid:
 
-- **Vastgepinde image-versies.** Zowel `postgres:16` als `clickhouse/clickhouse-server:26.8` zijn niet alleen met een tag maar met een **digest** (`@sha256:...`) vastgelegd. Zo haalt elke machine exact hetzelfde image binnen — een pijler onder reproduceerbaarheid.
-- **Health checks + startvolgorde.** De `backend` start pas nadat Postgres en ClickHouse `service_healthy` zijn (`depends_on`), en de `frontend` pas nadat de backend gezond is. De backend-healthcheck (een `python`-oproep naar `/api/health`, want er zit geen `curl` in het image) krijgt een ruime `start_period: 90s` omdat het opstarten het schema aanmaakt en de referentiedata seedt (zie verderop).
-- **Nette afsluiting van ClickHouse.** De `clickhouse`-service krijgt `stop_grace_period: 5m`. Een commentaarregel in het bestand legt uit waarom: bij een te korte afsluittermijn kan ClickHouse midden in een flush/merge worden gedood (`SIGKILL`), wat tot corrupte data-onderdelen ("parts") leidt bij de volgende boot.
-- **Build-identiteit als build-arg.** De backend-image wordt gebouwd met `APP_VERSION` en `GIT_SHA` als build-args (onder `backend.build.args`). `.env.example` waarschuwt expliciet dat je die *niet* in `.env` mag zetten: `docker-compose`'s `env_file: .env` zou dan de in het image ingebakken versie overschrijven en zo de versie *vervalsen* die in elk ondertekend rapport wordt bevroren.
+- **Vastgezette images.** De databank-images zijn niet alleen met een tag maar met een **digest** (`@sha256:…`) vastgelegd, zodat elke machine exact hetzelfde image gebruikt.
+- **Gezondheid en volgorde.** De backend start pas als Postgres en ClickHouse gezond zijn, de frontend pas als de backend gezond is. De backend krijgt ruim de tijd, omdat hij bij het opstarten het schema toepast en referentiedata laadt.
+- **Rustig afsluiten.** ClickHouse krijgt een ruime afsluittermijn. Wordt het midden in een schrijfactie afgebroken, dan kunnen dataonderdelen beschadigd raken.
+- **Build-identiteit.** De backend-image krijgt `APP_VERSION` en `GIT_SHA` mee bij het bouwen. `.env.example` waarschuwt dat je die niet in `.env` zet: anders overschrijft de runtime de ingebakken waarde en vervalst hij de versie die in elk ondertekend rapport wordt bevroren.
 
-**Waar in de code:** `docker-compose.yml`; build-args gedefinieerd onder `backend.build.args`; de waarschuwing staat in `.env.example`.
+**Waar in de code:** `docker-compose.yml`; de waarschuwing in `.env.example`.
 
-### De ontwikkel-stack (dev overlay)
+### De ontwikkelopstelling
 
-Voor lokale ontwikkeling wordt een overlay-bestand toegevoegd bovenop de basis:
+Voor ontwikkeling komt een tweede bestand bovenop de basis:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 ```
 
-`docker-compose.dev.yml` zet `APP_ENV: development`, bouwt de images met het `dev`-doel (`target: dev`), koppelt de broncode als "bind mount" (`./backend:/app`, `./frontend:/app`, zodat wijzigingen live doorwerken) en start de backend met `uvicorn app.main:app --reload` en de frontend met de Vite-dev-server (`npm run dev`). Belangrijk detail: `APP_ENV: development` schakelt de strenge secret-controle uit (zie hieronder), zodat je lokaal met de placeholder-waarden mag werken.
+`docker-compose.dev.yml` zet `APP_ENV=development`, koppelt de broncode in de containers (zodat wijzigingen meteen doorwerken) en start de backend met automatisch herladen en de frontend met de Vite-ontwikkelserver. `APP_ENV=development` schakelt ook de controle op zwakke geheimen uit, zodat je lokaal met de placeholders van `.env.example` kunt werken. Buiten ontwikkeling weigert de backend dan te starten; de volledige regel staat in [hoofdstuk 2](02-beveiliging-rollen-rechten.md#weigering-te-starten-met-zwakke-geheimen).
 
-**Waar in de code:** `docker-compose.dev.yml`.
+**Waar in de code:** `docker-compose.dev.yml`; de controle in `validate_security_defaults` in `backend/app/core/config.py`.
 
-### De backend weigert te starten met zwakke secrets
+## De databankstructuren aanmaken
 
-Dit is een centrale veiligheidsmaatregel. Alle instellingen worden geladen uit omgevingsvariabelen door de klasse `Settings` in `backend/app/core/config.py`. Na het laden draait de validator `validate_security_defaults`. Buiten ontwikkeling/test (dus overal waar `APP_ENV` niet in `{dev, development, local, test}` valt — bepaald door de property `is_development`) **weigert de applicatie te starten** wanneer nog placeholder-waarden actief zijn:
+### Postgres
 
-- `SECRET_KEY` gelijk aan `secret`/`change-me`
-- `POSTGRES_PASSWORD` of `ADMIN_PASSWORD` gelijk aan `admin`/`change-me`
-- de combinatie `ADMIN_USERNAME=admin` met een zwak `ADMIN_PASSWORD`
+Het Postgres-schema staat in vijf SQL-bestanden (`01_access.sql` t/m `05_grants.sql`, hoofdstuk 3). Bij het toepassen leest de backend ze in naamvolgorde, splitst elk bestand in losse statements en voert alles uit in één transactie. De splitser houdt rekening met *dollar-quotes* (`$$ … $$`), zodat een puntkomma in een triggerfunctie een statement niet halverwege afbreekt. Alle statements zijn idempotent: het schema opnieuw toepassen is veilig.
 
-De validator gooit dan een `ValueError` met de boodschap *"Refusing to start outside development/test with insecure default credentials"*. Dezelfde validator verbiedt ook `AUDIT_LOG_DROP_ALLOWED=true` in productie (accountability-events mogen nooit stilletjes wegvallen). Een tweede, apart draaiende validator, `validate_cors_origin_regex`, controleert dat `CORS_ORIGIN_REGEX` volledig verankerd is (begint met `^` en eindigt met `$`), zodat een kwaadaardige origin niet als deelstring kan matchen — belangrijk omdat de CORS-configuratie `allow_credentials=True` gebruikt.
+**Waar in de code:** `init_postgres_schema` in `backend/app/core/postgres.py`.
 
-Het `.env.example`-bestand levert de sjabloonwaarden (met `APP_ENV=production` en overal `change-me`), precies om af te dwingen dat je die vóór een echte uitrol vervangt.
+### ClickHouse
 
-**Waar in de code:** `Settings.validate_security_defaults` en `Settings.validate_cors_origin_regex` in `backend/app/core/config.py`; sjabloon in `.env.example`.
+Het ClickHouse-bestand maakt alleen de databank aan; de databanknaam komt uit de instelling `CLICKHOUSE_DATABASE`. De variant- en track-tabellen per assembly maakt de backend pas aan wanneer ze voor het eerst nodig zijn (hoofdstuk 3).
 
-## De databankstructuren aanmaken bij opstart
+**Waar in de code:** `init_clickhouse_schema` in `backend/app/core/clickhouse.py`.
 
-### Postgres: genummerde schemabestanden, in volgorde
+### Twee manieren om het schema toe te passen
 
-De Postgres-structuur zit niet in code maar in vijf SQL-baseline-bestanden onder `backend/db/schema/postgres/`, `01_access.sql` tot en met `05_grants.sql` (sinds #373; daarvoor 43 genummerde migratiebestanden). De functie `init_postgres_schema` (in `backend/app/core/postgres.py`) haalt die bestanden op via de helper `_schema_files`, die ze **numeriek/alfabetisch sorteert** (`sorted(schema_dir.glob("*.sql"))`), splitst elk bestand in losse statements en voert ze uit binnen één transactie.
+Wie het schema mag aanmaken, is bewust gescheiden van wie de app draait (de databankrechten uit hoofdstuk 2):
 
-Twee subtiliteiten:
+| Instelling | Wie voert de DDL uit | Wanneer |
+| --- | --- | --- |
+| `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=true` (standaard) | De app zelf, bij het opstarten, als eigenaar van de tabellen | De huidige opstelling met één databanklogin |
+| `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` | Een aparte stap (`backend/app/db_migrate.py`) als eigenaar; de app draait daarna als de beperkte rol `coga_app` | Wanneer de runtime geen DDL mag uitvoeren |
 
-- De splitser `_split_sql_script` is bewust "dollar-quote-bewust": een puntkomma binnen een PL/pgSQL-functielichaam (`$$ ... $$` of `$tag$ ... $tag$`, bijvoorbeeld in de append-only audit-trigger) breekt een statement niet voortijdig af.
-- Alle DDL in de baseline-bestanden gebruikt `CREATE TABLE IF NOT EXISTS`, dus het opnieuw draaien is idempotent — het schema wordt bij élke opstart opnieuw toegepast en dat is veilig.
+Beide paden gebruiken dezelfde functies, dus er is één bron van waarheid voor het schema. Is `POSTGRES_APP_PASSWORD` ingesteld, dan zet de migratiestap ook de login van `coga_app` aan. Het wachtwoord gaat daarbij niet in klare tekst naar de databank: de stap stuurt een SCRAM-SHA-256-afgeleide, zoals `\password` in `psql` doet, en het wachtwoord komt in geen enkele logregel. Op Google Cloud draait deze stap als de Cloud Run-job `coga-db-migrate` (`terraform/migrate.tf`), zodra `db_runtime_role = "coga_app"`. ClickHouse volgt altijd het opstartpad van de app.
 
-Het eerste bestand `01_access.sql` legt de kern vast: `species`, `assemblies` en `chromosomes`, plus `users`, `projects` en `project_users`; `families`, `samples`, `genes` en `gene_info` volgen in `02_reference.sql` en `03_assay.sql`. (De databankstructuren zelf worden in detail behandeld in [hoofdstuk 3](03-databankstructuren.md).)
+**Waar in de code:** `backend/app/db_migrate.py`; de instellingen in `backend/app/core/config.py`; de procedure in `docs/db-runtime-role-runbook.md`.
 
-**Waar in de code:** `init_postgres_schema`, `_schema_files` en `_split_sql_script` in `backend/app/core/postgres.py`; de SQL-bronbestanden in `backend/db/schema/postgres/`.
+## Seeding: beheerder en referentiedata
 
-### ClickHouse: het variant-schema
+### De eerste beheerder
 
-De ClickHouse-structuur werkt analoog via `init_clickhouse_schema` in `backend/app/core/clickhouse.py`, die het bestand onder `backend/db/schema/clickhouse/` (momenteel enkel `001_coga_variant_storage.sql`) inleest. Twee verschillen met het Postgres-pad: de splitser hier is eenvoudig (splitsen op `;`, geen dollar-quote-logica nodig), en de databanknaam is niet hard gecodeerd. De helper `_render_sql` vervangt `CREATE DATABASE IF NOT EXISTS coga` en de `coga.`-tabelverwijzingen door de geconfigureerde `CLICKHOUSE_DATABASE`, zodat dezelfde SQL tegen een aangepaste databanknaam kan draaien.
+`init_postgres_admin_user` maakt de eerste beheerder aan uit `ADMIN_USERNAME`, `ADMIN_PASSWORD` en `ADMIN_EMAIL`, met de rol `admin`. Bestaat die gebruiker al, dan doet de functie niets. Het wachtwoord wordt nooit in klare tekst bewaard: de backend hasht het met bcrypt, dat hij rechtstreeks aanroept (hoofdstuk 5). De functie werkt ook onder de beperkte rol `coga_app`, die bewust `INSERT`-recht op `users` houdt.
 
-**Waar in de code:** `init_clickhouse_schema` en `_render_sql` in `backend/app/core/clickhouse.py`.
+**Waar in de code:** `init_postgres_admin_user` in `backend/app/db_migrate.py`.
 
-### Twee migratiepaden: in-proces of out-of-band
+### Het referentiegenoom GRCh38
 
-Er is een bewuste scheiding tussen wie het schema mag aanmaken en wie de app draait, in het kader van de databank-privilegescheiding (intern aangeduid als P1-3/P1-4):
+Zonder soort en assembly is er geen coördinatenstelsel voor varianten. Bij het opstarten zorgt de backend dat *Homo sapiens* met assembly **GRCh38** bestaat, met cytobanden en genen. Ontbreekt een van beide, dan haalt hij ze op: cytobanden bij UCSC, genen uit de GENCODE-annotatie (een GTF-bestand, via `REFERENCE_GENCODE_GTF_URL`). Lukt GENCODE niet, dan valt hij terug op een UCSC-gentabel en legt hij dat vast. Mislukt de hele download, dan maakt hij alleen de soort en de assembly aan, zodat het platform bruikbaar blijft en de genen later kunnen worden geïmporteerd. Een strikte controle op de genoomnaam voorkomt dat die in een download-URL kan worden misbruikt (*server-side request forgery*). `REFERENCE_BOOTSTRAP_ENABLED=false` zet dit alles uit.
 
-| Instelling | Wie draait de DDL | Wanneer gebruiken |
-|---|---|---|
-| `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=true` (standaard) | De app zelf, bootend als de tabel-**eigenaar** | Huidige single-DSN-uitrol |
-| `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` | Een aparte deploy-stap `python -m backend.app.db_migrate` als eigenaar; de app boot daarna als de beperkte rol `coga_app` | Wanneer de runtime-rol geen DDL mag draaien |
+**T2T-CHM13v2.0** komt er optioneel bij als tweede assembly (`REFERENCE_BOOTSTRAP_T2T=true`; standaard uit). Die annotatie is armer: UCSC's RefSeq-afgeleide GTF levert coördinaten, maar geen biotypes, Ensembl-id's of MANE-labels, en er is geen cytobandtabel. Mislukt die import, dan is dat nooit fataal.
 
-Het bestand `backend/app/db_migrate.py` bevat de eigenaar-bevoorrechte helft: `run_schema_migrations` roept `wait_for_postgres`, `init_postgres_schema` en `init_postgres_admin_user` aan. Beide paden gebruiken **dezelfde** helperfuncties, dus er is één bron van waarheid voor het schema. ClickHouse blijft altijd bij het app-opstartpad, omdat het met eigen admin-credentials verbindt en geen `coga_app`-equivalent kent.
+**Waar in de code:** `backend/app/services/reference_source_service.py` (`ensure_human_grch38_reference_on_startup`, `ensure_human_t2t_reference_on_startup`).
 
-Is `POSTGRES_APP_PASSWORD` gezet, dan zet `run_schema_migrations` na het schema ook de login van `coga_app` aan (`enable_app_role_login`). Het wachtwoord zelf gaat daarbij niet naar de server: `scram_sha256_verifier` berekent eerst de SCRAM-SHA-256-verifier, zoals `\password` in `psql` dat doet, en Postgres zet die zelf tussen aanhalingstekens in `ALTER ROLE` (`quote_literal`). Er wordt dus niets in SQL-tekst geplakt, en het klare wachtwoord komt in geen enkele logregel terecht. Op Google Cloud draait dit pad als de Cloud Run-job `coga-db-migrate` (`terraform/migrate.tf`), zodra `db_runtime_role = "coga_app"`.
+### Ingebouwde tracks en de repeatcatalogus
 
-De docstring bovenaan `db_migrate.py` en de commentaren in `main.py` verwijzen voor de gecoördineerde "flip" naar `docs/db-runtime-role-runbook.md`.
-
-**Waar in de code:** `run_schema_migrations`, `enable_app_role_login`, `scram_sha256_verifier` en `main()` in `backend/app/db_migrate.py`; de instellingen `postgres_run_schema_migrations_on_startup` en `postgres_app_password` in `backend/app/core/config.py`; de bewaking bij opstart in de `lifespan`-functie van `backend/app/main.py`; de Cloud Run-job in `terraform/migrate.tf`.
-
-## Seeding: admin, referentiegenoom en referentiedata
-
-### De eerste admin-gebruiker
-
-De functie `init_postgres_admin_user` (in `backend/app/db_migrate.py`) maakt de eerste beheerder aan. Ze is idempotent: eerst een `SELECT` op de tabel `users` met `settings.admin_username`, en als die al bestaat keert ze meteen terug. Anders voegt ze een rij toe met rol `'admin'`, uit de instellingen `ADMIN_USERNAME`, `ADMIN_PASSWORD` en `ADMIN_EMAIL`. Het wachtwoord wordt nooit in klare tekst opgeslagen: `get_password_hash` (uit `backend/app/dependencies.py`) hasht het met **bcrypt** via `passlib` (`CryptContext(schemes=["bcrypt"])`) vóór de insert.
-
-Deze functie is zo geschreven dat ze ook werkt onder de beperkte rol `coga_app`, want die behoudt bewust `INSERT`-recht op `users` — de admin-seed werkt dus ook wanneer de app niet als eigenaar boot.
-
-**Waar in de code:** `init_postgres_admin_user` in `backend/app/db_migrate.py`; hashing in `get_password_hash` (`backend/app/dependencies.py`); instellingen `admin_username/password/email` in `backend/app/core/config.py`.
-
-### Soort *Homo sapiens* + assembly GRCh38 verzekeren
-
-Zonder een soort en een assembly is er geen coördinatenstelsel voor varianten. `ensure_human_grch38_reference_on_startup` (in `backend/app/services/reference_source_service.py`) garandeert dat *Homo sapiens* (taxon-id 9606, constante `HUMAN_GRCH38_TAX_ID`) met assembly **GRCh38 / hg38** bestaat, inclusief cytobanden en genen. De logica:
-
-1. Bestaat de GRCh38-assembly al mét cytobanden én genen? Dan niets doen (`_find_human_grch38_assembly` + `_assembly_dataset_count`).
-2. Anders haalt `import_reference_from_ucsc` de data op. Cytobanden komen van **UCSC**
-   (`_download_cytobands`; bestaat er geen cytoband-tabel voor het genoom, dan wordt uit de
-   chromosoomgroottes één band per chromosoom opgebouwd). Genen komen bij voorkeur uit een
-   **GTF-annotatie** (`_download_gencode_genes`): GENCODE voor GRCh38, de RefSeq-afgeleide
-   `hs1.ncbiRefSeq.gtf` voor T2T-CHM13. Lukt dat niet — of gaat het om een ander genoom — dan valt
-   het terug op de oude UCSC-gentabellen (`_download_genes`, dat achtereenvolgens `ncbiRefSeqCurated`,
-   `ncbiRefSeq`, `refGene` en `ensGene` probeert). De soort en assembly worden aangemaakt via
-   `_get_or_create_species` en `_get_or_create_assembly`.
-
-   GENCODE levert wat een UCSC-track niet heeft: echte biotypes, Ensembl- én HGNC-identifiers en
-   MANE-labels per transcript. De rij-vorm blijft ongewijzigd (één rij per transcript, met het
-   transcript-accession in `gene_id`), zodat de zestien consumenten van de `genes`-tabel niets
-   merken; alleen de inhoud van de rijen verandert. Elke rij draagt de bron waar hij vandaan komt
-   (`gencode` of `ucsc ncbiRefSeq`), want die twee annotaties zeggen niet hetzelfde.
-
-3. **T2T-CHM13v2.0** wordt optioneel als tweede assembly geïmporteerd
-   (`ensure_human_t2t_reference_on_startup`, aan te zetten met `REFERENCE_BOOTSTRAP_T2T=true`).
-   Standaard staat dat uit: een tweede assembly verdubbelt ruwweg de referentie-footprint. De
-   annotatie is bovendien armer dan die van GRCh38 — coördinaten wel, maar geen biotypes,
-   Ensembl-identifiers of MANE-labels — en GENCODE publiceert geen CHM13-uitgave. Mislukt deze
-   import, dan is dat nooit fataal: GRCh38 is de primaire assembly en moet hoe dan ook opkomen.
-3. Mislukt de download, dan valt de code terug op `ensure_human_grch38_species_assembly`: een lege "schaal" (soort + assembly zonder data), zodat het platform toch bruikbaar blijft en genen later handmatig geïmporteerd kunnen worden.
-
-Er zit een SSRF-hardening (server-side request forgery: voorkomen dat een aanvaller de server ongewenste URL's laat oproepen) in `_safe_ucsc_genome`: de genoom-identifier wordt tegen een strikte regex (`_UCSC_GENOME_RE.fullmatch`) gevalideerd voordat hij in een download-URL wordt geïnterpoleerd; bij een ongeldige waarde volgt een `HTTPException`. De hele bootstrap kan uitgezet worden met `REFERENCE_BOOTSTRAP_ENABLED=false` (instelling `reference_bootstrap_enabled`).
-
-**Waar in de code:** `ensure_human_grch38_reference_on_startup`, `import_reference_from_ucsc`, `_download_cytobands`, `_download_genes`, `_safe_ucsc_genome` in `backend/app/services/reference_source_service.py`.
-
-### Ingebouwde hg38-tracks en de repeat-catalogus
-
-Twee andere seed-stappen vullen referentietracks die op de assembly hangen:
-
-- `seed_builtin_reference_tracks` (in `backend/app/services/reference_metadata_service.py`) laadt klinische CNV-syndromen en segmentale duplicaties uit meegeleverde bestanden (paden uit `REFERENCE_CLINICAL_CNVS_PATH` en `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH`, standaard onder `/data/ref-data`, met een repo-fallbackpad). Per datasettype wordt eerst gecontroleerd of er al rijen bestaan (`_assembly_dataset_count`), zodat het idempotent is.
-- `seed_builtin_repeat_catalog` (in `backend/app/services/repeat_expansion_pg.py`) seedt de repeat-loci-catalogus: eerst een ingebakken lijst (`BUILTIN_REPEAT_LOCI`), daarna optioneel de STRchive-loci uit `TRGT_STRCHIVE_LOCI_PATH`.
+- **Klinische CNV's en segmentale duplicaties** worden geladen uit bestanden (`REFERENCE_CLINICAL_CNVS_PATH` en `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH`), elk alleen als die dataset voor de assembly nog leeg is. Het standaardbestand voor de klinische CNV's zit niet in de repository. Zonder dat bestand start CoGA zonder klinische CNV's, en dat meldt het niet apart; een beheerder kan de kennisbank dan opbouwen op de pagina Referentiedata (hoofdstuk 15).
+- **De repeatcatalogus** combineert een ingebouwde lijst loci met de STRchive-loci (`data/ref-data/STRchive-loci.json`).
 
 **Waar in de code:** `seed_builtin_reference_tracks` in `backend/app/services/reference_metadata_service.py`; `seed_builtin_repeat_catalog` in `backend/app/services/repeat_expansion_pg.py`.
 
-### HPO-ontologie
+### De HPO-ontologie
 
-`ensure_hpo_ontology_on_startup` (in `backend/app/services/hpo_service.py`) importeert de HPO-ontologie (Human Phenotype Ontology, gebruikt voor fenotype-gedreven prioritisatie — zie [hoofdstuk 12](12-hpo-monarch-prioritisatie.md)). Ze slaat over als er al termen in de databank staan, zoekt anders het `hp.obo`-bestand (standaard `/data/ref-data/hpo/hp.obo`) en downloadt het alleen indien nodig en toegestaan (`HPO_DOWNLOAD_IF_MISSING`). Bij het importeren worden `release_version` en `release_date` mee vastgelegd — belangrijk voor traceerbaarheid van welke ontologieversie een analyse gebruikte.
+Staan er nog geen HPO-termen in de databank, dan importeert de backend de ontologie uit het bestand dat in de repository is vastgezet (`data/ref-data/hpo/hp.obo`). Alleen als dat ontbreekt, downloadt hij het (`HPO_DOWNLOAD_IF_MISSING`), optioneel gecontroleerd tegen een vaste SHA-256 (`HPO_ONTOLOGY_SHA256`). De release en de datum van de ontologie worden mee opgeslagen, zodat later te zien is welke versie een analyse gebruikte (hoofdstuk 12).
 
-**Waar in de code:** `ensure_hpo_ontology_on_startup` in `backend/app/services/hpo_service.py`; instellingen `hpo_ontology_path/url`, `hpo_download_if_missing`, `hpo_bootstrap_on_startup` in `backend/app/core/config.py`.
+**Waar in de code:** `ensure_hpo_ontology_on_startup` in `backend/app/services/hpo_service.py`.
 
-### dbNSFP-gebaseerde gene-reference: bootstrap + refresh-worker
+### De gen-referentie (dbNSFP)
 
-De verrijkte gen-informatie (aliassen, Ensembl/NCBI-ids, samenvattingen) wordt niet synchroon bij opstart geladen, maar via een achtergrond-**job** (een taak die los van het verzoek draait). Bij opstart bekijkt `queue_startup_gene_reference_refresh_if_needed` (in `backend/app/services/gene_info_jobs_pg.py`) of een eerste synchronisatie nodig is: alleen wanneer `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP=true`, het lokale dbNSFP-genbestand (`GENE_REFERENCE_DBNSFP_GENE_PATH`, standaard `/data/ref-data/dbNSFP5.4_gene.gz`) aanwezig is, er GRCh38-genen zijn, en de `gene_info`-tabel nog leeg is. Zo ja, wordt een job in de wachtrij (tabel `gene_info_refresh_jobs`) gezet.
+De verrijkte geninformatie (aliassen, id's, constraint, ziekteassociaties) wordt niet tijdens het opstarten geladen, maar door een achtergrondjob. Bij het opstarten zet de backend alleen een eerste job in de wachtrij, als dat aanstaat (`GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`), het lokale dbNSFP-genbestand aanwezig is, er GRCh38-genen zijn en de cache `gene_info` nog leeg is. Een aparte worker voert de job uit; hoofdstuk 13 beschrijft hoe.
 
-Een aparte achtergrondtaak, `gene_reference_refresh_worker`, pikt die job op. Het claimen gebeurt concurrency-veilig met `FOR UPDATE SKIP LOCKED` en met een heartbeat, zodat een vastgelopen job na `GENE_REFERENCE_STALE_HEARTBEAT` (vijf minuten) opnieuw kan worden geclaimd. De worker verrijkt per gensymbool en commit voortgang periodiek (om de ~100 symbolen of ~30 s, constanten `GENE_REFERENCE_PROGRESS_COMMIT_SYMBOLS`/`_SECONDS`), wat de databank ontlast.
+**Waar in de code:** `backend/app/services/gene_info_jobs_pg.py`.
 
-**Waar in de code:** `queue_startup_gene_reference_refresh_if_needed`, `gene_reference_refresh_worker`, `claim_next_gene_reference_refresh_job` in `backend/app/services/gene_info_jobs_pg.py`. (De Gene Explorer die deze data toont, staat in [hoofdstuk 13](13-gene-explorer.md).)
+## De opstartvolgorde
 
-## De opstartsequentie in `main.py`, stap voor stap
+FastAPI kent een *lifespan*: een functie die één keer draait bij het opstarten en één keer bij het afsluiten. In `backend/app/main.py` doet die, in deze volgorde:
 
-FastAPI kent een "lifespan": een functie die precies één keer draait bij het opstarten (vóór de `yield`) en één keer bij het afsluiten (na de `yield`). In `backend/app/main.py` orchestreert de `lifespan`-functie de hele bootstrap in deze volgorde:
+1. Wachten tot Postgres bereikbaar is.
+2. **Alleen als** `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` aanstaat: het Postgres-schema toepassen en de eerste beheerder aanmaken.
+3. De achtergrondschrijvers voor de auditlog en de UI-events starten, zodat alles daarna al gelogd wordt.
+4. In één Postgres-sessie: de repeatcatalogus seeden, GRCh38 verzekeren, optioneel T2T-CHM13 importeren, de HPO-ontologie laden, de ingebouwde tracks seeden en zo nodig de eerste gen-referentiejob in de wachtrij zetten.
+5. Wachten tot ClickHouse bereikbaar is en het ClickHouse-schema toepassen.
+6. De integriteitsbewaking van ClickHouse starten: kort na het opstarten en daarna op een vast interval controleert die de varianttabellen, en bij beschadiging logt ze een fout (hoofdstuk 11).
+7. De worker voor de gen-referentie en de workers voor de pakketimport starten (aantal via `FAMILY_IMPORT_WORKER_COUNT`).
 
-1. `wait_for_postgres()` — wacht (met herhaalpogingen) tot Postgres bereikbaar is.
-2. **Alleen als** `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` waar is: `init_postgres_schema()` en `init_postgres_admin_user()`. Draait de app als beperkte rol `coga_app`, dan wordt deze DDL overgeslagen (die is dan al out-of-band gedraaid).
-3. `start_audit_log_worker()` en `start_ui_event_worker()` — start de asynchrone schrijvers voor het audit-logboek en de UI-events.
-4. Binnen één Postgres-sessie, op volgorde: `seed_builtin_repeat_catalog` → `ensure_human_grch38_reference_on_startup` → `ensure_hpo_ontology_on_startup` → `seed_builtin_reference_tracks` → `queue_startup_gene_reference_refresh_if_needed`. Merk op dat de referentietracks *na* het verzekeren van de assembly komen (ze hangen eraan) en de gene-refresh *na* het laden van de genen (die heeft ze nodig).
-5. `wait_for_clickhouse()` en `init_clickhouse_schema()` — pas nu wordt ClickHouse geïnitialiseerd.
-6. `start_clickhouse_integrity_monitor()` — start de periodieke `CHECK TABLE`-bewaking die corruptie proactief detecteert.
-7. `gene_reference_refresh_worker` en één of meer `family_package_import_worker`-taken (aantal via `FAMILY_IMPORT_WORKER_COUNT`) worden als achtergrondtaken gestart.
+Bij het afsluiten stopt de backend al deze workers netjes en sluit hij de databankverbindingen.
 
-Na de `yield` (bij afsluiten) worden al deze workers netjes gestopt en de Postgres- en ClickHouse-verbindingen gesloten.
+**Waar in de code:** de functie `lifespan` in `backend/app/main.py`.
 
-Twee hardening-details in hetzelfde bestand: `_docs_kwargs` schakelt de interactieve API-docs (`/docs`, `/redoc`, `/openapi.json`) uit buiten ontwikkeling (schema-disclosure-hardening), en de `security_headers_middleware` wordt als laatste geregistreerd zodat de hardening-headers als buitenste laag op elke response terechtkomen.
+## Google Cloud met Terraform
 
-**Waar in de code:** `lifespan` in `backend/app/main.py`.
+De map `terraform/` bouwt één CoGA-omgeving op in een Google Cloud-project. Op hoofdlijnen:
 
-## GCP/Terraform: de productie-uitrol op hoofdlijnen
+- **Netwerk en opslag.** Een privé-netwerk zonder publieke IP-adressen voor de databanken; Cloud SQL (Postgres) en een ClickHouse-VM met versleutelde schijven en dagelijkse snapshots; opslagbuckets voor de familiedata (alleen-lezen voor de app) en de referentiedata. Alles is versleuteld met een door de klant beheerde sleutel (CMEK). Een optionele blokkade van uitgaand verkeer voor de ClickHouse-VM (`clickhouse_restrict_egress`, standaard uit) staat in `terraform/egress.tf`.
+- **Toepassing.** Backend en frontend draaien op Cloud Run en zijn alleen bereikbaar via de externe load balancer, die TLS afhandelt en `/api` naar de backend stuurt. Cloud Armor (standaard aan) voegt een webfirewall, DDoS-bescherming, rate limiting per IP en een optionele lijst van toegelaten IP-bereiken toe. De job `coga-db-migrate` (`terraform/migrate.tf`) past het schema toe wanneer de app als `coga_app` draait.
+- **Wat Terraform niet doet.** De CMEK-sleutel, de serviceaccounts en het inschakelen van de Google-API's maakt deze configuratie niet zelf aan; ze verwijst er alleen naar. Bij CMGG levert de centrale infra-repo ze (sjabloon: `terraform/main-repo-reference/coga-prerequisites.tf.example`). Zo kan de CoGA-uitrol zichzelf geen extra rechten geven. Voor een losstaand project beschrijft `docs/deployment-gcp.md` die stappen (§5.2 en §5.4).
+- **Geheimen.** Terraform maakt alleen de *containers* in Secret Manager aan (`coga-secret-key`, `coga-integrity-anchor-key`, `coga-admin-password`, `coga-postgres-password`, `coga-clickhouse-password`, `coga-postgres-app-password`). De waarden voeg je apart toe (`docs/deployment-gcp.md` §5.5), zodat ze nooit in de Terraform-state belanden. Ze moeten de regel uit hoofdstuk 2 halen: `SECRET_KEY` telt minstens 32 tekens, en de ankersleutel is de base64 van precies 32 willekeurige bytes (`openssl rand -base64 32 | tr -d '\n'`). Het JWT-geheim en de ankersleutel moeten verschillende waarden zijn; dat is een eis uit de uitrolgids, de code controleert het niet.
+- **De weg van een verzoek.** Een gebruiker opent `https://coga.cmgg.be` → de load balancer (TLS en Cloud Armor) → Cloud Run → de backend bereikt Cloud SQL via de Cloud SQL-connector (versleuteld, over het privé-netwerk) en ClickHouse over HTTPS met een eigen certificaatautoriteit. De eerste login gebruikt `coga-admin` met het wachtwoord uit `coga-admin-password`.
 
-Voor de productie op Google Cloud beschrijft `docs/deployment-gcp.md` een volledige, stapsgewijze handleiding; de `terraform/`-map bevat de infrastructuur-als-code. Terraform bouwt één zelfstandige CoGA-omgeving op in een GCP-project. De `.tf`-bestanden zijn per onderwerp opgesplitst:
+Enkele IVDR-verplichtingen blijven procesmatig en vallen buiten de code, zoals change control en een bijgewerkte DPIA nu Google als verwerker optreedt (`docs/deployment-gcp.md` §13).
 
-| Bestand | Wat het opzet |
-|---|---|
-| `terraform/main.tf` | De Google-provider en de gedeelde `locals`: de namen van de Secret Manager-secrets, de *verwijzing* naar de CMEK-encryptiesleutel (`var.cmek_key_self_link`) en de e-mailadressen van de serviceaccounts |
-| `terraform/network.tf` | Het private netwerk (VPC), serverless VPC-connector, Cloud NAT en Private Google Access — de databanken krijgen geen publiek IP |
-| `terraform/database.tf` | Cloud SQL (PostgreSQL, `google_sql_database_instance`/`google_sql_user`) en de ClickHouse-VM (`google_compute_instance`) met CMEK-versleutelde boot- én data-disk en dagelijkse snapshots (`google_compute_resource_policy`) |
-| `terraform/cloudrun.tf` | De twee staatloze containers (backend, frontend) op Cloud Run, met `ingress = INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` zodat de `.run.app`-URL niet direct van buitenaf bereikbaar is |
-| `terraform/loadbalancer.tf` | De externe HTTPS-loadbalancer met Google-beheerd TLS-certificaat (`google_compute_managed_ssl_certificate`); `/api` + `/api/*` → backend, de rest → frontend |
-| `terraform/armor.tf` | Cloud Armor (edge-WAF, laag-7-DDoS-verdediging, per-IP rate-limiting en een CIDR-allowlist voor toegestane bronnen) |
-| `terraform/secrets.tf` | De Secret Manager-*containers* (waarden worden out-of-band toegevoegd) en de IAM-toegang (`secret_manager_secret_iam_member`) van de backend en de ClickHouse-VM daartoe |
-| `terraform/tls.tf` | Een lokaal gegenereerde private CA + ClickHouse-server-cert/key voor het backend↔ClickHouse-kanaal (HTTPS op 8443) |
-| `terraform/storage.tf` | GCS-buckets voor PHI (ruwe familiedata, read-only voor de app) en referentiedata, beide CMEK-versleuteld |
-| `terraform/scripts/` | Opstart-/certrotatie-/shutdown-scripts voor de ClickHouse-VM |
+**Waar in de code:** de `.tf`-bestanden in `terraform/`; de beknopte referentie in `terraform/README.md` en de volledige gids in `docs/deployment-gcp.md`.
 
-Belangrijk voor de auditor: de **CMEK-sleutel zelf**, de **serviceaccounts** en de **API-activering** worden *niet* door deze config aangemaakt. De serviceaccounts en hun IAM-rollen komen uit een centrale infra-repo (zie `terraform/main-repo-reference/`); deze config *refereert* ze alleen, zodat de CoGA-deploypijplijn geen rechten heeft om zichzelf privileges toe te kennen. De CMEK-sleutel en het inschakelen van de Google-API's zijn eenmalige bootstrap-stappen die in `docs/deployment-gcp.md` (§5.2 en §5.4) met `gcloud` gebeuren.
+## Veiligheid en traceerbaarheid bij de uitrol
 
-De secret-namen zijn `coga-secret-key`, `coga-integrity-anchor-key`, `coga-admin-password`, `coga-postgres-password` en `coga-clickhouse-password` (gedefinieerd in `terraform/main.tf`, `locals.secret_ids`). Terraform maakt bewust alleen de *containers*; de echte waarden voeg je apart toe met `gcloud secrets versions add` (zie `docs/deployment-gcp.md` §5.5), zodat geheimen nooit in de Terraform-state belanden.
-
-De datastroom: een clinicus bereikt `https://coga.cmgg.be` → de loadbalancer termineert TLS + Cloud Armor → padrouting naar backend/frontend Cloud Run → de backend praat over het private VPC met Cloud SQL (via de Cloud SQL Connector) en met ClickHouse (HTTPS op poort 8443). De eerste login gebruikt gebruiker `coga-admin` met het `coga-admin-password`-secret.
-
-**Waar in de code / docs:** `terraform/main.tf`, `terraform/secrets.tf`, `terraform/database.tf`, `terraform/network.tf` e.a.; volledige walkthrough in `docs/deployment-gcp.md`; beknopte referentie in `terraform/README.md`.
-
-## Veiligheid & traceerbaarheid bij deployment
-
-De uitrol is ontworpen rond een aantal expliciete waarborgen:
-
-- **Secret-beheer.** Lokaal weigert de backend te starten met placeholder-secrets (`validate_security_defaults`). In GCP komen alle geheimen uit Secret Manager en worden ze pas bij runtime in de container geïnjecteerd, niet in images of Terraform-state ingebakken. `SECRET_KEY` (JWT-ondertekening) en `INTEGRITY_ANCHOR_SIGNING_KEY` (integriteitsankers) moeten verschillende waarden hebben — een gedocumenteerde eis, waarbij de deploygids (§5.5) ze met aparte `openssl rand`-oproepen genereert.
-- **TLS naar de datastores.** Postgres via de Cloud SQL Python-Connector (mTLS, "verify-full"-graad over privé-IP; instelling `postgres_use_cloud_sql_connector`, connectorlogica `_cloud_sql_connect` in `backend/app/core/postgres.py`). ClickHouse over HTTPS met een private CA die de backend verifieert (`CLICKHOUSE_SECURE/VERIFY/CA_CERT`, afgehandeld in `_create_clickhouse_client` in `backend/app/core/clickhouse.py`). Encryptie-at-rest via CMEK op Cloud SQL, disks en buckets.
-- **Beperkte runtime-DB-rol.** Het schemabestand `backend/db/schema/postgres/05_grants.sql` maakt de rol `coga_app` aan die géén DDL kan draaien en géén `UPDATE`/`DELETE` op de append-only audit-, report-signout-, anker- en QC-grenstabellen (`audit_log_events`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`, `qc_threshold_changes`) mag. Dat sluit een "owner-bypass" op de append-only- en hash-chain-controles. De rol wordt momenteel in "fallback"-modus (`NOLOGIN`) uitgeleverd tot een gecoördineerde DSN-flip; tot dan boot de app nog als eigenaar (zie `docs/db-runtime-role-runbook.md`).
-- **Reproduceerbaarheid.** Container-images zijn per digest vastgepind; `APP_VERSION`/`GIT_SHA` worden bij build-time ingebakken en in elk ondertekend rapport bevroren; de HPO-release, het dbNSFP-bestand (`dbNSFP5.4_gene.gz`) en de GENCODE-uitgave (`REFERENCE_GENCODE_GTF_URL`) zijn gepinde referentieversies, en elk gecacht gen-record legt per bron vast wélke uitgave hem beantwoordde (zie hoofdstuk [13-gene-explorer.md](13-gene-explorer.md)). Zo is voor elke analyse achteraf exact te reconstrueren welke code én welke referentiedata gebruikt zijn.
-- **Auditing vanaf boot.** De audit-log-worker start vóór de seeding, en de ClickHouse-integriteitsmonitor draait vanaf opstart, zodat gebeurtenissen en datacorruptie van meet af aan worden vastgelegd.
-
-De uitrol-handleiding merkt tot slot op dat een aantal IVDR-verplichtingen procesmatig blijven (change control, een bijgewerkte DPIA nu Google een data-sub-processor is) en dus buiten de code vallen — zie `docs/deployment-gcp.md` §13.
+- **Geheimen.** Buiten ontwikkeling start de backend niet met placeholder- of zwakke geheimen (hoofdstuk 2). Op Google Cloud komen ze uit Secret Manager en worden ze pas bij het starten in de container gezet, niet in images of state.
+- **Versleuteling onderweg.** Postgres via de Cloud SQL-connector; ClickHouse over HTTPS, met een certificaat dat de backend controleert (`CLICKHOUSE_SECURE`, `CLICKHOUSE_VERIFY`, `CLICKHOUSE_CA_CERT`). In rust versleutelt CMEK Cloud SQL, de schijven en de buckets.
+- **Beperkte databankrol.** `05_grants.sql` maakt `coga_app` aan zonder DDL-rechten en zonder `UPDATE`/`DELETE` op de vijf append-only tabellen. Standaard draait de app nog als eigenaar tot de omschakeling uit hoofdstuk 2.
+- **Reproduceerbaarheid.** Images zijn op digest vastgezet; `APP_VERSION` en `GIT_SHA` worden bij het bouwen ingebakken en in elk ondertekend rapport bevroren; de HPO-release, het dbNSFP-bestand en de GENCODE-uitgave zijn vastgezette referentieversies, en elk gecachet genrecord noteert per bron welke uitgave het leverde (hoofdstuk 13).
+- **Audit vanaf de start.** De auditschrijver start vóór het seeden en de ClickHouse-bewaking draait vanaf het opstarten.
 
 ## Belangrijkste bestanden
 
 | Bestand | Rol |
-|---|---|
-| `backend/app/main.py` | Opstart-orchestratie (`lifespan`): schema, admin-seed, referentie-seeding, workers, hardening |
-| `backend/app/db_migrate.py` | Eigenaar-bevoorrechte schemamigratie + admin-bootstrap (`init_postgres_admin_user`, `run_schema_migrations`) |
-| `backend/app/core/config.py` | Alle instellingen + `validate_security_defaults` (weigert zwakke secrets) en `validate_cors_origin_regex` |
-| `backend/app/core/postgres.py` | `init_postgres_schema`, dollar-quote-bewuste SQL-splitser, Cloud SQL-connector |
-| `backend/app/core/clickhouse.py` | `init_clickhouse_schema`, databanknaam-rendering, TLS-clientopbouw |
-| `backend/db/schema/postgres/*.sql` | De vijf Postgres-baseline-bestanden (`01_access.sql` t/m `05_grants.sql`), incl. de runtime-rol `coga_app` in `05_grants.sql` |
-| `backend/db/schema/clickhouse/001_coga_variant_storage.sql` | ClickHouse variant-schema |
-| `backend/app/services/reference_source_service.py` | Bootstrap van GRCh38 (en optioneel T2T-CHM13): soort/assembly, cytobanden, genen (GENCODE-GTF, met UCSC als terugval) |
-| `backend/app/services/reference_metadata_service.py` | `seed_builtin_reference_tracks` (klinische CNV's, segmentale duplicaties) |
-| `backend/app/services/repeat_expansion_pg.py` | `seed_builtin_repeat_catalog` (repeat-loci + STRchive) |
-| `backend/app/services/hpo_service.py` | `ensure_hpo_ontology_on_startup` |
-| `backend/app/services/gene_info_jobs_pg.py` | dbNSFP-gene-reference bootstrap + refresh-worker |
-| `docker-compose.yml` / `docker-compose.dev.yml` | Lokale prod-stijl- en ontwikkel-stack |
-| `.env.example` | Sjabloon voor omgevingsvariabelen (placeholder-secrets) |
-| `terraform/` (`main.tf`, `secrets.tf`, `database.tf`, `network.tf`, `cloudrun.tf`, `loadbalancer.tf`, `armor.tf`, `storage.tf`, `tls.tf`, …) | GCP-infrastructuur-als-code |
-| `docs/deployment-gcp.md` | Volledige stapsgewijze GCP/Terraform-uitrolgids |
+| --- | --- |
+| `backend/app/main.py` | De opstartvolgorde (`lifespan`) |
+| `backend/app/db_migrate.py` | Schema-migratie als eigenaar, eerste beheerder, login van `coga_app` |
+| `backend/app/core/config.py` | Alle instellingen en de controle op zwakke geheimen |
+| `backend/app/core/postgres.py` · `backend/app/core/clickhouse.py` | Het schema toepassen; verbindingen (ook de Cloud SQL-connector en TLS naar ClickHouse) |
+| `backend/app/services/reference_source_service.py` | GRCh38 (en optioneel T2T): soort, assembly, cytobanden, genen |
+| `backend/app/services/reference_metadata_service.py` | Ingebouwde tracks (klinische CNV's, segmentale duplicaties) |
+| `backend/app/services/hpo_service.py` · `gene_info_jobs_pg.py` | HPO-ontologie; de gen-referentiejob |
+| `docker-compose.yml` · `docker-compose.dev.yml` · `.env.example` | De Docker-opstelling en alle instellingen met hun standaardwaarde |
+| `terraform/` · `docs/deployment-gcp.md` | Google Cloud-infrastructuur en de uitrolgids |
