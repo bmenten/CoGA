@@ -579,6 +579,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   or the bucket's own record for files left there; the family record, import log and validation
   report name the source folder, and a package without `family_id` is named after it; S3 discovery
   lists every package; the admin raw-files view no longer calls a bucket file missing (CR-115, #653).
+- **Per-sample SV rewrites keep every other call** — an SV upload or admin delete for one sample writes
+  every other stored call back unchanged (phase set, breakend end, project, inactive members' calls);
+  a per-sample SV upload also records its caller in the family's annotation versions (CR-116, #654).
 
 ### Security
 
