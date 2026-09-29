@@ -123,6 +123,7 @@ const normalizeSex = (sex?: string | null): 'male' | 'female' | 'unknown' => {
 
 const isXChrom = (chrom?: string | null): boolean => normalizeHaplotypeChrom(chrom) === 'X';
 
+// Assumed (owner to confirm): no pseudo-autosomal exception, so a male is hemizygous on all of X.
 export const isMaleOnX = (member: HaplotypeMemberLike, chrom?: string | null): boolean =>
   normalizeSex(member.sex) === 'male' && isXChrom(chrom);
 
@@ -444,6 +445,10 @@ export interface HaplotypeRiskAssessment {
   /** The call is uninformative because the member's own haplotype does not cover the ROI on a
    * parental side the call needs (missing data), not because no disease haplotype was resolved. */
   roiNotCovered: boolean;
+  /** X-linked recessive, the member's sex not recorded, and the call a son would get differs
+   * from a daughter's: both calls. The state then assumes neither sex: Affected / at risk when
+   * either call is, otherwise uninformative. */
+  sexDependent: { ifMale: HaplotypeRiskState; ifFemale: HaplotypeRiskState } | null;
 }
 
 /**
@@ -458,6 +463,11 @@ export interface HaplotypeRiskAssessment {
  * carry the risk haplotype there), so the call is uninformative. The sides a call needs are
  * those a risk haplotype was resolved on; a male on X is called on his one X, since a son
  * cannot inherit his father's.
+ *
+ * X-linked recessive with the sex not recorded, the member is called both as a son and as a
+ * daughter. Where the two calls differ the call assumes neither: Affected / at risk when either
+ * would be (the mother's risk X: affected if male, a carrier if female), otherwise
+ * uninformative. Both calls are returned, so the reason can be shown.
  */
 export const assessSampleHaplotypeRisk = ({
   model,
@@ -470,8 +480,27 @@ export const assessSampleHaplotypeRisk = ({
   member: HaplotypeMemberLike;
   region: HaplotypeRiskRegion;
 }): HaplotypeRiskAssessment => {
-  const call = (state: HaplotypeRiskState): HaplotypeRiskAssessment => ({ state, roiNotCovered: false });
+  const call = (state: HaplotypeRiskState): HaplotypeRiskAssessment => ({
+    state,
+    roiNotCovered: false,
+    sexDependent: null,
+  });
   if (!model.informative) return call('uninformative');
+  if (model.mode === 'x_linked_recessive' && normalizeSex(member.sex) === 'unknown') {
+    const asSex = (sex: 'male' | 'female') =>
+      assessSampleHaplotypeRisk({ model, samples, region, member: { ...member, sex } });
+    const ifMale = asSex('male');
+    const ifFemale = asSex('female');
+    if (ifMale.state === ifFemale.state) {
+      return { ...ifFemale, roiNotCovered: ifMale.roiNotCovered && ifFemale.roiNotCovered };
+    }
+    const atRisk = ifMale.state === 'affected_or_at_risk' || ifFemale.state === 'affected_or_at_risk';
+    return {
+      state: atRisk ? 'affected_or_at_risk' : 'uninformative',
+      roiNotCovered: false,
+      sexDependent: { ifMale: ifMale.state, ifFemale: ifFemale.state },
+    };
+  }
   const homologs = homologsInRegion(member, buildSegmentMap(samples), region);
   const carried = new Set(homologs.map(({ signature }) => signatureKey(signature)));
   const hasKind = (kind: DiseaseHaplotypeKind): boolean =>
@@ -480,7 +509,7 @@ export const assessSampleHaplotypeRisk = ({
   const clearOn = (sides: HaplotypeOrigin[], state: HaplotypeRiskState): HaplotypeRiskAssessment =>
     sides.every((side) => coversRegionOnSide(homologs, region, side))
       ? call(state)
-      : { state: 'uninformative', roiNotCovered: true };
+      : { state: 'uninformative', roiNotCovered: true, sexDependent: null };
   const riskSides: HaplotypeOrigin[] = isMaleOnX(member, region.chr)
     ? [maleXOrigin(member)]
     : Array.from(new Set(model.signatures.map((signature) => signature.origin)));
@@ -514,6 +543,7 @@ export const assessSampleHaplotypeRisk = ({
     }
     const matchingOrigins = new Set(matchingSignatures.map((signature) => signature.origin));
     if (matchingOrigins.size >= 2) return call('affected_or_at_risk');
+    // Assumed (owner to confirm): a side without a resolved risk haplotype (an unaffected father's X) is not at risk.
     const clearSides = riskSides.filter((side) => !matchingOrigins.has(side));
     return clearOn(clearSides, matchingOrigins.size === 1 ? 'carrier' : 'unaffected_non_carrier');
   }

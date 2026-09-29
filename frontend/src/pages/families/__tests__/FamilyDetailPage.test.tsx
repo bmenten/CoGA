@@ -658,6 +658,90 @@ describe('FamilyDetailPage', () => {
     }
   });
 
+  // X-linked recessive: an embryo whose sex is not recorded and which carries the mother's
+  // risk X is affected if male and a carrier if female. Its badge used to read "Carrier".
+  it("does not call an X-linked embryo of unrecorded sex a carrier when a son would be affected", async () => {
+    localStorage.setItem('role', 'viewer');
+    mockApiState.members = [
+      { sample_id: 'SON', role: 'proband', affected: true, sex: 'male' },
+      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'unknown' },
+      { sample_id: 'E2', role: 'embryo', affected: false, sex: 'unknown' },
+    ];
+    // Blocks over an ROI on X; the trio builder never confirms a paternal X side ('?').
+    const xBlock = (hap2: string) => ({
+      chr: 'X',
+      start: 150_000_000,
+      end: 150_300_000,
+      hap1: '?',
+      hap2,
+      hap1_lineage: 'paternal',
+      hap2_lineage: 'maternal',
+    });
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation(async (url: string, config?: unknown) => {
+      if (url === '/families/F1') {
+        const family = (await working(url, config)) as { data: Record<string, unknown> };
+        return {
+          data: {
+            ...family.data,
+            metadata: { ...(family.data.metadata as object), pgt: { inheritance_model: 'XLR' } },
+            roi: {
+              query: 'GENEX',
+              label: 'GENEX',
+              source: 'gene',
+              assembly_id: 'asm1',
+              chr: 'X',
+              start: 150_100_000,
+              end: 150_200_000,
+            },
+          },
+        };
+      }
+      if (url === '/families/F1/haplotypes') {
+        return {
+          data: {
+            chr: 'X',
+            samples: [
+              // The affected son carries the mother's risk X: maternal 1.
+              { sample: 'SON', segments: [xBlock('1')] },
+              { sample: 'E1', segments: [xBlock('1')] },
+              { sample: 'E2', segments: [xBlock('0')] },
+            ],
+          },
+        };
+      }
+      return working(url, config);
+    });
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1']}>
+            <Routes>
+              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const rowOf = async (sampleId: string) =>
+        (await screen.findByRole('button', { name: sampleId })).closest('tr') as HTMLElement;
+
+      const e1 = await rowOf('E1');
+      expect(await within(e1).findByText('Affected / at risk')).toHaveClass('segregation-badge--affected_or_at_risk');
+      expect(within(e1).queryByText('Carrier')).not.toBeInTheDocument();
+      // The warning gives both calls, so recording the sex resolves it.
+      const bothCalls = /sex is not recorded.*affected \/ at risk if male, carrier if female/i;
+      expect(within(e1).getByRole('button', { name: bothCalls })).toHaveTextContent('⚠ sex unknown');
+
+      // The other maternal X is unaffected whatever the sex: no warning.
+      const e2 = await rowOf('E2');
+      expect(within(e2).getByText('Unaffected')).toHaveClass('segregation-badge--unaffected_non_carrier');
+      expect(within(e2).queryByText('⚠ sex unknown')).not.toBeInTheDocument();
+    } finally {
+      get.mockImplementation(working);
+    }
+  });
+
   // #607 — a failed request on the family page is said as such, never as missing data.
   describe('when a request fails', () => {
     const renderWithFailing = (matches: (url: string) => boolean) => {

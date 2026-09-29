@@ -94,6 +94,33 @@ describe('classifyEmbryosAtRoi (dominant)', () => {
   });
 });
 
+describe("classifyEmbryosAtRoi (X-linked recessive, the embryos' sex not recorded)", () => {
+  const xRegion = { chr: 'X', start: 1_000_000, end: 1_001_000 };
+  const xSeg = (hap1: string, hap2: string) => ({ ...seg(hap1, hap2), chr: 'X' });
+  // The affected son resolves the mother's risk X (maternal 1). The trio builder never
+  // confirms a paternal X side, hence '?'.
+  const members: HaplotypeMemberLike[] = [
+    { sample_id: 'SON', role: 'proband', affected: true, sex: 'male' },
+    { sample_id: 'E_RISK', role: 'embryo', affected: false, sex: 'unknown' },
+    { sample_id: 'E_CLEAR', role: 'embryo', affected: false, sex: 'unknown' },
+  ];
+  const samples: HaplotypeSampleLike[] = [
+    { sample: 'SON', segments: [xSeg('?', '1')] },
+    { sample: 'E_RISK', segments: [xSeg('?', '1')] },
+    { sample: 'E_CLEAR', segments: [xSeg('?', '0')] },
+  ];
+
+  it('calls the embryo with the maternal risk haplotype at risk, with both calls, not a carrier', () => {
+    const out = byId(classifyEmbryosAtRoi({ members, samples, inheritanceModel: 'XLR', region: xRegion }));
+    expect(out.E_RISK.state).toBe('affected_or_at_risk');
+    expect(out.E_RISK.sexDependent).toEqual({ ifMale: 'affected_or_at_risk', ifFemale: 'carrier' });
+    expect(out.E_RISK.uninformative).toBe(false);
+    // The other maternal X: unaffected whatever the sex.
+    expect(out.E_CLEAR.state).toBe('unaffected_non_carrier');
+    expect(out.E_CLEAR.sexDependent ?? null).toBeNull();
+  });
+});
+
 describe('hasRecombinationNearRoi', () => {
   it('flags a block boundary inside the ROI', () => {
     const segs = [

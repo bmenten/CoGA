@@ -4,7 +4,7 @@
  * Given the family's lineage-tagged haplotype blocks over the ROI, the members,
  * and the inheritance model, this reuses the canonical disease-haplotype inference
  * (haplotypeRisk.ts) to classify each EMBRYO as affected/at-risk, carrier,
- * unaffected, or uninformative — and flags two caveats a clinician must see:
+ * unaffected, or uninformative — and flags the caveats a clinician must see:
  *
  *   - recombinationNearRoi: a haplotype block boundary (crossover) falls inside or
  *     very close to the ROI, so the embryo's haplotype changes across the locus and
@@ -12,7 +12,9 @@
  *   - uninformative: no call can be made — either the analysis could not resolve a
  *     disease haplotype at the ROI (no informative markers / greyed lineage), or the
  *     embryo's own haplotype does not cover the ROI on the parental side the call needs
- *     (missing data is never read as "does not carry the risk haplotype").
+ *     (missing data is never read as "does not carry the risk haplotype");
+ *   - sexDependent: X-linked recessive, the embryo's sex is not recorded and its call would
+ *     differ between a son and a daughter, so the call assumes neither sex.
  *
  * This is DERIVED FROM THE ANALYSIS — it is not entered by an analyst or user.
  */
@@ -22,6 +24,7 @@ import {
   normalizeHaplotypeChrom,
   resolveHaplotypeInheritanceModel,
   type HaplotypeMemberLike,
+  type HaplotypeRiskAssessment,
   type HaplotypeRiskRegion,
   type HaplotypeRiskState,
   type HaplotypeSampleLike,
@@ -43,6 +46,9 @@ export interface EmbryoClassification {
   /** Uninformative because this embryo's own haplotype does not cover the ROI on a parental
    * side the call needs (missing data), not because no disease haplotype was resolved. */
   roiNotCovered: boolean;
+  /** X-linked recessive with the sex not recorded: the call a son and a daughter would each get,
+   * when they differ. The state is then Affected / at risk, or uninformative (see haplotypeRisk). */
+  sexDependent: HaplotypeRiskAssessment['sexDependent'];
 }
 
 const segmentsForSample = (
@@ -96,12 +102,13 @@ export const classifyEmbryosAtRoi = ({
   return members
     .filter((member) => String(member.role || '').toLowerCase() === 'embryo')
     .map((member) => {
-      const { state, roiNotCovered } = assessSampleHaplotypeRisk({ model, samples, member, region });
+      const { state, roiNotCovered, sexDependent } = assessSampleHaplotypeRisk({ model, samples, member, region });
       return {
         sampleId: member.sample_id,
         state,
         uninformative: state === 'uninformative' || !model.informative,
         roiNotCovered,
+        sexDependent,
         recombinationNearRoi: hasRecombinationNearRoi(segmentsForSample(samples, member.sample_id), region),
       };
     });
@@ -115,3 +122,14 @@ const STATE_LABELS: Record<HaplotypeRiskState, string> = {
 };
 
 export const segregationStateLabel = (state: HaplotypeRiskState): string => STATE_LABELS[state];
+
+type SexDependentCalls = NonNullable<EmbryoClassification['sexDependent']>;
+
+/** The warning on an embryo whose call depends on its unrecorded sex: both calls. */
+export const sexUnknownWarning = ({ ifMale, ifFemale }: SexDependentCalls): string => {
+  const call = (state: HaplotypeRiskState): string => segregationStateLabel(state).toLowerCase();
+  return (
+    `This embryo's sex is not recorded, and the call depends on it: ${call(ifMale)} if male, ` +
+    `${call(ifFemale)} if female. Record the sex to resolve it.`
+  );
+};

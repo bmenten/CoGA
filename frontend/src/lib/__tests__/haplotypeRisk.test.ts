@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assessSampleHaplotypeRisk,
   diseaseHaplotypeKindForLane,
   getHaplotypeLaneSignature,
   getRenderableHaplotypeLanes,
@@ -609,6 +610,93 @@ describe('a negative call needs the member\'s own haplotype across the ROI', () 
       it('calls a son unaffected on his maternal X, and uninformative without it', () => {
         expect(risk([xBlock(0, 100, '?', '0')])).toBe('unaffected_non_carrier');
         expect(risk([xBlock(70, 100, '?', '0')])).toBe('uninformative');
+      });
+    });
+
+    // An embryo's sex is often not recorded. In X-linked recessive disease a son with the
+    // maternal risk haplotype is affected and a daughter a carrier, so a call that depends on
+    // the sex must not assume one. It used to assume a daughter and say "Carrier".
+    describe("recessive, the embryo's sex not recorded", () => {
+      const affectedSon: HaplotypeMemberLike = { sample_id: 'SON', role: 'proband', affected: true, sex: 'male' };
+      const embryo: HaplotypeMemberLike = { sample_id: 'EMBRYO', role: 'embryo', affected: false, sex: 'unknown' };
+      const assess = (members: HaplotypeMemberLike[], samples: HaplotypeSampleLike[]) =>
+        assessSampleHaplotypeRisk({
+          model: inferDiseaseHaplotypes({ samples, members, inheritanceModel: 'XLR', region: xRoi }),
+          samples,
+          member: embryo,
+          region: xRoi,
+        });
+      // The affected son resolves the mother's risk X: maternal 1.
+      const fromAffectedSon = (segments: Seg[]) =>
+        assess(
+          [affectedSon, embryo],
+          [
+            { sample: 'SON', segments: [xBlock(0, 100, '?', '1')] },
+            { sample: 'EMBRYO', segments },
+          ],
+        );
+
+      it('calls an embryo with the maternal risk haplotype at risk, not a carrier, and says why', () => {
+        expect(fromAffectedSon([xBlock(0, 100, '?', '1')])).toEqual({
+          state: 'affected_or_at_risk',
+          roiNotCovered: false,
+          sexDependent: { ifMale: 'affected_or_at_risk', ifFemale: 'carrier' },
+        });
+      });
+
+      it('still calls an embryo with the other maternal X unaffected, whatever its sex', () => {
+        const out = fromAffectedSon([xBlock(0, 100, '?', '0')]);
+        expect(out.state).toBe('unaffected_non_carrier');
+        expect(out.sexDependent ?? null).toBeNull();
+      });
+
+      it('is uninformative for missing data, not for its sex, when its maternal X is not seen', () => {
+        const out = fromAffectedSon([xBlock(70, 100, '?', '1')]);
+        expect(out.state).toBe('uninformative');
+        expect(out.roiNotCovered).toBe(true);
+        expect(out.sexDependent ?? null).toBeNull();
+      });
+
+      it('is uninformative, not a carrier or unaffected, when the calls differ and neither is at risk', () => {
+        // An affected father's X: a daughter inherits it (a carrier), a son does not.
+        const father: HaplotypeMemberLike = { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' };
+        const fromAffectedFather = (segments: Seg[]) =>
+          assess(
+            [father, embryo],
+            [
+              { sample: 'FATHER', segments: [xBlock(0, 100, '1', '0')] },
+              { sample: 'EMBRYO', segments },
+            ],
+          );
+        expect(fromAffectedFather([xBlock(0, 100, '1', '0')])).toEqual({
+          state: 'uninformative',
+          roiNotCovered: false,
+          sexDependent: { ifMale: 'unaffected_non_carrier', ifFemale: 'carrier' },
+        });
+        // No paternal X seen: a daughter's call has no data, a son's needs none.
+        expect(fromAffectedFather([xBlock(0, 100, '?', '0')])).toEqual({
+          state: 'uninformative',
+          roiNotCovered: false,
+          sexDependent: { ifMale: 'unaffected_non_carrier', ifFemale: 'uninformative' },
+        });
+      });
+
+      it('keeps the call of an embryo whose sex is recorded', () => {
+        const daughter = (segments: Seg[]) =>
+          assessSampleHaplotypeRisk({
+            model: inferDiseaseHaplotypes({
+              samples: [{ sample: 'SON', segments: [xBlock(0, 100, '?', '1')] }],
+              members: [affectedSon],
+              inheritanceModel: 'XLR',
+              region: xRoi,
+            }),
+            samples: [{ sample: 'EMBRYO', segments }],
+            member: { ...embryo, sex: 'female' },
+            region: xRoi,
+          });
+        const out = daughter([xBlock(0, 100, '?', '1')]);
+        expect(out.state).toBe('carrier');
+        expect(out.sexDependent ?? null).toBeNull();
       });
     });
   });
