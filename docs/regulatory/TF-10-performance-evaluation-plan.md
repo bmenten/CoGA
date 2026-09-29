@@ -182,6 +182,7 @@ candidate. One line per change: what changed, its pull request, and the proposed
 ### Proposed major
 
 - Every small-variant list serves the review's ACMG record, so reopening a classified variant shows its saved criteria and a re-save keeps them (#662; proposed Major)
+- A signed case shows and prints its frozen record, and the live report says it is not the signed version (#659; proposed Major)
 - PGT embryo calls no longer reassure without the data to support them (#652; proposed Major)
 - Sign-out refuses a partly imported family unless the signer acknowledges it (#650; proposed Major)
 - Monogenic NIPT: one fetal fraction, fetal states the father allows, confident paternity and a protected artifact list (#646; proposed Major)
