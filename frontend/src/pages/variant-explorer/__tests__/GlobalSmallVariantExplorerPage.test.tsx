@@ -382,12 +382,29 @@ describe('GlobalSmallVariantExplorerPage', () => {
     });
 
     it('reports a failed search as a failure, never as "no variants match"', async () => {
-      mockApi({ variants: () => Promise.reject(new Error('Request failed with status code 500')) });
+      let attempts = 0;
+      mockApi({
+        variants: () => {
+          attempts += 1;
+          return attempts === 1
+            ? Promise.reject(new Error('Request failed with status code 500'))
+            : reply(page({ total: 0, variants: [] }));
+        },
+      });
       renderPage();
 
-      expect(await screen.findByText('Failed to load variants.')).toBeInTheDocument();
+      // With the server's reason and a retry (#606).
+      const failure = await screen.findByRole('alert');
+      expect(failure).toHaveTextContent(
+        'Could not load the variants — this is not an empty result. Request failed with status code 500',
+      );
       expect(screen.queryByText(/No variants match/)).not.toBeInTheDocument();
       expect(screen.queryByText('Loading variants…')).not.toBeInTheDocument();
+      // Nor does the header count a failed search as none.
+      expect(screen.queryByText('0 variants')).not.toBeInTheDocument();
+
+      fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText('0 variants')).toBeInTheDocument();
     });
 
     it('says no variants match an empty search, and offers neither export nor paging', async () => {

@@ -173,7 +173,7 @@ export interface FilterSectionForm
   panels: GenePanel[];
   categoryLabels?: Record<number, string>;
   niptInheritancePresets?: { value: string; label: string; categories?: string }[];
-  categoryCounts: Record<string, number>;
+  categoryCounts: Record<string, number> | null;
   openSections: OpenSections;
   handleSectionToggle: (
     section: keyof OpenSections,
@@ -689,7 +689,7 @@ summarizeSection(
                     {categoryLabels?.[categoryNumber] ?? `Category ${categoryNumber}`}
                   </span>
                   <span className="nipt-category-option-count">
-                    {(categoryCounts[value] ?? 0).toLocaleString()}
+                    {categoryCounts ? (categoryCounts[value] ?? 0).toLocaleString() : '—'}
                   </span>
                 </span>
               </label>
@@ -1333,6 +1333,11 @@ export const LocationsFilterSection = ({ form }: { form: FilterSectionForm }) =>
                   {panel.name}
                 </option>
               ))}
+              {/* An applied panel missing from the list (it failed to load) still shows as
+                  applied, not as "Any gene panel" (#606). */}
+              {draftFilters.panel_id && !panels.some((panel) => panel._id === draftFilters.panel_id) ? (
+                <option value={draftFilters.panel_id}>{`Panel ${draftFilters.panel_id} (not in the panel list)`}</option>
+              ) : null}
             </select>
           </label>
         </>

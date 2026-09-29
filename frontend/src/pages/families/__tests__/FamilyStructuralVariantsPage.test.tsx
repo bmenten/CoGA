@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import FamilyStructuralVariantsPage from '../FamilyStructuralVariantsPage';
+import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 vi.mock('../../../lib/api', () => ({
@@ -168,5 +169,82 @@ describe('FamilyStructuralVariantsPage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /^review$/i })[0]);
 
     await waitFor(() => expect(screen.getByText(/Variant review saved/i)).toBeInTheDocument());
+  });
+
+  // #606 — a failed request is said as such: the search read as a family without SVs.
+  describe('when a request fails', () => {
+    const get = api.get as unknown as Mock;
+    let workingGet: ((url: string) => Promise<unknown>) | undefined;
+    const serverError = () => Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+
+    beforeEach(() => {
+      workingGet = get.getMockImplementation();
+    });
+    afterEach(() => {
+      get.mockImplementation(workingGet!);
+    });
+
+    /** The working API, with the matching requests failing until `recover` is called. */
+    const failing = (matches: (url: string) => boolean) => {
+      let failed = true;
+      get.mockImplementation((url: string) => (failed && matches(url) ? serverError() : workingGet!(url)));
+      return {
+        recover: () => {
+          failed = false;
+        },
+      };
+    };
+
+    const renderAt = (path = '/families/F1/structural-variants') =>
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+    it('says a failed search failed, and runs it again on retry', async () => {
+      const search = failing((url) => url.startsWith('/families/F1/structural-variants?page=1&page_size=100'));
+      const searches = () =>
+        get.mock.calls.filter(([url]) => String(url).startsWith('/families/F1/structural-variants?page=1&page_size=100'))
+          .length;
+      const earlier = searches();
+      renderAt();
+
+      // The page runs a search before its default filters apply, and again after: wait
+      // for the default search to have failed too, so the page is settled.
+      await waitFor(() => expect(searches() - earlier).toBeGreaterThanOrEqual(2));
+      const failure = await screen.findByText(/Could not load the structural variants — this is not an empty result/);
+      expect(screen.getByText('Showing —')).toBeInTheDocument();
+      expect(screen.queryByText('1p36.33')).not.toBeInTheDocument();
+
+      search.recover();
+      fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText('1p36.33')).toBeInTheDocument();
+      expect(screen.getByText('Showing 1')).toBeInTheDocument();
+    });
+
+    it('does not show the filtered count as the total when the total could not be loaded', async () => {
+      failing((url) => url === '/families/F1/structural-variants?page=1&page_size=1');
+      renderAt();
+
+      expect(await screen.findByText(/Filtered 1 SVs; the number imported could not be loaded/)).toBeInTheDocument();
+      expect(screen.getByText('All variants —')).toBeInTheDocument();
+    });
+
+    it('keeps an applied panel visible when the panel list could not be loaded', async () => {
+      failing((url) => url === '/panels');
+      renderAt('/families/F1/structural-variants?page=1&panel_id=P1');
+
+      expect(await screen.findByText(/Could not load the gene panel list — this is not an empty result/)).toHaveTextContent(
+        /Panels cannot be chosen, and the default Mendeliome scope is not applied/,
+      );
+      const panelSelect = screen.getByRole('combobox', { name: /panel/i });
+      expect(panelSelect).toHaveValue('P1');
+      expect(within(panelSelect).getByRole('option', { name: 'Panel P1 (not in the panel list)' })).toBeInTheDocument();
+    });
   });
 });

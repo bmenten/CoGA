@@ -526,6 +526,11 @@ const StructuralVariantFilterForm = ({
                     {panels.map((panel) => (
                       <option key={panel._id} value={panel._id}>{panel.name}</option>
                     ))}
+                    {/* An applied panel missing from the list (it failed to load) still shows
+                        as applied, not as "Any gene panel" (#606). */}
+                    {draftFilters.panel_id && !panels.some((panel) => panel._id === draftFilters.panel_id) ? (
+                      <option value={draftFilters.panel_id}>{`Panel ${draftFilters.panel_id} (not in the panel list)`}</option>
+                    ) : null}
                   </select>
                 </label>
               </span>

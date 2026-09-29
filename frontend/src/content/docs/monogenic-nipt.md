@@ -73,7 +73,10 @@ category-7 site count), the per-category counts (categories 1–8), and a **filt
 — *total → quality-filtered → artifact-filtered → analysed* — so you can see exactly how
 many sites each step removed. A *Low-confidence FF* chip appears when there are too few
 sites or the interval is wide; an *external FF* (from an upstream caller) is shown
-alongside the computed value, with an *FF disagreement* chip when the two differ.
+alongside the computed value, with an *FF disagreement* chip when the two differ. If the
+summary cannot be loaded, the badge says *Fetal fraction could not be loaded*, and the counts
+read "—" rather than 0: without the estimate, its warnings are unknown too, so do not read
+the category calls until it loads (**Retry**).
 
 **Variants.** The full small-variant display (cards under ~100 matches, otherwise the
 table) with the complete annotation — father and cfDNA genotypes, ClinVar, gnomAD,

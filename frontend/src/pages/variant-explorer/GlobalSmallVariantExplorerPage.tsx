@@ -23,6 +23,7 @@ import type {
   VariantExplorerAssembly,
 } from './types';
 import { apiPath, raw } from '../../lib/apiPath';
+import QueryFailure from '../../components/QueryFailure';
 
 const EMPTY_PANELS: GenePanel[] = [];
 const EMPTY_PRESETS: SmallVariantFilterPreset[] = [];
@@ -138,7 +139,12 @@ const GlobalSmallVariantExplorerPage = () => {
     },
   });
 
-  const { data: panels = EMPTY_PANELS } = useQuery<GenePanel[]>({
+  const {
+    data: panels = EMPTY_PANELS,
+    isError: panelsFailed,
+    error: panelsError,
+    refetch: refetchPanels,
+  } = useQuery<GenePanel[]>({
     queryKey: ['panels'],
     queryFn: async () => {
       const res = await api.get('/panels');
@@ -161,6 +167,8 @@ const GlobalSmallVariantExplorerPage = () => {
     data: variantPage,
     isLoading,
     isError,
+    error,
+    refetch,
     isFetching,
   } = useQuery<GlobalVariantPage>({
     queryKey: ['variant-explorer', 'small-variants', requestQueryString],
@@ -346,10 +354,20 @@ const GlobalSmallVariantExplorerPage = () => {
         />
       </section>
 
+      {panelsFailed ? (
+        <QueryFailure
+          what="the gene panel list"
+          error={panelsError}
+          onRetry={() => void refetchPanels()}
+          consequence="Panels cannot be chosen."
+        />
+      ) : null}
+
       <section className="surface-card space-y-4">
         <div className="variant-explorer-results-header">
           <p className="analysis-section-title">
-            {assemblyId ? (
+            {/* A failed search has no count: it read "0 variants" above the failure (#606). */}
+            {assemblyId && !isError ? (
               <>
                 {totalLabel} variant{total === 1 && !variantPage?.total_is_estimated ? '' : 's'}
                 {isFetching ? ' · updating…' : ''}
@@ -393,9 +411,7 @@ const GlobalSmallVariantExplorerPage = () => {
         ) : isLoading ? (
           <p className="table-subtle">Loading variants…</p>
         ) : isError ? (
-          <div className="variant-workspace-feedback variant-workspace-feedback--error">
-            Failed to load variants.
-          </div>
+          <QueryFailure what="the variants" error={error} onRetry={() => void refetch()} />
         ) : variants.length === 0 ? (
           <p className="table-subtle">
             No variants match the current filters in your accessible projects.
