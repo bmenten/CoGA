@@ -606,6 +606,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   without frozen evidence included, with the same acknowledgement, and a signed version lists them under its
   evidence drift at sign-out; a scoring for an SV not in the data is refused. Earlier signed reports still
   verify, are not compared on what they predate, and say they hold no SV/CNV drift (#661).
+- **A variant's calls from two callsets are both kept** — a clair3 and a GLIMPSE2 row of one small variant,
+  or a Sniffles and a Spectre call of one SV at the same breakpoints, shared their ClickHouse sort key, so a
+  part merge kept only one: the direct call could be lost and the variant leave the diagnostic lists. Each
+  stored row is now identified by its callset, and the SV list shows such an SV once per caller; variant
+  ids are unchanged. The backend refuses to start on variant tables with the older sort key: recreate the
+  assembly's small-variant and SV tables and re-import its families (docs/database.md, "Row identity")
+  (#658).
 
 ### Security
 
