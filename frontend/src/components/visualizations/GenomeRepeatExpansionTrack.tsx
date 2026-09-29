@@ -24,6 +24,17 @@ interface Props {
   projectId?: string;
 }
 
+// Markers are drawn from the least to the most severe status, so the most severe is on
+// top: at genome scale a 4 px marker covers loci a few hundred kb away, and a normal AFF2
+// was painted over a pathogenic FMR1 (#526). The sort is stable, so ties keep API order.
+const STATUS_DRAW_RANK: Record<string, number> = {
+  unknown: 0,
+  normal: 1,
+  review: 2,
+  intermediate: 3,
+  pathogenic: 4,
+};
+
 const GenomeRepeatExpansionTrack: React.FC<Props> = ({
   familyId,
   sampleId,
@@ -69,7 +80,9 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
 
   const items = useMemo(() => {
     if (!layout) return [];
-    return (data?.items || []).filter((item) => layout.offsets[item.chr.replace(/^chr/i, '')] !== undefined);
+    return (data?.items || [])
+      .filter((item) => layout.offsets[item.chr.replace(/^chr/i, '')] !== undefined)
+      .sort((a, b) => (STATUS_DRAW_RANK[a.status] ?? 0) - (STATUS_DRAW_RANK[b.status] ?? 0));
   }, [data?.items, layout]);
 
   const trackY = Math.max(2, Math.floor(height * 0.28));

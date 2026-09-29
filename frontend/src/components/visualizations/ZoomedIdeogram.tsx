@@ -33,9 +33,16 @@ interface Props {
 const AXIS_HEIGHT = 20;
 const BAND_STROKE = 0.5;
 
-const formatBp = (bp: number): string => {
-  if (bp >= 1_000_000) return `${(bp / 1_000_000).toFixed(2)} Mb`;
-  if (bp >= 1_000) return `${(bp / 1_000).toFixed(2)} kb`;
+// As many decimals as the tick spacing needs, and at least two: at gene-level zoom the
+// ticks are hundreds of bp apart, and two decimals of a Mb made most of them read the
+// same, each up to 5 kb off its position (#526).
+const formatBp = (bp: number, tickInterval: number): string => {
+  const scaled = (unit: number, suffix: string) => {
+    const decimals = Math.max(2, Math.ceil(-Math.log10(tickInterval / unit)));
+    return `${(bp / unit).toFixed(Math.min(decimals, 6))} ${suffix}`;
+  };
+  if (bp >= 1_000_000) return scaled(1_000_000, "Mb");
+  if (bp >= 1_000) return scaled(1_000, "kb");
   return `${bp} bp`;
 };
 
@@ -224,7 +231,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
               fontSize={10}
               textAnchor="middle"
             >
-              {formatBp(t)}
+              {formatBp(t, tickInterval)}
             </text>
           </g>
         );

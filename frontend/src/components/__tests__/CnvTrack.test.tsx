@@ -40,3 +40,33 @@ test('shows a hover tooltip with the CNV name', () => {
   expect(tooltip).toHaveClass('viz-tooltip--floating');
   expect(tooltip?.textContent).toContain('1q21.1 recurrent microdeletion');
 });
+
+test('does not draw a held clinical CNV outside the new window while a pan loads (#526)', () => {
+  const region = (regionStart: number, regionEnd: number) => (
+    <CnvTrack
+      assembly="GRCh38"
+      chrom="22"
+      width={400}
+      height={20}
+      regionStart={regionStart}
+      regionEnd={regionEnd}
+    />
+  );
+  useQueryMock.mockReturnValue({
+    data: [
+      { start: 18_900_000, end: 19_000_000, type: 'DEL', label: '22q11.2 proximal (A-B)' },
+      { start: 20_300_000, end: 20_700_000, type: 'DEL', label: '22q11.2 distal' },
+    ],
+  });
+  const { container, rerender } = render(region(18_000_000, 22_000_000));
+  expect(container.querySelectorAll('rect[aria-label]')).toHaveLength(2);
+
+  // Same span, 1.5 Mb right: the first region is now entirely left of the window. While
+  // the new window loads, it used to be drawn at the left edge under its own name.
+  useQueryMock.mockReturnValue({ data: undefined });
+  rerender(region(19_500_000, 23_500_000));
+  const shown = Array.from(container.querySelectorAll('rect[aria-label]')).map((rect) =>
+    rect.getAttribute('aria-label'),
+  );
+  expect(shown).toEqual([expect.stringContaining('22q11.2 distal')]);
+});

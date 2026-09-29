@@ -177,6 +177,18 @@ const GeneTrack: React.FC<Props> = ({
         .filter((e) => e.end > regionStart && e.start < regionEnd)
         .sort((a, b) => a.start - b.start);
 
+      // The gene's whole extent in view, under the exons. Drawn once, it also covers a
+      // view that falls inside an intron: with lines only between neighbouring exons in
+      // view, such a view showed no gene, as if the region were intergenic (#526).
+      g.append("line")
+        .attr("class", "gene-body")
+        .attr("x1", 0)
+        .attr("x2", geneWidth)
+        .attr("y1", midY)
+        .attr("y2", midY)
+        .attr("stroke", geneStroke)
+        .attr("stroke-width", 1);
+
       g.selectAll("rect.exon")
         .data(exons)
         .enter()
@@ -194,26 +206,6 @@ const GeneTrack: React.FC<Props> = ({
         })
         .attr("height", GENE_HEIGHT)
         .attr("fill", geneStroke);
-
-      g.selectAll("line.intron")
-        .data(exons.slice(0, -1))
-        .enter()
-        .append("line")
-        .attr("class", "intron")
-        .attr("x1", (exon) => {
-          const exonEnd = Math.min(exon.end, regionEnd);
-          return ((exonEnd - regionStart) / regionLength) * width -
-            ((d.start - regionStart) / regionLength) * width;
-        })
-        .attr("x2", (_exon, i) => {
-          const nextStart = Math.max(exons[i + 1].start, regionStart);
-          return ((nextStart - regionStart) / regionLength) * width -
-            ((d.start - regionStart) / regionLength) * width;
-        })
-        .attr("y1", midY)
-        .attr("y2", midY)
-        .attr("stroke", geneStroke)
-        .attr("stroke-width", 1);
 
       g.append("path").attr("d", arrowPath).attr("fill", cssVar("--color-gene-stroke"));
     });

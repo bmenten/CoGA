@@ -184,6 +184,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   haplotype-block builder leave the 1,900-line upload module for modules of their own. The
   builder is now a class fed one record at a time; a test built from its recorded output shows
   the blocks are unchanged (#578).
+- **Frontend tests (#526)** — 19 new test files cover what had none: the gene track, the
+  ideograms, the interval and repeat tracks, the variant explorer, the SV summary, the clinical CNV
+  explorer, and the admin and sign-up pages. The coverage floors rise to just below the new figures
+  (lines 78 %), with a floor of their own for the visualisations (#579).
 
 ### Removed
 
@@ -333,6 +337,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   ClinVar P/LP, a triangle for HIGH impact, a hollow square for ClinVar B/LB), a review tag rings
   the mark instead of recolouring it, and the track has a legend. The risk-haplotype line is
   solid for an affected and dashed for a carrier haplotype, set off from the band (#577).
+- **Track displays (#526)** — a view inside a gene's intron shows the gene. While a pan loads, a
+  segmental duplication, blacklisted region or clinical CNV from the previous window is no longer
+  drawn at the left edge under its own name. The zoomed ideogram gives each tick its own label at
+  gene-level zoom, and on the genome overview a pathogenic repeat locus is drawn over its normal
+  neighbours (#579).
 
 ### Security
 
