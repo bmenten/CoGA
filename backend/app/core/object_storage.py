@@ -30,7 +30,7 @@ deployment need not install whichever backend it does not use.
 """
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
@@ -501,9 +501,16 @@ def _gcs_download_prefix(
 # Package discovery under a remote root
 # ---------------------------------------------------------------------------
 
-def _is_package_leaf_set(leaf_names: list[str]) -> tuple[bool, bool]:
-    has_manifest = any(leaf in _MANIFEST_NAMES for leaf in leaf_names)
-    has_ped = any(leaf.endswith(".ped") for leaf in leaf_names)
+def _package_markers(object_names: Iterable[str]) -> tuple[bool, bool]:
+    """Whether a folder's objects include a manifest and a PED. Reading stops once both
+    are seen, so a lazily paged listing is fetched only as far as it needs to be."""
+    has_manifest = has_ped = False
+    for name in object_names:
+        leaf = name.rsplit("/", 1)[-1]
+        has_manifest = has_manifest or leaf in _MANIFEST_NAMES
+        has_ped = has_ped or leaf.endswith(".ped")
+        if has_manifest and has_ped:
+            break
     return has_manifest, has_ped
 
 
@@ -522,21 +529,24 @@ def list_remote_package_candidates(root_uri: str) -> list[dict[str, object]]:
 def _s3_list_package_candidates(root_uri: str, location: RemoteLocation) -> list[dict[str, object]]:
     base = location.key.rstrip("/")
     base_prefix = f"{base}/" if base else ""
-    client = _s3_client()
-    listing = client.list_objects_v2(
-        Bucket=location.bucket, Prefix=base_prefix, Delimiter="/"
-    )
+    # ListObjectsV2 answers at most 1000 entries at a time: page through every listing,
+    # or a root with more packages, or a package with more objects, is cut short.
+    paginator = _s3_client().get_paginator("list_objects_v2")
+    child_prefixes = [
+        str(entry.get("Prefix", ""))
+        for page in paginator.paginate(Bucket=location.bucket, Prefix=base_prefix, Delimiter="/")
+        for entry in page.get("CommonPrefixes", [])
+    ]
     candidates: list[dict[str, object]] = []
-    for entry in listing.get("CommonPrefixes", []):
-        child_prefix = str(entry.get("Prefix", ""))
+    for child_prefix in child_prefixes:
         name = child_prefix[len(base_prefix):].strip("/")
         if not name:
             continue
-        child = client.list_objects_v2(Bucket=location.bucket, Prefix=child_prefix)
-        leaf_names = [
-            str(obj.get("Key", "")).rsplit("/", 1)[-1] for obj in child.get("Contents", [])
-        ]
-        has_manifest, has_ped = _is_package_leaf_set(leaf_names)
+        has_manifest, has_ped = _package_markers(
+            str(obj.get("Key", ""))
+            for page in paginator.paginate(Bucket=location.bucket, Prefix=child_prefix)
+            for obj in page.get("Contents", [])
+        )
         if not has_manifest and not has_ped:
             continue
         candidates.append(
@@ -563,9 +573,9 @@ def _gcs_list_package_candidates(root_uri: str, location: RemoteLocation) -> lis
         name = child_prefix[len(base_prefix):].strip("/")
         if not name:
             continue
-        child_blobs = client.list_blobs(location.bucket, prefix=child_prefix)
-        leaf_names = [blob.name.rsplit("/", 1)[-1] for blob in child_blobs]
-        has_manifest, has_ped = _is_package_leaf_set(leaf_names)
+        has_manifest, has_ped = _package_markers(
+            blob.name for blob in client.list_blobs(location.bucket, prefix=child_prefix)
+        )
         if not has_manifest and not has_ped:
             continue
         candidates.append(
