@@ -5,6 +5,7 @@ import gzip
 import io
 import json
 import logging
+from datetime import date
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping
 from uuid import UUID
@@ -341,6 +342,63 @@ async def _assembly_dataset_count(
     return int(result.scalar_one() or 0)
 
 
+# What `reference_dataset_imports.source_version` holds when the source states no release
+# of its own: a UCSC table dump, a GTF without a preamble, the clinical-CNV knowledgebase
+# (built from the current ClinGen, ClinVar and UCSC data on the day it is rebuilt), a file
+# uploaded or loaded by script. `source_release_date` is then NULL. The row still says
+# where the data came from (`source`, `source_url`) and when it was loaded (`performed_at`).
+SOURCE_VERSION_NOT_STATED = "not stated"
+
+
+async def record_reference_import(
+    session: AsyncSession,
+    *,
+    assembly_id: str,
+    dataset_type: str,
+    inserted: int,
+    replaced: bool,
+    source: str | None,
+    performed_by: str | None,
+    source_url: str | None = None,
+    source_version: str | None = None,
+    source_release_date: date | None = None,
+) -> None:
+    """Write the `reference_dataset_imports` row for one import of a reference dataset.
+
+    Every import path writes through here, so each row carries the release its source
+    states (`source_version`, `source_release_date`), or `SOURCE_VERSION_NOT_STATED`
+    when the source states none. `source` stays the label the readers show (the
+    annotation manifest reads a gene import's version from it, e.g.
+    ``gencode v50 (Ensembl 116)``).
+    """
+    version = (source_version or "").strip() or SOURCE_VERSION_NOT_STATED
+    await session.execute(
+        text(
+            """
+            INSERT INTO reference_dataset_imports (
+                assembly_id, dataset_type, inserted, replaced, source, source_url,
+                source_version, source_release_date, performed_by
+            )
+            VALUES (
+                CAST(:assembly_id AS uuid), :dataset_type, :inserted, :replaced, :source,
+                :source_url, :source_version, :source_release_date, :performed_by
+            )
+            """
+        ),
+        {
+            "assembly_id": assembly_id,
+            "dataset_type": dataset_type,
+            "inserted": inserted,
+            "replaced": replaced,
+            "source": source,
+            "source_url": source_url,
+            "source_version": version,
+            "source_release_date": source_release_date,
+            "performed_by": performed_by,
+        },
+    )
+
+
 async def list_reference_statuses(
     session: AsyncSession,
 ) -> list[AssemblyReferenceStatusOut]:
@@ -536,6 +594,9 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
                 text_value=text_value,
                 overwrite=False,
                 commit=False,
+                # The file is all this import knows about its source; its name often
+                # carries the release (ClinGen_recurrent_CNV_V2.1-hg38.bed).
+                source=path.name,
             )
             logger.info(
                 "Bootstrapped %s for %s from %s (%d rows)",
@@ -698,7 +759,14 @@ async def apply_reference_dataset_text(
     performed_by: str | None = None,
     source: str | None = None,
     source_url: str | None = None,
+    source_version: str | None = None,
+    source_release_date: date | None = None,
 ) -> ReferenceUploadResult:
+    """Load one reference dataset from text and record the import.
+
+    ``source_version`` and ``source_release_date`` are the release the source states;
+    left out, the import is recorded as one whose source states none.
+    """
     assembly = await _get_assembly_by_id(session, assembly_id)
 
     existing_count = await _assembly_dataset_count(
@@ -980,11 +1048,12 @@ async def apply_reference_dataset_text(
                     html = row[10] or None
                     detail_base = 11
                 else:
-                    source = row[4] if len(row) > 4 else None
+                    # A row's own source column; `source` names the import itself.
+                    row_source = row[4] if len(row) > 4 else None
                     source_detail = row[5] if len(row) > 5 else None
-                    cnv_type = source or None
+                    cnv_type = row_source or None
                     label = name
-                    html_parts = [part for part in [source, source_detail] if part]
+                    html_parts = [part for part in [row_source, source_detail] if part]
                     html = "<br/>".join(html_parts) if html_parts else None
                     detail_base = 9
                 omim_id = _cell(row, detail_base)
@@ -1098,7 +1167,8 @@ async def apply_reference_dataset_text(
 
             item_rgb = row[8] if len(row) > 8 else None
             normalized_label = (label or "").strip()
-            source = row[4].strip() if len(row) > 4 and row[4].strip() not in {"", ".", "0"} else None
+            # A row's own source column; `source` names the import itself.
+            row_source = row[4].strip() if len(row) > 4 and row[4].strip() not in {"", ".", "0"} else None
 
             # ClinGen recurrent-CNV BED encodes LCR/segmental duplication anchors
             # in black and recurrent CNV intervals in orange.
@@ -1120,7 +1190,7 @@ async def apply_reference_dataset_text(
                     "start": start_i,
                     "end": end_i,
                     "label": normalized_label,
-                    "source": source,
+                    "source": row_source,
                 }
             )
 
@@ -1137,23 +1207,17 @@ async def apply_reference_dataset_text(
         )
         inserted = len(rows)
 
-    await session.execute(
-        text(
-            """
-            INSERT INTO reference_dataset_imports
-                (assembly_id, dataset_type, inserted, replaced, source, source_url, performed_by)
-            VALUES (CAST(:assembly_id AS uuid), :dataset_type, :inserted, :replaced, :source, :source_url, :performed_by)
-            """
-        ),
-        {
-            "assembly_id": assembly_id,
-            "dataset_type": dataset_type,
-            "inserted": inserted,
-            "replaced": replaced,
-            "source": source,
-            "source_url": source_url,
-            "performed_by": performed_by,
-        },
+    await record_reference_import(
+        session,
+        assembly_id=assembly_id,
+        dataset_type=dataset_type,
+        inserted=inserted,
+        replaced=replaced,
+        source=source,
+        source_url=source_url,
+        source_version=source_version,
+        source_release_date=source_release_date,
+        performed_by=performed_by,
     )
     if commit:
         await session.commit()
@@ -1195,13 +1259,16 @@ async def apply_reference_gene_rows(
     performed_by: str | None = None,
     source: str | None = None,
     source_url: str | None = None,
+    source_version: str | None = None,
+    source_release_date: date | None = None,
 ) -> ReferenceUploadResult:
     """Import gene rows that are already structured, rather than via the 12-column text.
 
     The text import exists for hand-uploaded UCSC-style exports and flattens everything
     it does not have a column for — it hardcodes ``biotype`` to ``unknown`` and the
     source to ``refgene``. GENCODE carries real biotypes, Ensembl and HGNC identifiers
-    and MANE tags, so it is imported as rows and keeps them.
+    and MANE tags, so it is imported as rows and keeps them. ``source_version`` and
+    ``source_release_date`` are the release its GTF states (see record_reference_import).
     """
     assembly = await _get_assembly_by_id(session, assembly_id)
     existing_count = await _assembly_dataset_count(
@@ -1231,22 +1298,17 @@ async def apply_reference_gene_rows(
     if not inserted:
         raise HTTPException(status_code=400, detail="No valid gene rows found")
 
-    await session.execute(
-        text(
-            """
-            INSERT INTO reference_dataset_imports
-                (assembly_id, dataset_type, inserted, replaced, source, source_url, performed_by)
-            VALUES (CAST(:assembly_id AS uuid), 'genes', :inserted, :replaced, :source, :source_url, :performed_by)
-            """
-        ),
-        {
-            "assembly_id": assembly_id,
-            "inserted": inserted,
-            "replaced": replaced,
-            "source": source,
-            "source_url": source_url,
-            "performed_by": performed_by,
-        },
+    await record_reference_import(
+        session,
+        assembly_id=assembly_id,
+        dataset_type="genes",
+        inserted=inserted,
+        replaced=replaced,
+        source=source,
+        source_url=source_url,
+        source_version=source_version,
+        source_release_date=source_release_date,
+        performed_by=performed_by,
     )
     if commit:
         await session.commit()

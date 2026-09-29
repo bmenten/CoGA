@@ -42,7 +42,7 @@ same file.
 | `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure` | one HPO release: terms, synonyms, `is_a` links, and every ancestor of a term with its distance |
 | `monarch_gene_disease`, `monarch_disease_phenotype` | Monarch gene-to-disease links (predicate, sources, causal or not) and disease-to-HPO annotations, including negated ones |
 | `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs) |
-| `reference_dataset_imports` | every reference import and upload: dataset, rows inserted, whether it replaced data, source, who and when |
+| `reference_dataset_imports` | every reference import and upload: dataset, rows inserted, whether it replaced data, source, the release the source states (below), who and when |
 
 `clinical_cnvs` carries the knowledgebase's ClinVar support per region:
 `clinvar_pathogenic_loss_count` and `clinvar_pathogenic_gain_count` (pathogenic ClinVar CNVs
@@ -54,6 +54,14 @@ no ClinVar support (built without ClinVar, or loaded from a BED-style file), not
 panel filter reads only the rows of its own assembly, plus the loci of the panel's genes
 resolved in that assembly at query time. With no resolved assembly it narrows by gene symbol
 alone. PanelApp's own coordinates are stored for the assembly they were requested for.
+
+`reference_dataset_imports.source_version` and `source_release_date` hold the release the
+source states about itself. A GENCODE gene import takes both from its GTF header. No other
+source states one: UCSC tables, a GTF without that header, the clinical-CNV knowledgebase
+(built from the sources as they are on the day), uploads, the built-in reference files and
+the DGV script. Their `source_version` is `not stated` and their `source_release_date` is
+NULL. `source` is the label the readers show, such as `gencode v50 (Ensembl 116)`; a
+built-in reference file is recorded under its file name.
 
 ### 03_assay.sql: families, samples, assay data and review
 
