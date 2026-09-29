@@ -14,7 +14,14 @@ That model classifies a change **against the previously validated version**. CoG
 had one: there is no release, no tag, and `VERSION` is still `0.1.0`. Everything below is
 therefore pre-first-release development toward that baseline, and is deliberately **not**
 labelled patch/minor/major — retrofitting regulatory classifications onto work that predates
-the baseline they are measured against would be inventing evidence, not recording it.
+the baseline they are measured against would be inventing evidence, not recording it. A
+pre-release change with a change record in TF-18 §8 has a **proposed** level there, which QA
+has yet to confirm.
+
+The work from before this file was started (2026-07-28, #396), when CoGA had 353 merged pull
+requests, is summarised here rather than transcribed: the authoritative record is the git
+history and the
+[pull-request list](https://github.com/bmenten/CoGA/pulls?q=is%3Apr+is%3Amerged).
 
 **From the first release onward, each entry carries its TF-18 level**, like so:
 
@@ -622,8 +629,6 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **`SECURITY.md`** with a private vulnerability-reporting route and explicit separation from
   the clinical vigilance path (#393); **`CONTRIBUTING.md`** and **`CODE_OF_CONDUCT.md`** (#395).
 - CI now fails when the generated handleiding page drifts from its Markdown (#390).
-
----
 - **Technical file reconciled with the code** — required CI checks, SBOM automation, the
   Terraform status, SOUP pins, requirement and test counts. The claim that every PR is
   independently reviewed is withdrawn (#399).
@@ -636,13 +641,5 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   TF-08 SOUP entries for the long-read callers and pyBigWig (#402, #412, #413, #415–#423).
 - The SBOM README names the `node:22` generator container (#397). The handleiding and README
   are updated for the gene-reference rebuild, GENCODE and the optional T2T assembly (#455).
-
-### A note on the record before this file existed
-
-CoGA has **353 merged pull requests** since 2026-05-08, most of them in the initial build-out
-during June 2026. The entries above are a curated summary of that work, not a transcription:
-the authoritative record is the git history and the
-[pull-request list](https://github.com/bmenten/CoGA/pulls?q=is%3Apr+is%3Amerged). From the
-first release onward, entries are written per change as it lands, as TF-18 requires.
 
 [Unreleased]: https://github.com/bmenten/CoGA/commits/main

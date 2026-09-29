@@ -5,10 +5,10 @@ an ordinary open-source project, and that changes what can be accepted.
 
 ## What CoGA is, and what that means for contributions
 
-CoGA is operated by CMGG as an **in-house IVD under IVDR Article 5(5)** (ISO 15189), with the
-device boundary _annotated VCF → signed clinical report_. Every change to it is a change to a
-diagnostic medical device, governed by CMGG SOP **H11.1-OP5** and recorded in the technical
-file under [docs/regulatory/](docs/regulatory/README.md).
+CoGA is a diagnostic medical device in use at CMGG: an in-house IVD under IVDR Article 5(5)
+(see the [README](README.md#regulatory-status)). Every change to it is a change to that
+device, governed by CMGG SOP **H11.1-OP5** and recorded in the technical file under
+[docs/regulatory/](docs/regulatory/README.md).
 
 Practically:
 
@@ -30,43 +30,62 @@ or identifiable material to a branch, test fixture, issue or PR — including in
 
 ## Getting set up
 
-**Node 22** (floor `22.22.0`, see [`.nvmrc`](.nvmrc)) and **Python 3.12**.
+You need Docker, **Python 3.12** and **Node 22** (at least the `engines` floor in
+`frontend/package.json`). Then:
 
 ```bash
-nvm use                      # reads .nvmrc
-docker compose up --build -d # postgres, clickhouse, backend, frontend
+cp .env.example .env         # and set APP_ENV=development in it
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 ```
 
-Frontend on <http://localhost:3000>, backend health at `/api/health`. More detail, including
-the dev stack with hot reload, is in [docs/development.md](docs/development.md).
+The web app is on <http://localhost:3000>. [docs/development.md](docs/development.md) covers
+the rest: running the backend or frontend outside Docker, demo data, reset and
+troubleshooting.
 
 ## Before you open a PR
 
-Run the same gates CI will. These are the fast ones and they catch most of it:
+Run the gates CI runs. From the repository root, with the backend tools installed
+(`pip install -r backend/requirements-dev.txt`):
 
 ```bash
-# frontend
-cd frontend && npm run tsc && npm run lint && npx vitest run
-
 # backend
 ruff check . && mypy && python -m pytest -q
+python scripts/generate-api-types.py --check
 
-# repo gates
-./scripts/check-test-catalogue.sh        # docs/testing.md lists every test file
-./scripts/check-handleiding-sync.sh      # handleiding HTML matches its Markdown
-node scripts/audit-frontend-prod.mjs     # production dependency audit
+# frontend
+(cd frontend && npm run tsc && npm run lint && npx vitest run)
+
+# repository gates
+./scripts/check-test-catalogue.sh      # docs/testing.md lists every test file
+./scripts/check-handleiding-sync.sh    # the handleiding HTML matches its Markdown
+node scripts/audit-frontend-prod.mjs   # production dependency audit
 ```
 
-Two gates surprise people:
+Run both `tsc` and `vitest` for any frontend change: the type check misses broken component
+tests, and vitest misses type errors in the tests. In CI, vitest also enforces the coverage
+floors in `frontend/vite.config.mts` (`npm run test:coverage`). The handleiding check needs
+the generator's pinned dependency: `pip install markdown==3.10.3`.
 
-- **`catalogue`** fails if you add a test file without a row in
-  [docs/testing.md](docs/testing.md), or leave a row for a deleted one.
-- **`handleiding`** fails if you edit a chapter under `docs/handleiding/` without rerunning
-  `python docs/handleiding/build_site.py`. It rebuilds the file for you — just commit it.
+The rules these gates enforce, and the ones they cannot:
 
-`npm run lint` also fails when ESLint's warnings exceed the `--max-warnings` budget in
-`frontend/package.json` (today: the remaining `no-explicit-any` hits). When you type one of
-them, lower the budget to match; it never goes up.
+- **Tests are catalogued.** A new test file needs its row in [docs/testing.md](docs/testing.md),
+  and a deleted one loses its row. The `catalogue` check fails otherwise; the same check
+  also fails when the handleiding HTML is out of date.
+- **The handleiding is rebuilt.** After editing a chapter under `docs/handleiding/`, run
+  `python docs/handleiding/build_site.py` and commit the regenerated `coga-handleiding.html`.
+- **The frontend's API types follow the backend.** After changing a Pydantic model the API
+  serves, run `python scripts/generate-api-types.py` in an environment installed from
+  `backend/requirements-dev.txt`, and commit the regenerated types.
+- **API paths are encoded.** Build every frontend API path with ``apiPath`…` ``
+  (`frontend/src/lib/apiPath.ts`), so an identifier from imported data cannot change which
+  endpoint is called.
+- **Lint warnings only go down.** `npm run lint` fails when ESLint's warnings exceed the
+  `--max-warnings` budget in `frontend/package.json`. When you fix one, lower the budget to
+  match.
+- **The change is recorded.** Add an entry under `[Unreleased]` in
+  [CHANGELOG.md](CHANGELOG.md), and a row in the change-record log of
+  [TF-18 §8](docs/regulatory/TF-18-change-configuration-management.md) with the level you
+  propose (see below); QA confirms the level.
 
 ### Branches and commits
 
@@ -79,15 +98,12 @@ For anything touching clinical behaviour, state what you verified and how.
 
 ### CI
 
-Ten checks are required and `main` is strict, so your branch must be up to date before merge:
+`main` requires the CI and security checks that [docs/testing.md](docs/testing.md) describes,
+and is strict, so your branch must be up to date before it can merge. How that protection is
+enforced, and where it falls short, is recorded in
+[TF-18 §6](docs/regulatory/TF-18-change-configuration-management.md).
 
-`frontend (tsc + eslint + vitest)` · `backend (pytest)` ·
-`smoke (real startup against Postgres + ClickHouse)` · `catalogue (test overview in sync)` ·
-`codeql (javascript-typescript)` · `codeql (python)` · `deps (pip-audit + npm audit)` ·
-`secret-scan (gitleaks)` · `e2e (golden-trio pipeline against Postgres + ClickHouse)` ·
-`e2e-playwright (browser journeys)`
-
-If `deps` fails on something you did not introduce, it is usually a newly-published advisory
+If `deps` fails on something you did not introduce, it is usually a newly published advisory
 against the existing tree — see [SECURITY-AUDIT-ALLOWLIST.md](SECURITY-AUDIT-ALLOWLIST.md)
 for how those are handled. Fix it if a non-breaking fix exists; suppression is a last resort
 and must be justified and dated.
@@ -102,7 +118,7 @@ is required before it can reach clinical use. The authority is
 | --- | --- | --- |
 | **Patch `x.y.Z`** | Backward-compatible, **no functional or clinical impact** on output — bugfix with no output change, refactor, logging, dependency patch, security update. | System test + a unit test for the fix; a [`CHANGELOG.md`](CHANGELOG.md) note. No validation report. |
 | **Minor `x.Y.z`** | New backward-compatible functionality, **no change to clinical meaning**. | Patch steps **+ technical opvolgvalidatie** (H11.1-F13) against the previous validated version on a fixed dataset; review the risk analysis ([TF-06](docs/regulatory/TF-06-risk-management-plan.md)). |
-| **Major `X.y.z`** | Backward-incompatible, or **potential impact on clinical output, interpretation or intended use** — caller/cut-off changes, annotation or reference-version changes, filter/decision-rule changes. | Minor steps **+ clinical opvolgvalidatie** (H11.1-F2), CMGGMC ICT update, and TF-01/02/03/04/05 review. |
+| **Major `X.y.z`** | Backward-incompatible, or **potential impact on clinical output, interpretation or intended use** — caller/cut-off changes, annotation or reference-version changes, filter/decision-rule changes. | Minor steps **+ clinical opvolgvalidatie** (H11.1-F2) and a CMGGMC ICT update. A change to the intended purpose or scope also updates TF-01 to TF-05. |
 
 > Rule of thumb, and the line between minor and major: **if it could change a clinical output,
 > its interpretation, or the validated scope, it is major** — and it cannot reach clinical use
@@ -117,24 +133,16 @@ Every change needs **4-eye review** — a second (bio-)IT team member for patch 
 progressively broader sign-off for minor and major (TF-18 §4). Please request a review rather
 than self-merging.
 
-> **Note on enforcement:** branch protection currently requires the ten status checks but does
-> **not** mechanically require an approving review, so the 4-eye rule is today a process
-> commitment rather than an enforced one. Treat it as binding regardless. Enforcement is
-> scheduled to be turned on with the **first beta release**.
-
-## Known gaps
-
-Recorded here rather than left to be discovered:
-
-- **4-eye review is not yet mechanically enforced** (above) — enforcement lands with the first
-  beta release.
-- The `catalogue` status check also guards the handleiding page despite its name; the name is
-  kept verbatim because it is a required check and renaming it would leave the requirement
-  permanently pending.
+> **Enforcement:** branch protection requires the status checks but does **not** require an
+> approving review, so the 4-eye rule is today a process commitment rather than an enforced
+> control. Treat it as binding regardless. Enforcement is scheduled to be turned on with the
+> **first beta release**.
 
 ## Releasing
 
-Cutting a release follows [`RELEASING.md`](RELEASING.md). Contributors do not cut releases, but it is worth reading before proposing a change that affects versioning, the build, or the deployment.
+Cutting a release follows [`RELEASING.md`](RELEASING.md). Contributors do not cut releases,
+but it is worth reading before proposing a change that affects versioning, the build, or the
+deployment.
 
 ## Code of conduct
 
