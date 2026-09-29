@@ -9,6 +9,7 @@ import yaml
 
 from backend.app.services import clickhouse_family_variants as family_variants
 from backend.app.services import family_package_import as package_import
+from backend.app.services.family_package_datasets import DatasetImportJob
 from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageManifestBuildRequest
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
@@ -579,12 +580,15 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
     )
 
     result = await package_import._import_qdnaseq_dataset(
-        session=object(),
-        bundle=bundle,
-        dataset=dataset,
-        summary=summary,
-        sample_contexts=sample_contexts,
-        conflict_mode="overwrite",
+        DatasetImportJob(
+            session=object(),  # type: ignore[arg-type]
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            family_context=None,  # type: ignore[arg-type] - QDNAseq does not read it
+            sample_contexts=sample_contexts,
+            conflict_mode="overwrite",
+        )
     )
 
     assert result.message == "Imported QDNAseq bins as coverage and segments as segment interval tracks"

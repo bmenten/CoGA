@@ -139,7 +139,7 @@ Een remote pakket wordt eerst gestaged (gedownload naar een tijdelijke map) zoda
 
 De import registreert eerst de familie-metadata en de provenance, en importeert daarna dataset voor dataset. Grofweg: kleine, hoog-volume variantrijen gaan naar **ClickHouse**; metadata, herkomst en per-sample brongegevens naar **Postgres**.
 
-**Waar in de code:** `backend/app/services/family_package_datasets.py` (`_import_dataset` en de per-dataset importfuncties), die de bestaande loaders `upload_family_small_variant_file`, `replace_family_structural_variants`, `ingest_family_trgt_text`, enz. aanroepen.
+**Waar in de code:** `backend/app/services/family_package_datasets.py`. Elke per-dataset importfunctie registreert zich met `@_dataset_importer("<type>")` in `DATASET_IMPORTERS` en krijgt één `DatasetImportJob` mee: het pakket, de manifestregel van de dataset, de samenvatting, de familie- en samplecontext, de conflictmodus en de voortgangsterugmelding. `_import_dataset` zoekt de functie op in dat register (#528). De functies roepen de bestaande loaders aan: `upload_family_small_variant_file`, `replace_family_structural_variants`, `ingest_family_trgt_text`, enz. Een datasettype in `SUPPORTED_DATASETS` zonder registratie is een fout: een test bewaakt dat, en `_import_dataset` faalt er luid op.
 
 | Bron in het pakket | Loader (functie) | Doeltabel(len) | Databank |
 | --- | --- | --- | --- |
