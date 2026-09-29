@@ -53,6 +53,7 @@ from ..schemas import (
     VariantCarriersOut,
     VariantExplorerAssemblyOut,
 )
+from .clickhouse_variant_records import CLINVAR_FREQUENCY_RESCUE_TERMS, _status_filter_terms
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
 
@@ -263,6 +264,8 @@ class GlobalVariantFilters:
     max_gnomad_ac: int | None = None
     max_gnomad_hom_count: int | None = None
     max_gnomad_hemi_count: int | None = None
+    # ClinVar P/LP keeps a variant past the frequency ceilings, as in the family search.
+    clinvar_overrides_frequency: bool = False
     min_cadd: float | None = None
     min_revel: float | None = None
     min_spliceai: float | None = None
@@ -598,12 +601,27 @@ def _annotation_index_clauses(
         "max_gnomad_hom_count": filters.max_gnomad_hom_count,
         "max_gnomad_hemi_count": filters.max_gnomad_hemi_count,
     }
+    frequency_clauses: list[str] = []
     for column, value in frequency_columns.items():
         if value is None:
             continue
         param = f"ann_{column}"
         params[param] = value
-        clauses.append(f"(ai.{column} IS NULL OR ai.{column} <= %({param})s)")
+        frequency_clauses.append(f"(ai.{column} IS NULL OR ai.{column} <= %({param})s)")
+    if frequency_clauses:
+        frequency_block = " AND ".join(frequency_clauses)
+        if filters.clinvar_overrides_frequency:
+            # The family search's rescue (clickhouse_variant_queries), on the same
+            # normalised terms: the page offered this, on by default, and the explorer
+            # ignored it, so a ClinVar P/LP variant above a cut-off was dropped.
+            rescue_terms = list(_status_filter_terms(CLINVAR_FREQUENCY_RESCUE_TERMS))
+            rescue_terms.append("/".join(rescue_terms))
+            params["ann_clinvar_rescue_terms"] = rescue_terms
+            clauses.append(
+                f"(({frequency_block}) OR hasAny(ai.clinvar_terms, %(ann_clinvar_rescue_terms)s))"
+            )
+        else:
+            clauses.extend(frequency_clauses)
 
     minimum_columns = {
         "max_cadd_phred": filters.min_cadd,

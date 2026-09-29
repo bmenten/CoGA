@@ -39,6 +39,40 @@ const EMPTY_RELATIONSHIPS: SmallVariantFamily['relationships'] = [];
 const EMPTY_SAMPLE_FILTERS: Record<string, SmallVariantSampleFilter> = {};
 
 /**
+ * Filters of the shared form that the explorer's backend does not apply (#526): it takes
+ * one locus, not an interval list, and no transcript, excluded genes or intervals, and
+ * none of the per-family review state (excluded tags, saved notes). The form hides their
+ * controls, and their parameters are never sent, so no chip claims a filter that the
+ * results do not reflect.
+ */
+export const GLOBAL_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new Set<
+  keyof SmallFilterState
+>(['intervals', 'transcript', 'exclude_gene', 'exclude_intervals', 'exclude_review_tags', 'has_notes']);
+
+// Everything the shared builder sends that the explorer's endpoint does not read: the
+// parameters of the filters above, those of the family-only controls the form hides, and
+// the raw locus, which the builder also sends as chr/start/end or gene.
+const GLOBAL_UNREAD_PARAMS = [
+  'locus',
+  'intervals',
+  'transcript',
+  'exclude_gene',
+  'exclude_intervals',
+  'exclude_review_tag',
+  'has_notes',
+  'inheritance',
+  'category',
+  'min_confidence',
+  'ps',
+  'prioritize',
+  'require_sv_second_hit',
+  'expanded_carrier_screening',
+  'source',
+  'sample_filter',
+  'project_id',
+];
+
+/**
  * Family-agnostic counterpart to `useSmallVariantSearchState`. It reuses the
  * shared `SmallFilterState`, chip rendering and query-string serialisation so
  * the Global Small Variant Explorer can render the existing
@@ -195,6 +229,7 @@ export const useGlobalSmallVariantSearchState = () => {
   const requestQueryString = useMemo(() => {
     // Reuse the shared builder, then swap its page param for the keyset cursor.
     const params = buildSmallVariantQueryParams(filters, EMPTY_SAMPLE_FILTERS, 1);
+    GLOBAL_UNREAD_PARAMS.forEach((name) => params.delete(name));
     params.delete('page');
     params.set('page_size', String(PAGE_SIZE));
     params.set('sort', sort);

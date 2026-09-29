@@ -342,6 +342,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   drawn at the left edge under its own name. The zoomed ideogram gives each tick its own label at
   gene-level zoom, and on the genome overview a pathogenic repeat locus is drawn over its normal
   neighbours (#579).
+- **Variant explorer filters** — "ClinVar P/LP overrules the frequency filter", on by default,
+  was shown as applied but ignored, so a pathogenic variant above a gnomAD ceiling was left out; the
+  explorer now applies it. Six filters it cannot apply (interval list, transcript, excluded genes,
+  intervals and tags, saved notes) are no longer offered. The gene link opens the gene, a capped
+  total reads 10,000+, a loading or failed assembly list is no longer shown as "no variants", and a
+  sample id may contain ":" (#580).
 
 ### Security
 

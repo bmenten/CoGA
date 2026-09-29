@@ -257,6 +257,11 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getByText('Standard tags')).toBeInTheDocument();
     expect(screen.getByText('Custom tags')).toBeInTheDocument();
     expect(screen.getByLabelText(/Only show variants with saved notes/i)).toBeInTheDocument();
+    // The family search applies every exclusion; only the explorer hides some (#526).
+    expect(screen.getByPlaceholderText(/^Excluded genes:/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/^Excluded intervals:/)).toBeInTheDocument();
+    expect(screen.getByText('Excluded standard tags')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Excluded tag' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /apply filters/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /clear all filters/i }).length).toBeGreaterThan(0);
     expect(screen.getByRole('tab', { name: 'Auto' })).toBeInTheDocument();
