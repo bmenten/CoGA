@@ -1,88 +1,48 @@
-Administrative tooling lives behind admin access and keeps the platform governed, current and
-healthy. Everything is reachable from the [admin dashboard](/admin), which groups the workspaces
-into six operational domains. The sections below describe what each one does.
+Administrator tools sit behind admin access. **Admin** on the dashboard opens the
+[admin dashboard](/admin), grouped in six areas.
 
-### 1 · Reference data
+### Reference Data
 
-The shared, system-wide datasets every project reads. These rarely change day to day, but keeping
-them current is what makes annotations, gene context and phenotype matching accurate.
+- **Species & Assemblies** — the genome builds and their reference data (cytobands, genes, clinical
+  CNVs, segmental duplications, DGV), with each dataset's status. Refresh the human gene information,
+  rebuild the clinical-CNV knowledgebase, or upload a reference file.
+- **Gene Panels** — the panel catalogue: create panels, import them from PanelApp, and see their genes.
+- **HPO Terminology** — the HPO release in use; preview and apply a new release.
+- **Monarch Data** — load the Monarch release (gene–disease and disease–phenotype links) that powers
+  [phenotype matching](#phenotype-matching) and the ranking. Load it once after installation and about
+  monthly; loading it also rebuilds the Mendeliome panel.
 
-- **Species \& assemblies** ([/admin/reference/assemblies](/admin/reference/assemblies)) — the
-  reference genome builds (e.g. GRCh38) and their per-assembly layers: cytobands, gene and
-  transcript models, clinical CNVs, segmental duplications and DGV. Shows the status of each dataset
-  and lets you trigger a **gene-metadata sync** — refresh a single gene by symbol or queue an
-  all-human refresh — and watch the resulting jobs (progress, errors). The same area rebuilds the
-  **clinical-CNV knowledge base** from ClinVar and DGV.
-- **Gene panels** ([/admin/reference/gene-panels](/admin/reference/gene-panels)) — the panel
-  catalogue, each panel’s source metadata and its gene membership. Panels chosen here are what
-  analysts pick from in [case setup](#phenotypes-and-panels) and the small-variant location filter.
-- **HPO terminology** ([/admin/reference/hpo](/admin/reference/hpo)) — the Human Phenotype Ontology
-  release: term count, synonyms, relationships and sync status. Preview and apply a new ontology
-  release so phenotype entry and matching use current terms.
-- **Monarch knowledge graph** — load the monthly Monarch release (gene–disease and disease–phenotype
-  associations) that powers [phenotype matching](#phenotype-matching) and [variant
-  prioritisation](#variant-prioritisation). Run it once after deploy and roughly monthly to stay
-  current; until it is run, the phenotype blocks show an empty state.
+### User & Access Management
 
-### 2 · Users \& access
+- **Users** — accounts, roles and activation. Activate a new account here; deactivate one to revoke
+  access without deleting its history.
+- **Projects & Access** — the projects (each tied to an assembly) and which families, samples and users
+  belong to them. A user sees only the data of their projects, and the cohort counts in the explorers
+  follow the same scope.
 
-This is what scopes every query, cohort count and family list in the platform.
+### Data Management
 
-- **Users** ([/admin/access/users](/admin/access/users)) — user accounts, their role, and their
-  activation status. Deactivate an account to revoke access without deleting its history.
-- **Projects \& access** ([/admin/access/projects](/admin/access/projects)) — the project catalogue
-  (each project pins an assembly) and the family/sample-to-project assignments. A user only ever
-  sees data in the projects they are granted, and the [Global Small Variant
-  Explorer](#variant-explorer) counts only across those projects, so access here directly defines
-  each analyst’s and each cohort query’s scope.
+- **Family & Sample Data** — the inventory of families and samples: open a family's members and data,
+  change its projects, download and verify the original import files, or delete a data layer, a sample
+  or a family (this cannot be undone and is recorded in the audit log).
+- **Family Statuses** — the workflow statuses analysts give a case.
+- **Sequencing QC Thresholds** — the warning and error cut-offs per assay behind the **Seq. QC** chip.
+  None ship by default; a metric without a cut-off reads as *not assessed*.
+- **Package Import** — import a family package (see [Case setup and data import](#case-setup)).
 
-### 3 · Data management
+### Variant Configuration
 
-The imported family, sample and assay data, plus the workflow labels around it.
+- **Variant Tags** — create, rename, recolour or remove custom review tags, for one project or for
+  everyone. The built-in and ACMG tags are listed for reference.
+- **Preset Filters** — the catalogue of the small-variant presets the team uses. Presets are saved on the
+  small-variant page.
 
-- **Family \& sample data** ([/admin/data/families](/admin/data/families)) — search and page the
-  full inventory of families and samples, drill into a family’s members and per-assay layers, and
-  reassign a family or sample to different projects. Per-family **raw import files** can be
-  downloaded and integrity-verified. Deletion workflows are here too, scoped precisely: remove a
-  single assay layer for one sample, or an entire sample or family. (Deletions are irreversible and
-  audit-logged.)
-- **Family statuses** ([/admin/data/family-statuses](/admin/data/family-statuses)) — curate the
-  workflow statuses analysts assign to families (e.g. *new*, *in progress*, *completed*): add,
-  rename, recolour or remove them.
-- **Package import** ([/admin/data/upload](/admin/data/upload)) — validate an import manifest and
-  run a package-based **initial or incremental import** from the browser (the same flow available on
-  the CLI). See [case setup](#case-setup) for what an import brings in.
+### Database & Operations
 
-### 4 · Variant configuration
+- **ClickHouse Tables & Operations** — technical database maintenance, for the bioinformatics team.
 
-The interpretation vocabulary and reusable filters shared across the team.
+### Monitoring & Audit
 
-- **Variant tags** ([/admin/variants/tags](/admin/variants/tags)) — define the review tags analysts
-  apply during [interpretation](#interpretation-and-review): create, rename, recolour and remove
-  them, and scope custom tags per project. The built-in ACMG class tags and the VUS hot/warm/cold
-  tier tags are managed automatically and appear here for reference.
-- **Preset filters** ([/admin/variants/presets](/admin/variants/presets)) — review the built-in and
-  saved [small-variant filter presets](#small-variant-filtering) the team relies on for consistent
-  review. Presets are authored from the family workspace; this view is the catalogue.
-
-### 5 · Database \& operations
-
-- **ClickHouse tables \& operations** ([/admin/operations/clickhouse](/admin/operations/clickhouse))
-  — the per-assembly variant tables that back small-variant search, with their status and size, plus
-  manual maintenance: **ensure** (create or repair a missing/corrupt table), **optimise** (compact
-  storage, with an optional *final* pass) and **rebuild the small-variant gene index** (the
-  materialised view behind gene-based lookups). Reach for these after a large import or if a
-  gene-scoped query looks incomplete.
-
-### 6 · Monitoring \& audit
-
-- **Audit logs** ([/admin/monitoring/audit-logs](/admin/monitoring/audit-logs)) — a full activity
-  trail for inspection and platform optimisation, split into two views, each filterable by user,
-  path, method and status. **API requests** records every backend call: who, what, when, the
-  response and duration, inferred data updates, and which search filters a query used. **UI
-  interactions** records client-side activity that never reaches the backend — every button and link
-  click and each in-app navigation. Identifiers are masked (paths reduced to *:id*, query strings to
-  their filter names), so the trail shows *how* the platform is used without exposing patient data.
-
-Personal display preferences live on the [Settings](/settings) page (not an admin tool); release
-notes are on the [New features](/new-features) page.
+- **Audit Logs** — every request to the server (who, what, when, the outcome) and every button and link a
+  user clicked. Identifiers are masked, so the log shows how CoGA is used without exposing patient data.
+  It is separate from each family's *Classification audit trail* on the report.

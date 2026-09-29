@@ -1,57 +1,63 @@
-The small-variant page is where most candidate-finding happens. Filters are grouped so you can move
-from a broad genome to a short candidate list quickly, then save the recipe as a preset.
+The **Small variants** page is where most candidates are found. The filters take a genome down to a
+short list; the *Phenotype priority* preset puts that list in order.
 
-### Filter dimensions
+### The default view
 
-- **Location** — gene symbols, genomic regions/intervals, or a gene panel. Write an interval as
-  `chr13:32315086-32400266` (an en dash, or a single position, also works), one per line. An entry
-  that cannot be read, such as a BED line (BED is 0-based) or an end before its start, is named under
-  its field and nothing is searched: an interval is never dropped from the search unnoticed.
-- **Inheritance** — de novo / dominant, recessive (homozygous), compound heterozygous, and X-linked
-  models, plus expanded carrier screening for couples. For de novo / dominant, a male's hemizygous
-  call (`1` or `1/1`) on chrX or chrY outside the pseudo-autosomal regions counts as the one copy.
-- **Variant type** — SNV, indel, or MNV.
-- **Consequence and impact** — HIGH / MODERATE / LOW / MODIFIER and specific effects (missense,
-  frameshift, stop gained, splice, and so on).
-- **ClinVar and classification** — pathogenic through benign, conflicting interpretations, and your
-  own ACMG classifications.
-- **Population frequency** — gnomAD exomes/genomes/popmax and TOPMed allele frequencies, allele
-  counts, and homozygote/hemizygote caps.
-- **In-silico evidence** — CADD, REVEL, SpliceAI, SIFT, and PolyPhen thresholds, amongst others.
-- **Transcript scope** — restrict to canonical, MANE, or loss-of-function transcripts.
-- **Tags and notes** — include or exclude review tags, or require notes.
+The page opens with the **Phenotype priority (Exomiser-style)** preset on the **Mendeliome** panel:
 
-### Compound heterozygotes and per-sample genotypes
+- HIGH or MODERATE impact;
+- gnomAD exome, genome and popmax frequency 1% or below, and at most 10 homozygotes and 10 hemizygotes —
+  a ClinVar pathogenic or likely pathogenic record overrides these cut-offs;
+- ClinVar benign and likely benign left out;
+- carried (het or hom) by each affected member, with QUAL 20, depth 10, allele fraction 0.2 and 4 alt
+  reads or more.
 
-Compound-heterozygous candidates are grouped as pairs so you can assess both hits in a gene
-together. Per-sample genotype and quality thresholds (genotype, QUAL, DP, AF, AD) let you encode
-segregation expectations across the family directly in the search.
+> **The default view hides variants.** A variant outside the Mendeliome, a common variant, a
+> low-quality call, or a variant an affected member does not carry is not shown. Press **Clear all
+> filters** before you conclude that a variant is not in the data.
 
-### Cross-type “second hit”: a gene also hit by a structural variant
+### Filters and presets
 
-Recessive disease is often caused by a small variant on one allele and a *structural* variant on the
-other — most importantly an SNV plus an overlapping deletion, which removes the second copy and
-makes a “heterozygous” SNV effectively biallelic. Because small variants and structural variants are
-filtered in separate workspaces, these pairs are easy to miss, so CoGA flags them for you.
+The filters are grouped as on the screen: **Phenotype**, **Structural second hit**, **Inheritance**,
+**Pathogenicity**, **Annotations** (with *Canonical only*, *MANE only* and *LoF only*), **In Silico**,
+**Frequency**, **Locations**, **Exclude** and **Review and curation**. For de novo and dominant, a male's
+call on chrX or chrY outside the pseudo-autosomal regions (`1` or `1/1`) counts as one copy. A location
+entry that cannot be read (for example an end before its start) is named under its field, and nothing is
+searched until you fix it.
 
-- Any small variant whose gene is **also hit by a structural variant** carries an **SV badge**
-  showing the SV type and the zygosity in affected individuals.
-- A **trans / cis** verdict says whether the two hits sit on opposite alleles (a
-  compound-heterozygous candidate) or the same one — inferred from family segregation, and read
-  directly from the haplotypes when the SVs are phased (shown as a distinct badge).
-- A deletion in trans with a heterozygous SNV is highlighted as **effectively biallelic** — the
-  highest-yield case.
-- The **Structural second hit** filter (*“Also hit by an SV”*) restricts the results to just these
-  genes, so you can screen for the pattern in one pass.
+The built-in presets are *Phenotype priority*, *Dominant strict*, *Dominant relaxed*, *Expanded carrier
+screening* (couples only: genes where both partners carry a rare variant), *Compound het*, *Recessive
+hom*, *Recessive broad*, *Any affected* and *ClinVar review*. A preset saves the recipe, not the result;
+save your own to standardise a search. Compound-heterozygous candidates are shown as pairs. Up to 100
+matches show as cards, more as a table.
 
-[SNV + SV compound heterozygosity (cross-type second hit, trans/cis phasing)](/docs/reference/sv-second-hit "further-reading")
+### The phenotype ranking
 
-### Bi-sample partner analysis
+With *Phenotype priority* on, a **Score** column appears and the rows come ranked, best first. The score
+combines the variant's own evidence (impact and predictors, ClinVar, rarity, fit with the pedigree) with
+how well its gene matches the affected members' HPO terms. A ✦ marks a gene that matches. Hover the
+score, or read the card, for the breakdown: *Variant*, *Pathogenicity*, *Rarity* and *Phenotype*, the
+compatible inheritance modes and the matched phenotypes.
 
-A special case is the coupled partner analysis — a dedicated filter for (expanded) preconception
-carrier screening. Only genes where both partners carry a variant meeting the filter criteria are
-returned.
+- A gene without Monarch data gets no phenotype credit and ranks lower; its *Variant* score is not
+  affected. Look further down for strong variants, or untick **Phenotype prioritization**.
+- Without HPO terms on the affected members, the ranking uses the variant evidence only.
+- The score orders candidates within the family; it is not a probability of pathogenicity.
+- A warning that *"this ranking is incomplete"* means more candidates matched than CoGA ranks at once:
+  narrow the filters (frequency, impact, a panel or an inheritance mode).
 
-> **Presets save the recipe, not the result.** Built-in presets cover common patterns (dominant,
-> recessive, compound het, carrier screening, ClinVar review, and *phenotype priority* — see the
-> next section); save your own to standardise variant filtration.
+**Why the ranking can be instant.** CoGA keeps the ranking once it is computed; a later open shows
+*⚡ Prioritised ranking served from cache* and when it was computed. It is recomputed automatically when
+anything it depends on changes: the phenotypes, the pedigree, the panel, the filters (including
+review-tag filters), the family's variant data, or the reference data (Monarch, HPO, gene constraint).
+Narrowing from the Mendeliome to a smaller panel is served from the broader ranking.
+
+**Download CSV** exports the list, with *Priority* and *Rank* columns when the ranking is on.
+
+### Also hit by a structural variant
+
+A small variant whose gene is also hit by an SV carries an **SV badge** (for example `SV: DEL`), with a
+`trans` or `cis` chip when a phase was decided. **Also hit by an SV** under *Structural second hit* keeps
+only these genes. Check a segregation-based `trans` before you rely on it: the reference explains why.
+
+[SNV + SV compound heterozygosity reference (the badge, trans or cis)](/docs/reference/sv-second-hit "further-reading")

@@ -1,20 +1,34 @@
-The family page is the hub of interpretation. It shows the pedigree, curation summaries, and a set
-of analysis buttons that link out to each review surface.
+Every case starts on its family page.
 
-### What you will find there
+### The header
 
-- **Analysis buttons that reflect the data.** Small variants, structural variants, variant summary,
-  repeat expansions, Paraphase, and mtDNA only appear when that data type is actually loaded for the
-  family — so an empty button never sends you to an empty page.
-- **Visualisation buttons** for the genome overview, chromosome view, Circos plot, and IGV.
-- **Review summaries** for small and structural variants: how many are reviewed, noted, and tagged.
-- **Region of interest (ROI).** Users can set a gene or locus of interest directly from the family
-  dashboard and open it in the chromosome view.
+**Status**, **Assigned to** and **Reviewed by** track the case's workflow; any user can change them. The
+header also shows the assembly and the projects, and a *Not validated for clinical use* banner when the
+family is outside the validated scope.
 
-### Pedigree and member management
+### The buttons
 
-Sex, role, parentage, phenotype, and carrier status are edited per member. Phenotype (clinical
-status: unknown / unaffected / affected) and carrier status (unknown / carrier / non-carrier) are
-**independent axes** — an individual can be unaffected but still a carrier — and are set with
-separate controls. These edits are metadata-only: they update the pedigree and mark
-phenotype-dependent views as needing recomputation, but they never delete or reimport raw data.
+- **Variants** — **Small variants** and **Structural variants** (each with its curation counts); then
+  **Repeat expansions**, **Paraphase**, **mtDNA analysis** and **Monogenic NIPT**; and finally **Variant
+  summary**, **Sample QC** and **Report**. A button appears only when the family has that kind of data.
+- **Visualization** — **Genome view**, **Chromosome view**, **Circos plot** and **IGV viewer**.
+
+### Region of interest (ROI)
+
+The ROI is the gene or locus the case is about; PGT uses it for the embryo calls. An administrator sets
+it (**Save**, **Clear**). Anyone can click it to open the chromosome view with 1 Mb on each side. In a PGT
+family, **Review ROI markers →** opens the marker review.
+
+### Family members
+
+One row per person: role, parents, partner, status, HPO terms and a **Seq. QC** chip with the sequencing
+QC verdict and mean depth (hover for the metrics). In a PGT family each embryo also shows its derived
+call (see [Haplotype segregation](#haplotype-segregation)).
+
+Only an administrator edits a member: click the sample name to open **Family member details**, change
+the fields, press **Apply to pending**, then **Save pending updates** on the family page. HPO terms are
+added in the same dialog. Affected status and carrier status are separate: an unaffected person can be a
+carrier. Adding or removing members is done in **Admin → Family & Sample Data**.
+
+Further down are the **Phenotype match (Monarch)** panel and, closed by default, the **Analysis
+pipeline settings** recorded at import.

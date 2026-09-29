@@ -1,8 +1,9 @@
 // The user guide's sections (#528): what the page lists — id, title, summary and the
 // workspace quick links — while each section's text lives in Markdown under
 // src/content/docs/user-guide/<id>.md, where it can be read and edited as prose.
-// The guide is part of the information for safety (TF-15): the Markdown was converted
-// from the JSX guide, and UserGuideContent.test.tsx holds it to what that guide said.
+// The guide is part of the information for safety (TF-15). Each section says what a page
+// is for and how to use it, and links to the reference docs (referenceDocs.ts) for the
+// rules. UserGuideContent.test.tsx holds the rendered text to its reviewed snapshot.
 
 export type GuideLink = {
   label: string;
@@ -32,24 +33,13 @@ const markdownFor = (id: string): string => {
 
 const sections: Omit<GuideSection, 'markdown'>[] = [
   {
-    id: 'orientation',
-    title: 'How CoGA is organised',
-    summary:
-      'Understand the scoped data model — projects, families, samples, assemblies, and review state — before you start interpreting.',
-    quickLinks: [
-      { label: 'Dashboard', to: '/dashboard', note: 'Start here' },
-      { label: 'Families', to: '/families', note: 'Case catalog' },
-    ],
-  },
-  {
     id: 'quick-start',
     title: 'Quick start',
-    summary: 'Two common entry points: open an existing case, or set up a new one.',
+    summary:
+      'Get an account, see how CoGA is organised, review a first case, and keep the five rules for safe use in mind.',
     quickLinks: [
-      { label: 'Dashboard', to: '/dashboard', note: 'Search' },
+      { label: 'Dashboard', to: '/dashboard', note: 'Start here' },
       { label: 'Family Builder', to: '/family-builder', note: 'New case' },
-      { label: 'Package Import', to: '/package-import', note: 'Bulk import' },
-      { label: 'Gene explorer', to: '/genes', note: 'Locus-first' },
       { label: 'Variant explorer', to: '/variant-explorer', note: 'Cross-cohort' },
     ],
   },
@@ -57,128 +47,95 @@ const sections: Omit<GuideSection, 'markdown'>[] = [
     id: 'case-setup',
     title: 'Case setup and data import',
     summary:
-      'Create families and samples, import data packages, and understand what each assay layer unlocks.',
+      'Create a family, import a data package, and know what each kind of data unlocks.',
     quickLinks: [
-      { label: 'Family Builder', to: '/family-builder', note: 'Manual pedigree' },
-      { label: 'Package Import', to: '/package-import', note: 'Folder packages' },
-      { label: 'Upload sample data', to: '/upload-data', note: 'Assays' },
-      { label: 'Reference data', to: '/reference-data', note: 'Assembly layers' },
-    ],
-  },
-  {
-    id: 'phenotypes-and-panels',
-    title: 'Phenotypes and gene panels',
-    summary:
-      'Anchor interpretation in the patient phenotype with HPO, and constrain searches with reusable gene panels.',
-    quickLinks: [
-      { label: 'HPO browser', to: '/hpo', note: 'Phenotype terms' },
-      { label: 'Panel catalog', to: '/panels', note: 'Gene sets' },
+      { label: 'Family Builder', to: '/family-builder', note: 'New family' },
+      { label: 'Package Import', to: '/package-import', note: 'Admin' },
+      { label: 'Upload data', to: '/upload-data', note: 'Admin' },
+      { label: 'Reference data', to: '/reference-data', note: 'Assemblies' },
     ],
   },
   {
     id: 'phenotype-matching',
-    title: 'Phenotype matching (Monarch Initiative)',
+    title: 'Phenotypes, panels and phenotype matching',
     summary:
-      'Connect the patient’s HPO phenotypes to genes and diseases through the Monarch knowledge graph — on the gene profile and as a ranked “candidate genes” panel in the family.',
+      'Record HPO terms, focus a search with a gene panel, and match the phenotype to genes and diseases with Monarch.',
     quickLinks: [
-      { label: 'Gene explorer', to: '/genes', note: 'Gene–disease & phenotypes' },
-      { label: 'Families', to: '/families', note: 'Candidate-gene panel' },
+      { label: 'Panel catalog', to: '/panels', note: 'Gene sets' },
+      { label: 'Gene explorer', to: '/genes', note: 'Gene–disease links' },
     ],
   },
   {
     id: 'family-workspace',
-    title: 'The family workspace',
+    title: 'The family page',
     summary:
-      'The case dashboard: pedigree, review summaries, an editable region of interest, and one entry point per analysis.',
-    quickLinks: [{ label: 'Families', to: '/families', note: 'Open a family' }],
+      'The case hub: status and assignment, one button per analysis and viewer, the region of interest, and the family members.',
+    quickLinks: [{ label: 'Dashboard', to: '/dashboard', note: 'Find a family' }],
   },
   {
     id: 'sample-qc',
     title: 'Sample-integrity QC',
     summary:
-      'An automated check — before you interpret — that a family’s samples are who the pedigree says: catches swaps, mislabelled relationships, wrong-sex labels, contamination and consanguinity.',
-    quickLinks: [{ label: 'Families', to: '/families', note: 'Sample QC button' }],
+      'Check, before you interpret, that the samples are who the pedigree says: swaps, wrong relationships, wrong sex, contamination and consanguinity.',
   },
   {
     id: 'small-variant-filtering',
     title: 'Small-variant prioritisation',
     summary:
-      'The filter workbench: location, inheritance, consequence, ClinVar, frequency, in-silico scores, transcripts, and tags — with reusable presets.',
-    quickLinks: [{ label: 'Families', to: '/families', note: 'Per-family search' }],
-  },
-  {
-    id: 'variant-prioritisation',
-    title: 'Phenotype-driven variant prioritisation (Exomiser-style)',
-    summary:
-      'One click ranks a family’s rare, impactful, segregating variants by how well each gene matches the patient’s phenotypes — with a transparent, explainable score.',
-    quickLinks: [{ label: 'Families', to: '/families', note: 'Apply the preset' }],
+      'The small-variant page: the default view, the filters and presets, the phenotype-driven ranking, and genes also hit by a structural variant.',
   },
   {
     id: 'interpretation-and-review',
-    title: 'Interpretation and review state',
+    title: 'Interpretation and review',
     summary:
-      'Record an ACMG classification, tags, and notes per variant, and keep that review state consistent across the team.',
-  },
-  {
-    id: 'acmg-classification',
-    title: 'Semi-automatic ACMG classification',
-    summary:
-      'A guided ACMG/AMP classifier that pre-evaluates criteria from the variant, trio and gene data, scores them on a points scale, and stays fully overridable.',
+      'Tag, annotate and classify variants — with the semi-automatic ACMG classifier — and keep the review state per family.',
   },
   {
     id: 'clinical-report',
-    title: 'Clinical report, traceability & sign-out',
+    title: 'Clinical report and sign-out',
     summary:
-      'Draft a report from the reported variants, and lock the result to exactly what produced it: a version footer, evidence-drift warnings, an immutable audit trail, and a frozen, content-hashed case sign-out.',
-    quickLinks: [{ label: 'Families', to: '/families', note: 'Report link → Variants' }],
+      'Draft the report from the tagged variants, see what changed, and sign it out into a version that can never change.',
   },
   {
     id: 'specialised-analyses',
-    title: 'Structural variants, repeats, Paraphase, and mtDNA',
+    title: 'Structural variants, repeats, Paraphase and mtDNA',
     summary:
-      'Specialised review surfaces for events that small-variant tables do not capture.',
-    quickLinks: [{ label: 'Families', to: '/families', note: 'Open a family' }],
+      'The analyses beyond small variants, including the CNV classifier and the variant summary.',
   },
   {
     id: 'visualization',
-    title: 'Genome visualisation and follow-up',
+    title: 'Genome visualisation',
     summary:
-      'Move from a candidate row into whole-genome, per-chromosome, Circos, and IGV views.',
-    quickLinks: [{ label: 'Families', to: '/families', note: 'Viewers live per family' }],
+      'From a candidate to its context: the genome and chromosome views, Circos and IGV, and how the small-variant track is drawn.',
   },
   {
     id: 'haplotype-segregation',
-    title: 'Haplotype segregation analysis',
+    title: 'Haplotype segregation (PGT)',
     summary:
-      'A PGT tool: trace the four grandparental haplotypes through the family to read off which embryos inherited the disease haplotype(s) — with the raw markers to catch recombinations and artifacts.',
-    quickLinks: [{ label: 'Families', to: '/families', note: 'Opens in the chromosome view' }],
+      'Follow the parental haplotypes through the family to see which embryos inherited the disease haplotype — and when not to trust the call.',
   },
   {
     id: 'monogenic-nipt',
-    title: 'Monogenic NIPT (cell-free DNA)',
+    title: 'Monogenic NIPT',
     summary:
-      'Screen a pregnancy for single-gene disorders from maternal-plasma cfDNA against a paternal sample — the fetal genotype is inferred from the allele fraction, never sequenced directly.',
-    quickLinks: [{ label: 'Families', to: '/families', note: 'Open a NIPT family' }],
+      'Screen a pregnancy for single-gene disorders from maternal-plasma cfDNA and a paternal sample: set it up, read the page, print the report.',
   },
   {
-    id: 'gene-explorer',
-    title: 'Gene Explorer',
+    id: 'explorers',
+    title: 'Gene, variant and CNV explorers',
     summary:
-      'A locus-first gene profile: transcript overview with clinical badges, constraint metrics, and disease associations.',
-    quickLinks: [{ label: 'Gene explorer', to: '/genes', note: 'Search a gene' }],
-  },
-  {
-    id: 'variant-explorer',
-    title: 'Global Small Variant Explorer',
-    summary:
-      'A variant-centric, cross-project view: how often a variant occurs, in which families, and with what review state.',
-    quickLinks: [{ label: 'Variant explorer', to: '/variant-explorer', note: 'Cross-cohort' }],
+      'Questions beyond one case: a gene profile, a variant across the cohort, and the catalogue of clinical CNVs.',
+    quickLinks: [
+      { label: 'Gene explorer', to: '/genes', note: 'Search a gene' },
+      { label: 'Variant explorer', to: '/variant-explorer', note: 'Cross-cohort' },
+      { label: 'Clinical CNV explorer', to: '/cnv-explorer', note: 'CNV catalogue' },
+    ],
   },
   {
     id: 'administration',
     title: 'Administration',
     summary:
-      'The admin dashboard, grouped by operational domain: reference data, users & access, data management, variant configuration, database operations, and audit logs.',
+      'The admin dashboard: reference data, users and access, data management, variant configuration, database operations and audit logs.',
     quickLinks: [
       { label: 'Admin dashboard', to: '/admin', note: 'All tools' },
       { label: 'Family & sample data', to: '/admin/data/families', note: 'Inventory & import' },
@@ -190,7 +147,7 @@ const sections: Omit<GuideSection, 'markdown'>[] = [
   {
     id: 'glossary',
     title: 'Glossary',
-    summary: 'Quick definitions for the terms used throughout CoGA.',
+    summary: 'Short definitions of the terms used in CoGA.',
   },
 ];
 
