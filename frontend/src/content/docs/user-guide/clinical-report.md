@@ -11,17 +11,22 @@ context and phenotype overlap — and is where the case is signed out.
 - The **Classification audit trail**: who classified, tagged or annotated what, and when. Entries can
   never be changed or deleted.
 - The **Analysis pipeline settings** recorded at import.
+- An **Import incomplete** warning at the top when a data import left the family partly loaded. It
+  names the datasets that failed and the import job that holds their errors. The same warning shows
+  on every family page until an import completes the family.
 
 ### Signing out
 
 **Sign out report** freezes the reported result into a numbered version with a unique fingerprint. It
-stops for three things:
+stops for four things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
 2. **Evidence drift**, including a reported variant that was never saved through **ACMG classify** (its
    evidence cannot be checked): re-review, or acknowledge with a reason.
 3. **Sample QC** that failed, or could not confirm the pedigree: acknowledge with a reason.
+4. **An incomplete import** (the page says *Import incomplete*): re-run the import, or acknowledge with
+   a reason.
 
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
 creates a new version (**Amend sign-out**); earlier versions are never overwritten.
@@ -35,4 +40,4 @@ The page always shows the **current** data and compares it with the latest signe
 they match, amber when something changed since (the record names what), grey when the check could not
 be made (*treat it as unsigned*). **Download signed version N (JSON)** returns the frozen version.
 
-[Report traceability and sign-out reference (footer, drift, audit, the three checks)](/docs/reference/clinical-traceability "further-reading")
+[Report traceability and sign-out reference (footer, drift, audit, the sign-out checks)](/docs/reference/clinical-traceability "further-reading")

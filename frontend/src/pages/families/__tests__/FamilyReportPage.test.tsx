@@ -845,6 +845,193 @@ describe('FamilyReportPage', () => {
     expect(screen.getByText('Evidence drift')).toBeInTheDocument();
   });
 
+  // A family-package import that partly failed leaves the family flagged import_incomplete.
+  // The report warns while it is set, and sign-out needs it acknowledged with a reason, as
+  // a Sample-QC concern does.
+  describe('when the family’s import is incomplete', () => {
+    const IMPORT_JOB_ID = '3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b';
+    const IMPORT_FLAG = {
+      at: '2026-09-12T10:14:00+00:00',
+      failed_datasets: ['snv', 'sv'],
+      imported_datasets: ['coverage'],
+      job_id: IMPORT_JOB_ID,
+    };
+    const IMPORT_409 = {
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            gate: 'import_incomplete',
+            message:
+              "This family's data is incomplete: the package import (2026-09-12T10:14:00+00:00) failed for snv, sv (coverage did import). Re-run the import to complete it, or acknowledge with a reason to sign out anyway.",
+            import_incomplete: IMPORT_FLAG,
+          },
+        },
+      },
+    };
+    const REASON = 'SV calls are not part of this referral; SNV re-import booked.';
+
+    function mockIncompleteFamily() {
+      mockUnsignedFamily();
+      const base = apiMock.get.getMockImplementation()!;
+      apiMock.get.mockImplementation((url: string, config?: unknown) =>
+        url === '/families/F1'
+          ? Promise.resolve({
+              data: {
+                family_id: 'F1',
+                members: [],
+                projects: [],
+                metadata: { import_incomplete: IMPORT_FLAG },
+              },
+            })
+          : base(url, config),
+      );
+    }
+
+    it('warns on the report while the flag is set, naming what failed', async () => {
+      mockIncompleteFamily();
+      renderPage();
+
+      const banner = (await screen.findByText(/Import incomplete\./)).closest('[role="alert"]');
+      expect(banner).toHaveTextContent(/failed for snv and sv; coverage did import/);
+      // In the header card, which prints with the report.
+      expect(banner?.closest('.report-header')).not.toBeNull();
+      expect(banner?.closest('.no-print')).toBeNull();
+    });
+
+    it('requires a reason to sign out, and posts the acknowledgement', async () => {
+      mockIncompleteFamily();
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        return posts.length === 1
+          ? Promise.reject(IMPORT_409)
+          : Promise.resolve({ data: { version: 1 } });
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      // The server's message verbatim, and what failed and what did import.
+      expect(within(dialog).getByText(/failed for snv, sv \(coverage did import\)/)).toBeInTheDocument();
+      expect(within(dialog).getByText('Failed to import: snv, sv')).toBeInTheDocument();
+      expect(within(dialog).getByText('Imported: coverage')).toBeInTheDocument();
+      // The job whose record holds each dataset's error.
+      expect(within(dialog).getByText(`Import job: ${IMPORT_JOB_ID}`)).toBeInTheDocument();
+
+      const confirm = within(dialog).getByRole('button', { name: /Sign out anyway/ });
+      expect(confirm).toBeDisabled();
+      fireEvent.change(within(dialog).getByLabelText(/despite the incomplete import/), {
+        target: { value: `  ${REASON}  ` },
+      });
+      expect(confirm).toBeEnabled();
+      fireEvent.click(confirm);
+
+      await waitFor(() => expect(posts).toHaveLength(2));
+      expect(posts[0]).toMatchObject({ acknowledge_import_incomplete: false });
+      expect(posts[1]).toMatchObject({
+        acknowledge_import_incomplete: true,
+        import_incomplete_acknowledgement_reason: REASON,
+      });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('dialog', { name: /Incomplete import acknowledgement required/i }),
+        ).not.toBeInTheDocument(),
+      );
+    });
+
+    it('carries the drift and QC reasons through to the incomplete-import override', async () => {
+      mockIncompleteFamily();
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        if (posts.length === 1) return Promise.reject(DRIFT_409);
+        if (posts.length === 2) return Promise.reject(QC_409);
+        if (posts.length === 3) return Promise.reject(IMPORT_409);
+        return Promise.resolve({ data: { version: 1 } });
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      fireEvent.change(await screen.findByLabelText(/despite the evidence drift/), {
+        target: { value: 'drift reviewed' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
+      fireEvent.change(await screen.findByLabelText(/despite the QC concern/), {
+        target: { value: 'identity confirmed' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
+      fireEvent.change(await screen.findByLabelText(/despite the incomplete import/), {
+        target: { value: REASON },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
+
+      await waitFor(() => expect(posts).toHaveLength(4));
+      expect(posts[3]).toMatchObject({
+        acknowledge_drift: true,
+        drift_acknowledgement_reason: 'drift reviewed',
+        acknowledge_qc: true,
+        qc_acknowledgement_reason: 'identity confirmed',
+        acknowledge_import_incomplete: true,
+        import_incomplete_acknowledgement_reason: REASON,
+      });
+    });
+
+    it('does not sign out when the override is cancelled', async () => {
+      mockIncompleteFamily();
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        return Promise.reject(IMPORT_409);
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: /Cancel/ }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(posts).toHaveLength(1);
+    });
+
+    it('shows the frozen incomplete-import override on the signed record', async () => {
+      mockSignedFamily(() => checkResult({ matches: true }));
+      const signed = {
+        ...SIGNED_LATEST,
+        import_incomplete_failed_datasets: ['snv', 'sv'],
+        import_incomplete_job_id: IMPORT_JOB_ID,
+        import_incomplete_acknowledged: true,
+        import_incomplete_acknowledgement_reason: REASON,
+      };
+      const base = apiMock.get.getMockImplementation();
+      apiMock.get.mockImplementation((url: string) =>
+        url === '/families/F1/report/sign-outs'
+          ? Promise.resolve({ data: { family_id: 'F1', latest: signed, signouts: [] } })
+          : base!(url),
+      );
+      renderPage();
+
+      const label = await screen.findByText('Incomplete import');
+      expect(label.closest('p')).toHaveTextContent(
+        `Incomplete import snv and sv not imported (import job ${IMPORT_JOB_ID}) — override acknowledged: ${REASON}`,
+      );
+    });
+
+    it('names a change in import completeness since sign-out', async () => {
+      mockSignedFamily(() =>
+        checkResult({ matches: false, changed_sections: ['import_incomplete'] }),
+      );
+      renderPage();
+
+      expect(await screen.findByText(/Changed since sign-out/)).toBeInTheDocument();
+      expect(screen.getByText(/import completeness\. This page shows the current state/)).toBeInTheDocument();
+    });
+  });
+
   // #605 — a failed request is never printed as an empty or complete report.
   describe('when a request fails', () => {
     const serverError = () => Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));

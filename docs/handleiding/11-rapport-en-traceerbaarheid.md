@@ -1,6 +1,6 @@
 # 11. Rapport & volledige traceerbaarheid
 
-In dit hoofdstuk komt alles samen. Het beschrijft hoe een casus wordt *ondertekend* (sign-out) tot een **bevroren, geversioneerd en gehasht snapshot** van het rapport, gebonden aan de software-, annotatie- en referentieversies die het maakten. Aan bod komen de **poorten** die eerst vervuld moeten zijn (de referentie binnen de gevalideerde scope, geen onverklaarde classificatiedrift, geen onverklaarde sample-QC-fout), het **append-only, hash-geketende** auditspoor en de externe **integriteitsankers**. De rode draad is de volledige keten: van het ruwe bestand met zijn hash, via het annotatiemanifest en de variant, tot het ondertekende rapport.
+In dit hoofdstuk komt alles samen. Het beschrijft hoe een casus wordt *ondertekend* (sign-out) tot een **bevroren, geversioneerd en gehasht snapshot** van het rapport, gebonden aan de software-, annotatie- en referentieversies die het maakten. Aan bod komen de **poorten** die eerst vervuld moeten zijn (de referentie binnen de gevalideerde scope, geen onverklaarde classificatiedrift, geen onverklaarde sample-QC-fout, geen onverklaarde onvolledige import), het **append-only, hash-geketende** auditspoor en de externe **integriteitsankers**. De rode draad is de volledige keten: van het ruwe bestand met zijn hash, via het annotatiemanifest en de variant, tot het ondertekende rapport.
 
 Wat de gebruiker op de rapportpagina ziet (de kleuren van het ondertekeningsrecord, de meldingen bij een mislukte vraag), staat in de app: *Docs → Report traceability & sign-out* (`frontend/src/content/docs/clinical-traceability.md`). Het ontwerp staat in `docs/clinical-traceability.md`; de risico's en eisen in de technical file (`TF-06`, `TF-09b`).
 
@@ -34,12 +34,13 @@ Dezelfde drie worden bij het ondertekenen bevroren.
 Ondertekenen gaat via **`POST /api/families/{id}/report/sign-out`**. De service `sign_out_report` doet, in volgorde:
 
 0. **Poort 0 — de referentie is gevalideerd.** Staat de assembly van de familie niet in `VALIDATED_ASSEMBLIES` (standaard alleen `GRCh38`), of is er geen, dan weigert de backend (`409`, `gate = "assembly_scope"`). Die weigering kan niet worden erkend of omzeild. De pagina's tonen zo'n familie als *Not validated for clinical use*, en het rapport biedt dan geen ondertekenknop aan (`TF-06`, gevaar H12).
-1. **Het snapshot samenstellen:** de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags en notitie.
+1. **Het snapshot samenstellen:** de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, de importstatus, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags en notitie.
 2. **Poort 1 — drift** (hieronder).
 3. **Poort 2 — sample-QC** (hieronder).
-4. **Versie en keten vastleggen** onder een slot per familie, zodat twee gelijktijdige ondertekeningen elkaar niet kunnen storen.
-5. **De hashes berekenen** en de nieuwe rij **toevoegen** aan `report_signouts` als volgende versie.
-6. **Een klinisch auditevent schrijven** (`sign_out`), in dezelfde transactie.
+4. **Poort 3 — onvolledige import** (hieronder).
+5. **Versie en keten vastleggen** onder een slot per familie, zodat twee gelijktijdige ondertekeningen elkaar niet kunnen storen.
+6. **De hashes berekenen** en de nieuwe rij **toevoegen** aan `report_signouts` als volgende versie.
+7. **Een klinisch auditevent schrijven** (`sign_out`), in dezelfde transactie.
 
 **Wie mag ondertekenen.** Alleen wie het labo als ondertekenaar machtigt. Dat is een procedurele maatregel, geen controle in de software: CoGA laat elk lid van het project (ook een `viewer`) ondertekenen (`TF-06`, gevaar H15). Ondertekenen vraagt wel een login en projecttoegang. De ondertekenaar wordt vastgelegd als verwijzing naar het account én als tekst, zodat hij herkenbaar blijft als het account later verdwijnt.
 
@@ -66,6 +67,14 @@ Blokkeert de poort en is ze niet erkend, dan volgt `409` met de bevindingen. Erk
 
 **Waar in de code:** `sign_out_report` en `_unverifiable_swap_checks` in `report_signout_service.py`.
 
+### Poort 3 — geen onverklaarde onvolledige import
+
+Een pakketimport die voor een deel van de datasets faalt en de familie deels geladen achterlaat, zet de vlag `import_incomplete` in de familiemetadata (hoofdstuk 6). De vlag noemt de mislukte en de gelukte datasets, het tijdstip en de importjob waarin de fout per dataset staat. Zo'n familie kan hele datasets missen, bv. alle structurele varianten (`TF-06`, gevaar H16).
+
+Staat de vlag en heeft de ondertekenaar ze niet erkend, dan volgt `409` (`gate = "import_incomplete"`) met de mislukte datasets en de importjob. Erkennen vraagt een reden (anders `422`). De vlag en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen. Elke gezette vlag telt, ook een in een onverwachte vorm. Zolang de vlag staat, toont elke familiepagina *Import incomplete*; een latere volledige import wist ze. De rapportpagina opent een aparte dialoog waarin de reden verplicht is.
+
+**Waar in de code:** `sign_out_report` en `_import_incomplete_state` in `report_signout_service.py`; de vlag in `_flag_family_import_incomplete` (`family_package_registration.py`); de melding in `frontend/src/components/ImportIncompleteBanner.tsx`.
+
 ## Het bevroren snapshot
 
 | Veld | Inhoud |
@@ -76,6 +85,7 @@ Blokkeert de poort en is ze niet erkend, dan volgt `409` met de bevindingen. Erk
 | `drift` | Het aantal gecontroleerde classificaties en de lijst met drift (ook `no_snapshot`) |
 | `sample_qc` | De volledige sample-QC |
 | `sequencing_qc` | De sequencing-QC per sample en de grenzen waartegen ze beoordeeld werd |
+| `import_incomplete` | Leeg (`null`) als de data volledig geïmporteerd is; anders de mislukte en de gelukte datasets, het tijdstip en de importjob |
 | `reported_variants` | Elke gerapporteerde small variant met klasse, criteria, tags, notitie en bevroren bewijs |
 | `reported_structural_variants` | Elke gerapporteerde SV of CNV met classificatie, CNV-criteria, tags en notitie |
 
@@ -85,7 +95,7 @@ Bij het ondertekenen komen er de versie, het tijdstip, de ondertekenaar en de er
 - **Annotatie en pipeline:** het bevroren manifest en, per classificatie, de hash van de annotatieset.
 - **Referentie:** de assembly, de bron van de genloci die CoGA zelf laadde (GENCODE, of de UCSC-tabel als GENCODE niet lukte) en de Monarch-release.
 
-**De hash.** De inhoudshash is een SHA-256 over een vaste, op sleutel gesorteerde JSON-codering; lijsten worden vooraf op een stabiele sleutel gesorteerd. De klinische secties zijn deterministisch: dezelfde inhoud geeft dezelfde vingerafdruk, en daarop steunt de controle hieronder. De inhoudshash zelf omvat ook de versie, het tijdstip en de ondertekenaar, en is dus per ondertekening uniek.
+**De hash.** De inhoudshash is een SHA-256 over een vaste, op sleutel gesorteerde JSON-codering; lijsten worden vooraf op een stabiele sleutel gesorteerd. De klinische secties zijn deterministisch: dezelfde inhoud geeft dezelfde vingerafdruk, en daarop steunt de controle hieronder. De inhoudshash zelf omvat ook de versie, het tijdstip en de ondertekenaar, en is dus per ondertekening uniek. Een opgeslagen hash wordt altijd herberekend over het snapshot zoals het opgeslagen werd; een versie van vóór een nieuw veld blijft dus geverifieerd.
 
 **Los van ClickHouse.** Het snapshot bevat zelf de waarden die het nodig heeft. Een latere herbouw van ClickHouse of een nieuwe annotatieversie verandert het ondertekende record niet.
 

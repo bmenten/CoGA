@@ -696,6 +696,7 @@ async def _flag_family_import_incomplete(
     *,
     failed_datasets: list[str],
     imported_datasets: list[str],
+    job_id: str | None = None,
 ) -> None:
     """Stamp a pre-existing family as import-incomplete after a failed update/overwrite.
 
@@ -705,11 +706,20 @@ async def _flag_family_import_incomplete(
     if complete, record it in the family metadata so it is explicit and auditable.
     Best-effort and self-committing: a flag-write failure must not mask the original
     import failure.
+
+    The flag names the import job (``job_id``, None for an import run outside a job):
+    the job's record holds each dataset's error. The error texts are not copied here, as
+    they can carry file paths and grow long.
+
+    Read back by report sign-out (``report_signout_service._import_incomplete_state``),
+    which refuses a flagged family unless the signer acknowledges it with a reason, and
+    by the family pages, which warn while it is set. Keep the payload's keys in step.
     """
     payload = {
         "at": datetime.now(timezone.utc).isoformat(),
         "failed_datasets": sorted(set(failed_datasets)),
         "imported_datasets": sorted(set(imported_datasets)),
+        "job_id": job_id,
     }
     try:
         await session.execute(

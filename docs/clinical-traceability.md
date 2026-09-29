@@ -64,13 +64,17 @@ At sign-out, a reported classification that has no snapshot counts as drift too
   evidence snapshot, and the reported structural variants and CNVs with their classification;
 - the drift state, the sample-integrity QC result, and the sequencing QC with the cut-offs it
   was judged against;
+- the import state (`import_incomplete`): null when the family's data imported completely,
+  otherwise the datasets that failed and those that imported, when, and the import job;
 - the signer, the time, and any acknowledgement with its reason.
 
 The snapshot is hashed with SHA-256 over a canonical encoding and stored as the next version.
 An amendment is a new sign-out; no version is ever changed. The sign-out is also written to the
-clinical audit trail.
+clinical audit trail. A stored hash is always checked against the snapshot as it was stored, so
+a version signed before a field was added still verifies; the sign-out check reports that
+section as `not_compared`.
 
-Three gates run first, in this order:
+Four gates run first, in this order:
 
 1. **Assembly scope.** A family whose assembly is not in `VALIDATED_ASSEMBLIES` (default
    GRCh38), or that has none, is refused with 409 (`gate: "assembly_scope"`). This cannot be
@@ -82,6 +86,12 @@ Three gates run first, in this order:
 3. **Sample-integrity QC.** A QC fail (a detected sample or pedigree swap), or a swap check that
    could not run for a relationship the pedigree asserts, gives 409 (`gate: "sample_qc"`),
    unless the request sets `acknowledge_qc` with a `qc_acknowledgement_reason` (422 without).
+4. **Incomplete import.** A family flagged `metadata.import_incomplete` by a package import
+   that left it partly loaded ([data-import.md](data-import.md)) gives 409
+   (`gate: "import_incomplete"`, naming the failed datasets and the import job), unless the
+   request sets `acknowledge_import_incomplete` with an
+   `import_incomplete_acknowledgement_reason` (422 without). Any set flag counts, whatever its
+   shape. Every family page shows *Import incomplete* while the flag is set.
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 

@@ -2275,6 +2275,10 @@ export interface ReportSignoutDetail {
   qc_acknowledgement_reason: string | null;
   drift_acknowledged: boolean | null;
   drift_acknowledgement_reason: string | null;
+  import_incomplete_failed_datasets: string[] | null;
+  import_incomplete_job_id: string | null;
+  import_incomplete_acknowledged: boolean | null;
+  import_incomplete_acknowledgement_reason: string | null;
   verified: boolean | null;
   snapshot: Record<string, unknown> | null;
 }
@@ -2288,14 +2292,17 @@ export interface ReportSignoutListOut {
 /**
  * Sign out the current report.
  *
- * Evidence drift and a failing sample-integrity QC must each be explicitly
- * acknowledged, and each acknowledgement requires a reason.
+ * Evidence drift, a failing sample-integrity QC and an incomplete import (a family
+ * package import that partly failed) must each be explicitly acknowledged, and each
+ * acknowledgement requires a reason.
  */
 export interface ReportSignoutRequest {
   acknowledge_drift?: boolean;
   drift_acknowledgement_reason?: string | null;
   acknowledge_qc?: boolean;
   qc_acknowledgement_reason?: string | null;
+  acknowledge_import_incomplete?: boolean;
+  import_incomplete_acknowledgement_reason?: string | null;
 }
 
 export interface ReportSignoutSummary {
@@ -2310,6 +2317,10 @@ export interface ReportSignoutSummary {
   qc_acknowledgement_reason: string | null;
   drift_acknowledged: boolean | null;
   drift_acknowledgement_reason: string | null;
+  import_incomplete_failed_datasets: string[] | null;
+  import_incomplete_job_id: string | null;
+  import_incomplete_acknowledged: boolean | null;
+  import_incomplete_acknowledgement_reason: string | null;
   verified: boolean | null;
 }
 

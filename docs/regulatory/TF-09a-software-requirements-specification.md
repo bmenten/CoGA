@@ -114,6 +114,7 @@
 | REQ-TRACE-010 | Refuse a variant-review save made against a review that has changed since the client loaded it (409 with the current review), rather than overwrite another reviewer's classification, criteria, tags or note; serialize concurrent saves of one variant. | C | H9, H3 |
 | REQ-TRACE-011 | Record, per family, the analysis pipeline and engine version and the version of every tool and reference database behind its callset, and present them with the run configuration. | C | H8 |
 | REQ-TRACE-012 | Refuse sign-out while a Sample QC check has failed, or while the Sample QC cannot confirm a declared family relationship or a sample's identity, unless the analyst acknowledges it with a reason; freeze the QC result and the reason into the signed record and the audit trail. | C | H4 |
+| REQ-TRACE-013 | Refuse sign-out while a package import has left the family partly loaded (the import-incomplete flag is set), unless the analyst acknowledges it with a reason; freeze what the import left out (the failed datasets and the import job) and the reason into the signed record and the audit trail; warn on every family page while the flag is set. | C | H16 |
 
 ### 3.7 Access control & security (REQ-SEC)
 

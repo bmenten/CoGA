@@ -98,6 +98,25 @@ describe('FamilyPageHeader', () => {
     expect(container.querySelector('.page-top-card-body')).toBeNull();
   });
 
+  it('warns on every family page while the family’s import is incomplete', () => {
+    renderHeader({
+      family: {
+        ...family,
+        metadata: {
+          import_incomplete: { at: null, failed_datasets: ['snv'], imported_datasets: ['sv'] },
+        },
+      },
+    });
+    const card = screen.getByRole('heading', { name: 'Family F1' }).closest('.page-top-card');
+    const banner = within(card as HTMLElement).getByRole('alert');
+    expect(banner).toHaveTextContent(/Import incomplete\. A family-package import failed for snv; sv did import\./);
+  });
+
+  it('shows no import warning for a family that imported completely', () => {
+    renderHeader();
+    expect(screen.queryByText(/Import incomplete/)).not.toBeInTheDocument();
+  });
+
   it('renders a footer inside the card, below the grid', () => {
     const { container } = renderHeader({ footer: <div data-testid="filters">Filters</div> });
     const card = container.querySelector('.page-top-card') as HTMLElement;

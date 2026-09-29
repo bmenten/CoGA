@@ -83,14 +83,17 @@ class ClinicalAuditOut(BaseModel):
 class ReportSignoutRequest(BaseModel):
     """Sign out the current report.
 
-    Evidence drift and a failing sample-integrity QC must each be explicitly
-    acknowledged, and each acknowledgement requires a reason.
+    Evidence drift, a failing sample-integrity QC and an incomplete import (a family
+    package import that partly failed) must each be explicitly acknowledged, and each
+    acknowledgement requires a reason.
     """
 
     acknowledge_drift: bool = False
     drift_acknowledgement_reason: Optional[str] = None
     acknowledge_qc: bool = False
     qc_acknowledgement_reason: Optional[str] = None
+    acknowledge_import_incomplete: bool = False
+    import_incomplete_acknowledgement_reason: Optional[str] = None
 
 
 class ReportSignoutSummary(BaseModel):
@@ -111,6 +114,14 @@ class ReportSignoutSummary(BaseModel):
     # drift override needed a reason).
     drift_acknowledged: Optional[bool] = None
     drift_acknowledgement_reason: Optional[str] = None
+    # Frozen incomplete-import state and its override: the datasets a partly failed
+    # package import had not loaded when the report was signed (NULL when the import was
+    # complete), the import job whose record holds each dataset's error (NULL when not
+    # recorded), and the acknowledgement. All NULL for sign-outs made before the gate.
+    import_incomplete_failed_datasets: Optional[List[str]] = None
+    import_incomplete_job_id: Optional[str] = None
+    import_incomplete_acknowledged: Optional[bool] = None
+    import_incomplete_acknowledgement_reason: Optional[str] = None
     # Re-verification of the stored content hash against the snapshot, done on detail
     # reads (None when not checked, e.g. in list views). False ⇒ snapshot was tampered.
     verified: Optional[bool] = None

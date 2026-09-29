@@ -133,6 +133,7 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   drift: 'evidence drift',
   sample_qc: 'sample-integrity QC',
   sequencing_qc: 'sequencing QC cut-offs',
+  import_incomplete: 'import completeness',
 };
 
 const describeSections = (sections: string[]): string =>
@@ -404,24 +405,42 @@ const FamilyReportPage: React.FC = () => {
   const printNotice = [incompleteNotice, signedNotice].filter(Boolean).join(' ') || null;
 
   // Override dialogs. Each gate is acknowledged with a reason that is frozen into the
-  // signed record: evidence drift first, then a failing / unverifiable Sample QC.
-  const [driftGate, setDriftGate] = useState<{ message: string } | null>(null);
-  const [driftReason, setDriftReason] = useState('');
-  const [qcGate, setQcGate] = useState<{
-    message: string;
-    acknowledgeDrift: boolean;
-    driftReason?: string;
-    summary?: { overall_status?: string; messages?: string[] };
-  } | null>(null);
-  const [qcReason, setQcReason] = useState('');
-  const [signOutError, setSignOutError] = useState<string | null>(null);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
-
+  // signed record: evidence drift first, then a failing / unverifiable Sample QC, then an
+  // incomplete import. Each dialog keeps the attempt its gate refused (`vars`), so the
+  // acknowledgements already given travel on with the next one.
   type SignOutVars = {
     acknowledgeDrift: boolean;
     driftReason?: string;
     acknowledgeQc?: boolean;
     qcReason?: string;
+    acknowledgeImportIncomplete?: boolean;
+    importReason?: string;
+  };
+  const [driftGate, setDriftGate] = useState<{ message: string; vars: SignOutVars } | null>(
+    null,
+  );
+  const [driftReason, setDriftReason] = useState('');
+  const [qcGate, setQcGate] = useState<{
+    message: string;
+    vars: SignOutVars;
+    summary?: { overall_status?: string; messages?: string[] };
+  } | null>(null);
+  const [qcReason, setQcReason] = useState('');
+  const [importGate, setImportGate] = useState<{
+    message: string;
+    vars: SignOutVars;
+    failed: string[];
+    imported: string[];
+    jobId: string | null;
+  } | null>(null);
+  const [importReason, setImportReason] = useState('');
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  const closeGates = () => {
+    setDriftGate(null);
+    setQcGate(null);
+    setImportGate(null);
   };
 
   const signOut = useMutation({
@@ -432,6 +451,8 @@ const FamilyReportPage: React.FC = () => {
           drift_acknowledgement_reason: vars.driftReason,
           acknowledge_qc: vars.acknowledgeQc ?? false,
           qc_acknowledgement_reason: vars.qcReason,
+          acknowledge_import_incomplete: vars.acknowledgeImportIncomplete ?? false,
+          import_incomplete_acknowledgement_reason: vars.importReason,
         })
       ).data,
     onSuccess: () => {
@@ -445,10 +466,10 @@ const FamilyReportPage: React.FC = () => {
     setSignOutError(null);
     try {
       await signOut.mutateAsync(vars);
-      setDriftGate(null);
+      closeGates();
       setDriftReason('');
-      setQcGate(null);
       setQcReason('');
+      setImportReason('');
     } catch (error) {
       const response = (
         error as { response?: { status?: number; data?: { detail?: unknown } } }
@@ -456,21 +477,17 @@ const FamilyReportPage: React.FC = () => {
       if (response?.status !== 409) {
         // Anything but a gate is a failure the reviewer must see: the report was NOT
         // signed out.
-        setDriftGate(null);
-        setQcGate(null);
+        closeGates();
         setSignOutError(apiErrorMessage(error, 'The report could not be signed out'));
         return;
       }
       const detail = response.data?.detail;
+      const gate =
+        detail && typeof detail === 'object' ? (detail as { gate?: string }).gate : undefined;
+      closeGates();
       // Off the validated assembly scope: a refusal with no override, never the drift
       // dialog that a plain 409 would open (#515).
-      if (
-        detail &&
-        typeof detail === 'object' &&
-        (detail as { gate?: string }).gate === 'assembly_scope'
-      ) {
-        setDriftGate(null);
-        setQcGate(null);
+      if (gate === 'assembly_scope') {
         setSignOutError(
           (detail as { message?: string }).message ||
             'This family is outside the validated assembly scope.',
@@ -479,21 +496,35 @@ const FamilyReportPage: React.FC = () => {
       }
       // A failing Sample QC returns a structured detail (gate discriminator + a failure
       // summary); it needs an acknowledge-WITH-REASON override, so open the dialog.
-      if (
-        detail &&
-        typeof detail === 'object' &&
-        (detail as { gate?: string }).gate === 'sample_qc'
-      ) {
+      if (gate === 'sample_qc') {
         const qc = detail as {
           message?: string;
           qc_summary?: { overall_status?: string; messages?: string[] };
         };
-        setDriftGate(null);
         setQcGate({
           message: qc.message || 'Sample-integrity QC failed.',
           summary: qc.qc_summary,
-          acknowledgeDrift: vars.acknowledgeDrift,
-          driftReason: vars.driftReason,
+          vars,
+        });
+        return;
+      }
+      // An import that partly failed: structured like the QC gate, naming what the import
+      // left out, and acknowledged the same way.
+      if (gate === 'import_incomplete') {
+        const incomplete = detail as {
+          message?: string;
+          import_incomplete?: {
+            failed_datasets?: string[];
+            imported_datasets?: string[];
+            job_id?: string | null;
+          } | null;
+        };
+        setImportGate({
+          message: incomplete.message || 'The family’s import is incomplete.',
+          failed: incomplete.import_incomplete?.failed_datasets ?? [],
+          imported: incomplete.import_incomplete?.imported_datasets ?? [],
+          jobId: incomplete.import_incomplete?.job_id ?? null,
+          vars,
         });
         return;
       }
@@ -503,18 +534,24 @@ const FamilyReportPage: React.FC = () => {
           typeof detail === 'string'
             ? detail
             : 'Evidence has changed since some classifications were made.',
+        vars,
       });
     }
   };
 
-  const handleSignOut = () => attemptSignOut({ acknowledgeDrift: false, acknowledgeQc: false });
+  const handleSignOut = () =>
+    attemptSignOut({
+      acknowledgeDrift: false,
+      acknowledgeQc: false,
+      acknowledgeImportIncomplete: false,
+    });
 
   const submitDriftAcknowledgement = async () => {
     const reason = driftReason.trim();
     if (!reason || !driftGate) {
       return;
     }
-    await attemptSignOut({ acknowledgeDrift: true, driftReason: reason, acknowledgeQc: false });
+    await attemptSignOut({ ...driftGate.vars, acknowledgeDrift: true, driftReason: reason });
   };
 
   const submitQcAcknowledgement = async () => {
@@ -522,11 +559,18 @@ const FamilyReportPage: React.FC = () => {
     if (!reason || !qcGate) {
       return;
     }
+    await attemptSignOut({ ...qcGate.vars, acknowledgeQc: true, qcReason: reason });
+  };
+
+  const submitImportAcknowledgement = async () => {
+    const reason = importReason.trim();
+    if (!reason || !importGate) {
+      return;
+    }
     await attemptSignOut({
-      acknowledgeDrift: qcGate.acknowledgeDrift,
-      driftReason: qcGate.driftReason,
-      acknowledgeQc: true,
-      qcReason: reason,
+      ...importGate.vars,
+      acknowledgeImportIncomplete: true,
+      importReason: reason,
     });
   };
 
@@ -812,6 +856,71 @@ const FamilyReportPage: React.FC = () => {
         </ModalDialog>
       ) : null}
 
+      {importGate ? (
+        <ModalDialog
+          label="Incomplete import acknowledgement required"
+          className="modal-surface surface-card report-qc-ack-modal"
+          closeOnBackdrop={false}
+          discardMessage="Discard the reason you have typed?"
+          onClose={() => {
+            setImportGate(null);
+            setImportReason('');
+          }}
+        >
+            <h2 className="report-paragraph">
+              <strong>Incomplete import — acknowledgement required</strong>
+            </h2>
+            {/* The backend message names what the import left out. Render it verbatim so
+                the signer attests to the right thing. */}
+            <p className="report-paragraph">{importGate.message}</p>
+            <p className="report-paragraph">
+              To sign out anyway you must record a reason — it is frozen into the signed record.
+            </p>
+            {importGate.failed.length || importGate.imported.length || importGate.jobId ? (
+              <ul>
+                {importGate.failed.length ? (
+                  <li>Failed to import: {importGate.failed.join(', ')}</li>
+                ) : null}
+                {importGate.imported.length ? (
+                  <li>Imported: {importGate.imported.join(', ')}</li>
+                ) : null}
+                {/* Its record holds each dataset's error. */}
+                {importGate.jobId ? <li>Import job: {importGate.jobId}</li> : null}
+              </ul>
+            ) : null}
+            <label className="report-footer-label" htmlFor="import-ack-reason">
+              Reason for signing out despite the incomplete import (required)
+            </label>
+            <textarea
+              id="import-ack-reason"
+              className="variant-review-textarea"
+              rows={3}
+              value={importReason}
+              onChange={(event) => setImportReason(event.target.value)}
+            />
+            <div className="inline-actions modal-actions">
+              <button
+                type="button"
+                className="form-button"
+                onClick={() => {
+                  setImportGate(null);
+                  setImportReason('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="form-button"
+                disabled={!importReason.trim() || signOut.isPending}
+                onClick={submitImportAcknowledgement}
+              >
+                Sign out anyway
+              </button>
+            </div>
+        </ModalDialog>
+      ) : null}
+
       {signoutsFailed ? (
         <section className="surface-card report-signout report-signout-unknown" role="alert">
           <p className="report-signout-line">
@@ -889,6 +998,23 @@ const FamilyReportPage: React.FC = () => {
             <p className="report-signout-qc">
               <span className="report-footer-label">Evidence drift</span> override acknowledged:{' '}
               {latestSignout.drift_acknowledgement_reason || 'no reason recorded'}
+            </p>
+          ) : null}
+          {latestSignout.import_incomplete_acknowledged ? (
+            <p className="report-signout-qc">
+              <span className="report-footer-label">Incomplete import</span>{' '}
+              {latestSignout.import_incomplete_failed_datasets?.length
+                ? `${joinWithAnd(latestSignout.import_incomplete_failed_datasets)} not imported `
+                : ''}
+              {latestSignout.import_incomplete_job_id
+                ? `(import job ${latestSignout.import_incomplete_job_id}) `
+                : ''}
+              {latestSignout.import_incomplete_failed_datasets?.length ||
+              latestSignout.import_incomplete_job_id
+                ? '— '
+                : ''}
+              override acknowledged:{' '}
+              {latestSignout.import_incomplete_acknowledgement_reason || 'no reason recorded'}
             </p>
           ) : null}
           {signedGaps.length > 0 ? (

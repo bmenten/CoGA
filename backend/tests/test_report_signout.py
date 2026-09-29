@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import types
+from datetime import datetime
 
 import pytest
 from fastapi import HTTPException
@@ -49,7 +51,9 @@ class _Session:
         return None
 
 
-def _patch_common(monkeypatch, *, drifted_count: int, qc_status: str = "pass"):
+def _patch_common(
+    monkeypatch, *, drifted_count: int, qc_status: str = "pass", import_incomplete=None
+):
     async def _ctx(session, *, family_identifier, user, project_id=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
 
@@ -74,6 +78,11 @@ def _patch_common(monkeypatch, *, drifted_count: int, qc_status: str = "pass"):
         # parameterizable overall_status (default "pass" -> the QC gate stays open).
         return SampleIntegrityReport(overall_status=qc_status)
 
+    async def _import_state(session, family_uuid):
+        # The family's import_incomplete flag (default: a complete import).
+        assert family_uuid == "u1"
+        return import_incomplete
+
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
     monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
     monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
@@ -81,6 +90,7 @@ def _patch_common(monkeypatch, *, drifted_count: int, qc_status: str = "pass"):
     monkeypatch.setattr(rss, "_reported_structural_reviews", _no_structural_reviews)
     monkeypatch.setattr(rss, "record_clinical_event", _audit)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
+    monkeypatch.setattr(rss, "_import_incomplete_state", _import_state, raising=False)
 
 
 async def _no_structural_reviews(session, family_uuid):
@@ -994,3 +1004,445 @@ def test_signout_check_older_snapshot_sections(monkeypatch) -> None:
     out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
     assert out["matches"] is False
     assert out["changed_sections"] == ["reported_structural_variants"]
+
+
+# ---------------------------------------------------------------------------
+# Incomplete-import gate: a family whose package import partly failed
+# ---------------------------------------------------------------------------
+
+# As family_package_registration._flag_family_import_incomplete records it.
+_IMPORT_JOB_ID = "3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b"
+_INCOMPLETE = {
+    "at": "2026-09-12T10:14:00+00:00",
+    "failed_datasets": ["snv", "sv"],
+    "imported_datasets": ["coverage"],
+    # The import job that holds each dataset's error.
+    "job_id": _IMPORT_JOB_ID,
+}
+# A flag written before the job was recorded: the datasets only.
+_OLD_INCOMPLETE = {key: value for key, value in _INCOMPLETE.items() if key != "job_id"}
+_IMPORT_ACK_REASON = "SV calls are not part of this referral; SNV re-import is booked."
+
+
+def _inserts(session: _Session) -> list:
+    return [args for args, _ in session.executed if args and "INSERT" in str(args[0])]
+
+
+def test_incomplete_import_blocks_sign_out(monkeypatch) -> None:
+    # A partly failed import leaves the family in place, flagged. Signing it out would
+    # release a report that may silently lack datasets, so it is refused like a failing
+    # Sample QC: a structured 409 naming what the import left incomplete.
+    _patch_common(monkeypatch, drifted_count=0, import_incomplete=_INCOMPLETE)
+    captured = _capture_audit(monkeypatch)
+    session = _Session()
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
+
+    assert excinfo.value.status_code == 409
+    detail = excinfo.value.detail
+    assert detail["gate"] == "import_incomplete"
+    assert detail["import_incomplete"] == _INCOMPLETE
+    assert "snv" in detail["message"] and "sv" in detail["message"]
+    assert "coverage" in detail["message"]
+    # It points to the job whose record holds each dataset's error.
+    assert f"import job {_IMPORT_JOB_ID}" in detail["message"]
+    assert _inserts(session) == [], "nothing may be written for a refused sign-out"
+    assert captured == {}, "nor audited"
+
+
+def test_incomplete_import_acknowledged_without_reason_is_422(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0, import_incomplete=_INCOMPLETE)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(
+            rss.sign_out_report(
+                _Session(),
+                family_id="FAM1",
+                user=_user(),
+                acknowledge_import_incomplete=True,
+                import_incomplete_acknowledgement_reason="   ",  # whitespace-only == empty
+            )
+        )
+    assert excinfo.value.status_code == 422
+    assert "reason" in str(excinfo.value.detail)
+
+
+def test_acknowledged_incomplete_import_is_frozen_and_audited(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0, import_incomplete=_INCOMPLETE)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_import_incomplete=True,
+            import_incomplete_acknowledgement_reason=f"  {_IMPORT_ACK_REASON}  ",
+        )
+    )
+
+    snapshot = out["snapshot"]
+    # What the import left incomplete, and the attested reason, are inside the hashed
+    # record — not added beside it.
+    assert snapshot["import_incomplete"] == _INCOMPLETE
+    assert snapshot["acknowledged_import_incomplete"] is True
+    assert snapshot["import_incomplete_acknowledgement_reason"] == _IMPORT_ACK_REASON
+    assert out["content_hash"] == rss._canonical_hash(snapshot)
+    # Surfaced at top level, as the list/detail endpoints do.
+    assert out["import_incomplete_acknowledged"] is True
+    assert out["import_incomplete_acknowledgement_reason"] == _IMPORT_ACK_REASON
+    assert out["import_incomplete_job_id"] == _IMPORT_JOB_ID
+    # And in the clinical audit event, as the QC override is.
+    after = captured["after"]
+    assert after["import_incomplete"] == _INCOMPLETE
+    assert after["acknowledged_import_incomplete"] is True
+    assert after["import_incomplete_acknowledgement_reason"] == _IMPORT_ACK_REASON
+    assert ", incomplete import acknowledged" in captured["summary"]
+
+
+def test_a_complete_import_needs_no_acknowledgement(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0, import_incomplete=None)
+    captured = _capture_audit(monkeypatch)
+    # An acknowledgement with nothing to acknowledge records nothing.
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(), family_id="FAM1", user=_user(), acknowledge_import_incomplete=True
+        )
+    )
+    assert out["snapshot"]["import_incomplete"] is None
+    assert out["snapshot"]["acknowledged_import_incomplete"] is False
+    assert out["snapshot"]["import_incomplete_acknowledgement_reason"] is None
+    assert out["import_incomplete_acknowledged"] is False
+    assert captured["after"]["import_incomplete"] is None
+    assert captured["after"]["acknowledged_import_incomplete"] is False
+    assert "incomplete import" not in captured["summary"]
+
+
+def test_the_import_gate_is_acknowledged_independently_of_drift_and_qc(monkeypatch) -> None:
+    # All three concerns at once. The gates fire in order — evidence drift, Sample QC,
+    # then the incomplete import — and each needs its own acknowledgement with a reason:
+    # acknowledging one never waives another.
+    drift = {"acknowledge_drift": True, "drift_acknowledgement_reason": "drift reviewed"}
+    qc = {"acknowledge_qc": True, "qc_acknowledgement_reason": "identity confirmed"}
+    imp = {
+        "acknowledge_import_incomplete": True,
+        "import_incomplete_acknowledgement_reason": _IMPORT_ACK_REASON,
+    }
+
+    def attempt(**acknowledgements):
+        _patch_common(
+            monkeypatch, drifted_count=1, qc_status="fail", import_incomplete=_INCOMPLETE
+        )
+        return asyncio.run(
+            rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), **acknowledgements)
+        )
+
+    with pytest.raises(HTTPException) as only_import:
+        attempt(**imp)
+    assert "classification" in str(only_import.value.detail)  # the drift gate
+    with pytest.raises(HTTPException) as import_and_drift:
+        attempt(**imp, **drift)
+    assert import_and_drift.value.detail["gate"] == "sample_qc"
+    with pytest.raises(HTTPException) as drift_and_qc:
+        attempt(**drift, **qc)
+    assert drift_and_qc.value.detail["gate"] == "import_incomplete"
+
+    out = attempt(**drift, **qc, **imp)
+    assert out["snapshot"]["acknowledged_drift"] is True
+    assert out["snapshot"]["acknowledged_qc"] is True
+    assert out["snapshot"]["acknowledged_import_incomplete"] is True
+
+
+def test_the_import_state_is_bound_into_the_content_hash(monkeypatch) -> None:
+    def _body_hash(flag) -> str:
+        _patch_common(monkeypatch, drifted_count=0, import_incomplete=flag)
+        body = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+        assert body["import_incomplete"] == flag
+        return rss._canonical_hash(body)
+
+    assert _body_hash(None) == _body_hash(None)  # deterministic
+    assert _body_hash(None) != _body_hash(_INCOMPLETE)
+    assert _body_hash(_INCOMPLETE) != _body_hash({**_INCOMPLETE, "failed_datasets": ["snv"]})
+
+
+class _ScalarSession:
+    """Answers the one-value lookup of the family's import_incomplete flag."""
+
+    def __init__(self, value) -> None:
+        self.value = value
+        self.executed: list = []
+
+    async def execute(self, statement, params=None):
+        self.executed.append((str(statement), params))
+        value = self.value
+        return types.SimpleNamespace(scalar_one_or_none=lambda: value)
+
+
+def test_the_import_flag_is_read_from_the_family_metadata() -> None:
+    session = _ScalarSession(dict(_INCOMPLETE))
+    assert asyncio.run(rss._import_incomplete_state(session, "u1")) == _INCOMPLETE
+    sql, params = session.executed[0]
+    assert "import_incomplete" in sql and "families" in sql
+    assert params == {"family_uuid": "u1"}  # bound, never interpolated
+
+
+def test_the_import_flag_reader_is_deterministic_and_fails_safe() -> None:
+    def read(value):
+        return asyncio.run(rss._import_incomplete_state(_ScalarSession(value), "u1"))
+
+    # No flag: a complete import.
+    assert read(None) is None
+    # A driver that hands jsonb back as text reads the same.
+    assert read(json.dumps(_INCOMPLETE)) == _INCOMPLETE
+    # Dataset lists are frozen sorted and de-duplicated, so the hash is stable.
+    messy = {"at": _INCOMPLETE["at"], "failed_datasets": ["sv", "snv", "sv"], "imported_datasets": []}
+    assert read(messy)["failed_datasets"] == ["snv", "sv"]
+    # Set, but not in the shape the import writes: still incomplete — it gates, with
+    # nothing to name — rather than being taken for a complete import.
+    unknown = {"at": None, "failed_datasets": [], "imported_datasets": [], "job_id": None}
+    assert read(True) == unknown
+    assert read({}) == unknown
+    assert read("not json") == unknown
+    # A job id that is not a string names no job.
+    assert read({**_INCOMPLETE, "job_id": 7})["job_id"] is None
+
+
+def test_an_old_flag_without_an_import_job_still_gates(monkeypatch) -> None:
+    # Flags written before the job was recorded carry only the datasets. They read and
+    # gate the same, with no job to point to.
+    state = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_OLD_INCOMPLETE)), "u1"))
+    assert state == {**_OLD_INCOMPLETE, "job_id": None}
+    assert "import job" not in rss._import_gate_message(state)
+
+    _patch_common(monkeypatch, drifted_count=0, import_incomplete=state)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["gate"] == "import_incomplete"
+
+    _patch_common(monkeypatch, drifted_count=0, import_incomplete=state)
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_import_incomplete=True,
+            import_incomplete_acknowledgement_reason=_IMPORT_ACK_REASON,
+        )
+    )
+    assert out["snapshot"]["import_incomplete"]["job_id"] is None
+    assert out["import_incomplete_job_id"] is None
+
+
+# A sign-out exactly as the writer stored it before the incomplete-import gate existed,
+# captured from that writer: its snapshot has none of the gate's keys, and the content
+# hash and row hash are the ones it computed then. A signed record is never re-hashed,
+# so it must keep verifying as stored — its missing keys are not a tampering finding.
+_PRE_GATE_SIGNED_AT = "2026-09-29T17:43:01.402810+00:00"
+_PRE_GATE_SNAPSHOT = {
+    "acknowledged_drift": False,
+    "acknowledged_qc": False,
+    "assembly": "GRCh38",
+    "drift": {"checked": 1, "drifted": [], "drifted_count": 0},
+    "drift_acknowledgement_reason": None,
+    "family_id": "FAM1",
+    "generated_at": _PRE_GATE_SIGNED_AT,
+    "modules": [{"key": "clinvar", "version": "2026-05"}],
+    "qc_acknowledgement_reason": None,
+    "reported_structural_variants": [],
+    "reported_variants": [
+        {
+            "acmg": None,
+            "acmg_class": "acmg_class_4",
+            "evidence_snapshot": {"annotation_set_hash": "h"},
+            "note": None,
+            "tags": ["report"],
+            "variant_id": "1-1-A-G",
+        }
+    ],
+    "sample_qc": {
+        "application": "unknown",
+        "application_label": "",
+        "application_summary": "",
+        "autosomal_sites": 0,
+        "category_qc_check": None,
+        "fetal_sex_check": None,
+        "genotype_source": None,
+        "mendelian_checks": [],
+        "notes": [],
+        "overall_status": "pass",
+        "paternity_check": None,
+        "relatedness_checks": [],
+        "sex_checks": [],
+    },
+    "sequencing_qc": {"profile_key": "wgs", "profile_label": "WGS", "samples": {}, "thresholds": {}},
+    "signed_out_by": "bjorn",
+    "software": {"git_sha": "0123abc", "version": "1.4.0"},
+    "version": 1,
+}
+_PRE_GATE_CONTENT_HASH = "327b79f5eb7a2822cb54a0ad05a92b0898d40046b09c130da2cb2888ba2ea7fc"
+_PRE_GATE_ROW_HASH = "368ac39365bd791b1a0d93ad4dd26b680b46566f22a948c7a9c014a2c2bc9493"
+
+
+class _RowsSession:
+    """Answers the sign-out detail and chain reads with fixed rows."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+
+    async def execute(self, *args, **kwargs):
+        rows = self.rows
+        return types.SimpleNamespace(
+            mappings=lambda: types.SimpleNamespace(
+                first=lambda: rows[0] if rows else None, all=lambda: list(rows)
+            )
+        )
+
+
+def _pre_gate_row() -> dict:
+    return {
+        "version": 1,
+        "id": "1",
+        "signed_out_by": "bjorn",
+        "signed_out_at": datetime.fromisoformat(_PRE_GATE_SIGNED_AT),
+        "content_hash": _PRE_GATE_CONTENT_HASH,
+        "family_identifier": "FAM1",
+        # Read back from JSONB the way it was written.
+        "snapshot": json.loads(json.dumps(_PRE_GATE_SNAPSHOT)),
+        "row_hash": _PRE_GATE_ROW_HASH,
+        "prev_hash": None,
+        # What Postgres extracts from a snapshot that lacks the keys: NULL.
+        "software_version": "1.4.0",
+        "git_sha": "0123abc",
+        "qc_status": "pass",
+        "qc_acknowledged": False,
+        "qc_acknowledgement_reason": None,
+        "drift_acknowledged": False,
+        "drift_acknowledgement_reason": None,
+        "import_incomplete_failed_datasets": None,
+        "import_incomplete_job_id": None,
+        "import_incomplete_acknowledged": None,
+        "import_incomplete_acknowledgement_reason": None,
+    }
+
+
+def test_a_sign_out_made_before_the_import_gate_still_verifies(monkeypatch) -> None:
+    gate_keys = {
+        "import_incomplete",
+        "acknowledged_import_incomplete",
+        "import_incomplete_acknowledgement_reason",
+    }
+    assert not gate_keys & set(_PRE_GATE_SNAPSHOT)
+    # The hash the old writer computed is what the verifier computes over the record as
+    # stored: nothing adds the new keys (or a default for them) before hashing.
+    assert rss._canonical_hash(_pre_gate_row()["snapshot"]) == _PRE_GATE_CONTENT_HASH
+
+    chain = asyncio.run(rss.verify_report_signout_chain(_RowsSession([_pre_gate_row()]), "FAM1"))
+    assert chain.verified and chain.rows_checked == 1, chain
+
+    _patch_common(monkeypatch, drifted_count=0)
+    detail = asyncio.run(
+        rss.get_report_signout(
+            _RowsSession([_pre_gate_row()]), family_id="FAM1", version=1, user=_user()
+        )
+    )
+    assert detail["verified"] is True
+    # It predates the gate: no acknowledgement is claimed either way.
+    assert detail["import_incomplete_acknowledged"] is None
+    assert detail["import_incomplete_acknowledgement_reason"] is None
+    assert detail["import_incomplete_failed_datasets"] is None
+    assert detail["import_incomplete_job_id"] is None
+
+
+def test_serialize_signout_exposes_the_frozen_import_acknowledgement() -> None:
+    row = {
+        "version": 2,
+        "signed_out_by": "x",
+        "signed_out_at": None,
+        "content_hash": "h",
+        "import_incomplete_failed_datasets": ["snv", "sv"],
+        "import_incomplete_job_id": _IMPORT_JOB_ID,
+        "import_incomplete_acknowledged": True,
+        "import_incomplete_acknowledgement_reason": _IMPORT_ACK_REASON,
+    }
+    serialized = rss._serialize_signout(row)
+    assert serialized["import_incomplete_failed_datasets"] == ["snv", "sv"]
+    assert serialized["import_incomplete_job_id"] == _IMPORT_JOB_ID
+    assert serialized["import_incomplete_acknowledged"] is True
+    assert serialized["import_incomplete_acknowledgement_reason"] == _IMPORT_ACK_REASON
+    # A driver without the jsonb codec hands the extracted array back as text.
+    as_text = rss._serialize_signout({**row, "import_incomplete_failed_datasets": '["snv"]'})
+    assert as_text["import_incomplete_failed_datasets"] == ["snv"]
+
+
+def _patch_import_state(monkeypatch, flag) -> None:
+    async def _import_state(session, family_uuid):
+        return flag
+
+    monkeypatch.setattr(rss, "_import_incomplete_state", _import_state, raising=False)
+
+
+def test_signout_check_flags_an_import_completed_after_signout(monkeypatch) -> None:
+    # Signed while the import was incomplete (acknowledged); the family has since been
+    # re-imported in full. The page no longer shows the data that was signed.
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _patch_import_state(monkeypatch, _INCOMPLETE)
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    _patch_import_state(monkeypatch, None)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(
+            _CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()
+        )
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["import_incomplete"]
+
+
+def test_signout_check_cannot_compare_the_import_state_of_an_older_record(monkeypatch) -> None:
+    # A record signed before the gate never froze the import state: that section is not
+    # comparable, and does not on its own make the page "changed".
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    signed.pop("import_incomplete")
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(
+            _CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()
+        )
+    )
+    assert out["matches"] is True
+    assert out["not_compared"] == ["import_incomplete"]
+
+
+def test_the_sign_out_endpoint_passes_the_import_acknowledgement_on(monkeypatch) -> None:
+    from backend.app.routers import families_reports
+    from backend.app.schemas import ReportSignoutRequest
+
+    captured: dict = {}
+
+    async def _sign_out(session, **kwargs):
+        captured.update(kwargs)
+        return {
+            "version": 1,
+            "signed_out_by": "bjorn",
+            "signed_out_at": datetime.fromisoformat(_PRE_GATE_SIGNED_AT),
+            "content_hash": "h" * 64,
+        }
+
+    monkeypatch.setattr(families_reports, "sign_out_report", _sign_out)
+    payload = ReportSignoutRequest(
+        acknowledge_import_incomplete=True,
+        import_incomplete_acknowledgement_reason=_IMPORT_ACK_REASON,
+    )
+    asyncio.run(
+        families_reports.sign_out_family_report_endpoint(
+            "FAM1", payload=payload, project_id=None, session=object(), user=_user()
+        )
+    )
+    assert captured["acknowledge_import_incomplete"] is True
+    assert captured["import_incomplete_acknowledgement_reason"] == _IMPORT_ACK_REASON
+    # A bare request acknowledges nothing.
+    asyncio.run(
+        families_reports.sign_out_family_report_endpoint(
+            "FAM1", payload=None, project_id=None, session=object(), user=_user()
+        )
+    )
+    assert captured["acknowledge_import_incomplete"] is False
+    assert captured["import_incomplete_acknowledgement_reason"] is None
