@@ -31,8 +31,11 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   replacing a family's annotation manifest, reference data, imports and uploads require
   `get_current_admin_user`. A user with access to a family can edit its phenotypes, reviews
   and saved filters.
-- ✅ **Scoped downloads.** The CRAM/BAM endpoints check family and sample access before they
-  hand out a signed URL (`routers/cram.py`).
+- ✅ **Scoped downloads.** The CRAM/BAM and signal-track endpoints check family and sample
+  access before they hand out a signed URL (`routers/cram.py`, `routers/signal_tracks.py`).
+  They sign a location the import recorded only when it names an object in the configured
+  bucket below `FAMILY_IMPORT_ROOTS`, so a changed database row cannot point them at any
+  other object.
 - ✅ **No weak secrets outside development.** `Settings.validate_security_defaults` refuses to
   start when `SECRET_KEY` is a placeholder or shorter than 32 characters, when
   `CLICKHOUSE_PASSWORD` is empty or a placeholder, when `POSTGRES_PASSWORD` or

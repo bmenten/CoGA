@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 import yaml
 
+from ..core.object_storage import join_remote_uri, remote_folder_name
 from ..schemas import (
     FamilyImportDatasetSummary,
     FamilyImportValidationIssue,
@@ -69,7 +70,10 @@ def _require_file(
     errors: list[FamilyImportValidationIssue],
     files: list[str],
     sample_id: str | None = None,
+    remote_only_files: frozenset[str] = frozenset(),
 ) -> Path | None:
+    """Resolve a manifest path and require the file. ``remote_only_files`` are package
+    files staging left in the object store; they count as present."""
     path = _resolve_package_path(root, value)
     if path is None:
         errors.append(
@@ -82,7 +86,7 @@ def _require_file(
         )
         return None
     files.append(_display_path(root, path))
-    if not path.is_file():
+    if not path.is_file() and _display_path(root, path) not in remote_only_files:
         errors.append(
             _issue(
                 "dataset_file_missing",
@@ -712,13 +716,15 @@ def _validate_per_sample_file_dataset(
     dataset: ManifestDataset,
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
+    remote_only_files: frozenset[str] = frozenset(),
 ) -> FamilyImportDatasetSummary:
     """Validate a dataset declared as ``per_sample: {<sample_id>: {<role>: <path>}}``.
 
     Shared by the long-read datasets (cnv, mito, alignments, qc), which the pipeline
     all writes per sample. Required roles must resolve to an existing file; optional
     roles are only checked when declared, so a package that ran without (say) mosdepth
-    still validates.
+    still validates. A file in ``remote_only_files`` exists in the object store without
+    having been staged.
     """
     required_roles, optional_roles = _PER_SAMPLE_DATASET_ROLES[dataset_type]
     files: list[str] = []
@@ -755,6 +761,7 @@ def _validate_per_sample_file_dataset(
                 errors=errors,
                 files=files,
                 sample_id=sample_id,
+                remote_only_files=remote_only_files,
             )
         for role in optional_roles:
             if entry.get(role):
@@ -766,6 +773,7 @@ def _validate_per_sample_file_dataset(
                     errors=errors,
                     files=files,
                     sample_id=sample_id,
+                    remote_only_files=remote_only_files,
                 )
         if dataset_type == "qc" and not any(entry.get(role) for role in optional_roles):
             errors.append(
@@ -836,6 +844,7 @@ def _validate_dataset(
     dataset: ManifestDataset,
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
+    remote_only_files: frozenset[str] = frozenset(),
 ) -> FamilyImportDatasetSummary:
     if not dataset.enabled:
         return FamilyImportDatasetSummary(
@@ -868,6 +877,9 @@ def _validate_dataset(
             dataset=dataset,
             ped_sample_ids=ped_sample_ids,
             errors=errors,
+            # Only the alignments importer never reads its files, so only its files may
+            # stay in the object store; every other dataset needs a staged copy.
+            remote_only_files=remote_only_files if dataset_type == "alignments" else frozenset(),
         )
     if dataset_type == "pipeline_info":
         return _validate_pipeline_info_dataset(root=root, dataset=dataset, errors=errors)
@@ -1089,6 +1101,70 @@ def load_validated_family_package(
     folder_path: str | Path,
     *,
     fallback_ped_text: str | None = None,
+    remote_only_files: frozenset[str] = frozenset(),
+    source_uri: str | None = None,
+) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
+    """Validate the package at ``folder_path`` and load it for import.
+
+    For a package staged from a bucket (``StagedPackage``), ``source_uri`` is the folder
+    it was staged from and ``remote_only_files`` the files staging left in the store,
+    which an alignments dataset may reference. The staging copy is deleted after the
+    import, so the report -- which the import job stores and the import panel shows --
+    names the source folder's objects rather than staged paths, and the bundle carries
+    ``source_uri`` for the records the import writes.
+    """
+    validation, bundle = _validate_and_load_package(
+        folder_path,
+        fallback_ped_text=fallback_ped_text,
+        remote_only_files=remote_only_files,
+        # A manifest without family_id names the family after its folder: for a bucket,
+        # the source folder, never the staging directory the copy sits in (pkg-...).
+        folder_name=remote_folder_name(source_uri) if source_uri else None,
+    )
+    if source_uri is None:
+        return validation, bundle
+    if bundle is not None:
+        bundle.source_uri = source_uri
+    staged_root = Path(folder_path).expanduser().resolve()
+    return _report_staged_paths_as_objects(validation, staged_root, source_uri), bundle
+
+
+def _staged_path_as_object(path: str | None, staged_root: Path, source_uri: str) -> str | None:
+    """A path inside the staging copy, as the URI of the object it is a copy of."""
+    if path is None:
+        return None
+    try:
+        relative = Path(path).relative_to(staged_root)
+    except ValueError:
+        return path
+    return join_remote_uri(source_uri, relative.as_posix()) if relative.parts else source_uri
+
+
+def _report_staged_paths_as_objects(
+    validation: FamilyPackageValidationOut, staged_root: Path, source_uri: str
+) -> FamilyPackageValidationOut:
+    def relabel(issues: list[FamilyImportValidationIssue]) -> list[FamilyImportValidationIssue]:
+        return [
+            issue.model_copy(update={"path": _staged_path_as_object(issue.path, staged_root, source_uri)})
+            for issue in issues
+        ]
+
+    return validation.model_copy(
+        update={
+            "manifest_path": _staged_path_as_object(validation.manifest_path, staged_root, source_uri),
+            "ped_path": _staged_path_as_object(validation.ped_path, staged_root, source_uri),
+            "errors": relabel(validation.errors),
+            "warnings": relabel(validation.warnings),
+        }
+    )
+
+
+def _validate_and_load_package(
+    folder_path: str | Path,
+    *,
+    fallback_ped_text: str | None,
+    remote_only_files: frozenset[str],
+    folder_name: str | None,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     try:
         root = _ensure_authorized_package_path(Path(folder_path))
@@ -1166,7 +1242,7 @@ def load_validated_family_package(
             )
         )
 
-    family_id = (manifest.family_id or root.name).strip()
+    family_id = (manifest.family_id or folder_name or root.name).strip()
     ped_path = _resolve_package_path(root, manifest.ped)
     ped: ParsedPed | None = None
     ped_text: str | None = None
@@ -1251,6 +1327,7 @@ def load_validated_family_package(
                     dataset=dataset,
                     ped_sample_ids=ped_sample_ids,
                     errors=errors,
+                    remote_only_files=remote_only_files,
                 )
             )
         phenotype_summary = _validate_manifest_hpo_annotations(
@@ -1284,6 +1361,7 @@ def load_validated_family_package(
         manifest=manifest,
         ped_path=ped_path,
         ped=ped,
+        remote_only_files=remote_only_files,
     )
 
 
@@ -1292,9 +1370,11 @@ def validate_family_package(
     *,
     fallback_ped_text: str | None = None,
 ) -> FamilyPackageValidationOut:
-    with staged_package_source(folder_path) as (local_root, _source_uri):
+    with staged_package_source(folder_path) as staged:
         validation, _bundle = load_validated_family_package(
-            local_root,
+            staged.root,
             fallback_ped_text=fallback_ped_text,
+            remote_only_files=staged.remote_only_files,
+            source_uri=staged.source_uri,
         )
     return validation

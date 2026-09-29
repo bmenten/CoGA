@@ -72,9 +72,11 @@ the API are storage-agnostic strings; metadata IDs are UUIDs.
    counts carriers straight from the `entries` tables of every project the user can access,
    at query time.
 5. Uploads and package imports write metadata to Postgres and the variant and interval rows
-   to ClickHouse, and record each source file with its SHA-256 checksum. Alignments
-   (BAM/CRAM) and package sources are read from the local disk or from object storage (S3 or
-   Google Cloud Storage), as `STORAGE_BACKEND` sets.
+   to ClickHouse, and record each source file with its SHA-256 checksum (an alignment that
+   stays in a bucket with the bucket's record of it instead). Alignments (BAM/CRAM) and
+   package sources are read from the local disk or from object storage (S3 or Google Cloud
+   Storage), as `STORAGE_BACKEND` sets. A package in a bucket is copied for the import except
+   its alignments, which the genome browser reads from the bucket.
 6. Sign-out freezes the report's content, with the software and reference versions, into an
    append-only, hash-chained record ([clinical-traceability.md](clinical-traceability.md)).
 

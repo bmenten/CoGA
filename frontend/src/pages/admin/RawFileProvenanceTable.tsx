@@ -30,6 +30,13 @@ const verifyToneClass = (status: RawFileVerifyResult['status']): string => {
   }
 };
 
+// A file kept in the bucket a package was imported from is not downloaded here, and it
+// is not missing either.
+const downloadTitle = (file: RawImportFile): string => {
+  if (file.in_object_store) return 'Kept in the object store at its storage path; download it from there';
+  return file.download_available ? `Download ${file.file_name}` : 'Source file is no longer available';
+};
+
 const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyId }) => {
   const [verifyResults, setVerifyResults] = useState<Record<string, RawFileVerifyResult>>({});
   const [busyFileId, setBusyFileId] = useState<string | null>(null);
@@ -121,11 +128,7 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
               className="button-secondary admin-track-inline-action"
               disabled={!file.download_available || busyFileId === `download:${file.id}`}
               onClick={() => downloadFile(file)}
-              title={
-                file.download_available
-                  ? `Download ${file.file_name}`
-                  : 'Source file is no longer available'
-              }
+              title={downloadTitle(file)}
             >
               {busyFileId === `download:${file.id}` ? 'Downloading…' : 'Download'}
             </button>
@@ -134,12 +137,17 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
               className="button-secondary admin-track-inline-action"
               disabled={busyFileId === `verify:${file.id}`}
               onClick={() => verifyFile(file)}
-              title="Recompute SHA-256 and compare to the stored checksum"
+              title={
+                file.in_object_store
+                  ? 'Compare the object in the store with what was recorded about it at import'
+                  : 'Recompute SHA-256 and compare to the stored checksum'
+              }
             >
               {busyFileId === `verify:${file.id}` ? 'Verifying…' : 'Verify'}
             </button>
           </div>
-          {verify && verify.status !== 'verified' && (
+          {/* A file in the object store is not re-hashed: say what was compared. */}
+          {verify && (verify.status !== 'verified' || file.in_object_store) && (
             <p className="admin-raw-file-verify-message">{verify.message}</p>
           )}
         </td>
@@ -186,7 +194,8 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
           <p className="catalog-card-copy">
             Complete traceability of every raw file used to import data for this
             family. Download the original source files and verify their integrity
-            against the stored SHA-256 checksum.
+            against the stored SHA-256 checksum. A file kept in an object store is
+            verified against the store&apos;s record of the object instead.
           </p>
         </div>
       </div>

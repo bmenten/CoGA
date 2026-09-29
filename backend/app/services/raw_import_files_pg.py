@@ -12,6 +12,9 @@ Two kinds of records exist:
   parsing. We delete them when the owning family is deleted.
 * referenced files live at their original on-disk location (e.g. a family package
   import directory). We never move or delete those; we only record where they are.
+  For a package imported from a bucket, that location is the object's gs:// or s3://
+  URI: such a file is verified against the store's record of the object
+  (``metadata.store_object``) rather than re-hashed, and is not downloaded here.
 """
 
 from __future__ import annotations
@@ -24,9 +27,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..core.object_storage import is_remote_uri, remote_object_identity
 
 # Repo-level data directory (matches routers/cram.py DATA_DIR resolution).
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -135,15 +140,20 @@ async def record_raw_import_file(
     compute_checksum: bool = True,
     file_type: str | None = None,
     metadata: dict[str, Any] | None = None,
+    checksum_path: Path | None = None,
 ) -> None:
     """Upsert a single provenance row.
 
     When ``compute_checksum`` is set and the checksum/size are not supplied, the
-    file at ``storage_path`` is streamed to derive them. Insertion is idempotent on
-    (family, sample, storage_path) so re-imports refresh rather than duplicate.
+    file at ``storage_path`` is streamed to derive them -- or ``checksum_path``, a
+    local copy of it, when ``storage_path`` is not a local file (the staged copy of an
+    object in a bucket). Insertion is idempotent on (family, sample, storage_path) so
+    re-imports refresh rather than duplicate.
     """
     if (sha256 is None or file_size is None) and compute_checksum:
-        computed_sha, computed_size = await asyncio.to_thread(_hash_and_size, Path(storage_path))
+        computed_sha, computed_size = await asyncio.to_thread(
+            _hash_and_size, checksum_path or Path(storage_path)
+        )
         if sha256 is None:
             sha256 = computed_sha
         if file_size is None:
@@ -282,9 +292,14 @@ async def record_upload_file_obj(
 def _row_to_dict(row: Any) -> dict[str, Any]:
     record = dict(row)
     storage_path = record.get("storage_path") or ""
-    exists = bool(storage_path) and Path(storage_path).is_file()
+    # A file kept in an object store is not a local path: it is not checked when the
+    # list is built (that would cost a store request per row) -- Verify asks the store
+    # -- and it is not downloaded through CoGA.
+    in_object_store = is_remote_uri(storage_path)
+    exists = None if in_object_store else bool(storage_path) and Path(storage_path).is_file()
+    record["in_object_store"] = in_object_store
     record["exists"] = exists
-    record["download_available"] = exists
+    record["download_available"] = bool(exists)
     created = record.get("created_at")
     if created is not None and not isinstance(created, str):
         record["created_at"] = created.isoformat()
@@ -362,8 +377,11 @@ _VERIFY_TIMEOUT_SECONDS = 30
 
 
 async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
-    """Recompute the SHA-256 of the stored file and compare to the recorded value."""
+    """Recompute the SHA-256 of the stored file and compare to the recorded value; for a
+    file kept in an object store, compare the object with the store's record of it."""
     storage_path = record.get("storage_path") or ""
+    if is_remote_uri(storage_path):
+        return await asyncio.to_thread(_verify_object_in_store, record)
     expected = record.get("sha256")
     path = Path(storage_path)
     if not storage_path or not await asyncio.to_thread(path.is_file):
@@ -427,6 +445,72 @@ async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
         "expected_sha256": expected,
         "computed_sha256": computed_sha,
         "message": "Checksum does NOT match the recorded value. The file may be corrupted or altered.",
+    }
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _verify_object_in_store(record: dict[str, Any]) -> dict[str, Any]:
+    """Check a file kept in an object store against what was recorded at import.
+
+    The object must still exist, with the recorded size and, where recorded, the same
+    generation (GCS) or version id (S3); an S3 object without a version id is compared
+    by ETag, which changes when it is rewritten. The bytes are not re-hashed: a staged
+    file was hashed at import, and an alignment is tens of GB. Blocking (store request).
+    """
+    base = {
+        "file_id": record["id"],
+        "expected_sha256": record.get("sha256"),
+        "computed_sha256": None,
+    }
+    try:
+        current = remote_object_identity(record["storage_path"])
+    except Exception as exc:
+        # Not a verdict on the file: the store did not answer.
+        raise HTTPException(
+            status_code=502, detail="The object store could not be reached to verify this file."
+        ) from exc
+    if current is None:
+        return {
+            **base,
+            "status": "missing",
+            "message": "The object is no longer in the store at its recorded location.",
+        }
+    recorded = _json_object(_json_object(record.get("metadata")).get("store_object"))
+    checks: list[tuple[str, Any, Any]] = []  # (what, recorded, found now)
+    if record.get("file_size") is not None:
+        checks.append(("size", record["file_size"], current.get("size")))
+    if recorded.get("generation") is not None:
+        checks.append(("generation", recorded["generation"], current.get("generation")))
+    if recorded.get("version_id") is not None:
+        checks.append(("version id", recorded["version_id"], current.get("version_id")))
+    elif current.get("store") == "s3" and recorded.get("etag") is not None:
+        checks.append(("ETag", recorded["etag"], current.get("etag")))
+    if not checks:
+        return {
+            **base,
+            "status": "unverifiable",
+            "message": "Nothing was recorded about this object at import; there is nothing to compare it with.",
+        }
+    differences = [f"its {what} is {now!r}, recorded {then!r}" for what, then, now in checks if then != now]
+    if differences:
+        return {
+            **base,
+            "status": "mismatch",
+            "message": "The object in the store is not the one imported: " + "; ".join(differences) + ".",
+        }
+    compared = " and ".join(what for what, _then, _now in checks)
+    return {
+        **base,
+        "status": "verified",
+        "message": f"The object is in the store with the recorded {compared}. Its content is not re-hashed here.",
     }
 
 

@@ -291,6 +291,10 @@ async def record_sample_alignment_metadata(
     sample_context: SampleMetadataContext,
     alignment: dict[str, Any],
 ) -> None:
+    """Record where a sample's aligned reads lie, under ``samples.metadata["alignment"]``:
+    ``format`` (cram/bam), the package-relative ``path``/``index_path`` and, for a
+    package imported from a bucket, the objects' ``uri``/``index_uri``. The CRAM
+    endpoint serves from the URIs only after checking them (routers/cram.py)."""
     await _merge_sample_metadata(
         session,
         sample_uuid=sample_context.sample_uuid,
@@ -313,7 +317,10 @@ async def record_sample_signal_tracks(
     so what the import actually found is recorded instead of re-guessed later.
 
     Paths are package-relative, matching ``alignment``; they are resolved against
-    the family package root and containment-checked at serve time.
+    the family package root and containment-checked at serve time. For a package
+    imported from a bucket, ``uris`` maps each kind to its object's gs:// or s3:// URI,
+    which the endpoint serves from in gcs/s3 mode after checking it
+    (routers/signal_tracks.py).
     """
 
     await _merge_sample_metadata(

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.object_storage import is_remote_uri
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user
 from ..schemas import (
@@ -427,6 +428,12 @@ async def download_raw_import_file(
 ) -> FileResponse:
     record = await get_raw_import_file_record(session, file_id=file_id)
     storage_path = record.get("storage_path") or ""
+    if is_remote_uri(storage_path):
+        # Not gone: it is in the bucket the package was imported from.
+        raise HTTPException(
+            status_code=409,
+            detail="The file is kept in an object store at its gs:// or s3:// URI; it is not downloaded through CoGA.",
+        )
     if not storage_path or not await asyncio.to_thread(Path(storage_path).is_file):
         raise HTTPException(
             status_code=410,

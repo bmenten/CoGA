@@ -24,7 +24,8 @@ Administrator tools sit behind admin access. **Admin** on the dashboard opens th
 
 - **Family & Sample Data** — the inventory of families and samples: open a family's members and data,
   change its projects, download and verify the original import files, or delete a data layer, a sample
-  or a family (this cannot be undone and is recorded in the audit log).
+  or a family (this cannot be undone and is recorded in the audit log). A file kept in a storage bucket
+  is not downloaded here; **Verify** checks it against the bucket's record of it instead of its SHA-256.
 - **Family Statuses** — the workflow statuses analysts give a case.
 - **Sequencing QC Thresholds** — the warning and error cut-offs per assay behind the **Seq. QC** chip.
   None ship by default; a metric without a cut-off reads as *not assessed*.

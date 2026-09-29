@@ -56,7 +56,7 @@ De hele beheer-API staat in `backend/app/routers/admin.py` (`/api/admin`); elk e
 ### Datamanagement en herkomst
 
 - **Datamanagement** (`DataManagementPage.tsx`): per familie de leden, samples, projecttoegang, assaydata en ruwe bronbestanden, met per soort data het aantal rijen in Postgres en ClickHouse. Elke verwijdering (per datasoort van een sample of familie, of een volledig sample of volledige familie) vraagt `confirm=true`.
-- **Bronbestanden** (`RawFileProvenanceTable.tsx`): alle ruwe bronbestanden van een familie met opslagpad, grootte en SHA-256. Een bestand is te downloaden (`410` als het niet meer op zijn pad staat) en te **verifiëren**: de backend berekent de SHA-256 opnieuw en vergelijkt met de opgeslagen waarde (hoofdstuk 6).
+- **Bronbestanden** (`RawFileProvenanceTable.tsx`): alle ruwe bronbestanden van een familie met opslagpad, grootte en SHA-256. Een lokaal bestand is te downloaden (`410` als het niet meer op zijn pad staat) en te **verifiëren**: de backend berekent de SHA-256 opnieuw en vergelijkt met de opgeslagen waarde (hoofdstuk 6). Een bestand in een bucket wordt niet via CoGA gedownload (`409`). De verificatie vergelijkt het object met het record van de opslag, zonder opnieuw te hashen: een verdwenen object is `missing`, een vervangen object `mismatch`.
 - **Stamboomexport:** een PED-bestand per familie.
 - **Familiestructuur:** leden, ouder-kindrelaties en partners bewerken, met een controle die inconsistente stambomen weigert. Vooraf toont de backend wat een wijziging raakt, en het hernoemen of verwijderen van een lid wordt geweigerd zolang er genomische data aan hangt. Zie `docs/family-member-management.md`.
 

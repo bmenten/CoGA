@@ -109,8 +109,10 @@ export interface RawImportFile {
   sha256: string | null;
   source: string;
   created_at: string | null;
-  exists: boolean;
+  // null for a file kept in an object store: the list does not ask the store; Verify does.
+  exists: boolean | null;
   download_available: boolean;
+  in_object_store: boolean;
 }
 
 export interface FamilyRawFiles {

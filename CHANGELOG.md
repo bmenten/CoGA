@@ -573,6 +573,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   of unrecorded sex is not called a carrier when a son would be affected (a "sex unknown" warning
   gives both calls); a male embryo at a pseudo-autosomal locus is read on both copies, so a paternal
   risk haplotype there is called (CR-114, #652).
+- **Bucket package imports in cloud mode** — importing a family package from a gs:// or s3:// folder
+  no longer downloads its CRAM/BAM files, and the genome browser shows its reads and its depth, MAF
+  and copy-number tracks from the bucket. Raw-file provenance records each file's SHA-256 and size,
+  or the bucket's own record for files left there; the family record, import log and validation
+  report name the source folder, and a package without `family_id` is named after it; S3 discovery
+  lists every package; the admin raw-files view no longer calls a bucket file missing (CR-115, #653).
 
 ### Security
 

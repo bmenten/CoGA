@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -18,12 +19,43 @@ from ..core.object_storage import (
     download_prefix,
     is_remote_uri,
     list_remote_package_candidates,
+    remote_uri_within,
 )
 
 from .family_package_common import PackageManifest  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
+
+
+# Aligned reads and their indexes. Staging a remote package leaves these in the store:
+# a whole-genome CRAM is tens of GB, /tmp on Cloud Run is memory, and nothing in the
+# import reads them -- the alignments importer records where they lie and the genome
+# browser streams them from the store through signed URLs. `.csi` alone is ambiguous:
+# it also indexes VCF/BCF files, which the importers do read, so a CSI stays in the
+# store only when it names the alignment it indexes (`<sample>.bam.csi`).
+_ALIGNMENT_SUFFIXES = (".cram", ".crai", ".bam", ".bai", ".bam.csi", ".cram.csi")
+
+
+def is_alignment_file(name: str) -> bool:
+    """Whether a package file is aligned reads or an index of them, by its name."""
+    return name.lower().endswith(_ALIGNMENT_SUFFIXES)
+
+
+@dataclass(frozen=True, slots=True)
+class StagedPackage:
+    """A family package ready for the path-based import code.
+
+    ``root`` is the local folder to read; ``source_uri`` the ``gs://``/``s3://`` folder
+    it was staged from (``None`` for a local package, used in place). A remote package's
+    alignments stay in the store: ``remote_only_files`` holds their package-relative
+    paths, so validation and provenance know the files exist although ``root`` lacks
+    them.
+    """
+
+    root: str
+    source_uri: str | None = None
+    remote_only_files: frozenset[str] = frozenset()
 
 
 def package_folder_path(folder_path: str | Path) -> str:
@@ -58,6 +90,13 @@ def _authorized_local_roots() -> list[Path]:
 
 def _authorized_s3_roots() -> list[str]:
     return [root.strip() for root in settings.family_import_roots if is_remote_uri(root)]
+
+
+def within_remote_import_roots(uri: str) -> bool:
+    """Whether a remote URI names an object below one of the remote FAMILY_IMPORT_ROOTS:
+    the only folders package files are read from, so the only place a location the
+    import recorded may point."""
+    return any(remote_uri_within(uri, root) for root in _authorized_s3_roots())
 
 
 def _load_manifest_dict(manifest_path: Path) -> dict[str, Any]:
@@ -187,50 +226,56 @@ def _ensure_authorized_s3_source(uri: str) -> str:
     )
 
 
-def _stage_s3_package(uri: str) -> Path:
-    """Download an s3:// package prefix into a fresh temp dir under the staging root."""
+def _stage_s3_package(uri: str) -> StagedPackage:
+    """Download a gs:// or s3:// package prefix into a fresh temp dir under the staging
+    root, leaving its alignments in the store (see ``is_alignment_file``)."""
     _ensure_authorized_s3_source(uri)
     dest = Path(tempfile.mkdtemp(prefix="pkg-", dir=_staging_root()))
+    left_in_store: set[str] = set()
+
+    def leave_in_store(relative_path: str) -> bool:
+        if not is_alignment_file(relative_path):
+            return False
+        left_in_store.add(relative_path)
+        return True
+
     try:
-        downloaded = download_prefix(uri, dest)
+        downloaded = download_prefix(uri, dest, skip=leave_in_store)
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)
         raise
-    if downloaded == 0:
+    if downloaded == 0 and not left_in_store:
         shutil.rmtree(dest, ignore_errors=True)
         raise HTTPException(status_code=404, detail=f"No objects found at S3 family package source: {uri}")
-    return dest
+    return StagedPackage(root=str(dest), source_uri=uri, remote_only_files=frozenset(left_in_store))
 
 
 @contextmanager
 def staged_package_source(folder_path: str | Path):
-    """Yield ``(local_root, source_uri)``. For an s3:// source the package is
-    downloaded to a temp dir (cleaned up on exit) and ``source_uri`` is the s3 URI;
-    for a local path it is yielded unchanged with ``source_uri = None``."""
+    """Yield a ``StagedPackage``. A gs:// or s3:// source is downloaded to a temp dir
+    (cleaned up on exit), all but its alignments; a local path is yielded unchanged."""
     if is_remote_uri(folder_path):
-        uri = str(folder_path).strip()
-        dest = _stage_s3_package(uri)
+        staged = _stage_s3_package(str(folder_path).strip())
         try:
-            yield str(dest), uri
+            yield staged
         finally:
-            shutil.rmtree(dest, ignore_errors=True)
+            shutil.rmtree(staged.root, ignore_errors=True)
     else:
-        yield str(folder_path), None
+        yield StagedPackage(root=str(folder_path))
 
 
 @asynccontextmanager
 async def staged_package_source_async(folder_path: str | Path):
-    """Async variant: the S3 download (and cleanup) run in a worker thread so the
-    event loop is not blocked during a large package transfer."""
+    """Async variant: the download (and cleanup) run in a worker thread so the event
+    loop is not blocked during a large package transfer."""
     if is_remote_uri(folder_path):
-        uri = str(folder_path).strip()
-        dest = await asyncio.to_thread(_stage_s3_package, uri)
+        staged = await asyncio.to_thread(_stage_s3_package, str(folder_path).strip())
         try:
-            yield str(dest), uri
+            yield staged
         finally:
-            await asyncio.to_thread(shutil.rmtree, dest, True)
+            await asyncio.to_thread(shutil.rmtree, staged.root, True)
     else:
-        yield str(folder_path), None
+        yield StagedPackage(root=str(folder_path))
 
 
 def _manifest_candidates(root: Path) -> list[Path]:

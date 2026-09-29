@@ -2064,8 +2064,9 @@ export interface RawImportFileOut {
   sha256: string | null;
   source: string;
   created_at: string | null;
-  exists: boolean;
+  exists: boolean | null;
   download_available: boolean;
+  in_object_store: boolean;
 }
 
 export interface RawImportFileVerifyOut {

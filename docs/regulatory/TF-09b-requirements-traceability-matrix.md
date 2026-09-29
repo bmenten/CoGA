@@ -114,7 +114,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-DATA-001 | `services/variant_upload_service.py::upload_family_small_variant_file` | `test_variant_upload_service.py` (GT/DP/AF/AD, QUAL) | H1 | ✅ |
 | REQ-DATA-002 | `services/variant_upload_service.py`, `haplotype_block_builder.py`; `clickhouse_family_variants.py` | `test_variant_upload_service.py` (PS block); `test_variant_upload_haplotype_golden.py` (the blocks of five seeded families, recorded); `test_clickhouse_family_variants.py` (phasing) | H5 | ✅ |
 | REQ-DATA-003 | `services/structural_variant_ingest.py::iter_structural_variant_records` | `test_structural_variant_ingest.py`; `test_structural_variant_breakends.py` (BND remote partner); `test_variant_upload_service.py` | — | ✅ |
-| REQ-DATA-004 | `services/raw_import_files_pg.py::verify_raw_import_file` | `test_raw_import_file_verify.py` (verified / mismatch / missing / unverifiable) | H4 | ✅ |
+| REQ-DATA-004 | `services/raw_import_files_pg.py::verify_raw_import_file` | `test_raw_import_file_verify.py` (verified / mismatch / missing / unverifiable; a file kept in an object store against the store's record of it) | H4 | ✅ |
 | REQ-DATA-005 | `services/family_package_import.py` | `test_family_package_import.py`; `test_nipt_package_import.py` | H4,H12 | ✅ |
 | REQ-DATA-006 | `services/clickhouse_variant_storage.py` | `test_clickhouse_variant_storage_ops.py`; `test_clickhouse_integrity.py` | H9 | ✅ |
 | REQ-DATA-007 | `services/family_package_common.py::resolve_vcf_sample_id` / `vcf_sample_alias_map`; `repeat_expansion_pg.py::ingest_family_trgt_text` | `test_family_package_long_read.py` (suffix/prefix/declared resolution; per-sample binding; unresolved reported) | H4 | ✅ |

@@ -87,12 +87,12 @@ JSON keys that package import writes into the `metadata` columns:
 | Column | Key | Contents |
 | --- | --- | --- |
 | `samples.metadata` | `sequencing_qc` | read metrics (NanoPlot), depth (mosdepth) and the path of the QC report |
-| `samples.metadata` | `alignment` | the package-relative CRAM/BAM path and index |
-| `samples.metadata` | `signal_tracks` | the package-relative paths of the HiFiCNV depth, MAF and copy-number files, served to IGV |
+| `samples.metadata` | `alignment` | the CRAM/BAM path and index, package-relative (`path`, `index_path`), and for a package in a bucket the objects' URIs (`uri`, `index_uri`), which IGV reads |
+| `samples.metadata` | `signal_tracks` | the package-relative paths of the HiFiCNV depth, MAF and copy-number files, served to IGV, and for a package in a bucket the objects' URIs under `uris` |
 | `samples.metadata` | `mtdna` | the mtDNA haplogroup from the mutserve annotation |
 | `samples.metadata` | `sv_files` | the file name per structural-variant source |
 | `families.metadata` | `pipeline` | the Nextflow run parameters (reference build, callers, annotation caches) |
-| `families.metadata` | `package_import` | the import provenance: folder, manifest, datasets and the manifest's own `metadata` |
+| `families.metadata` | `package_import` | the import provenance: folder (a bucket folder's URI), manifest, datasets and the manifest's own `metadata` |
 | `families.metadata` | `pgt`, `analysis_type` | the manifest's PGT context and analysis type |
 
 A family's `metadata` also holds `derived_data_status` (which analyses an edit made stale; see
@@ -116,11 +116,23 @@ was.
 | --- | --- |
 | `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked |
 | `ui_events` | UI interactions that never reach the backend (clicks, in-app navigation), masked before storage |
-| `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks |
+| `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
 | `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes and sign-out, with before and after |
 | `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot |
 | `integrity_anchors` | **append-only**, signed snapshots of every hash chain's head |
+
+**Files from a bucket.** For a package imported from a bucket, `storage_path` is the
+object's `gs://` or `s3://` URI, and `metadata.store_object` holds the store's own record of
+the object: its size, GCS `generation` or S3 `version_id`, `etag`, and the store's checksums,
+each labelled with its `algorithm` and `encoding` (and for S3 whether it covers the whole
+object). A file staged for the import also has its SHA-256, taken from the staged copy. An
+alignment that stayed in the bucket has none: the store's checksums are not SHA-256, so they
+are never put in `sha256`. **Verify** on the admin page checks such a file against
+`store_object` rather than re-hashing it: the object must still exist, with the recorded
+size and generation or version id (an unversioned S3 object is compared by ETag). It reports
+a vanished object as `missing` and a replaced one as `mismatch`. The file is not downloaded
+through CoGA.
 
 What these records hold and how they are checked is in
 [clinical-traceability.md](clinical-traceability.md).
