@@ -5,7 +5,7 @@ ClickHouse, turns them into ``NiptSiteObservation`` rows, and runs the pure
 analysis core. The site-building helpers are pure (and unit-tested); only
 ``run_family_nipt_analysis`` performs I/O.
 
-See docs/monogenic-nipt.md and docs/monogenic-nipt-classification.md.
+See docs/monogenic-nipt.md.
 """
 
 from __future__ import annotations

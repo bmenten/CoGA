@@ -1,13 +1,12 @@
-// The user guide's content (#528): the guide moved from JSX to Markdown
-// (src/content/docs/user-guide/*.md). It is part of the information for safety (TF-15),
-// so the move must not change a word. This test compares each section, as rendered,
-// against a snapshot taken from the JSX guide before the move
-// (fixtures/user-guide-content.json): the section's whole text, its paragraphs,
-// headings, list items, table cells, callouts, cards and further-reading links, and every
-// emphasis, code span and link with its target.
+// The user guide's content (#528), written as Markdown (src/content/docs/user-guide/*.md).
+// It is part of the information for safety (TF-15), so no word may change unnoticed. This
+// test compares each section, as rendered, with the reviewed snapshot
+// (fixtures/user-guide-content.json): the section's whole text, its paragraphs, headings,
+// list items, table cells, callouts, cards and further-reading links, and every emphasis,
+// code span and link with its target.
 //
-// Regenerate only for an intended content change: COGA_REGENERATE_GOLDEN=1 npx vitest run
-// src/pages/docs/__tests__/UserGuideContent.test.tsx
+// Regenerate only for an intended content change, and review the fixture diff:
+// COGA_REGENERATE_GOLDEN=1 npx vitest run src/pages/docs/__tests__/UserGuideContent.test.tsx
 import { render } from '@testing-library/react';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -74,7 +73,7 @@ const describeSection = (section: Element) => {
   };
 };
 
-test('every section of the guide says what it said before the move to Markdown', () => {
+test('every section of the guide says what its reviewed snapshot says', () => {
   const { container } = render(
     <MemoryRouter>
       <UserGuidePage />

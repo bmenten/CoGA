@@ -1,50 +1,38 @@
-Tables are for finding candidates; viewers are for confirming and inspecting them and diving deeper
-into their genomic context. Each viewer reads the tracks that were imported for the family.
+Tables are for finding candidates; viewers are for checking them in their genomic context. From the
+family page:
 
-- **Genome overview** — whole-genome context for variants and tracks.
-- **Chromosome view** — a single chromosome with coverage, segments, and variant tracks; the ROI
-  opens here with ±1 Mb of flanking context.
+- **Genome view** — the whole genome with its variants and tracks.
+- **Chromosome view** — one chromosome with coverage, segments, APCAD, haplotypes and variant tracks.
+  Clicking the ROI on the family page opens it here with 1 Mb on each side.
 - **Circos plot** — genome-wide structural relationships at a glance.
-- **IGV** — read-level confirmation against the reference for a specific locus.
+- **IGV viewer** — the reads at a locus.
 
-Opening any of these from a variant list — the IGV and View links on a row or card, or the Genome
-and Circos buttons above the structural-variant table — opens a new browser tab. The list you were
-working through keeps its filters, sort order, and scroll position instead of re-running the query
-each time you come back from a locus.
+The **IGV** and **View** links on a variant row or card, and the **Genome** and **Circos** buttons above
+the structural-variant table, open in a new browser tab, so your filtered list stays as it was.
 
-### Small-variant track: colours and rows
+### The small-variant track
 
-In the Chromosome view, each small variant is drawn as a dot. Its colour encodes the predicted
-consequence, with ClinVar taking precedence:
+In the chromosome view each small variant is drawn by its class, with a legend on the track:
 
-- **Functional impact** — high impact is **light orange**, medium (moderate) is **light green**, and
-  low / modifier is **light gray**.
-- **ClinVar overrides the impact colour** — benign / likely benign is **light blue**, and pathogenic
-  / likely pathogenic is **red**. Other ClinVar states (uncertain, conflicting) keep the impact
-  colour.
-- **A review tag colour**, when you have tagged the variant, takes priority over both of the above.
+| Mark | Meaning |
+| --- | --- |
+| Red diamond | ClinVar pathogenic or likely pathogenic |
+| Orange triangle | HIGH impact |
+| Green dot | MODERATE impact |
+| Grey dot | LOW impact or other |
+| Hollow blue square | ClinVar benign or likely benign |
 
-When the displayed sample is a child with a parent in the family (or phasing is available), the
-track splits into three rows by parental origin:
+A variant with a conflicting or uncertain ClinVar record is drawn by its impact. A review tag draws a
+ring in the tag's colour around the mark; the mark itself does not change. Hover a mark for its impact,
+ClinVar status and parental origin.
 
-- **Top row** — variants on the paternal haplotype (hap1).
-- **Middle row** — undetermined / unknown parental origin.
-- **Bottom row** — variants on the maternal haplotype (hap2).
+When the sample shown has a parent in the family, the track has three rows: variants inherited from the
+father (top), from the mother (bottom), and of unknown origin (middle: homozygous, de novo or
+ambiguous). The origin comes from the parents' genotypes when both are there, otherwise from the phased
+genotype. Without a parent in the family there is one row.
 
-Origin is read from the parent genotypes (Mendelian inheritance) when both parents are present,
-falling back to the phased haplotype order of the variant otherwise. Homozygous, de-novo, and
-ambiguous variants stay in the middle row. These are the *raw* calls — hover any dot to see its
-impact, ClinVar significance, and parental origin.
+> **Viewers show only what was imported.** A coverage, segment, APCAD or haplotype track appears when
+> that data was loaded for the sample, so an empty track usually means the layer is missing, not that
+> the viewer failed. When a view holds too many variants to draw, the track says so: zoom in or filter.
 
-### Haplotype track
-
-The haplotype track enables visual inspection of recombinations. Raw (imputed) informative markers
-are shown, and the (imputed) haplotype blocks are colour-coded according to the pedigree
-information. For individuals affected by a dominant disorder, the shared haplotype blocks are
-colour-coded in red. Individuals affected by a recessive disorder have two affected haplotypes
-(coloured orange), while carrier parents — or other carriers in the pedigree — carry a single
-affected (orange) haplotype.
-
-> **Viewers only show what was imported.** Coverage, segment, APCAD, and haplotype tracks appear
-> when the corresponding sample data exists; an empty track usually means that layer was not loaded,
-> not that the viewer failed.
+The PGT haplotype track is explained under [Haplotype segregation](#haplotype-segregation).

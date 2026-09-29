@@ -1,36 +1,28 @@
-Open a family and press **Sample QC** to run an automated sample-integrity check. It verifies that
-the samples are who the pedigree says they are *before* any variant call, segregation analysis, or
-report is trusted — the failure modes it catches (a swapped tube, a wrong parent, a mislabelled sex,
-contamination, unexpected relatedness) quietly invalidate everything downstream.
+Open a family and press **Sample QC** to check that the samples are who the pedigree says. A swapped
+tube, a wrong parent, a mislabelled sex, contamination or unexpected relatedness quietly invalidates
+everything downstream, so run it before you interpret.
 
-> **It adapts to the application.** CoGA runs different assays with different notions of integrity,
-> so the page resolves the application first and runs only the meaningful checks:
+The page first works out what kind of case it is and runs only the checks that fit:
 
-- **Long-read WGS family** — sex concordance, relatedness vs the pedigree, and the Mendelian-error
-  rate.
-- **Shallow-WGS PGT** — embryo sex and *parentage* (each embryo a true child of both parents — no
-  switch), plus Mendelian.
-- **Monogenic NIPT (cfDNA)** — paternity (categories 7/8), fetal sex (paternal X transmission),
-  germline parent sex, and a cfDNA category-distribution QC, instead of genotype relatedness.
-- **Carrier couple** — sex per partner and a confirmation that the two are unrelated.
-- **Single targeted sample** — sex only.
+- **Long-read WGS family** — sex, relatedness against the pedigree, Mendelian errors.
+- **Shallow-WGS PGT** — embryo sex and parentage (each embryo a child of both parents), Mendelian
+  errors.
+- **Monogenic NIPT** — paternity, fetal sex, parent sex and a check of the cfDNA categories.
+- **Carrier couple** — sex per partner, and that the two are unrelated.
+- **Single sample** — sex only.
 
 ### Reading the page
 
-- **Pedigree with QC overlay.** Each individual’s symbol carries its roll-up verdict — the outline
-  and any filled region turn **green** (pass), **amber** (warning) or **red** (fail). Hover a symbol
-  for why.
-- **Per-sample table.** Recorded sex vs genotype sex (green when concordant, red on mismatch) and
-  the Mendelian-error rate, colour-coded by status.
-- **Relatedness matrix.** A sample × sample grid (lower triangle — it is symmetric) coloured by the
-  inferred relationship, with kinship (φ) and IBS0 per cell. A pair that contradicts the pedigree —
-  including co-parents who look related (consanguinity) — is outlined in red.
-- **NIPT cards.** For a cfDNA family, dedicated paternity, fetal-sex and cfDNA-category-QC cards.
+- **Pedigree** — each person's symbol carries a ring and a badge: green ✓ pass, amber ! warning, red ✕
+  fail. Hover a symbol for the reason.
+- **Per-sample table** — recorded sex against genetic sex, and the Mendelian-error rate.
+- **Relatedness matrix** — each pair's inferred relationship, kinship and IBS0. A pair that contradicts
+  the pedigree, including parents who look related, is outlined in red.
+- **NIPT cards** — paternity, fetal sex and the category check, for a cfDNA family.
 
-> **What to do with a warning or fail.** A fail points to a real integrity problem — resolve it
-> (re-check the sample sheet, the pedigree, or the genotypes) before interpreting. A warning usually
-> means too little data to call confidently (few informative sites, low fetal fraction); it weakens,
-> but does not invalidate, the downstream analysis. On partial or mock data the page degrades to
-> warnings rather than failing.
+> **What to do with a warning or a fail.** A fail points to a real problem: re-check the sample sheet,
+> the pedigree and the genotypes before you interpret. A warning usually means too little data to decide
+> (few informative sites, a low fetal fraction); it weakens the analysis but does not invalidate it. A
+> fail, or a pedigree check that could not run, also stops sign-out until someone records a reason.
 
-[Sample-integrity QC reference (checks, thresholds, data sources)](/docs/reference/sample-qc "further-reading")
+[Sample-integrity QC reference (checks, thresholds)](/docs/reference/sample-qc "further-reading")

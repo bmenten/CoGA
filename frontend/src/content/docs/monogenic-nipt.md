@@ -1,243 +1,212 @@
 # Monogenic NIPT (cell-free DNA) — reference
 
-Monogenic NIPT screens a pregnancy for single-gene disorders from **cell-free DNA
-(cfDNA) in maternal plasma**, cross-referenced with a paternal sample. This reference
-covers both halves of the feature: the **analysis workflow** (the two-sample trio
-model, ingestion, and the summary / variants / coverage surfaces) and the
-**fetal-fraction estimation and per-variant classification algorithm** (the eight
-maternal/fetal categories, how FF is computed, and what each category lets you read off
-the data).
+Monogenic NIPT screens a pregnancy for single-gene disorders from **cell-free DNA (cfDNA) in maternal
+plasma**, together with a sample from the father. The plasma cfDNA is mostly maternal DNA with a small
+**fetal fraction (FF)**. The fetus is never sequenced: CoGA infers its genotype from how far each cfDNA
+allele fraction (VAF) moves away from the maternal values of 0%, 50% and 100%.
 
-This is the in-depth reference. For the workflow-level overview see the
-[in-app user guide](/docs) section *Monogenic NIPT (cell-free DNA)*.
+How to set up a NIPT family and use the page is in the [user guide](/docs), section *Monogenic NIPT*.
+This page holds the model and the rules.
+
+> **Screening, not diagnosis.** A NIPT call is decision support derived from cfDNA. Confirm it with an
+> invasive diagnostic test before clinical use.
 
 ---
 
-## Part 1 — The analysis
+## A two-sample trio
 
-### The clinical question
+CoGA models the case as a trio backed by two physical samples.
 
-The plasma cfDNA is a **mixture**: mostly maternal DNA with a minor **fetal fraction
-(FF)**. The fetus is **never sequenced directly** — its genotype is *inferred* from how
-far the cfDNA allele fraction (VAF) deviates from the clean maternal expectations (0%,
-50%, 100%), in proportion to the fetal fraction. CoGA's job is to estimate FF, classify
-every cfDNA variant by the maternal/fetal zygosity that explains its VAF, and let you
-hunt for de novo, dominant, and recessive risks while reading the fetal genotype off the
-VAF rather than observing it. The questions you must be able to answer:
-
-- **What is the fetal fraction?** Everything downstream depends on it.
-- **How many variants fall in each category**, and how many were dropped by filters?
-- **Is on-target coverage adequate** across the investigated regions?
-- **De novo dominant** — a plausible causal de novo variant in the fetus, distinguished
-  from maternal mosaicism and noise?
-- **Paternal / maternal dominant** — did the fetus inherit a causal parental variant?
-- **Recessive** — do father and mother each carry a causal variant in the *same* gene,
-  and did the fetus inherit **both**?
-
-### A two-sample trio
-
-CoGA models the case as a trio — father, mother, fetus — backed by only **two physical
-samples**:
-
-| Pedigree node | Physical sample | Variant data |
+| Family member | Sample | What CoGA sees |
 | --- | --- | --- |
-| Father | Father germline VCF | observed genotypes |
-| Mother | **cfDNA plasma VCF** (the mixture) | observed allele fractions |
-| Fetus | placeholder, no VCF | **inferred**, never observed |
+| Father | germline VCF column | observed genotypes |
+| Mother | **cfDNA** column (maternal plus fetal DNA) | observed allele fractions |
+| Fetus | none | **inferred**, never observed |
 
-The cfDNA VCF is uploaded **as the mother's sample** because it is literally
-maternal-plus-fetal signal; the fetus is a placeholder with no sequence of its own. A
-family is in NIPT mode when its analysis type is `monogenic_nipt` and the cfDNA sample is
-tagged `nipt_cfdna` — that is what surfaces the Monogenic NIPT tab.
+A family is a NIPT family when it was created with the Monogenic NIPT option in Family Builder, or
+imported with a package whose manifest says `analysis_type: monogenic_nipt`. CoGA takes the sample
+marked as maternal-plasma cfDNA as the mother's sample (the mother's own sample if none is marked).
 
-### Ingestion
+### What the input must contain
 
-The input is a **single combined two-sample VCF** with a father column and a cfDNA
-column, joint-genotyped so that every variant row carries both a father call and a cfDNA
-call (a hom-ref sample is `0/0`, not missing). Ingestion captures, per call, the allele
-depth (DP), the alt-supporting reads, and the VAF, plus the **site-level QUAL** the NIPT
-quality filter relies on. Both samples are sequenced over the same target (today ≈5,000
-genes; potentially a smaller panel or the whole exome).
-
-> **Derived, not entered.** The fetal fraction and every per-variant category are
-> **computed** from the two samples — their allele fractions, depths, qualities, and the
-> father genotype. The only inputs are the combined VCF, the coverage and target regions,
-> the pedigree, and your filter choices.
-
-### What the surfaces show
-
-The Monogenic NIPT workspace mirrors the small-variant page, with three views.
-
-**Summary.** A fetal-fraction badge (estimate, 95% confidence interval, and the
-category-7 site count), the per-category counts (categories 1–8), and a **filter funnel**
-— *total → quality-filtered → artifact-filtered → analysed* — so you can see exactly how
-many sites each step removed. A *Low-confidence FF* chip appears when there are too few
-sites or the interval is wide; an *external FF* (from an upstream caller) is shown
-alongside the computed value, with an *FF disagreement* chip when the two differ. If the
-summary cannot be loaded, the badge says *Fetal fraction could not be loaded*, and the counts
-read "—" rather than 0: without the estimate, its warnings are unknown too, so do not read
-the category calls until it loads (**Retry**).
-
-**Variants.** The full small-variant display (cards under ~100 matches, otherwise the
-table) with the complete annotation — father and cfDNA genotypes, ClinVar, gnomAD,
-in-silico scores, HGVS — plus tagging, reporting, and classification. Each variant also
-carries a **NIPT classification block**: the category, the maternal and fetal state, the
-observed and expected VAF, the confidence, and any flags. On top of the usual
-small-variant filters, two NIPT-specific controls are added: **maternal/fetal categories**
-(pick any of the eight; each shows its count) and **inheritance presets** (*De novo*,
-*Paternal dominant*, *Maternal dominant*, *Recessive at-risk* — see Part 2).
-
-**Coverage.** On-target coverage summarised as a **median depth** over the panel or
-family ROI, both overall and per region — the target is the gene panel / family ROI, not a
-separate upload.
-
-### Artifacts
-
-Recurrent artifacts are capture- and chemistry-specific, so each assay/panel keeps its
-own **artifact list** (a panel-of-normals). Sites on the list are excluded at analysis
-time and counted in the funnel ("N filtered as artifacts"). The list is seeded
-automatically from cohort recurrence within the same assay and can be curated manually.
-Removing recurrent artifacts upstream is what keeps the low-VAF category-1/7 cluster
-clean.
-
-NIPT has **dedicated sample-integrity QC** (paternity from categories 7/8, fetal sex,
-parent sex, and a category-distribution sanity check) — see the
-[Sample-integrity QC reference](/docs/reference/sample-qc).
+- **One combined VCF** with a father column and a cfDNA column, genotyped jointly, so every row carries
+  both calls. A reference call must read `0/0`, not missing.
+- Per call: the genotype (GT), the **read depth (DP)** and the **allele depths (AD)**; an allele
+  fraction (AF) is used when present. Per site: QUAL.
+- **FORMAT/AD is required.** CoGA takes the cfDNA alt-read count from the second AD value. Without AD no
+  site counts as present in the cfDNA, and no fetal fraction can be estimated.
+- The VAF is the AF value when given, otherwise alt reads divided by DP.
+- A coverage track for the cfDNA sample, for the on-target coverage check.
 
 ---
 
-## Part 2 — Fetal fraction & classification
+## The fetal fraction
 
-### The model
+For a biallelic site, with `m` and `f` the maternal and fetal alt-allele fractions (0, ½ or 1), the
+expected cfDNA allele fraction is `VAF = m · (1 − FF) + f · FF`.
 
-For a biallelic site, write the maternal alt-copy fraction as `m ∈ {0, ½, 1}` and the
-fetal alt-copy fraction as `f ∈ {0, ½, 1}`. The expected cfDNA allele fraction is
+**Which sites.** FF is estimated from category-7 sites: the mother is reference, the father carries the
+alt allele, and the fetus inherited it, so the alt signal comes from the fetus alone and sits at
+`FF / 2`. CoGA selects these sites as follows:
 
-```text
-VAF = m · (1 − FF) + f · FF
-```
+- autosomal;
+- the father's genotype is heterozygous or homozygous alt, with a depth of 10 or more;
+- cfDNA depth 20 or more, at least 3 alt reads, site QUAL 20 or more;
+- cfDNA VAF above 0 and at most 25%, which separates the `FF / 2` sites from the maternal band near 50%.
 
-Enumerating the maternal/fetal states — and using the father's genotype to resolve the
-two cases that need it — gives eight categories. Because the expected VAFs are
-deterministic functions of FF, the classifier's cluster centres are fixed once FF is
-known.
+**The estimate.** `FF = 2 × (sum of alt reads ÷ sum of depth)` over those sites, with a 95% confidence
+interval (Wilson). The page shows the estimate, the interval and the number of sites.
+
+- **Low-confidence FF** appears when there are fewer than 30 sites, or when the interval is wider than
+  ±3 percentage points.
+- With fewer than 5 sites no FF is estimated: the badge reads 0% with *Low-confidence FF*, and no
+  fetal call can be trusted.
+- If the estimate cannot be loaded, the badge says *Fetal fraction could not be loaded* and the counts
+  read "—". Do not read the category calls until it loads (**Retry**).
+
+---
+
+## The eight categories
+
+Once FF is known, each category has a fixed expected VAF, and each cfDNA variant is assigned to the
+category that best explains its reads.
 
 | Cat | Maternal / fetal state | Expected cfDNA VAF | Clinical meaning |
 | --- | --- | --- | --- |
-| 1 | **De novo in fetus** (absent in both parents) | **FF / 2** (low) | Candidate de novo dominant — father hom-ref separates it from paternal transmission |
-| 2 | Maternal het, **not** inherited | **50% − FF/2** | A maternal carrier allele the fetus did not receive |
-| 3 | Maternal het, fetus het | **50%** | Maternal allele transmitted; the maternal hit of a possible compound pair |
-| 4 | Maternal het, fetus hom-alt | **50% + FF/2** | Fetus inherited both alleles — homozygous recessive risk |
-| 5 | Maternal hom-alt, fetus het | **100% − FF/2** | Fetus inherited one reference allele from the father |
-| 6 | Maternal & fetal hom-alt | **100%** | Both homozygous (commonly a common variant) |
-| 7 | **Paternal allele transmitted** (mother hom-ref) | **FF / 2** | Drives the fetal-fraction estimate; the paternal hit of a possible compound pair |
-| 8 | Paternal hom-alt, **absent** in cfDNA | ≈ 0 (expected FF/2) | False-negative QC signal — a variant the fetus should carry but the assay missed |
+| 1 | De novo in the fetus (absent in both parents) | FF / 2 | Candidate de novo dominant variant |
+| 2 | Mother het, not inherited | 50% − FF/2 | A maternal allele the fetus did not receive |
+| 3 | Mother het, fetus het | 50% | Maternal allele transmitted |
+| 4 | Mother het, fetus hom-alt | 50% + FF/2 | Fetus homozygous: recessive risk |
+| 5 | Mother hom-alt, fetus het | 100% − FF/2 | Fetus received a reference allele from the father |
+| 6 | Mother and fetus hom-alt | 100% | Both homozygous (often a common variant) |
+| 7 | Paternal allele transmitted (mother reference) | FF / 2 | Used for the FF estimate; the paternal hit of a possible compound pair |
+| 8 | Father hom-alt, absent in cfDNA | ≈ 0 (expected FF/2) | Quality signal: an allele the fetus must carry, not seen |
 
-Categories 1 and 7 share the same expected VAF (`FF / 2`) and are told apart only by the
-father genotype: hom-ref means de novo, a carried allele means paternal transmission.
+Categories 1 and 7 have the same expected VAF. Only the father's genotype tells them apart: reference
+means de novo, a carried allele means paternal transmission.
 
-### Estimating the fetal fraction
+On the variant card, **Maternal** shows `hom_ref`, `het`, `hom` or `unknown`, and **Fetal** shows the
+inheritance of the chosen category (for example `paternal_transmitted` or `maternal_inherited_het`).
+`unknown` means CoGA withheld the fetal call.
 
-FF is read off **category-7 sites** — positions where the mother is hom-ref, the father
-carries the allele, and the alt is present in the cfDNA, so the only alt signal is the
-fetus's single obligately-inherited paternal allele, sitting at a clean `FF/2`. CoGA
-cannot observe "mother hom-ref" directly, so these sites are selected operationally:
-**father carries** *and* **cfDNA VAF is low**. Requiring the father to carry the allele
-excludes de novo and maternal-mosaicism sites (father hom-ref) that would contaminate the
-estimate at the same VAF. A VAF ceiling of **0.25** isolates the `FF/2` cluster from the
-nearest maternal band (category 2 sits at ≥ 0.375 even at an implausible FF = 25%). Only
-well-covered, high-quality autosomal sites are used.
+### How a category is chosen
 
-Two estimators are reported together:
+Each variant is scored against the candidate categories with a beta-binomial model of its alt reads
+and depth, which allows for real sequencing noise. The most probable category wins; its probability is
+the **confidence** (0 to 1), and the runner-up is kept.
 
-- **Pooled (headline)** — `FF = 2 · (Σ alt reads / Σ depth)` across category-7 sites, the
-  depth-weighted estimate. Its 95% confidence interval is a **Wilson score interval**,
-  scaled ×2.
-- **Per-site median (cross-check)** — `FF = 2 × median(VAF)` over the same sites, robust
-  to a few residual-artifact outliers. If the two estimators disagree by more than the CI
-  half-width, the run is flagged (it suggests artifact contamination or a sub-population).
-
-The estimate is reported with **N(sites)** and a confidence interval so it can be trusted
-or distrusted at a glance. It is marked **low-confidence** when there are too few sites
-(default < 30) or the CI is too wide (half-width > ~0.03); below a hard floor of a handful
-of sites no FF is computed at all.
-
-**External FF.** When the run supplies an external FF from an upstream caller, it is
-recorded beside the computed value and a disagreement is **flagged** (default tolerance
-~3 absolute FF points) rather than silently overriding. The **computed estimate stays the
-default**.
-
-The complementary **category-8** signal is the false-negative QC: paternal hom-alt sites
-that *should* appear at `FF/2` but are absent from the cfDNA. A high category-8 rate flags
-allele dropout, insufficient FF, or coverage gaps.
-
-### Assigning categories
-
-As FF → 0 the band centres collapse together (category 2 at `50 − FF/2` and category 3 at
-`50` nearly coincide), so classification is a **likelihood problem with known centres**,
-not a set of hard VAF cut-offs. Given FF, each cfDNA variant is scored against every
-candidate category with a **beta-binomial** likelihood on the integer read counts
-`(alt reads, depth)`. The beta-binomial's overdispersion reflects real sequencing noise,
-so at high depth it refuses razor-thin, unsupportable distinctions between neighbouring
-bands (it recovers a plain binomial as overdispersion → 0).
-
-The father genotype and presence **prune the candidate set**, which is what makes the
-otherwise-degenerate `category 1 = category 7 = FF/2` separable:
+The father's genotype limits the candidates:
 
 | Site | Candidate categories |
 | --- | --- |
-| present & father hom-ref | 1, 2, 3, 4, 5, 6 (de novo or maternal) |
-| present & father carries | 2, 3, 4, 5, 6, 7 (maternal or paternal) |
-| present & father missing | 1–7, flagged `father_no_coverage` (de novo vs paternal ambiguous) |
-| absent & father hom-alt | category 8, or undetectable (see below) |
-| absent & father het | paternal allele simply not transmitted (no category) |
+| In the cfDNA, father reference | 1–6 (de novo or maternal) |
+| In the cfDNA, father carries it | 2–7 (maternal or paternal) |
+| In the cfDNA, father has no genotype | 1–7, flagged `father_no_coverage` |
+| Not in the cfDNA, father hom-alt | category 8, or no category (see the flags) |
+| Not in the cfDNA, father het | no category: the paternal allele was not transmitted |
 
-Each variant is assigned to the **highest-posterior** category; the posterior of the
-chosen category is its **confidence**, and the runner-up category and its posterior are
-reported too. De novo (category 1) carries a down-weighted prior — it is rare, so a de
-novo call must clear a real evidence bar: the father must be confidently hom-ref with
-coverage, and the VAF must sit within the FF confidence interval of `FF/2`.
+A site counts as present in the cfDNA from 3 alt reads.
 
-**Absence and category 8.** Absence is only meaningful when detection was *expected*. For
-a paternal hom-alt site missing from the cfDNA, the expected fetal alt-read count is
-`E = depth · FF/2`. If depth is adequate and `E ≥ ~3`, the site is a genuine **category-8
-false negative**; if depth is too low or `E < ~3`, it is honestly "couldn't have seen it"
-(flagged `low_depth_dropout` or `undetectable_at_ff`), not a QC failure.
+Some candidates cannot be true for the fetus, but CoGA still considers them: with a father called
+reference, categories 4 and 6 (fetus homozygous alt); with a father called hom-alt, categories 2 and 5
+(fetus without the paternal allele). Treat such a call as suspect.
 
-### Reading inheritance off the categories
+**What a de novo call rests on.** Category 1 has a low prior weight (1 in 50), so it wins only on
+clearly stronger evidence than the alternatives. That is the only extra bar. CoGA does **not** check
+the father's depth at the site: a father called reference counts as reference whatever his coverage.
+It does **not** check that the VAF lies within the FF interval. Check the father's depth and the VAF
+yourself before you act on a de novo call.
 
-The inheritance presets are direct reads of the category assignment:
+### Flags
 
-- **De novo dominant** → category 1.
-- **Paternal dominant transmission** → category 7 present (vs. absent = not transmitted).
-- **Maternal dominant transmission** → a maternal-het variant in category 3/4 (inherited)
-  vs. category 2 (not inherited).
-- **Recessive at-risk** → father and mother each carry a causal variant in the same gene,
-  and the fetus inherited **both** — the paternal allele via category 7 and the maternal
-  allele via category 3/4 (or a single category-4/6 homozygous hit). Both members of each
-  compound pair are kept.
+Flags appear as chips on the variant card.
 
-### What is and is not resolvable
+| Flag | Meaning |
+| --- | --- |
+| `ambiguous` | The confidence is below 0.90: a neighbouring category is close. |
+| `ff_low_confidence` | The fetal-fraction estimate is low-confidence. Set on every autosomal site. |
+| `ff_too_low` | FF is below 1%. The maternal state is given, the fetal call is withheld (categories 2–6). |
+| `father_no_coverage` | The father has no genotype at the site, so de novo and paternal cannot be told apart. This flag does not measure depth. |
+| `low_depth` | cfDNA depth below 20 at a site present in the cfDNA (variant list only; see below). |
+| `false_negative` | Category 8: the father is hom-alt, the cfDNA depth was enough to expect at least 3 alt reads, and fewer than 3 were seen. |
+| `undetectable_at_ff` | The father is hom-alt and the allele is absent, but too few alt reads were expected at this FF to see it. Not a quality failure. |
+| `low_depth_dropout` | As above, but the cfDNA depth is below 20. |
+| `no_alt_signal` | The allele is not present in the cfDNA (fewer than 3 alt reads), and the father does not carry it. |
+| `sex_chromosome_unsupported` | chrX, chrY or the mitochondrion: not classified. |
 
-The categories are **not equally reliable**, and the page reports them in two tiers:
+---
 
-- **Robust regardless of FF or depth** — de novo (category 1), paternal transmission
-  (category 7 present vs. absent), and the coarse maternal carrier state (low VAF / ~0.5
-  band / ~1.0 band → hom-ref / het / hom). These are the high-value, dependable signals.
-- **FF- and depth-limited** — the fetal inheritance of a *maternal* allele (category 2 vs
-  3 vs 4, and 5 vs 6). Distinguishing these requires resolving a `±FF/2` shift around 0.5,
-  which needs depth on the order of `1/FF²` (hundreds of reads at FF ≈ 4%). Below adequate
-  depth or when FF is too low, the classifier returns the maternal state but sets the
-  fetal inheritance to **unknown** and raises a flag rather than guessing.
+## What can and cannot be resolved
 
-Use each variant's **confidence** and its **flags** (for example `ff_too_low`,
-`low_depth`, `father_no_coverage`, `multiallelic`, `approx_counts`) to decide how much
-weight a single call deserves. This split is what keeps the recessive workflow
-trustworthy: the paternal allele's inheritance (category 7) is robust, and the maternal
-allele's inheritance is reported with explicit confidence so an at-risk call is never
-asserted on noise.
+The categories are not equally reliable.
 
-> **Out of scope (documented limitations).** Local CNVs or aneuploidy at a locus break
-> the `m, f ∈ {0, ½, 1}` dosage assumption; sex chromosomes are excluded from FF and
-> classification (fetal sex is unknown to the classifier and X/Y dosage differs);
-> multi-allelic sites take the max-AD alt and are flagged.
+- **Robust at any FF or depth:** de novo (category 1), paternal transmission (category 7 present or
+  absent), and the coarse maternal state (reference, het, hom).
+- **Limited by FF and depth:** whether the fetus inherited a *maternal* allele (category 2 versus 3
+  versus 4, and 5 versus 6). This needs a shift of `FF / 2` around 50% to be resolved, which takes depth
+  in the order of `1 / FF²` (hundreds of reads at FF ≈ 4%). Low depth lowers the confidence (watch for
+  `ambiguous`); only an FF below 1% withholds the fetal call (`ff_too_low`).
+
+Use the confidence and the flags to decide how much weight a single call deserves.
+
+> **Out of scope.** A local CNV or aneuploidy breaks the `0, ½, 1` dosage assumption. The sex
+> chromosomes are not classified. Fetal sex is estimated separately, by the Sample QC page.
+
+---
+
+## Inheritance presets
+
+The **Inheritance** control in the NIPT filters reads the category assignment directly:
+
+| Preset | Shows |
+| --- | --- |
+| De novo candidates | category 1 |
+| Paternal dominant (transmitted) | category 7 |
+| Maternal dominant (transmitted) | categories 3 and 4 — but picking the preset ticks only category 3. Tick category 4 as well, or category-4 variants are left out. |
+| Recessive at-risk | every carrier variant in genes where the mother carries a variant (categories 2–6) and the father carries one (het or hom-alt genotype) |
+
+**Recessive at-risk does not say that the fetus is affected.** It lists the carrier variants in genes
+where both parents carry one. Read the fetal status off each variant's category: 4 or 6 means the fetus
+is homozygous; a maternal 3 plus a paternal 7 in the same gene is a compound-heterozygous candidate;
+2 is a maternal allele the fetus did not inherit; 8 is a paternal allele the fetus must carry but the
+assay did not see.
+
+The built-in filter presets combine these with the usual filters: **De novo** (category 1, HIGH or
+MODERATE impact, gnomAD 1% or below, a ClinVar pathogenic record overriding the frequency) and
+**Recessive (both parents carrier)** (Recessive at-risk with the same impact and frequency filters).
+
+---
+
+## Summary versus variant list
+
+The **Summary** (the FF badge, the filter funnel and the category counts) first removes sites that
+fail the quality filter (cfDNA depth below 20, or QUAL below 20) and sites on the artifact list, then
+estimates FF and classifies.
+
+The **variant list** estimates FF again, but without removing artifact-list sites, and it also
+classifies sites that fail the quality filter (flagged `low_depth`). Its FF, and so its categories, can
+differ slightly from the Summary. Be careful with a call close to a category boundary.
+
+---
+
+## Artifact list
+
+Recurrent artifacts are capture-specific, so each cfDNA assay has its own artifact list (the panel
+recorded on the cfDNA sample, otherwise one shared list). Listed sites are removed from the Summary and
+counted as *Artifact-filtered* in the funnel.
+
+An administrator maintains the list through the API; there is no screen for it, and nothing is added
+automatically. The API can also seed the list with every variant carried by 5 or more samples across
+the whole assembly. That includes common variants, which are exactly the sites the FF estimate relies
+on, so review a seeded list before use.
+
+---
+
+## Coverage
+
+On-target coverage is the median depth of the cfDNA sample's coverage track over the target: the
+selected gene panel or genes, otherwise the family's region of interest. A target region is flagged
+when it has no coverage, a median below 20×, or less than 90% of its length covered.
+
+NIPT has its own sample-integrity checks (paternity, fetal sex, parent sex and the category
+distribution): see the [Sample-integrity QC reference](/docs/reference/sample-qc).

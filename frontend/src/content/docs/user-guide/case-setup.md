@@ -1,22 +1,22 @@
-Intake is split into two focused pages. Use whichever matches how your data arrives.
+Choose the way in that matches how your data arrives.
 
 ```cards
-Family Builder | Build a pedigree by hand or from a PED file: add samples, set sex and roles, assign parents and couples, and set phenotype and carrier status. Available to all users.
-Package Import | Admins point at a backend-visible folder, discover a manifest, run a dry-run validation, then import the family and all of its assay layers in one job.
+Family Builder | Build a new family by hand: add samples, set sex and roles, link parents and couples, and set affected and carrier status. Open to every user; uploading a PED file here is for administrators.
+Package Import | An administrator points at a family folder on the CoGA server, lets CoGA write its manifest, validates it, and imports the family with all its data in one job.
 ```
 
-### What each data type unlocks
+- **Loading data is for administrators**: Package Import, single uploads on the **Upload family and
+  sample data** page, and replacing an existing family. Editing an existing family's members or
+  structure, and adding HPO terms, are for administrators too.
+- For a **monogenic NIPT** case, tick *Monogenic NIPT (cfDNA from maternal plasma)* in Family Builder:
+  see [Monogenic NIPT](#monogenic-nipt).
+- Each kind of data switches on part of CoGA: small variants the small-variant page and Sample QC;
+  structural variants the SV page and the variant summary; TRGT calls the repeat page; Paraphase the
+  paralogue page; mitochondrial calls the mtDNA analysis; coverage, segments, APCAD and haplotypes the
+  viewer tracks.
 
-- **Small variants (SNV/indel)** enable the small-variant workbench and review.
-- **Structural variants** enable the SV table, review, and CNV detail.
-- **Repeat expansions (TRGT)** enable the repeat-expansion view.
-- **Paraphase** enables segmental-duplication / paralogue resolution.
-- **Mitochondrial calls** enable the mtDNA homo- and heteroplasmy analysis.
-- **Coverage, segments, APCAD, haplotypes, and recombination** populate the genome and chromosome
-  track viewers.
+> **Reference data first.** Genes, cytobands, ClinVar and the other annotation layers are loaded per
+> assembly. If a viewer cannot place coordinates or a gene search is empty, check that the reference
+> data for the family's assembly is loaded.
 
-> **Assembly and reference first.** Genes, cytobands, ClinVar, DGV, and gnomAD annotations are
-> loaded per assembly. If a viewer cannot resolve coordinates or a gene lookup is empty, check that
-> the reference layers for that assembly are present.
-
-[Data import reference (intake paths, assay layers, the manifest/dry-run flow)](/docs/reference/data-import "further-reading")
+[Data import reference (who may do what, reference data, package steps and checks)](/docs/reference/data-import "further-reading")

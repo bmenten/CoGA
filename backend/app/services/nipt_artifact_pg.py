@@ -5,7 +5,7 @@ capture/chemistry-specific, so a new panel starts with a clean list. The list is
 manually curated through the admin endpoints; ``load_nipt_artifact_ids`` provides
 the fast membership set the analysis uses to exclude (and count) artifacts.
 
-See docs/monogenic-nipt.md (Phase 2).
+See docs/monogenic-nipt.md.
 """
 
 from __future__ import annotations

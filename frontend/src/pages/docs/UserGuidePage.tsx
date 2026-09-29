@@ -113,9 +113,9 @@ const UserGuidePage: React.FC = () => (
       <p className="page-kicker">Documentation</p>
       <h1 className="user-guide-title">CoGA user guide</h1>
       <p className="user-guide-lede">
-        An in-app manual for analysts and administrators. It follows the clinical-genomics workflow
-        — orient, capture phenotype, prioritise, interpret, put in cohort context, and visualise —
-        and maps each step to the page that does the job.
+        An in-app manual for lab staff and administrators. It follows a case from setup to
+        sign-out: each section says what a page is for and how to use it, and links to the
+        in-depth reference that holds the rules.
       </p>
     </header>
 
