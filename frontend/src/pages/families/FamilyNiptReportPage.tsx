@@ -90,9 +90,11 @@ const FamilyNiptReportPage: React.FC = () => {
     assemblyValidated,
     assemblyVersion,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(family?.projects as string[] | undefined, preferredProjectId);
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion },
+    { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
     'Reference not linked',
   );
 
@@ -210,7 +212,12 @@ const FamilyNiptReportPage: React.FC = () => {
           <p className="page-kicker">Monogenic NIPT report</p>
           <h1 className="page-state-title">Family {familyId}</h1>
           <p className="report-header-meta">{referenceLabel}</p>
-          <AssemblyScopeBanner assemblyName={assemblyName} assemblyValidated={assemblyValidated} />
+          <AssemblyScopeBanner
+            assemblyName={assemblyName}
+            assemblyValidated={assemblyValidated}
+            unavailable={referenceFailed}
+            onRetry={retryReference}
+          />
         </div>
         <div className="report-header-actions no-print">
           <Link to={`/families/${familyId}/nipt`} className="button-secondary hover:no-underline">

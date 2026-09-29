@@ -419,6 +419,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   every track's name and chromosome list, as in the viewer header; it was chrMT in some. A
   histogram of equal-width bins narrower than 1 no longer draws its bars on top of each other
   (#603).
+- **A failed project catalogue hid the validation banner** — every family page reads its
+  reference assembly, and whether that assembly is inside the validated scope, from the project
+  catalogue. When that request failed, the scope stayed unknown, so the *Not validated for
+  clinical use* banner never appeared. The pages said "Reference not linked", the small-variant
+  page waited for good, and the report rendered without variants. The pages now say that the
+  reference could not be loaded and that the validated scope is unconfirmed, with a retry, and
+  the report is not prepared until it loads (#611).
 
 ### Security
 

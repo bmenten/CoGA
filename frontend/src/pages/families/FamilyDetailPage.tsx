@@ -166,6 +166,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     assemblyVersion,
     projectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(data?.projects, preferredProjectId);
   const variantCountsReady = Boolean(
     familyId && data && (!(data.projects?.length) || projectId),
@@ -249,7 +251,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const isMonogenicNipt = data?.metadata?.analysis_type === 'monogenic_nipt';
   const { data: projects = [] } = useProjectCatalog();
   const assemblyLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion },
+    { assemblyName, assemblyVersion, isError: referenceFailed },
     data?.projects?.length && referenceLoading ? 'Loading linked reference...' : 'Not linked',
   );
   const { data: reviewSummary } = useQuery<ApiSmallVariantReviewSummary>({
@@ -836,7 +838,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       className={`family-detail-page space-y-6${embedded ? '' : ' page-shell'}`}
     >
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Family Workspace"
         familyId={data.family_id}
         family={data}

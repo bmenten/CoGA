@@ -180,10 +180,12 @@ const FamilyReportPage: React.FC = () => {
     assemblyVersion,
     projectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(family?.projects as string[] | undefined, preferredProjectId);
 
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion },
+    { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
     'Reference not linked',
   );
 
@@ -512,6 +514,23 @@ const FamilyReportPage: React.FC = () => {
     );
   }
 
+  // The project catalogue failed. The reported variants are read within the family's
+  // project, so without it the report would render with none (#608).
+  if (referenceFailed) {
+    return (
+      <PageState
+        kicker="Report"
+        title="Report could not be prepared"
+        message="The family's project, and with it the reference assembly, could not be loaded, so the reported variants cannot be retrieved. This is not a report without variants."
+        action={
+          <button type="button" className="button-secondary" onClick={retryReference}>
+            Retry
+          </button>
+        }
+      />
+    );
+  }
+
   if (isError) {
     return (
       <PageState
@@ -535,7 +554,12 @@ const FamilyReportPage: React.FC = () => {
         <p className="report-print-notice print-only">{printNotice}</p>
       ) : null}
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Clinical report"
         familyId={familyId}
         family={family}

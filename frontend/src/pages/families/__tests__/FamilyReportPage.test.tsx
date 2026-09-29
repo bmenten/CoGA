@@ -475,6 +475,28 @@ describe('FamilyReportPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  // #608 — the reported variants are read within the family's project: with the catalogue
+  // failed the report used to render with none. It says it could not be prepared.
+  it('does not render an empty report when the reference could not be loaded', async () => {
+    const retry = vi.fn();
+    referenceMock.value = {
+      ...GRCH38_REFERENCE,
+      assemblyName: undefined,
+      assemblyValidated: undefined,
+      isError: true,
+      retry,
+    };
+    mockUnsignedFamily();
+    renderPage();
+
+    expect(await screen.findByText('Report could not be prepared')).toBeInTheDocument();
+    expect(screen.getByText(/This is not a report without variants/)).toBeInTheDocument();
+    expect(screen.queryByText(/This report summarises/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Sign out report/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
   it('shows no scope label for a validated assembly', async () => {
     mockUnsignedFamily();
     renderPage();

@@ -312,6 +312,8 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     assemblyVersion,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(family?.projects, projectIdParam);
 
   const { data: mtDNA, isLoading: mtDNALoading } = useQuery<ApiFamilyMitoDNAAnalysis>({
@@ -326,7 +328,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   });
 
   const referenceLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion },
+    { assemblyName, assemblyVersion, isError: referenceFailed },
     'Not linked',
   );
   const orderedSamples = useMemo(() => orderedByFamilyRole(mtDNA?.samples || []), [mtDNA?.samples]);
@@ -486,7 +488,12 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   return (
     <div className="page-shell family-mtdna-page space-y-6">
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="mtDNA analysis"
         family={family}
         projectId={resolvedProjectId}
