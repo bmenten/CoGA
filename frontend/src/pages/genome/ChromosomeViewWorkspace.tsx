@@ -110,9 +110,10 @@ interface ChromosomeViewWorkspaceProps {
   apcadPointLimit: number;
   segmentLimit: number;
   showViewerLoading: boolean;
-  /** Which tracks each sample has could not be loaded: the tracks are not mounted, and
-   * that is not "no data" (#607). */
-  availabilityFailure?: { error: unknown; retry: () => void } | null;
+  /** A request the tracks need failed: which tracks each sample has (#607), or the
+   * chromosome lengths the view is laid out on (#610). The tracks are not mounted, and that
+   * is not "no data". `what` names what could not be loaded. */
+  tracksFailure?: { what: string; error: unknown; retry: () => void } | null;
 }
 
 interface GeneSuggestion {
@@ -215,7 +216,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   apcadPointLimit,
   segmentLimit,
   showViewerLoading,
-  availabilityFailure = null,
+  tracksFailure = null,
 }) => {
   const roiTitle = visibleRoi ? `ROI: ${visibleRoi.label}` : undefined;
   const regionStartParam = Math.max(0, Math.floor(region.start));
@@ -726,18 +727,18 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
           {membersWithData.length === 0 && !showViewerLoading && visibleMembers.length === 0 && (
             <p className="analysis-count">No samples selected.</p>
           )}
-          {availabilityFailure ? (
+          {tracksFailure ? (
             <QueryFailure
-              what="which tracks each sample has"
-              error={availabilityFailure.error}
-              onRetry={availabilityFailure.retry}
+              what={tracksFailure.what}
+              error={tracksFailure.error}
+              onRetry={tracksFailure.retry}
               consequence="The samples' tracks are not shown until it loads."
             />
           ) : null}
           {membersWithData.length === 0 &&
             !showViewerLoading &&
             visibleMembers.length > 0 &&
-            !availabilityFailure && (
+            !tracksFailure && (
             <p className="analysis-count">No BED data for selected samples.</p>
           )}
         </section>

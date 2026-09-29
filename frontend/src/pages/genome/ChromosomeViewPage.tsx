@@ -9,6 +9,7 @@ import type {
   ApiTrackAvailabilityResponse,
 } from '../../lib/apiTypes';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { getChromosomeWindow } from '../../lib/settings';
 import { parseExplicitSampleFilterMap } from '../../lib/sampleFilterState';
@@ -87,7 +88,7 @@ const ChromosomeViewPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { data, isLoading } = useQuery<
+  const { data, isLoading, isError, error, refetch } = useQuery<
     Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>
   >({
     queryKey: ['family', familyId],
@@ -216,7 +217,13 @@ const ChromosomeViewPage: React.FC = () => {
     return `${withProject}&back_path=${encodeURIComponent(backPath)}`;
   }, [chrom, familyId, location.pathname, region.end, region.start, resolvedProjectId, resolvedSearch]);
 
-  const { data: chromInfo, isLoading: chromInfoLoading } = useQuery<ChromInfo>({
+  const {
+    data: chromInfo,
+    isLoading: chromInfoLoading,
+    isError: chromInfoFailed,
+    error: chromInfoError,
+    refetch: refetchChromInfo,
+  } = useQuery<ChromInfo>({
     queryKey: ['chrom-info', assemblyName, chrom],
     queryFn: async () => {
       const response = await api.get(apiPath`/chromosomes/${assemblyName}/${chrom}`);
@@ -451,6 +458,18 @@ const ChromosomeViewPage: React.FC = () => {
     );
   }
 
+  if (isError) {
+    return (
+      <FamilyLoadFailure
+        kicker="Visualization"
+        what="Family"
+        error={error}
+        notFoundMessage="This chromosome view could not resolve the requested family."
+        onRetry={() => void refetch()}
+      />
+    );
+  }
+
   if (!data) {
     return (
       <PageState
@@ -503,8 +522,11 @@ const ChromosomeViewPage: React.FC = () => {
       entry?.repeatExpansions
     );
   });
+  // Without the chromosome's length there is no region to wait for: the failure is said
+  // in place of the tracks, not as a load that never ends (#610).
   const availabilityPending =
     visibleMembers.length > 0 &&
+    !chromInfoFailed &&
     (chromInfoLoading ||
       region.end <= region.start ||
       availabilityLoading ||
@@ -595,10 +617,20 @@ const ChromosomeViewPage: React.FC = () => {
         apcadPointLimit={apcadPointLimit}
         segmentLimit={segmentLimit}
         showViewerLoading={showViewerLoading}
-        availabilityFailure={
-          availabilityFailed
-            ? { error: availabilityError, retry: () => void refetchAvailability() }
-            : null
+        tracksFailure={
+          chromInfoFailed
+            ? {
+                what: `the length of ${formatChromosomeLabel(chrom)}`,
+                error: chromInfoError,
+                retry: () => void refetchChromInfo(),
+              }
+            : availabilityFailed
+              ? {
+                  what: 'which tracks each sample has',
+                  error: availabilityError,
+                  retry: () => void refetchAvailability(),
+                }
+              : null
         }
       />
     </div>

@@ -108,8 +108,9 @@ as empty. If the family or either list of reported variants cannot be loaded, no
 shown, only *Report could not be loaded* with a **Retry**. If the sign-out record cannot be
 loaded, the page says it is not known whether the case is signed, and does not offer
 sign-out. A gene description, the HPO terms, the evidence-drift check, the audit trail or
-the annotation provenance that could not be loaded is marked where it belongs. The printout
-then starts with *Incomplete — … could not be loaded*. The NIPT report does the same for the
+the annotation provenance that could not be loaded is marked where it belongs, and the
+analysis-pipeline settings then say the tool versions could not be loaded, not *version not
+reported*. The printout then starts with *Incomplete — … could not be loaded*. The NIPT report does the same for the
 fetal-fraction estimate and the coverage QC.
 
 **What the signed record could not capture.** If a lookup fails while the snapshot is

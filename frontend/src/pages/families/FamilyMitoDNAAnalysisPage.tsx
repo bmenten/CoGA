@@ -14,6 +14,7 @@ import type {
 } from '../../lib/apiTypes';
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { getErrorMessage } from '../../lib/errorMessage';
@@ -298,7 +299,13 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   const [reviewError, setReviewError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: family, isLoading: familyLoading } = useQuery<ApiFamilyRecord>({
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const response = await api.get(apiPath`/families/${familyId}`);
@@ -316,7 +323,13 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     retry: retryReference,
   } = useFamilyReference(family?.projects, projectIdParam);
 
-  const { data: mtDNA, isLoading: mtDNALoading } = useQuery<ApiFamilyMitoDNAAnalysis>({
+  const {
+    data: mtDNA,
+    isLoading: mtDNALoading,
+    isError: mtDNAFailed,
+    error: mtDNAError,
+    refetch: refetchMtDNA,
+  } = useQuery<ApiFamilyMitoDNAAnalysis>({
     queryKey: ['family', familyId, 'mitochondrial-dna', resolvedProjectId],
     queryFn: async () => {
       const response = await api.get(apiPath`/families/${familyId}/mitochondrial-dna`, {
@@ -471,6 +484,21 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
         kicker="mtDNA"
         title="Loading mtDNA analysis"
         message="Preparing mitochondrial variant calls, haplogroups, coverage and QC."
+      />
+    );
+  }
+
+  if (familyFailed || mtDNAFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="mtDNA"
+        what={familyFailed ? 'Family' : 'mtDNA analysis'}
+        error={familyFailed ? familyError : mtDNAError}
+        notFoundMessage="This mtDNA workspace could not resolve the requested family."
+        onRetry={() => {
+          if (familyFailed) void refetchFamily();
+          if (mtDNAFailed) void refetchMtDNA();
+        }}
       />
     );
   }

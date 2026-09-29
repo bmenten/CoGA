@@ -111,4 +111,29 @@ describe('AnnotationProvenanceSummary', () => {
     expect(screen.queryByText('DeepVariant')).toBeNull();
     expect(screen.queryByText('49')).toBeNull();
   });
+
+  // #610 — a failed manifest made the footer vanish, as for a family with no versions
+  // recorded.
+  it('says the annotation versions could not be loaded, and retries', async () => {
+    apiMock.get.mockRejectedValue(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+
+    renderSummary();
+
+    const footer = await screen.findByTestId('annotation-provenance');
+    expect(footer).toHaveTextContent('Annotation versions could not be loaded.');
+
+    apiMock.get.mockResolvedValue({
+      data: {
+        family_id: 'FAM1',
+        assembly: null,
+        source: null,
+        recorded_at: null,
+        recorded_by: null,
+        modules: [MODULE('vep', 'VEP', '115')],
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByTestId('annotation-provenance')).toHaveTextContent('VEP'));
+    expect(screen.getByTestId('annotation-provenance')).not.toHaveTextContent('could not be loaded');
+  });
 });

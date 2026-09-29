@@ -2,7 +2,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import GeneInfoPage from '../GeneInfoPage';
 import api from '../../../lib/api';
@@ -522,5 +522,32 @@ describe('GeneInfoPage', () => {
     );
     expect(screen.getByText(/latest refresh:/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /refresh gene/i })).not.toBeInTheDocument();
+  });
+
+  // #610 — a failed gene profile fell back to "Select a human gene", as if none had been
+  // chosen.
+  it('says the gene could not be loaded, not that none was chosen, and retries', async () => {
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    let failing = true;
+    get.mockImplementation((url: string, config?: unknown) =>
+      failing && url === '/genes/profile'
+        ? Promise.reject(
+            Object.assign(new Error('HTTP 503'), {
+              response: { status: 503, data: { detail: 'Gene store unavailable' } },
+            }),
+          )
+        : working(url, config),
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'BRCA1 could not be loaded' })).toBeInTheDocument();
+    expect(screen.getByText('Gene store unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Select a human gene')).not.toBeInTheDocument();
+
+    failing = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('heading', { name: 'BRCA1' })).toBeInTheDocument();
   });
 });

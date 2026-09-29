@@ -158,7 +158,11 @@ describe('ChromosomeViewWorkspace', () => {
     const member = { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' };
     renderWorkspace(vi.fn(), {
       visibleMembers: [member],
-      availabilityFailure: { error: new Error('Request failed with status code 500'), retry },
+      tracksFailure: {
+        what: 'which tracks each sample has',
+        error: new Error('Request failed with status code 500'),
+        retry,
+      },
     });
 
     expect(screen.getByRole('alert')).toHaveTextContent(
