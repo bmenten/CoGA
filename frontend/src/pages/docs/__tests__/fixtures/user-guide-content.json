@@ -1245,17 +1245,18 @@
   "title": "Clinical report and sign-out",
   "summary": "Draft the report from the tagged variants, see what changed, and sign it out into a version that can never change.",
   "quickLinks": [],
-  "text": "TagavariantwithReportanditjoinsthefamily'sclinicalreport(theReportbuttononthefamilypage).Thereportdraftsreadabletextperreportedvariant—description,ACMGreasoning,genecontextandphenotypeoverlap—andiswherethecaseissignedout.WhatthereportshowsAprovenancefooterwiththeCoGAversionthatproducedthepage,thein-houseIVDstatementandthemanufacturer,andtheversionsbehindthedata:thepipelinetools,theassembly,thegeneloci,theMonarchreleaseandtheHPOrelease.Itprintswiththereport.Anevidence-driftbannerwhenaclassification'sevidencechangedafteritwasmade(forexampleanewClinVarsignificance).Re-reviewthosevariants.TheClassificationaudittrail:whoclassified,taggedorannotatedwhat,andwhen.Entriescanneverbechangedordeleted.TheAnalysispipelinesettingsrecordedatimport.AnImportincompletewarningatthetopwhenadataimportleftthefamilypartlyloaded.Itnamesthedatasetsthatfailedandtheimportjobthatholdstheirerrors.Thesamewarningshowsoneveryfamilypageuntilanimportcompletesthefamily.SigningoutSignoutreportfreezesthereportedresultintoanumberedversionwithauniquefingerprint.Itstopsforfourthings:Anassemblyoutsidethevalidatedscope(thepagesaysNotvalidatedforclinicaluse):thereportcannotbesignedout.Evidencedrift,includingareportedvariantthatwasneversavedthroughACMGclassify(itsevidencecannotbechecked):re-review,oracknowledgewithareason.SampleQCthatfailed,orcouldnotconfirmthepedigree:acknowledgewithareason.Anincompleteimport(thepagesaysImportincomplete):re-runtheimport,oracknowledgewithareason.Areasonyougiveisfrozenintothesignedversionandwrittentotheaudittrail.Signingoutagaincreatesanewversion(Amendsign-out);earlierversionsareneveroverwritten.Onlyauthorisedsignatoriessignout.CoGAletsanyprojectmemberpressSignoutreportanddoesnotchecksigningauthority.Thelaboratorydecideswhomaysign;CoGArecordswhodid.Isthisthesignedreport?Thepagealwaysshowsthecurrentdataandcomparesitwiththelatestsignedversion:greenwhentheymatch,amberwhensomethingchangedsince(therecordnameswhat),greywhenthecheckcouldnotbemade(treatitasunsigned).DownloadsignedversionN(JSON)returnsthefrozenversion.In-depthreferenceReporttraceabilityandsign-outreference(footer,drift,audit,thesign-outchecks)→",
+  "text": "TagavariantwithReportanditjoinsthefamily'sclinicalreport(theReportbuttononthefamilypage).Thelivereportdraftsreadabletextperreportedvariant—description,ACMGreasoning,genecontextandphenotypeoverlap—andiswherethecaseissignedout.Onceacaseissignedout,theReportbuttonopensitssignedversion.WhatthelivereportshowsAprovenancefooterwiththeCoGAversionthatproducedthepage,thein-houseIVDstatementandthemanufacturer,andtheversionsbehindthedata:thepipelinetools,theassembly,thegeneloci,theMonarchreleaseandtheHPOrelease.Itprintswiththereport.Anevidence-driftbannerwhenaclassification'sevidencechangedafteritwasmade(forexampleanewClinVarsignificance).Re-reviewthosevariants.TheClassificationaudittrail:whoclassified,taggedorannotatedwhat,andwhen.Entriescanneverbechangedordeleted.TheAnalysispipelinesettingsrecordedatimport.AnImportincompletewarningatthetopwhenadataimportleftthefamilypartlyloaded.Itnamesthedatasetsthatfailedandtheimportjobthatholdstheirerrors.Thesamewarningshowsoneveryfamilypageuntilanimportcompletesthefamily.SigningoutSignoutreportfreezesthereportedresultintoanumberedversionwithauniquefingerprint.Itstopsforfourthings:Anassemblyoutsidethevalidatedscope(thepagesaysNotvalidatedforclinicaluse):thereportcannotbesignedout.Evidencedrift,includingareportedvariantthatwasneversavedthroughACMGclassify(itsevidencecannotbechecked):re-review,oracknowledgewithareason.SampleQCthatfailed,orcouldnotconfirmthepedigree:acknowledgewithareason.Anincompleteimport(thepagesaysImportincomplete):re-runtheimport,oracknowledgewithareason.Areasonyougiveisfrozenintothesignedversionandwrittentotheaudittrail.Signingoutagaincreatesanewversion(Amendsign-out);earlierversionsareneveroverwritten.Aftersigningout,thepageshowstheversionyousigned.Onlyauthorisedsignatoriessignout.CoGAletsanyprojectmemberpressSignoutreportanddoesnotchecksigningauthority.Thelaboratorydecideswhomaysign;CoGArecordswhodid.Isthisthesignedreport?Onlythesignedversionis.Asignedcaseopensonitslatestsignedversion,drawnfromthefrozenrecord:SignedversionN—signedoutby…on…,withitsfingerprint.Itshowswhatwassigned:eachreportedvariant'sclassification,criteria,evidenceandnote,andthechecksatsign-out.Itsayswhattherecorddoesnothold—thevariantdescription,thegeneandphenotypecontext,theaudittrail—andneverfillsthatinfromcurrentdata.PrintsignedversionNprintsit,andDownloadsignedversionN(JSON)returnstherecorditself.Signedversionsliststheearlierones.Openthelivereportshowsthecurrentdata.ItsaysThisisthelivereport,notsignedversionN,andwhetheritstillmatches:amberwhensomethingchangedsince(itnameswhat),greywhenthecheckcouldnotbemade(treatitasunsigned).ItsprintoutstartswithNotthesignedreport.In-depthreferenceReporttraceabilityandsign-outreference(footer,drift,audit,thesign-outchecks)→",
   "paragraphs": [
-   "Tag a variant with Report and it joins the family's clinical report (the Report button on the family page). The report drafts readable text per reported variant — description, ACMG reasoning, gene context and phenotype overlap — and is where the case is signed out.",
+   "Tag a variant with Report and it joins the family's clinical report (the Report button on the family page). The live report drafts readable text per reported variant — description, ACMG reasoning, gene context and phenotype overlap — and is where the case is signed out. Once a case is signed out, the Report button opens its signed version.",
    "Sign out report freezes the reported result into a numbered version with a unique fingerprint. It stops for four things:",
-   "A reason you give is frozen into the signed version and written to the audit trail. Signing out again creates a new version (Amend sign-out); earlier versions are never overwritten.",
-   "The page always shows the current data and compares it with the latest signed version: green when they match, amber when something changed since (the record names what), grey when the check could not be made (treat it as unsigned). Download signed version N (JSON) returns the frozen version."
+   "A reason you give is frozen into the signed version and written to the audit trail. Signing out again creates a new version (Amend sign-out); earlier versions are never overwritten. After signing out, the page shows the version you signed.",
+   "Only the signed version is. A signed case opens on its latest signed version, drawn from the frozen record: Signed version N — signed out by … on …, with its fingerprint. It shows what was signed: each reported variant's classification, criteria, evidence and note, and the checks at sign-out. It says what the record does not hold — the variant description, the gene and phenotype context, the audit trail — and never fills that in from current data. Print signed version N prints it, and Download signed version N (JSON) returns the record itself. Signed versions lists the earlier ones.",
+   "Open the live report shows the current data. It says This is the live report, not signed version N, and whether it still matches: amber when something changed since (it names what), grey when the check could not be made (treat it as unsigned). Its printout starts with Not the signed report."
   ],
   "blocks": [
    [
     "h3",
-    "What the report shows"
+    "What the live report shows"
    ],
    [
     "li",
@@ -1307,6 +1308,10 @@
    ]
   ],
   "inline": [
+   [
+    "strong",
+    "Report"
+   ],
    [
     "strong",
     "Report"
@@ -1381,15 +1386,39 @@
    ],
    [
     "strong",
-    "current"
+    "latest signed version"
+   ],
+   [
+    "em",
+    "Signed version N — signed out by … on …"
+   ],
+   [
+    "strong",
+    "Print signed version N"
+   ],
+   [
+    "strong",
+    "Download signed version N (JSON)"
+   ],
+   [
+    "em",
+    "Signed versions"
+   ],
+   [
+    "strong",
+    "Open the live report"
+   ],
+   [
+    "em",
+    "This is the live report, not signed version N"
    ],
    [
     "em",
     "treat it as unsigned"
    ],
    [
-    "strong",
-    "Download signed version N (JSON)"
+    "em",
+    "Not the signed report"
    ],
    [
     "a",

@@ -94,7 +94,7 @@ these upstream modules are captured per family and frozen into the report
 - Filtered/prioritized candidate-variant lists with annotations and internal/external frequencies.
 - Semi-automatic ACMG/AMP classification (5-class + VUS sub-tier), fully overridable, server-recomputed.
 - Application-specific derived calls: NIPT fetal-fraction + per-variant category; PGT per-embryo ROI classification with QC; aneuploidy/large-SV review.
-- A **signed-out clinical report** with a provenance footer, and an immutable clinical audit trail. Each signed version is frozen, content-hashed and downloadable; the report page itself shows live data and says when it no longer matches the signed version (TF-06 H9).
+- A **signed-out clinical report** with a provenance footer, and an immutable clinical audit trail. Each signed version is frozen and content-hashed, rendered and printed from its frozen record, and downloadable; the live report says when it no longer matches the latest signed version (TF-06 H9).
 
 > No output is an autonomous diagnosis. All outputs are reviewed and signed out by a
 > qualified professional (TF-01 §4).
@@ -118,7 +118,7 @@ These are both product features and risk controls / GSPR evidence:
 - **Per-classification evidence snapshot** frozen at classification time; **evidence-drift detection** flags when underlying data changed.
 - **Immutable, append-only clinical audit trail** (who classified/tagged/edited/signed, with field-level deltas).
 - **Frozen, versioned, SHA-256 content-hashed case sign-out**; amendments create new versions and signed snapshots are never changed. Sign-out is **refused** for a family on an assembly outside the validated set (no override), and **blocked** by unacknowledged evidence drift or by a failed or unverifiable Sample QC until the analyst records a reason.
-- The report page shows live data and is **checked against the latest signed version**: it says when the two differ, and the signed version can be downloaded. Rendering a signed report from its frozen record is not yet implemented (REQ-TRACE-007).
+- A signed version is **rendered and printed from its frozen record** alone, and says what that record does not hold (REQ-TRACE-007). The live report is labelled as not the signed version and is **checked against the latest signed version**: it says when the two differ. The signed version can be downloaded.
 - **Server-side recomputation** of ACMG scores so stored classifications never depend on the browser.
 
 Reference: [clinical-traceability.md](../clinical-traceability.md).

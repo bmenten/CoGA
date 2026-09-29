@@ -115,17 +115,42 @@ The other sign-out endpoints:
 | Endpoint | Returns |
 | --- | --- |
 | `GET /families/{family_id}/report/sign-outs` | the list of signed versions |
-| `GET /families/{family_id}/report/sign-outs/{version}` | one signed version, with `verified`: its content hash recomputed on read |
+| `GET /families/{family_id}/report/sign-outs/{version}` | one signed version, with `verified` (its content hash recomputed on read) and `not_captured` (what its record could not capture) |
 | `GET /families/{family_id}/report/sign-out-check` | whether the report as it would be signed now matches the latest version: `matches`, `changed_sections`, `not_compared`, `not_captured` |
 
 ## The report page and the signed record
 
-The report page draws live data, not the frozen snapshot. It checks itself against the latest
-sign-out (`sign-out-check`):
+`/families/{family_id}/report` has two views. A family that has been signed out opens on its
+latest signed version; one that never was opens on the live report.
 
-- green: the content matches the signed version;
-- amber: the content changed after sign-out, and the changed sections are named;
-- grey: the check could not be made, so treat the page as unsigned.
+**A signed version** (`?version=N`) is rendered from the snapshot that
+`GET …/report/sign-outs/{version}` returns, and from nothing else
+(`frontend/src/pages/families/signedReportRecord.ts` reads it). It shows the version, signer,
+time, content hash, `verified` and the frozen build; each reported variant's classification,
+accepted criteria, evidence snapshot, tags and note; the reported SVs with their ClinGen CNV
+scoring; the drift, Sample QC, sequencing QC and import state, with the acknowledgements; the
+frozen modules; and `not_captured`. A section the snapshot lacks (a record signed before the
+section was frozen) is shown as not in the record, never as empty; a record without
+`reported_structural_variants` holds no SVs. What no snapshot holds is said on the page: the
+variant description (gene, HGVS, consequence, genotypes, frequencies, predictions), the
+segregation, the gene and phenotype context, the audit trail and the pipeline settings. Print
+prints this view. A printout starts with a notice when the record fails its content hash, when
+a later version supersedes it, or when the list of versions could not be loaded. On the latest
+version the page also runs `sign-out-check` and says, on screen only, whether the family's data
+has changed since.
+
+**The live report** (`?view=live`) draws live data. It is where a case is signed out, and it is
+never presented as the signed record. It checks itself against the latest sign-out
+(`sign-out-check`):
+
+- the content matches the signed version: it says so, and is still not the signed report;
+- the content changed after sign-out: the changed sections are named;
+- the check could not be made: treat the page as unsigned.
+
+Every printout of the live report starts with a notice ("Draft …", "Not the signed report …",
+"Not verified …", or that the sign-out record is loading or could not be loaded). While the
+sign-out record is loading or could not be loaded, sign-out is not offered. After a sign-out the
+page shows the new version.
 
 Each snapshot also records the reference modules its build looked up (`reference_modules`).
 A snapshot without that list was signed before CoGA recorded the HPO release and holds none:
@@ -133,9 +158,7 @@ the check lists `modules.hpo` under `not_compared` instead of calling the record
 `not_captured` names the missing release. A snapshot with the list but no HPO module was signed
 with no ontology loaded, so an ontology imported since is a change.
 
-A page that is not the verified signed record prints with a notice at the top ("Draft …",
-"Not the signed report …" or "Not verified …"). The frozen record itself can be downloaded as
-JSON from the report page.
+Both views download the frozen record as JSON.
 
 ## Tamper evidence and its limits
 
@@ -163,9 +186,11 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 
 ## Known limitations
 
-- The report page renders live data. The snapshot does not hold everything the page draws (gene
-  profiles, HGVS, frequencies), so the page cannot be rebuilt from it; the sign-out check above
-  guards the difference. There is no byte-stable PDF; the report is printed from the browser.
+- The snapshot holds no variant description (gene, HGVS, consequence, genotypes, frequencies,
+  predictions) and no gene or phenotype context. A signed version therefore names each variant
+  by its ID and says what its record lacks; only the live report shows the rest, from current
+  data. There is no byte-stable PDF: a signed version is printed from the browser, laid out by
+  the build that renders it (named in its footer).
 - Structural-variant and CNV classifications have no evidence snapshot, so they are not
   drift-checked. The review of a compound-heterozygous pair (its classification, tags and note)
   writes no clinical audit event. Nor do pedigree, member and HPO edits: they appear in the HTTP

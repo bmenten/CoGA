@@ -1,8 +1,9 @@
 Tag a variant with **Report** and it joins the family's clinical report (the **Report** button on the
-family page). The report drafts readable text per reported variant — description, ACMG reasoning, gene
-context and phenotype overlap — and is where the case is signed out.
+family page). The live report drafts readable text per reported variant — description, ACMG reasoning,
+gene context and phenotype overlap — and is where the case is signed out. Once a case is signed out, the
+**Report** button opens its signed version.
 
-### What the report shows
+### What the live report shows
 
 - A **provenance footer** with the CoGA version that produced the page, the in-house IVD statement and
   the manufacturer, and the versions behind the data: the pipeline tools, the assembly, the gene loci,
@@ -30,15 +31,23 @@ stops for four things:
    a reason.
 
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
-creates a new version (**Amend sign-out**); earlier versions are never overwritten.
+creates a new version (**Amend sign-out**); earlier versions are never overwritten. After signing out,
+the page shows the version you signed.
 
 > **Only authorised signatories sign out.** CoGA lets any project member press **Sign out report** and
 > does not check signing authority. The laboratory decides who may sign; CoGA records who did.
 
 ### Is this the signed report?
 
-The page always shows the **current** data and compares it with the latest signed version: green when
-they match, amber when something changed since (the record names what), grey when the check could not
-be made (*treat it as unsigned*). **Download signed version N (JSON)** returns the frozen version.
+Only the signed version is. A signed case opens on its **latest signed version**, drawn from the frozen
+record: *Signed version N — signed out by … on …*, with its fingerprint. It shows what was signed: each
+reported variant's classification, criteria, evidence and note, and the checks at sign-out. It says what
+the record does not hold — the variant description, the gene and phenotype context, the audit trail —
+and never fills that in from current data. **Print signed version N** prints it, and **Download signed
+version N (JSON)** returns the record itself. *Signed versions* lists the earlier ones.
+
+**Open the live report** shows the current data. It says *This is the live report, not signed version
+N*, and whether it still matches: amber when something changed since (it names what), grey when the
+check could not be made (*treat it as unsigned*). Its printout starts with *Not the signed report*.
 
 [Report traceability and sign-out reference (footer, drift, audit, the sign-out checks)](/docs/reference/clinical-traceability "further-reading")
