@@ -648,6 +648,16 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   data (`raw_datasets_preserved`), and a clear is recorded and warned about; before, neither marker was ever
   written (#660).
 - **A structure save refreshes the genome-overview lineage and warms the ranking**, like a member edit (#660).
+- **Re-run match runs again** — the phenotype-match panel's *Re-run match* did nothing and kept the first
+  ranking. Each press now runs the match on the phenotypes recorded then; a run in progress and a failure
+  (with its reason) are shown as such, and an earlier ranking never stays on screen as the current one
+  (#657).
+- **Variant summary button** — the button showed for families with small variants only, where the
+  structural-variant summary had nothing to show; it now appears when the family has structural variants
+  (#657).
+- **Circos plot per assembly** — the Circos page drew every family on GRCh38's chromosomes; it now draws the
+  family's own assembly, and draws nothing, saying why, when it has no linked project, no chromosome sizes
+  or chromosomes it cannot place (#657).
 
 ### Security
 
