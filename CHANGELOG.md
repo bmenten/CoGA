@@ -513,6 +513,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   first deploy Terraform saw no new image: Cloud Run kept the previous code and the database
   migration job never ran again. Main builds are now tagged with their commit,
   `main-<12-character commit>` (CR-094, #632).
+- **IGV reads in Google Cloud** — with Google Cloud Storage as the store, IGV reads aligned reads
+  from the PHI bucket in the browser, which needs a CORS policy the bucket lacked. The bucket now
+  lets the app's own origin read it, and nothing else (CR-095, #633).
 
 ### Security
 

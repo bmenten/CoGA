@@ -43,6 +43,17 @@ resource "google_storage_bucket" "phi" {
       type = "AbortIncompleteMultipartUpload"
     }
   }
+
+  # IGV runs in the browser and reads aligned reads straight from this bucket, through
+  # the short-lived signed URLs the CRAM endpoint hands out, with range requests. A
+  # browser lets the page read those responses only when the bucket's CORS policy names
+  # the page's origin, so it names the app's origin alone, for reads alone.
+  cors {
+    origin          = ["https://${var.app_domain}"]
+    method          = ["GET", "HEAD"]
+    response_header = ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Range"]
+    max_age_seconds = 3600
+  }
 }
 
 resource "google_storage_bucket" "refdata" {
