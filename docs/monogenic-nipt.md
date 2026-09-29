@@ -318,6 +318,6 @@ Settled 2026-06-22:
   cases, signatures, test plan).
 - [Haplotype Segregation Analysis](haplotype-segregation-analysis.md) — the PGT
   haplotype track; shares the embryo/single-parent pedigree machinery reused here.
-- [Storage Architecture](storage-architecture.md) — the Postgres + ClickHouse split.
+- [Application scheme](application-scheme.md) — what Postgres and ClickHouse each hold.
 - [Database Schema](database.md) — table-level reference.
 - [Data Import Guide](data-import.md) — upload flows extended by Phase 1.

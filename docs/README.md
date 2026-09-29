@@ -1,53 +1,50 @@
-# Documentation Index
+# Documentation
 
-This directory contains the repository-facing documentation for CoGA.
-Use it alongside the in-app user guide at `/docs` when the application is running.
+What CoGA is, and who should read what, is in the [README](../README.md). This page lists
+every document.
 
-## Start Here
+## Using CoGA
 
-- [Application Scheme](application-scheme.md)
-  - Repo-accurate architecture diagrams for the frontend, backend API, storage layers, runtime assets, and import tooling.
-- [Storage Architecture](storage-architecture.md)
-  - CoGA Postgres plus ClickHouse split, schema entrypoints, and migration-status notes.
-- [Development and Reset Guide](development.md)
-  - Local setup, Docker versus non-Docker behavior, environment variables, reset steps, and startup troubleshooting.
-- [Data Import Guide](data-import.md)
-  - Canonical import order, CLI versus web upload responsibilities, demo-dataset loading, and supported assay/reference file flows.
-- [Database Schema](database.md)
-  - Collection-by-collection schema reference for access control, reference layers, assay data, review state, gene caches, and repeat-expansion data.
-- [Security & PHI Posture](security-posture.md)
-  - Access control / RBAC, audit logging (append-only), encryption, and the S3/deployment PHI-scoping checklist, plus the CI gates.
-- [Test Overview](testing.md)
-  - File-by-file catalogue of the backend (pytest, ~662 tests) and frontend (vitest, 388 tests) suites and the CI gates, with how-to-run and the requirement→test traceability cross-link.
-- [Roadmap](ROADMAP.md)
-  - Current backlog and direction notes.
-- [Clinical Traceability, Sign-out & Audit (plan)](clinical-traceability.md)
-  - Proposed design for clinical-grade end-to-end traceability: the annotation/reference version manifest + report footer, per-classification evidence snapshots, annotation-version drift surfacing, an immutable clinical audit trail, and case sign-out with a frozen, versioned report snapshot. Grounded in the current code, with a phased delivery plan.
+- **User guide and clinical reference** — inside the app at `/docs`; the source is in
+  [frontend/src/content/docs/](../frontend/src/content/docs/).
+- [Demo data](../demo/README.md) — two synthetic families to try the app with.
 
-## Also Useful
+## Running and operating CoGA
 
-- [ACMG Classification](acmg-classification.md)
-  - The semi-automatic ACMG/AMP classifier: the points/scoring model, VUS hot/warm/cold sub-tiers, the mtDNA-specific (McCormick 2020) rule set, and the full pre-check and exclusion rules used to auto-position each criterion.
-- [Family Report Template](report-template.md)
-  - Drafting a clinical report from variants tagged `report`: variant description, ACMG motivation, gene context and HPO phenotype coupling.
-- [Family Member Management](family-member-management.md)
-  - How phenotype/carrier/structure edits propagate, what is preserved versus marked stale, and the batch-update flow.
-- [Sample-integrity QC](../frontend/src/content/docs/sample-qc.md)
-  - Application-aware sample QC: sex concordance, KING relatedness + consanguinity, Mendelian-error rate, and the monogenic-NIPT cfDNA checks (paternity, fetal sex, parent sex, category QC), with thresholds and data sources. It is authored in the frontend so it renders in-app at `/docs/reference/sample-qc` (linked from the user guide) — viewable in the browser while the repository is private.
-- [Haplotype Segregation Analysis](haplotype-segregation-analysis.md)
-  - The PGT haplotype track: pedigree-aware IBD founder colouring, the raw phased-marker overlay, the four-founder + grey + risk colour code, single-parent (donor) families, the derived embryo classification (affected/carrier/unaffected/uninformative) with recombination/uninformative-marker warnings, and the ROI marker overview + QC signals.
-- [Monogenic NIPT Analysis](monogenic-nipt.md)
-  - The cfDNA-from-plasma feature (implemented): the 2-sample trio model, fetal-fraction estimation, the eight maternal/fetal VAF categories, quality/artifact filtering, on-target coverage reporting, and the dashboard — built on the small-variant pipeline. Doubles as the design reference.
-- [Monogenic NIPT — Fetal Fraction & Classification Algorithm](monogenic-nipt-classification.md)
-  - The Phase 3 algorithm reference (implemented): data structures, the category-7 fetal-fraction estimator with external-FF reconciliation, the beta-binomial per-variant classifier and confidence model, the resolvable-vs-not reliability split, edge cases, and the test plan.
-- [Demo Quartet Walkthrough](../demo/quartet_family/README.md)
-  - File inventory and usage notes for the bundled synthetic family dataset.
+- [development.md](development.md) — run CoGA locally, reset it, troubleshoot.
+- [data-import.md](data-import.md) — load reference data and family data.
+- [deployment-gcp.md](deployment-gcp.md) — deploy to Google Cloud with Terraform, and run it day to day.
+- [db-runtime-role-runbook.md](db-runtime-role-runbook.md) — switch the API to the restricted database role.
+- [RELEASING.md](../RELEASING.md) and [release-record-template.md](release-record-template.md) — cut a release and record it.
+- [scripts/](../scripts/README.md) — the helper scripts.
 
-## Recommended Reading Paths
+## How CoGA is built
 
-- New developer:
-  - Read [Application Scheme](application-scheme.md), [Storage Architecture](storage-architecture.md), then [Development and Reset Guide](development.md).
-- Loading or replacing data:
-  - Read [Data Import Guide](data-import.md), then [Database Schema](database.md) if you need collection-level details.
-- Analyst or reviewer:
-  - Start with the in-app user guide at `/docs`, then use [Application Scheme](application-scheme.md) for architecture context.
+- [application-scheme.md](application-scheme.md) — architecture: the parts, which database holds what, startup, the code map.
+- [database.md](database.md) — every Postgres and ClickHouse table.
+- [security-posture.md](security-posture.md) — access control, audit logging, encryption and the security checks.
+- [testing.md](testing.md) — what each test file covers, and the CI jobs.
+- [CONTRIBUTING.md](../CONTRIBUTING.md) — the checks to run before a pull request, and how changes are classified.
+
+## Clinical design, developer detail
+
+The rules for lab users are in the in-app reference docs; these files hold the implementation.
+
+- [acmg-classification.md](acmg-classification.md) — the semi-automatic ACMG/AMP classifier.
+- [snv-sv-compound-het.md](snv-sv-compound-het.md) — a small variant and an SV as the two hits in one gene.
+- [variant-ranking-cache.md](variant-ranking-cache.md) — the cache behind the phenotype-prioritised ranking.
+- [monarch-integration.md](monarch-integration.md) — Monarch gene–disease and disease–phenotype data.
+- [haplotype-segregation-analysis.md](haplotype-segregation-analysis.md) — PGT haplotype segregation.
+- [monogenic-nipt.md](monogenic-nipt.md) — monogenic NIPT, with its fetal-fraction and classification algorithm.
+- [family-member-management.md](family-member-management.md) — what an edit to a family member changes.
+- [report-template.md](report-template.md) — how the family report is drafted.
+- [clinical-traceability.md](clinical-traceability.md) — sign-out, the clinical audit trail and tamper evidence.
+- [annotation-provenance.md](annotation-provenance.md) — how tool and database versions are read from VCF headers.
+
+## Regulatory and review
+
+- [regulatory/README.md](regulatory/README.md) — the IVDR technical file.
+- [handleiding/README.md](handleiding/README.md) — the Dutch technical manual for the review board.
+- [ROADMAP.md](ROADMAP.md) — the open work.
+- [SECURITY.md](../SECURITY.md) and [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md) — how to report a vulnerability, and the register of security-check exceptions.
+- [CHANGELOG.md](../CHANGELOG.md) — notable changes.

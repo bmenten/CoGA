@@ -1,27 +1,32 @@
 # Scripts
 
-The `scripts/` directory now contains helper utilities and one supported demo-data loader for the current Postgres/ClickHouse stack.
+Helper scripts, run from the repository root. Application data is loaded through the API
+flows in [docs/data-import.md](../docs/data-import.md), not with these scripts. The Python
+scripts that import backend code need the backend's environment, installed from
+`backend/requirements-dev.txt`.
 
-Available helpers:
-
-- [generate_demo_quartet_dataset.py](generate_demo_quartet_dataset.py)
-  - generates a local demo dataset bundle
-- [load_demo_quartet.py](load_demo_quartet.py)
-  - loads the bundled demo family into Postgres and ClickHouse using the current backend services
-- [gtf_to_ccds_gene_bed.py](gtf_to_ccds_gene_bed.py)
-  - prepares transcript/gene reference files for the assembly reference upload flow
-- [import_dgv.py](import_dgv.py)
-  - server-side streaming bulk-loader for the large DGV (Database of Genomic Variants) reference file (~360 MB / ~2M rows) into the `dgv_variants` table, inserting in bounded batches so memory stays flat regardless of file size. Prefer this over the `POST /assemblies/{id}/reference-upload/dgv` endpoint for the full DGV file (that endpoint reads the whole upload into memory). Run inside the backend container, e.g.:
-    - `PYTHONPATH=/app python /app/scripts/import_dgv.py --assembly GRCh38 --file /data/ref-data/<dgv-file>.txt`
-
-- [generate-api-types.py](generate-api-types.py)
-  - writes the frontend's API types (`frontend/src/lib/apiSchema.generated.ts`) from the backend's OpenAPI schema. Run it after changing a backend Pydantic model, in the backend's environment (installed from `backend/requirements-dev.txt`): the schema depends on the FastAPI and Pydantic versions, and the script warns when they differ from the pinned ones. CI runs it with `--check` and fails when the committed file is out of date (#528):
-    - `python scripts/generate-api-types.py`
-
-For normal application data loading, use the API flows documented in [docs/data-import.md](../docs/data-import.md).
-
-Run the demo loader with the backend virtualenv so the FastAPI/SQLAlchemy dependencies are available:
-
-```bash
-backend/.venv/bin/python scripts/load_demo_quartet.py --overwrite
-```
+| Script | What it does |
+| --- | --- |
+| **Checks (run in CI)** | |
+| [check-test-catalogue.sh](check-test-catalogue.sh) | Fails unless `docs/testing.md` lists exactly the test files in the tree. |
+| [check-handleiding-sync.sh](check-handleiding-sync.sh) | Rebuilds the handleiding HTML and fails if that changed it; needs the `markdown` package. |
+| [check-coverage-floor.py](check-coverage-floor.py) | Fails when a clinical-critical backend module, or the backend as a whole, drops below its coverage floor. |
+| [check-release-version.sh](check-release-version.sh) | Checks that `VERSION` is valid SemVer and, given a tag, that the tag is `v<VERSION>` ([RELEASING.md](../RELEASING.md)). |
+| [audit-frontend-prod.mjs](audit-frontend-prod.mjs) | Audits the frontend's production dependencies; its exceptions are in [frontend-audit-allowlist.json](frontend-audit-allowlist.json) and justified in [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md). |
+| [generate-api-types.py](generate-api-types.py) | Writes the frontend's API types (`frontend/src/lib/apiSchema.generated.ts`) from the backend's OpenAPI schema; run it after changing a Pydantic model. `--check` fails when the file is stale. |
+| **Dependencies and SBOM** | |
+| [compile-requirements.sh](compile-requirements.sh) | Recompiles the hash-locked backend requirements from the `.in` files, in Docker with Python 3.12. |
+| [verify-requirements.sh](verify-requirements.sh) | Checks that a compiled lock installs, hashes and all, in a clean Python 3.12. |
+| [generate-sbom.sh](generate-sbom.sh) | Writes the CycloneDX SBOMs to `sbom/`, in Docker ([sbom/README.md](../sbom/README.md)). |
+| **Reference data** | |
+| [import_dgv.py](import_dgv.py) | Streams the full DGV file (about 2 million rows) into `dgv_variants` in batches. Run it in the backend container: `PYTHONPATH=/app python /app/scripts/import_dgv.py --assembly GRCh38 --file /data/ref-data/<dgv-file>.txt`. |
+| [gtf_to_ccds_gene_bed.py](gtf_to_ccds_gene_bed.py) | Turns a GENCODE GTF into a BED with one row per gene: the exons and introns of its largest CCDS transcript, for the gene reference upload. |
+| [clinical_cnv_knowledgebase.py](clinical_cnv_knowledgebase.py) | Builds the clinical CNV knowledgebase from ClinGen, ClinVar and the cytobands. The admin rebuild of the knowledgebase runs it. |
+| **Demo and test data** | |
+| [generate_demo_quartet_dataset.py](generate_demo_quartet_dataset.py) | Regenerates the synthetic quartet in `demo/quartet_family/`. |
+| [load_demo_quartet.py](load_demo_quartet.py) | Loads that quartet into Postgres and ClickHouse ([demo/README.md](../demo/README.md)). |
+| [generate_nipt_demo.py](generate_nipt_demo.py) | Regenerates the synthetic NIPT trio in `demo/nipt_family/`. |
+| [generate_golden_trio.py](generate_golden_trio.py) | Regenerates the golden-trio fixture, with its expected results, for the end-to-end tests. |
+| [seed_playwright_e2e.py](seed_playwright_e2e.py) | Imports the golden trio and creates the user the Playwright journeys sign in as. |
+| **Other tools** | |
+| [validate_family_package.py](validate_family_package.py) | Validates a family-package folder without importing it, and prints the result as JSON. |

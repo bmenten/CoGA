@@ -1,38 +1,28 @@
 # Roadmap
 
-_Product direction and platform summary. For the detailed engineering + regulatory
-action plan see [`IMPROVEMENT-WORKPLAN.md`](IMPROVEMENT-WORKPLAN.md); for the IVDR
-technical file see [`regulatory/`](regulatory/README.md)._
+The open work, in one list. The P0–P3 IDs used across the repository refer to the improvement
+workplan of 2026-06-26, which is retired; it is in the git history
+(`git log -- docs/IMPROVEMENT-WORKPLAN.md`). Items that need an owner or QA decision are
+tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
-## Current Platform
+## Before clinical use
 
-- FastAPI backend, React/Vite (TypeScript + Tailwind) frontend, orchestrated via Docker Compose.
-- Postgres for metadata, access control, review state, and the clinical audit/sign-out trail; ClickHouse for variant storage.
-- **Family workspace** spanning small variants, structural variants, CNVs, a cross-modality variant summary, repeat expansions (TRGT), Paraphase, and mtDNA analysis.
-- **Visualization suite**: coverage/APCAD charts, small-variant / SV / CNV / gene / segmental-duplication / DGV / blacklist tracks, ideograms, Circos, pedigrees, and the PGT haplotype/lineage tracks (IBD founder colouring + raw phased markers + ROI overview).
-- **Clinical pipeline**: semi-automatic ACMG/AMP classification (SNV + CNV + mtDNA), HPO/Monarch phenotype scoring, variant prioritization with a ranking cache, and family report drafting.
-- **Monogenic NIPT** (cfDNA-from-plasma): fetal-fraction estimation, the maternal/fetal VAF category model, and sample-integrity QC.
-- **Clinical traceability**: annotation/reference-version manifest, per-classification evidence snapshots, classification-drift detection, an append-only hash-chained audit trail with integrity anchors, and case sign-out with a frozen, versioned report snapshot.
-- **Gene Explorer** with MANE/RefSeq/canonical transcript badges; **Global Small Variant Explorer** for cross-project, variant-centric aggregation (keyset-paginated).
-- **Operability**: build/version identity scaffolding, scheduled ClickHouse integrity monitoring, durable audit/telemetry pipeline, external-call resilience (bounded timeouts + backoff), and TLS for Postgres/ClickHouse.
+- **Performance evaluation** (P3-1): run the TF-10 studies and write the TF-11 report. For each application, the comparator, acceptance criteria and sample size are still to be confirmed.
+- **First release** (P1-15): no version has been tagged or released; [RELEASING.md](../RELEASING.md) is the procedure.
+- **Independent review** (P1-16): `main` requires no approving review and has no CODEOWNERS, and an administrator can bypass the required checks ([TF-18 §6](regulatory/TF-18-change-configuration-management.md)).
+- **Technical file** (P3-4): every document is a draft awaiting approval; the usability summative evaluation (TF-12) and the signed Declaration (TF-04) are still to come.
+- **Google Cloud go-live**: the switches that restrict access to institutional networks, run the API as the restricted database role and lock down ClickHouse egress ([#364](https://github.com/bmenten/CoGA/issues/364), [deployment-gcp.md](deployment-gcp.md)); and a restore drill (P1-13), since the backups configured in Terraform have never been restored.
 
-## Regulatory Framing
+## Engineering
 
-CoGA is operated as an **in-house IVD under IVDR Article 5(5)** at CMGG (ISO 15189).
-The device boundary is _annotated VCF → signed clinical report_, and the technical
-file lives in [`regulatory/`](regulatory/README.md). Engineering work is weighed for
-its GSPR / ISO 14971 / IEC 62304 / ISO 27001 / GDPR consequences, not engineering
-merit alone — see the workplan for the per-finding mapping.
+- **Sessions** (P1-8): there is no server-side logout or token revocation; a token stays valid until it expires.
+- **Operations** (P1-11, P1-12): no `/metrics` endpoint (the ClickHouse integrity check reports through the log), and no migration ledger (every schema file is re-applied on each start).
+- **Imports and scaling** (P2-5, P2-2): a stuck import job is picked up again only when a worker next looks for work, and nothing reads the import-incomplete flag, so such a family can still be signed out. Each backend container runs one uvicorn process whose event loop the API shares with the import and refresh workers.
+- **Regression truth set** (P2-8): no GIAB or GeT-RM truth set with a concordance harness for minor-release validation.
+- **Frozen evidence** (P3-5): a classification's evidence snapshot keeps the annotation-set hash and the ClinVar significance, not the frequencies or in-silico scores.
+- **One filter definition** (P3-2): the small-variant filters exist twice, as ClickHouse SQL and as Python; parity tests cover genotype classes and hemizygous positions only.
+- **HPO release in the report**: the signed record names the assembly, gene loci and Monarch release CoGA loaded, but not its HPO release.
 
-## Near-Term Direction
+## Product
 
-- **Close the live workplan's Phase 1/3 items** — finish the version-identity → sign-out binding, reference-DB/SOUP provenance capture, and the change-control evidence (release tags, CHANGELOG, signed release records).
-- **Execute the performance evaluation** (TF-10 → TF-11): the largest substantive regulatory gap; gated on clinical-lead comparators/thresholds/N.
-- **Operational maturity**: backups + tested restore, a `/metrics` substrate, the versioned migration ledger, and a stuck-import reaper.
-
-## Product Work
-
-- Extend the variant explorer toward additional aggregation views (gene-centric, transcript-centric, cohort allele frequencies).
-- Continue refining family review and sign-out workflows.
-- Improve project-level administration and import observability.
-- Ingest per-transcript MANE Select / MANE Plus Clinical tags during gene-reference sync so the Gene Explorer badges populate from source data.
+- **Variant Explorer**: gene-, transcript- and cohort-frequency views beside the variant view.

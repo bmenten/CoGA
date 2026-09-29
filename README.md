@@ -2,233 +2,83 @@
 
 # CoGA
 
-CoGA, Comprehensive Genomic Analysis, is a unified platform for variant interpretation, genome visualization, and clinically oriented genomic review. It combines a FastAPI backend, a React frontend, `Postgres` for metadata and review state, and `ClickHouse` for high-volume variant storage.
+CoGA (Comprehensive Genomic Analysis) is a web application for interpreting a family's
+genome data and writing the clinical report. A lab user opens a family, sees its pedigree,
+phenotypes and sample QC, filters and classifies the variants, and signs out the report.
+CoGA starts from variant files that an upstream pipeline has already called and annotated;
+it does not call variants itself.
 
-It is operated as an **in-house IVD under IVDR Article 5(5)** (CMGG, ISO 15189), with the device boundary _annotated VCF → signed clinical report_. The supporting technical file lives in [docs/regulatory/](docs/regulatory/README.md).
+It serves five clinical applications: rare-disorder diagnostics, expanded carrier screening,
+preimplantation genetic testing (PGT), monogenic non-invasive prenatal testing (NIPT), and
+combined mitochondrial and nuclear testing for mitochondrial disease.
 
-## Capabilities
+## Regulatory status
 
-CoGA is organized around three areas: a family workspace, cross-cohort discovery tools, and intake/administration.
+CoGA is operated as an **in-house IVD under IVDR Article 5(5)** by the Center for Medical
+Genetics Ghent (CMGG), under its ISO 15189 accreditation. The device boundary is _annotated
+VCF → signed clinical report_. CoGA is **not CE-marked**: its validation covers CMGG's own
+laboratory and workflow and does not travel with the source code. Anyone who deploys it for
+diagnostic use elsewhere is responsible for their own conformity assessment (see
+[NOTICE](NOTICE)).
 
-### Family workspace (`/families/:familyId`)
+Every change goes through CMGG's change control
+([TF-18](docs/regulatory/TF-18-change-configuration-management.md)), so a pull request is
+never merged on technical merit alone. The technical file is in
+[docs/regulatory/](docs/regulatory/README.md).
 
-- Pedigree-aware family dashboard with variant-review/curation summaries and an editable region of interest (ROI).
-- Per-data-type analysis views, surfaced only when that data is present: small variants (SNV/indel), structural variants, a combined variant summary, repeat expansions (TRGT), Paraphase, mitochondrial (mtDNA) analysis, and monogenic NIPT. The mtDNA view supports combined **mitochondrial-disease testing** where ONT long-read adaptive sampling reads the complete mtDNA and the nuclear mito-gene panel in one run — interpreted together, with the Sample QC checks (relatedness/sex/Mendelian, maternal lineage) used to flag sample swaps and data-integrity issues.
-- [Monogenic NIPT](docs/monogenic-nipt.md): cfDNA-from-maternal-plasma analysis with fetal-fraction estimation, the maternal/fetal VAF category model, and its own report view.
-- [PGT haplotype segregation](docs/haplotype-segregation-analysis.md): pedigree-aware IBD founder colouring with a raw phased-marker overlay and an ROI marker overview, deriving an embryo classification (affected/carrier/unaffected/uninformative) — including single-parent (donor) families.
-- Genome visualization: whole-genome overview, per-chromosome view, Circos plot, and an embedded IGV browser.
-- Per-variant review with ACMG classification, tags, and notes. Phenotype (clinical status) and carrier status are tracked as independent axes.
-- Semi-automatic [ACMG classifier](docs/acmg-classification.md): pre-evaluates ACMG/AMP criteria from the variant, trio and gene data onto a points scale, with every criterion overridable.
-- [Case sign-out and clinical traceability](docs/clinical-traceability.md): a frozen, versioned report snapshot bound to the software version and the annotation/reference versions, gated on classification-drift and Sample-QC acknowledgement, and recorded in an append-only, hash-chained clinical audit trail.
+All data in this repository is synthetic. There is no production deployment yet; the target
+is Google Cloud, deployed with Terraform.
 
-### Discovery and analysis
+## What it does
 
-- Gene Explorer (`/genes`): locus-first gene profile with a transcript overview that badges the clinically relevant transcripts (MANE Select, MANE Plus Clinical, RefSeq Select, Ensembl Canonical), plus constraint metrics, disease/phenotype associations, and external links.
-- Global Small Variant Explorer (`/variant-explorer`): variant-centric search and aggregation of SNVs/indels across every project the user can access, with carrier counts (heterozygous/homozygous/families), tag and classification filters, per-sample genotype filters, and carrier drill-down grouped by family.
-- Clinical CNV Explorer (`/cnv-explorer`): browse the curated clinical-CNV knowledge base with per-CNV detail (`/cnv-details/:cnvId`).
-- HPO term browser (`/hpo`) and a reusable gene-panel catalog (`/panels`).
+- **Family workspace** — pedigree, phenotypes (HPO) and sample QC, and a view for each type
+  of data the family has: small variants, structural variants and CNVs, repeat expansions,
+  Paraphase, mitochondrial DNA and monogenic NIPT.
+- **Interpretation** — filtering and phenotype-based ranking, tags and notes, and a
+  semi-automatic ACMG/AMP classifier in which the reviewer can override every criterion.
+- **PGT haplotyping** — founder-coloured haplotypes across the pedigree and an embryo
+  classification, also for families with one known parent and a donor.
+- **Genome views** — whole-genome and chromosome views, a Circos plot and an embedded IGV
+  browser.
+- **Sign-out** — a versioned record of the report, bound to the software version and the
+  annotation and reference versions. Sign-out is refused for a family on an assembly outside
+  the validated scope, and needs an acknowledgement with a reason when the evidence behind a
+  classification has changed or sample QC flags a possible sample swap. Sign-outs and changes
+  to small-variant classifications are kept in an append-only, hash-chained audit trail.
+- **Explorers** — genes (with MANE and RefSeq transcript badges), small variants across every
+  project you can access, clinical CNVs, HPO terms and gene panels.
+- **Administration** — users and projects, family-package import, reference data, ClickHouse
+  maintenance and audit logs.
 
-### Intake and administration
+## Where to start
 
-- Family Builder (`/family-builder`) for manual pedigree creation, and Package Import (`/package-import`, admin) for folder-based bulk family imports with manifest discovery and dry-run validation.
-- Admin tooling: user and project access, family/sample data management, gene-reference sync, ClickHouse variant maintenance, variant tag/preset configuration, and audit logs.
+| You want to… | Read |
+| --- | --- |
+| Use CoGA in the lab | The user guide inside the app, at `/docs` (source in [frontend/src/content/docs/](frontend/src/content/docs/)) |
+| Run it locally or change the code | [docs/development.md](docs/development.md), then [CONTRIBUTING.md](CONTRIBUTING.md) |
+| See how it is built | [docs/application-scheme.md](docs/application-scheme.md) |
+| Deploy and operate it | [docs/deployment-gcp.md](docs/deployment-gcp.md) and [RELEASING.md](RELEASING.md) |
+| Review or audit it | [docs/regulatory/README.md](docs/regulatory/README.md) (technical file) and [docs/handleiding/README.md](docs/handleiding/README.md) (Dutch technical manual) |
 
-## Stack
+Every document is listed in [docs/README.md](docs/README.md).
 
-- `frontend/`: React, TypeScript, Vite, Tailwind.
-- `backend/`: FastAPI, SQLAlchemy async, ClickHouse client.
-- `Postgres`: users, projects, families, samples, review state, repeat expansions, Paraphase results, NIPT artifacts, gene cache, panels, HPO, the annotation/reference-version manifest, and the append-only hash-chained clinical audit + report sign-out trail.
-- `ClickHouse`: small variants, structural variants, and interval tracks (coverage/segments/APCAD/haplotypes), in one set of tables per assembly. The cross-project variant explorer aggregates those tables at query time.
+## Try it locally
 
-## Quick Start
-
-1. Copy `.env.example` to `.env`.
-  The production-style stack refuses to start with placeholder or weak secrets. Set `SECRET_KEY` (at least 32 characters), `INTEGRITY_ANCHOR_SIGNING_KEY` (base64 of a 32-byte Ed25519 seed), `POSTGRES_PASSWORD`, `CLICKHOUSE_PASSWORD` and `ADMIN_PASSWORD` before using `docker compose up`; `.env.example` shows how to generate the first two. For local-only work, use the dev stack below, which runs with `APP_ENV=development`.
-2. Start the production-style local stack:
+With Docker installed, from the repository root:
 
 ```bash
-docker compose up --build -d
-```
-
-3. Open:
-
-- Frontend: `http://localhost:3000`
-- Backend API docs: `http://localhost:8000/docs` (served only with `APP_ENV=development`, e.g. the dev stack)
-- Postgres: `localhost:5432`
-- ClickHouse HTTP: `localhost:8123`
-- ClickHouse native: `localhost:9000`
-
-## Local Development
-
-Docker dev stack with backend reload and the Vite dev server:
-
-```bash
+cp .env.example .env
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 ```
 
-Stop either Docker stack:
+Open <http://localhost:3000> and sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env`.
+To load a synthetic family, see [demo/](demo/README.md). Other ways to run CoGA, and how to
+reset it, are in [docs/development.md](docs/development.md).
 
-```bash
-docker compose down
-```
+## Licence, security and contributing
 
-Backend:
-
-```bash
-cd backend
-python -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-export APP_ENV=development
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-## Environment
-
-Required:
-
-- `APP_ENV`
-- `SECRET_KEY`
-- `POSTGRES_HOST`
-- `POSTGRES_PORT`
-- `POSTGRES_DB`
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-- `CLICKHOUSE_HOST`
-- `CLICKHOUSE_HTTP_PORT`
-- `CLICKHOUSE_DATABASE`
-- `CLICKHOUSE_USER`
-- `CLICKHOUSE_PASSWORD`
-
-Required outside development (the backend refuses to start without them):
-
-- `INTEGRITY_ANCHOR_SIGNING_KEY`
-- `ADMIN_PASSWORD`
-
-Optional (`.env.example` lists every setting with its default):
-
-- `CORS_ORIGINS`
-- `CORS_ORIGIN_REGEX`
-- `ADMIN_USERNAME`
-- `ADMIN_EMAIL`
-- `VITE_API_BASE_URL` for pointing the frontend at a non-default API host; defaults to `/api`
-- `GITHUB_REPOSITORY`
-- `GITHUB_REPOSITORY_URL`
-- `GITHUB_RELEASES_URL`
-- `GITHUB_ISSUES_URL`
-- `GITHUB_API_TOKEN` for private-repository release sync
-- `GITHUB_REPO_VISIBILITY`
-- `GITHUB_RELEASE_CACHE_TTL_SECONDS`
-- `GENE_REFERENCE_CLINGEN_VALIDITY_URL`
-- `GENE_REFERENCE_CLINGEN_DOSAGE_URL`
-- `GENE_REFERENCE_GENCC_URL`
-- `GENE_REFERENCE_CLINVAR_GENE_CONDITION_URL`
-- `GENE_REFERENCE_HGNC_COMPLETE_SET_URL`, the HGNC complete set that defines which human genes the reference sync caches
-- `REFERENCE_GENCODE_GTF_URL`, the GENCODE annotation supplying GRCh38 gene loci, biotypes, Ensembl/HGNC ids and MANE tags
-- `REFERENCE_GENCODE_REFSEQ_METADATA_URL`, GENCODE's transcript → RefSeq accession map
-- `REFERENCE_BOOTSTRAP_T2T`, defaulting to `false`; imports T2T-CHM13v2.0 as a second human assembly
-- `REFERENCE_T2T_GTF_URL`, the RefSeq-derived annotation used for T2T gene loci
-- `GENE_REFERENCE_DBNSFP_GENE_PATH`, defaulting to `/data/ref-data/dbNSFP5.4_gene.gz` for local-first gene reference sync
-- `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, defaulting to `true` to queue the first dbNSFP-backed human gene reference sync when a clean GRCh38 database has no cached gene info
-- `READS_PATH`
-- `REFERENCE_FASTA_PATH`
-- `AZURE_TENANT_ID`
-- `AZURE_CLIENT_ID`
-- `AZURE_ADMIN_OVERRIDE`
-- `AUDIT_LOG_MODE`
-- `AUDIT_LOG_QUERY_STRING_MODE`
-
-## Data Loading
-
-Reference data is loaded through admin API endpoints:
-
-- `POST /api/assemblies/{assembly_id}/reference-upload/cytobands`
-- `POST /api/assemblies/{assembly_id}/reference-upload/genes`
-- `POST /api/assemblies/{assembly_id}/reference-upload/blacklist`
-- `POST /api/assemblies/{assembly_id}/reference-upload/clinical_cnvs`
-- `POST /api/assemblies/{assembly_id}/reference-upload/segmental_duplications`
-- `POST /api/assemblies/{assembly_id}/reference-upload/dgv`
-
-Pedigree and assay data are loaded through API uploads:
-
-- `POST /api/ped/upload`
-- `POST /api/families/{family_id}/small-variants/upload`
-- `POST /api/repeat-expansions/upload/{sample_id}`
-- `POST /api/bed/upload/{sample_id}/{bed_type}`
-- `POST /api/structural-variants/upload/{sample_id}`
-
-Whole family packages (VCFs, pedigree, QC and alignments in the pipeline's folder layout) are imported from the admin Package Import page.
-
-See [docs/data-import.md](docs/data-import.md) for the current flow.
-
-## Validation
-
-See [docs/testing.md](docs/testing.md) for a file-by-file catalogue of all tests (backend + frontend) and the CI gates.
-
-Backend tests:
-
-```bash
-backend/.venv/bin/python -m pytest
-```
-
-Frontend checks:
-
-```bash
-cd frontend
-npm run tsc
-npm run lint
-npm test
-npm run build
-```
-
-## Docs
-
-- [docs/README.md](docs/README.md) — full documentation index
-- [docs/deployment-gcp.md](docs/deployment-gcp.md) — full step-by-step Google Cloud (Terraform) deployment & operations guide
-- [docs/storage-architecture.md](docs/storage-architecture.md)
-- [docs/database.md](docs/database.md)
-- [docs/development.md](docs/development.md)
-- [docs/application-scheme.md](docs/application-scheme.md)
-- [docs/data-import.md](docs/data-import.md)
-- [docs/testing.md](docs/testing.md)
-- [docs/security-posture.md](docs/security-posture.md)
-- [docs/clinical-traceability.md](docs/clinical-traceability.md)
-- [docs/regulatory/](docs/regulatory/README.md) — IVDR technical file
-
-## Notes
-
-- Variant IDs exposed by the API are storage-agnostic strings. Metadata IDs are UUIDs.
-- Startup ensures Homo sapiens GRCh38 is present, imports missing GRCh38 cytobands from UCSC and gene loci from GENCODE (falling back to the UCSC gene track when GENCODE cannot be fetched), seeds built-in hg38 tracks, queues the first dbNSFP-backed human gene-reference sync when the local dbNSFP gene file is present, and starts the gene-reference refresh worker.
-- Admin users can inspect and repair ClickHouse variant tables from the data-management page or via `/api/admin/clickhouse/variants`, `/api/admin/clickhouse/variants/{assembly_name}/ensure`, and `/api/admin/clickhouse/variants/{assembly_name}/optimize`.
-- The in-app `New features` page reads GitHub releases through `/api/product/releases`; private repositories require `GITHUB_API_TOKEN` on the backend to keep that page synced.
-
-## Licence
-
-Licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-The [NOTICE](NOTICE) file carries a regulatory statement that matters if you intend to
-reuse this: CoGA is operated as an **in-house IVD under IVDR Article 5(5)** at CMGG and is
-**not a CE-marked device**. Its validation covers CMGG's own laboratory and workflow, and
-does not transfer with the source — anyone deploying it for diagnostic use elsewhere is
-responsible for their own conformity assessment. Security reports go through
-[SECURITY.md](SECURITY.md).
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). Note that CoGA is a regulated in-house IVD: every
-change carries a classification and approval step under
-[TF-18](docs/regulatory/TF-18-change-configuration-management.md), so a pull request cannot
-be merged on technical merit alone. Participation is governed by
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-
-Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md).
-
-Releases follow [RELEASING.md](RELEASING.md).
+- Licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+- Report a security problem privately, as [SECURITY.md](SECURITY.md) describes.
+- To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md); participation is governed by
+  [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+- Notable changes are in [CHANGELOG.md](CHANGELOG.md).

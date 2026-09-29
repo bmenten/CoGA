@@ -44,7 +44,7 @@ That last command is the same guard CI runs. It fails if the tag and `VERSION` d
 if `VERSION` is not valid SemVer — **run it locally so you find out now, not after pushing a
 tag you then have to delete.**
 
-Open a PR with the bump, let the ten required checks pass, and merge it.
+Open a PR with the bump, let the required checks pass, and merge it.
 
 ## 2. Tag and publish
 
@@ -64,13 +64,14 @@ gh release create v0.1.0-beta.1 \
 
 ## 3. Watch the build
 
-`build.yml` runs once, in this order:
+`build.yml` runs once. `tf-validate` runs alongside the other jobs, which run in this order:
 
 | Job | What it does | If it fails |
 | --- | --- | --- |
+| `tf-validate` | `terraform fmt -check` and `terraform validate`, without cloud credentials | The other jobs do not wait for it, so the build still runs; fix the Terraform before you rely on a deploy |
 | `prepare` | Asserts the tag matches `VERSION`, then computes build metadata | **Nothing was built.** Fix `VERSION`, delete the tag and release, start again at step 1 |
 | `build-backend` / `build-frontend` | Cloud Build → Artifact Registry, stamped with `APP_VERSION` + `GIT_SHA` | Images may be partially pushed; safe to re-run |
-| `deploy` | `terraform plan` then `apply` against the `gcp-deploy` environment | Infrastructure may be partly applied — read the plan output before re-running |
+| `deploy` | `terraform plan` then `apply` against the `gcp-deploy` environment — on a release only when `COGA_DEPLOY_TRIGGER` is `release` (see [Known limitations](#known-limitations)) | Infrastructure may be partly applied — read the plan output before re-running |
 
 ## 4. Capture the evidence
 
@@ -140,17 +141,22 @@ under TF-18 — a rollback is a release.
 
 Stated here so nobody discovers them mid-release:
 
+- **A release does not deploy by default.** `deploy` runs on a release only when the
+  repository variable `COGA_DEPLOY_TRIGGER` is `release`; otherwise pushes to `main` deploy
+  and a release only builds its images. Only one of the two may deploy, because there is one
+  environment and one Terraform state ([deployment-gcp.md](docs/deployment-gcp.md), section
+  "CI/CD").
 - **Deploy pins a tag, not a digest.** Terraform receives `…coga-backend:<tag>`: the release
   tag, or `main-<12-character commit>` for a main build. Nothing stops someone re-pushing a
   tag by hand, so verify with `/api/version` rather than assuming a green deploy shipped
   your code.
 - **No digest is captured automatically** — step 4 resolves them by hand.
 - **The SBOM artifact expires after 90 days** and comes from the CI run of the tagged commit,
-  not from `build.yml` (which runs on `release: published` and makes no SBOM), so archiving
-  it into the technical file is a manual step. Miss it and
-  the dependency evidence for that build is gone.
-- **`deploy` skips entirely when GCP is not configured** (no `GCP_WIF_PROVIDER` secret). The
-  run goes green having deployed nothing. Check the job actually ran.
+  not from `build.yml` (which makes no SBOM), so archiving it into the technical file is a
+  manual step. Miss it and the dependency evidence for that build is gone.
+- **The image builds and `deploy` skip entirely when GCP is not configured** (no
+  `GCP_WIF_PROVIDER` secret). The run goes green having built and deployed nothing. Check the
+  jobs actually ran.
 - **The `gcp-deploy` environment needs a required reviewer** before anything deploys: the
   deploy job's first step fails until one is configured (Settings → Environments), so
   `terraform apply -auto-approve` never runs unattended.

@@ -5,9 +5,8 @@ startup and then on a fixed interval, logging the per-assembly result and escala
 ERROR on ``corrupt``/``missing`` so operations alerting can fire BEFORE the corruption
 surfaces as gene/panel query 500s. The last result per assembly is cached for surfacing.
 
-(Emitting the result as a ``/metrics`` gauge — the workplan's "emit result as metric" —
-is deferred until the metrics endpoint exists; the structured ERROR log is the alert hook
-in the meantime.)
+(Emitting the result as a ``/metrics`` gauge is deferred until a metrics endpoint exists —
+see docs/ROADMAP.md; the structured ERROR log is the alert hook in the meantime.)
 """
 
 from __future__ import annotations
