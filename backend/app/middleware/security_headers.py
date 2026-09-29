@@ -29,7 +29,13 @@ _STATIC_HEADERS = {
 
 
 async def security_headers_middleware(request: Request, call_next):
-    """Set hardening headers on every response (registered outermost in main.py)."""
+    """Set hardening headers on every response the application returns.
+
+    Registered in main.py just inside TrustedProxyClientMiddleware, which is the
+    outermost, so it wraps every route and every other middleware. The bare 500 that
+    Starlette's ServerErrorMiddleware sends for an unhandled exception is produced
+    outside it and carries none of these headers.
+    """
     response: Response = await call_next(request)
     for name, value in _STATIC_HEADERS.items():
         response.headers.setdefault(name, value)

@@ -189,7 +189,8 @@ async def normalize_api_collection_root_paths(request, call_next):
     return await call_next(request)
 
 
-# Registered last → outermost: stamp the hardening headers onto every response.
+# Registered second to last, so only TrustedProxyClientMiddleware (below) wraps it: stamp
+# the hardening headers onto every response the routes and the other middleware return.
 app.middleware("http")(security_headers_middleware)
 
 # Outermost of all: resolve the client address before logging, throttling or audit
