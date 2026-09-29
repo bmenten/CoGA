@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .clickhouse_small_variants import get_small_variant_family_record
 from .family_metadata_context import build_family_metadata_context
 from .access_control import CurrentUser
-from .small_variant_review_pg import build_evidence_snapshot
+from .small_variant_review_acmg import build_evidence_snapshot
 
 
 def _current_evidence(record: Any) -> dict[str, Any]:

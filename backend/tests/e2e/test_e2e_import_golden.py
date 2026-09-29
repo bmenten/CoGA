@@ -31,7 +31,7 @@ def expected() -> dict:
 def facts(tmp_path_factory, request) -> dict:
     """Copy the committed fixture into an authorized temp root and run the import
     once for the whole module."""
-    from backend.app.services import family_package_import as package_import
+    from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
     if not (_FIXTURE / "manifest.yaml").exists():
@@ -42,7 +42,7 @@ def facts(tmp_path_factory, request) -> dict:
 
     # The importer rejects paths outside FAMILY_IMPORT_ROOTS; authorize the temp root.
     mp = pytest.MonkeyPatch()
-    mp.setattr(package_import.settings, "family_import_roots", [str(root.parent)])
+    mp.setattr(settings, "family_import_roots", [str(root.parent)])
     request.addfinalizer(mp.undo)
 
     return _harness.run_async(lambda: _harness.import_golden_trio(root))

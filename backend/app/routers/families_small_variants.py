@@ -31,15 +31,19 @@ from ..services.family_metadata_context import FamilyMetadataContext, SampleMeta
 from ..services.access_control import CurrentUser
 from ..services.raw_import_files_pg import record_upload_file_obj
 from ..services.small_variant_review_pg import (
+    get_small_variant_review_summary,
+    upsert_small_variant_review as upsert_small_variant_review_record,
+)
+from ..services.small_variant_review_tags import (
     create_small_variant_tag_definition,
     delete_small_variant_tag_definition,
-    delete_small_variant_filter_preset as delete_small_variant_filter_preset_record,
-    get_small_variant_review_summary,
-    list_small_variant_filter_presets as list_small_variant_filter_preset_records,
     list_small_variant_tag_definitions,
-    save_small_variant_filter_preset as save_small_variant_filter_preset_record,
     update_small_variant_tag_definition,
-    upsert_small_variant_review as upsert_small_variant_review_record,
+)
+from ..services.small_variant_review_presets import (
+    delete_small_variant_filter_preset as delete_small_variant_filter_preset_record,
+    list_small_variant_filter_presets as list_small_variant_filter_preset_records,
+    save_small_variant_filter_preset as save_small_variant_filter_preset_record,
 )
 from ..services.variant_upload_service import upload_family_small_variant_file
 

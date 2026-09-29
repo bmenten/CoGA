@@ -125,13 +125,13 @@ from ..services.nipt_artifact_pg import (
     delete_nipt_artifact,
     list_nipt_artifacts,
 )
-from ..services.small_variant_review_pg import (
+from ..services.small_variant_review_tags import (
     create_small_variant_tag_definition,
     delete_small_variant_tag_definition,
-    list_small_variant_filter_presets_for_admin,
     list_small_variant_tag_definitions,
     update_small_variant_tag_definition,
 )
+from ..services.small_variant_review_presets import list_small_variant_filter_presets_for_admin
 
 logger = logging.getLogger(__name__)
 

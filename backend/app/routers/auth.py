@@ -41,7 +41,7 @@ from ..services.auth_rate_limit_pg import (
     record_failed_login,
     record_signup_attempt,
 )
-from ..services.small_variant_review_pg import (
+from ..services.small_variant_review_presets import (
     delete_small_variant_filter_preset_for_owner,
     list_small_variant_filter_presets_for_owner,
 )

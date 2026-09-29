@@ -2597,7 +2597,7 @@ return f&quot;{query}\n        LIMIT %(limit)s OFFSET %(offset)s&quot;
 <tr>
 <td><strong>Import-pipeline</strong></td>
 <td><code>family_package_*.py</code> (o.a. <code>_manifest</code>, <code>_validation</code>, <code>_import</code>, <code>_registration</code>, <code>_datasets</code>, <code>_variants</code>), <code>variant_upload_service.py</code>, <code>raw_import_files_pg.py</code>, <code>vcf_header_provenance.py</code></td>
-<td>Pakket-import: manifest lezen, valideren, registreren, varianten laden; provenance van VCF-headers. Zie <a href="#hs-6">hoofdstuk 6</a>.</td>
+<td>Pakket-import: manifest lezen, valideren, registreren, varianten laden; provenance van VCF-headers. Code importeert elke helper uit de module die hem definieert; de orkestratie in <code>family_package_import.py</code> exporteert ze niet opnieuw (#528). Zie <a href="#hs-6">hoofdstuk 6</a>.</td>
 </tr>
 <tr>
 <td><strong>Filters &amp; prioritisatie</strong></td>
@@ -2607,7 +2607,7 @@ return f&quot;{query}\n        LIMIT %(limit)s OFFSET %(offset)s&quot;
 <tr>
 <td><strong>ACMG &amp; review</strong></td>
 <td><code>acmg_points.py</code>, <code>cnv_acmg_points.py</code>, <code>small_variant_review_*.py</code>, <code>structural_variant_review_pg.py</code>, <code>classification_drift_service.py</code></td>
-<td>Semi-automatische ACMG-classificatie, tags/presets, review-toestand, drift-detectie. Zie <a href="#hs-10">hoofdstuk 10</a>.</td>
+<td>Semi-automatische ACMG-classificatie, tags/presets, review-toestand, drift-detectie. Ook hier importeert code uit de definiërende module: <code>small_variant_review_pg.py</code> exporteert de ACMG-, opslag-, tag- en presethelpers niet opnieuw (#528). Zie <a href="#hs-10">hoofdstuk 10</a>.</td>
 </tr>
 <tr>
 <td><strong>NIPT</strong></td>
