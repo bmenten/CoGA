@@ -140,10 +140,10 @@ under TF-18 — a rollback is a release.
 
 Stated here so nobody discovers them mid-release:
 
-- **Deploy pins a tag, not a digest.** Terraform receives `…coga-backend:<tag>`. For a
-  release that is effectively immutable (you do not re-tag), but on `main` the tag is
-  literally `main`, so Cloud Run may not roll a new revision at all. Verify with
-  `/api/version` rather than assuming a green deploy shipped your code.
+- **Deploy pins a tag, not a digest.** Terraform receives `…coga-backend:<tag>`: the release
+  tag, or `main-<12-character commit>` for a main build. Nothing stops someone re-pushing a
+  tag by hand, so verify with `/api/version` rather than assuming a green deploy shipped
+  your code.
 - **No digest is captured automatically** — step 4 resolves them by hand.
 - **The SBOM artifact expires after 90 days** and comes from the CI run of the tagged commit,
   not from `build.yml` (which runs on `release: published` and makes no SBOM), so archiving
