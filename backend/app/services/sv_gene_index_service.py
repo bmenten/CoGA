@@ -14,6 +14,7 @@ from the family by the same rule as the SNV + SNV compound het (``compound_het_p
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import bindparam, text
@@ -261,7 +262,7 @@ async def get_sv_second_hits(
 
 async def get_sv_hit_genes(session: AsyncSession, *, family_uuid: str) -> list[str]:
     """All genes the family's SVs hit (drives the ``require_sv_second_hit`` filter)."""
-    rows = (
+    rows: Sequence[Any] = (
         await session.execute(
             text(
                 "SELECT gene_symbol FROM family_sv_gene_index WHERE family_id = CAST(:fid AS uuid)"
