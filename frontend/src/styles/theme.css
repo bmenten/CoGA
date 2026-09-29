@@ -5648,6 +5648,13 @@ button.sv-second-hit-badge--del:hover {
   color: var(--color-signature-red-dark);
 }
 
+/* A toggle's pressed state is not told by the tint alone (#529): a check mark, with empty
+   alternative text, since assistive technology reads aria-pressed instead. */
+.variant-quick-toggle--active::before {
+  content: '✓ ';
+  content: '✓ ' / '';
+}
+
 .variant-review-link {
   background: transparent;
   color: var(--color-secondary);

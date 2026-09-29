@@ -75,21 +75,22 @@ export default defineConfig({
         'src/setupTests.ts',
         'src/vite-env.d.ts'
       ],
-      // Ratchet floors set just below the measured baseline (2026-09-29, #526: lines 80.3 /
-      // statements 78.4 / functions 75.7 / branches 66.2; before: 69.3 / 67.7 / 65.1 /
-      // 57.2 on 2026-06-28). The visualisations, which draw what the clinician reads off
-      // a track, have a floor of their own (lines 84.3 / statements 82.7 / functions
-      // 85.5 / branches 68.7).
+      // Ratchet floors set just below the measured baseline (2026-09-29, #526 close-out:
+      // lines 81.9 / statements 80.1 / functions 77.5 / branches 69.5; before: 80.3 /
+      // 78.4 / 75.7 / 66.2 earlier that day, and 69.3 / 67.7 / 65.1 / 57.2 on
+      // 2026-06-28). The visualisations, which draw what the clinician reads off a
+      // track, have a floor of their own (lines 89.9 / statements 88.5 / functions 90.9 /
+      // branches 78.2).
       thresholds: {
-        lines: 78,
-        functions: 73,
-        branches: 64,
-        statements: 76,
+        lines: 80,
+        functions: 75,
+        branches: 67,
+        statements: 78,
         'src/components/visualizations/**': {
-          lines: 82,
-          functions: 83,
-          branches: 66,
-          statements: 80
+          lines: 88,
+          functions: 89,
+          branches: 76,
+          statements: 86
         }
       }
     }
