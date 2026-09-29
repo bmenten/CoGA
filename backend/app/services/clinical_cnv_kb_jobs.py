@@ -6,7 +6,11 @@ network fetches never touch the API process, then loads the resulting TSV into
 ``clinical_cnvs`` for the target assembly via the standard reference loader.
 
 Progress is tracked in ``clinical_cnv_kb_jobs``; the build runs as an in-process
-background task and the admin UI polls the status endpoint.
+background task and the admin UI polls the status endpoint. One job may be active (queued
+or running) at a time: a partial unique index on a constant refuses a second one, so a
+request made while a rebuild is active gets a 409, even when two arrive together. A job
+must therefore never stay active once its run has ended, or it would refuse every later
+rebuild: ``_run_job`` ends every job it starts as ``completed`` or ``failed``.
 """
 
 from __future__ import annotations
@@ -137,6 +141,8 @@ async def queue_clinical_cnv_kb_rebuild(
     if assembly_row is None:
         raise HTTPException(status_code=404, detail="Assembly not found")
 
+    # One active job at a time: while a job is queued or running, the insert violates the
+    # partial unique index idx_clinical_cnv_kb_jobs_one_active (02_reference.sql).
     try:
         row = (
             await session.execute(
@@ -179,36 +185,55 @@ async def _update_job(job_id: str, assignments: str, params: dict[str, Any]) -> 
         await session.commit()
 
 
-async def _run_job(job_id: str) -> None:
-    script = _script_path()
-    sessionmaker = get_postgres_sessionmaker()
-    async with sessionmaker() as session:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT assembly_id::text AS assembly_id, assembly_name, skip_clinvar, requested_by "
-                    "FROM clinical_cnv_kb_jobs WHERE id = CAST(:job_id AS uuid)"
-                ),
-                {"job_id": job_id},
-            )
-        ).mappings().first()
-    if row is None or script is None:
+async def _record_failure(job_id: str, error: str) -> None:
+    """Mark the job failed; when even that fails, say in the log which job is left active."""
+    try:
         await _update_job(
             job_id,
             "status = 'failed', completed_at = now(), error = :error",
-            {"error": "Build script or job record unavailable."},
+            {"error": error},
         )
-        return
+    except Exception:
+        logger.exception(
+            "Clinical CNV knowledgebase rebuild %s could not be marked failed; "
+            "it stays active and refuses later rebuilds until cleared",
+            job_id,
+        )
 
-    await _update_job(job_id, "status = 'running', started_at = now()", {})
 
-    tmp_dir = tempfile.mkdtemp(prefix="cnv-kb-")
-    out_path = os.path.join(tmp_dir, "clinical_cnv_knowledgebase.tsv")
-    cmd = [sys.executable, str(script), "--assembly", row["assembly_name"], "--out", out_path]
-    if row["skip_clinvar"]:
-        cmd.append("--skip-clinvar")
-
+async def _run_job(job_id: str) -> None:
+    # Every step, reading the job and its switch to running included, is inside the error
+    # handling: a job left queued or running once this ends would refuse every later rebuild.
+    tmp_dir: str | None = None
     try:
+        script = _script_path()
+        sessionmaker = get_postgres_sessionmaker()
+        async with sessionmaker() as session:
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT assembly_id::text AS assembly_id, assembly_name, skip_clinvar, requested_by "
+                        "FROM clinical_cnv_kb_jobs WHERE id = CAST(:job_id AS uuid)"
+                    ),
+                    {"job_id": job_id},
+                )
+            ).mappings().first()
+        if row is None or script is None:
+            await _update_job(
+                job_id,
+                "status = 'failed', completed_at = now(), error = :error",
+                {"error": "Build script or job record unavailable."},
+            )
+            return
+
+        await _update_job(job_id, "status = 'running', started_at = now()", {})
+
+        tmp_dir = tempfile.mkdtemp(prefix="cnv-kb-")
+        out_path = os.path.join(tmp_dir, "clinical_cnv_knowledgebase.tsv")
+        cmd = [sys.executable, str(script), "--assembly", row["assembly_name"], "--out", out_path]
+        if row["skip_clinvar"]:
+            cmd.append("--skip-clinvar")
+
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -245,12 +270,9 @@ async def _run_job(job_id: str) -> None:
             "status = 'completed', completed_at = now(), inserted = :inserted, log = :log",
             {"inserted": result.inserted, "log": log_tail},
         )
-    except Exception as exc:  # pragma: no cover - defensive; surfaced to the admin UI
+    except Exception as exc:  # surfaced to the admin UI as the job's error
         logger.exception("Clinical CNV knowledgebase rebuild failed")
-        await _update_job(
-            job_id,
-            "status = 'failed', completed_at = now(), error = :error",
-            {"error": str(exc)[:2000]},
-        )
+        await _record_failure(job_id, str(exc)[:2000])
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if tmp_dir is not None:
+            shutil.rmtree(tmp_dir, ignore_errors=True)

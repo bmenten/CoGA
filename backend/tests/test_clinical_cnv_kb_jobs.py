@@ -2,12 +2,16 @@
 
 The build script, the database and the subprocess are stood in for; what is pinned is the
 job's lifecycle: one active job at a time, a failed build leaves the loaded knowledgebase
-untouched, and a successful one replaces it.
+untouched, a successful one replaces it, and a job never stays queued or running once its
+run has ended, since it would refuse every later rebuild. The one-active rule itself is a
+database index, checked against real Postgres in
+``integration/test_clinical_cnv_kb_one_active_job.py``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -110,7 +114,8 @@ def test_a_rebuild_for_an_unknown_assembly_is_refused(script: Path) -> None:
 
 
 def test_only_one_rebuild_runs_at_a_time(script: Path) -> None:
-    # The one-active-job rule is a partial unique index; a second insert violates it.
+    # The one-active-job rule is a partial unique index on a constant; a second insert, while
+    # a job is queued or running, violates it.
     session = _Session(
         assembly={"id": "asm-1", "assembly_name": "GRCh38"},
         insert_error=IntegrityError("INSERT", {}, Exception("duplicate key")),
@@ -148,8 +153,8 @@ def test_a_queued_rebuild_starts_its_job_in_the_background(script: Path, monkeyp
 
 
 class _JobSession:
-    def __init__(self, row) -> None:
-        self.row = row
+    def __init__(self, row, error: Exception | None = None) -> None:
+        self.row, self.error = row, error
 
     async def __aenter__(self):
         return self
@@ -158,6 +163,8 @@ class _JobSession:
         return False
 
     async def execute(self, statement, params=None):
+        if self.error:
+            raise self.error
         return _Result([self.row] if self.row else [])
 
 
@@ -169,13 +176,24 @@ class _Process:
         return b"", self._stderr
 
 
-def _run(monkeypatch: pytest.MonkeyPatch, *, row, returncode: int = 0, tsv: str = "chr1\t1\t100\tX\n"):
+def _run(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    row,
+    returncode: int = 0,
+    tsv: str = "chr1\t1\t100\tX\n",
+    read_error: Exception | None = None,
+    update_errors: dict[str, Exception] | None = None,
+):
     updates: list[tuple[str, dict]] = []
     commands: list[list[str]] = []
     applied: list[dict] = []
 
     async def update_job(job_id, assignments, params):
         updates.append((assignments, params))
+        for prefix, error in (update_errors or {}).items():
+            if assignments.startswith(prefix):
+                raise error
 
     async def subprocess_exec(*cmd, **kwargs):
         commands.append(list(cmd))
@@ -188,7 +206,7 @@ def _run(monkeypatch: pytest.MonkeyPatch, *, row, returncode: int = 0, tsv: str 
         applied.append(kwargs)
         return type("Result", (), {"inserted": 1})()
 
-    monkeypatch.setattr(kb, "get_postgres_sessionmaker", lambda: (lambda: _JobSession(row)))
+    monkeypatch.setattr(kb, "get_postgres_sessionmaker", lambda: (lambda: _JobSession(row, read_error)))
     monkeypatch.setattr(kb, "_update_job", update_job)
     monkeypatch.setattr(kb.asyncio, "create_subprocess_exec", subprocess_exec)
     monkeypatch.setattr(kb, "apply_reference_dataset_text", apply_text)
@@ -237,3 +255,41 @@ def test_a_job_whose_record_is_gone_is_marked_failed(script: Path, monkeypatch: 
             {"error": "Build script or job record unavailable."},
         )
     ]
+
+
+# --- a job never stays active once its run has ended ---------------------------------------------
+
+_ROW = {"assembly_id": "asm-1", "assembly_name": "GRCh38", "skip_clinvar": False, "requested_by": "lab.admin"}
+
+
+def test_a_job_that_cannot_switch_to_running_is_marked_failed(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The switch used to run outside the job's error handling. When it failed (the old index
+    # let a job be queued beside a running one, then refused its switch), the run died and the
+    # job stayed queued for good, refusing every later rebuild.
+    refused = IntegrityError("UPDATE clinical_cnv_kb_jobs", {}, Exception("duplicate key value violates unique constraint"))
+    updates, commands, applied = _run(monkeypatch, row=_ROW, update_errors={"status = 'running'": refused})
+
+    assert commands == [] and applied == []
+    assert [assignments.split(",")[0] for assignments, _ in updates] == ["status = 'running'", "status = 'failed'"]
+    assert "duplicate key value" in updates[-1][1]["error"]
+
+
+def test_a_job_whose_record_cannot_be_read_is_marked_failed(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    updates, commands, applied = _run(monkeypatch, row=_ROW, read_error=ConnectionError("connection reset"))
+
+    assert commands == [] and applied == []
+    assert updates == [("status = 'failed', completed_at = now(), error = :error", {"error": "connection reset"})]
+
+
+def test_a_failure_that_cannot_be_recorded_is_logged_not_raised(
+    script: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The database is gone: the job cannot be marked failed either. The run still ends
+    # quietly, and says in the log which job is left active.
+    down = ConnectionError("database unreachable")
+    with caplog.at_level(logging.ERROR, logger=kb.logger.name):
+        updates, commands, applied = _run(monkeypatch, row=_ROW, update_errors={"status": down})
+
+    assert commands == [] and applied == []
+    assert [assignments.split(",")[0] for assignments, _ in updates] == ["status = 'running'", "status = 'failed'"]
+    assert "job-1 could not be marked failed" in caplog.text
