@@ -99,7 +99,7 @@ effect on agreement estimates noted.
   - Aneuploidy: per-chromosome PPA/NPA/OPA vs comparator, at the claimed limit of **> 35 % mosaicism** (TF-01 §3.3).
   - Large SV: detection concordance at the claimed **> 10 Mb** threshold; characterize the size/type detection limit.
 - **Proposed acceptance (confirm):** 100% concordance on **informative** embryo segregation calls; no **false "unaffected"** on truly at-risk embryos (the safety-critical error); aneuploidy and >10 Mb SV concordance ≥‹threshold›.
-- **Edge cases:** recombination near the ROI, sparse informative markers, donor/single-parent families (expected "uninformative" for recessive — verify safe behavior), mosaic embryos, sex chromosomes.
+- **Edge cases:** recombination near the ROI, sparse informative markers, donor/single-parent families (expected "uninformative" for recessive — verify safe behavior), mosaic embryos, sex chromosomes; embryo data missing at the ROI (expected "uninformative"); X-linked embryos of unrecorded sex (never "carrier" or "unaffected" where a son and a daughter would differ); male embryos at a pseudo-autosomal locus (read on both copies).
 
 ### 3.3 Rare-disorder diagnostics — WGS trios (30 trios)
 - **Unit of analysis:** the **diagnostic conclusion** (causal/candidate variant(s) identified and their ACMG class) and the set of reported variants.

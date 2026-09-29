@@ -56,16 +56,17 @@ overlay is hidden.
 - **Raw phased markers and per-child QC** — `backend/app/services/phased_marker_service.py`
   (`compute_phased_markers`: per-site lane values for the couple's children, trio and single-parent
   modes, the informative-site count and Mendel-error rate, the fetch cap).
-- **Disease haplotype and embryo call** — `frontend/src/lib/haplotypeRisk.ts` (`inferDiseaseHaplotypes`,
-  `interpretSampleHaplotypeRisk`, `getHaplotypeLaneSignature`, which treats the backend's lineage tags as
-  authoritative over the flat `role`) and `frontend/src/lib/embryoSegregation.ts` (the family-page
-  classification and its two warnings).
+- **Disease haplotype and embryo call** — `frontend/src/lib/haplotypeRisk.ts`: `inferDiseaseHaplotypes`;
+  `assessSampleHaplotypeRisk`, the call and, when it is uninformative or depends on the sex, why
+  (`interpretSampleHaplotypeRisk` returns the call alone); `getHaplotypeLaneSignature`, which treats the
+  backend's lineage tags as authoritative over the flat `role`. `frontend/src/lib/embryoSegregation.ts`
+  holds the family-page classification and its warnings.
+- **One copy in males** — `bed_service._mark_hemizygous_blocks` marks each block `hemizygous_in_males`
+  with `sex_chromosomes.hemizygous_interval`, the PAR table the variant queries use; `haplotypeRisk.ts`
+  reads a male on one lane only on such blocks, so in a PAR he is read on both.
 
 ## Known issues
 
-- **Defect:** an embryo with no haplotype data at the ROI is classified *Unaffected* when the disease
-  model is informative: `interpretSampleHaplotypeRisk` finds no carried signature and returns
-  `unaffected_non_carrier` instead of `uninformative`. The in-app reference warns about it.
 - **Behaviour to know:** when the ROI is not on the chromosome shown (or there is none), the chromosome
   view assesses the risk over the visible window (`defaultHaplotypeRiskRegion`); the genome overview
   and the family page need the ROI.

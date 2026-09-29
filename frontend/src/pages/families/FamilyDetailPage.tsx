@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import MonarchPhenotypeMatchPanel from './MonarchPhenotypeMatchPanel';
 import { useEmbryoSegregation } from '../../lib/useEmbryoSegregation';
-import { segregationStateLabel } from '../../lib/embryoSegregation';
+import { segregationStateLabel, sexUnknownWarning } from '../../lib/embryoSegregation';
 import InfoTip from '../../components/InfoTip';
 import FamilyMemberDetailDialog from './FamilyMemberDetailDialog';
 import type {
@@ -1645,14 +1645,30 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                               ⚠ recombination
                             </InfoTip>
                           )}
-                          {embryoClass?.uninformative && !embryoClass.recombinationNearRoi && (
+                          {/* X-linked recessive: the call depends on a sex that is not recorded, so
+                              it assumes neither and the warning gives both calls. */}
+                          {embryoClass?.sexDependent && (
                             <InfoTip
                               className="segregation-warning"
-                              label="No disease haplotype could be resolved at the ROI (uninformative markers)."
+                              label={sexUnknownWarning(embryoClass.sexDependent)}
                             >
-                              ⚠ uninformative
+                              ⚠ sex unknown
                             </InfoTip>
                           )}
+                          {embryoClass?.uninformative &&
+                            !embryoClass.recombinationNearRoi &&
+                            !embryoClass.sexDependent && (
+                              <InfoTip
+                                className="segregation-warning"
+                                label={
+                                  embryoClass.roiNotCovered
+                                    ? "This embryo's haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made."
+                                    : 'No disease haplotype could be resolved at the ROI (uninformative markers).'
+                                }
+                              >
+                                ⚠ uninformative
+                              </InfoTip>
+                            )}
                         </div>
                       )}
                     </td>

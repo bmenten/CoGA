@@ -36,6 +36,8 @@ interface Segment {
   // getHaplotypeLaneSignature.
   hap1_lineage?: string | null;
   hap2_lineage?: string | null;
+  // A male has one copy of this block (chrX outside the PARs); see HaplotypeSegmentLike.
+  hemizygous_in_males?: boolean | null;
 }
 
 interface SampleSegments {
@@ -571,6 +573,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
         ps: null,
         hap1_lineage: block?.hap1_lineage ?? null,
         hap2_lineage: block?.hap2_lineage ?? null,
+        hemizygous_in_males: block?.hemizygous_in_males ?? null,
       };
       return baseColorForLane(synthetic, lane);
     };

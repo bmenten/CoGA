@@ -6,6 +6,7 @@ import pytest
 
 from backend.app.services.sex_chromosomes import (
     hemizygous_chromosome,
+    hemizygous_interval,
     pseudoautosomal_regions,
     sex_chromosome,
 )
@@ -60,3 +61,34 @@ def test_assembly_aliases_resolve_and_unknown_assemblies_have_no_bounds() -> Non
     assert pseudoautosomal_regions("T2T-CHM13v2.0") is None
     assert hemizygous_chromosome("T2T-CHM13v2.0", "chrX", 31_500_000) is None
     assert hemizygous_chromosome(None, "chrX", 31_500_000) is None
+
+
+@pytest.mark.parametrize(
+    ("chromosome", "start", "end", "expected"),
+    [
+        # Wholly inside PAR1 or PAR2: a male has two copies.
+        ("chrX", 500_000, 650_000, None),
+        ("chrX", 10_001, 2_781_479, None),
+        ("chrX", 155_800_000, 155_900_000, None),
+        # Wholly outside both: one copy.
+        ("chrX", 2_781_480, 31_500_000, "X"),
+        ("chrX", 1, 10_000, "X"),
+        # A block that reaches into a PAR is read as two copies throughout.
+        ("chrX", 2_000_000, 3_000_000, None),
+        ("chrX", 150_000_000, 155_701_383, None),
+        ("chrY", 2_781_480, 56_887_902, "Y"),
+        ("chrY", 56_000_000, 57_000_000, None),
+        ("chr7", 1, 1_000_000, None),
+    ],
+)
+def test_grch38_hemizygous_intervals(chromosome: str, start: int, end: int, expected: str | None) -> None:
+    assert hemizygous_interval("GRCh38", chromosome, start, end) == expected
+
+
+def test_an_interval_is_one_copy_only_where_the_assembly_s_pars_are_known() -> None:
+    # 2.70-2.75 Mb on X is past GRCh37's PAR1 but inside GRCh38's.
+    assert hemizygous_interval("GRCh37", "X", 2_700_000, 2_750_000) == "X"
+    assert hemizygous_interval("GRCh38", "X", 2_700_000, 2_750_000) is None
+    # No listed bounds: never one copy, so a male is read as having two.
+    assert hemizygous_interval("T2T-CHM13v2.0", "chrX", 31_000_000, 32_000_000) is None
+    assert hemizygous_interval(None, "chrX", 31_000_000, 32_000_000) is None

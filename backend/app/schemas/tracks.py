@@ -30,6 +30,10 @@ class HaplotypeSegment(BaseModel):
     # role-based colourer.
     hap1_lineage: Optional[str] = None
     hap2_lineage: Optional[str] = None
+    # A male carries one copy of this block: chrX or chrY outside the pseudo-autosomal
+    # regions of the family's assembly. False on an autosome, on a block that reaches into a
+    # PAR, and on an assembly whose PARs are not known: a male then has two copies.
+    hemizygous_in_males: bool = False
 
 
 class HaplotypeSample(BaseModel):

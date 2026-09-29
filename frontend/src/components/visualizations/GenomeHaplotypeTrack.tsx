@@ -39,6 +39,8 @@ interface Segment {
   // Pedigree-aware colour class per lane; see getHaplotypeLaneSignature.
   hap1_lineage?: string | null;
   hap2_lineage?: string | null;
+  // A male has one copy of this block (chrX outside the PARs); see HaplotypeSegmentLike.
+  hemizygous_in_males?: boolean | null;
 }
 
 interface HaplotypeSourceSample {
