@@ -1068,6 +1068,24 @@ async def _import_interval_track_unless_present(
     return await importer()
 
 
+def _signal_track_entry(bundle: FamilyPackageBundle, paths: dict[str, Path | None]) -> dict[str, Any]:
+    """Where a sample's signal files sit, for the browser to stream: their
+    package-relative paths and, for a package imported from a bucket, the objects' URIs
+    under ``uris``. The staged copies are deleted after the import, so the endpoint
+    serves those objects (routers/signal_tracks.py). Only files the package holds are
+    recorded; staging downloads these, so a staged copy shows that the object exists."""
+    entry: dict[str, Any] = {
+        kind: _display_path(bundle.root, path)
+        for kind, path in paths.items()
+        if path is not None and path.is_file()
+    }
+    if entry and bundle.source_uri:
+        entry["uris"] = {
+            kind: join_remote_uri(bundle.source_uri, relative) for kind, relative in entry.items()
+        }
+    return entry
+
+
 @_dataset_importer("cnv")
 async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Import depth-based CNV calls (HiFiCNV) as structural variants, plus the
@@ -1215,15 +1233,14 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         # pattern predicts. Recorded whether or not the file produced ClickHouse
         # rows -- the binned track and the file IGV streams are different artefacts,
         # and the raw depth here is absolute where the binned copy is a log2 ratio.
-        signal_tracks = {
-            key: _display_path(bundle.root, path)
-            for key, path in (
-                ("depth_bigwig", depth_path),
-                ("maf_bigwig", maf_path),
-                ("copy_number_bedgraph", bedgraph_path),
-            )
-            if path is not None and path.is_file()
-        }
+        signal_tracks = _signal_track_entry(
+            bundle,
+            {
+                "depth_bigwig": depth_path,
+                "maf_bigwig": maf_path,
+                "copy_number_bedgraph": bedgraph_path,
+            },
+        )
         if signal_tracks:
             await _record_sample_signal_tracks(
                 session,

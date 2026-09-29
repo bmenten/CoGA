@@ -157,6 +157,11 @@ def object_key(*parts: str) -> str:
     return "/".join(segment for segment in segments if segment)
 
 
+def configured_object_uri(key: str) -> str:
+    """The ``gs://`` or ``s3://`` URI of a key in the configured bucket."""
+    return RemoteLocation("gs" if storage_is_gcs() else "s3", _configured_bucket(), key).uri
+
+
 def configured_object_key(uri: object) -> str | None:
     """The key of ``uri`` when it names an object in the configured bucket, else ``None``.
 
