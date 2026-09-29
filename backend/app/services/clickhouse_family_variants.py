@@ -2374,6 +2374,7 @@ async def _small_variants_inheritance_page(
         affected_samples=affected_sample_names,
         unaffected_samples=unaffected_sample_names,
         sample_rows=context.sample_rows,
+        assembly_name=context.assembly_name,
     )
     total = len(inheritance_items)
     reported_total = min(total, _SMALL_COUNT_LIMIT)

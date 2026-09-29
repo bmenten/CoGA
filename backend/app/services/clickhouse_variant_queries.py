@@ -29,6 +29,12 @@ from .genotypes import (
     clickhouse_genotype_condition,
     genotype_has_alt,
 )
+from .sex_chromosomes import (
+    XY_CHROMOSOME_NAMES,
+    SexChromosome,
+    hemizygous_chromosome,
+    pseudoautosomal_regions,
+)
 from .family_variant_filters import (
     SmallVariantQueryFilters,
     StructuralVariantQueryFilters,
@@ -1124,9 +1130,9 @@ def _call_is_confident_hom_ref(call: SmallVariantCall | None) -> bool:
     return call.dp is None or call.dp >= _DE_NOVO_MIN_PARENT_DP
 
 
-def _child_parent_map(context: FamilyMetadataContext) -> dict[str, set[str]]:
-    """Map each child sample name to its parent sample names from the pedigree."""
-    parents: dict[str, set[str]] = {}
+def _parent_child_links(context: FamilyMetadataContext) -> list[tuple[str, str, str]]:
+    """The pedigree's (child, parent, "mother" | "father") links."""
+    links: list[tuple[str, str, str]] = []
     for relationship in context.relationship_rows or []:
         if str(relationship.get("relationship_type")) != "parent_child":
             continue
@@ -1135,10 +1141,52 @@ def _child_parent_map(context: FamilyMetadataContext) -> dict[str, set[str]]:
         role_a = str(relationship.get("role_a") or "").lower()
         role_b = str(relationship.get("role_b") or "").lower()
         if role_b == "child" and role_a in {"mother", "father"} and sample_a and sample_b:
-            parents.setdefault(str(sample_b), set()).add(str(sample_a))
+            links.append((str(sample_b), str(sample_a), role_a))
         elif role_a == "child" and role_b in {"mother", "father"} and sample_a and sample_b:
-            parents.setdefault(str(sample_a), set()).add(str(sample_b))
+            links.append((str(sample_a), str(sample_b), role_b))
+    return links
+
+
+def _child_parent_map(context: FamilyMetadataContext) -> dict[str, set[str]]:
+    """Map each child sample name to its parent sample names from the pedigree."""
+    parents: dict[str, set[str]] = {}
+    for child, parent, _role in _parent_child_links(context):
+        parents.setdefault(child, set()).add(parent)
     return parents
+
+
+def _parent_roles(context: FamilyMetadataContext) -> dict[str, str]:
+    """Map each parent sample name to "mother" or "father" from the pedigree."""
+    return {parent: role for _child, parent, role in _parent_child_links(context)}
+
+
+def _hemizygous_inheritance_ruled_out(
+    call_map: dict[str, SmallVariantCall],
+    *,
+    parents: set[str],
+    chromosome: SexChromosome,
+    parent_roles: dict[str, str],
+) -> bool:
+    """For a son at a position where he is hemizygous: can neither parent have passed it on?
+
+    His X comes from his mother and his Y from his father, so that parent must be
+    confidently reference. The other parent does not pass that chromosome to a son and
+    need not be genotyped, but must not carry the ALT: an ALT call there points to an
+    artifact shared by the males, or a sample problem, not to a de novo event. When the
+    pedigree does not name the parent who transmits it, both parents must be confidently
+    reference, as for an autosome.
+    """
+    wanted = "mother" if chromosome == "X" else "father"
+    transmitting = [parent for parent in parents if parent_roles.get(parent) == wanted]
+    if len(transmitting) != 1:
+        return len(parents) >= 2 and all(
+            _call_is_confident_hom_ref(call_map.get(parent)) for parent in parents
+        )
+    if not _call_is_confident_hom_ref(call_map.get(transmitting[0])):
+        return False
+    return not any(
+        _call_has_alt(call_map.get(parent)) for parent in parents if parent != transmitting[0]
+    )
 
 
 def _record_matches_de_novo(
@@ -1146,22 +1194,38 @@ def _record_matches_de_novo(
     *,
     affected_samples: Sequence[str],
     child_parents: dict[str, set[str]],
+    sample_sex: dict[str, str] | None = None,
+    parent_roles: dict[str, str] | None = None,
+    assembly_name: str | None = None,
 ) -> bool:
-    """True de novo: heterozygous in an affected child, confidently absent in both parents.
+    """True de novo: carried by an affected child, and by no parent who could have passed it on.
 
-    Restricted to heterozygous child calls — the classic de novo scenario. A
-    homozygous-alt child with reference parents is biologically implausible (it would
-    require two independent events) and almost always a repetitive-region artifact, so
-    it is left to the homozygous-recessive pattern instead. Requires a full trio (both
-    parents genotyped and sufficiently covered); otherwise inheritance cannot be
-    excluded and this returns False (the variant may still match the dominant pattern).
+    On an autosome, in a PAR and in a daughter the child call must be heterozygous, and
+    both parents confidently reference (a full trio: both genotyped and sufficiently
+    covered); otherwise inheritance cannot be excluded and this returns False (the variant
+    may still match the dominant pattern). A homozygous-alt child with reference parents is
+    biologically implausible there (it would take two independent events) and almost always
+    a repetitive-region artifact, so it is left to the homozygous-recessive pattern.
+
+    A son is hemizygous on chrX and chrY outside the PARs, so there his call is an ALT call
+    of either ploidy: haploid ``1``, ``1/1``, or ``0/1`` (e.g. mosaic). Whether a parent
+    could have passed it on is then decided by :func:`_hemizygous_inheritance_ruled_out`
+    (#545).
     """
     call_map = _small_call_map(record)
+    sex_of = sample_sex or {}
+    roles = parent_roles or {}
+    hemizygous_on = hemizygous_chromosome(assembly_name, record.chr, record.start)
     for child in affected_samples:
-        parents = child_parents.get(child)
-        if not parents or len(parents) < 2:
+        parents = child_parents.get(child) or set()
+        child_call = call_map.get(child)
+        if hemizygous_on is not None and _is_male_sex(sex_of.get(child, "")):
+            if _call_has_alt(child_call) and _hemizygous_inheritance_ruled_out(
+                call_map, parents=parents, chromosome=hemizygous_on, parent_roles=roles
+            ):
+                return True
             continue
-        if not _call_is_het(call_map.get(child)):
+        if len(parents) < 2 or not _call_is_het(child_call):
             continue
         if all(_call_is_confident_hom_ref(call_map.get(parent)) for parent in parents):
             return True
@@ -1178,11 +1242,28 @@ def _record_matches_de_novo_dominant(
     *,
     affected_samples: Sequence[str],
     unaffected_samples: Sequence[str],
+    sample_sex: dict[str, str] | None = None,
+    assembly_name: str | None = None,
 ) -> bool:
+    """Carried in one copy by every affected sample, and by no unaffected one.
+
+    One copy is a heterozygous call. For a male where he is hemizygous (chrX and chrY
+    outside the PARs) it is also a haploid ``1`` or a ``1/1`` call, the only way a caller
+    can write it there (#545).
+    """
     if not affected_samples:
         return False
     call_map = _small_call_map(record)
-    if not all(_call_is_het(call_map.get(sample)) for sample in affected_samples):
+    sex_of = sample_sex or {}
+    hemizygous = hemizygous_chromosome(assembly_name, record.chr, record.start) is not None
+
+    def carries_one_copy(sample: str) -> bool:
+        call = call_map.get(sample)
+        if _call_is_het(call):
+            return True
+        return hemizygous and _is_male_sex(sex_of.get(sample, "")) and _call_is_hom_alt(call)
+
+    if not all(carries_one_copy(sample) for sample in affected_samples):
         return False
     return not any(_call_has_alt(call_map.get(sample)) for sample in unaffected_samples)
 
@@ -1808,6 +1889,36 @@ def _small_no_samples_have_gts_condition(
     ]
 
 
+def _small_hemizygous_position_condition(
+    assembly_name: str | None,
+    *,
+    prefix: str,
+    params: dict[str, Any],
+) -> str | None:
+    """SQL: the entry lies where a male is hemizygous (chrX or chrY outside the PARs).
+
+    None when the assembly's PARs are not known: there a male is read as diploid, as
+    before (#545). The PAR bounds are bound as parameters.
+    """
+    regions = pseudoautosomal_regions(assembly_name)
+    if regions is None:
+        return None
+    chrom_expr = _clickhouse_chromosome_match_expr("e.chrom")
+    branches: list[str] = []
+    for chrom, names in XY_CHROMOSOME_NAMES.items():
+        key = f"{prefix}_{chrom.lower()}"
+        params[f"{key}_chromosomes"] = names
+        outside: list[str] = []
+        for index, (start, end) in enumerate(regions[chrom], start=1):
+            params[f"{key}_par{index}_start"] = start
+            params[f"{key}_par{index}_end"] = end
+            outside.append(
+                f"NOT (e.pos BETWEEN %({key}_par{index}_start)s AND %({key}_par{index}_end)s)"
+            )
+        branches.append(f"({chrom_expr} IN %({key}_chromosomes)s AND {' AND '.join(outside)})")
+    return "(" + " OR ".join(branches) + ")"
+
+
 def _small_native_inheritance_clauses(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -1844,15 +1955,34 @@ def _small_native_inheritance_clauses(
         return ["0"], params
 
     if inheritance == _DE_NOVO_DOMINANT_INHERITANCE:
-        clauses.extend(
-            _small_all_samples_have_gts_condition(
+        # One copy in every affected sample: a heterozygous call, or, for a male where he is
+        # hemizygous, a haploid "1" or "1/1" call (#545). Mirrors
+        # _record_matches_de_novo_dominant.
+        sample_sex = _sample_sex_map(context.sample_rows)
+        hemizygous_position: str | None = None
+        if any(_is_male_sex(sample_sex.get(sample, "")) for sample in affected_samples):
+            hemizygous_position = _small_hemizygous_position_condition(
+                context.assembly_name, prefix="inheritance_hemizygous", params=params
+            )
+        for index, sample_name in enumerate(affected_samples):
+            het_condition = _small_sample_gt_exists_condition(
                 context,
-                sample_names=affected_samples,
+                sample_name=sample_name,
                 classes=het_gt_values,
-                prefix="inheritance_affected_het",
+                prefix=f"inheritance_affected_het_{index}",
                 params=params,
             )
-        )
+            if hemizygous_position is None or not _is_male_sex(sample_sex.get(sample_name, "")):
+                clauses.append(het_condition)
+                continue
+            hemizygous_condition = _small_sample_gt_exists_condition(
+                context,
+                sample_name=sample_name,
+                classes=hom_alt_gt_values,
+                prefix=f"inheritance_affected_hemizygous_{index}",
+                params=params,
+            )
+            clauses.append(f"({het_condition} OR ({hemizygous_condition} AND {hemizygous_position}))")
         clauses.extend(
             _small_no_samples_have_gts_condition(
                 context,
@@ -2852,6 +2982,7 @@ def _inheritance_result_items(
     affected_samples: Sequence[str],
     unaffected_samples: Sequence[str],
     sample_rows: Sequence[dict[str, Any]],
+    assembly_name: str | None = None,
 ) -> list[tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord]]:
     pair_items = [
         ("group", pair)
@@ -2865,6 +2996,7 @@ def _inheritance_result_items(
         return pair_items
 
     if inheritance == _DE_NOVO_DOMINANT_INHERITANCE:
+        sample_sex = _sample_sex_map(sample_rows)
         return [
             ("variant", record)
             for record in records
@@ -2872,6 +3004,8 @@ def _inheritance_result_items(
                 record,
                 affected_samples=affected_samples,
                 unaffected_samples=unaffected_samples,
+                sample_sex=sample_sex,
+                assembly_name=assembly_name,
             )
         ]
 
@@ -2939,6 +3073,7 @@ def _segregation_modes_by_variant(
     affected, unaffected = _family_affected_unaffected_sample_names(context)
     sample_sex = _sample_sex_map(context.sample_rows)
     child_parents = _child_parent_map(context)
+    parent_roles = _parent_roles(context)
     modes: dict[str, list[str]] = {record.variant_id: [] for record in records}
     if not affected:
         return modes
@@ -2964,11 +3099,20 @@ def _segregation_modes_by_variant(
         # Prefer the stronger, trio-confirmed de novo call; fall back to the dominant
         # pattern (which also covers inherited-dominant or no-trio cases).
         if _record_matches_de_novo(
-            record, affected_samples=affected, child_parents=child_parents
+            record,
+            affected_samples=affected,
+            child_parents=child_parents,
+            sample_sex=sample_sex,
+            parent_roles=parent_roles,
+            assembly_name=context.assembly_name,
         ):
             bucket.append(MODE_DE_NOVO)
         elif _record_matches_de_novo_dominant(
-            record, affected_samples=affected, unaffected_samples=unaffected
+            record,
+            affected_samples=affected,
+            unaffected_samples=unaffected,
+            sample_sex=sample_sex,
+            assembly_name=context.assembly_name,
         ):
             bucket.append(MODE_DOMINANT)
     return modes

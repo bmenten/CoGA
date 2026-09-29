@@ -61,8 +61,8 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 ### Rare-disorder diagnostics
 | Req | Implementation | Verifying test | Risk | Status |
 | --- | --- | --- | --- | --- |
-| REQ-DIAG-001 | `services/clickhouse_family_variants.py` (inheritance matching) | `test_clickhouse_family_variants.py`; `test_de_novo_detection.py` | H2 | ✅ |
-| REQ-DIAG-002 | `services/clickhouse_family_variants.py` (de-novo) | `test_de_novo_detection.py::test_not_de_novo_without_full_trio` | H2 | ✅ |
+| REQ-DIAG-001 | `services/clickhouse_family_variants.py` (inheritance matching) | `test_clickhouse_family_variants.py`; `test_de_novo_detection.py`; `test_hemizygous_de_novo.py` (de novo / dominant for a hemizygous male) | H2 | ✅ |
+| REQ-DIAG-002 | `services/clickhouse_variant_queries.py::_record_matches_de_novo`, `services/sex_chromosomes.py` (de-novo; hemizygous chrX/chrY in a son, #545) | `test_de_novo_detection.py::test_not_de_novo_without_full_trio`; `test_hemizygous_de_novo.py`; `test_sex_chromosomes.py`; `integration/test_hemizygous_positions_clickhouse.py` | H1, H2 | ✅ |
 | REQ-DIAG-003 | `services/sv_gene_index_service.py::get_sv_second_hits` | `test_sv_gene_index.py`; `test_clickhouse_family_variants.py` (compound-het); `SvSecondHitBadge.test.tsx` | H2 | ✅ |
 | REQ-DIAG-004 | `services/repeat_expansion_pg.py::ingest_trgt_text`, `classify_repeat_count` | `test_repeat_expansion_pg.py` | — | ✅ |
 | REQ-DIAG-005 | `services/paraphase_pg.py` | `test_paraphase_pg.py` (SMN metrics, regions) | — | ✅ |

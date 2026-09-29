@@ -482,6 +482,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   family-scoped pages titled any failure "Family not found". Each now says it could not load, with
   the server's reason and a retry; "Family not found" is kept for a family the server does not know
   (#617).
+- **De novo on a son's X and Y** — outside the pseudo-autosomal regions a male carries one X and one
+  Y, so a de novo variant there is hemizygous (`1` or `1/1`). The de novo patterns required a
+  heterozygous child, so it was never a de novo candidate. It now is, when the mother (for the X) or
+  the father (for the Y) is confidently reference and the other parent does not carry it; a
+  mother–son duo suffices for the X. Autosomes, the pseudo-autosomal regions and daughters keep the
+  diploid rule (#620).
 
 ### Security
 

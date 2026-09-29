@@ -18,7 +18,8 @@
 - **pLI / LOEUF** — gene-level constraint metrics: how intolerant a gene is to loss-of-function
   variation (high pLI / low LOEUF = constrained).
 - **De novo (trio)** — a variant present in an affected child but absent in both parents; confirming
-  it needs a genotyped, well-covered trio.
+  it needs a genotyped, well-covered trio. On a son's X or Y outside the pseudo-autosomal regions
+  only the mother (X) or the father (Y) passes that chromosome on, so only that parent is required.
 - **Priority score** — the Exomiser-style ranking score blending phenotype fit, impact, rarity, and
   segregation; orders candidates within a family rather than giving an absolute probability.
 - **MANE Select / MANE Plus Clinical** — agreed reference transcripts for clinical reporting;
