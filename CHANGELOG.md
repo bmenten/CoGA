@@ -587,6 +587,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   The lists left it out, so the ACMG dialog reopened a classified variant with the pre-evaluation alone, a
   save replaced the stored criteria with it, and the report showed no classification motivation. The
   family's review count also counts a review that holds only an ACMG classification (#662).
+- **Deleting a sample keeps the other members' small variants** — the whole-sample delete writes every
+  other stored call back unchanged, in every callset (the imputed one included), project and field; it
+  used to rebuild them from the family view and wipe the imputed callset, an inactive member's calls
+  and rows in projects the family had left (CR-117, #655).
 
 ### Security
 
