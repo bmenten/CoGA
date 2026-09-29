@@ -282,6 +282,9 @@ const ChromosomeViewPage: React.FC = () => {
     data: availabilityData,
     isLoading: availabilityLoading,
     isFetching: availabilityFetching,
+    isError: availabilityFailed,
+    error: availabilityError,
+    refetch: refetchAvailability,
   } = useQuery<ApiTrackAvailabilityResponse<ApiChromosomeTrackAvailability>>({
     queryKey: ['family', familyId, 'track-availability', availabilitySearch],
     queryFn: async () => {
@@ -592,6 +595,11 @@ const ChromosomeViewPage: React.FC = () => {
         apcadPointLimit={apcadPointLimit}
         segmentLimit={segmentLimit}
         showViewerLoading={showViewerLoading}
+        availabilityFailure={
+          availabilityFailed
+            ? { error: availabilityError, retry: () => void refetchAvailability() }
+            : null
+        }
       />
     </div>
   );

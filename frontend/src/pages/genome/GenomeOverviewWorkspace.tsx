@@ -11,6 +11,7 @@ import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import GenomeRepeatExpansionTrack from '../../components/visualizations/GenomeRepeatExpansionTrack';
 import Ideogram from '../../components/visualizations/Ideogram';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
+import QueryFailure from '../../components/QueryFailure';
 import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import type { GenomeTrackVisibility } from './GenomeOverviewSidebar';
@@ -87,6 +88,9 @@ interface GenomeOverviewWorkspaceProps {
   trackHeight: number;
   svTrackHeight: number;
   showViewerLoading: boolean;
+  /** Which tracks each sample has could not be loaded: the tracks are not mounted, and
+   * that is not "no data" (#607). */
+  availabilityFailure?: { error: unknown; retry: () => void } | null;
 }
 
 const MIN_REGION_SELECT_WIDTH_PX = 5;
@@ -260,6 +264,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
   trackHeight,
   svTrackHeight,
   showViewerLoading,
+  availabilityFailure = null,
 }) => {
   const roiTitle = visibleRoi ? `ROI: ${visibleRoi.label}` : undefined;
   const referenceLabel = formatResolvedReferenceLabel(
@@ -516,7 +521,18 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
           {membersWithData.length === 0 && !showViewerLoading && visibleMembers.length === 0 && (
             <p className="analysis-count">No samples selected</p>
           )}
-          {membersWithData.length === 0 && !showViewerLoading && visibleMembers.length > 0 && (
+          {availabilityFailure ? (
+            <QueryFailure
+              what="which tracks each sample has"
+              error={availabilityFailure.error}
+              onRetry={availabilityFailure.retry}
+              consequence="The samples' tracks are not shown until it loads."
+            />
+          ) : null}
+          {membersWithData.length === 0 &&
+            !showViewerLoading &&
+            visibleMembers.length > 0 &&
+            !availabilityFailure && (
             <p className="analysis-count">No data for selected samples</p>
           )}
         </section>

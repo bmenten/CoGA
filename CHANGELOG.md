@@ -442,6 +442,21 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   from the URL was still applied, and dropped the default Mendeliome scope without a word.
   Each is now said where the result would be, with the server's reason and a retry. The counts
   read "—", and an applied panel stays visible in the select (#613).
+- **Viewers, ROI markers and family page that read a failure as missing data** — failed requests
+  were shown as data that is not there:
+  - a failed track-availability request as "No BED data for selected samples";
+  - failed ROI markers as "0 markers in view · 0 informative for embryos", an uninformative
+    region;
+  - a failed family as "No region of interest";
+  - failed haplotypes at the ROI as an embryo with no segregation badge and no recombination or
+    uninformative warning;
+  - a failed presence check as a missing workspace link, with "Checking…" left up for good;
+  - failed curation counts and HPO terms as 0 and "-";
+  - a failed status list as "No status" on a reviewed case.
+
+  Each is now said as a failure, with a retry. An embryo reads *⚠ segregation not derived*. A
+  workspace whose check failed keeps its link. The current status stays shown, and cannot be
+  changed until its list loads (#614).
 
 ### Security
 
