@@ -572,6 +572,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   acceptance limits; only its trigger refused. It now holds INSERT and SELECT only, like the
   other append-only tables. The integration test reads every trigger-guarded table from the
   catalogue and fails if one keeps UPDATE or DELETE (CR-092, #630).
+- **QC-limit history tested on the server** — a cut-off edit is now shown, in a unit test and
+  against the real database, to record the limit it replaced, the new limit, who made the
+  change and why; a change without a reason is refused and records nothing (CR-093, #631).
 
 ### Documentation
 
