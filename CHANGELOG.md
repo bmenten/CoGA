@@ -392,6 +392,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   decimal (150 bp read "0.1 kb"); they now write bp up to 1 kb, as the report does. The Review,
   Exclude and Report toggles show their pressed state with a check mark and `aria-pressed`, not by
   a tint alone (#594).
+- **Escape in a dialog just opened** — a dialog answered Escape only after a later task, so an
+  Escape pressed as it appeared closed the dialog underneath (the reference upload instead of its
+  overwrite confirmation); a dialog now answers Escape from the moment it is drawn (#601).
 
 ### Security
 
