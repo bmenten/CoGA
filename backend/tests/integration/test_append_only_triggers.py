@@ -1,12 +1,16 @@
 """Integration tests that FIRE the append-only triggers (real Postgres, smoke job).
 
-These prove the database-level immutability controls on the three append-only tables
+These prove the database-level immutability controls on four append-only tables
 — ``audit_log_events`` (the HTTP access log), ``clinical_audit_events`` (the clinical
-action log) and ``report_signouts`` (frozen signed reports): a direct UPDATE of a
-non-carve-out column and any DELETE are rejected by the ``BEFORE UPDATE/DELETE``
-triggers, while the FK ``ON DELETE SET NULL`` carve-out (the user/actor unlink that
-keeps account deletion working) is permitted — and nothing else. This is the
-verifying evidence for RTM REQ-TRACE-008.
+action log), ``report_signouts`` (frozen signed reports) and ``qc_threshold_changes``
+(the history of QC acceptance limits): a direct UPDATE of a non-carve-out column and any
+DELETE are rejected by the ``BEFORE UPDATE/DELETE`` triggers, while the FK ``ON DELETE
+SET NULL`` carve-out (the user/actor unlink that keeps account deletion working) is
+permitted — and nothing else. This is the verifying evidence for RTM REQ-TRACE-008 and,
+for the QC history, REQ-QC-007. The fifth, ``integrity_anchors``, is not fired here: a
+marker anchor would break the anchor-chain verification that
+``test_integrity_anchor_integration.py`` runs on the same database. Its REVOKE is
+asserted in ``test_app_role_privileges.py``.
 
 SCOPE CAVEAT (review finding C1): the smoke job — like the application — connects as
 the DB OWNER, so this proves the triggers block the *owner's* UPDATE/DELETE, NOT that
@@ -131,6 +135,31 @@ def test_append_only_triggers_block_update_and_delete() -> None:
                 {"id": rs_id},
                 "report_signouts is append-only; DELETE is not permitted",
             )
+
+            # --- qc_threshold_changes (a past acceptance limit must not be rewritten) ---
+            async with sm() as s:
+                qtc_id = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO qc_threshold_changes "
+                            "(profile_key, metric_key, warn_value, reason) "
+                            "VALUES ('p1-5-test', 'mean_depth', 10, 'marker') RETURNING id"
+                        )
+                    )
+                ).scalar_one()
+                await s.commit()
+            await _assert_blocked(
+                sm,
+                "UPDATE qc_threshold_changes SET warn_value = 5 WHERE id = :id",
+                {"id": qtc_id},
+                "qc_threshold_changes is append-only; UPDATE is not permitted",
+            )
+            await _assert_blocked(
+                sm,
+                "DELETE FROM qc_threshold_changes WHERE id = :id",
+                {"id": qtc_id},
+                "qc_threshold_changes is append-only; DELETE is not permitted",
+            )
         finally:
             await close_postgres_engine()
 
@@ -196,6 +225,52 @@ def test_append_only_fk_null_carveout_is_permitted_but_nothing_else() -> None:
                 "UPDATE clinical_audit_events SET summary = 'tampered' WHERE id = :id",
                 {"id": cae_id},
                 "clinical_audit_events is append-only; UPDATE is not permitted",
+            )
+
+            # The QC acceptance-limit history has the same carve-out on changed_by.
+            async with sm() as s:
+                qtc_id = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO qc_threshold_changes (profile_key, metric_key, "
+                            "warn_value, changed_by, changed_by_email, reason) VALUES "
+                            "('p1-5-test', 'mean_depth', 10, :uid, 'p1-5@x.org', 'marker') "
+                            "RETURNING id"
+                        ),
+                        {"uid": user_id},
+                    )
+                ).scalar_one()
+                await s.commit()
+            async with sm() as s:
+                await s.execute(
+                    text("UPDATE qc_threshold_changes SET changed_by = NULL WHERE id = :id"),
+                    {"id": qtc_id},
+                )
+                await s.commit()
+            async with sm() as s:
+                row = (
+                    await s.execute(
+                        text(
+                            "SELECT changed_by, changed_by_email FROM qc_threshold_changes "
+                            "WHERE id = :id"
+                        ),
+                        {"id": qtc_id},
+                    )
+                ).mappings().one()
+            assert row["changed_by"] is None
+            assert row["changed_by_email"] == "p1-5@x.org"  # denormalised identity preserved
+            # Re-attributing the edit, or changing the recorded limit, stays blocked.
+            await _assert_blocked(
+                sm,
+                "UPDATE qc_threshold_changes SET changed_by = :uid WHERE id = :id",
+                {"uid": user_id, "id": qtc_id},
+                "qc_threshold_changes is append-only; UPDATE is not permitted",
+            )
+            await _assert_blocked(
+                sm,
+                "UPDATE qc_threshold_changes SET warn_value = 5 WHERE id = :id",
+                {"id": qtc_id},
+                "qc_threshold_changes is append-only; UPDATE is not permitted",
             )
         finally:
             await close_postgres_engine()

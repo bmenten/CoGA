@@ -49,7 +49,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO coga_app;
 
 -- Append-only tables: INSERT + SELECT only. Revoking UPDATE/DELETE means the runtime role
--- cannot rewrite or remove existing audit rows, signed reports or hash-chain columns.
+-- cannot rewrite or remove existing audit rows, signed reports, integrity anchors, the QC
+-- cut-off history or hash-chain columns.
 -- TRUNCATE is never granted by GRANT SELECT,INSERT,UPDATE,DELETE in the first place (so the
 -- REVOKE of it is belt-and-suspenders against a future hand-grant) — important because
 -- TRUNCATE would bypass the BEFORE UPDATE/DELETE triggers. The ON DELETE SET NULL carve-outs
@@ -57,7 +58,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 -- referencing table, so account and family deletion continue to function.
 --
 -- NOTE: any FUTURE append-only table MUST repeat this REVOKE — the default privileges
--- above otherwise grant the new table UPDATE/DELETE to coga_app.
+-- above otherwise grant the new table UPDATE/DELETE to coga_app. The integration test
+-- test_app_role_privileges.py fails for a table with a *_block_mutation trigger that is
+-- missing here.
 REVOKE UPDATE, DELETE, TRUNCATE ON
-    audit_log_events, clinical_audit_events, report_signouts, integrity_anchors
+    audit_log_events, clinical_audit_events, report_signouts, integrity_anchors,
+    qc_threshold_changes
     FROM coga_app;

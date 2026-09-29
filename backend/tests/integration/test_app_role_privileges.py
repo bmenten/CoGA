@@ -2,13 +2,18 @@
 
 Verifying evidence for the privilege separation that closes P1-4's owner-bypass gap. As
 `coga_app` (assumed via ``SET LOCAL ROLE`` — auto-resets at transaction end, so no pooled
-connection keeps the role) the test asserts:
-- it MAY ``INSERT`` + ``SELECT`` the append-only tables (the app's real access), and
+connection keeps the role) the test asserts, for every append-only table:
+- it MAY ``INSERT`` + ``SELECT`` them (the app's real access), and
 - it MAY still delete a user whose ``ON DELETE SET NULL`` cascade nulls an audit FK (so
   account/family deletion keeps working without UPDATE on the append-only table), but
-- it may NOT ``UPDATE`` / ``DELETE`` those tables nor ``DISABLE`` their triggers — i.e. it
-  cannot rewrite/remove audit rows, signed reports or the hash-chain columns, and cannot
-  re-chain an interior edit.
+- it may NOT ``UPDATE`` / ``DELETE`` / ``TRUNCATE`` them nor ``DISABLE`` their triggers —
+  i.e. it cannot rewrite/remove audit rows, signed reports, integrity anchors, the QC
+  cut-off history or the hash-chain columns, and cannot re-chain an interior edit.
+
+The append-only tables are the ones guarded by a ``*_block_mutation`` trigger. The test
+reads that set from the catalogue and requires it to equal ``_APPEND_ONLY``, so a new
+append-only table cannot ship without being exercised here, and so without its REVOKE in
+``05_grants.sql`` (``qc_threshold_changes`` once shipped with its trigger but no REVOKE).
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it. The
 test connects as the migration owner/superuser, which can ``SET ROLE`` to the NOLOGIN
@@ -26,7 +31,13 @@ from sqlalchemy.exc import DBAPIError
 
 pytestmark = pytest.mark.integration
 
-_APPEND_ONLY = ("audit_log_events", "clinical_audit_events", "report_signouts")
+_APPEND_ONLY = (
+    "audit_log_events",
+    "clinical_audit_events",
+    "report_signouts",
+    "integrity_anchors",
+    "qc_threshold_changes",
+)
 
 # A syntactically-valid UPDATE per table (a real column); the privilege check fires before
 # the row scan, so a no-op SET still surfaces "permission denied" for coga_app.
@@ -34,7 +45,30 @@ _UPDATE_SQL = {
     "audit_log_events": "UPDATE audit_log_events SET status_code = 200",
     "clinical_audit_events": "UPDATE clinical_audit_events SET summary = summary",
     "report_signouts": "UPDATE report_signouts SET signed_out_by = signed_out_by",
+    "integrity_anchors": "UPDATE integrity_anchors SET key_id = key_id",
+    "qc_threshold_changes": "UPDATE qc_threshold_changes SET reason = reason",
 }
+
+# Every table with an append-only guard: each follows the ``<table>_block_mutation()``
+# trigger-function naming in 04_traceability.sql.
+_TRIGGER_GUARDED_SQL = """
+    SELECT DISTINCT c.relname
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_proc p ON p.oid = t.tgfoid
+    WHERE NOT t.tgisinternal AND n.nspname = 'public' AND p.proname ~ '_block_mutation$'
+"""
+
+# coga_app's privileges on one table, read from the catalogue without running a mutation
+# (TRUNCATE in particular would bypass the row triggers if it were ever granted).
+_PRIVILEGES_SQL = """
+    SELECT has_table_privilege('coga_app', CAST(:t AS text), 'SELECT'),
+           has_table_privilege('coga_app', CAST(:t AS text), 'INSERT'),
+           has_table_privilege('coga_app', CAST(:t AS text), 'UPDATE'),
+           has_table_privilege('coga_app', CAST(:t AS text), 'DELETE'),
+           has_table_privilege('coga_app', CAST(:t AS text), 'TRUNCATE')
+"""
 
 
 async def _denied(sm, sql: str, expect: str) -> None:
@@ -60,6 +94,15 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
         try:
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
+
+            # Every trigger-guarded table is listed here, and coga_app holds exactly SELECT +
+            # INSERT on each: the REVOKE in 05_grants.sql covers them all.
+            async with sm() as s:
+                guarded = {row[0] for row in (await s.execute(text(_TRIGGER_GUARDED_SQL))).all()}
+                assert guarded == set(_APPEND_ONLY), guarded ^ set(_APPEND_ONLY)
+                for table in _APPEND_ONLY:
+                    privileges = (await s.execute(text(_PRIVILEGES_SQL), {"t": table})).one()
+                    assert tuple(privileges) == (True, True, False, False, False), (table, privileges)
 
             # Positive: coga_app may INSERT then read its own durable write back.
             marker = f"p1-3-grant-{uuid4()}"
@@ -90,11 +133,12 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
                 await _denied(sm, f"DELETE FROM {table}", "permission denied")
                 await _denied(sm, f"ALTER TABLE {table} DISABLE TRIGGER USER", "must be owner")
 
-            # The ON DELETE SET NULL carve-out still works for coga_app on ALL THREE
-            # append-only tables: deleting a user nulls each table's user FK without
-            # coga_app holding UPDATE on them, so account/family deletion keeps functioning.
+            # The ON DELETE SET NULL carve-out still works for coga_app on every append-only
+            # table with a user FK (integrity_anchors has none): deleting a user nulls each
+            # table's user FK without coga_app holding UPDATE on them, so account/family
+            # deletion keeps functioning.
             label = f"p1-3-{uuid4()}"
-            async with sm() as s:  # set up as the owner: one row per append-only table
+            async with sm() as s:  # set up as the owner: one row per table with a user FK
                 fam = (
                     await s.execute(
                         text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
@@ -133,8 +177,16 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
                     ),
                     {"f": fam, "fl": label, "u": uid},
                 )
+                await s.execute(
+                    text(
+                        "INSERT INTO qc_threshold_changes (profile_key, metric_key, changed_by, "
+                        "changed_by_email, warn_value, reason) VALUES "
+                        "(:fl, 'mean_depth', CAST(:u AS uuid), 'x@x.org', 10, 'cascade')"
+                    ),
+                    {"fl": label, "u": uid},
+                )
                 await s.commit()
-            async with sm() as s:  # as coga_app: the delete + 3-way cascade must succeed
+            async with sm() as s:  # as coga_app: the delete + 4-way cascade must succeed
                 await s.execute(text("SET LOCAL ROLE coga_app"))
                 await s.execute(
                     text("DELETE FROM users WHERE id = CAST(:u AS uuid)"), {"u": uid}
@@ -159,9 +211,20 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
                         {"fl": label},
                     )
                 ).first()
+                qtc = (
+                    await s.execute(
+                        text(
+                            "SELECT changed_by, changed_by_email, warn_value "
+                            "FROM qc_threshold_changes WHERE profile_key = :fl"
+                        ),
+                        {"fl": label},
+                    )
+                ).first()
                 assert cae is not None and cae[0] is None, cae
                 assert ale is not None and ale[0] is None, ale
                 assert rso is not None and rso[0] is None, rso
+                # Only the FK is nulled; the denormalised actor and the recorded value stay.
+                assert qtc is not None and tuple(qtc) == (None, "x@x.org", 10), qtc
         finally:
             await close_postgres_engine()
 

@@ -127,7 +127,8 @@ Meer achtergrond over deze tabellen staat in [hoofdstuk 3](03-databankstructuren
     **append-only** tabel `qc_threshold_changes` — met de *vervangen* waarde erbij. De
     HTTP-auditpijplijn legt het verzoek vast maar kent de vorige waarde niet, dus alleen
     hier is te zien wie een grens verlaagde en vanaf welke waarde. UPDATE en DELETE worden
-    door een trigger geweigerd.
+    door een trigger geweigerd, en de runtime-rol `coga_app` heeft er geen `UPDATE`-,
+    `DELETE`- of `TRUNCATE`-recht op (`05_grants.sql`).
 
 ### Preset-filters & variant-tags
 
