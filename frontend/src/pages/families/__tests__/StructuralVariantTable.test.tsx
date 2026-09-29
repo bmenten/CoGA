@@ -271,4 +271,54 @@ describe('StructuralVariantTable', () => {
     renderTable({ variants: [] });
     expect(screen.getByText('No structural variants match the current search.')).toBeInTheDocument();
   });
+
+  it('keeps two callers of one SV as two rows, each with its own call', () => {
+    // A per-sample upload's id names no caller, so a Sniffles and a Spectre call at the same
+    // coordinates share it and come back as two rows. Keyed by the id alone, React warned of a
+    // duplicate key and could drop or reuse a row on update.
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const sniffles = sv({ _id: '13-32315000-32400000-DEL---', source: 'sniffles' });
+    const spectre = sv({
+      _id: '13-32315000-32400000-DEL---',
+      source: 'spectre',
+      genotypes: [{ sample: 'CHILD', gt: '1/1', filter: 'PASS' }],
+    });
+    const { rerender } = renderTable({ variants: [sniffles, spectre] });
+    const rows = () => screen.getAllByRole('row').slice(1);
+    const described = () =>
+      rows().map((tableRow) => [
+        within(tableRow).getByText(/^(sniffles|spectre)$/).textContent,
+        within(tableRow).getByText('CHILD').closest('.variant-table-genotype-item')?.textContent,
+      ]);
+    expect(described()).toEqual([
+      ['sniffles', 'CHILDHet'],
+      ['spectre', 'CHILDHom'],
+    ]);
+    // Reordered: each row still shows its own caller's call.
+    rerender(
+      <MemoryRouter>
+        <StructuralVariantTable
+          familyId="F1"
+          projectId="P1"
+          linkSearch=""
+          members={[{ sample_id: 'CHILD', role: 'proband', affected: true, sex: 'female' }]}
+          variants={[spectre, sniffles]}
+          sortKey="start"
+          sortAsc
+          visible={ALL_COLUMNS}
+          tags={TAGS}
+          onSort={vi.fn()}
+          onEditReview={vi.fn()}
+          onClassifyCnv={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+    expect(described()).toEqual([
+      ['spectre', 'CHILDHom'],
+      ['sniffles', 'CHILDHet'],
+    ]);
+    expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
+    errors.mockRestore();
+  });
 });

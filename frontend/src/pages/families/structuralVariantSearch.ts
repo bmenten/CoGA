@@ -52,6 +52,14 @@ export interface StructuralVariant {
   priority?: SmallVariantPriority | null;
 }
 
+/**
+ * The list key of one SV row. The variant id need not name the caller (a per-sample
+ * upload's id is `chrom-start-end-type---`), so two callers' calls of one SV share an id and
+ * come back as two rows, one per source. A review is kept per variant id, so both show it.
+ */
+export const structuralVariantRowKey = (variant: Pick<StructuralVariant, '_id' | 'source'>): string =>
+  `${variant._id}|${variant.source ?? ''}`;
+
 export interface StructuralVariantAnnotationExtra {
   inheritance?: string;
   query_id?: string;

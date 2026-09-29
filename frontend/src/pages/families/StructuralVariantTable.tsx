@@ -14,11 +14,12 @@ import {
   normalizeReviewClassification,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
-import type {
-  StructuralSortableKeys,
-  StructuralVariant,
-  StructuralVariantFamilyMember,
-  StructuralVariantGenotype,
+import {
+  structuralVariantRowKey,
+  type StructuralSortableKeys,
+  type StructuralVariant,
+  type StructuralVariantFamilyMember,
+  type StructuralVariantGenotype,
 } from './structuralVariantSearch';
 import { SV_IGV_FLANK_BP, buildStructuralVariantNavigation } from './structuralVariantNavigation';
 import VariantScoreCell from './VariantScoreCell';
@@ -236,7 +237,7 @@ export default function StructuralVariantTable({
               );
 
               return (
-              <tr key={variant._id} className={isExcluded ? 'variant-table-row--excluded' : undefined}>
+              <tr key={structuralVariantRowKey(variant)} className={isExcluded ? 'variant-table-row--excluded' : undefined}>
                 {hasPriority && <VariantScoreCell variant={variant} />}
                 {visible.chr && <td className="whitespace-nowrap">{variant.chr}</td>}
                 {visible.start && <td className="table-mono">{variant.start}</td>}

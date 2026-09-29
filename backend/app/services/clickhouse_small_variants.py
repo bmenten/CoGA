@@ -6,6 +6,7 @@ from typing import Any
 
 from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
 from ..core.config import settings
+from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
 from .genotypes import HET, classify_genotype
 
 # "HET" is what a legacy/non-VCF source may store; VCF genotypes are classified (#511).
@@ -117,6 +118,10 @@ async def get_small_variant_family_record(
 ) -> SmallVariantFamilyRecord | None:
     entries_table = _table_name(assembly_name, "entries")
     details_table = _table_name(assembly_name, "variants/details")
+    # A variant has a row per callset (the clair3 call and the GLIMPSE2 imputation of it).
+    # Reviews and the drift check read one: the direct call, as the diagnostic list shows,
+    # and among several direct callsets the one whose name sorts first, so it is always
+    # the same row.
     query = f"""
         SELECT
             e.key,
@@ -135,11 +140,16 @@ async def get_small_variant_family_record(
         WHERE e.family_guid = %(family_guid)s
           AND e.variantId = %(variant_id)s
           AND e.sign = 1
+        ORDER BY lowerUTF8(e.source) IN %(imputed_sources)s, e.source
         LIMIT 1
     """
     rows = await execute_clickhouse(
         query,
-        {"family_guid": family_guid, "variant_id": variant_id},
+        {
+            "family_guid": family_guid,
+            "variant_id": variant_id,
+            "imputed_sources": tuple(IMPUTED_SMALL_VARIANT_SOURCES),
+        },
     )
     return _rows_to_variant_record(rows)
 

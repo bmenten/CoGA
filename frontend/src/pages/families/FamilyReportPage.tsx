@@ -37,7 +37,7 @@ import {
   type SmallVariantFamily,
   type SmallVariantPage,
 } from './smallVariantSearch';
-import { type StructuralVariant } from './structuralVariantSearch';
+import { structuralVariantRowKey, type StructuralVariant } from './structuralVariantSearch';
 import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { useReportBuild } from '../../lib/appVersion';
@@ -1275,7 +1275,7 @@ const LiveFamilyReport: React.FC = () => {
           const diseases = Array.from(new Set([...omim, ...gencc]));
 
           return (
-            <article key={`sv-${variant._id}`} className="surface-card report-variant">
+            <article key={`sv-${structuralVariantRowKey(variant)}`} className="surface-card report-variant">
               <div className="report-variant-head">
                 <h2 className="section-title">
                   {`${structuralTypeHeading(variant)}${variant.gene ? ` — ${variant.gene}` : ''}`}

@@ -44,6 +44,7 @@ from .services.clickhouse_integrity_monitor import (
     start_clickhouse_integrity_monitor,
     stop_clickhouse_integrity_monitor,
 )
+from .services.clickhouse_variant_storage import verify_clickhouse_variant_storage_identity
 from .services.ui_event_pg import start_ui_event_worker, stop_ui_event_worker
 
 
@@ -85,6 +86,9 @@ async def lifespan(app: FastAPI):
 
     await wait_for_clickhouse()
     await init_clickhouse_schema()
+    # Refuse to start on variant tables whose rows are not identified by their callset
+    # (created by an earlier version): their merges lose calls. See docs/database.md.
+    await verify_clickhouse_variant_storage_identity()
     await start_clickhouse_integrity_monitor()
     worker_task = asyncio.create_task(gene_reference_refresh_worker(worker_stop))
     family_import_worker_tasks = [
