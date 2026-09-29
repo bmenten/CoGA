@@ -38,6 +38,9 @@ inheritance patterns it is compatible with:
 
 - **De novo** — heterozygous in an affected child and confidently absent in *both* genotyped parents
   (a true trio is required; a parent with a missing or low-coverage genotype does not qualify).
+  On chrX and chrY outside the pseudo-autosomal regions a son is hemizygous, so his call reads `1`
+  or `1/1`. It is de novo when the parent he got that chromosome from, the mother for the X and the
+  father for the Y, is confidently absent, and the other parent does not carry it.
 - **Homozygous recessive** — affected individuals homozygous-alt, no unaffected homozygous-alt.
 - **Compound heterozygous** — two heterozygous hits in the same gene that segregate as a pair.
 - **X-linked recessive** — sex-aware X-chromosome pattern.

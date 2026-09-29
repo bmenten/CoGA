@@ -8,7 +8,8 @@ from a broad genome to a short candidate list quickly, then save the recipe as a
   that cannot be read, such as a BED line (BED is 0-based) or an end before its start, is named under
   its field and nothing is searched: an interval is never dropped from the search unnoticed.
 - **Inheritance** — de novo / dominant, recessive (homozygous), compound heterozygous, and X-linked
-  models, plus expanded carrier screening for couples.
+  models, plus expanded carrier screening for couples. For de novo / dominant, a male's hemizygous
+  call (`1` or `1/1`) on chrX or chrY outside the pseudo-autosomal regions counts as the one copy.
 - **Variant type** — SNV, indel, or MNV.
 - **Consequence and impact** — HIGH / MODERATE / LOW / MODIFIER and specific effects (missense,
   frameshift, stop gained, splice, and so on).
