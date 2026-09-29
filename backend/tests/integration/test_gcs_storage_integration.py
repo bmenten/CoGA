@@ -284,11 +284,10 @@ def test_an_alignment_imported_from_fake_gcs_is_served_from_where_it_lies(
         )
         with _import_from_the_bucket(monkeypatch, tmp_path) as staged:
             validation, bundle = load_validated_family_package(
-                staged.root, remote_only_files=staged.remote_only_files
+                staged.root, remote_only_files=staged.remote_only_files, source_uri=staged.source_uri
             )
             assert validation.valid, validation.errors
             assert bundle is not None
-            bundle.source_uri = staged.source_uri
             async with sm() as session:
                 result = await family_package_datasets._import_alignments_dataset(
                     family_package_datasets.DatasetImportJob(
@@ -344,11 +343,10 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
     async def body(sm, family) -> None:
         with _import_from_the_bucket(monkeypatch, tmp_path) as staged:
             validation, bundle = load_validated_family_package(
-                staged.root, remote_only_files=staged.remote_only_files
+                staged.root, remote_only_files=staged.remote_only_files, source_uri=staged.source_uri
             )
             assert validation.valid, validation.errors
             assert bundle is not None
-            bundle.source_uri = staged.source_uri
             async with sm() as session:
                 await family_package_registration._record_package_raw_files(
                     session, bundle=bundle, family_uuid=family.uuid

@@ -7,7 +7,9 @@ so nothing it records may point at, or be derived from, that directory:
   hashed from its staged copy, as a local file is hashed where it lies. A file left in
   the store (an alignment) is identified by the store's own record of the object --
   size, generation or version, and the store's checksums, each labelled with its
-  algorithm, because none of them is the SHA-256 the ``sha256`` column holds.
+  algorithm, because none of them is the SHA-256 the ``sha256`` column holds;
+* the family's package record, the import log and the validation report (which the
+  import job stores and the import panel shows) name the source folder and its objects.
 """
 
 from __future__ import annotations
@@ -27,7 +29,14 @@ from app.services.family_package_common import (
     PackageManifest,
     ParsedPed,
 )
-from backend.tests._object_store_fakes import BUCKET, FakeS3, md5_base64, use_store
+from backend.tests._object_store_fakes import (
+    BUCKET,
+    FakeS3,
+    md5_base64,
+    package_objects,
+    stage_under,
+    use_store,
+)
 
 PED = "F1 S1 0 0 1 2\n"
 
@@ -226,3 +235,135 @@ async def test_a_local_package_is_still_hashed_where_it_lies(tmp_path: Path) -> 
         2,
         {},
     )
+
+
+# ---------------------------------------------------------------------------
+# The package's recorded and reported location is its source folder
+# ---------------------------------------------------------------------------
+
+
+MISSING_FILE_MANIFEST = """schema_version: 1
+family_id: F1
+ped: family.ped
+datasets:
+  alignments:
+    per_sample:
+      S1:
+        file: bams/S9.cram
+"""
+
+
+class _RegistrationSession:
+    """Enough of a session for ``_register_package_provenance``: no existing metadata,
+    no sample rows, and the family metadata it writes kept for inspection."""
+
+    def __init__(self) -> None:
+        self.family_metadata: dict[str, Any] | None = None
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        if "UPDATE families" in str(statement):
+            self.family_metadata = json.loads(params["metadata"])
+        return SimpleNamespace(
+            scalar_one_or_none=lambda: None,
+            mappings=lambda: SimpleNamespace(all=lambda: []),
+        )
+
+    async def commit(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_the_package_provenance_names_the_source_folder_not_the_staging_copy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.schemas import FamilyPackageValidationOut
+
+    use_store(monkeypatch, "gs", {})
+    source = f"gs://{BUCKET}/imports/F1"
+    bundle = _package_bundle(tmp_path, source_uri=source, remote_only_files=frozenset())
+    session = _RegistrationSession()
+
+    await family_package_registration._register_package_provenance(
+        session,  # type: ignore[arg-type]
+        bundle=bundle,
+        validation=FamilyPackageValidationOut(valid=True, family_id="F1"),
+        family_uuid="family-uuid",
+    )
+
+    assert session.family_metadata is not None
+    package_import = session.family_metadata["package_import"]
+    # The staging copy is deleted after the import; the record names the folder it came from.
+    assert package_import["folder_path"] == source
+    assert (package_import["manifest_path"], package_import["ped_path"]) == ("manifest.yaml", "family.ped")
+
+
+@pytest.mark.parametrize("scheme", ["gs", "s3"])
+def test_validating_a_remote_package_reports_its_objects_not_the_staging_copy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, scheme: str
+) -> None:
+    from app.services import family_package_validation
+
+    use_store(
+        monkeypatch,
+        scheme,
+        package_objects({"manifest.yaml": MISSING_FILE_MANIFEST, "family.ped": PED}),
+    )
+    staging = stage_under(monkeypatch, tmp_path)
+    source = f"{scheme}://{BUCKET}/imports/F1"
+
+    result = family_package_validation.validate_family_package(source)
+
+    assert [(error.code, error.path) for error in result.errors] == [
+        ("dataset_file_missing", f"{source}/bams/S9.cram")
+    ]
+    assert result.manifest_path == f"{source}/manifest.yaml"
+    assert result.ped_path == f"{source}/family.ped"
+    # Nothing the job stores or the import panel shows names the temporary directory.
+    assert str(staging) not in result.model_dump_json()
+
+
+def test_the_loaded_package_carries_its_source_folder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The importers and the provenance records tell a bucket package by its source URI.
+    from app.services import family_package_source
+    from app.services.family_package_validation import load_validated_family_package
+
+    use_store(
+        monkeypatch,
+        "gs",
+        package_objects({"manifest.yaml": MISSING_FILE_MANIFEST.replace("S9", "S1"), "family.ped": PED, "bams/S1.cram": "cram"}),
+    )
+    stage_under(monkeypatch, tmp_path)
+    source = f"gs://{BUCKET}/imports/F1"
+
+    with family_package_source.staged_package_source(source) as staged:
+        validation, bundle = load_validated_family_package(
+            staged.root, remote_only_files=staged.remote_only_files, source_uri=staged.source_uri
+        )
+
+    assert validation.valid, validation.errors
+    assert bundle is not None and bundle.source_uri == source
+
+
+@pytest.mark.asyncio
+async def test_the_import_log_names_the_source_folder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.services import family_package_import
+
+    use_store(
+        monkeypatch,
+        "gs",
+        package_objects({"manifest.yaml": MISSING_FILE_MANIFEST.replace("S9", "S1"), "family.ped": PED, "bams/S1.cram": "cram"}),
+    )
+    staging = stage_under(monkeypatch, tmp_path)
+    source = f"gs://{BUCKET}/imports/F1"
+
+    result = await family_package_import.execute_family_package_import(
+        None, folder_path=source, project_id=None, dry_run=True, user=None
+    )
+
+    assert result.completed, result.validation.errors
+    assert result.logs[0] == f"Validated package path {source}."
+    assert not any(str(staging) in line for line in result.logs)

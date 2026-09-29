@@ -121,16 +121,17 @@ async def _execute_family_package_import_local(
         folder_path,
         fallback_ped_text=fallback_ped_text,
         remote_only_files=remote_only_files,
+        source_uri=source_uri,
     )
-    if bundle is not None:
-        bundle.source_uri = source_uri
     conflict_mode = _normalized_conflict_mode(conflict_mode)
     request_metadata = _execution_metadata(
         requested_family_id=requested_family_id,
         conflict_mode=conflict_mode,
     )
     validation = _merge_validation_metadata(validation, request_metadata)
-    logs = [f"Validated package path {package_folder_path(folder_path)}."]
+    # A package staged from a bucket is named by its source folder: the staging copy
+    # is gone once the import ends.
+    logs = [f"Validated package path {source_uri or package_folder_path(folder_path)}."]
     if requested_family_id and validation.family_id and requested_family_id != validation.family_id:
         validation = validation.model_copy(
             update={

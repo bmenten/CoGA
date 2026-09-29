@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 import yaml
 
+from ..core.object_storage import join_remote_uri
 from ..schemas import (
     FamilyImportDatasetSummary,
     FamilyImportValidationIssue,
@@ -1101,12 +1102,64 @@ def load_validated_family_package(
     *,
     fallback_ped_text: str | None = None,
     remote_only_files: frozenset[str] = frozenset(),
+    source_uri: str | None = None,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     """Validate the package at ``folder_path`` and load it for import.
 
-    ``remote_only_files`` names the package files staging left in the object store
-    (``StagedPackage.remote_only_files``); an alignments dataset may reference them.
+    For a package staged from a bucket (``StagedPackage``), ``source_uri`` is the folder
+    it was staged from and ``remote_only_files`` the files staging left in the store,
+    which an alignments dataset may reference. The staging copy is deleted after the
+    import, so the report -- which the import job stores and the import panel shows --
+    names the source folder's objects rather than staged paths, and the bundle carries
+    ``source_uri`` for the records the import writes.
     """
+    validation, bundle = _validate_and_load_package(
+        folder_path, fallback_ped_text=fallback_ped_text, remote_only_files=remote_only_files
+    )
+    if source_uri is None:
+        return validation, bundle
+    if bundle is not None:
+        bundle.source_uri = source_uri
+    staged_root = Path(folder_path).expanduser().resolve()
+    return _report_staged_paths_as_objects(validation, staged_root, source_uri), bundle
+
+
+def _staged_path_as_object(path: str | None, staged_root: Path, source_uri: str) -> str | None:
+    """A path inside the staging copy, as the URI of the object it is a copy of."""
+    if path is None:
+        return None
+    try:
+        relative = Path(path).relative_to(staged_root)
+    except ValueError:
+        return path
+    return join_remote_uri(source_uri, relative.as_posix()) if relative.parts else source_uri
+
+
+def _report_staged_paths_as_objects(
+    validation: FamilyPackageValidationOut, staged_root: Path, source_uri: str
+) -> FamilyPackageValidationOut:
+    def relabel(issues: list[FamilyImportValidationIssue]) -> list[FamilyImportValidationIssue]:
+        return [
+            issue.model_copy(update={"path": _staged_path_as_object(issue.path, staged_root, source_uri)})
+            for issue in issues
+        ]
+
+    return validation.model_copy(
+        update={
+            "manifest_path": _staged_path_as_object(validation.manifest_path, staged_root, source_uri),
+            "ped_path": _staged_path_as_object(validation.ped_path, staged_root, source_uri),
+            "errors": relabel(validation.errors),
+            "warnings": relabel(validation.warnings),
+        }
+    )
+
+
+def _validate_and_load_package(
+    folder_path: str | Path,
+    *,
+    fallback_ped_text: str | None,
+    remote_only_files: frozenset[str],
+) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     try:
         root = _ensure_authorized_package_path(Path(folder_path))
     except HTTPException as exc:
@@ -1316,5 +1369,6 @@ def validate_family_package(
             staged.root,
             fallback_ped_text=fallback_ped_text,
             remote_only_files=staged.remote_only_files,
+            source_uri=staged.source_uri,
         )
     return validation

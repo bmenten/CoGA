@@ -348,7 +348,9 @@ async def _register_package_provenance(
         }
     family_metadata["package_import"] = {
         "source": "family_package",
-        "folder_path": str(bundle.root),
+        # The folder the package was imported from: for a bucket, its gs:// or s3://
+        # URI, since the staging copy is deleted after the import.
+        "folder_path": bundle.source_uri or str(bundle.root),
         "manifest_path": _display_path(bundle.root, bundle.manifest_path),
         "ped_path": _display_path(bundle.root, bundle.ped_path),
         "schema_version": bundle.manifest.schema_version,
