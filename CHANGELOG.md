@@ -367,6 +367,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   text name that says what it shows: how many genes, variants, loci or segments are in view and
   the salient ones, the haplotype risk state, or that it is loading or failed to load, never a
   failure as none (#587).
+- **SV tracks cut without a trace** — in a view denser than one track page, the chromosome view's
+  SV track drew only the left-most SVs, and for a large family the genome overview stopped at
+  50,000 SVs, so the rest looked free of SVs. Both tracks now say that there are too many SVs to
+  display; the genome track's limit counts the sample's own SVs (#590).
 
 ### Security
 

@@ -5,9 +5,13 @@ import { render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { useQueryMock } = vi.hoisted(() => ({ useQueryMock: vi.fn() }));
+const { useQueryMock, fetchTrackJsonMock } = vi.hoisted(() => ({
+  useQueryMock: vi.fn(),
+  fetchTrackJsonMock: vi.fn(),
+}));
 
 vi.mock('@tanstack/react-query', () => ({ useQuery: useQueryMock }));
+vi.mock('../../lib/trackFetch', () => ({ fetchTrackJson: fetchTrackJsonMock }));
 
 import SvTrack from '../visualizations/SvTrack';
 
@@ -39,6 +43,9 @@ const serve = (state: { data?: unknown; isLoading?: boolean; isError?: boolean }
     ...state,
   });
 
+// What the track's query resolves to: the SVs, and whether the backend's cap cut them.
+const page = (variants: unknown[], capped = false) => ({ variants, capped });
+
 const sv = (type: string, chr: string, start: number, sample = 'S1', gt = '0/1') => ({
   chr,
   start,
@@ -54,7 +61,7 @@ describe('SvTrack accessible name (#529)', () => {
 
   it('names the drawn SVs by type, counting only what is drawn', () => {
     serve({
-      data: [
+      data: page([
         sv('DEL', '1', 100_000),
         sv('DUP', 'chr2', 200_000, 'S1', '1/1'),
         sv('DEL', '2', 400_000),
@@ -64,7 +71,7 @@ describe('SvTrack accessible name (#529)', () => {
         sv('INV', '1', 300_000, 'S2'),
         sv('INS', '1', 500_000, 'S1', '0/0'),
         sv('CNV', '1', 600_000),
-      ],
+      ]),
     });
     render(track());
 
@@ -74,7 +81,7 @@ describe('SvTrack accessible name (#529)', () => {
   });
 
   it('an empty view is named as empty', () => {
-    serve({ data: [] });
+    serve({ data: page([]) });
     render(track());
 
     expect(
@@ -101,5 +108,45 @@ describe('SvTrack accessible name (#529)', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('Could not load structural variants');
     expect(screen.queryByText(/no SVs for this region/)).not.toBeInTheDocument();
+  });
+
+  it('past the backend cap, says too many instead of drawing part of the genome (#585)', () => {
+    serve({ data: page([sv('DEL', '1', 100_000), sv('DUP', '2', 200_000)], true) });
+    render(track());
+
+    // The list stopped part-way: drawn, the last chromosomes would look free of SVs.
+    expect(
+      screen.getByRole('img', {
+        name: 'Structural variants of S1 in view: too many to display; open a chromosome',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Too many SVs to display genome-wide/)).toBeInTheDocument();
+    expect(screen.queryByText(/no SVs for this region/)).not.toBeInTheDocument();
+  });
+});
+
+describe('SvTrack request (#585)', () => {
+  beforeEach(() => {
+    useQueryMock.mockReset();
+    fetchTrackJsonMock.mockReset();
+  });
+
+  it('reads the cap flag from the response', async () => {
+    serve({});
+    render(track());
+    const { queryFn } = useQueryMock.mock.calls[0][0] as {
+      queryFn: (context: { signal: AbortSignal }) => Promise<unknown>;
+    };
+    const signal = new AbortController().signal;
+
+    fetchTrackJsonMock.mockResolvedValueOnce({ variants: [sv('DEL', '1', 1)], total_is_estimated: true });
+    await expect(queryFn({ signal })).resolves.toEqual({ variants: [sv('DEL', '1', 1)], capped: true });
+    expect(fetchTrackJsonMock).toHaveBeenCalledWith(
+      '/api/families/F1/structural-variants?sample=S1',
+      { signal },
+    );
+
+    fetchTrackJsonMock.mockResolvedValueOnce({ variants: [], total: 0 });
+    await expect(queryFn({ signal })).resolves.toEqual({ variants: [], capped: false });
   });
 });

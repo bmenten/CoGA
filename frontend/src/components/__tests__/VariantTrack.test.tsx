@@ -154,3 +154,42 @@ test('a load or a failure is named as such, never as the held window’s count (
   ).toBeInTheDocument();
   expect(screen.getByText(/Could not load structural variants/)).toBeInTheDocument();
 });
+
+test('a view holding more SVs than one page says too many instead of drawing the page (#585)', () => {
+  // The page is the first two by position of five in view: drawn, the right of the view
+  // would look free of SVs.
+  useQueryMock.mockReturnValue({
+    data: { total: 5, variants: [sv('DEL', 32_310_000), sv('DUP', 32_320_000)] },
+    isLoading: false,
+  });
+  const { container } = render(brca2Track());
+
+  expect(
+    screen.getByRole('img', {
+      name: 'Structural variants of S1 on chr13:32,300,000–32,400,000: too many to display; zoom in or apply filters',
+    }),
+  ).toBeInTheDocument();
+  expect(screen.getByText('Too many SVs to display. Zoom in or apply filters.')).toBeInTheDocument();
+  expect(container.querySelector('[data-variant-type]')).toBeNull();
+});
+
+test('past the backend cap the track says too many as well (#585)', () => {
+  useQueryMock.mockReturnValue({
+    data: { total: 2, total_is_estimated: true, count_limit: 2, variants: [sv('DEL', 32_310_000), sv('DEL', 32_320_000)] },
+    isLoading: false,
+  });
+  render(brca2Track());
+
+  expect(screen.getByText('Too many SVs to display. Zoom in or apply filters.')).toBeInTheDocument();
+});
+
+test('a complete page is drawn', () => {
+  useQueryMock.mockReturnValue({
+    data: { total: 2, variants: [sv('DEL', 32_310_000), sv('DUP', 32_320_000)] },
+    isLoading: false,
+  });
+  const { container } = render(brca2Track());
+
+  expect(container.querySelectorAll('[data-variant-type]')).toHaveLength(2);
+  expect(screen.queryByText(/Too many SVs/)).not.toBeInTheDocument();
+});
