@@ -23,7 +23,7 @@ locals {
   db_migrate_sa_email    = var.db_migrate_service_account_email != "" ? var.db_migrate_service_account_email : "${local.name_prefix}-db-migrate@${var.project_id}.iam.gserviceaccount.com"
 
   # Secret Manager secret ids (containers created in secrets.tf; versions added
-  # out-of-band — see terraform/README.md).
+  # out-of-band — see docs/deployment-gcp.md §5.5).
   secret_ids = {
     secret_key          = "${local.name_prefix}-secret-key"
     integrity_anchor    = "${local.name_prefix}-integrity-anchor-key"
