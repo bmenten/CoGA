@@ -496,6 +496,7 @@ def test_report_signout_real_writer_chain_and_read_verification(monkeypatch) -> 
         # integral float to exercise the JSONB-normalisation fix through the real writer.
         return {
             "drift": {"drifted_count": 0},
+            "structural_drift": {"drifted_count": 0},
             "sample_qc": {"overall_status": "pass"},
             "software": {"version": "0.0.0-test", "git_sha": "deadbeef"},
             "reported_variants": [],
