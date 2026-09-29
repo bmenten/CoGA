@@ -122,7 +122,15 @@ A call that the embryo carries a disease haplotype needs only that haplotype, se
 A call that it does not needs the embryo's own haplotype: *Unaffected*, and the clear side of a
 *Carrier* call, need a homolog from that parent seen at every position of the ROI. The parent sides
 needed are those a disease haplotype was found on. So the donor side of a single-parent family is not
-needed, and a male on chrX is called on his one X, from his mother.
+needed, and outside the pseudo-autosomal regions a male on chrX is called on his one X, from his
+mother.
+
+**Males in the pseudo-autosomal regions.** In PAR1 and PAR2 a male has two copies: his mother's, and
+his father's from the father's X or Y. There he is called like any other embryo, on both lanes, so a
+paternal risk haplotype at a PAR locus (for example SHOX in PAR1) is seen. CoGA takes the PAR bounds
+from the family's assembly (GRCh38 or GRCh37). At an ROI that crosses a PAR boundary, and on an
+assembly whose PAR bounds CoGA does not have, a male is called as having two copies: a call that then
+needs his father's side reads *Uninformative* where that side has no data.
 
 If, on a side the call needs, the embryo has no block at the ROI, a block over only part of it, a grey
 lane, or a homolog the phasing has not confirmed, it reads *Uninformative*.

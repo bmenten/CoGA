@@ -61,6 +61,9 @@ overlay is hidden.
   (`interpretSampleHaplotypeRisk` returns the call alone); `getHaplotypeLaneSignature`, which treats the
   backend's lineage tags as authoritative over the flat `role`. `frontend/src/lib/embryoSegregation.ts`
   holds the family-page classification and its warnings.
+- **One copy in males** — `bed_service._mark_hemizygous_blocks` marks each block `hemizygous_in_males`
+  with `sex_chromosomes.hemizygous_interval`, the PAR table the variant queries use; `haplotypeRisk.ts`
+  reads a male on one lane only on such blocks, so in a PAR he is read on both.
 
 ## Known issues
 
