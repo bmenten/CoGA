@@ -595,6 +595,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Handleiding rewritten against current main** — the fifteen chapters of the Dutch codebase
+  manual were re-checked against the code and shortened by almost half, with one home per topic
+  and the limits a reviewer should know stated plainly (CR-100, #638).
 - **Root and developer guides trimmed and corrected** — the README is a short front door; setup,
   architecture and open work each have one home (`docs/development.md`,
   `docs/application-scheme.md`, `docs/ROADMAP.md`); the retired workplan and the separate storage
