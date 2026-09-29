@@ -148,6 +148,7 @@ export interface AcmgFamilyMemberCall {
   role: string; // 'proband' | 'father' | 'mother' | 'sibling' | …
   affected: boolean;
   gt?: string; // VCF genotype string, e.g. '0/1', '1/1', '0/0', './.'
+  sex?: string; // 'male' | 'female' | …, from the pedigree
 }
 
 export interface AcmgFamilyContext {

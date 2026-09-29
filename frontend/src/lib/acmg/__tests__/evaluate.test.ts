@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { evaluateAcmg, type AcmgVariantInput } from '../evaluate';
 import { buildInitialSelections } from '../index';
-import type { AcmgCriterionCode, AcmgSuggestion } from '../types';
+import type { AcmgCriterionCode, AcmgFamilyMemberCall, AcmgSuggestion } from '../types';
 
 function codes(suggestions: AcmgSuggestion[]): AcmgCriterionCode[] {
   return suggestions.map((s) => s.code);
@@ -183,6 +183,57 @@ describe('evaluateAcmg — trio / segregation', () => {
       members: [probandHet, { sampleId: 'M', role: 'mother', affected: true, gt: '0/1' }],
     });
     expect(find(suggestions, 'PP1')?.disposition).toBe('consider');
+  });
+});
+
+// #621 — a son is hemizygous on chrX/chrY outside the PARs: the parent who passes him that
+// chromosome decides PM6/PS2, as in the backend's de novo segregation mode.
+describe('evaluateAcmg — de novo in a son where he is hemizygous', () => {
+  const son = (gt: string): AcmgFamilyMemberCall => ({ sampleId: 'P', role: 'proband', affected: true, gt, sex: 'male' });
+  const father = (gt?: string): AcmgFamilyMemberCall => ({ sampleId: 'F', role: 'father', affected: false, gt, sex: 'male' });
+  const mother = (gt?: string): AcmgFamilyMemberCall => ({ sampleId: 'M', role: 'mother', affected: false, gt, sex: 'female' });
+  const onX: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrX', hemizygous_in_males: true };
+  const onY: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrY', hemizygous_in_males: true };
+  const pm6 = (variant: AcmgVariantInput, members: AcmgFamilyMemberCall[]) =>
+    find(evaluateAcmg(variant, undefined, undefined, { members }), 'PM6');
+
+  it('applies PM6 to a Y variant with a reference father, though the mother has no call', () => {
+    const suggestion = pm6(onY, [son('1'), father('0'), mother(undefined)]);
+    expect(suggestion?.disposition).toBe('applies');
+    expect(suggestion?.evidence).toBe(
+      'Absent in the father, who passes a son his Y (de novo) — parentage not molecularly confirmed (use PS2 if confirmed).',
+    );
+  });
+
+  it('applies PM6 to an X variant with a reference mother, though the father has no call', () => {
+    expect(pm6(onX, [son('1'), mother('0/0'), father('./.')])?.disposition).toBe('applies');
+    expect(pm6(onX, [son('1/1'), mother('0/0')])?.disposition).toBe('applies');
+  });
+
+  it('says a son\'s X variant is inherited from the mother, not from "a parent"', () => {
+    const suggestion = pm6(onX, [son('1'), mother('0/1'), father('0')]);
+    expect(suggestion?.disposition).toBe('not_applicable');
+    expect(suggestion?.evidence).toBe('Inherited from the mother, who passes a son his X — not de novo.');
+  });
+
+  it('does not call a variant shared with the father de novo on a son\'s X', () => {
+    const suggestion = pm6(onX, [son('1'), mother('0/0'), father('1')]);
+    expect(suggestion?.disposition).toBe('not_applicable');
+    expect(suggestion?.evidence).toMatch(/^Also called in the father, who does not pass a son his X/);
+  });
+
+  it('cannot assess de novo without the parent who passes the chromosome on', () => {
+    const suggestion = pm6(onY, [son('1'), mother('0/0')]);
+    expect(suggestion?.disposition).toBe('not_applicable');
+    expect(suggestion?.evidence).toBe("The father's genotype, who passes a son his Y, is missing — de novo cannot be assessed.");
+  });
+
+  it('keeps the trio rule in a PAR, for a daughter and without the backend flag', () => {
+    const inPar: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrX', hemizygous_in_males: false };
+    expect(pm6(inPar, [son('0/1'), mother('0/0'), father('./.')])?.disposition).toBe('not_applicable');
+    const daughter: AcmgFamilyMemberCall = { sampleId: 'P', role: 'proband', affected: true, gt: '0/1', sex: 'female' };
+    expect(pm6(onX, [daughter, mother('0/0'), father('./.')])?.disposition).toBe('not_applicable');
+    expect(pm6(onX, [daughter, mother('0/0'), father('0')])?.disposition).toBe('applies');
   });
 });
 

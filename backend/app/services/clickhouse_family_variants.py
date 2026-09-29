@@ -1562,7 +1562,7 @@ async def _serve_ranking_from_cache(
         )
         by_id: dict[str, VariantOut] = {}
         for record in records:
-            out = _small_variant_out(record)
+            out = _small_variant_out(record, assembly_name=context.assembly_name)
             by_id[str(out.id)] = out
         for entry in page_entries:
             variant_out = by_id.get(str(entry.get("variant_id")))
@@ -1667,7 +1667,7 @@ async def _serve_subpanel_from_superset(
             record = by_id.get(str(entry.get("variant_id")))
             if record is None:
                 continue
-            variant_out = _small_variant_out(record)
+            variant_out = _small_variant_out(record, assembly_name=context.assembly_name)
             priority = entry.get("priority")
             if priority:
                 try:
@@ -1830,7 +1830,7 @@ async def _prioritized_small_variants_page(
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
     segregation_evaluated = bool(affected_names)
 
-    variants = [_small_variant_out(record) for record in filtered]
+    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in filtered]
     gene_symbols = {variant.gene for variant in variants if variant.gene}
     phenotype_scores = (
         await score_genes_for_hpo(
@@ -2196,7 +2196,7 @@ async def _small_variants_track_page(
         offset=_page_offset(page, page_size),
         **scope.row_filters(),
     )
-    variants = [_small_variant_out(record) for record in fetched_records]
+    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in fetched_records]
     await _hydrate_small_variant_outs(
         session,
         context=context,
@@ -2236,7 +2236,7 @@ async def _small_variants_native_page(
     )
     unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
     page_records = fetched_records[:page_size]
-    variants = [_small_variant_out(record) for record in page_records]
+    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in page_records]
     if variants:
         await _hydrate_small_variant_outs(
             session,
@@ -2335,7 +2335,7 @@ async def _small_variants_candidate_page(
     else:
         skip = max(page - 1, 0) * page_size if page_size else 0
         page_records = filtered[skip: skip + page_size] if page_size else filtered[skip:]
-    variants = [_small_variant_out(record) for record in page_records]
+    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in page_records]
     await _hydrate_small_variant_outs(
         session,
         context=context,
@@ -2387,8 +2387,8 @@ async def _small_variants_inheritance_page(
     for item_type, item_value in page_items:
         if item_type == "group":
             pair = item_value
-            left_variant = _small_variant_out(pair.left)
-            right_variant = _small_variant_out(pair.right)
+            left_variant = _small_variant_out(pair.left, assembly_name=context.assembly_name)
+            right_variant = _small_variant_out(pair.right, assembly_name=context.assembly_name)
             group_variant_outs.extend([left_variant, right_variant])
             page_variant_groups.append(
                 SmallVariantGroupOut(
@@ -2400,7 +2400,7 @@ async def _small_variants_inheritance_page(
                 )
             )
         else:
-            page_single_variants.append(_small_variant_out(item_value))
+            page_single_variants.append(_small_variant_out(item_value, assembly_name=context.assembly_name))
     await _hydrate_small_variant_outs(
         session,
         context=context,
@@ -3200,7 +3200,7 @@ async def get_family_compound_het_candidates(
         for record in records
         if record.variant_id in partner_ids and record.variant_id != source_record.variant_id
     ][:limit]
-    variants = [_small_variant_out(record) for record in candidates]
+    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in candidates]
     await _hydrate_small_variant_outs(
         session,
         context=context,

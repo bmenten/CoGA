@@ -130,7 +130,7 @@ De belangrijkste automatische regels (drempels als benoemde constanten bovenaan 
 | **BP7** | consequence + SpliceAI | Synoniem zonder splice-impact (SpliceAI < 0.1); mét voorspelde splice-impact wordt BP7 juist *argues against*. |
 | **PP5 / BP6** | ClinVar | ClinVar meldt de variant pathogeen → PP5 (BP6 contra); benigne → BP6 (PP5 contra). |
 | **PP4** | Monarch-fenotypescore of HPO-overlap | Gen↔proband-fenotype-specificiteit; sterkte schaalt met de Monarch-score (≥0.6 Moderate, ≥0.3 Supporting), anders directe HPO-overlap op Supporting. |
-| **PM6 / PS2 / PP1 / BS4** | trio-genotypes | *De novo* (afwezig bij beide sequenced ouders) → PM6 (PS2 blijft manueel); ≥2 aangedane dragers → PP1 (Consider); aangedaan familielid zónder variant → BS4 (Consider). |
+| **PM6 / PS2 / PP1 / BS4** | trio-genotypes | *De novo* (afwezig bij beide sequenced ouders; bij een zoon op X of Y buiten de PAR's beslist de ouder die dat chromosoom doorgeeft, de moeder voor X en de vader voor Y, en mag de andere ouder de variant niet dragen; `hemizygous_in_males` komt van de backend, #621) → PM6 (PS2 blijft manueel); ≥2 aangedane dragers → PP1 (Consider); aangedaan familielid zónder variant → BS4 (Consider). |
 
 De frequentie-, in-silico- en molecular-consequence-blokken markeren de *niet-passende* criteria bovendien expliciet als `not_applicable`, zodat de werkset eerlijk blijft (bv. bij een missense-variant worden PVS1, PM4, BP3 en BP7 grijs).
 

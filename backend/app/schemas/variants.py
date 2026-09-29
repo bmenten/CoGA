@@ -168,6 +168,10 @@ class VariantOut(ApiDocumentModel):
     annotation_extra: Dict[str, Any] = Field(default_factory=dict)
     transcripts: List[SmallVariantTranscriptOut] = Field(default_factory=list)
     genotypes: List[GenotypeOut] = Field(default_factory=list)
+    # Small variants: on chrX or chrY outside the pseudo-autosomal regions of the family's
+    # assembly, where a male carries one copy (#545, #621). False elsewhere, and on an
+    # assembly whose PARs are not known.
+    hemizygous_in_males: bool = False
     review: Optional[SmallVariantReviewOut] = None
     internal_cohort: Optional[VariantInternalCohortOut] = None
     priority: Optional[VariantPriorityOut] = None

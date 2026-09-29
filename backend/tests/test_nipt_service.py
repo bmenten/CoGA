@@ -188,7 +188,7 @@ async def test_run_family_nipt_analysis_end_to_end(monkeypatch: pytest.MonkeyPat
         return family
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(assembly_id="assembly-uuid")
+        return SimpleNamespace(assembly_id="assembly-uuid", assembly_name="GRCh38")
 
     async def fake_fetch(_context, _filters, *, limit=None, **_kwargs):
         return records
@@ -238,7 +238,7 @@ async def test_run_family_nipt_analysis_counts_artifacts(
         return family
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(assembly_id="assembly-uuid")
+        return SimpleNamespace(assembly_id="assembly-uuid", assembly_name="GRCh38")
 
     async def fake_fetch(_context, _filters, *, limit=None, **_kwargs):
         return records
@@ -317,7 +317,7 @@ def _wire_variants_mocks(
         return _nipt_family()
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(assembly_id="assembly-uuid")
+        return SimpleNamespace(assembly_id="assembly-uuid", assembly_name="GRCh38")
 
     async def fake_fetch(_context, filters, *, limit=None, **_kwargs):
         # The cohort (FF) load carries no gene filter; the variant load does.

@@ -1653,7 +1653,7 @@ def _normalize_alpha_missense_class(value: str | None) -> str | None:
     return text_value
 
 
-def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
+def _small_variant_out(record: SmallVariantRecord, *, assembly_name: str | None) -> VariantOut:
     annotation = _select_primary_annotation(record.annotations)
     population_frequencies = _annotation_population_frequencies(annotation)
     transcripts = _small_transcript_annotations(record.annotations, annotation)
@@ -1663,6 +1663,7 @@ def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
         start=record.start,
         end=record.end,
         length=record.end - record.start,
+        hemizygous_in_males=hemizygous_chromosome(assembly_name, record.chr, record.start) is not None,
         type=_small_type(record.ref, record.alt),
         source=record.source,
         ref=record.ref,

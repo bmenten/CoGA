@@ -488,6 +488,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   the father (for the Y) is confidently reference and the other parent does not carry it; a
   mother–son duo suffices for the X. Autosomes, the pseudo-autosomal regions and daughters keep the
   diploid rule (#620).
+- **ACMG de novo (PM6) for a son's X and Y** — the ACMG dialog judged PM6 from both parents' calls
+  without regard to sex. A son's chrY de novo, where the mother has no call, read "de novo cannot be
+  assessed", and an X variant carried only by the father read "Inherited from a parent". Where a son
+  is hemizygous, the parent who passes him that chromosome now decides, as in the de novo filter;
+  the backend says where that is (`hemizygous_in_males`) (#622).
 
 ### Security
 

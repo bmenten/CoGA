@@ -497,7 +497,7 @@ async def get_family_nipt_variants(
     # Serialize the page slice as full small-variant payloads (and hydrate their
     # review / internal-cohort / gene-constraint data) so the NIPT variant list
     # carries the same shape as the small-variant view, classification aside.
-    variant_outs = [_small_variant_out(item.record) for item in page_items]
+    variant_outs = [_small_variant_out(item.record, assembly_name=context.assembly_name) for item in page_items]
     await _hydrate_small_variant_outs(session, context=context, variants=variant_outs)
     for item, variant_out in zip(page_items, variant_outs):
         item.variant_out = variant_out
