@@ -2815,267 +2815,57 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </table></div>
 </section><section id="hs-13" class="chapter">
 <h1>13. Gene Explorer &amp; versiecontrole</h1>
-<p>Dit hoofdstuk beschrijft hoe CoGA een compleet gen-profiel opbouwt en toont: van een gen-symbool (bv. <code>BRCA1</code>) naar een pagina met transcript-overzicht, constraint-metrieken (maten voor hoe "gevoelig" een gen is voor mutaties), ziekte- en fenotype-associaties en externe link-outs. Het behandelt uit welke externe bronnen die informatie komt, waarom en hoe CoGA die informatie in Postgres cachet in plaats van elke keer live op te vragen, hoe een refresh-taak (job) wordt gepland en uitgevoerd door een achtergrond-worker, en — het belangrijkste voor een auditor — hoe elke geïmporteerde referentiedataset en elke paneelversie met bron, versie en tijdstip wordt vastgelegd zodat elk rapport reproduceerbaar aan een concrete dataset-versie hangt.</p>
-<p>Enkele begrippen die verderop terugkomen: een <strong>endpoint</strong> is een URL waarop de backend reageert; een <strong>router</strong> is het Python-bestand dat die endpoints definieert; een <strong>service</strong> is de laag met de eigenlijke logica; <strong>cachen</strong> betekent een kopie lokaal bewaren zodat je die niet telkens opnieuw hoeft op te halen; een <strong>worker</strong> is een achtergrondproces dat langlopend werk uitvoert los van het webverzoek.</p>
-<h2>Wat de reviewer ziet: de Gene Explorer-pagina</h2>
-<p>De Gene Explorer is één pagina, <code>frontend/src/pages/genes/GeneInfoPage.tsx</code>, bereikbaar via de route <code>/genes</code> (geregistreerd in <code>frontend/src/index.tsx</code>). De werkwijze is <strong>locus-eerst</strong> ("locus" = de plaats van een gen op het genoom): de gebruiker typt een symbool, kiest een suggestie, en de pagina toont één samengevoegd profiel.</p>
-<p>De pagina haalt haar data van twee endpoints in <code>backend/app/routers/genes.py</code>:</p>
+<p>Dit hoofdstuk beschrijft hoe CoGA een genprofiel opbouwt en toont: van een gensymbool (bv. <code>BRCA1</code>) naar een pagina met transcripten, constraint-metrieken (maten voor hoe gevoelig een gen is voor mutaties), ziekte- en fenotypeassociaties en externe links. Het beschrijft ook uit welke bronnen die informatie komt, waarom CoGA ze in Postgres bewaart in plaats van ze telkens live op te vragen, hoe een verversing als achtergrondjob draait, en hoe elke import van referentiedata met bron, tijdstip en uitvoerder wordt vastgelegd. De Engelse referentie voor de synchronisatie van genen is <code>docs/data-import.md</code>.</p>
+<p>Een <strong>cache</strong> is een lokale kopie die je niet telkens opnieuw hoeft op te halen; een <strong>worker</strong> is een achtergrondproces dat langlopend werk doet, los van het webverzoek.</p>
+<h2>De Gene Explorer</h2>
+<p>De Gene Explorer is de pagina <code>/genes</code> (<code>frontend/src/pages/genes/GeneInfoPage.tsx</code>). De gebruiker typt een symbool, kiest een suggestie en ziet één samengevoegd profiel. De pagina gebruikt twee endpoints, beide achter een login:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Endpoint</th>
-<th>Router-functie</th>
 <th>Levert</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>GET /genes/search?q=</code></td>
-<td><code>search_gene_symbols</code></td>
-<td>Autocomplete: symbolen die met de query beginnen, met transcript- en assembly-telling (<code>transcript_count</code>, <code>assembly_count</code>)</td>
+<td><code>GET /api/genes/search?q=</code></td>
+<td>Suggesties: symbolen die met de invoer beginnen (minstens twee tekens)</td>
 </tr>
 <tr>
-<td><code>GET /genes/profile?symbol=…</code></td>
-<td><code>get_gene_profile</code></td>
-<td>Het volledige gen-profiel (overzicht, transcripten, constraint, ziekten, links)</td>
+<td><code>GET /api/genes/profile?symbol=…</code></td>
+<td>Het volledige genprofiel</td>
 </tr>
 </tbody>
 </table></div>
-<p>Beide endpoints vereisen een ingelogde gebruiker via <code>Depends(get_current_user)</code>; de zoek-query moet minstens 2 tekens lang zijn (<code>min_length=2</code>). De profiel-call accepteert optioneel <code>family_id</code>/<code>project_id</code> zodat fenotype-matching binnen een familiecontext kan gebeuren.</p>
-<p>Op de pagina ziet de reviewer onder meer:</p>
+<p>Het profiel toont onder meer: de plaats van het gen op GRCh38 en, waar beschikbaar, op T2T-CHM13 en GRCh37; de transcripten met hun badges (MANE, Canonical, CCDS, …); constraint-metrieken (gnomAD pLI en LOEUF, pHaplo/pTriplo, missense-Z); ziekte- en fenotypeassociaties (OMIM, GenCC, ClinGen, Orphanet, ClinVar, en Monarch met de fenotypes die de familie deelt); de panels waarin het gen zit; externe links (Ensembl, NCBI, OMIM, ClinGen, gnomAD, …); en per bron een status met het tijdstip van de laatste verversing. Die bronstatus maakt de herkomst rechtstreeks op de pagina zichtbaar.</p>
+<p>Het profiel combineert twee Postgres-tabellen: <strong><code>genes</code></strong> (de referentiegenen per assembly, met chromosoom, positie, exonen en transcript) en <strong><code>gene_info</code></strong> (de bewaarde verrijking: naam, samenvatting, aliassen, id's, constraint, ziekteassociaties). Staat een gen zowel op een gewoon chromosoom als op een alternatieve sequentie, dan wint het gewone chromosoom. Is er voor de gekozen assembly nog geen verrijking, dan neemt het profiel de meest recente verrijking van hetzelfde symbool op een andere menselijke assembly.</p>
+<p><strong>Toegang.</strong> Wordt een familie of project meegegeven (voor de fenotype-matching), dan controleert de backend eerst de toegang; een gebruiker zonder toegang krijgt <code>403</code>. Zo lekt het profiel geen familiecontext.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/genes.py</code> en <code>build_gene_profile</code> in <code>backend/app/services/gene_metadata_service.py</code>.</p>
+<h2>Transcriptbadges</h2>
+<p>Niet elk transcript is klinisch gelijkwaardig. <strong>MANE Select</strong> is het aanbevolen referentietranscript, <strong>MANE Plus Clinical</strong> een klinisch belangrijk extra transcript, en <strong>Ensembl Canonical</strong> en <strong>CCDS</strong> zijn aanvullende referenties. De badges komen eerst uit de markeringen die de genannotatie per transcript meegeeft (GENCODE labelt MANE en Canonical per transcript, en geeft het CCDS-id). Alleen als die ontbreken, vergelijkt de pagina het transcript-id met de referentietranscripten in het profiel, zonder rekening te houden met het versienummer (<code>NM_007294.4</code> = <code>NM_007294</code>). Geannoteerde transcripten staan bovenaan, MANE eerst.</p>
+<p>Bij het tekenen van genen in een genoomvenster kiest de backend per gen het beste transcript op dezelfde manier: MANE Select, dan Ensembl Canonical, dan de rest.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>GeneInfoPage.tsx</code>; de keuze per gen in <code>backend/app/services/reference_metadata_service.py</code>.</p>
+<h2>Waar de gegevens vandaan komen</h2>
+<p><strong>Referentiegenen.</strong> Voor GRCh38 komen de genen uit de GENCODE-annotatie; voor T2T-CHM13 uit UCSC's RefSeq-afgeleide annotatie. Lukt dat niet, dan valt CoGA terug op een UCSC-gentabel en legt het vast dat het dat deed (hoofdstuk 4).</p>
+<p><strong>De verrijking</strong> komt uit twee soorten bronnen:</p>
 <ul>
-<li><strong>Kop met locus en assembly-locaties.</strong> Het gen wordt getoond op zijn plaats in GRCh38, en waar beschikbaar ook T2T-CHM13 en GRCh37 (<code>assembly_locations</code> in het profiel). De "primaire" assembly wordt gemarkeerd (<code>is_primary</code>) en de familie-context apart (<code>is_family_context</code>).</li>
-<li><strong>Transcript-overzicht</strong> met MANE/RefSeq/Canonical-badges (zie de laatste sectie).</li>
-<li><strong>Constraint-metrieken</strong> zoals gnomAD pLI, LOEUF, pHaplo/pTriplo en missense z-score (zie de tabel <code>ADVANCED_CONSTRAINT_METRICS</code> in de pagina).</li>
-<li><strong>Ziekte- en fenotype-associaties</strong>: OMIM-, GenCC-, ClinGen-, Orphanet- en ClinVar-gene-condition-relaties, plus Monarch gen–ziekte-associaties met fenotype-matches tegen de familie.</li>
-<li><strong>Panel-lidmaatschap</strong>: in welke genpanels dit gen zit.</li>
-<li><strong>Externe link-outs</strong> naar Ensembl, NCBI, OMIM, PubMed, ClinGen, GenCC, DECIPHER, GeneCards, Open Targets, GTEx, ClinVar, UniProt, GeneReviews, PanelApp, en waar mogelijk UCSC en gnomAD.</li>
-<li>Een <strong>"laatst vernieuwd"-tijdstip</strong> (<code>updated_at</code>) en een <strong>bronstatus-tabel</strong> (<code>source_status</code>) die per externe bron toont of de laatste ophaalpoging gelukt, leeg of foutief was — dit is traceerbaarheid rechtstreeks op de pagina.</li>
+<li><strong>Bestanden in bulk</strong>, per job één keer ingelezen en per symbool opgezocht: de <strong>HGNC complete set</strong> (het register van welke genen bestaan, met vorige symbolen, aliassen en id's), het lokale <strong>dbNSFP</strong>-genbestand (de rijkste bron: constraint, OMIM- en Orphanet-associaties, GO-termen, pathways, HPO-termen, expressie, orthologen), <strong>ClinGen</strong> gene validity en dosage, <strong>GenCC</strong> en <strong>ClinVar</strong> gene-condition. Elke bulkbron wordt voor elk gen geraadpleegd.</li>
+<li><strong>Eén live bron per gen:</strong> <strong>NCBI Gene</strong>, voor een samenvatting van genen die dbNSFP niet dekt, en alleen tijdens een verversing, nooit bij het openen van een pagina.</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> de datasamenstelling gebeurt volledig in de functie <code>build_gene_profile</code> in <code>backend/app/services/gene_metadata_service.py</code>; de externe link-lijst in <code>_build_external_links</code> in datzelfde bestand.</p>
-<h3>Hoe het profiel wordt samengesteld</h3>
-<p><code>build_gene_profile</code> combineert twee databronnen uit Postgres:</p>
-<ol>
-<li>De <strong><code>genes</code>-tabel</strong> (de geïmporteerde referentie-gentabel per assembly) levert de "harde" locus-gegevens: chromosoom, start/eind, exonen, strand, transcript-id. Via <code>_lookup_gene_documents</code> en <code>_pick_primary_gene_doc</code> wordt het juiste locus gekozen — bij een gen dat zowel op een primair chromosoom als op een ALT/scaffold-contig voorkomt, wint altijd het primaire chromosoom (<code>is_primary_chromosome</code>), zodat de weergave nooit naar een alt-contig "springt".</li>
-<li>De <strong><code>gene_info</code>-tabel</strong> (de gecachte externe verrijking) levert de "zachte" gegevens: display-naam, samenvatting, aliassen, Ensembl/NCBI/HGNC/OMIM-ids, constraint-metrieken en ziekte-associaties (in de <code>extra</code>-kolom).</li>
-</ol>
-<p>Belangrijk voor de auditor: als er nog geen <code>gene_info</code>-cache bestaat voor de gekozen assembly, valt de code terug op de meest recent bijgewerkte <code>gene_info</code>-rij voor hetzelfde symbool over alle humane assemblies (de <code>fallback_result</code>-query, gesorteerd op <code>updated_at DESC</code>). De pagina degradeert dus netjes: de locus-gegevens komen altijd uit <code>genes</code>, en de verrijking wordt aangevuld zodra een sync heeft gedraaid.</p>
-<p><strong>Veiligheid &amp; toegangscontrole in het profiel.</strong> Wanneer een <code>project_id</code> of <code>family_id</code> wordt meegegeven, wordt de toegang eerst gecontroleerd: <code>build_gene_profile</code> roept <code>get_accessible_family_mapping</code> aan voor de familie, en <code>_ensure_project_access</code> weigert (HTTP 403) als een niet-admin het project niet in <code>metadata_project_ids</code> heeft. Zo lekt de fenotype-matching geen familie- of projectcontext waar de gebruiker geen recht op heeft (zie ook hoofdstuk <a href="#hs-2">Gebruikersrollen, machtigingen &amp; afscherming</a>).</p>
-<h2>Externe bronnen: welke service haalt wat op</h2>
-<p>CoGA verrijkt genen uit meerdere gezaghebbende bronnen. De ophaal-logica staat in twee services.</p>
-<p><code>backend/app/services/gene_info_external.py</code> doet de <strong>per-gen, live REST-bronnen</strong> (alleen tijdens een sync, niet per paginabezoek):</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Bron</th>
-<th>Functie</th>
-<th>Levert</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>NCBI Gene (E-utilities)</td>
-<td><code>fetch_ncbi_gene</code></td>
-<td>Samenvatting, aliassen, maplocation</td>
-</tr>
-</tbody>
-</table></div>
-<p>Dat is de <strong>enige</strong> per-gen REST-bron die overblijft. De HGNC-, Ensembl-, Ensembl-homology- en
-ClinGen-paginabronnen die hier vroeger stonden zijn verwijderd: gemeten over 4.052 genen die dit pad
-bereikten leverden ze niets wat de bulk-bestanden al bevatten. De ClinGen-pagina meldde 4.046 keer
-"success" maar gaf een functie voor 61 genen, een MANE-transcript voor 23 en een GenCC-classificatie
-voor 1; Ensembl leverde alleen het canonical transcript, dat GENCODE per transcript labelt; de
-homology-call gaf 0 orthologen in 1.380 pogingen; en alles wat HGNC per gen teruggaf staat in de
-complete set, die één keer per job wordt gedownload en alle ~45.000 genen dekt in plaats van de
-helft. Dat is geen toeval: dit pad draait alleen voor genen die dbNSFP níét dekt, en dat zijn
-overwegend lncRNA's en pseudogenen die niemand gecureerd heeft. NCBI blijft omdat het als enige een
-gen-samenvatting levert voor genen buiten dbNSFP (1.685 van die 4.052).</p>
-<p><code>backend/app/services/gene_info_bulk_sources.py</code> doet de <strong>bulk-bronnen</strong> — hele bestanden ineens ingelezen en per symbool geïndexeerd:</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Bron</th>
-<th>Parser</th>
-<th>Levert</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>HGNC complete set (TSV)</td>
-<td><code>parse_hgnc_complete_set_rows</code></td>
-<td><strong>Het register van welke genen bestaan</strong>: HGNC-id, huidig symbool, vorige symbolen en aliassen, Ensembl/Entrez/RefSeq/CCDS/UniProt/MANE-ids, locus-groep, cytoband</td>
-</tr>
-<tr>
-<td>dbNSFP gene (lokaal <code>.gz</code>-bestand)</td>
-<td><code>parse_dbnsfp_gene_rows</code></td>
-<td>De rijkste bron: constraint-metrieken (<code>_dbnsfp_constraint_metrics</code> — gnomAD pLI/LOEUF, ExAC-scores, RVIS, pHaplo/pTriplo, GDI, s-het…), OMIM/Orphanet-ziekteassociaties, GO-termen, pathways, HPO-termen, weefsel-expressie, model-organisme-orthologen</td>
-</tr>
-<tr>
-<td>ClinGen gene validity (CSV)</td>
-<td><code>parse_clingen_validity_rows</code></td>
-<td>Gen–ziekte-validiteitsclassificaties (Definitive/Strong/…) met MONDO-id, overervingswijze, SOP, datum</td>
-</tr>
-<tr>
-<td>ClinGen dosage (CSV)</td>
-<td><code>parse_clingen_dosage_rows</code></td>
-<td>Haploinsufficiëntie/triplosensitiviteit-scores</td>
-</tr>
-<tr>
-<td>GenCC (CSV)</td>
-<td><code>parse_gencc_rows</code></td>
-<td>Gen–ziekte-assertions van meerdere submitters met classificatie en overervingswijze</td>
-</tr>
-<tr>
-<td>ClinVar gene-condition (TSV)</td>
-<td><code>parse_clinvar_gene_condition_rows</code></td>
-<td>Gen↔aandoening-relaties met OMIM-mim en bron</td>
-</tr>
-</tbody>
-</table></div>
-<p>De coördinatie zit in <code>load_human_gene_bulk_context</code> (in <code>gene_info_bulk_sources.py</code>): <strong>elke bulk-bron
-wordt voor élk gen geraadpleegd</strong>. Dit zijn hele bestanden die per job één keer worden ingelezen, dus
-beperken levert niets op. Vroeger werden de online bestanden alléén geraadpleegd voor symbolen die
-dbNSFP niet dekte, en dat gooide vrijwel hun hele inhoud weg: dbNSFP mist obscure lncRNA's en
-pseudogenen, terwijl ClinGen/GenCC/ClinVar juist de bekende ziektegenen cureren die dbNSFP al dekt —
-de twee verzamelingen overlappen nauwelijks. GenCC leverde op die manier 1 gen op de 30.000.</p>
-<p>Welke genen bestaan wordt bepaald door <strong>HGNC</strong>, niet door de annotatie: een locus met een symbool dat
-HGNC niet kent (bijvoorbeeld <code>AC093323.1</code>) is een geannoteerd kenmerk en geen gen, houdt zijn rij in
-<code>genes</code> en krijgt simpelweg geen verrijkt record. Hernoemde symbolen worden via <code>prev_symbol</code>/
-<code>alias_symbol</code> naar het huidige symbool gevouwen (<code>build_hgnc_symbol_resolver</code>), zodat <code>AATK</code> het
-record van <code>LMTK1</code> vindt; een historisch symbool waar twee genen aanspraak op maken wordt weggelaten
-in plaats van geraden.</p>
-<p>De URL's van de bulk-bronnen zijn configureerbaar (<code>gene_reference_hgnc_complete_set_url</code>,
-<code>gene_reference_clingen_validity_url</code>, <code>gene_reference_clingen_dosage_url</code>,
-<code>gene_reference_gencc_url</code>, <code>gene_reference_clinvar_gene_condition_url</code> in
-<code>backend/app/core/config.py</code>); het lokale dbNSFP-pad via <code>gene_reference_dbnsfp_gene_path</code>.</p>
-<p><code>fetch_external_gene_bundle</code> (in <code>gene_info_external.py</code>) voegt alles samen tot één "bundle": als
-dbNSFP het gen dekt (<code>primary_source == "dbnsfp_gene"</code>), wordt dat als "fast path" gebruikt en wordt
-de NCBI-call overgeslagen; anders wordt NCBI opgehaald en met de bulk-data samengevoegd via
-<code>merge_gene_extra</code>. De identiteitsvelden (naam, aliassen, vorige symbolen, Ensembl/Entrez/OMIM-ids,
-locus-groep, VEGA-id, RefSeq-accessies) komen in beide gevallen uit de HGNC complete set.</p>
-<p>Elke deelbron krijgt een <code>source_status</code>-record: status, <code>fetched_at</code>, <code>source_url</code>, eventuele
-foutmelding, en <strong><code>release</code></strong> — welke uitgave van de bron dit gen beantwoordde (dbNSFP <code>5.4</code>, HGNC
-<code>2026-08-07</code>, de <code>FILE CREATED</code>-datum van ClinGen, de nieuwste <code>submitted_run_date</code> van GenCC), plus
-in <code>release_detail</code> de sha256 van de daadwerkelijk ingelezen bytes. Bronnen die zelf geen uitgave
-vermelden (ClinVar) krijgen bewust geen <code>release</code> in plaats van een verzonnen versie.</p>
-<p>De status kent vier waarden, en het onderscheid tussen de middelste twee is het punt:</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Status</th>
-<th>Betekenis</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>success</code></td>
-<td>de bron had een record voor dit gen</td>
-</tr>
-<tr>
-<td><code>missing</code></td>
-<td>de bron is bevraagd en heeft niets voor dit gen</td>
-</tr>
-<tr>
-<td><code>not_consulted</code></td>
-<td>de bron is voor dit gen nooit bevraagd — <strong>geen</strong> uitspraak over dekking</td>
-</tr>
-<tr>
-<td><code>error</code></td>
-<td>de download of het inlezen mislukte</td>
-</tr>
-</tbody>
-</table></div>
-<p>Dit is de provenance die in de admin-pagina (kolommen "Release", "No record", "Not consulted") en
-onderaan het gen-profiel zichtbaar is.</p>
-<p><strong>PanelApp</strong> is een aparte bron met een eigen service, <code>backend/app/services/panelapp_service.py</code>. Die wordt niet gebruikt voor gen-verrijking maar voor het <strong>importeren van genpanels</strong> (Genomics England PanelApp) — <code>search_panelapp_panels</code>, <code>fetch_panelapp_panel</code> en <code>extract_panelapp_import_content</code>. Belangrijk voor traceerbaarheid: de import-metadata bevat expliciet <code>panelapp_id</code>, <code>version</code>, <code>version_created</code>, <code>status</code> en een <code>source_url</code> (zie het <code>metadata</code>-blok in <code>extract_panelapp_import_content</code>). Deze panels verschijnen daarna als "Panel-lidmaatschap" op het gen-profiel. De aanroepende endpoints staan in <code>backend/app/routers/panels.py</code> (<code>GET /panels/panelapp/search</code>, <code>POST /panels/import/panelapp</code>).</p>
-<h2>Caching in Postgres: waarom en waar</h2>
-<p>De externe bronnen worden <strong>niet live per paginabezoek</strong> bevraagd. Dat zou traag, fragiel (afhankelijk van externe uptime) en niet-reproduceerbaar zijn — twee reviewers zouden verschillende data zien. In plaats daarvan cachet CoGA de verrijking in Postgres, en leest de pagina uitsluitend uit die cache.</p>
-<p>De centrale cachetabel is <strong><code>gene_info</code></strong>, gedefinieerd in <code>backend/db/schema/postgres/02_reference.sql</code>. Één rij per <code>(assembly_id, hgnc_symbol)</code> (uniek), met kolommen voor <code>display_name</code>, <code>summary</code>, <code>aliases</code>, ids (<code>ensembl_gene_id</code>, <code>ncbi_gene_id</code>, <code>hgnc_id</code>, <code>omim_gene_id</code>), <code>homologs</code>, de JSONB-kolom <code>source_status</code> (de provenance-status per bron) en de JSONB-kolom <code>extra</code> (constraint-metrieken en ziekte-associaties). <code>updated_at</code> legt vast wanneer de rij voor het laatst is ververst.</p>
-<p>Voor performante zoek- en lookup-queries zijn in <strong><code>backend/db/schema/postgres/02_reference.sql</code></strong>, direct na de <code>CREATE TABLE</code> van <code>genes</code> en <code>gene_info</code>, expressie-indexen aangelegd op beide tabellen. Zonder deze indexen zou elke toetsaanslag in de autocomplete (<code>upper(hgnc_symbol) LIKE 'PREFIX%'</code>) en elke panel-/regio-resolve een sequentiële scan over 120.000+ rijen veroorzaken. De indexen dekken exact de query-predicaten: <code>text_pattern_ops</code> voor de prefix-<code>LIKE</code> van <code>search_genes</code>, en losse <code>upper()</code>/<code>lower()</code>-indexen op symbool, gene-id en transcript-id zodat de query-planner een BitmapOr kan doen in plaats van te scannen.</p>
-<p class="waar"><strong>Waar in de code:</strong> het lezen uit de cache gebeurt in <code>build_gene_profile</code> (<code>gene_metadata_service.py</code>); het schrijven in <code>_upsert_gene_info_row</code> (<code>gene_info_jobs_pg.py</code>), met een <code>INSERT … ON CONFLICT (assembly_id, hgnc_symbol) DO UPDATE</code> zodat een sync bestaande rijen bijwerkt zonder duplicaten.</p>
-<h2>Refresh-jobs &amp; worker</h2>
-<p>Omdat een volledige sync van alle humane genen duizenden externe verrijkingen omvat, draait dit als achtergrond-job, niet inline in een webverzoek. De job-tabel is <strong><code>gene_info_refresh_jobs</code></strong> in <code>02_reference.sql</code>.</p>
-<h3>De job-tabel</h3>
-<p>Kernkolommen: <code>scope</code> (<code>'symbol'</code> voor één gen, <code>'all_human'</code> voor de hele catalogus), <code>symbol</code>, <code>status</code> (<code>'queued' → 'running' → 'completed'/'failed'</code>), <code>active_slot</code>, <code>worker_id</code>, <code>requested_by</code>, tijdstempels (<code>requested_at</code>, <code>started_at</code>, <code>heartbeat_at</code>, <code>completed_at</code>) en voortgangstellers (<code>total_symbols</code>, <code>completed_symbols</code>, <code>updated_records</code>, <code>current_symbol</code>).</p>
-<p>Cruciaal voor veiligheid: <code>active_slot TEXT UNIQUE</code>. Er bestaat één logische slot-waarde (<code>ACTIVE_GENE_REFERENCE_SLOT = "gene_reference"</code>), en omdat de kolom uniek is, kan er nooit meer dan één actieve job tegelijk bestaan. Een tweede insert botst op de unieke constraint en de service vertaalt dat naar een <strong>HTTP 409</strong> ("A gene reference refresh job is already active"). Dit is databank-afgedwongen wederzijdse uitsluiting, geen best-effort applicatielogica.</p>
-<h3>Queuen</h3>
-<p><code>queue_gene_reference_refresh_job</code> (<code>gene_info_jobs_pg.py</code>) voegt een <code>queued</code>-rij toe met de <code>active_slot</code>. Dit wordt aangeroepen door:</p>
-<ul>
-<li>de admin-endpoints <code>POST /admin/gene-reference/refresh-all</code> en <code>/refresh-gene</code> (zie volgende sectie), met <code>requested_by = user.email</code>;</li>
-<li>de startup-bootstrap <code>queue_startup_gene_reference_refresh_if_needed</code>, die alleen queuet als (a) bootstrap aanstaat (<code>gene_reference_bootstrap_on_startup</code>), (b) een lokaal dbNSFP-bestand bestaat (<code>find_local_dbnsfp_gene_path</code>), (c) er humane genen geladen zijn, (d) de <code>gene_info</code>-cache nog leeg is, en (e) er nog geen actieve job loopt. Dit voorkomt dat een verse installatie zonder gecachte gen-data blijft; de bootstrap-job krijgt <code>requested_by = "startup-bootstrap"</code>.</li>
-</ul>
-<h3>Uitvoeren: de worker</h3>
-<p>De worker <code>gene_reference_refresh_worker</code> wordt bij het opstarten van de applicatie als achtergrondtaak gestart en bij afsluiten netjes gestopt (<code>backend/app/main.py</code>, regels 82 en 91 — zie ook hoofdstuk <a href="#hs-4">Initiële deployment &amp; seeding</a>). De worker pollt elke 2 seconden (<code>GENE_REFERENCE_WORKER_POLL_SECONDS = 2.0</code>). Zijn kern:</p>
-<ul>
-<li><code>claim_next_gene_reference_refresh_job</code> claimt atomair de volgende job met <code>FOR UPDATE SKIP LOCKED</code> (voorkomt dat twee workers dezelfde job pakken) en zet <code>status = 'running'</code> met een <code>worker_id</code> en <code>heartbeat_at</code>. Het claimt ook <strong>verweesde</strong> jobs: een <code>running</code>-job waarvan de heartbeat ouder is dan 5 minuten (<code>GENE_REFERENCE_STALE_HEARTBEAT</code>) wordt als "stale" opnieuw opgepakt — zo blijft een gecrashte worker een job niet eeuwig blokkeren.</li>
-<li><code>run_gene_reference_refresh_job</code> → <code>_refresh_grouped_human_gene_info</code> doorloopt de symbolen, roept per symbool <code>fetch_external_gene_bundle</code> aan en schrijft via <code>_upsert_gene_info_row</code> naar <code>gene_info</code>. De voortgang (<code>completed_symbols</code>, <code>current_symbol</code>, <code>updated_records</code>, <code>heartbeat_at</code>) wordt gethrottled weggeschreven: hooguit elke 100 symbolen of elke 30 seconden (<code>GENE_REFERENCE_PROGRESS_COMMIT_SYMBOLS</code>/<code>_SECONDS</code>), zodat een lange sync niet bij elk gen commits doet maar de heartbeat toch ruim binnen de 5-minuten-grens blijft.</li>
-<li>Bij succes: <code>status = 'completed'</code>, <code>active_slot = NULL</code> (de slot wordt vrijgegeven zodat een volgende job kan starten). Bij een exception: <code>status = 'failed'</code> met de foutmelding in <code>error</code>, en de slot wordt eveneens vrijgegeven.</li>
-</ul>
-<h2>Versiecontrole van referentiedatasets</h2>
-<p>Dit is het hart van reproduceerbaarheid onder IVDR: elke geïmporteerde referentiedataset en elke paneelversie wordt vastgelegd met <strong>bron + versie + tijdstip + wie</strong>, zodat een ondertekend rapport altijd aan een concrete, terugvindbare dataset-staat gebonden kan worden.</p>
-<h3>Referentiedataset-imports</h3>
-<p>Elke import van referentiedata (cytobanden, genen, blacklist, klinische CNV's, segmentale duplicaties, DGV) loopt via één enkel schrijfpad, <code>apply_reference_dataset_text</code> in <code>backend/app/services/reference_metadata_service.py</code>. Aan het eind van dat pad schrijft de functie — ongeacht of de import van een handmatige upload, een UCSC-import of een CNV-kennisbank-rebuild kwam — een rij naar <strong><code>reference_dataset_imports</code></strong> (schema <code>backend/db/schema/postgres/02_reference.sql</code>):</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Kolom</th>
-<th>Betekenis</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>assembly_id</code></td>
-<td>Voor welke assembly de data geldt</td>
-</tr>
-<tr>
-<td><code>dataset_type</code></td>
-<td>Welk soort dataset (<code>genes</code>, <code>cytobands</code>, …)</td>
-</tr>
-<tr>
-<td><code>inserted</code></td>
-<td>Hoeveel rijen geladen</td>
-</tr>
-<tr>
-<td><code>replaced</code></td>
-<td>Of bestaande data vervangen werd</td>
-</tr>
-<tr>
-<td><code>source</code></td>
-<td>Herkomst (<code>upload</code>, <code>ucsc</code>, …)</td>
-</tr>
-<tr>
-<td><code>performed_by</code></td>
-<td>Wie de import deed</td>
-</tr>
-<tr>
-<td><code>performed_at</code></td>
-<td>Wanneer (standaard <code>now()</code>)</td>
-</tr>
-</tbody>
-</table></div>
-<p>Omdat álle imports door dit ene pad gaan, is er één uniforme, chronologische audit-feed. <code>list_recent_reference_imports</code> en <code>list_reference_statuses</code> (in hetzelfde bestand) lezen deze tabel voor het "Recent reference activity"- en het per-dataset "laatst bijgewerkt / door / aantal"-overzicht.</p>
-<p>De <strong>UCSC-import</strong> zelf zit in <code>backend/app/services/reference_source_service.py</code> (<code>import_reference_from_ucsc</code>, <code>_download_genes</code>, <code>_download_cytobands</code>). Die haalt gentabellen en cytobanden op bij UCSC en roept per dataset <code>apply_reference_dataset_text(..., source="ucsc")</code> aan, waardoor de import automatisch in <code>reference_dataset_imports</code> belandt. Merk op: <code>_download_genes</code> probeert de tracks in volgorde <code>ncbiRefSeqCurated → ncbiRefSeq → refGene → ensGene</code>, wat de bron-track van de geïmporteerde genen bepaalt. Een veiligheidsdetail: <code>_safe_ucsc_genome</code> valideert het assembly-identifier tegen een strikt patroon (<code>_UCSC_GENOME_RE</code>) voordat het in een download-URL wordt geïnterpoleerd, wat een request-forgery (SSRF)-risico op de vaste UCSC-host afsluit.</p>
-<h3>Genpaneelbronnen en -versies</h3>
-<p>Genpanels dragen hun herkomst in deze kolommen van <code>gene_panels</code> (schema <strong><code>02_reference.sql</code></strong>): <code>source</code>, <code>external_id</code>, <code>external_version</code>, <code>external_url</code>, <code>source_updated_at</code>, <code>source_metadata</code>. Een uniek index op <code>(source, external_id)</code> voorkomt dat hetzelfde externe panel (bv. een PanelApp-panel) dubbel wordt geïmporteerd.</p>
-<p>De echte versiecontrole zit in hetzelfde baseline-bestand. <code>gene_panels</code> draagt een <code>version</code>-teller, en de tabel <strong><code>gene_panel_versions</code></strong> houdt de geschiedenis bij: bij elke wijziging van een panel wordt een <strong>onveranderlijke momentopname</strong> gearchiveerd met <code>version</code>, <code>name</code>, <code>source</code>, <code>external_version</code> (bv. de PanelApp- of Monarch-release), <code>gene_count</code>, de volledige <code>genes</code>- en <code>regions</code>-JSONB, <code>source_metadata</code>, plus <code>created_by</code> én <code>created_by_email</code> (het e-mailadres wordt gedenormaliseerd opgeslagen zodat de auteur traceerbaar blijft, zelfs als het account later verdwijnt). Het principe: het live panel is altijd gelijk aan de laatste versie-momentopname, en een update overschrijft of verwijdert nooit de vorige inhoud — die blijft getimestampeerd bewaard en opvraagbaar.</p>
-<p>De schrijf- en leeslogica staat in <code>backend/app/services/panel_metadata_service.py</code> (<code>_snapshot_panel_version</code>, <code>list_panel_versions</code>, <code>get_panel_version</code>), ontsloten via <code>GET /panels/{panel_id}/versions</code> en <code>GET /panels/{panel_id}/versions/{version}</code> in <code>backend/app/routers/panels.py</code>. Zo kan een reviewer voor elk rapport terug naar de exacte paneelversie die op dat moment gold.</p>
-<h3>Waarom dit reproduceerbaarheid en rapport-binding ondersteunt</h3>
-<p>De combinatie is bewust: <code>reference_dataset_imports</code> legt vast welke <em>referentie-genen/cytobanden/CNV's</em> actief waren en wanneer; <code>gene_panel_versions</code> legt vast welke exacte <em>genset</em> een panel op een moment had; <code>gene_info.source_status</code> legt per gen vast uit welke externe bronnen (met <code>fetched_at</code>) de verrijking kwam. Voor de externe applicatie-releasecontext biedt <code>backend/app/services/github_releases_service.py</code> bovendien een gecachte GitHub-release-catalogus (<code>get_github_release_catalog</code>), zodat de software-versie zelf ook zichtbaar is. Samen geven ze een auditor het volledige antwoord op "welke referentiedata-versie lag ten grondslag aan dit rapport?".</p>
-<h2>Admin: syncs starten en versies inspecteren</h2>
-<p>De beheerderspagina is <code>frontend/src/pages/admin/GeneReferenceAdminPage.tsx</code>. Een beheerder kan daar:</p>
-<ul>
-<li><strong>één gen</strong> opnieuw laten cachen (invoerveld + "Refresh gene" → <code>POST /admin/gene-reference/refresh-gene?symbol=…</code>);</li>
-<li><strong>alle geïmporteerde humane genen</strong> opnieuw laten cachen ("Refresh all human genes" → <code>POST /admin/gene-reference/refresh-all</code>);</li>
-<li>de <strong>actieve job</strong> volgen met een voortgangsbalk (percentage, <code>completed/total</code> genen, gecachte records, huidig symbool) die elke 3 seconden ververst zolang een job loopt (en anders elke 15 seconden);</li>
-<li>de <strong>bron-dekking</strong> inspecteren: een tabel per bron (HGNC, Ensembl, NCBI, ClinGen, GenCC, ClinVar, dbNSFP) met laatste fetch-tijd en tellingen voor success/missing/error/records;</li>
-<li>de <strong>jobgeschiedenis</strong> bekijken (laatste 12 jobs met scope, symbool, status, voortgang, records, voltooiingstijd).</li>
-</ul>
-<p>De statusdata komt van <code>GET /admin/gene-reference/status</code> → <code>list_gene_reference_admin_status</code> (<code>gene_info_jobs_pg.py</code>), dat de bronstatistieken aggregeert door de <code>source_status</code>-JSONB van alle <code>gene_info</code>-rijen te ontleden (<code>_aggregate_gene_info_source_summaries</code>, via een <code>jsonb_each</code>-LATERAL join).</p>
-<p><strong>Veiligheid &amp; toegangscontrole:</strong> alle drie de gene-reference-endpoints in <code>backend/app/routers/admin.py</code> hangen aan <code>Depends(get_current_admin_user)</code> — alleen een admin mag syncs starten of de status zien. De <code>requested_by</code> wordt gezet op <code>user.email</code>, zodat elke gestarte sync herleidbaar is tot een concrete beheerder (zie ook hoofdstuk <a href="#hs-2">Gebruikersrollen, machtigingen &amp; afscherming</a>). De unieke <code>active_slot</code> (409 bij dubbele start) beschermt bovendien tegen dubbele of concurrente syncs.</p>
-<h2>MANE/transcript-badging</h2>
-<p>Klinisch is niet elk transcript gelijkwaardig: het <strong>MANE Select</strong>-transcript (Matched Annotation from NCBI and EMBL-EBI) is het aanbevolen referentietranscript, met daarnaast <strong>MANE Plus Clinical</strong> voor klinisch belangrijke extra transcripten, <strong>RefSeq Select</strong> en <strong>Ensembl Canonical</strong> als aanvullende referenties. CoGA bepaalt en toont deze op twee plaatsen.</p>
-<p><strong>In de UI</strong> (<code>GeneInfoPage.tsx</code>): de functie <code>transcriptBadgesFor</code> vergelijkt elk transcript-id met de referenties in <code>TranscriptAnnotationContext</code> (<code>maneSelect</code>, <code>manePlusClinical</code>, <code>ensemblCanonical</code>, <code>refseqSelect</code>) en kent badges toe. De referenties worden gevuld uit het profiel: <code>clingenFacts.mane_select_transcript</code> en <code>mane_plus_clinical_transcript</code>, <code>profile.extra.ensembl_canonical_transcript</code> en <code>profile.extra.refseq_accessions</code>. De vergelijking is versie-tolerant via <code>normalizeTranscriptId</code>, dat het versiesuffix na de punt weglaat (bv. <code>NM_007294.4</code> matcht <code>NM_007294</code>). De transcriptenlijst wordt vervolgens gesorteerd zodat geannoteerde transcripten (MANE eerst) bovenaan staan; <code>classifyTranscript</code> labelt elk id nog als Ensembl/RefSeq/Imported op basis van het prefix (<code>ENS…</code> vs. <code>NM_/NR_/XM_/XR_</code>).</p>
-<p><strong>In de backend</strong> wordt hetzelfde principe gebruikt om, bij het tekenen van genen in een genomische regio, per gen het "beste" transcript te kiezen. <code>_gene_transcript_priority</code> en <code>_select_preferred_gene_rows</code> in <code>reference_metadata_service.py</code> rangschikken transcripten als MANE Select (rang 0) → Ensembl Canonical (rang 1) → overige (rang 2), en breken gelijke stand met transcriptlengte en aantal exonen. De MANE/canonical-referentie wordt daarbij uit meerdere mogelijke veldnamen gehaald (<code>mane_select_transcript</code>, <code>MANE_SELECT</code>, <code>ensembl_canonical_transcript</code>, <code>canonical_transcript</code>, …) om robuust te zijn tegen verschillen tussen bronnen. Deze verrijking komt binnen via de <code>LEFT JOIN gene_info gi</code> in <code>get_gene_region_records</code> (zelfde bestand), die de gecachte <code>gene_info.extra</code> aan elke gen-rij koppelt.</p>
+<p>Welke genen bestaan, bepaalt <strong>HGNC</strong>, niet de annotatie. Een locus met een symbool dat HGNC niet kent, is geen gen en krijgt geen verrijking. Een hernoemd symbool wordt via de vorige symbolen en aliassen naar het huidige gevouwen; een oud symbool waar twee genen aanspraak op maken, wordt weggelaten in plaats van geraden.</p>
+<p><strong>Herkomst per bron.</strong> Elke bron krijgt per gen een status: <code>success</code> (de bron had een record), <code>missing</code> (bevraagd, maar niets voor dit gen), <code>not_consulted</code> (nooit bevraagd: géén uitspraak over dekking) of <code>error</code> (downloaden of inlezen mislukte). Bij elke status horen het tijdstip, de URL en, waar de bron het vermeldt, de <strong>uitgave</strong> die het antwoord gaf, met de SHA-256 van de ingelezen bytes. Een bron die geen uitgave vermeldt (ClinVar), krijgt er bewust geen, in plaats van een verzonnen versie. De URL's van de bulkbronnen en het pad naar dbNSFP zijn instellingen (<code>.env.example</code>).</p>
+<p><strong>Genpanels van PanelApp</strong> worden niet voor de verrijking gebruikt maar als panels geïmporteerd; hoofdstuk 15 beschrijft dat.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/gene_info_bulk_sources.py</code> (de bulkbronnen) en <code>gene_info_external.py</code> (NCBI en het samenvoegen).</p>
+<h2>Waarom en hoe CoGA dit bewaart</h2>
+<p>De externe bronnen worden <strong>niet</strong> bij elk paginabezoek bevraagd. Dat zou traag en kwetsbaar zijn, en niet reproduceerbaar: twee reviewers konden verschillende data zien. De verrijking staat daarom in de Postgres-tabel <strong><code>gene_info</code></strong>, één rij per assembly en symbool, met de bronstatus en het tijdstip van de laatste verversing. De pagina leest alleen uit die tabel.</p>
+<p><strong>Verversen als achtergrondjob.</strong> Een volledige verversing omvat duizenden genen en draait daarom als job in <code>gene_info_refresh_jobs</code>, voor één gen of voor alle menselijke genen. Er kan maar <strong>één actieve job</strong> tegelijk zijn; de databank dwingt dat af, en een tweede aanvraag krijgt <code>409</code>. Bij elke job wordt bewaard wie hem aanvroeg (het e-mailadres van de beheerder, of <code>startup-bootstrap</code> voor de eerste job bij de installatie). Een worker neemt de job, verwerkt de genen en schrijft de voortgang geregeld weg; een job waarvan de worker stopte, wordt na een tijd opnieuw opgepakt.</p>
+<p><strong>Beheer.</strong> Op de pagina <em>Gene reference sync</em> (<code>GeneReferenceAdminPage.tsx</code>) kan een beheerder één gen of alle genen laten verversen, de actieve job volgen, de dekking per bron bekijken (met de kolommen <em>Release</em>, <em>No record</em> en <em>Not consulted</em>) en de recente jobs zien. Alle endpoints daarvoor (<code>/api/admin/gene-reference/...</code>) zijn alleen voor beheerders.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/gene_info_jobs_pg.py</code>; de worker start en stopt in de <code>lifespan</code> van <code>backend/app/main.py</code>.</p>
+<h2>Versiecontrole van referentiedata</h2>
+<p>Voor reproduceerbaarheid onder de IVDR wordt elke import van referentiedata vastgelegd. Elke import van genen, cytobanden, blacklist, klinische CNV's, segmentale duplicaties of DGV, via een upload, de automatische import, een herbouw van de CNV-kennisbank of het DGV-importscript (<code>scripts/import_dgv.py</code>), schrijft een rij in <strong><code>reference_dataset_imports</code></strong>: de assembly, de soort dataset, het aantal rijen, of bestaande data vervangen werd, de bron en haar URL, wie de import deed en wanneer. De pagina <em>Organisms and assemblies</em> (<code>/reference-data</code>) toont die geschiedenis (<em>Recent reference activity</em>) en de status per assembly en dataset.</p>
+<p><strong>Genpanels</strong> krijgen bij elke wijziging een onveranderlijke versie met de volledige genlijst (hoofdstuk 15).</p>
+<p>Samen beantwoorden <code>reference_dataset_imports</code> (welke referentiedata actief was, sinds wanneer), de panelversies (welke genset een panel had) en de bronstatus in <code>gene_info</code> (uit welke bronnen en uitgaven de verrijking kwam) de vraag van een auditor: welke referentiedata lag onder dit resultaat? Het ondertekende rapport bevriest daarnaast de bron van de genloci en de Monarch-release (hoofdstuk 11).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/reference_metadata_service.py</code> (de imports en hun registratie) en <code>reference_source_service.py</code> (de automatische import); de pagina <code>frontend/src/pages/reference/ReferenceCatalogPage.tsx</code>.</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
 <thead>
@@ -3087,63 +2877,43 @@ onderaan het gen-profiel zichtbaar is.</p>
 <tbody>
 <tr>
 <td><code>backend/app/routers/genes.py</code></td>
-<td>Endpoints <code>/genes/search</code>, <code>/genes/profile</code>, <code>/genes/{assembly}/{chrom}</code></td>
+<td>Zoeken, genprofiel, genen per regio</td>
 </tr>
 <tr>
 <td><code>backend/app/services/gene_metadata_service.py</code></td>
-<td>Bouwt het gen-profiel uit <code>genes</code> + <code>gene_info</code>; zoek-autocomplete; externe link-outs; toegangscontrole familie/project</td>
+<td>Het genprofiel uit <code>genes</code> en <code>gene_info</code>, met toegangscontrole</td>
 </tr>
 <tr>
-<td><code>backend/app/services/gene_info_external.py</code></td>
-<td>Live per-gen REST-bronnen (HGNC, Ensembl, NCBI, ClinGen) + bundeling</td>
-</tr>
-<tr>
-<td><code>backend/app/services/gene_info_bulk_sources.py</code></td>
-<td>Bulk-parsers dbNSFP, ClinGen validity/dosage, GenCC, ClinVar gene-condition</td>
+<td><code>backend/app/services/gene_info_bulk_sources.py</code> · <code>gene_info_external.py</code></td>
+<td>De bulkbronnen; NCBI en het samenvoegen</td>
 </tr>
 <tr>
 <td><code>backend/app/services/gene_info_jobs_pg.py</code></td>
-<td>Refresh-jobs: queue, atomair claimen, worker, upsert naar <code>gene_info</code></td>
-</tr>
-<tr>
-<td><code>backend/app/services/panelapp_service.py</code></td>
-<td>PanelApp-zoeken/-import met paneelversie-metadata</td>
-</tr>
-<tr>
-<td><code>backend/app/services/reference_source_service.py</code></td>
-<td>UCSC-import van gentabellen/cytobanden (gevalideerde host)</td>
+<td>De verversingsjobs en de worker</td>
 </tr>
 <tr>
 <td><code>backend/app/services/reference_metadata_service.py</code></td>
-<td>Eén schrijfpad <code>apply_reference_dataset_text</code>; transcript-prioriteit/MANE-selectie</td>
+<td>Imports van referentiedata en hun registratie; transcriptkeuze</td>
 </tr>
 <tr>
-<td><code>backend/app/services/panel_metadata_service.py</code></td>
-<td>Paneelversie-momentopnamen schrijven en lezen</td>
-</tr>
-<tr>
-<td><code>backend/app/services/github_releases_service.py</code></td>
-<td>Gecachte GitHub-release-catalogus (software-versiecontext)</td>
+<td><code>backend/app/services/reference_source_service.py</code></td>
+<td>De automatische import van GRCh38 en T2T</td>
 </tr>
 <tr>
 <td><code>backend/db/schema/postgres/02_reference.sql</code></td>
-<td>Tabellen <code>genes</code>, <code>gene_info</code>, <code>gene_info_refresh_jobs</code>, <code>gene_panels</code> (met de paneel-herkomstkolommen <code>source</code>, <code>external_id</code>, <code>external_version</code>, …) en <code>gene_panel_versions</code> (onveranderlijke paneelversie-momentopnamen); de audit-tabel <code>reference_dataset_imports</code> voor elke referentiedataset-import; de expressie-indexen voor gen-autocomplete en constraint-lookups</td>
-</tr>
-<tr>
-<td><code>backend/app/routers/admin.py</code></td>
-<td>Admin-endpoints <code>/admin/gene-reference/status</code>, <code>/refresh-all</code>, <code>/refresh-gene</code></td>
-</tr>
-<tr>
-<td><code>backend/app/routers/panels.py</code></td>
-<td>PanelApp-import en paneelversie-endpoints (<code>/panels/{panel_id}/versions</code>)</td>
+<td><code>genes</code>, <code>gene_info</code>, <code>gene_info_refresh_jobs</code>, <code>reference_dataset_imports</code></td>
 </tr>
 <tr>
 <td><code>frontend/src/pages/genes/GeneInfoPage.tsx</code></td>
-<td>De Gene Explorer-pagina inclusief transcript-badging</td>
+<td>De Gene Explorer, met de transcriptbadges</td>
 </tr>
 <tr>
 <td><code>frontend/src/pages/admin/GeneReferenceAdminPage.tsx</code></td>
-<td>Beheerpagina om syncs te starten en bron-/jobstatus te inspecteren</td>
+<td>Beheer van de synchronisatie</td>
+</tr>
+<tr>
+<td><code>frontend/src/pages/reference/ReferenceCatalogPage.tsx</code></td>
+<td>Assemblies, referentiedata en hun geschiedenis</td>
 </tr>
 </tbody>
 </table></div>
