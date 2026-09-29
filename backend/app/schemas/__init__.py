@@ -15,6 +15,8 @@ from .admin import (
     ClickHouseDetachedPartOut,
     ClickHouseGeneIndexConsistencyOut,
     ClickHouseVariantIntegrityOut,
+    ClickHouseIntegrityMonitorResultOut,
+    ClickHouseIntegrityMonitorOut,
 )
 from .common import (
     ApiId,
@@ -331,6 +333,8 @@ __all__ = [
     "ClickHouseDetachedPartOut",
     "ClickHouseGeneIndexConsistencyOut",
     "ClickHouseVariantIntegrityOut",
+    "ClickHouseIntegrityMonitorResultOut",
+    "ClickHouseIntegrityMonitorOut",
     "ApiId",
     "ApiDocumentModel",
     "GeneLocation",

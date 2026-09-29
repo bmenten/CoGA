@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { apiPath } from '../../lib/apiPath';
+import type { ClickHouseIntegrityMonitorOut } from '../../lib/apiSchema.generated';
 import PageState from '../../components/PageState';
 import { getErrorMessage } from '../../lib/errorMessage';
 import ClickhouseVariantOperationsSection from './ClickhouseVariantOperationsSection';
@@ -30,6 +32,19 @@ const AdminClickhouseManagementPage: React.FC = () => {
     },
     retry: false,
   });
+
+  // The scheduled check's last result, read without running a check.
+  const { data: integrityMonitor, error: integrityMonitorError } =
+    useQuery<ClickHouseIntegrityMonitorOut>({
+      queryKey: ['admin', 'clickhouse', 'integrity-monitor'],
+      queryFn: async () => {
+        const response = await api.get<ClickHouseIntegrityMonitorOut>(
+          apiPath`/admin/clickhouse/variants/integrity-monitor`,
+        );
+        return response.data;
+      },
+      retry: false,
+    });
 
   const runAction = async (
     key: string,
@@ -136,6 +151,15 @@ const AdminClickhouseManagementPage: React.FC = () => {
         }
         busyKey={busyKey}
         onRunAction={runAction}
+        integrityMonitor={integrityMonitor ?? null}
+        integrityMonitorError={
+          integrityMonitorError
+            ? getErrorMessage(
+                integrityMonitorError,
+                'The scheduled integrity check result could not be loaded.'
+              )
+            : null
+        }
       />
     </div>
   );

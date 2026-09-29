@@ -62,7 +62,7 @@ De hele beheer-API staat in `backend/app/routers/admin.py` (`/api/admin`); elk e
 
 ### ClickHouse-onderhoud
 
-Per assembly: de status van de tabellen, en onderhoudsacties achter een bevestiging: tabellen aanmaken of bijwerken, onderdelen samenvoegen (*optimize*), de gen-index van de small variants herbouwen, en een integriteitscontrole (hoofdstuk 11).
+Per assembly: de status van de tabellen, en onderhoudsacties achter een bevestiging: tabellen aanmaken of bijwerken, onderdelen samenvoegen (*optimize*), de gen-index van de small variants herbouwen, en een integriteitscontrole (hoofdstuk 11). De pagina toont ook, zonder een controle te starten, het laatste resultaat van de geplande integriteitscontrole per assembly en wanneer die liep, of dat ze niet kon lopen (`GET /api/admin/clickhouse/variants/integrity-monitor`, alleen voor beheerders).
 
 ### Familiestatussen
 

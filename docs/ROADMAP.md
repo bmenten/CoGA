@@ -16,7 +16,7 @@ tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 ## Engineering
 
 - **Sessions** (P1-8): there is no server-side logout or token revocation; a token stays valid until it expires.
-- **Operations** (P1-11, P1-12): no `/metrics` endpoint (the ClickHouse integrity check reports through the log), and no migration ledger (every schema file is re-applied on each start).
+- **Operations** (P1-11, P1-12): no `/metrics` endpoint (the ClickHouse integrity check reports through the log and the admin page), and no migration ledger (every schema file is re-applied on each start).
 - **Imports and scaling** (P2-5, P2-2): a stuck import job is picked up again only when a worker next looks for work, and nothing reads the import-incomplete flag, so such a family can still be signed out. Each backend container runs one uvicorn process whose event loop the API shares with the import and refresh workers.
 - **Regression truth set** (P2-8): no GIAB or GeT-RM truth set with a concordance harness for minor-release validation.
 - **Frozen evidence** (P3-5): a classification's evidence snapshot keeps the annotation-set hash and the ClinVar significance, not the frequencies or in-silico scores.
