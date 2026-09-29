@@ -68,13 +68,22 @@ Daarna roept de router de eigenlijke filterservice aan: `get_family_small_varian
 
 In de service worden de losse parameters eerst in één *dataclass* (een simpel gegevensobject met vaste velden) `SmallVariantQueryFilters` gegoten, gedefinieerd in `backend/app/services/family_variant_filters.py`. Diezelfde module bevat ook de parser voor de sample-filtercodering: `parse_small_variant_sample_filter` splitst de `sample:gt:qual:dp:af:ad`-string in een `SmallVariantSampleFilter`, en `parse_genotype_filter` vertaalt tokens als `het`/`hom`/`ref` naar de concrete genotype-strings (`0/1`, `1/1`, …) via `GENOTYPE_ALIASES`. Dit is precies het spiegelbeeld van de frontend-codering, zodat beide kanten dezelfde taal spreken.
 
-`get_family_small_variants_page` kiest vervolgens een uitvoeringspad, ongeveer in deze volgorde:
+`get_family_small_variants_page` kiest vervolgens een uitvoeringspad, in deze volgorde (sinds #528 elk pad een eigen functie):
 
-- **`count_only`** — enkel een aanwezigheidscheck voor het familiedashboard: `_family_has_small_variants` doet een `LIMIT 1` op de geïndexeerde `family_guid`-kolom en geeft in feite 0 of 1 terug.
-- **`prioritize`** (standaard aan) — delegeert naar `_prioritized_small_variants_page`, de fenotype-gestuurde rangschikking met caching (zie verder).
-- **Review-filters** — `classification`, `review_tag` en `has_notes` worden éérst in Postgres opgelost tot een verzameling variant-id's (`list_matching_small_variant_review_ids`); uit te sluiten tags idem. Die id-sets gaan als `include`/`exclude`-lijst de ClickHouse-query in. Levert het nul id's op, dan is het antwoord meteen een lege pagina.
-- **Panel** — `_fetch_panel_constraints` haalt de genen/regio's van het panel uit Postgres.
-- **Native pad vs. Python-pad** — `_can_use_small_native_page` bepaalt of de filter volledig in ClickHouse kan draaien (het snelle "native" pad). Overervingsmodi die paren of ouder-kindvergelijking vereisen (compound-het, de-novo, …) worden in Python nagerekend op een begrensde kandidatenset.
+- **`count_only`**: enkel een aanwezigheidscheck voor het familiedashboard. `_family_has_small_variants` doet een `LIMIT 1` op de geïndexeerde `family_guid`-kolom en geeft in feite 0 of 1 terug.
+- **Afbakening**: `_resolve_small_variant_scope` bepaalt één keer waartoe de vraag naast de filters beperkt is:
+  - het panel (`_fetch_panel_constraints`, genen en regio's uit Postgres);
+  - de review-selecties (`classification`, `review_tag` en `has_notes`, en de uit te sluiten tags), die éérst in Postgres tot verzamelingen variant-id's worden opgelost (`list_matching_small_variant_review_ids`);
+  - de intervallijst;
+  - de uit te sluiten regio's en genen.
+
+  Kan de vraag niets opleveren, dan is het antwoord meteen een lege pagina: een panel zonder genen of regio's, een review-selectie die geen variant heeft, of intervaltekst zonder geldige regio. Het resultaat, een `_SmallVariantScope`, gaat met `row_filters()` in elke ophaling en telling.
+- **`prioritize`** (standaard aan): delegeert naar `_prioritized_small_variants_page`, de fenotype-gestuurde rangschikking met caching (zie verder).
+- **Track met een grens**: `_small_variants_track_page` geeft boven de grens van de track alleen de telling terug, zodat de track kan zeggen dat er te veel varianten zijn om te tekenen.
+- **Native pad**: `_small_variants_native_page`, als `_can_use_small_native_page` bepaalt dat de filter volledig in ClickHouse kan draaien. ClickHouse filtert en pagineert dan zelf, met een begrensde telling.
+- **Python-pad**: `_small_variants_candidate_page` haalt een begrensde kandidatenset op en past daarop toe wat ClickHouse niet kan: gensymbolen, dragerscreening en de steekproef van een track. Met een overervingsmodus die paren of een ouder-kindvergelijking vereist (compound-het, recessief, …) bundelt `_small_variants_inheritance_page` compound-het-paren als groep.
+
+Een karakteriseringstest (`backend/tests/test_small_variant_page_golden.py`) legt per pad vast welke ophalingen en tellingen de functie doet en welke pagina ze teruggeeft.
 
 ### De geparametriseerde ClickHouse-query
 

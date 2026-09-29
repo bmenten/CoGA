@@ -2050,6 +2050,380 @@ async def precompute_family_ranking_safe(
         )
 
 
+@dataclass(slots=True)
+class _SmallVariantScope:
+    """What a small-variant request is narrowed to besides its filters, resolved once and
+    handed to every fetch and count: the panel, the review selections, and the regions and
+    genes to include or leave out."""
+
+    panel_constraints: PanelFilterConstraints
+    review_variant_ids: set[str] | None
+    excluded_review_variant_ids: set[str]
+    include_review_filter_active: bool
+    include_regions: list[Region]
+    exclude_regions: list[Region]
+    exclude_gene_regions: list[Region]
+    exclude_gene_terms: list[str]
+
+    def row_filters(self) -> dict[str, Any]:
+        """The keyword arguments the row fetch and the bounded count both take."""
+        return {
+            "panel_constraints": self.panel_constraints,
+            "include_variant_ids": self.review_variant_ids if self.include_review_filter_active else None,
+            "exclude_variant_ids": self.excluded_review_variant_ids,
+            "include_regions": self.include_regions,
+            "exclude_regions": self.exclude_regions,
+            "exclude_gene_regions": self.exclude_gene_regions,
+            "exclude_gene_terms": self.exclude_gene_terms,
+        }
+
+
+async def _resolve_small_variant_scope(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    review_classifications: list[str] | None,
+    review_tags: list[str] | None,
+    exclude_review_tags: list[str] | None,
+    has_notes: bool,
+) -> _SmallVariantScope | None:
+    """The request's scope, or None when it can match nothing: a panel without genes or
+    regions, a review selection no variant has, or interval text that parses to no region."""
+    panel_constraints = PanelFilterConstraints()
+    if filters.panel_id:
+        panel_constraints = await _fetch_panel_constraints(
+            session,
+            filters.panel_id,
+            assembly_id=context.assembly_id,
+        )
+        if not panel_constraints.genes and not panel_constraints.regions:
+            return None
+
+    include_review_filter_active = bool(review_classifications or review_tags or has_notes)
+    review_variant_ids: set[str] | None = None
+    if include_review_filter_active:
+        review_variant_ids = await list_matching_small_variant_review_ids(
+            session,
+            family_uuid=context.family_uuid,
+            classifications=review_classifications,
+            tags=review_tags,
+            has_notes=has_notes,
+        )
+        if not review_variant_ids:
+            return None
+    excluded_review_variant_ids = (
+        await list_matching_small_variant_review_ids(
+            session,
+            family_uuid=context.family_uuid,
+            tags=exclude_review_tags,
+        )
+        if exclude_review_tags
+        else set()
+    )
+
+    include_regions: list[Region] = []
+    if filters.intervals:
+        interval_regions = _parse_interval_regions(filters.intervals)
+        if not interval_regions:
+            return None
+        include_regions.extend(interval_regions)
+    exclude_regions = _parse_interval_regions(filters.exclude_intervals)
+    exclude_gene_regions = (
+        await _fetch_gene_regions(session, gene_query=filters.exclude_gene, assembly_id=context.assembly_id)
+        if filters.exclude_gene
+        else []
+    )
+    return _SmallVariantScope(
+        panel_constraints=panel_constraints,
+        review_variant_ids=review_variant_ids,
+        excluded_review_variant_ids=excluded_review_variant_ids,
+        include_review_filter_active=include_review_filter_active,
+        include_regions=include_regions,
+        exclude_regions=exclude_regions,
+        exclude_gene_regions=exclude_gene_regions,
+        exclude_gene_terms=_split_gene_terms(filters.exclude_gene),
+    )
+
+
+async def _small_variants_track_page(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    scope: _SmallVariantScope,
+    *,
+    page: int,
+    page_size: int,
+    track_result_limit: int,
+) -> VariantPage:
+    """A track's page, served only while the view holds fewer variants than the track's
+    limit; past it, the count alone, so the track can say there are too many to draw."""
+    safe_track_result_limit = min(
+        max(int(track_result_limit), 1),
+        _SMALL_TRACK_RESULT_LIMIT,
+    )
+    if not _can_use_small_native_page(
+        filters,
+        track_mode=False,
+    ):
+        return _small_track_limit_response(
+            track_result_limit=safe_track_result_limit
+        )
+
+    total, total_is_estimated = await _count_small_variant_rows_bounded(
+        context,
+        filters,
+        count_limit=safe_track_result_limit,
+        **scope.row_filters(),
+    )
+    if total_is_estimated or total >= safe_track_result_limit:
+        return VariantPage(
+            total=total,
+            total_is_estimated=True,
+            count_limit=safe_track_result_limit,
+            variants=[],
+        )
+
+    fetch_limit = min(max(page_size, 0), max(safe_track_result_limit - 1, 1))
+    if fetch_limit <= 0 or total <= 0:
+        return VariantPage(
+            total=total,
+            total_is_estimated=False,
+            count_limit=safe_track_result_limit,
+            variants=[],
+        )
+
+    fetched_records = await _fetch_small_variant_rows(
+        context,
+        filters,
+        limit=fetch_limit,
+        offset=_page_offset(page, page_size),
+        **scope.row_filters(),
+    )
+    variants = [_small_variant_out(record) for record in fetched_records]
+    await _hydrate_small_variant_outs(
+        session,
+        context=context,
+        variants=variants,
+    )
+    return VariantPage(
+        total=total,
+        total_is_estimated=False,
+        count_limit=safe_track_result_limit,
+        variants=variants,
+    )
+
+
+async def _small_variants_native_page(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    scope: _SmallVariantScope,
+    *,
+    page: int,
+    page_size: int,
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage:
+    """A page ClickHouse filters and pages itself, with the bounded count of all matches.
+    Not used in track mode (see ``_can_use_small_native_page``)."""
+    fetched_records = await _fetch_small_variant_rows(
+        context,
+        filters,
+        limit=page_size + 1,
+        offset=_page_offset(page, page_size),
+        **scope.row_filters(),
+    )
+    total, total_is_estimated = await _count_small_variant_rows_bounded(
+        context,
+        filters,
+        **scope.row_filters(),
+    )
+    unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+    page_records = fetched_records[:page_size]
+    variants = [_small_variant_out(record) for record in page_records]
+    if variants:
+        await _hydrate_small_variant_outs(
+            session,
+            context=context,
+            variants=variants,
+        )
+    return VariantPage(
+        total=total,
+        total_is_estimated=total_is_estimated,
+        unfiltered_total=unfiltered_total,
+        unfiltered_total_is_estimated=False,
+        count_limit=_SMALL_COUNT_LIMIT - 1,
+        variants=variants,
+        small_variant_summary=small_variant_summary,
+    )
+
+
+async def _small_variants_candidate_page(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    scope: _SmallVariantScope,
+    *,
+    page: int,
+    page_size: int,
+    track_mode: bool,
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage:
+    """The Python-side path: fetch the candidates ClickHouse can narrow, then apply what it
+    cannot — gene symbols, inheritance pairing, carrier screening, a track's sampling."""
+    if filters.gene:
+        gene_regions = await _fetch_gene_regions(
+            session,
+            gene_query=filters.gene,
+            assembly_id=context.assembly_id,
+        )
+        scope.include_regions.extend(gene_regions)
+    inheritance_candidate_limit = _small_pair_inheritance_candidate_limit(filters)
+    records = await _fetch_small_variant_rows(
+        context,
+        filters,
+        limit=inheritance_candidate_limit,
+        **scope.row_filters(),
+    )
+    inheritance_candidates_capped = (
+        inheritance_candidate_limit is not None
+        and len(records) >= inheritance_candidate_limit
+    )
+    if inheritance_candidates_capped:
+        records = records[: inheritance_candidate_limit - 1]
+    filtered = [
+        record
+        for record in records
+        if record.variant_id not in scope.excluded_review_variant_ids
+        and (
+            (not scope.include_review_filter_active)
+            or record.variant_id in (scope.review_variant_ids or set())
+        )
+        and _small_record_matches(
+            record,
+            filters,
+            scope.include_regions,
+            scope.exclude_regions,
+            scope.exclude_gene_regions,
+            panel_constraints=scope.panel_constraints,
+        )
+    ]
+    if filters.expanded_carrier_screening:
+        filtered = _filter_expanded_carrier_screening(
+            filtered,
+            context.sample_rows,
+            context.relationship_rows,
+        )
+    if track_mode:
+        unfiltered_total = None
+    else:
+        unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+    if filters.inheritance:
+        return await _small_variants_inheritance_page(
+            session,
+            context,
+            filters.inheritance,
+            filtered,
+            page=page,
+            page_size=page_size,
+            track_mode=track_mode,
+            candidates_capped=inheritance_candidates_capped,
+            unfiltered_total=unfiltered_total,
+            small_variant_summary=small_variant_summary,
+        )
+    total = len(filtered)
+    reported_total = min(total, _SMALL_COUNT_LIMIT)
+    total_is_estimated = inheritance_candidates_capped or total >= _SMALL_COUNT_LIMIT
+    if track_mode:
+        page_records = _sample_small_track_records(filtered, page_size)
+    else:
+        skip = max(page - 1, 0) * page_size if page_size else 0
+        page_records = filtered[skip: skip + page_size] if page_size else filtered[skip:]
+    variants = [_small_variant_out(record) for record in page_records]
+    await _hydrate_small_variant_outs(
+        session,
+        context=context,
+        variants=variants,
+    )
+    return VariantPage(
+        total=0 if track_mode else reported_total,
+        total_is_estimated=total_is_estimated,
+        unfiltered_total=unfiltered_total,
+        unfiltered_total_is_estimated=False,
+        count_limit=_SMALL_COUNT_LIMIT - 1,
+        variants=variants,
+        small_variant_summary=small_variant_summary,
+    )
+
+
+async def _small_variants_inheritance_page(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    inheritance: str,
+    filtered: list[SmallVariantRecord],
+    *,
+    page: int,
+    page_size: int,
+    track_mode: bool,
+    candidates_capped: bool,
+    unfiltered_total: int | None,
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage:
+    """The candidates that fit the inheritance mode, paged by item: a compound-het pair is
+    one item, served as a group of its two variants."""
+    affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
+    inheritance_items = _inheritance_result_items(
+        inheritance=inheritance,
+        records=filtered,
+        affected_samples=affected_sample_names,
+        unaffected_samples=unaffected_sample_names,
+        sample_rows=context.sample_rows,
+    )
+    total = len(inheritance_items)
+    reported_total = min(total, _SMALL_COUNT_LIMIT)
+    total_is_estimated = candidates_capped or total >= _SMALL_COUNT_LIMIT
+    skip = max(page - 1, 0) * page_size if page_size else 0
+    page_items = inheritance_items[skip: skip + page_size] if page_size else inheritance_items[skip:]
+    page_variant_groups: list[SmallVariantGroupOut] = []
+    page_single_variants: list[VariantOut] = []
+    group_variant_outs: list[VariantOut] = []
+    for item_type, item_value in page_items:
+        if item_type == "group":
+            pair = item_value
+            left_variant = _small_variant_out(pair.left)
+            right_variant = _small_variant_out(pair.right)
+            group_variant_outs.extend([left_variant, right_variant])
+            page_variant_groups.append(
+                SmallVariantGroupOut(
+                    group_key=pair.pair_key,
+                    gene=pair.gene,
+                    gene_id=pair.gene_id,
+                    variants=[left_variant, right_variant],
+                    phase=pair.phase,
+                )
+            )
+        else:
+            page_single_variants.append(_small_variant_out(item_value))
+    await _hydrate_small_variant_outs(
+        session,
+        context=context,
+        variants=[*group_variant_outs, *page_single_variants],
+    )
+    for group in page_variant_groups:
+        if len(group.variants) >= 2:
+            group.review = _group_review_for_pair(group.variants[0], group.variants[1])
+    return VariantPage(
+        total=0 if track_mode else reported_total,
+        total_is_estimated=total_is_estimated,
+        unfiltered_total=unfiltered_total,
+        unfiltered_total_is_estimated=False,
+        count_limit=_SMALL_COUNT_LIMIT - 1,
+        variants=page_single_variants,
+        variant_groups=page_variant_groups,
+        small_variant_summary=small_variant_summary,
+    )
+
+
 async def get_family_small_variants_page(
     session: AsyncSession,
     *,
@@ -2174,51 +2548,17 @@ async def get_family_small_variants_page(
         await _ensure_family_sv_gene_index(session, context)
         filters.sv_hit_genes = await get_sv_hit_genes(session, family_uuid=context.family_uuid)
     small_variant_summary = None if track_mode else await _fetch_small_variant_summary(context)
-    panel_constraints = PanelFilterConstraints()
-    if filters.panel_id:
-        panel_constraints = await _fetch_panel_constraints(
-            session,
-            filters.panel_id,
-            assembly_id=context.assembly_id,
-        )
-        if not panel_constraints.genes and not panel_constraints.regions:
-            return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
-
-    include_review_filter_active = bool(review_classifications or review_tags or has_notes)
-    review_variant_ids: set[str] | None = None
-    if include_review_filter_active:
-        review_variant_ids = await list_matching_small_variant_review_ids(
-            session,
-            family_uuid=context.family_uuid,
-            classifications=review_classifications,
-            tags=review_tags,
-            has_notes=has_notes,
-        )
-        if not review_variant_ids:
-            return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
-    excluded_review_variant_ids = (
-        await list_matching_small_variant_review_ids(
-            session,
-            family_uuid=context.family_uuid,
-            tags=exclude_review_tags,
-        )
-        if exclude_review_tags
-        else set()
+    scope = await _resolve_small_variant_scope(
+        session,
+        context,
+        filters,
+        review_classifications=review_classifications,
+        review_tags=review_tags,
+        exclude_review_tags=exclude_review_tags,
+        has_notes=has_notes,
     )
-
-    include_regions: list[Region] = []
-    if filters.intervals:
-        interval_regions = _parse_interval_regions(filters.intervals)
-        if not interval_regions:
-            return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
-        include_regions.extend(interval_regions)
-    exclude_regions = _parse_interval_regions(filters.exclude_intervals)
-    exclude_gene_regions = (
-        await _fetch_gene_regions(session, gene_query=filters.exclude_gene, assembly_id=context.assembly_id)
-        if filters.exclude_gene
-        else []
-    )
-    exclude_gene_terms = _split_gene_terms(filters.exclude_gene)
+    if scope is None:
+        return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
 
     if prioritize and not track_mode:
         return await _prioritized_small_variants_page(
@@ -2227,268 +2567,44 @@ async def get_family_small_variants_page(
             filters=filters,
             page=page,
             page_size=page_size,
-            panel_constraints=panel_constraints,
-            review_variant_ids=review_variant_ids,
-            excluded_review_variant_ids=excluded_review_variant_ids,
-            include_review_filter_active=include_review_filter_active,
-            include_regions=include_regions,
-            exclude_regions=exclude_regions,
-            exclude_gene_regions=exclude_gene_regions,
-            exclude_gene_terms=exclude_gene_terms,
+            panel_constraints=scope.panel_constraints,
+            review_variant_ids=scope.review_variant_ids,
+            excluded_review_variant_ids=scope.excluded_review_variant_ids,
+            include_review_filter_active=scope.include_review_filter_active,
+            include_regions=scope.include_regions,
+            exclude_regions=scope.exclude_regions,
+            exclude_gene_regions=scope.exclude_gene_regions,
+            exclude_gene_terms=scope.exclude_gene_terms,
             small_variant_summary=small_variant_summary,
         )
-
     if track_mode and track_result_limit is not None:
-        safe_track_result_limit = min(
-            max(int(track_result_limit), 1),
-            _SMALL_TRACK_RESULT_LIMIT,
-        )
-        if not _can_use_small_native_page(
-            filters,
-            track_mode=False,
-        ):
-            return _small_track_limit_response(
-                track_result_limit=safe_track_result_limit
-            )
-
-        total, total_is_estimated = await _count_small_variant_rows_bounded(
-            context,
-            filters,
-            count_limit=safe_track_result_limit,
-            panel_constraints=panel_constraints,
-            include_variant_ids=review_variant_ids if include_review_filter_active else None,
-            exclude_variant_ids=excluded_review_variant_ids,
-            include_regions=include_regions,
-            exclude_regions=exclude_regions,
-            exclude_gene_regions=exclude_gene_regions,
-            exclude_gene_terms=exclude_gene_terms,
-        )
-        if total_is_estimated or total >= safe_track_result_limit:
-            return VariantPage(
-                total=total,
-                total_is_estimated=True,
-                count_limit=safe_track_result_limit,
-                variants=[],
-            )
-
-        fetch_limit = min(max(page_size, 0), max(safe_track_result_limit - 1, 1))
-        if fetch_limit <= 0 or total <= 0:
-            return VariantPage(
-                total=total,
-                total_is_estimated=False,
-                count_limit=safe_track_result_limit,
-                variants=[],
-            )
-
-        fetched_records = await _fetch_small_variant_rows(
-            context,
-            filters,
-            limit=fetch_limit,
-            offset=_page_offset(page, page_size),
-            panel_constraints=panel_constraints,
-            include_variant_ids=review_variant_ids if include_review_filter_active else None,
-            exclude_variant_ids=excluded_review_variant_ids,
-            include_regions=include_regions,
-            exclude_regions=exclude_regions,
-            exclude_gene_regions=exclude_gene_regions,
-            exclude_gene_terms=exclude_gene_terms,
-        )
-        variants = [_small_variant_out(record) for record in fetched_records]
-        await _hydrate_small_variant_outs(
+        return await _small_variants_track_page(
             session,
-            context=context,
-            variants=variants,
-        )
-        return VariantPage(
-            total=total,
-            total_is_estimated=False,
-            count_limit=safe_track_result_limit,
-            variants=variants,
-        )
-
-    if _can_use_small_native_page(
-        filters,
-        track_mode=track_mode,
-    ):
-        fetched_records = await _fetch_small_variant_rows(
             context,
             filters,
-            limit=page_size + 1,
-            offset=_page_offset(page, page_size),
-            panel_constraints=panel_constraints,
-            include_variant_ids=review_variant_ids if include_review_filter_active else None,
-            exclude_variant_ids=excluded_review_variant_ids,
-            include_regions=include_regions,
-            exclude_regions=exclude_regions,
-            exclude_gene_regions=exclude_gene_regions,
-            exclude_gene_terms=exclude_gene_terms,
+            scope,
+            page=page,
+            page_size=page_size,
+            track_result_limit=track_result_limit,
         )
-        count_task = _count_small_variant_rows_bounded(
-            context,
-            filters,
-            panel_constraints=panel_constraints,
-            include_variant_ids=review_variant_ids if include_review_filter_active else None,
-            exclude_variant_ids=excluded_review_variant_ids,
-            include_regions=include_regions,
-            exclude_regions=exclude_regions,
-            exclude_gene_regions=exclude_gene_regions,
-            exclude_gene_terms=exclude_gene_terms,
-        )
-        total, total_is_estimated = await count_task
-        unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
-        unfiltered_total_is_estimated = False
-        page_records = fetched_records[:page_size]
-        if not page_records:
-            return VariantPage(
-                total=0 if track_mode else total,
-                total_is_estimated=total_is_estimated,
-                unfiltered_total=unfiltered_total,
-                unfiltered_total_is_estimated=unfiltered_total_is_estimated,
-                count_limit=_SMALL_COUNT_LIMIT - 1,
-                variants=[],
-                small_variant_summary=small_variant_summary,
-            )
-        variants = [_small_variant_out(record) for record in page_records]
-        await _hydrate_small_variant_outs(
+    if _can_use_small_native_page(filters, track_mode=track_mode):
+        return await _small_variants_native_page(
             session,
-            context=context,
-            variants=variants,
-        )
-        return VariantPage(
-            total=total,
-            total_is_estimated=total_is_estimated,
-            unfiltered_total=unfiltered_total,
-            unfiltered_total_is_estimated=unfiltered_total_is_estimated,
-            count_limit=_SMALL_COUNT_LIMIT - 1,
-            variants=variants,
+            context,
+            filters,
+            scope,
+            page=page,
+            page_size=page_size,
             small_variant_summary=small_variant_summary,
         )
-
-    if filters.gene:
-        gene_regions = await _fetch_gene_regions(
-            session,
-            gene_query=filters.gene,
-            assembly_id=context.assembly_id,
-        )
-        include_regions.extend(gene_regions)
-    inheritance_candidate_limit = _small_pair_inheritance_candidate_limit(filters)
-    records = await _fetch_small_variant_rows(
+    return await _small_variants_candidate_page(
+        session,
         context,
         filters,
-        panel_constraints=panel_constraints,
-        include_variant_ids=review_variant_ids if include_review_filter_active else None,
-        exclude_variant_ids=excluded_review_variant_ids,
-        limit=inheritance_candidate_limit,
-        include_regions=include_regions,
-        exclude_regions=exclude_regions,
-        exclude_gene_regions=exclude_gene_regions,
-        exclude_gene_terms=exclude_gene_terms,
-    )
-    inheritance_candidates_capped = (
-        inheritance_candidate_limit is not None
-        and len(records) >= inheritance_candidate_limit
-    )
-    if inheritance_candidates_capped:
-        records = records[: inheritance_candidate_limit - 1]
-    filtered = [
-        record
-        for record in records
-        if record.variant_id not in excluded_review_variant_ids
-        and ((not include_review_filter_active) or record.variant_id in (review_variant_ids or set()))
-        and _small_record_matches(
-            record,
-            filters,
-            include_regions,
-            exclude_regions,
-            exclude_gene_regions,
-            panel_constraints=panel_constraints,
-        )
-    ]
-    affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
-    if filters.expanded_carrier_screening:
-        filtered = _filter_expanded_carrier_screening(
-            filtered,
-            context.sample_rows,
-            context.relationship_rows,
-        )
-    if track_mode:
-        unfiltered_total = None
-        unfiltered_total_is_estimated = False
-    else:
-        unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
-        unfiltered_total_is_estimated = False
-    if filters.inheritance:
-        inheritance_items = _inheritance_result_items(
-            inheritance=filters.inheritance,
-            records=filtered,
-            affected_samples=affected_sample_names,
-            unaffected_samples=unaffected_sample_names,
-            sample_rows=context.sample_rows,
-        )
-        total = len(inheritance_items)
-        reported_total = min(total, _SMALL_COUNT_LIMIT)
-        total_is_estimated = inheritance_candidates_capped or total >= _SMALL_COUNT_LIMIT
-        skip = max(page - 1, 0) * page_size if page_size else 0
-        page_items = inheritance_items[skip: skip + page_size] if page_size else inheritance_items[skip:]
-        page_variant_groups: list[SmallVariantGroupOut] = []
-        page_single_variants: list[VariantOut] = []
-        group_variant_outs: list[VariantOut] = []
-        for item_type, item_value in page_items:
-            if item_type == "group":
-                pair = item_value
-                left_variant = _small_variant_out(pair.left)
-                right_variant = _small_variant_out(pair.right)
-                group_variant_outs.extend([left_variant, right_variant])
-                page_variant_groups.append(
-                    SmallVariantGroupOut(
-                        group_key=pair.pair_key,
-                        gene=pair.gene,
-                        gene_id=pair.gene_id,
-                        variants=[left_variant, right_variant],
-                        phase=pair.phase,
-                    )
-                )
-            else:
-                page_single_variants.append(_small_variant_out(item_value))
-        await _hydrate_small_variant_outs(
-            session,
-            context=context,
-            variants=[*group_variant_outs, *page_single_variants],
-        )
-        for group in page_variant_groups:
-            if len(group.variants) >= 2:
-                group.review = _group_review_for_pair(group.variants[0], group.variants[1])
-        return VariantPage(
-            total=0 if track_mode else reported_total,
-            total_is_estimated=total_is_estimated,
-            unfiltered_total=unfiltered_total,
-            unfiltered_total_is_estimated=unfiltered_total_is_estimated,
-            count_limit=_SMALL_COUNT_LIMIT - 1,
-            variants=page_single_variants,
-            variant_groups=page_variant_groups,
-            small_variant_summary=small_variant_summary,
-        )
-    total = len(filtered)
-    reported_total = min(total, _SMALL_COUNT_LIMIT)
-    total_is_estimated = inheritance_candidates_capped or total >= _SMALL_COUNT_LIMIT
-    if track_mode:
-        page_records = _sample_small_track_records(filtered, page_size)
-    else:
-        skip = max(page - 1, 0) * page_size if page_size else 0
-        page_records = filtered[skip: skip + page_size] if page_size else filtered[skip:]
-    variants = [_small_variant_out(record) for record in page_records]
-    await _hydrate_small_variant_outs(
-        session,
-        context=context,
-        variants=variants,
-    )
-    return VariantPage(
-        total=0 if track_mode else reported_total,
-        total_is_estimated=total_is_estimated,
-        unfiltered_total=unfiltered_total,
-        unfiltered_total_is_estimated=unfiltered_total_is_estimated,
-        count_limit=_SMALL_COUNT_LIMIT - 1,
-        variants=variants,
+        scope,
+        page=page,
+        page_size=page_size,
+        track_mode=track_mode,
         small_variant_summary=small_variant_summary,
     )
 

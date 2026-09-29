@@ -195,6 +195,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Frontend coverage (#526)** — the SV results table, its column picker and the locus parser
   have tests; no frontend file is below 30 % of lines, and the coverage floors rise to lines 80 %
   (visualisations 88 %) (#594).
+- **Small-variant page split (#528)** — the 441-line function behind every small-variant page
+  resolves the request's scope once and serves each path from a function of its own; a test
+  recorded before the split shows every path makes the same calls and returns the same page (#595).
 
 ### Removed
 
