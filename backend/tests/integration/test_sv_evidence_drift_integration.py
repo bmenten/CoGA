@@ -188,13 +188,15 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
     )
     signed_at = datetime(2026, 9, 1, 8, 30, 0, 250000, tzinfo=timezone.utc)
 
+    counts = {
+        "report_signouts": text("SELECT count(*) FROM report_signouts WHERE family_identifier = :f"),
+        "clinical_audit_events": text(
+            "SELECT count(*) FROM clinical_audit_events WHERE family_identifier = :f"
+        ),
+    }
+
     async def _count(session, table: str) -> int:
-        return (
-            await session.execute(
-                text(f"SELECT count(*) FROM {table} WHERE family_identifier = :f"),  # noqa: S608 - fixed table names
-                {"f": label},
-            )
-        ).scalar_one()
+        return (await session.execute(counts[table], {"f": label})).scalar_one()
 
     async def _stored_snapshot(session, version: int) -> dict:
         stored = (
