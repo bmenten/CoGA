@@ -107,7 +107,7 @@ FastAPI kent een *lifespan*: een functie die één keer draait bij het opstarten
 
 Bij het afsluiten stopt de backend al deze workers netjes en sluit hij de databankverbindingen.
 
-**Waar in de code:** de functie `lifespan` in `backend/app/main.py`.
+**Waar in de code:** de functie `lifespan` in `backend/app/main.py`; in het Engels beschreven in `docs/application-scheme.md`, sectie *Startup and background work*.
 
 ## Google Cloud met Terraform
 

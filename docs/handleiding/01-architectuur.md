@@ -23,7 +23,7 @@ Elke laag heeft één taak. Zo is duidelijk waar toegangscontrole, validatie en 
 
 Bij elk verzoek beslist Postgres eerst wie wat mag zien. Daarna haalt de backend de varianten uit ClickHouse en koppelt er de reviewtoestand uit Postgres aan, bijvoorbeeld een tag of een ACMG-klasse. Hoofdstuk 3 beschrijft de tabellen.
 
-**Waar in de code:** `backend/app/core/postgres.py` en `backend/app/core/clickhouse.py` (de verbindingen); de taakverdeling tussen beide databanken staat in `docs/application-scheme.md`.
+**Waar in de code:** `backend/app/core/postgres.py` en `backend/app/core/clickhouse.py` (de verbindingen). De taakverdeling staat in `docs/application-scheme.md`, sectie *Storage boundary*: "Postgres is authoritative for metadata and state. ClickHouse is authoritative for variant payloads."
 
 ## Van klik tot data: de weg van één verzoek
 
@@ -37,7 +37,7 @@ Voorbeeld: een analist opent de small variants van een familie.
 6. **De service bevraagt de juiste databank.** Metadata komt uit Postgres (via SQLAlchemy, asynchroon), varianten uit ClickHouse (via een directe client). Alle waarden gaan als parameter mee, nooit als tekst in de query (hoofdstuk 7).
 7. **Het antwoord gaat terug.** FastAPI zet het resultaat om naar JSON, de middleware voegt de security-headers toe en de browser toont het. Krijgt de client een `401` (niet aangemeld), dan wist hij de sessie en keert hij terug naar `/login`.
 
-**Waar in de code:** `frontend/src/lib/api.ts` (API-client en interceptors), `frontend/vite.config.mts` (ontwikkelproxy), `backend/app/main.py` (app, middleware en routers), `backend/app/dependencies.py` (`get_current_user`).
+**Waar in de code:** `frontend/src/lib/api.ts` (API-client en interceptors), `frontend/vite.config.mts` (ontwikkelproxy), `backend/app/main.py` (app, middleware en routers), `backend/app/dependencies.py` (`get_current_user`). Dezelfde weg staat in het Engels in `docs/application-scheme.md`, sectie *Runtime flow*.
 
 Frontend en backend zijn aparte processen die alleen via HTTP en JSON met elkaar praten. Die scheiding is bewust: álle toegangscontrole gebeurt op de server, niet in de browser.
 

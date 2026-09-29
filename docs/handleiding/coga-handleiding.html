@@ -335,7 +335,7 @@ python docs/handleiding/build_site.py
 <li><strong>ClickHouse</strong> is een kolomgeoriënteerde databank voor zeer grote datasets. Ze bewaart de variantrijen (small variants en structurele varianten), de genotypes per sample en de grote interval-tracks (dekking, CNV-segmenten, APCAD, haplotypes). Eén familie kan miljoenen rijen hebben.</li>
 </ul>
 <p>Bij elk verzoek beslist Postgres eerst wie wat mag zien. Daarna haalt de backend de varianten uit ClickHouse en koppelt er de reviewtoestand uit Postgres aan, bijvoorbeeld een tag of een ACMG-klasse. Hoofdstuk 3 beschrijft de tabellen.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/postgres.py</code> en <code>backend/app/core/clickhouse.py</code> (de verbindingen); de taakverdeling tussen beide databanken staat in <code>docs/application-scheme.md</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/postgres.py</code> en <code>backend/app/core/clickhouse.py</code> (de verbindingen). De taakverdeling staat in <code>docs/application-scheme.md</code>, sectie <em>Storage boundary</em>: "Postgres is authoritative for metadata and state. ClickHouse is authoritative for variant payloads."</p>
 <h2>Van klik tot data: de weg van één verzoek</h2>
 <p>Voorbeeld: een analist opent de small variants van een familie.</p>
 <ol>
@@ -347,7 +347,7 @@ python docs/handleiding/build_site.py
 <li><strong>De service bevraagt de juiste databank.</strong> Metadata komt uit Postgres (via SQLAlchemy, asynchroon), varianten uit ClickHouse (via een directe client). Alle waarden gaan als parameter mee, nooit als tekst in de query (hoofdstuk 7).</li>
 <li><strong>Het antwoord gaat terug.</strong> FastAPI zet het resultaat om naar JSON, de middleware voegt de security-headers toe en de browser toont het. Krijgt de client een <code>401</code> (niet aangemeld), dan wist hij de sessie en keert hij terug naar <code>/login</code>.</li>
 </ol>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/api.ts</code> (API-client en interceptors), <code>frontend/vite.config.mts</code> (ontwikkelproxy), <code>backend/app/main.py</code> (app, middleware en routers), <code>backend/app/dependencies.py</code> (<code>get_current_user</code>).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/api.ts</code> (API-client en interceptors), <code>frontend/vite.config.mts</code> (ontwikkelproxy), <code>backend/app/main.py</code> (app, middleware en routers), <code>backend/app/dependencies.py</code> (<code>get_current_user</code>). Dezelfde weg staat in het Engels in <code>docs/application-scheme.md</code>, sectie <em>Runtime flow</em>.</p>
 <p>Frontend en backend zijn aparte processen die alleen via HTTP en JSON met elkaar praten. Die scheiding is bewust: álle toegangscontrole gebeurt op de server, niet in de browser.</p>
 <p><strong>CORS</strong> (<em>Cross-Origin Resource Sharing</em>: welke websites de API mogen aanroepen) staat streng ingesteld. Een origin-patroon moet volledig verankerd zijn (beginnen met <code>^</code> en eindigen met <code>$</code>); anders weigert de configuratie het, omdat een te breed patroon samen met meegestuurde credentials een omweg zou openen.</p>
 <p class="waar"><strong>Waar in de code:</strong> de <code>CORSMiddleware</code> in <code>backend/app/main.py</code> en <code>validate_cors_origin_regex</code> in <code>backend/app/core/config.py</code>.</p>
@@ -874,7 +874,7 @@ python docs/handleiding/build_site.py
 <li>De worker voor de gen-referentie en de workers voor de pakketimport starten (aantal via <code>FAMILY_IMPORT_WORKER_COUNT</code>).</li>
 </ol>
 <p>Bij het afsluiten stopt de backend al deze workers netjes en sluit hij de databankverbindingen.</p>
-<p class="waar"><strong>Waar in de code:</strong> de functie <code>lifespan</code> in <code>backend/app/main.py</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> de functie <code>lifespan</code> in <code>backend/app/main.py</code>; in het Engels beschreven in <code>docs/application-scheme.md</code>, sectie <em>Startup and background work</em>.</p>
 <h2>Google Cloud met Terraform</h2>
 <p>De map <code>terraform/</code> bouwt één CoGA-omgeving op in een Google Cloud-project. Op hoofdlijnen:</p>
 <ul>
@@ -1610,7 +1610,7 @@ python docs/handleiding/build_site.py
 </tbody>
 </table></div>
 <h2>De servicegroepen</h2>
-<p><code>backend/app/services/</code> is groot. De tabel groepeert de modules naar functie; de namen zijn voorbeelden.</p>
+<p><code>backend/app/services/</code> is groot. De tabel groepeert de modules naar functie; de namen zijn voorbeelden. Een Engelse indeling staat in <code>docs/application-scheme.md</code>, sectie <em>Main code areas</em>.</p>
 <div class="scroll"><table>
 <thead>
 <tr>

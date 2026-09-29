@@ -110,7 +110,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 
 ## De servicegroepen
 
-`backend/app/services/` is groot. De tabel groepeert de modules naar functie; de namen zijn voorbeelden.
+`backend/app/services/` is groot. De tabel groepeert de modules naar functie; de namen zijn voorbeelden. Een Engelse indeling staat in `docs/application-scheme.md`, sectie *Main code areas*.
 
 | Groep | Voorbeelden | Doel |
 | --- | --- | --- |
