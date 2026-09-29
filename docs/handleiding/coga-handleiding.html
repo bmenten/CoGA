@@ -2919,136 +2919,89 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </table></div>
 </section><section id="hs-14" class="chapter">
 <h1>14. Variant Explorer</h1>
-<p>Dit hoofdstuk behandelt hoe CoGA een <em>variant-centrische</em> zoekfunctie aanbiedt die Small Variants (SNV's/indels) samenvat over <strong>alle projecten waartoe een gebruiker toegang heeft</strong>, in plaats van binnen één familie. Aan bod komen welke schermen de reviewer te zien krijgt, hoe een zoekopdracht wordt vertaald naar geaggregeerde ClickHouse-queries, hoe dragertellingen (heterozygoot/homozygoot/aantal families) worden berekend, en — het allerbelangrijkste voor een auditor — hoe strikt wordt afgedwongen dat resultaten nooit buiten de projectgrenzen van de gebruiker lekken.</p>
-<p>Ter verduidelijking van enkele termen die telkens terugkomen:
-- <strong>SNV</strong> (single-nucleotide variant) = puntmutatie; <strong>indel</strong> = kleine insertie/deletie.
-- <strong>Drager (carrier)</strong> = een sample dat het alternatieve allel draagt (heterozygoot of homozygoot).
-- <strong>Aggregatie</strong> = per unieke variant optellen hoeveel samples/families die variant dragen.
-- <strong>Assembly</strong> = referentiegenoom-versie (bv. GRCh38); varianten van verschillende assemblies mag je niet door elkaar tellen.
-- <strong>Cursor / keyset-paginering</strong> = een techniek om pagina voor pagina door een grote resultaatset te bladeren zonder dure <code>OFFSET</code>-sprongen.</p>
-<h2>Doel &amp; UI: cross-cohort in plaats van per familie</h2>
-<p>De klassieke filterpagina (zie <a href="#hs-8">08-filterpaginas-en-api.md</a>) beantwoordt de vraag <em>"welke varianten zitten in DEZE familie?"</em>. De Variant Explorer draait die vraag om: <em>"in hoeveel samples en families in mijn hele toegankelijke cohort komt DEZE variant voor?"</em>. Elke rij in het resultaat is één unieke variant (geïdentificeerd door de ClickHouse-<code>key</code>, een 64-bits geheel getal), met dragertellingen samengevat over het volledige cohort.</p>
-<p>De reviewer ziet één pagina met bovenaan een keuzelijst voor de <strong>assembly</strong>, daaronder een <strong>Sample–Genotype-filter</strong> (per-sample-genotypefilters plus een schakelaar voor geïmputeerde varianten), vervolgens het gedeelde annotatiefilterformulier, en ten slotte een resultaattabel met per rij de tellers <em>Total samples / Het / Hom / Families</em>. Klikken op een tellerwaarde opent een drill-downvenster met de dragers gegroepeerd per familie.</p>
-<p>Belangrijk detail voor de traceerbaarheid: de Variant Explorer <strong>hergebruikt het bestaande filterformulier</strong> van de familiepagina, maar in "familie-loze" modus.</p>
-<p class="waar"><strong>Waar in de code (frontend):</strong>
-- De pagina zelf: <code>GlobalSmallVariantExplorerPage</code> in <code>frontend/src/pages/variant-explorer/GlobalSmallVariantExplorerPage.tsx</code>. Deze rendert <code>SmallVariantFilterForm</code> met de prop <code>familyAware={false}</code>, waardoor de familie-/samplevelden verborgen worden. Daarnaast geeft de pagina <code>unsupportedFilters={GLOBAL_UNSUPPORTED_FILTERS}</code> mee: de filters die de Explorer-backend niet toepast (een intervallenlijst, transcript, uitgesloten genen en intervallen, uitgesloten tags, "alleen met notities") krijgen geen besturingselement. Hun parameters worden ook niet verstuurd. Tot CR-057 bood het formulier ze wel aan en stond er een actieve filterchip, terwijl de backend de parameters negeerde.
-- De zoek-state-hook: <code>useGlobalSmallVariantSearchState</code> in <code>frontend/src/pages/variant-explorer/globalSmallVariantSearch.ts</code> — de "familie-agnostische tegenhanger" die dezelfde query-string-serialisatie (<code>buildSmallVariantQueryParams</code>) hergebruikt maar de familie- en sample-handlers bewust als no-ops (lege functies) invult.
-- De tabel en het dragervenster: <code>frontend/src/pages/variant-explorer/GlobalSmallVariantTable.tsx</code> en <code>frontend/src/pages/variant-explorer/VariantCarrierModal.tsx</code>.
-- De TypeScript-typen (spiegel van de backend-schema's): <code>frontend/src/pages/variant-explorer/types.ts</code> (<code>GlobalVariantRow</code>, <code>GlobalVariantPage</code>, <code>VariantCarriers</code>).</p>
-<p>De frontend praat via de gedeelde axios-client (<code>frontend/src/lib/api.ts</code>, standaard-basis-URL <code>/api</code>) met de endpoints onder <code>/variant-explorer/...</code>. De tekstuele locus-parser <code>parseGeneOrRegionInput</code> in <code>frontend/src/lib/variantSearch.ts</code> zet een invoer als <code>chr1:1000-2000</code> om in een gestructureerd gebied (<code>region</code>) of behandelt de invoer anders als gennaam; die parser wordt gedeeld met de familie-filtermodules.</p>
-<h2>Endpoint &amp; service: van zoekopdracht naar ClickHouse-aggregaat</h2>
-<p>De router definieert alle endpoints onder het voorvoegsel <code>/variant-explorer</code>.</p>
-<p class="waar"><strong>Waar in de code (router):</strong> <code>backend/app/routers/variant_explorer.py</code>.</p>
+<p>Dit hoofdstuk beschrijft de <em>Global Small Variant Explorer</em>: een zoekfunctie die small variants (SNV's en indels) samenvat over <strong>alle projecten waartoe een gebruiker toegang heeft</strong>, in plaats van binnen één familie. Aan bod komen het scherm, hoe een zoekopdracht een geaggregeerde ClickHouse-vraag wordt, hoe de dragers geteld worden, en vooral hoe streng is afgedwongen dat resultaten nooit buiten de projecten van de gebruiker lekken. De uitleg voor gebruikers staat in de gebruikersgids in de app (sectie <code>explorers</code>).</p>
+<p>Enkele begrippen:</p>
+<ul>
+<li><strong>Drager:</strong> een sample dat het alternatieve allel draagt, heterozygoot of homozygoot.</li>
+<li><strong>Aggregatie:</strong> per unieke variant tellen hoeveel samples en families haar dragen.</li>
+<li><strong>Assembly:</strong> de versie van het referentiegenoom (bv. GRCh38); varianten van verschillende assemblies worden nooit samen geteld.</li>
+<li><strong>Keyset-paginering:</strong> pagina per pagina door een groot resultaat bladeren zonder dure sprongen (<code>OFFSET</code>), door te onthouden waar de vorige pagina eindigde.</li>
+</ul>
+<h2>Doel en scherm</h2>
+<p>De filterpagina van een familie (hoofdstuk 8) beantwoordt "welke varianten zitten in <em>deze</em> familie?". De Variant Explorer draait de vraag om: "in hoeveel samples en families van mijn toegankelijke cohort komt <em>deze</em> variant voor?". Elke rij is één unieke variant, met de tellers <em>Total samples</em>, <em>Het</em>, <em>Hom</em> en <em>Families</em>.</p>
+<p>Het scherm (<code>/variant-explorer</code>) heeft een keuzelijst voor de assembly, een filter op genotype per sample, het gewone annotatiefilterformulier en de resultaattabel. Een klik op een teller opent een venster met de dragers, gegroepeerd per familie, met een link naar elke familie. Het formulier is dat van de familiepagina, maar zonder de velden voor familie en samples. Filters die de Explorer niet toepast (een intervallijst, transcript, uit te sluiten genen en intervallen, uit te sluiten tags, "heeft notities"), biedt het formulier hier niet aan, en hun parameters worden niet verstuurd.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/variant-explorer/</code> (<code>GlobalSmallVariantExplorerPage.tsx</code>, <code>globalSmallVariantSearch.ts</code>, <code>GlobalSmallVariantTable.tsx</code>, <code>VariantCarrierModal.tsx</code>).</p>
+<h2>Endpoints</h2>
+<p>Alle endpoints staan onder <code>/api/variant-explorer</code> en vragen een login.</p>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Endpoint</th>
-<th>Methode</th>
 <th>Doel</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>/variant-explorer/assemblies</code></td>
-<td>GET</td>
-<td>Toegankelijke assemblies + aantal projecten per assembly</td>
+<td><code>GET /variant-explorer/assemblies</code></td>
+<td>De toegankelijke assemblies, met het aantal projecten per assembly</td>
 </tr>
 <tr>
-<td><code>/variant-explorer/samples</code></td>
-<td>GET</td>
-<td>Sample-ID's die de gebruiker mag zien (voedt de genotypefilter-picker)</td>
+<td><code>GET /variant-explorer/samples</code></td>
+<td>De samples die de gebruiker mag zien (voor de genotypefilter)</td>
 </tr>
 <tr>
-<td><code>/variant-explorer/small-variants</code></td>
-<td>GET</td>
-<td>Gepagineerde, geaggregeerde variantlijst</td>
+<td><code>GET /variant-explorer/small-variants</code></td>
+<td>De gepagineerde, geaggregeerde variantlijst</td>
 </tr>
 <tr>
-<td><code>/variant-explorer/small-variants/export</code></td>
-<td>GET</td>
-<td>Dezelfde resultaatset als CSV-download (tot 50 000 rijen)</td>
+<td><code>GET /variant-explorer/small-variants/export</code></td>
+<td>Dezelfde resultaten als CSV (met een bovengrens op het aantal rijen)</td>
 </tr>
 <tr>
-<td><code>/variant-explorer/small-variants/{variant_key}/carriers</code></td>
-<td>GET</td>
-<td>Drill-down: dragers gegroepeerd per familie</td>
+<td><code>GET /variant-explorer/small-variants/{variant_key}/carriers</code></td>
+<td>De dragers van één variant, per familie</td>
 </tr>
 <tr>
-<td><code>/variant-explorer/small-variant-tags</code></td>
-<td>GET</td>
-<td>Tag-definities binnen de toegankelijke projecten</td>
+<td><code>GET /variant-explorer/small-variant-tags</code></td>
+<td>De tagdefinities van de toegankelijke projecten</td>
 </tr>
 </tbody>
 </table></div>
-<p>Elk endpoint hangt via <code>Depends(get_current_user)</code> de ingelogde gebruiker aan de aanvraag (zie <a href="#hs-5">05-login-authenticatie.md</a>). De filterparameters worden gecentraliseerd geparseerd in <code>_build_global_variant_filters</code>, zodat de gepagineerde lijst én de CSV-export gegarandeerd dezelfde filters gebruiken.</p>
-<p class="waar"><strong>Waar in de code (service):</strong> de eigenlijke logica staat in <code>backend/app/services/variant_explorer_service.py</code>. De hoofdfunctie is <code>search_global_small_variants</code>. Die:
-1. normaliseert <code>sort</code>/<code>order</code> naar een toegelaten waarde (een onbekende <code>sort</code> valt terug op <code>total_samples</code>);
-2. bepaalt de <strong>scope</strong> (assembly + toegankelijke projecten) via <code>resolve_scope</code>;
-3. vertaalt eventuele tag-/classificatiefilters naar een lijst van <code>variant_id</code>-strings (Postgres-brug, zie verder);
-4. bouwt de ClickHouse-<code>WHERE</code>-clausules met <code>_entries_where</code>;
-5. voert een geaggregeerde telling en een gepagineerde rij-query uit tegen de <code>entries</code>-tabel (<code>_fetch_variant_rows</code>).</p>
-<p>De ruwe variant-ID's en variant-keys worden opgebouwd met de hulpfuncties in <code>backend/app/services/clickhouse_variant_ids.py</code> (o.a. <code>build_small_variant_id</code>, <code>small_variant_key</code>, <code>_xpos</code>), en de rijen die tijdens import in ClickHouse worden geschreven, worden opgebouwd in <code>backend/app/services/clickhouse_variant_rows.py</code> (<code>_small_variant_entry_rows</code> voor de <code>entries</code>-tabel, <code>_small_annotation_index_row</code> voor de annotatie-index). Deze bestanden vormen samen het contract tussen wat bij import wordt weggeschreven en wat de Explorer later uitleest.</p>
-<h2>Aggregatie: dragertellingen over projecten heen</h2>
-<p>De bron van waarheid is de tabel <code>entries</code>, niet een voorberekende samenvatting. Een vroegere <code>project_gt_stats</code>/<code>gt_stats</code>-cascade van "materialized views" (automatisch bijgewerkte hulptabellen) is bewust verwijderd omdat die het <code>sign</code>-kolomgedrag van de <code>CollapsingMergeTree</code>-engine negeerde en zo bij her-imports/deletes de tellingen opblies. Die legacy-tabellen worden uit bestaande databases weggehaald door <code>_drop_legacy_gt_stats_aggregates</code> in <code>clickhouse_variant_storage.py</code>. De Explorer telt daarom rechtstreeks uit <code>entries</code> met <code>sign = 1</code>.</p>
-<p>De kern-aggregatiequery staat in <code>_fetch_variant_rows</code>. Hij "ontvouwt" de per-variant opgeslagen genotype-arrays met <code>ARRAY JOIN</code> en telt vervolgens per variant-<code>key</code>:</p>
-<div class="scroll"><pre><code class="language-sql">uniqExact(family_guid)                    AS families
-uniqExactIf(sample_id, is_hom)            AS hom_samples
-uniqExactIf(sample_id, NOT is_hom)        AS het_samples
-uniqExact(sample_id)                      AS total_samples
-</code></pre></div>
+<p>De filters worden op één plaats ingelezen, zodat de lijst en de CSV-export gegarandeerd dezelfde filters gebruiken.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/variant_explorer.py</code>; de logica in <code>backend/app/services/variant_explorer_service.py</code>.</p>
+<h2>Hoe de dragers geteld worden</h2>
+<p>De bron is de tabel <code>entries</code> in ClickHouse, niet een vooraf berekende samenvatting. De Explorer telt rechtstreeks uit <code>entries</code>, met <code>sign = 1</code>, zodat een nieuwe import of een verwijdering de tellingen niet opblaast. Per variant:</p>
 <ul>
-<li><code>ARRAY JOIN \</code>calls.sampleId` AS sample_id, `calls.gt` AS gt` zet de per-sample-genotypes van één variantrij om in aparte regels (één per sample).</li>
-<li><code>is_hom</code> is <code>gt IN ('1/1','1|1')</code>; de referentie-/ontbrekende genotypes (<code>0/0</code>, <code>./.</code>, …) worden weggefilterd met <code>gt NOT IN %(gt_ref_missing)s</code>, zodat alleen echte dragers meetellen.</li>
-<li>Door <strong>distinct</strong> sample-ID's te tellen, wordt een sample dat onder meerdere toegankelijke projecten voorkomt automatisch maar één keer geteld — en in dezelfde query krijg je het distinct aantal families.</li>
+<li>worden de genotypes per sample uitgevouwen tot één regel per sample;</li>
+<li>tellen alleen echte dragers mee; <em>Het</em>, <em>Hom</em> en drager volgen de genotypeklassen van <code>backend/app/services/genotypes.py</code> (hoofdstuk 8), zodat bv. een haploïde <code>1</code> als homozygoot telt;</li>
+<li>wordt elk sample en elke familie maar één keer geteld, ook als het onder meerdere toegankelijke projecten voorkomt.</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> de aggregatie-<code>SELECT</code> in <code>_fetch_variant_rows</code> en de genotype-bucketdefinities <code>_GT_REF_MISSING</code> / <code>_GT_HOM</code> bovenaan <code>variant_explorer_service.py</code>.</p>
-<h3>Carrier drill-down per familie</h3>
-<p>Wanneer de reviewer op een teller klikt, roept <code>VariantCarrierModal.tsx</code> het endpoint <code>/small-variants/{variant_key}/carriers</code> aan, dat <code>get_variant_carriers</code> uitvoert. Die functie:
-1. haalt de ruwe dragerregels op uit <code>entries</code> (opnieuw <code>sign = 1</code>, <code>ARRAY JOIN</code>, optioneel gefilterd op <code>hom</code>/<code>het</code>), begrensd op <code>_VARIANT_CARRIER_ROW_LIMIT</code> (2000) rijen met een <code>truncated</code>-vlag;
-2. dedupliceert tot één record per (familie, sample), waarbij homozygoot voorrang krijgt op heterozygoot;
-3. koppelt de ClickHouse-<code>family_guid</code>/<code>sample_id</code> aan Postgres-metadata via <code>_fetch_family_meta</code> en <code>_fetch_sample_meta</code> (familienaam, projectnaam, rol, fenotype);
-4. groepeert de dragers per familie in <code>VariantCarrierFamilyGroupOut</code>.</p>
-<p>Cruciaal: als een familie <strong>niet</strong> zichtbaar is onder de projecten van de gebruiker, ontbreekt ze in <code>_fetch_family_meta</code> en wordt de drager overgeslagen (<code>if meta is None: continue</code>). De koppeling aan metadata is dus tegelijk een tweede veiligheidscontrole.</p>
-<h2>Filters: veilig geparametriseerd</h2>
-<p>De Explorer kent twee klassen filters bovenop de gedeelde annotatiefilters (gen, panel, impact, ClinVar, gnomAD-frequenties, CADD/REVEL/SpliceAI, enz., opgebouwd in <code>_annotation_index_clauses</code>). De frequentieplafonds vormen daar één blok. Met <code>clinvar_overrides_frequency</code>, dat in de UI standaard aan staat, laat een ClinVar-(likely-)pathogene variant het blok passeren. Dat gebeurt op dezelfde genormaliseerde termen als in de familiezoektocht (<code>CLINVAR_FREQUENCY_RESCUE_TERMS</code>, #534). Tot CR-057 negeerde de Explorer die optie.</p>
-<p><strong>1. Tag- en classificatiefilters (Postgres-brug).</strong> Tags en ACMG-classificaties leven in Postgres (<code>small_variant_reviews</code>, per familie), niet in ClickHouse. Wanneer de gebruiker daarop filtert, resolvet <code>_variant_ids_matching_reviews</code> eerst de bijhorende <code>variant_id</code>-strings (bv. <code>1-1000-A-T</code>) binnen de toegankelijke projecten, en die lijst wordt als allow-list doorgegeven aan de ClickHouse-query (<code>variantId IN %(tag_variant_ids)s</code>). Zo overbrugt CoGA de review-status (Postgres) en de genotype-opslag (ClickHouse) op de gedeelde <code>variant_id</code> — dezelfde brug die de familiepagina gebruikt. Een lege match betekent "niets gevonden" en levert direct een leeg resultaat. Voor de weergegeven tags/classificatie per rij wordt <code>_review_display_map</code> gebruikt (unie van tags, meest-severe classificatie).</p>
-<p><strong>2. Per-sample-genotypefilters.</strong> In de UI voegt de reviewer regels toe als <code>sampleId : {Het | Hom | Het+Hom}</code>. De frontend serialiseert die als queryparameters <code>sample_gt=&lt;sampleId&gt;:&lt;mode&gt;</code> (in <code>globalSmallVariantSearch.ts</code>). De router parseert ze in <code>_parse_sample_genotype_filters</code>. De modus is de tekst na de laatste <code>:</code>, maar alleen als die een geldige modus is. Anders is de hele waarde het sample-ID, met <code>het_hom</code>. Zo mag een sample-ID zelf een <code>:</code> bevatten (<code>LAB:1:hom</code>). In <code>_entries_where</code> wordt elke sample-constraint een <strong>aparte membership-subquery</strong> die met <code>AND</code> wordt gecombineerd: de variant moet aan élke per-sample-eis voldoen. Het, Hom en drager (Het+Hom) zijn genotype-<strong>klassen</strong> uit <code>backend/app/services/genotypes.py</code> (#511): een haploïde <code>1</code> of een <code>2/2</code> telt als Hom, een <code>1/2</code> als Het, en een haploïde <code>0</code> is geen drager.</p>
-<p><strong>Veiligheid van de parametrisering.</strong> Elke door de gebruiker aangeleverde waarde komt als een <strong>benoemde parameter</strong> (<code>%(naam)s</code>) in de query en wordt door de ClickHouse-client server-side gebonden — niet met stringconcatenatie. Dat blokkeert SQL-injectie.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>_entries_where</code> en <code>_annotation_index_clauses</code> in <code>variant_explorer_service.py</code> bouwen uitsluitend <code>%(...)s</code>-placeholders; de binding gebeurt in <code>execute_clickhouse</code> in <code>backend/app/core/clickhouse.py</code>, dat <code>parameters=</code> doorgeeft aan de client (<code>client.query(query, parameters=...)</code>).</p>
-<h2>Veiligheid: cross-project-scoping (geen lekkage mogelijk)</h2>
-<p>Dit is het hart van het hoofdstuk voor een auditor. Elke aanvraag wordt hard begrensd tot de projecten waartoe de gebruiker toegang heeft.</p>
-<p>De scope wordt centraal opgelost in <code>resolve_scope</code>, dat steunt op <code>_accessible_project_rows</code>. Die functie splitst expliciet op rol:</p>
-<div class="scroll"><pre><code class="language-python">if is_admin_user(user):
-    result = await session.execute(text(base_query))          # admin -&gt; alle projecten
-else:
-    project_ids = user_metadata_project_ids(user)
-    if not project_ids:
-        return []                                              # geen projecten -&gt; leeg
-    result = await session.execute(... WHERE p.id IN :project_ids ...)
-</code></pre></div>
+<p><strong>De dragers per familie.</strong> Het dragervenster haalt de dragers van één variant op (begrensd, met een melding als er meer zijn), houdt per familie en sample één record over (homozygoot gaat voor), en koppelt die aan de namen van familie, project en lid uit Postgres. Een familie die de gebruiker niet mag zien, ontbreekt in die koppeling, en haar drager wordt dan overgeslagen. De koppeling is dus tegelijk een tweede toegangscontrole.</p>
+<h2>Filters</h2>
+<p>Bovenop de gewone annotatiefilters (gen, panel, impact, ClinVar, gnomAD, CADD, REVEL, SpliceAI, …) kent de Explorer twee soorten filters:</p>
+<ol>
+<li><strong>Tags en classificaties.</strong> Die staan in Postgres, per familie. Filtert de gebruiker erop, dan zoekt de Explorer eerst in Postgres de bijbehorende variant-id's binnen de toegankelijke projecten, en geeft die lijst mee aan de ClickHouse-vraag. Een lege lijst betekent meteen een leeg resultaat.</li>
+<li><strong>Genotype per sample.</strong> De gebruiker voegt regels toe als <em>sample: Het, Hom of Het+Hom</em>. Elke regel wordt een aparte voorwaarde; een variant moet aan alle regels voldoen.</li>
+</ol>
+<p>Met de standaardinstelling "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentiefilter" gebruikt de Explorer dezelfde ClinVar-termen als de familiepagina.</p>
+<p>Elke waarde die de gebruiker aanlevert, gaat als benoemde parameter (<code>%(naam)s</code>) in de query en wordt door de ClickHouse-client gebonden, nooit in de tekst geplakt (hoofdstuk 7).</p>
+<h2>Afscherming tussen projecten</h2>
+<p>Dit is voor een auditor het belangrijkste deel. Elke vraag is hard beperkt tot de projecten van de gebruiker:</p>
 <ul>
-<li><strong>Admins</strong> (rol in <code>ADMIN_ROLES</code>, d.w.z. <code>admin</code> of <code>superuser</code>) zien alle projecten.</li>
-<li><strong>Overige gebruikers</strong> zien uitsluitend hun <code>metadata_project_ids</code>. Hebben ze er geen, dan is het resultaat gegarandeerd leeg: <code>_accessible_project_rows</code> geeft een lege lijst terug, <code>resolve_scope</code> geeft <code>None</code>, en de caller rendert dat als een leeg resultaat.</li>
+<li>De scope wordt op één plaats bepaald. <strong>Beheerders</strong> (<code>admin</code> of <code>superuser</code>) zien alle projecten; <strong>andere gebruikers</strong> alleen hun eigen projecten. Heeft een gebruiker geen projecten, dan is het resultaat gegarandeerd leeg.</li>
+<li>Elke ClickHouse-vraag krijgt die projecten verplicht mee (<code>project_guid IN …</code>): de lijstvraag, de begrensde telling, de voorwaarden per sample en de dragervraag. Omdat <code>project_guid</code> gelijk is aan de project-UUID in Postgres, vallen rijen van andere projecten weg voordat er iets geteld wordt.</li>
+<li>De frontend toont alleen een melding als er niets is ("… in your accessible projects"); de afscherming zit volledig op de server.</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>resolve_scope</code> en <code>_accessible_project_rows</code> in <code>variant_explorer_service.py</code>, met de rolhelpers <code>is_admin_user</code> (<code>ADMIN_ROLES = {"admin", "superuser"}</code>) en <code>user_metadata_project_ids</code> uit <code>backend/app/services/access_control.py</code>.</p>
-<p>De uit deze scope afgeleide project-GUID's worden vervolgens in <strong>iedere</strong> ClickHouse-query verplicht meegegeven. De eerste twee clausules in <code>_entries_where</code> zijn altijd:</p>
-<div class="scroll"><pre><code class="language-python">clauses = [&quot;sign = 1&quot;, &quot;project_guid IN %(project_guids)s&quot;]
-</code></pre></div>
-<p>Datzelfde <code>project_guid IN %(project_guids)s</code>-predicaat staat ook in:
-- de aparte per-sample membership-subqueries in <code>_entries_where</code>;
-- de begrensde tellingsquery in <code>search_global_small_variants</code>;
-- de carrier-query in <code>get_variant_carriers</code>.</p>
-<p>Omdat <code>project_guid</code> in ClickHouse gelijk is aan de Postgres-project-UUID (en <code>family_guid</code> aan de familie-UUID), sluit dit filter alle rijen van niet-toegankelijke projecten uit vóór er ook maar iets geteld of gedragen wordt. De frontend versterkt dit alleen visueel ("No variants match the current filters in your accessible projects") maar is niet de bewaker — de afdwinging zit volledig server-side.</p>
-<p><strong>Let op — naamgeving.</strong> Het bestand <code>backend/app/services/data_scope.py</code> gaat <em>niet</em> over projectafscherming; het bevat chromosoom-normalisatie (<code>normalize_chromosome</code>, <code>is_primary_chromosome</code>) die o.a. de variant-ID-opbouw in <code>clickhouse_variant_ids.py</code> gebruikt. Een auditor die "data scope" (toegangsscope) zoekt, moet dus in <code>variant_explorer_service.py</code> kijken, niet in <code>data_scope.py</code>.</p>
-<p><strong>Traceerbaarheid.</strong> Elke rij blijft herleidbaar: de dragerdrill-down linkt elke drager terug naar zijn familie (<code>family_uuid</code> + familienaam) en project (<code>project_name</code>), en <code>VariantCarrierModal.tsx</code> legt via de familienaam een directe link naar <code>/families/{family_id}</code>. De review-metadata (tags, classificatie, <code>updated_at</code> als "last reviewed") komt uit <code>small_variant_reviews</code> en toont wat de variant al beoordeeld heeft (zie <a href="#hs-10">10-tagging-en-acmg-classificatie.md</a> en <a href="#hs-11">11-rapport-en-traceerbaarheid.md</a>).</p>
-<h2>Prestaties: cross-project-aggregaten in ClickHouse</h2>
-<p>De Explorer bevraagt varianten over mogelijk vele projecten en miljoenen genotype-oproepen. Enkele bewuste ontwerpkeuzes houden dit schaalbaar (zie ook <a href="#hs-3">03-databankstructuren.md</a>):</p>
+<p>Het bestand <code>backend/app/services/data_scope.py</code> gaat, ondanks de naam, niet over deze afscherming maar over chromosoomnamen. Wie de toegangsscope zoekt, kijkt in <code>variant_explorer_service.py</code> (<code>resolve_scope</code>).</p>
+<p><strong>Traceerbaarheid.</strong> Elke drager is terug te voeren op zijn familie en project, en de review (tags, classificatie, laatste review) komt uit <code>small_variant_reviews</code> (hoofdstuk 10).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>resolve_scope</code> in <code>backend/app/services/variant_explorer_service.py</code>; de rolregels in <code>backend/app/services/access_control.py</code>.</p>
+<h2>Snelheid</h2>
+<p>De Explorer bevraagt mogelijk vele projecten en miljoenen genotypes. Enkele keuzes houden dat werkbaar:</p>
 <ul>
-<li><strong>Partitionering op <code>project_guid</code>.</strong> De <code>entries</code>-tabel gebruikt <code>ENGINE = CollapsingMergeTree(sign)</code>, <code>PARTITION BY project_guid</code>, <code>ORDER BY (project_guid, family_guid, xpos, key)</code>. Omdat elke query start met <code>project_guid IN (...)</code>, snoeit ClickHouse meteen alle niet-relevante partities weg — dit is tegelijk een prestatiewinst én de fysieke onderbouwing van de veiligheidsscoping.</li>
-<li><strong>Waar in de code:</strong> de DDL in <code>backend/app/services/clickhouse_variant_storage.py</code> (blok <code>`{dataset}/SNV_INDEL/entries`</code>).</li>
-<li><strong>Begrensde telling.</strong> Een volledige <code>uniqExact</code> over miljoenen keys is duur. <code>search_global_small_variants</code> telt daarom hoogstens <code>_EXPLORER_COUNT_CAP + 1</code> (10 001) distinct keys via een <code>GROUP BY key ... LIMIT</code>; voorbij de cap rapporteert <code>_bounded_total</code> het aantal als de cap (10 000) met <code>total_is_estimated=True</code> (de UI toont "N+").</li>
-<li><strong>Keyset-paginering.</strong> In plaats van dure <code>OFFSET</code>-sprongen codeert de cursor het triplet <code>(sort_value, xpos, key)</code> van de laatste rij, plus de sort/order en een hash van de filters (<code>_filters_fingerprint</code>). Een cursor die hoort bij een andere sortering of gewijzigde filters wordt gedetecteerd en genegeerd (<code>_decode_cursor</code> → <code>None</code>), zodat je nooit stilzwijgend verkeerd bladert.</li>
-<li><strong>Aparte annotatie-index.</strong> Annotatiefilters draaien als subquery tegen <code>annotation_index</code> (<code>key IN (SELECT DISTINCT ai.key ...)</code>), en de weergavevelden (impact, effect, HGVS, ClinVar) worden per pagina opgehaald met <code>_fetch_annotation_display</code> — enkel voor de zichtbare keys, niet voor de hele set.</li>
+<li><strong>Verdeling per project.</strong> De tabel <code>entries</code> is verdeeld per project (hoofdstuk 3). Omdat elke vraag met de projectfilter begint, slaat ClickHouse alle andere projecten meteen over: dat is snelheid én de fysieke basis van de afscherming.</li>
+<li><strong>Begrensde telling.</strong> Boven een vaste grens meldt de Explorer het aantal als "N+" (<code>total_is_estimated</code>) in plaats van alles exact te tellen.</li>
+<li><strong>Keyset-paginering.</strong> De cursor onthoudt de laatste rij, de sortering en een vingerafdruk van de filters. Hoort een cursor bij een andere sortering of andere filters, dan wordt hij genegeerd, zodat niemand ongemerkt verkeerd bladert.</li>
+<li><strong>Aparte annotatie-index.</strong> Annotatiefilters draaien tegen de annotatie-index, en de weergavevelden worden alleen opgehaald voor de zichtbare pagina.</li>
 </ul>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
@@ -3061,59 +3014,35 @@ else:
 <tbody>
 <tr>
 <td><code>backend/app/routers/variant_explorer.py</code></td>
-<td>HTTP-endpoints onder <code>/variant-explorer</code>; parseert filters (<code>_build_global_variant_filters</code>, <code>_parse_sample_genotype_filters</code>) en CSV-export</td>
+<td>De endpoints en het inlezen van de filters</td>
 </tr>
 <tr>
 <td><code>backend/app/services/variant_explorer_service.py</code></td>
-<td>Aggregatie-engine: scoping (<code>resolve_scope</code>), tellingen, keyset-paginering, dragerdrill-down, Postgres-review-brug</td>
+<td>Scope, tellingen, paginering, dragers en de brug naar de reviews</td>
 </tr>
 <tr>
-<td><code>backend/app/services/clickhouse_variant_ids.py</code></td>
-<td>Opbouw van variant-ID's/keys en <code>xpos</code> (<code>build_small_variant_id</code>, <code>small_variant_key</code>, <code>_xpos</code>)</td>
-</tr>
-<tr>
-<td><code>backend/app/services/clickhouse_variant_rows.py</code></td>
-<td>Opbouw van de <code>entries</code>- en annotatie-index-rijen die bij import naar ClickHouse worden geschreven (leescontract van de Explorer)</td>
-</tr>
-<tr>
-<td><code>backend/app/services/clickhouse_variant_storage.py</code></td>
-<td>DDL van de <code>entries</code>-tabel (<code>CollapsingMergeTree</code>, partitie op <code>project_guid</code>); opruimen legacy <code>gt_stats</code></td>
+<td><code>backend/app/services/genotypes.py</code></td>
+<td>De genotypeklassen</td>
 </tr>
 <tr>
 <td><code>backend/app/services/access_control.py</code></td>
-<td>Rol-/toegangshelpers <code>is_admin_user</code> (<code>ADMIN_ROLES</code>), <code>user_metadata_project_ids</code> die de scope voeden</td>
+<td>De rolregels die de scope voeden</td>
 </tr>
 <tr>
-<td><code>backend/app/services/data_scope.py</code></td>
-<td>Chromosoom-normalisatie (let op: géén projectafscherming ondanks de naam)</td>
-</tr>
-<tr>
-<td><code>backend/app/core/clickhouse.py</code></td>
-<td><code>execute_clickhouse</code> met server-side parameterbinding (<code>%(...)s</code>)</td>
+<td><code>backend/app/services/clickhouse_variant_storage.py</code></td>
+<td>De tabel <code>entries</code>, verdeeld per project</td>
 </tr>
 <tr>
 <td><code>frontend/src/pages/variant-explorer/GlobalSmallVariantExplorerPage.tsx</code></td>
-<td>Hoofdpagina: assembly-keuze, genotypefilter, resultaattabel, CSV-download</td>
+<td>Het scherm</td>
 </tr>
 <tr>
 <td><code>frontend/src/pages/variant-explorer/globalSmallVariantSearch.ts</code></td>
-<td>Familie-agnostische zoek-state, cursor-paginering, query-string-opbouw</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/variant-explorer/GlobalSmallVariantTable.tsx</code></td>
-<td>Resultaattabel met sorteerbare tellerkolommen</td>
+<td>Zoektoestand, cursor, querystring</td>
 </tr>
 <tr>
 <td><code>frontend/src/pages/variant-explorer/VariantCarrierModal.tsx</code></td>
-<td>Drill-downvenster met dragers gegroepeerd per familie, links naar de familiepagina</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/variant-explorer/types.ts</code></td>
-<td>TypeScript-typen die de backend-schema's spiegelen</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/variantSearch.ts</code></td>
-<td>Locus-/gebied-parser (<code>parseGeneOrRegionInput</code>)</td>
+<td>Het dragervenster per familie</td>
 </tr>
 </tbody>
 </table></div>
