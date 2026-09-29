@@ -274,6 +274,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
       <section id="all" className="analysis-panel space-y-4">
         <h2 className="section-title">All variants</h2>
         <Histogram
+          subject="SV lengths"
           data={allLengths}
           binEdges={variantBinEdges}
           binLabels={variantBinLabels}
@@ -287,6 +288,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
           <div key={type} className="viz-panel space-y-2">
             <h3 className="font-semibold">{type}</h3>
             <Histogram
+              subject={`${type} lengths`}
               data={lengths}
               binEdges={variantBinEdges}
               binLabels={variantBinLabels}
@@ -302,6 +304,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
           <div key={source} className="viz-panel space-y-2">
             <h3 className="font-semibold">{source}</h3>
             <Histogram
+              subject={`SV lengths from ${source}`}
               data={lengths}
               binEdges={variantBinEdges}
               binLabels={variantBinLabels}

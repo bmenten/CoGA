@@ -47,24 +47,40 @@ const SegmentalDuplicationTrack: React.FC<Props> = ({
     `${assembly}|${chrom}`,
   );
 
+  // The surface's name for a screen reader (#529): how many duplications are in view.
+  const segdupsOn =
+    `Segmental duplications on chr${chrom.replace(/^chr/i, '')}:` +
+    `${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+
   // A failed request must never read as an empty region (#510).
   if (isError) {
     return (
       <div className="relative" style={{ width, height }}>
-        <svg width={width} height={height} />
+        <svg width={width} height={height} role="img" aria-label={`${segdupsOn}: failed to load`} />
         <VizErrorOverlay what="segmental duplications" onRetry={() => void refetch()} />
       </div>
     );
   }
 
-  if (!data) return <svg width={width} height={height} />;
+  if (!data) {
+    return <svg width={width} height={height} role="img" aria-label={`${segdupsOn}: loading`} />;
+  }
 
   const regionLength = regionEnd - regionStart;
   const trackY = Math.max(2, Math.floor(height * 0.2));
   const trackHeight = Math.max(height - trackY * 2, 4);
+  // Only what overlaps the region: while a pan loads, the previous window's intervals
+  // are held, and one left of the new window was drawn as a 2 px block at its left
+  // edge, under its own label (#526).
+  const inView = data.filter(
+    (interval) => interval.end > regionStart && interval.start < regionEnd,
+  );
+  // Nothing in view while a pan's new window is still on its way is not "none".
+  const inViewSummary =
+    inView.length > 0 ? inView.length.toLocaleString() : rawData ? 'none' : 'loading';
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
+      <svg width={width} height={height} role="img" aria-label={`${segdupsOn}: ${inViewSummary}`}>
         <line
           x1={0}
           x2={width}
@@ -73,29 +89,24 @@ const SegmentalDuplicationTrack: React.FC<Props> = ({
           stroke={cssVar('--color-grid')}
           strokeWidth={1}
         />
-        {/* Only what overlaps the region: while a pan loads, the previous window's
-            intervals are held, and one left of the new window was drawn as a 2 px
-            block at its left edge, under its own label (#526). */}
-        {data
-          .filter((interval) => interval.end > regionStart && interval.start < regionEnd)
-          .map((interval, index) => {
-            const start = Math.max(interval.start, regionStart);
-            const end = Math.min(interval.end, regionEnd);
-            const x = ((start - regionStart) / regionLength) * width;
-            const w = Math.max(((end - start) / regionLength) * width, 2);
-            return (
-              <rect
-                key={index}
-                x={x}
-                y={trackY}
-                width={w}
-                height={trackHeight}
-                fill={cssVar('--color-segmental-duplication')}
-              >
-                <title>{interval.label}</title>
-              </rect>
-            );
-          })}
+        {inView.map((interval, index) => {
+          const start = Math.max(interval.start, regionStart);
+          const end = Math.min(interval.end, regionEnd);
+          const x = ((start - regionStart) / regionLength) * width;
+          const w = Math.max(((end - start) / regionLength) * width, 2);
+          return (
+            <rect
+              key={index}
+              x={x}
+              y={trackY}
+              width={w}
+              height={trackHeight}
+              fill={cssVar('--color-segmental-duplication')}
+            >
+              <title>{interval.label}</title>
+            </rect>
+          );
+        })}
       </svg>
       {data.length === 0 && (
         <div className="viz-empty-overlay">No segmental duplications/LCRs in this region</div>

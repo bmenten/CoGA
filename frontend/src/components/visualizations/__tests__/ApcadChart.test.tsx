@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ApcadChart from '../ApcadChart';
@@ -30,7 +31,7 @@ vi.mock('../../../lib/trackFetch', async () => {
  */
 const arcSpy = vi.fn();
 
-const renderChart = () => {
+const renderChart = (props: Partial<ComponentProps<typeof ApcadChart>> = {}) => {
   const context = HTMLCanvasElement.prototype.getContext.call(
     document.createElement('canvas'),
     '2d',
@@ -43,7 +44,7 @@ const renderChart = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <ApcadChart apcadUrls={['http://test/apcad']} width={400} height={120} chroms={['1']} />
+      <ApcadChart apcadUrls={['http://test/apcad']} width={400} height={120} chroms={['1']} {...props} />
     </QueryClientProvider>,
   );
 };
@@ -114,5 +115,72 @@ describe('ApcadChart', () => {
       expect(screen.getByText(/No APCAD data in this region/i)).toBeInTheDocument(),
     );
     expect(arcSpy).not.toHaveBeenCalled();
+  });
+
+  // #529: the canvas is a named image, and its name says what is drawn on it now.
+  it('is named after the sample, the window and the sites drawn in it (#529)', async () => {
+    respondWith([
+      { chr: '1', start: 11564, end: 11565, value: 0.0, origin: 'und' },
+      { chr: '1', start: 11771, end: 11772, value: 0.5, origin: 'und' },
+      // Outside the window: not drawn, so not counted either.
+      { chr: '1', start: 30000, end: 30001, value: 0.5, origin: 'und' },
+    ]);
+
+    renderChart({ sampleId: 'S1', regionStart: 10000, regionEnd: 20000 });
+
+    expect(
+      await screen.findByRole('img', {
+        name: 'APCAD B-allele frequency of S1 on chr1:10,000–20,000: 2 sites',
+      }),
+    ).toBeInTheDocument();
+    expect(arcSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts the PCF segments drawn over the sites (#529)', async () => {
+    serveTrackFetchFrom(
+      vi.fn((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => ({
+            items: url.endsWith('/pcf')
+              ? [{ chr: '1', start: 0, end: 100, value: 0.5, origin: 'maternal' }]
+              : [{ chr: '1', start: 10, end: 11, value: 0.5, origin: 'paternal' }],
+          }),
+        }),
+      ),
+    );
+
+    renderChart({ pcfUrls: ['http://test/pcf'] });
+
+    expect(
+      await screen.findByRole('img', { name: 'APCAD B-allele frequency on chr1: 1 site, 1 PCF segment' }),
+    ).toBeInTheDocument();
+  });
+
+  it('names an empty region as empty, on the folded axis’s own terms (#529)', async () => {
+    respondWith([]);
+
+    renderChart({ maxValue: 0.5 });
+
+    expect(
+      await screen.findByRole('img', { name: 'APCAD minor allele fraction on chr1: no data' }),
+    ).toBeInTheDocument();
+  });
+
+  it('never names a load in flight or a failed load as an empty region (#529, #510)', async () => {
+    serveTrackFetchFrom(vi.fn(() => new Promise<never>(() => undefined)));
+    const pending = renderChart({ sampleId: 'S1' });
+    expect(
+      screen.getByRole('img', { name: 'APCAD B-allele frequency of S1 on chr1: loading' }),
+    ).toBeInTheDocument();
+    pending.unmount();
+
+    serveTrackFetchFrom(vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }));
+    renderChart({ sampleId: 'S1' });
+
+    expect(
+      await screen.findByRole('img', { name: 'APCAD B-allele frequency of S1 on chr1: failed to load' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /no data/i })).not.toBeInTheDocument();
   });
 });

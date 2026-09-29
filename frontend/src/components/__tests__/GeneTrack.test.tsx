@@ -220,3 +220,57 @@ test('shows a failed request as a failure with a retry, never as "no genes"', ()
   fireEvent.click(screen.getByRole('button', { name: /retry/i }));
   expect(refetchMock).toHaveBeenCalledTimes(1);
 });
+
+test('names the genes in the region for a screen reader: how many, and the first three as drawn (#529)', () => {
+  answer({
+    genes: [
+      gene({ hgnc_symbol: 'C', start: 500, end: 900 }),
+      gene({ hgnc_symbol: 'A', start: 100, end: 400 }),
+      gene({ hgnc_symbol: 'B', start: 300, end: 600 }),
+      gene({ hgnc_symbol: 'D', start: 950, end: 990 }),
+    ],
+  });
+  const { rerender } = renderTrack();
+  expect(screen.getByRole('img', { name: 'Genes on chr1:0–1,000: 4 (A, B, C, …)' })).toBeInTheDocument();
+
+  answer({ genes: [gene({ hgnc_symbol: 'BRCA2', start: 100, end: 400 })] });
+  rerender(<GeneTrack assembly="GRCh38" chrom="chr13" width={1000} regionStart={0} regionEnd={1000} />);
+  expect(screen.getByRole('img', { name: 'Genes on chr13:0–1,000: 1 (BRCA2)' })).toBeInTheDocument();
+});
+
+test.each([
+  ['an empty region', { genes: [] }, 'none'],
+  ['a request in flight', { genes: undefined }, 'loading'],
+  ['a failed request (#510)', { genes: undefined, isError: true }, 'failed to load'],
+])('names %s as what it is, and only an empty region as "none" (#529)', (_label, state, summary) => {
+  answer(state);
+  renderTrack();
+  expect(screen.getByRole('img', { name: `Genes on chr1:0–1,000: ${summary}` })).toBeInTheDocument();
+});
+
+test('while a pan loads, names only the held genes in the new region, never "none" (#529)', () => {
+  const region = (regionStart: number, regionEnd: number) => (
+    <GeneTrack assembly="GRCh38" chrom="1" width={1000} regionStart={regionStart} regionEnd={regionEnd} />
+  );
+  answer({
+    genes: [
+      gene({ hgnc_symbol: 'A', start: 100, end: 400 }),
+      gene({ hgnc_symbol: 'B', start: 600, end: 900 }),
+    ],
+  });
+  const { rerender } = render(region(0, 1000));
+  expect(screen.getByRole('img', { name: 'Genes on chr1:0–1,000: 2 (A, B)' })).toBeInTheDocument();
+
+  // Same span, 500 bp right, the new window still loading: A is now left of the region.
+  answer({ genes: undefined });
+  rerender(region(500, 1500));
+  expect(screen.getByRole('img', { name: 'Genes on chr1:500–1,500: 1 (B)' })).toBeInTheDocument();
+
+  // No held gene lies in this window, but its genes have not arrived: not "none".
+  rerender(region(1000, 2000));
+  expect(screen.getByRole('img', { name: 'Genes on chr1:1,000–2,000: loading' })).toBeInTheDocument();
+
+  answer({ genes: [] });
+  rerender(region(1000, 2000));
+  expect(screen.getByRole('img', { name: 'Genes on chr1:1,000–2,000: none' })).toBeInTheDocument();
+});

@@ -12,9 +12,14 @@ const ViewerMemberSection: React.FC<ViewerMemberSectionProps> = ({ member, child
       <h3 className="text-lg font-semibold">
         {member.sample_id}
         {member.affected && (
-          <span className="ml-1 text-(--color-signature-red)" title="Affected">
-            ★
-          </span>
+          <>
+            {/* The star is decoration a screen reader would read as "black star"; it
+                hears the word instead (#529). */}
+            <span className="ml-1 text-(--color-signature-red)" title="Affected" aria-hidden="true">
+              ★
+            </span>
+            <span className="sr-only">, affected</span>
+          </>
         )}
       </h3>
       <span className="analysis-pill analysis-pill--muted">{member.role}</span>

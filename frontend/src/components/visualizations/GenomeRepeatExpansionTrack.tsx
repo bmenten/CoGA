@@ -5,7 +5,7 @@ import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } fro
 import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
-import { RepeatLocusTooltip, STATUS_COLORS } from './repeatExpansionHelpers';
+import { RepeatLocusTooltip, STATUS_COLORS, describeRepeatLoci } from './repeatExpansionHelpers';
 import { apiPath, raw } from '../../lib/apiPath';
 
 interface Layout {
@@ -85,12 +85,24 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
       .sort((a, b) => (STATUS_DRAW_RANK[a.status] ?? 0) - (STATUS_DRAW_RANK[b.status] ?? 0));
   }, [data?.items, layout]);
 
+  // The chart's accessible name (#529): what it shows now. A failure or a load is said
+  // as such, never as zero loci (#510).
+  const lociSummary = useMemo(() => describeRepeatLoci(items), [items]);
+  const chartState = isError
+    ? 'failed to load'
+    : isLoading
+      ? 'loading'
+      : items.length === 0
+        ? 'none'
+        : lociSummary;
+  const chartLabel = `Repeat loci of ${sampleId} in view: ${chartState}`;
+
   const trackY = Math.max(2, Math.floor(height * 0.28));
   const trackHeight = Math.max(height - trackY * 2, 6);
 
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
+      <svg width={width} height={height} role="img" aria-label={chartLabel}>
         <line
           x1={0}
           x2={width}

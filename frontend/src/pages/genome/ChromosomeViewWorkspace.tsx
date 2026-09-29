@@ -547,6 +547,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       viewportInteraction={viewportInteraction}
                     >
                       <ApcadChart
+                        sampleId={member.sample_id}
                         maxValue={apcadAxisMax(availability[member.sample_id]?.apcadSources)}
                         apcadUrls={[
                           `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/apcad?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${apcadPointLimit}&format=json`,

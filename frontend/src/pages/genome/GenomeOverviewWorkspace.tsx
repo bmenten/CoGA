@@ -385,6 +385,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                           testId={`genome-region-select-apcad-${member.sample_id}`}
                         >
                           <ApcadChart
+                            sampleId={member.sample_id}
                             maxValue={apcadAxisMax(availability[member.sample_id]?.apcadSources)}
                             apcadUrls={urlMaps.apcad[member.sample_id]}
                             pcfUrls={

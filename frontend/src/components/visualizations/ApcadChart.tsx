@@ -51,6 +51,21 @@ interface BedRecordPayload<T> {
 
 const splitKey = (key: string): string[] => (key ? key.split('\n').filter(Boolean) : []);
 
+const chromLabel = (chrom: string): string => (/^chr/i.test(chrom) ? chrom : `chr${chrom}`);
+
+const countOf = (count: number, one: string, many = `${one}s`): string =>
+  `${count.toLocaleString()} ${count === 1 ? one : many}`;
+
+/** Where the chart is looking, for its accessible name. */
+const describeView = (chroms: string[], regionStart?: number, regionEnd?: number): string => {
+  if (chroms.length === 1) {
+    return regionStart !== undefined && regionEnd !== undefined
+      ? `on ${chromLabel(chroms[0])}:${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`
+      : `on ${chromLabel(chroms[0])}`;
+  }
+  return chroms.length > 1 ? `across ${chroms.length} chromosomes` : '';
+};
+
 const deriveLayoutFromBins = (
   bins: ApcadBin[],
   chroms: string[],
@@ -103,11 +118,14 @@ interface Props {
    * empty and squashes the bands into the bottom.
    */
   maxValue?: number;
+  /** Whose track this is. Only named in the chart's accessible name. */
+  sampleId?: string;
 }
 
 const ApcadChart: React.FC<Props> = ({
   apcadUrls,
   maxValue = 1,
+  sampleId,
   pcfUrls = [],
   width = 800,
   height = 120,
@@ -213,6 +231,36 @@ const ApcadChart: React.FC<Props> = ({
       : loading
         ? null
         : false;
+
+  // What the canvas draws, counted the way the draw below filters it: in a focused
+  // region, only what overlaps the window. Memoised: hovering re-renders on every move.
+  const drawnCounts = useMemo(() => {
+    if (!displayData) return null;
+    const inView = (item: { start: number; end: number }) =>
+      regionStart === undefined ||
+      regionEnd === undefined ||
+      stableChroms.length !== 1 ||
+      (item.end >= regionStart && item.start <= regionEnd);
+    return {
+      sites: displayData.bins.filter(inView).length,
+      segments: displayData.segments.filter(inView).length,
+    };
+  }, [displayData, regionEnd, regionStart, stableChroms]);
+
+  // The accessible name summarises what is drawn now. A failed load says so and never
+  // reads as an empty region (#510); nor does a load still in flight.
+  const chartLabel = (() => {
+    const measure = maxValue > 0 && maxValue <= 0.5 ? 'minor allele fraction' : 'B-allele frequency';
+    const where = describeView(stableChroms, regionStart, regionEnd);
+    const subject = `APCAD ${measure}${sampleId ? ` of ${sampleId}` : ''}${where ? ` ${where}` : ''}`;
+    if (isError) return `${subject}: failed to load`;
+    if (loading) return `${subject}: loading`;
+    const drawn = [
+      drawnCounts?.sites ? countOf(drawnCounts.sites, 'site') : null,
+      drawnCounts?.segments ? countOf(drawnCounts.segments, 'PCF segment') : null,
+    ].filter(Boolean);
+    return `${subject}: ${drawn.length ? drawn.join(', ') : 'no data'}`;
+  })();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -441,6 +489,8 @@ const ApcadChart: React.FC<Props> = ({
         ref={canvasRef}
         width={width}
         height={height}
+        role="img"
+        aria-label={chartLabel}
         data-audit-id="apcad-chart"
         data-audit-label="APCAD chart"
         onClick={handleClick}

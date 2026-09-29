@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { useQueryMock } = vi.hoisted(() => ({ useQueryMock: vi.fn() }));
@@ -111,4 +111,59 @@ test('density mode draws stacked bars with a per-bin tooltip', () => {
   const tooltip = document.body.querySelector('.viz-tooltip');
   expect(tooltip?.textContent).toContain('17 DGV variants');
   expect(tooltip?.textContent).toContain('gain 10');
+});
+
+test('names the variants it draws for a screen reader, by class, and keeps each one\'s name (#529)', () => {
+  useQueryMock.mockReturnValue({
+    data: {
+      total: 5,
+      mode: 'lines',
+      bin_size: 0,
+      variants: [
+        { chr: '1', start: 10, end: 60, accession: 'dup1', variant_class: 'gain' },
+        { chr: '1', start: 50, end: 150, accession: 'del1', variant_class: 'loss' },
+        { chr: '1', start: 160, end: 220, accession: 'del2', variant_class: 'loss' },
+        { chr: '1', start: 200, end: 250, accession: 'cx1', variant_class: 'mixed' },
+        { chr: '1', start: 260, end: 290, accession: 'ot1', variant_class: 'other' },
+      ],
+      bins: [],
+    },
+  });
+
+  const { container } = renderTrack();
+
+  expect(
+    screen.getByRole('img', { name: 'DGV variants on chr1:0–300: 5 (1 gain, 2 loss, 1 mixed, 1 other)' }),
+  ).toBeInTheDocument();
+  expect(container.querySelectorAll('rect[aria-label]')).toHaveLength(5);
+});
+
+test('names a density profile by its total, as its note does (#529)', () => {
+  useQueryMock.mockReturnValue({
+    data: {
+      total: 50000,
+      mode: 'density',
+      bin_size: 100,
+      variants: [],
+      bins: [{ start: 0, end: 100, gain: 10, loss: 5, mixed: 2, other: 0 }],
+    },
+  });
+
+  renderTrack();
+
+  expect(
+    screen.getByRole('img', { name: 'DGV variants on chr1:0–300: 50,000, shown as density' }),
+  ).toBeInTheDocument();
+});
+
+test.each([
+  ['an empty region', { data: { total: 0, mode: 'lines', bin_size: 0, variants: [], bins: [] } }, 'none'],
+  ['a request in flight', { data: undefined }, 'loading'],
+  ['a failed request (#510)', { data: undefined, isError: true, refetch: vi.fn() }, 'failed to load'],
+])('names %s as what it is, and only an empty region as "none" (#529)', (_label, state, summary) => {
+  useQueryMock.mockReturnValue(state);
+
+  renderTrack();
+
+  expect(screen.getByRole('img', { name: `DGV variants on chr1:0–300: ${summary}` })).toBeInTheDocument();
 });

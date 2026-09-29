@@ -166,6 +166,9 @@ describe('ZoomedIdeogram', () => {
     const { container } = render(ideogram({ regionStart, regionEnd }));
 
     expect(container.querySelector('svg')?.childElementCount).toBe(0);
+    expect(
+      screen.getByRole('img', { name: 'Cytobands on chr1: no region in view' })
+    ).toBeInTheDocument();
   });
 
   it('a failed request shows the failure with retry, never a blank or stale ideogram (#510)', () => {
@@ -393,6 +396,43 @@ describe('ZoomedIdeogram', () => {
 
     fireEvent.mouseLeave(p11);
     expect(tooltip()).toBeNull();
+  });
+
+  it('names the cytobands in the region for a screen reader, the first three in ISCN form (#529)', () => {
+    serve({ data: CHROMOSOME });
+    const { rerender } = render(
+      ideogram({ regionStart: 150_000, regionEnd: 650_000, width: 500 })
+    );
+    expect(
+      screen.getByRole('img', {
+        name: 'Cytobands on chr1:150,000–650,000: 5 (1p13, 1p12, 1p11.1, …)',
+      })
+    ).toBeInTheDocument();
+
+    // Half-open, as drawn: p13 and q12 only touch this region.
+    rerender(ideogram({ regionStart: 200_000, regionEnd: 600_000, width: 400 }));
+    expect(
+      screen.getByRole('img', {
+        name: 'Cytobands on chr1:200,000–600,000: 3 (1p12, 1p11.1, 1q11.1)',
+      })
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ['without cytoband data', { data: { ...CHROMOSOME, bands: [] } }, 'none'],
+    ['while it loads', {}, 'loading'],
+    [
+      'after a failure, even with bands cached (#510)',
+      { data: CHROMOSOME, isError: true },
+      'failed to load',
+    ],
+  ])('says what it shows %s, and "none" only for no bands (#529)', (_label, state, summary) => {
+    serve(state);
+    render(ideogram());
+
+    expect(
+      screen.getByRole('img', { name: `Cytobands on chr1:0–1,000,000: ${summary}` })
+    ).toBeInTheDocument();
   });
 
   it('still draws the region edges and axis for a chromosome without cytoband data', () => {

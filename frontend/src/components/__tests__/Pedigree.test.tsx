@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { expect, test } from 'vitest';
 
 import Pedigree from '../visualizations/Pedigree';
@@ -314,4 +314,54 @@ test('a QC verdict leaves the affected fill and the carrier-type colour alone (#
   expect(halfFill?.getAttribute('fill')).toBe('#2563eb'); // obligate carrier
   // The carrier type is named, not left to the half-fill's colour.
   expect(mom?.querySelector('title')?.textContent).toBe('QC: fail · Carrier (obligate)');
+});
+
+// #529: role="img" hides the per-symbol tooltips from assistive technology, so the
+// pedigree's accessible name has to carry what its symbols draw.
+test('is a named image that carries what the symbols draw (#529)', async () => {
+  const { container } = render(
+    <Pedigree
+      rows={[
+        { fid: 'F1', iid: 'DAD', pid: '0', mid: '0', sex: '1', phen: '1' },
+        { fid: 'F1', iid: 'MOM', pid: '0', mid: '0', sex: '2', phen: '1' },
+        { fid: 'F1', iid: 'KID1', pid: 'DAD', mid: 'MOM', sex: '1', phen: '2' },
+        { fid: 'F1', iid: 'KID2', pid: 'DAD', mid: 'MOM', sex: '2', phen: '1' },
+      ]}
+      members={[
+        { sample_id: 'MOM', carrier_status: 'carrier', carrier_type: 'obligate' },
+        // Drawn affected, without the carrier half-fill, so counted once: as affected.
+        { sample_id: 'KID1', carrier_status: 'carrier', affected: true },
+      ]}
+      relationships={[
+        {
+          relationship_type: 'couple',
+          sample_id_a: 'DAD',
+          sample_id_b: 'MOM',
+          metadata: { consanguineous: true },
+        },
+      ]}
+      phenotypeSampleIds={['KID1']}
+      qcStatusBySample={{ DAD: { status: 'fail' }, KID2: { status: 'warn' }, MOM: { status: 'pass' } }}
+    />
+  );
+  await svgWidth(container);
+
+  expect(
+    screen.getByRole('img', {
+      name:
+        'Pedigree: 4 members in 2 generations, 1 affected, 1 carrier, 1 consanguineous couple, ' +
+        '1 with HPO phenotypes; QC: 1 fail, 1 warn, 1 pass',
+    })
+  ).toBeInTheDocument();
+});
+
+test('names a pedigree without QC or members for what it is (#529)', () => {
+  const { unmount } = render(<Pedigree rows={baseRows} />);
+  expect(
+    screen.getByRole('img', { name: 'Pedigree: 2 members in 1 generation, 0 affected' })
+  ).toBeInTheDocument();
+  unmount();
+
+  render(<Pedigree rows={[]} />);
+  expect(screen.getByRole('img', { name: 'Pedigree: no members' })).toBeInTheDocument();
 });

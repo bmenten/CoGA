@@ -255,6 +255,54 @@ describe('SegmentalDuplicationTrack', () => {
     expect(screen.queryByText(/No segmental duplications/)).not.toBeInTheDocument();
   });
 
+  it('names how many duplications it draws for a screen reader (#529)', () => {
+    serve({ data: [LCR22A, LCR22B, LCR22D] });
+    render(track());
+
+    expect(
+      screen.getByRole('img', {
+        name: 'Segmental duplications on chr22:18,000,000–22,000,000: 3',
+      })
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ['an empty region', { data: [] }, 'none'],
+    ['the first window loading', {}, 'loading'],
+    ['a failed request (#510)', { isError: true }, 'failed to load'],
+  ])('names %s as what it is, and only an empty region as "none" (#529)', (_label, state, summary) => {
+    serve(state);
+    render(track());
+
+    expect(
+      screen.getByRole('img', {
+        name: `Segmental duplications on chr22:18,000,000–22,000,000: ${summary}`,
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('while a pan loads, counts only the held blocks in the new window, never "none" (#529)', () => {
+    serve({ data: [LCR22A, LCR22B] });
+    const { rerender } = render(track());
+
+    // Pan to 19.5–23.5 Mb: LCR22-A (18.6–19.0 Mb) is now left of the window.
+    serve({});
+    rerender(track({ regionStart: 19_500_000, regionEnd: 23_500_000 }));
+    expect(
+      screen.getByRole('img', {
+        name: 'Segmental duplications on chr22:19,500,000–23,500,000: 1',
+      })
+    ).toBeInTheDocument();
+
+    // To 21–25 Mb: no held block lies in view, and the window has not arrived yet.
+    rerender(track({ regionStart: 21_000_000, regionEnd: 25_000_000 }));
+    expect(
+      screen.getByRole('img', {
+        name: 'Segmental duplications on chr22:21,000,000–25,000,000: loading',
+      })
+    ).toBeInTheDocument();
+  });
+
   it.each([
     ['a zoom', { regionStart: 18_000_000, regionEnd: 20_000_000 }],
     ['a move to another chromosome', { chrom: '21' }],

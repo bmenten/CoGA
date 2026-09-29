@@ -40,6 +40,12 @@ interface Props {
 const GENE_HEIGHT = 8;
 const LINE_HEIGHT = GENE_HEIGHT + 4;
 
+// How many genes are in view and the first three, in the order drawn (#529).
+const describeGenes = (genes: Gene[]): string => {
+  const names = genes.slice(0, 3).map((gene) => gene.hgnc_symbol).join(", ");
+  return `${genes.length.toLocaleString()} (${names}${genes.length > 3 ? ", …" : ""})`;
+};
+
 const GeneTrack: React.FC<Props> = ({
   assembly,
   chrom,
@@ -106,6 +112,23 @@ const GeneTrack: React.FC<Props> = ({
   }, [genes, regionStart, regionEnd]);
   const hasGenes = (genes?.length || 0) > 0;
   const containerHeight = Math.max(svgHeight, 24);
+
+  // The track's name for a screen reader (#529): the genes in the region. A failure is
+  // never "none" (#510), and neither is a pan whose window has not arrived yet: the
+  // held genes are named only where they lie in the new region.
+  const genesInView = genesWithLines
+    .map(({ g }) => g)
+    .filter((g) => g.end > regionStart && g.start < regionEnd);
+  const geneSummary = isError
+    ? "failed to load"
+    : genesInView.length > 0
+      ? describeGenes(genesInView)
+      : rawGenes
+        ? "none"
+        : "loading";
+  const ariaLabel =
+    `Genes on chr${chrom.replace(/^chr/i, "")}:` +
+    `${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}: ${geneSummary}`;
 
   useEffect(() => {
     const svg = select(svgRef.current);
@@ -216,7 +239,13 @@ const GeneTrack: React.FC<Props> = ({
       style={{ position: "relative", width, height: containerHeight }}
       className="text-text"
     >
-      <svg ref={svgRef} width={width} height={containerHeight} />
+      <svg
+        ref={svgRef}
+        width={width}
+        height={containerHeight}
+        role="img"
+        aria-label={ariaLabel}
+      />
       {isError && <VizErrorOverlay what="genes" onRetry={() => void refetch()} />}
       {!isError && genes !== null && !hasGenes && (
         <div className="viz-empty-overlay">No genes in this region</div>
