@@ -11,9 +11,12 @@
 #   printf '%s' "$ADMIN_PW"     | gcloud secrets versions add coga-admin-password        --data-file=- --project <p>
 #   printf '%s' "$PG_PW"        | gcloud secrets versions add coga-postgres-password      --data-file=- --project <p>
 #   printf '%s' "$CH_PW"        | gcloud secrets versions add coga-clickhouse-password    --data-file=- --project <p>
+#   printf '%s' "$APP_PG_PW"    | gcloud secrets versions add coga-postgres-app-password  --data-file=- --project <p>
 #
 # Versions MUST exist before `terraform apply` (the Cloud SQL user and the Cloud Run
-# revisions resolve `latest` at apply time). See terraform/README.md "Bootstrap".
+# revisions resolve `latest` at apply time). See terraform/README.md "Bootstrap". The
+# last one, coga_app's password (printable ASCII), is needed only before switching to
+# db_runtime_role = "coga_app": docs/db-runtime-role-runbook.md, "Google Cloud".
 
 resource "google_secret_manager_secret" "app" {
   for_each  = local.secret_ids
@@ -43,9 +46,11 @@ data "google_secret_manager_secret_version" "postgres_password" {
 # cannot escalate to project-level roles). The SAs are created in the central infra
 # repo; we grant them by email.
 
-# Backend reads every app secret it injects via secret_key_ref.
+# Backend reads every app secret it injects via secret_key_ref, and one Postgres password:
+# the owner's, or with db_runtime_role = "coga_app" only coga_app's. The API then cannot
+# fetch the owner's password with its own credentials either.
 resource "google_secret_manager_secret_iam_member" "backend" {
-  for_each  = local.secret_ids
+  for_each  = setsubtract(keys(local.secret_ids), [local.restricted_db_role ? "postgres_password" : "postgres_app_password"])
   secret_id = google_secret_manager_secret.app[each.key].id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${local.backend_sa_email}"

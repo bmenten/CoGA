@@ -557,9 +557,19 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Sign-up password** — a new account's password must be at least 15 characters; any string, the
   empty one included, was accepted. A development build no longer logs a failed sign-up or login
   request, which carries the password (#582).
+- **Google Cloud go-live hardening, ready and off by default** — `db_runtime_role = "coga_app"`
+  runs the API as the restricted database role, with a migration job under its own account that
+  applies the schema and enables the role's login, handing Postgres a SCRAM verifier rather than
+  the password. `clickhouse_restrict_egress` limits the ClickHouse VM to Google APIs. The deploy
+  job refuses to run until `gcp-deploy` has required reviewers, and ingress ranges are validated
+  as CIDRs (#627).
 
 ### Documentation
 
+- **Google Cloud is the production target** — the owner's decision (Terraform on Google Cloud;
+  DPIA signed, data-processing agreement being signed; no production deployment yet) is
+  recorded in TF-02 §10 and TF-14, and the deployment guide, runbook and Terraform README
+  describe the go-live switches (#627).
 - **Password policy confirmed** — the device owner confirmed the 15-character minimum for a new
   local account (CR-059), recorded in TF-18 and `docs/security-posture.md` (#626).
 - **Docs and repo hygiene (#530)** — AGENTS.md, the README, `.env.example` (now every backend

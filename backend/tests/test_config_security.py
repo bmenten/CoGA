@@ -140,6 +140,9 @@ def test_a_complete_production_configuration_starts() -> None:
         ("INTEGRITY_ANCHOR_SIGNING_KEY", "", "INTEGRITY_ANCHOR_SIGNING_KEY"),
         ("INTEGRITY_ANCHOR_SIGNING_KEY", "not-base64!", "INTEGRITY_ANCHOR_SIGNING_KEY"),
         ("INTEGRITY_ANCHOR_SIGNING_KEY", base64.b64encode(b"abc").decode(), "INTEGRITY_ANCHOR_SIGNING_KEY"),
+        # Optional (migration only), but when it is given it must not be a placeholder.
+        ("POSTGRES_APP_PASSWORD", "change-me", "POSTGRES_APP_PASSWORD"),
+        ("POSTGRES_APP_PASSWORD", "   ", "POSTGRES_APP_PASSWORD"),
     ],
 )
 def test_production_refuses_weak_or_missing_secrets(field, value, named) -> None:

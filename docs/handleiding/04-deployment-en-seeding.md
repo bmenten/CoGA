@@ -77,9 +77,11 @@ Er is een bewuste scheiding tussen wie het schema mag aanmaken en wie de app dra
 
 Het bestand `backend/app/db_migrate.py` bevat de eigenaar-bevoorrechte helft: `run_schema_migrations` roept `wait_for_postgres`, `init_postgres_schema` en `init_postgres_admin_user` aan. Beide paden gebruiken **dezelfde** helperfuncties, dus er is één bron van waarheid voor het schema. ClickHouse blijft altijd bij het app-opstartpad, omdat het met eigen admin-credentials verbindt en geen `coga_app`-equivalent kent.
 
+Is `POSTGRES_APP_PASSWORD` gezet, dan zet `run_schema_migrations` na het schema ook de login van `coga_app` aan (`enable_app_role_login`). Het wachtwoord zelf gaat daarbij niet naar de server: `scram_sha256_verifier` berekent eerst de SCRAM-SHA-256-verifier, zoals `\password` in `psql` dat doet, en Postgres zet die zelf tussen aanhalingstekens in `ALTER ROLE` (`quote_literal`). Er wordt dus niets in SQL-tekst geplakt, en het klare wachtwoord komt in geen enkele logregel terecht. Op Google Cloud draait dit pad als de Cloud Run-job `coga-db-migrate` (`terraform/migrate.tf`), zodra `db_runtime_role = "coga_app"`.
+
 De docstring bovenaan `db_migrate.py` en de commentaren in `main.py` verwijzen voor de gecoördineerde "flip" naar `docs/db-runtime-role-runbook.md`.
 
-**Waar in de code:** `run_schema_migrations` en `main()` in `backend/app/db_migrate.py`; de schakelaar `postgres_run_schema_migrations_on_startup` in `backend/app/core/config.py`; de bewaking bij opstart in de `lifespan`-functie van `backend/app/main.py`.
+**Waar in de code:** `run_schema_migrations`, `enable_app_role_login`, `scram_sha256_verifier` en `main()` in `backend/app/db_migrate.py`; de instellingen `postgres_run_schema_migrations_on_startup` en `postgres_app_password` in `backend/app/core/config.py`; de bewaking bij opstart in de `lifespan`-functie van `backend/app/main.py`; de Cloud Run-job in `terraform/migrate.tf`.
 
 ## Seeding: admin, referentiegenoom en referentiedata
 
