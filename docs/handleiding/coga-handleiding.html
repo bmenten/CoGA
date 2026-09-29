@@ -2646,262 +2646,125 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </table></div>
 </section><section id="hs-12" class="chapter">
 <h1>12. HPO, Monarch &amp; variant-prioritisatie</h1>
-<p>In dit hoofdstuk wordt beschreven hoe CoGA het <em>fenotype</em> van een patiënt (de waargenomen klinische kenmerken) omzet in een concreet hulpmiddel voor de analist: een gerangschikte lijst van kandidaat-genen en een herordening van de varianten. We volgen de hele keten — van de <strong>HPO-terminologie</strong> (het "woordenboek" van klinische kenmerken), via de <strong>Monarch Initiative</strong>-kennisbank (die genen, ziekten en fenotypes met elkaar verbindt), naar de <strong>semantische gelijkenis</strong> (hoe dicht een gen bij het klinisch beeld ligt), tot en met de <strong>variant-prioritisatie</strong> (Exomiser-achtige scoring) en de <strong>ranking-cache</strong> die dit alles snel én reproduceerbaar houdt. Overal wijzen we aan <em>waar in de code</em> de essentie zit en welke veiligheids- en traceerbaarheidsgaranties gelden.</p>
-<p>Enkele begrippen die telkens terugkomen, kort uitgelegd:</p>
+<p>Dit hoofdstuk beschrijft hoe CoGA het <em>fenotype</em> van een patiënt (de waargenomen klinische kenmerken) omzet in hulp voor de analist: een lijst kandidaatgenen en een rangschikking van de varianten. De keten loopt van de <strong>HPO-terminologie</strong>, via de kennisbank van het <strong>Monarch Initiative</strong> en de <strong>semantische gelijkenis</strong>, naar de <strong>variantprioritering</strong> en de <strong>ranking-cache</strong> die dat snel en reproduceerbaar houdt. De uitleg voor gebruikers staat in de app (<em>Docs → Phenotype matching with Monarch</em>, <code>frontend/src/content/docs/monarch-integration.md</code>); het ontwerp in <code>docs/monarch-integration.md</code> en <code>docs/variant-ranking-cache.md</code>.</p>
+<p>Enkele begrippen:</p>
 <ul>
-<li><strong>HPO</strong> (Human Phenotype Ontology): een gestandaardiseerde, hiërarchische lijst van menselijke klinische kenmerken. Elk kenmerk heeft een stabiele code zoals <code>HP:0001250</code> (voor "epileptische aanval") en een label. "Ontologie" betekent hier: termen zijn onderling verbonden via ouder-kindrelaties (een specifieke term is een <em>subtype</em> van een algemenere).</li>
-<li><strong>CURIE</strong>: een compacte identificator met een naamruimte-prefix, bv. <code>HP:0001250</code> (fenotype), <code>MONDO:0007739</code> (ziekte), <code>HGNC:1100</code> (gen). CoGA gebruikt dezelfde identificatoren als de bronnen, zodat koppelen "gratis" is.</li>
-<li><strong>Fenotype-score</strong>: een getal tussen 0 en 1 dat uitdrukt hoe goed het fenotypeprofiel van een gen overeenkomt met de bij de patiënt waargenomen kenmerken.</li>
+<li><strong>HPO</strong> (<em>Human Phenotype Ontology</em>): een gestandaardiseerde, hiërarchische lijst van klinische kenmerken. Elk kenmerk heeft een vaste code, zoals <code>HP:0001250</code> (epileptische aanval). De termen zijn verbonden door ouder-kindrelaties: een specifieke term is een subtype van een algemenere.</li>
+<li><strong>CURIE:</strong> een korte identificatie met een voorvoegsel, bv. <code>HP:0001250</code> (fenotype), <code>MONDO:0007739</code> (ziekte), <code>HGNC:1100</code> (gen). CoGA gebruikt dezelfde identificaties als de bronnen.</li>
+<li><strong>Fenotypescore:</strong> een getal tussen 0 en 1 dat zegt hoe goed het fenotypeprofiel van een gen past bij de kenmerken van de patiënt.</li>
 </ul>
-<h2>HPO: het fenotype-woordenboek</h2>
-<h3>Wat wordt opgeslagen</h3>
-<p>De HPO-ontologie wordt in Postgres opgeslagen in vier tabellen, gedefinieerd in <code>backend/db/schema/postgres/02_reference.sql</code>:</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Tabel</th>
-<th>Rol</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>hpo_term</code></td>
-<td>Eén rij per HPO-term: <code>hpo_id</code>, <code>label</code>, <code>definition</code>, <code>is_obsolete</code>, <code>replaced_by</code>, plus versie-info (<code>release_version</code>, <code>release_date</code>). De primaire sleutel dwingt met <code>CHECK (hpo_id ~ '^HP:[0-9]{7}$')</code> af dat elke code een geldig HPO-id is.</td>
-</tr>
-<tr>
-<td><code>hpo_synonym</code></td>
-<td>Synoniemen per term (voor zoeken op vrije tekst).</td>
-</tr>
-<tr>
-<td><code>hpo_edge</code></td>
-<td>De ouder-kindrelaties (<code>child_id</code> → <code>parent_id</code>, standaard relatie <code>is_a</code>).</td>
-</tr>
-<tr>
-<td><code>hpo_closure</code></td>
-<td>De vooraf-berekende <em>transitieve sluiting</em>: voor elke term álle voorouders met hun afstand. Dit maakt "heeft de patiënt deze term of een specifieker subtype?" één snelle query in plaats van een recursieve boomdoorloop.</td>
-</tr>
-</tbody>
-</table></div>
-<p>De aparte tabel <code>individual_hpo</code> (in <code>03_assay.sql</code>, bij de familie- en samplegegevens) koppelt waargenomen fenotypes aan een concreet familielid (via <code>family_id</code> en een <code>sample_id</code> die naar <code>samples(id)</code> verwijst), met een <code>status</code> van <code>present</code>, <code>absent</code> of <code>unknown</code>. Alleen <code>present</code>-termen tellen mee voor prioritisatie.</p>
-<p class="waar"><strong>Waar in de code:</strong> het schema in <code>backend/db/schema/postgres/02_reference.sql</code> (de HPO-tabellen) en <code>03_assay.sql</code> (<code>individual_hpo</code>); de laadlogica in <code>backend/app/services/hpo_service.py</code>.</p>
-<h3>Hoe de ontologie geladen en versiebeheerd wordt</h3>
-<p>Het inlezen gebeurt in <code>hpo_service.py</code>. Een bron-bestand (<code>hp.obo</code> of <code>hp.json</code>, de officiële HPO-releaseformaten) wordt geparseerd door <code>parse_hpo_obo_text</code> of <code>parse_hpo_json_text</code> en vervolgens weggeschreven door <code>import_hpo_ontology</code>. Die functie:</p>
-<ol>
-<li><em>upsert</em> alle termen in <code>hpo_term</code> (bestaande termen worden bijgewerkt, nieuwe toegevoegd);</li>
-<li>herbouwt <code>hpo_synonym</code>, <code>hpo_edge</code> en <code>hpo_closure</code> volledig (delete-and-load);</li>
-<li>berekent de sluiting met <code>compute_hpo_closure</code> — een breadth-first doorloop die per term de kortste afstand tot elke voorouder vastlegt.</li>
-</ol>
-<p><strong>Versiebeheer.</strong> De release wordt uit het bronbestand zelf gelezen (<code>parse_hpo_ontology_release_metadata_path</code>, dat de <code>data-version:</code> of <code>owl:versionInfo</code> uit het OBO-bestand haalt) en op elke <code>hpo_term</code>-rij opgeslagen in <code>release_version</code>/<code>release_date</code>. Dit is essentieel voor traceerbaarheid: elke fenotype-annotatie kan later worden teruggekoppeld aan de exacte ontologieversie die gold.</p>
-<p>Bij een lege database wordt de ontologie automatisch geladen (<code>ensure_hpo_ontology_on_startup</code>), desnoods gedownload van het officiële PURL-adres (<code>DEFAULT_HPO_ONTOLOGY_URL</code>). Dat de gebruikte ontologie in de repo gepind is voor reproduceerbaarheid, is bewust vastgelegd (zie ook hoofdstuk <a href="#hs-6">06 — Package import</a> voor hoe fenotypes bij een familie-import binnenkomen).</p>
-<h3>De HPO-browser en admin</h3>
-<p>Analisten zoeken termen via <code>search_hpo_terms</code> (endpoint <code>GET /hpo/search</code> in <code>backend/app/routers/hpo.py</code>), dat rangschikt op exacte match → prefix → label → synoniem. Een enkele term met ouders en kinderen komt via <code>get_hpo_term_details</code> (<code>GET /hpo/{hpo_id}</code>).</p>
-<p>De beheerpagina is <code>frontend/src/pages/admin/HpoTerminologyAdminPage.tsx</code>. Die toont het aantal termen, de geladen release en de laatste sync, en biedt een <strong>preview-dan-toepassen</strong> workflow: het endpoint <code>POST /admin/hpo/sync</code> wordt eerst met <code>preview_only = true</code> aangeroepen (toont hoeveel termen nieuw/gewijzigd/verdwenen zijn), daarna pas met <code>preview_only = false</code> om echt te importeren. Die volgorde wordt afgedwongen: "Apply sync" is pas bruikbaar na een geslaagde preview van exact hetzelfde bestand en dezelfde overrides. Wie daarna een veld wijzigt, ziet de preview verdwijnen en moet opnieuw previewen. De bevestiging noemt het bestand. Tot CR-060 kon je ook zonder preview toepassen, of een ander bestand toepassen dan het gepreviewde, terwijl die preview nog op het scherm stond. De HPO-adminendpoints zitten in <code>backend/app/routers/admin.py</code> (<code>GET /admin/hpo/summary</code>, <code>GET /admin/hpo/terms</code>, <code>POST /admin/hpo/sync</code>).</p>
-<p>Er is ook een lichte losstaande pagina <code>frontend/src/pages/phenotypes/HpoTermsPage.tsx</code> die geselecteerde HPO-termen (bv. uit SV-annotaties) toont met een link naar de externe HPO-browser op <code>hpo.jax.org</code>.</p>
-<h3>Veiligheid &amp; traceerbaarheid (HPO)</h3>
-<ul>
-<li><strong>Toegangscontrole:</strong> zoeken/lezen vereist een ingelogde gebruiker (<code>get_current_user</code>); het importeren/synchroniseren van de ontologie is <strong>admin-only</strong> (<code>get_current_admin_user</code>) — zie de decorators in <code>hpo.py</code> (<code>POST /hpo/import</code>) en <code>admin.py</code> (<code>POST /admin/hpo/sync</code>).</li>
-<li><strong>Padvalidatie:</strong> de sync/import accepteert een bestandspad uit de request. <code>ensure_authorized_hpo_ontology_path</code> in <code>hpo_service.py</code> normaliseert dat pad (met <code>os.path.normpath</code>, zónder eerst <code>read_text</code> aan te raken) en eist dat het in een geautoriseerde ontologie-map ligt. Zo kan een admin-request geen willekeurig hostbestand (bv. <code>/etc/passwd</code>) laten inlezen — een bewuste least-privilege-bescherming op een klinisch platform.</li>
-<li><strong>Referentiële integriteit:</strong> <code>individual_hpo.hpo_id</code> verwijst met <code>ON DELETE RESTRICT</code> naar <code>hpo_term</code>, zodat een fenotype nooit naar een onbekende term kan wijzen. Bij import worden onbekende HPO-termen overgeslagen en als <em>issue</em> teruggemeld (<code>import_family_hpo_annotations</code>).</li>
-</ul>
+<h2>HPO: het woordenboek van fenotypes</h2>
+<p>De ontologie staat in vier Postgres-tabellen: <code>hpo_term</code> (één rij per term, met de release), <code>hpo_synonym</code> (synoniemen, om op vrije tekst te zoeken), <code>hpo_edge</code> (de ouder-kindrelaties) en <code>hpo_closure</code> (voor elke term al zijn voorouders met hun afstand, zodat "heeft de patiënt deze term of een specifieker subtype?" één snelle vraag is). De tabel <code>individual_hpo</code> koppelt fenotypes aan een familielid, met de status <code>present</code>, <code>absent</code> of <code>unknown</code>; alleen <code>present</code> telt mee voor de prioritering.</p>
+<p><strong>Laden en versies.</strong> Bij een lege databank laadt de backend de ontologie uit het bestand dat in de repository vastligt (<code>data/ref-data/hpo/hp.obo</code>). Alleen als dat ontbreekt, downloadt hij het, optioneel gecontroleerd tegen een vaste SHA-256 (<code>HPO_ONTOLOGY_SHA256</code>). De release wordt uit het bestand zelf gelezen en bij elke term bewaard, zodat een analyse later terug te voeren is op de ontologieversie die gold.</p>
+<p><strong>Zoeken en beheer.</strong> Analisten zoeken termen via <code>GET /api/hpo/search</code> (exacte match eerst, dan begin van het label, dan label en synoniem). De beheerpagina (<code>HpoTerminologyAdminPage.tsx</code>) toont het aantal termen en de geladen release, en laat een nieuwe versie eerst <em>voorbekijken</em> (hoeveel termen nieuw, gewijzigd of verdwenen zijn) en pas daarna toepassen. Die volgorde dwingt alleen de pagina af: de pagina laat pas toepassen na een geslaagde voorvertoning van precies hetzelfde bestand. Het endpoint <code>POST /api/admin/hpo/sync</code> zelf aanvaardt ook meteen een toepassing (<code>preview_only: false</code>).</p>
+<p><strong>Veiligheid.</strong> Zoeken en lezen vraagt een login; importeren en synchroniseren alleen een beheerder. Het bestandspad in zo'n verzoek moet binnen een toegelaten map liggen, zodat een verzoek geen willekeurig bestand op de server kan laten inlezen. Een fenotype kan niet naar een onbekende term wijzen (de verwijzing naar <code>hpo_term</code> is afgedwongen); bij een import worden onbekende termen overgeslagen en gemeld.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/hpo_service.py</code>; <code>backend/app/routers/hpo.py</code> en de HPO-endpoints in <code>backend/app/routers/admin.py</code>; de tabellen in <code>02_reference.sql</code> en <code>03_assay.sql</code>.</p>
 <h2>Monarch: genen, ziekten en fenotypes verbinden</h2>
-<h3>Wat Monarch levert</h3>
-<p>De <a href="https://monarchinitiative.org/">Monarch Initiative</a> normaliseert tientallen bronnen (OMIM, Orphanet, ClinGen, HPOA, …) tot één kennisgraaf met stabiele CURIEs. CoGA gebruikt daarvan twee soorten koppelingen:</p>
+<p>Het <strong>Monarch Initiative</strong> brengt tientallen bronnen (OMIM, Orphanet, ClinGen, HPO-annotaties, …) samen in één kennisgraaf met vaste identificaties. CoGA gebruikt twee soorten koppelingen, elk in een eigen tabel:</p>
 <ul>
-<li><strong>Gen → ziekte</strong> (<code>HGNC:</code> → <code>MONDO:</code>): welke genen met welke ziekten geassocieerd zijn.</li>
-<li><strong>Ziekte → fenotype</strong> (<code>MONDO:</code> → <code>HP:</code>): welke klinische kenmerken bij een ziekte horen.</li>
+<li><strong>gen → ziekte</strong> (<code>monarch_gene_disease</code>: HGNC → MONDO, met de relaties, de bronnen en of er een oorzakelijke relatie is);</li>
+<li><strong>ziekte → fenotype</strong> (<code>monarch_disease_phenotype</code>: MONDO → HPO, met een markering voor een fenotype dat bij de ziekte uitdrukkelijk <em>niet</em> voorkomt).</li>
 </ul>
-<p>Uit deze twee wordt afgeleid: <strong>gen → fenotype</strong> (via de gedeelde MONDO-sleutel).</p>
-<h3>De twee tabellen</h3>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Tabel (schema)</th>
-<th>Inhoud</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>monarch_gene_disease</code> (<code>02_reference.sql</code>)</td>
-<td>Eén rij per <code>(hgnc_id, mondo_id)</code>. Aggregeert <code>predicates</code> en <code>sources</code>; <code>predicate</code> bevat de <em>sterkste</em> relatie; <code>causal</code> is <code>TRUE</code> als een causale relatie (<code>biolink:causes</code>) aanwezig is; <code>release_version</code> bewaart de Monarch-release.</td>
-</tr>
-<tr>
-<td><code>monarch_disease_phenotype</code> (<code>02_reference.sql</code>)</td>
-<td>Eén rij per <code>(mondo_id, hpo_id)</code>. <code>negated = TRUE</code> markeert een <em>uitgesloten</em> fenotype (de ziekte presenteert dit specifiek níet); bij tegenstrijdige bronnen wint de aanwezige assertie.</td>
-</tr>
-</tbody>
-</table></div>
-<h3>Hoe de data geladen wordt</h3>
-<p>De ingest zit in <code>backend/app/services/monarch_ingest.py</code>. In plaats van de volledige kennisgraaf downloadt CoGA de kleine, voorgesplitste "denormalized" TSV-bestanden (labels staan inline mee, enkele MB gzipped). De kernfuncties:</p>
-<ul>
-<li><code>refresh_monarch_gene_disease()</code> — downloadt de twee gen→ziekte-bestanden, filtert op <code>HGNC:</code> → <code>MONDO:</code> niet-negeerde randen, aggregeert per paar (<code>parse_gene_disease_tsv</code>) en vervangt de tabel.</li>
-<li><code>refresh_monarch_disease_phenotype()</code> — laadt het ziekte→fenotype-bestand (<code>parse_disease_phenotype_tsv</code>) en vervangt die tabel in blokken van 5.000 rijen (de tabel telt ~265k rijen).</li>
-<li><code>refresh_monarch()</code> — de orchestrator: haalt de release <strong>één keer</strong> op en voert beide vervangingen <strong>in één transactie</strong> uit (<code>commit=False</code> op beide, dan één <code>session.commit()</code>). Zo kunnen de twee tabellen nooit op verschillende releases eindigen.</li>
-</ul>
-<p>Een klein codefragment illustreert de aggregatie van een gen-ziekte-paar (Python) — meerdere bronnen/predicaten vallen samen tot één record:</p>
-<div class="scroll"><pre><code class="language-python">record.predicates.add(predicate)          # bv. &quot;causes&quot;, &quot;contributes_to&quot;
-source = _strip_prefix(row.get(&quot;primary_knowledge_source&quot;) or &quot;&quot;)
-if source:
-    record.sources.add(source)            # bv. &quot;omim&quot;, &quot;orphanet&quot;
-</code></pre></div>
-<p><strong>Bron/versie-tracking.</strong> <code>_resolve_release_version</code> weigert bewust data te laden met een onbekende versie: het leest <code>version:</code> uit Monarchs <code>metadata.yaml</code> en werpt een fout als dat niet lukt. De motivatie staat expliciet in de docstring — de provenance van gegevens die een <em>ondertekend klinisch rapport</em> voeden, mag nooit <code>NULL</code> zijn. Na een refresh wordt de informatie-inhoud-cache (zie verder) leeggemaakt met <code>reset_information_content_cache()</code>.</p>
-<h3>De Monarch-adminpagina</h3>
-<p>De beheerpagina <code>frontend/src/pages/admin/MonarchDataAdminPage.tsx</code> toont de geladen release, de tabelgroottes (gen-ziekteparen, causale paren, ziekte-fenotypeparen, …) en biedt een knop "Update Monarch data" (endpoint <code>POST /admin/monarch/refresh</code>). Daarnaast is er een zoekfunctie (<code>GET /admin/monarch/search</code> → <code>search_monarch_associations</code>) waarmee een beheerder op ziekte- of fenotypenaam kan zoeken; die zoek is HPO-sluiting-bewust (een algemene term vindt ook ziekten die alleen met een specifieker subtype geannoteerd zijn).</p>
-<p class="waar"><strong>Waar in de code:</strong> ingest in <code>monarch_ingest.py</code> (<code>refresh_monarch</code>, <code>monarch_status</code>, <code>search_monarch_associations</code>); endpoints in <code>backend/app/routers/admin.py</code> (<code>/admin/monarch/status</code>, <code>/admin/monarch/search</code>, <code>/admin/monarch/refresh</code>), alle <strong>admin-only</strong>. Ontwerpachtergrond in <code>docs/monarch-integration.md</code>.</p>
-<h2>Semantische gelijkenis: hoe dicht ligt een gen bij het klinisch beeld?</h2>
-<p>Een patiënt heeft zelden precies de termen die in de leerboeken bij een ziekte staan. "Semantische gelijkenis" (semsim) beantwoordt daarom de vraag: <em>hoe goed lijkt het fenotypeprofiel van dit gen op wat we bij de patiënt zien?</em> — waarbij een <strong>specifiek gedeeld kenmerk zwaarder weegt dan een algemeen kenmerk</strong>.</p>
-<h3>Informatie-inhoud (in gewone taal)</h3>
-<p>De sleutel is de <strong>informatie-inhoud</strong> (IC) van een term: <code>IC(t) = −ln(p)</code>, waarbij <code>p</code> de fractie ziekten is die aan die term (of een afstammeling ervan) is gekoppeld. Een brede term als "verstandelijke beperking" komt bij zeer veel ziekten voor → hoge <code>p</code> → bijna nul IC → discrimineert nauwelijks. Een specifiek kenmerk als "congenitale hypothyreoïdie" is zeldzaam → hoge IC → een gen dat dít verklaart, springt eruit. Deze eigenschap is inherent aan IC-gewogen gelijkenis; <code>docs/monarch-integration.md</code> legt uit waarom een enkele brede term daardoor een vlakke, bijna-willekeurige rangschikking geeft.</p>
-<h3>Twee implementaties</h3>
-<p>CoGA berekent gelijkenis op twee manieren, voor twee verschillende doelen:</p>
-<p><strong>1. Live Monarch-API — <code>backend/app/services/monarch_semsim.py</code>.</strong> <code>semsim_search(termset, group, limit)</code> stuurt de patiënttermen naar Monarchs eigen <code>POST /v3/api/semsim/search</code> en krijgt de best passende <strong>genen</strong> (of ziekten) terug, gerangschikt. Dit voedt het kandidaatgen-panel op de familiepagina (zie verder). Het is bewust <em>live</em> (geen bulk-ingest), met een timeout van 25 s, een cache van 1 uur (<code>_CACHE_TTL_SECONDS</code>) op de gesorteerde termenset, en een eigen <code>MonarchSemsimError</code> zodat de UI netjes "niet beschikbaar" kan tonen. Monarch levert maximaal 50 resultaten (<code>MAX_LIMIT</code>).</p>
-<p><strong>2. Lokale Phenomizer-score — <code>backend/app/services/monarch_phenotype_score.py</code>.</strong> Dit is nodig voor variant-prioritisatie, want daar moet <em>elk</em> gen met een kandidaat-variant gescoord worden — niet enkel de top-50. De methode (Resnik / Phenomizer <em>best-match-average</em>):</p>
-<ul>
-<li><code>_load_information_content</code> berekent de IC per HPO-term uit de lokale <code>monarch_disease_phenotype</code>-tabel, gepropageerd via <code>hpo_closure</code>. Deze IC-map is proces-breed gecachet met een TTL van een uur en een <code>asyncio.Lock</code> die de zware aggregatie (~265k rijen) <em>single-flight</em> maakt (concurrente eerste-aanvragen wachten op één berekening in plaats van allemaal tegelijk te rekenen). Een lege uitkomst wordt bewust níet gecachet.</li>
-<li><code>_resnik(a, b)</code> = de IC van de meest informatieve gemeenschappelijke voorouder van twee termen.</li>
-<li><code>phenomizer_score</code> neemt het symmetrische gemiddelde van de beste matches (patiënt→gen en gen→patiënt), genormaliseerd naar [0, 1] door de maximale IC.</li>
-</ul>
-<p><strong>Determinisme.</strong> <code>_cap_terms_by_ic</code> begrenst zowel de patiëntenset (tot 60 termen) als de gen-set (tot 200) tot de <em>meest informatieve</em> termen, met de HPO-id als tiebreaker. De docstring legt uit waarom dat cruciaal is: zonder die tiebreaker zou de selectie afhangen van set-iteratievolgorde (<code>PYTHONHASHSEED</code>), wat de fenotype-score — en dus de ranking die in de cache/rapport bevriest — van run tot run zou verstoren.</p>
-<p class="waar"><strong>Waar in de code:</strong> IC-berekening en scoring in <code>monarch_phenotype_score.py</code> (<code>score_genes_for_hpo</code>, <code>phenomizer_score</code>); live API in <code>monarch_semsim.py</code> (<code>semsim_search</code>).</p>
-<h2>Variant-prioritisatie: van fenotype-score naar rangschikking</h2>
-<p>De eigenlijke scoring-wiskunde staat in <code>backend/app/services/variant_prioritization.py</code>. Dit is het Exomiser-model: het combineert de fenotype-relevantie van het gen met de eigenschappen van de variant zelf. Het is een <em>pure</em> functie (geen database, geen netwerk), wat testbaarheid en reproduceerbaarheid ten goede komt.</p>
-<p><code>score_variant(...)</code> bouwt vier deelscores op:</p>
+<p>Daaruit volgt gen → fenotype, via de gedeelde ziekte.</p>
+<p><strong>Laden.</strong> CoGA downloadt kleine, voorgesplitste bestanden van Monarch in plaats van de hele kennisgraaf, en vervangt beide tabellen <strong>in één transactie</strong>, zodat ze nooit op verschillende releases staan. Kan de release niet bepaald worden, dan weigert CoGA te laden: de herkomst van gegevens die een ondertekend rapport voeden, mag nooit leeg zijn. De beheerpagina (<code>MonarchDataAdminPage.tsx</code>) toont de geladen release en de tabelgroottes, laat de data verversen en zoeken op ziekte of fenotype. Alle Monarch-beheer is alleen voor beheerders. Na een nieuwe release wordt ook het Mendeliome-panel opnieuw opgebouwd (hoofdstuk 15).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/monarch_ingest.py</code>; de endpoints <code>/api/admin/monarch/...</code> in <code>backend/app/routers/admin.py</code>.</p>
+<h2>Semantische gelijkenis</h2>
+<p>Een patiënt heeft zelden precies de termen uit het leerboek. <em>Semantische gelijkenis</em> beantwoordt daarom: hoe goed lijkt het fenotypeprofiel van dit gen op wat we bij de patiënt zien? Een <strong>specifiek gedeeld kenmerk weegt zwaarder</strong> dan een algemeen. Dat gewicht is de <em>informatie-inhoud</em> van een term: hoe zeldzamer de term (of een subtype ervan) bij ziekten voorkomt, hoe hoger. "Verstandelijke beperking" komt bij zeer veel ziekten voor en zegt weinig; "congenitale hypothyreoïdie" is zeldzaam en laat een gen dat het verklaart opvallen. Eén brede term geeft daardoor een vlakke, bijna willekeurige rangschikking.</p>
+<p>CoGA berekent gelijkenis op twee manieren:</p>
+<ol>
+<li><strong>Live via Monarch</strong> (<code>monarch_semsim.py</code>): voor het paneel met kandidaatgenen op de familiepagina. CoGA stuurt alleen de HPO-termen (geen identiteit) naar de publieke API van Monarch en krijgt de best passende genen terug. Het resultaat wordt kort gecachet; is Monarch niet bereikbaar, dan zegt de UI dat.</li>
+<li><strong>Lokaal</strong> (<code>monarch_phenotype_score.py</code>): voor de variantprioritering, want daar moet <em>elk</em> gen met een kandidaatvariant een score krijgen, niet alleen de beste. De methode (Resnik, <em>best-match average</em>) berekent de informatie-inhoud uit de lokale Monarch-tabellen. De selectie van termen is volgordeonafhankelijk gemaakt, zodat dezelfde invoer altijd dezelfde score geeft.</li>
+</ol>
+<h2>Variantprioritering</h2>
+<p>De scoring zit in <code>backend/app/services/variant_prioritization.py</code>, een zuivere functie zonder databank of netwerk, wat testen en herhalen eenvoudig maakt. Ze volgt het model van Exomiser en combineert vier deelscores:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Deelscore</th>
-<th>Functie</th>
-<th>Wat het meet</th>
+<th>Meet</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>pathogenicity</code></td>
-<td><code>pathogenicity_score</code></td>
-<td>Voorspelde schadelijkheid uit impact/LoF, ClinVar, en de predictors CADD/REVEL/SpliceAI/AlphaMissense, plus gen-constraint (gnomAD pLI voor LoF, missense-Z voor missense).</td>
+<td>Pathogeniciteit</td>
+<td>Voorspelde schadelijkheid: impact en loss-of-function, ClinVar, de voorspellers (CADD, REVEL, SpliceAI, AlphaMissense) en genconstraint</td>
 </tr>
 <tr>
-<td><code>frequency</code></td>
-<td><code>frequency_score</code></td>
-<td>Zeldzaamheid: zeldzamer = hoger, via gnomAD popmax met terugval op AF.</td>
+<td>Frequentie</td>
+<td>Zeldzaamheid in gnomAD: hoe zeldzamer, hoe hoger</td>
 </tr>
 <tr>
-<td><code>segregation_weight</code></td>
-<td><code>segregation_weight</code></td>
-<td>Gewicht op basis van het overervingspatroon (de novo, homozygoot-recessief, compound het, X-gebonden, dominant), berekend uit de stamboom.</td>
+<td>Segregatie</td>
+<td>Het overervingspatroon in de stamboom (de novo, homozygoot recessief, compound heterozygoot, X-gebonden, dominant). Bij een zoon op X of Y buiten de pseudo-autosomale regio's volgt het de-novogewicht de ouder die dat chromosoom doorgeeft (hoofdstuk 8)</td>
 </tr>
 <tr>
-<td><code>phenotype_score</code></td>
-<td>(uit <code>monarch_phenotype_score</code>)</td>
-<td>Hoe goed het gen bij het klinisch beeld past.</td>
+<td>Fenotype</td>
+<td>Hoe goed het gen bij het klinische beeld past</td>
 </tr>
 </tbody>
 </table></div>
-<p>De <code>variant_score</code> is het product <code>pathogenicity × frequency × segregation_weight</code>; de eind-<code>combined_score</code> weegt fenotype erbij in via <code>combine()</code> met <code>_PHENOTYPE_WEIGHT = 0.5</code>. Twee bewuste keuzes borgen de klinische betrouwbaarheid:</p>
+<p>De eerste drie vormen samen de variantscore; de eindscore is een gewogen combinatie met de fenotypescore. Twee keuzes bewaken de klinische betrouwbaarheid:</p>
 <ul>
-<li><strong>ClinVar blijft de baas.</strong> Alleen een ClinVar-pathogeen assertie geeft de volle 1.0; predictor-only bewijs is afgetopt op <code>_MAX_PREDICTOR_PATHOGENICITY = 0.9</code>. Zo saturen predictie-scores niet en behoudt een échte klinische assertie voorrang. De ClinVar-string wordt op héle woorden gematcht, zodat "Conflicting_interpretations_of_pathogenicity" níet als "pathogenic" telt.</li>
-<li><strong>Novel-gen-kandidaten verdwijnen niet.</strong> Een gen zonder Monarch-fenotypedata scoort 0 op de fenotype-as, maar de rauwe <code>variant_score</code> blijft apart zichtbaar, zodat een analist op die kolom kan herordenen.</li>
+<li><strong>ClinVar gaat voor.</strong> Alleen een pathogene ClinVar-uitspraak geeft de volle pathogeniciteitsscore; bewijs dat alleen uit voorspellers komt, blijft daaronder. "Conflicting interpretations of pathogenicity" telt niet als pathogeen.</li>
+<li><strong>Nieuwe kandidaatgenen verdwijnen niet.</strong> Een gen zonder Monarch-data scoort 0 op fenotype, maar de variantscore blijft apart zichtbaar, zodat de analist erop kan sorteren.</li>
 </ul>
-<h3>Doorwerking in de small-variant-resultaten</h3>
-<p>De scoring wordt aangeroepen wanneer de aanroep <code>GET /api/families/{family_id}/small-variants?prioritize=true</code> gebruikt: die haalt de gefilterde kandidaatset op, berekent segregatie-modi en fenotype-scores, rangschikt, en geeft per variant een <code>priority</code>-blok terug (<code>_prioritized_small_variants_page</code> in <code>backend/app/services/clickhouse_family_variants.py</code>). In de frontend is er een ingebouwde preset <strong>"Phenotype priority (Exomiser-style)"</strong> (<code>frontend/src/pages/families/smallVariantSearch.ts</code>), een sorteerbare <strong>Score</strong>-kolom en een uitklapbare score-uitsplitsing in de reviewdialoog. Voor de precieze werking van de filterpagina en de API zie hoofdstuk <a href="#hs-8">08 — Filterpagina's ↔ API</a>.</p>
-<p><strong>Begrenzing &amp; eerlijkheid.</strong> De kandidaatset is afgetopt op 5.000 (<code>_PRIORITIZE_CANDIDATE_LIMIT</code>). Loopt de gefilterde set daaroverheen, dan meldt de respons de échte telling en zet <code>ranking_truncated</code>; de UI toont dan dat de ranking incompleet is en dat de filters verfijnd moeten worden. Scores rangschikken <em>binnen één familie</em>; het zijn geen gekalibreerde kansen zoals in Exomisers getrainde model — dit staat expliciet als caveat in <code>docs/monarch-integration.md</code>.</p>
-<h2>De ranking-cache: snel én reproduceerbaar</h2>
-<p>Het prioritiseren kost ~10 s (vooral het per-gen fenotype-scoren). Omdat de uitkomst <strong>deterministisch</strong> is gegeven de invoer, en die invoer zelden verandert tussen twee keer openen, wordt de gerangschikte volgorde gecachet. Het ontwerp staat in <code>docs/variant-ranking-cache.md</code>; de code in <code>backend/app/services/variant_ranking_cache.py</code>.</p>
-<h3>Wat wordt gecachet</h3>
-<p>De tabel <code>family_variant_ranking_cache</code> (<code>03_assay.sql</code>) bewaart per familie en per query-signatuur de <strong>compacte gerangschikte volgorde</strong> — een geordende lijst van <code>{variant_id, priority}</code> plus <code>total</code>, de truncatie-vlag en provenance. Bewust wordt de variant-<em>annotatie</em> en de <em>review-status</em> níet meegecachet: die worden bij elk verzoek vers uit ClickHouse/Postgres gehaald. Zo kan een gecachete ranking nooit verouderde annotaties of een verouderde reviewstatus serveren.</p>
-<h3>Vers houden via de <code>inputs_hash</code></h3>
-<p>Elke cacherij is gesleuteld op <code>inputs_hash</code> = SHA-256 van een canonieke samenvatting van <strong>alles wat de ranking verandert</strong> (<code>compute_ranking_hashes</code>):</p>
+<p>De prioritering draait bij <code>GET /api/families/{family_id}/small-variants?prioritize=true</code> (standaard aan): de service haalt de gefilterde kandidaten op, bepaalt de segregatie en de fenotypescores, rangschikt en geeft per variant een scoreblok terug. De kandidatenset is begrensd; loopt ze erover, dan meldt het antwoord de echte telling en zegt de UI dat de rangschikking onvolledig is en de filters verfijnd moeten worden. De scores rangschikken binnen één familie; het zijn geen gekalibreerde kansen.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>variant_prioritization.py</code>; de prioritering in <code>clickhouse_family_variants.py</code>; de score-uitsplitsing in de reviewdialoog.</p>
+<h2>De ranking-cache</h2>
+<p>Prioriteren duurt enkele seconden, vooral door het scoren per gen. Omdat de uitkomst <strong>deterministisch</strong> is voor dezelfde invoer, bewaart CoGA de gerangschikte volgorde in de Postgres-tabel <code>family_variant_ranking_cache</code>: alleen de volgorde en de score per variant, nooit de annotatie of de reviewtoestand. Die worden bij elke weergave vers opgehaald, zodat een gecachte rangschikking nooit een verouderde annotatie of reviewstatus toont.</p>
+<p>Elke cacherij hangt aan een SHA-256 over <strong>alles wat de rangschikking kan veranderen</strong>:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Invoer</th>
-<th>Bron in code</th>
+<th>Verandert wanneer …</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Query-filters (impact, frequentie, exclude-ClinVar, sample/QC-filters)</td>
-<td><code>canonical_filters(filters)</code> (paginatie wordt bewust verwijderd)</td>
+<td>De filters (zonder paginering)</td>
+<td>de analist een filter wijzigt</td>
 </tr>
 <tr>
-<td>Genpaneel + panelversie</td>
-<td><code>_panel_version</code> (leest <code>version</code> en <code>external_version</code> uit <code>gene_panels</code>)</td>
+<td>Het genpanel en zijn versie</td>
+<td>het panel wordt bijgewerkt</td>
 </tr>
 <tr>
-<td>HPO-termen van aangedane individuen</td>
-<td><code>patient_terms</code></td>
+<td>De HPO-termen van de aangedane leden</td>
+<td>een fenotype wordt toegevoegd of verwijderd</td>
 </tr>
 <tr>
-<td>Stamboom / affected-status</td>
-<td><code>_pedigree_signature</code> (de <code>structure_hash</code> uit <code>family_structure_versions</code>)</td>
+<td>De stamboom en de aangedane status</td>
+<td>de familiestructuur verandert</td>
 </tr>
 <tr>
-<td>Monarch-release</td>
-<td><code>_monarch_release</code> (= <code>max(monarch_gene_disease.release_version)</code>)</td>
+<td>De versie van de variantdata van de familie</td>
+<td>er iets aan de varianten verandert: import, upload, verwijdering door een beheerder of herstel</td>
 </tr>
 <tr>
-<td>Review-filterstatus</td>
-<td><code>review_signature</code> (opgelost buiten het filterobject, dus expliciet ingevouwen)</td>
+<td>De review-selecties in de filters</td>
+<td>een tag of review verandert die de filter raakt</td>
 </tr>
 <tr>
-<td>Scoring-<strong>algoritmeversie</strong></td>
-<td>de constante <code>_ALGORITHM_VERSION</code></td>
+<td>De Monarch-release, de HPO-release en het moment van de laatste genconstraint-update</td>
+<td>de referentiedata wordt ververst</td>
+</tr>
+<tr>
+<td>De assembly en de versie van het algoritme</td>
+<td>de code van de scoring verandert</td>
 </tr>
 </tbody>
 </table></div>
-<p>Verandert één invoer, dan wijzigt de hash → <em>cache-miss</em> → herberekening. Een verouderde ranking wordt dus nooit geserveerd. Paginatie zit niet in de hash: de hele volgorde is gecachet en elke pagina wordt daaruit gesneden.</p>
-<h3>Superset-invalidatie (paneel-onafhankelijk serveren)</h3>
-<p>De per-variant-scores zijn <strong>paneel-onafhankelijk</strong> — een paneel beperkt alleen <em>welke</em> varianten in beeld zijn, niet hun score. Daarom draagt elke cacherij ook een <code>base_hash</code>: dezelfde samenvatting maar <em>zonder</em> het paneel. Alle panelen over dezelfde familie/fenotype/filters delen die <code>base_hash</code>.</p>
-<p>Bij een exacte-hash-miss zoekt <code>find_superset_candidates</code> een volledige (niet-getrunceerde) gecachete ranking met dezelfde <code>base_hash</code> waarvan het paneel de gevraagde genen <strong>dekt</strong> (<code>gevraagd ⊆ gecachet</code>). De integratielaag (<code>_serve_subpanel_from_superset</code> in <code>clickhouse_family_variants.py</code>) hervalideert vervolgens het lidmaatschap tegen ClickHouse en snijdt de gevraagde pagina eruit. Zo is het Mendeliome (de default) de superset voor zijn diagnostische sub-panelen: versmallen is instant. <strong>Bewaking:</strong> een getrunceerde superset wordt nooit voor sub-panelen gebruikt (er kon een laaggerangschikte in-panel-variant ontbreken).</p>
-<h3>Invalidatie en achtergrond-opwarming</h3>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Gebeurtenis</th>
-<th>Effect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>HPO- of stamboom/affected-wijziging</td>
-<td><code>inputs_hash</code> verandert (miss); een achtergrond-opwarming herberekent alvast</td>
-</tr>
-<tr>
-<td>Genpaneel bijgewerkt</td>
-<td><code>panel_version</code> verandert → miss</td>
-</tr>
-<tr>
-<td>Monarch-release ververst</td>
-<td><code>monarch_release</code> verandert → alle rankings missen</td>
-</tr>
-<tr>
-<td>Review-tag/exclude-wijziging</td>
-<td>review-signatuur verandert → miss</td>
-</tr>
-<tr>
-<td>Variant-<strong>herimport</strong></td>
-<td>de cache van de familie wordt gewist (<code>clear_family_ranking_cache</code>)</td>
-</tr>
-<tr>
-<td>Scoring-algoritme gewijzigd (code)</td>
-<td><code>_ALGORITHM_VERSION</code> ophogen → alle rankings missen</td>
-</tr>
-</tbody>
-</table></div>
-<p>De achtergrond-opwarming (<code>precompute_family_ranking_safe</code>) <em>replayt</em> de meest recente prioritaire query met de nu-actuele invoer, zodat ook het <em>volgende</em> openen na een bewerking snel is. Ze wordt via <code>BackgroundTasks</code> gepland vanuit dezelfde edit-endpoints die HPO/stamboom wijzigen (<code>backend/app/routers/families.py</code>, <code>backend/app/routers/ped.py</code>). De variant-herimport wist de cache in <code>backend/app/services/family_package_import.py</code>.</p>
-<p><strong>Provenance in de UI.</strong> De respons draagt <code>ranking_cached</code> en <code>ranking_computed_at</code>, waarmee de small-variant-pagina toont dat de prioritaire ranking uit cache komt en wanneer ze berekend is (<code>frontend/src/pages/families/SmallVariantResults.tsx</code>). De melding is puur informatief — invalidatie is automatisch, dus een gecachete ranking is altijd consistent met zijn invoer.</p>
-<h2>Frontend: van fenotype naar kandidaat-genen</h2>
-<p>Het centrale paneel is <code>frontend/src/pages/families/MonarchPhenotypeMatchPanel.tsx</code> op de familie-detailpagina. Het is bewust <em>on-demand</em>: pas na een klik op "Find candidate genes" wordt Monarch aangeroepen (<code>GET /families/{family_id}/phenotype-match</code>), zodat de externe dienst niet bij elke paginalading wordt geraakt. Het endpoint (<code>families.py</code>, <code>family_phenotype_match</code>) verzamelt de <code>present</code>-HPO-termen van de familie (of één lid), rangschikt de genen via <code>semsim_search</code>, en verrijkt elk resultaat met:</p>
+<p>Verandert één invoer, dan verandert de hash: de cache mist en de rangschikking wordt opnieuw berekend. Een verouderde rangschikking wordt dus nooit getoond. Een smaller panel kan uit een bredere, volledige rangschikking van dezelfde familie worden bediend (het Mendeliome dekt zijn deelpanels), maar nooit uit een onvolledige. Na een wijziging van fenotypes of stamboom rekent de backend de laatste rangschikking alvast opnieuw uit, zodat de volgende opening snel is. De UI meldt wanneer de rangschikking uit de cache komt en wanneer ze berekend werd.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/variant_ranking_cache.py</code>; de ontwerpnota <code>docs/variant-ranking-cache.md</code>.</p>
+<h2>Kandidaatgenen op de familiepagina</h2>
+<p>Het paneel <code>MonarchPhenotypeMatchPanel.tsx</code> roept Monarch pas aan na een klik op <em>Find candidate genes</em> (<code>GET /api/families/{family_id}/phenotype-match</code>), zodat de externe dienst niet bij elke paginalading wordt aangesproken. Het endpoint verzamelt de <code>present</code>-termen van de familie (of van één lid) en verrijkt elk gevonden gen: bestaat het gen in CoGA (dan linkt de UI naar het genprofiel, hoofdstuk 13), en welke fenotypes van het gen heeft de familie wel of niet (met de ontologie meegerekend, dus een algemeen genfenotype telt ook als de patiënt een specifieker subtype heeft).</p>
+<h2>Veiligheid en traceerbaarheid</h2>
 <ul>
-<li><code>gene_in_platform</code>: bestaat het gen in dit platform (staat het in de <code>genes</code>-tabel)? Zo ja, dan linkt de UI direct naar het gen-profiel (<code>/genes?gene=…&amp;family_id=…</code>), waar de Monarch gen→ziekte-blokken en de fenotype-overlap renderen — zie hoofdstuk <a href="#hs-13">13 — Gene Explorer</a>.</li>
-<li><code>matching_phenotypes</code> versus <code>extra_phenotypes</code>: welke van de gen-fenotypes de familie exhibeert (via <code>gene_phenotype_breakdown</code> en <code>phenotype_closure</code> — sluiting-bewust, dus een algemeen gen-fenotype telt als de patiënt het óf een specifieker subtype heeft).</li>
-</ul>
-<p>Zo sluit de lus: patiëntfenotypes → gerangschikte kandidaat-genen → klik → het gen-profiel met zijn Monarch-ziekten en welke patiëntfenotypes elke ziekte verklaren.</p>
-<h2>Veiligheid &amp; traceerbaarheid van de prioritisatie</h2>
-<ul>
-<li><strong>Deterministisch en reproduceerbaar.</strong> De scoring in <code>variant_prioritization.py</code> is pure wiskunde; de fenotype-scoring in <code>monarch_phenotype_score.py</code> is expliciet volgorde-onafhankelijk gemaakt (IC-tiebreak op HPO-id). Dezelfde invoer geeft dus altijd dezelfde ranking — een voorwaarde voor een auditbaar, herhaalbaar resultaat.</li>
-<li><strong>Gebonden aan databronversies.</strong> De <code>inputs_hash</code> bevat de Monarch-release en de genpaneelversie; de HPO-annotaties dragen de ontologie-<code>release_version</code>; Monarch weigert te laden zonder bekende versie. Elke gerangschikte uitkomst is daardoor terug te voeren op exact welke referentiedata haar produceerde.</li>
-<li><strong>Automatische invalidatie boven "vertrouwen".</strong> De cache serveert nooit een verouderde ranking: elke relevante wijziging flipt de hash, en de code kiest bij twijfel voor herberekenen (getrunceerde supersets worden geweigerd, lege IC-maps worden niet gecachet). Zie ook hoofdstuk <a href="#hs-11">11 — Rapport &amp; traceerbaarheid</a> voor hoe deze provenance in het ondertekende rapport terechtkomt.</li>
-<li><strong>Toegangscontrole.</strong> Fenotype-matching vereist een ingelogde gebruiker; het laden/verversen van HPO- en Monarch-referentiedata is admin-only. Geen enkele referentie-refresh kan door een gewone gebruiker worden getriggerd.</li>
+<li><strong>Deterministisch.</strong> Dezelfde invoer geeft altijd dezelfde rangschikking: een voorwaarde voor een auditeerbaar, herhaalbaar resultaat.</li>
+<li><strong>Gebonden aan versies.</strong> De cachesleutel bevat de Monarch-, HPO- en panelversies; HPO-termen dragen hun release; Monarch weigert te laden zonder bekende versie.</li>
+<li><strong>Liever herberekenen dan vertrouwen.</strong> Elke relevante wijziging verandert de hash, en bij twijfel rekent de code opnieuw.</li>
+<li><strong>Toegang.</strong> Fenotype-matching vraagt een login; het laden en verversen van HPO- en Monarch-data alleen een beheerder.</li>
 </ul>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
@@ -2913,68 +2776,40 @@ if source:
 </thead>
 <tbody>
 <tr>
-<td><code>backend/db/schema/postgres/02_reference.sql</code></td>
-<td>HPO-tabellen <code>hpo_term</code>, <code>hpo_synonym</code>, <code>hpo_edge</code>, <code>hpo_closure</code>; Monarch-tabellen <code>monarch_gene_disease</code> (gen → ziekte) en <code>monarch_disease_phenotype</code> (ziekte → fenotype)</td>
-</tr>
-<tr>
 <td><code>backend/app/services/hpo_service.py</code></td>
-<td>HPO parsen/laden, versiebeheer, zoeken, sluitingsberekening, padvalidatie</td>
-</tr>
-<tr>
-<td><code>backend/app/routers/hpo.py</code></td>
-<td>HPO-browser-endpoints (<code>/hpo/search</code>, <code>/hpo/{id}</code>, <code>/hpo/import</code>)</td>
+<td>HPO laden, versies, zoeken, padcontrole</td>
 </tr>
 <tr>
 <td><code>backend/app/services/monarch_ingest.py</code></td>
-<td>Monarch-download/parse/replace, atomische refresh, status, zoeken</td>
+<td>Monarch downloaden en vervangen, status, zoeken</td>
 </tr>
 <tr>
-<td><code>backend/app/services/monarch_semsim.py</code></td>
-<td>Live semsim-API voor kandidaatgen-rangschikking</td>
-</tr>
-<tr>
-<td><code>backend/app/services/monarch_phenotype_score.py</code></td>
-<td>Lokale Phenomizer/Resnik-scoring + IC-cache</td>
+<td><code>backend/app/services/monarch_semsim.py</code> · <code>monarch_phenotype_score.py</code></td>
+<td>Gelijkenis: live via Monarch; lokaal voor de prioritering</td>
 </tr>
 <tr>
 <td><code>backend/app/services/variant_prioritization.py</code></td>
-<td>Exomiser-achtige scoring-wiskunde (pure functie)</td>
+<td>De scoring</td>
 </tr>
 <tr>
 <td><code>backend/app/services/variant_ranking_cache.py</code></td>
-<td>Ranking-cache: hashing, opslag, superset-selectie, invalidatie</td>
+<td>De ranking-cache</td>
 </tr>
 <tr>
-<td><code>backend/app/services/clickhouse_family_variants.py</code></td>
-<td>Prioritaire pagina, superset-serveren, achtergrond-opwarming</td>
+<td><code>backend/app/routers/hpo.py</code> · <code>backend/app/routers/admin.py</code></td>
+<td>HPO-endpoints; beheer van HPO en Monarch</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/03_assay.sql</code></td>
-<td><code>individual_hpo</code> (fenotypes per familielid); cachetabel <code>family_variant_ranking_cache</code> + <code>base_hash</code>/<code>panel_id</code> voor superset-serveren</td>
-</tr>
-<tr>
-<td><code>backend/app/routers/admin.py</code></td>
-<td>Admin-endpoints voor HPO- en Monarch-beheer</td>
+<td><code>backend/db/schema/postgres/02_reference.sql</code> · <code>03_assay.sql</code></td>
+<td>HPO- en Monarch-tabellen; <code>individual_hpo</code> en de cache</td>
 </tr>
 <tr>
 <td><code>frontend/src/pages/families/MonarchPhenotypeMatchPanel.tsx</code></td>
-<td>Kandidaatgen-paneel op de familiepagina</td>
+<td>Kandidaatgenen op de familiepagina</td>
 </tr>
 <tr>
-<td><code>frontend/src/pages/admin/HpoTerminologyAdminPage.tsx</code></td>
-<td>HPO-beheer (overzicht, sync-preview/apply, browser)</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/admin/MonarchDataAdminPage.tsx</code></td>
-<td>Monarch-beheer (status, refresh, ziekte/fenotype-zoek)</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/phenotypes/HpoTermsPage.tsx</code></td>
-<td>Lichte HPO-termenweergave met externe browserlink</td>
-</tr>
-<tr>
-<td><code>docs/monarch-integration.md</code>, <code>docs/variant-ranking-cache.md</code></td>
-<td>Ontwerpreferenties (fasen, cache-invalidatie)</td>
+<td><code>frontend/src/pages/admin/HpoTerminologyAdminPage.tsx</code> · <code>MonarchDataAdminPage.tsx</code></td>
+<td>Beheer van HPO en Monarch</td>
 </tr>
 </tbody>
 </table></div>
