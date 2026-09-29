@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
+import QueryFailure from '../../components/QueryFailure';
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
 
@@ -90,21 +91,39 @@ function TermChips({
 }
 
 export default function MonarchPhenotypeMatchPanel({ familyId, projectId }: Props) {
-  const [enabled, setEnabled] = useState(false);
+  // The family whose match was asked for on this visit.
+  const [requestedFor, setRequestedFor] = useState<string | null>(null);
 
-  const { data, isFetching, isError } = useQuery<FamilyPhenotypeMatch>({
-    queryKey: ['family', familyId, 'phenotype-match'],
-    enabled: Boolean(familyId) && enabled,
-    staleTime: 1000 * 60 * 30,
-    queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/phenotype-match`, {
-        params: { group: 'Human Genes', limit: GENE_LIMIT },
-      });
-      return res.data as FamilyPhenotypeMatch;
-    },
-  });
+  const { data, error, isError, isFetching, isFetchedAfterMount, refetch } =
+    useQuery<FamilyPhenotypeMatch>({
+      queryKey: ['family', familyId, 'phenotype-match'],
+      // Never by itself (on mount, focus or reconnect): the family's phenotypes go to the
+      // Monarch service only when someone presses the button, and every press runs the
+      // match again on the phenotypes recorded now.
+      enabled: false,
+      // A failure is said at once; the button is the retry.
+      retry: false,
+      queryFn: async () => {
+        const res = await api.get(apiPath`/families/${familyId}/phenotype-match`, {
+          params: { group: 'Human Genes', limit: GENE_LIMIT },
+        });
+        return res.data as FamilyPhenotypeMatch;
+      },
+    });
 
-  const hasRun = enabled && !isFetching && !isError && data !== undefined;
+  const requested = Boolean(familyId) && requestedFor === familyId;
+  const running = requested && isFetching;
+  // Only the answer to a press on this visit is shown: never an earlier visit's cached one,
+  // and never the previous result while a new run is going or after it failed.
+  const answered = requested && isFetchedAfterMount && !isFetching;
+  const failed = answered && isError;
+  const result = answered && !isError ? data : undefined;
+
+  const runMatch = () => {
+    if (!familyId) return;
+    setRequestedFor(familyId);
+    void refetch();
+  };
 
   return (
     <section className="surface-card space-y-3">
@@ -119,33 +138,41 @@ export default function MonarchPhenotypeMatchPanel({ familyId, projectId }: Prop
         <button
           type="button"
           className="btn btn-secondary"
-          onClick={() => setEnabled(true)}
-          disabled={isFetching}
+          onClick={runMatch}
+          disabled={!familyId || running}
         >
-          {isFetching ? 'Matching…' : hasRun ? 'Re-run match' : 'Find candidate genes'}
+          {running ? 'Matching…' : requested ? 'Re-run match' : 'Find candidate genes'}
         </button>
       </div>
 
-      {isError ? (
-        <p className="dashboard-link-note">
-          Monarch phenotype matching is currently unavailable. Try again later.
+      {running ? (
+        <p className="dashboard-link-note" role="status">
+          Matching this family&apos;s phenotypes with Monarch…
         </p>
       ) : null}
 
-      {hasRun && data ? (
-        data.results.length === 0 ? (
+      {failed ? (
+        <QueryFailure
+          what="the phenotype match"
+          error={error}
+          consequence="Press Re-run match to try again."
+        />
+      ) : null}
+
+      {result ? (
+        result.results.length === 0 ? (
           <p className="dashboard-link-note">
-            {data.query_hpo_ids.length === 0
+            {result.query_hpo_ids.length === 0
               ? 'No present HPO phenotypes recorded for this family yet — add observed phenotypes to rank candidate genes.'
               : 'No phenotype matches were returned.'}
           </p>
         ) : (
           <>
             <p className="dashboard-link-note">
-              Top {data.results.length} candidate gene{data.results.length === 1 ? '' : 's'},
-              ranked from {data.query_hpo_ids.length} observed phenotype
-              {data.query_hpo_ids.length === 1 ? '' : 's'}
-              {data.results.length >= GENE_LIMIT
+              Top {result.results.length} candidate gene{result.results.length === 1 ? '' : 's'},
+              ranked from {result.query_hpo_ids.length} observed phenotype
+              {result.query_hpo_ids.length === 1 ? '' : 's'}
+              {result.results.length >= GENE_LIMIT
                 ? ` (Monarch returns at most ${GENE_LIMIT}).`
                 : '.'}
             </p>
@@ -160,34 +187,34 @@ export default function MonarchPhenotypeMatchPanel({ familyId, projectId }: Prop
                   </tr>
                 </thead>
                 <tbody>
-                  {data.results.map((result) => (
-                    <tr key={result.id}>
+                  {result.results.map((gene) => (
+                    <tr key={gene.id}>
                       <td>
-                        {result.symbol && result.gene_in_platform ? (
+                        {gene.symbol && gene.gene_in_platform ? (
                           <Link
                             className="gene-compact-link"
-                            to={buildGeneHref(result.symbol, familyId, projectId)}
+                            to={buildGeneHref(gene.symbol, familyId, projectId)}
                           >
-                            {result.symbol}
+                            {gene.symbol}
                           </Link>
                         ) : (
                           <span>
-                            {result.name}
-                            {result.symbol && !result.gene_in_platform ? (
+                            {gene.name}
+                            {gene.symbol && !gene.gene_in_platform ? (
                               <span className="dashboard-link-note"> (not in platform)</span>
                             ) : null}
                           </span>
                         )}
                       </td>
                       <td>
-                        {typeof result.score === 'number' ? result.score.toFixed(2) : '—'}
+                        {typeof gene.score === 'number' ? gene.score.toFixed(2) : '—'}
                       </td>
                       <td>
-                        <TermChips terms={result.matching_phenotypes ?? []} tone="success" />
+                        <TermChips terms={gene.matching_phenotypes ?? []} tone="success" />
                       </td>
                       <td>
                         <TermChips
-                          terms={result.extra_phenotypes ?? []}
+                          terms={gene.extra_phenotypes ?? []}
                           tone="neutral"
                           truncateTo={EXTRA_PREVIEW_COUNT}
                         />
