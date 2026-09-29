@@ -1,12 +1,14 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ALL_GT_GROUPS,
   HET_GT_GROUP,
   buildSmallVariantQueryParams,
   buildPresetPayload,
   createEmptySmallFilters,
+  hasLocationProblems,
   resolveSampleFiltersFromPreset,
+  smallVariantLocationProblems,
   useSmallVariantSearchState,
   type FamilyMember,
   type SmallPreset,
@@ -352,5 +354,63 @@ describe('preset frequency ceilings bound popmax', () => {
     expect(result.current.draftFilters.max_gnomad_af).toBe('');
     expect(result.current.draftFilters.max_gnomad_exomes_af).toBe('0.01');
     expect(result.current.draftFilters.max_gnomad_popmax_af).toBe('0.01');
+  });
+});
+
+// #604 — a location filter that cannot be read as written is named, not searched. Sent
+// on, a malformed locus was searched as a gene name and an unreadable interval skipped:
+// the search covered less than it asked, or read as a family without variants.
+describe('location filters that cannot be read', () => {
+  it('lists the unreadable locus and interval entries, by where they are set', () => {
+    expect(
+      smallVariantLocationProblems({
+        locus: 'chr1:100-',
+        intervals: 'chr13:32315086-32400266\nchr17\t43044295\t43125482',
+        exclude_intervals: 'chr1:200-100',
+      }),
+    ).toEqual({
+      include: [
+        "Location 'chr1:100-' is not a gene or chr:start-end.",
+        "Interval 'chr17\t43044295\t43125482' is not chr:start-end.",
+      ],
+      exclude: ["Excluded interval 'chr1:200-100' ends before it starts."],
+    });
+    const readable = smallVariantLocationProblems({
+      locus: 'chr1:100-200',
+      intervals: 'chr1:1–2',
+      exclude_intervals: '',
+    });
+    expect(readable).toEqual({ include: [], exclude: [] });
+    expect(hasLocationProblems(readable)).toBe(false);
+  });
+
+  it('does not apply a draft with an unreadable interval, and says why', async () => {
+    const family = {
+      members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'female' }],
+      relationships: [],
+      projects: [],
+    } as never;
+    const navigate = vi.fn();
+    const { result } = renderHook(() =>
+      useSmallVariantSearchState({ family, locationSearch: '?gene=BRCA1', navigate, panelsLoaded: true }),
+    );
+    await waitFor(() => expect(result.current.filters.gene).toBe('BRCA1'));
+    navigate.mockClear();
+
+    act(() => result.current.setDraftFilterValue('intervals', 'chr17 43044295 43125482'));
+    act(() => result.current.handleApply({ preventDefault: () => {} } as never));
+
+    expect(result.current.draftLocationProblems).toEqual({
+      include: ["Interval 'chr17 43044295 43125482' is not chr:start-end."],
+      exclude: [],
+    });
+    expect(result.current.filters.intervals).toBe('');
+    expect(navigate).not.toHaveBeenCalled();
+
+    // Corrected, it applies, and the problems clear.
+    act(() => result.current.setDraftFilterValue('intervals', 'chr17:43044296-43125482'));
+    act(() => result.current.handleApply({ preventDefault: () => {} } as never));
+    expect(result.current.draftLocationProblems).toBeNull();
+    expect(result.current.filters.intervals).toBe('chr17:43044296-43125482');
   });
 });

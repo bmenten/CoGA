@@ -216,3 +216,99 @@ test('a failed marker request is flagged while the blocks stay drawn (#510)', ()
   expect(container.textContent).toContain('Phased markers could not load');
   expect(container.textContent).not.toContain('Could not load haplotypes');
 });
+
+// #529: the canvas is a named image — whose haplotypes, where, and the risk state its
+// border shows.
+test('is named with whose haplotypes, where, and the risk state at the ROI (#529)', () => {
+  const trio = [
+    { sample_id: 'FATHER', role: 'father', affected: true },
+    { sample_id: 'MOTHER', role: 'mother', affected: false },
+    { sample_id: 'CHILD', role: 'proband', affected: true },
+  ];
+  useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
+    queryKey[0] === 'haplotypes'
+      ? {
+          data: {
+            chr: '1',
+            start: 0,
+            end: 1000,
+            samples: ['FATHER', 'CHILD'].map((sample) => ({
+              sample,
+              segments: [{ start: 0, end: 1000, hap1: '0', hap2: '1', ps: 1 }],
+            })),
+          },
+          isLoading: false,
+        }
+      : { data: undefined, isLoading: false },
+  );
+  const { getByRole } = render(
+    <HaplotypePhasedTrack
+      familyId="F1"
+      sampleId="CHILD"
+      chrom="1"
+      regionStart={0}
+      regionEnd={1000}
+      width={500}
+      height={36}
+      role="proband"
+      affected
+      sex="male"
+      highlightRiskHaplotype
+      familyMembers={trio}
+      inheritanceModel="AD"
+      riskRegion={{ chr: '1', start: 400, end: 600 }}
+    />,
+  );
+
+  // The affected father and child share only his first homolog, which the child carries.
+  expect(
+    getByRole('img', {
+      name: 'Haplotypes of CHILD on chr1:0–1,000; risk state at chr1:400–600: affected / at risk',
+    }),
+  ).toBeInTheDocument();
+});
+
+test('a loading, empty or failed track claims no risk state it does not have (#529, #510)', () => {
+  useQueryMock.mockImplementation(() => ({ data: undefined, isLoading: true }));
+  const loading = renderTrack(false);
+  expect(loading.getByRole('img', { name: 'Haplotypes of CHILD on chr1:0–1,000: loading' })).toBeInTheDocument();
+  loading.unmount();
+
+  mockData({ segments: [] });
+  const empty = renderTrack(false);
+  expect(
+    empty.getByRole('img', {
+      name: 'Haplotypes of CHILD on chr1:0–1,000: no data; risk state: uninformative',
+    }),
+  ).toBeInTheDocument();
+  empty.unmount();
+
+  useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
+    queryKey[0] === 'haplotypes'
+      ? { data: undefined, isLoading: false, isError: true, refetch: vi.fn() }
+      : { data: undefined, isLoading: false, isError: false },
+  );
+  const { getByRole } = renderTrack(false);
+  expect(
+    getByRole('img', { name: 'Haplotypes of CHILD on chr1:0–1,000: failed to load; risk state: unavailable' }),
+  ).toBeInTheDocument();
+});
+
+test('the name says when the phased-marker overlay failed to load (#529, #510)', () => {
+  useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
+    queryKey[0] === 'phased-markers'
+      ? { data: undefined, isLoading: false, isError: true }
+      : {
+          data: { samples: members.map((m) => ({ sample: m.sample_id, segments })) },
+          isLoading: false,
+          isError: false,
+        },
+  );
+  const { getByRole } = renderTrack(true);
+
+  expect(
+    getByRole('img', {
+      name: 'Haplotypes of CHILD on chr1:0–1,000; risk state: uninformative; phased markers failed to load',
+    }),
+  ).toBeInTheDocument();
+});

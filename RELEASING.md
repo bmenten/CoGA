@@ -151,6 +151,7 @@ Stated here so nobody discovers them mid-release:
   the dependency evidence for that build is gone.
 - **`deploy` skips entirely when GCP is not configured** (no `GCP_WIF_PROVIDER` secret). The
   run goes green having deployed nothing. Check the job actually ran.
-- **The `gcp-deploy` environment has no required reviewer** until one is configured, so
-  `terraform apply -auto-approve` runs unattended.
+- **The `gcp-deploy` environment needs a required reviewer** before anything deploys: the
+  deploy job's first step fails until one is configured (Settings → Environments), so
+  `terraform apply -auto-approve` never runs unattended.
 - **A tag is not verified to be on `main`.** Nothing stops tagging an arbitrary commit.

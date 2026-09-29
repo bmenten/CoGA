@@ -50,7 +50,7 @@ def run_async(make_coro: Callable[[], Awaitable[Any]]) -> Any:
 
 def _admin_current_user(user_id: str):
     from backend.app.core.config import settings
-    from backend.app.services.metadata_service import CurrentUser
+    from backend.app.services.access_control import CurrentUser
 
     return CurrentUser(
         id=user_id,

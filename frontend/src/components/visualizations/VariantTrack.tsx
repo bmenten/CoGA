@@ -8,6 +8,7 @@ import { formatGt, hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import { getTrackVariantLimit } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import VizTooltip from './VizTooltip';
 import { apiPath } from '../../lib/apiPath';
 
@@ -58,6 +59,17 @@ interface PositionedVariant extends Variant {
 const isSupportedVariantType = (value: string): value is VariantType =>
   TYPE_ORDER.includes(value as VariantType);
 
+/** The drawn SVs in words, for the chart's accessible name (#529): "3 (2 DEL, 1 DUP)". */
+const describeTypes = (items: PositionedVariant[]): string => {
+  const byType = TYPE_ORDER.map((typeKey) => ({
+    typeKey,
+    count: items.filter((item) => item.typeKey === typeKey).length,
+  }))
+    .filter(({ count }) => count > 0)
+    .map(({ typeKey, count }) => `${count.toLocaleString()} ${typeKey}`);
+  return `${items.length.toLocaleString()} (${byType.join(', ')})`;
+};
+
 const VariantTrack: React.FC<Props> = ({
   familyId,
   sampleId,
@@ -89,6 +101,7 @@ const VariantTrack: React.FC<Props> = ({
     [],
   );
   const pageSize = React.useMemo(() => getTrackVariantLimit(width), [width]);
+  const regionInView = hasRegionInView(regionStart, regionEnd);
   const { data: rawData, isLoading, isError, refetch } = useQuery<ApiVariantPage<Variant>>({
     queryKey: [
       'variants',
@@ -114,24 +127,31 @@ const VariantTrack: React.FC<Props> = ({
       const res = await api.get(apiPath`/families/${familyId}/structural-variants`, { params });
       return res.data as ApiVariantPage<Variant>;
     },
-    enabled: regionEnd > regionStart,
+    enabled: regionInView,
   });
   const data = useSameSpanFallbackData(
-    isError ? null : rawData,
+    rawData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${familyId}|${sampleId}|${chrom}`,
+    isError,
   );
 
+  // The view holds more SVs than one track page (or than the backend's candidate cap):
+  // drawing the page would show only the left-most SVs, and the rest of the view as if
+  // it had none (#585). Say so instead, as the small-variant track does past its cap.
+  const tooManyVariants = Boolean(
+    data && (data.total_is_estimated || data.total > (data.variants?.length ?? 0)),
+  );
   const variants = React.useMemo(
     () =>
-      (data?.variants || []).filter((v) => {
+      (tooManyVariants ? [] : data?.variants || []).filter((v) => {
         const typeKey = v.type?.toUpperCase() ?? '';
         return (
           isSupportedVariantType(typeKey) &&
           v.genotypes?.some((g) => g.sample === sampleId && hasAltAllele(g.gt))
         );
       }),
-    [data?.variants, sampleId],
+    [data?.variants, sampleId, tooManyVariants],
   );
   const span = regionEnd - regionStart || 1;
   const rowHeight = React.useMemo(() => height / TYPE_ORDER.length, [height]);
@@ -148,6 +168,24 @@ const VariantTrack: React.FC<Props> = ({
       })
       .sort((left, right) => left.start - right.start);
   }, [regionStart, rowHeight, span, variants, width]);
+
+  // The chart's accessible name (#529): what it shows now. A failure or a load is said
+  // as such, never as zero SVs (#510).
+  const typeSummary = React.useMemo(() => describeTypes(items), [items]);
+  // A view with no width asks for nothing: it is not "none" (#602).
+  const chartRegion = describeTrackRegion(chrom, regionStart, regionEnd);
+  const chartState = isError
+    ? 'failed to load'
+    : !regionInView
+      ? NO_REGION_IN_VIEW
+      : isLoading
+        ? 'loading'
+        : tooManyVariants
+          ? 'too many to display; zoom in or apply filters'
+          : items.length === 0
+            ? 'none'
+            : typeSummary;
+  const chartLabel = `Structural variants of ${sampleId} on ${chartRegion}: ${chartState}`;
 
   const [tooltip, setTooltip] = React.useState<{
     x: number;
@@ -168,7 +206,7 @@ const VariantTrack: React.FC<Props> = ({
 
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
+      <svg width={width} height={height} role="img" aria-label={chartLabel}>
         {TYPE_ORDER.map((typeKey, index) => {
           const rowTop = index * rowHeight;
           const rowFill = typeColors[typeKey] || fallbackColors.default;
@@ -201,7 +239,11 @@ const VariantTrack: React.FC<Props> = ({
             fontSize={12}
             fill={fallbackColors.default}
           >
-            no SVs for this region / sample
+            {!regionInView
+              ? 'No region in view'
+              : tooManyVariants
+                ? 'Too many SVs to display. Zoom in or apply filters.'
+                : 'no SVs for this region / sample'}
           </text>
         )}
         {items.map((v, index) => {

@@ -257,6 +257,11 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getByText('Standard tags')).toBeInTheDocument();
     expect(screen.getByText('Custom tags')).toBeInTheDocument();
     expect(screen.getByLabelText(/Only show variants with saved notes/i)).toBeInTheDocument();
+    // The family search applies every exclusion; only the explorer hides some (#526).
+    expect(screen.getByPlaceholderText(/^Excluded genes:/)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/^Excluded intervals:/)).toBeInTheDocument();
+    expect(screen.getByText('Excluded standard tags')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Excluded tag' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /apply filters/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /clear all filters/i }).length).toBeGreaterThan(0);
     expect(screen.getByRole('tab', { name: 'Auto' })).toBeInTheDocument();
@@ -312,6 +317,137 @@ describe('FamilySmallVariantsPage', () => {
       );
     });
     expect(await screen.findByText('Showing 7')).toBeInTheDocument();
+  });
+
+  // #608 — the search runs within the linked project; with the catalogue failed it used to
+  // wait for the project for good. It says the reference failed, and retries.
+  it('says the reference failed, instead of loading for good, and runs the search on retry', async () => {
+    let projectRequests = 0;
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { members: [], projects: ['p1'] } });
+      }
+      if (url === '/projects') {
+        projectRequests += 1;
+        return projectRequests === 1
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : Promise.resolve({
+              data: [{ _id: 'p1', name: 'Demo project', assembly_id: 'asm1', assembly_name: 'GRCh38' }],
+            });
+      }
+      if (url.startsWith('/families/F1/small-variants?')) {
+        return Promise.resolve({ data: { variants: [], total: 7 } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('Reference could not be loaded')).toBeInTheDocument();
+    expect(screen.queryByText('Loading small variants')).not.toBeInTheDocument();
+    expect(apiMock.get.mock.calls.some(([url]) => String(url).startsWith('/families/F1/small-variants?'))).toBe(
+      false,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('Showing 7')).toBeInTheDocument();
+  });
+
+  // #606 — a failed panel list used to leave the select at "Any gene panel" while the
+  // panel from the URL was still applied, and to drop the default Mendeliome scope unsaid.
+  it('keeps an applied panel visible when the panel list could not be loaded', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { members: [], projects: [] } });
+      }
+      if (url === '/panels') {
+        return Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+      }
+      if (url.startsWith('/families/F1/small-variants?')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants?page=1&panel_id=P1']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(/Could not load the gene panel list — this is not an empty result/)).toHaveTextContent(
+      /Panels cannot be chosen, and the default Mendeliome scope is not applied/,
+    );
+    const panelSelect = screen.getByRole('combobox', { name: 'Quick gene panel' });
+    expect(panelSelect).toHaveValue('P1');
+    expect(within(panelSelect).getByRole('option', { name: 'Panel P1 (not in the panel list)' })).toBeInTheDocument();
+  });
+
+  // #604 — an interval list entry that cannot be read is named, not skipped: skipped, the
+  // search covered less than the list asked, or read as a family without variants.
+  describe('an unreadable interval', () => {
+    const serveFamily = () =>
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === '/families/F1') {
+          return Promise.resolve({ data: { members: [], projects: [] } });
+        }
+        if (url.startsWith('/families/F1/small-variants?')) {
+          return Promise.resolve({ data: { variants: [], total: 3 } });
+        }
+        return Promise.resolve({ data: [] });
+      });
+    const renderAt = (path: string) =>
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    const searches = () =>
+      apiMock.get.mock.calls.filter(([url]) => String(url).startsWith('/families/F1/small-variants?'));
+
+    it('is named under the field, and the search is not run', async () => {
+      serveFamily();
+      renderAt('/families/F1/small-variants?page=1&gene=BRCA1');
+      expect(await screen.findByText('Showing 3')).toBeInTheDocument();
+      const before = searches().length;
+
+      fireEvent.change(screen.getByPlaceholderText(/^Intervals:/), {
+        target: { value: 'chr17\t43044295\t43125482' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
+
+      expect(
+        await screen.findByText(/Interval 'chr17\s43044295\s43125482' is not chr:start-end\. Nothing was searched\./),
+      ).toBeInTheDocument();
+      expect(searches().length).toBe(before);
+    });
+
+    it('fails a search whose URL carries one, with its reason', async () => {
+      serveFamily();
+      renderAt('/families/F1/small-variants?page=1&intervals=chr1%3A200-100');
+
+      expect(await screen.findByText('Unable to load small variants')).toBeInTheDocument();
+      expect(screen.getByText("Interval 'chr1:200-100' ends before it starts.")).toBeInTheDocument();
+      // The page may search once before it reads the URL, but never with the interval.
+      expect(searches().filter(([url]) => String(url).includes('intervals='))).toHaveLength(0);
+    });
   });
 
   it('formats bounded variant totals as 1000+', async () => {

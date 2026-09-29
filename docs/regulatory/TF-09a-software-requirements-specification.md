@@ -79,7 +79,7 @@
 | ID | Requirement | Class | Risk |
 | --- | --- | --- | --- |
 | REQ-DIAG-001 | Apply pedigree/trio inheritance filtering (de-novo, dominant, recessive, compound-het) over observed genotypes. | C | H2 |
-| REQ-DIAG-002 | Flag de-novo only with a full trio and both parents hom-ref at the site. | C | H2 |
+| REQ-DIAG-002 | Flag de-novo only when no parent who could have passed the allele on carries it: on autosomes, in the pseudo-autosomal regions and in a daughter, a full trio with both parents confidently hom-ref at the site; in a son on chrX/chrY outside the PARs (hemizygous), the parent who transmits that chromosome (the mother for X, the father for Y) confidently hom-ref and the other parent not carrying the ALT (#545). | C | H2 |
 | REQ-DIAG-003 | Detect compound-heterozygous and SV second-hit (SNV + SV in the same gene). | C | H2 |
 | REQ-DIAG-004 | Ingest repeat-expansion (TRGT) calls and classify normal/intermediate/pathogenic against a locus catalog. | C | — |
 | REQ-DIAG-005 | Analyse Paraphase medical regions (e.g. SMN) for copy-number/haplotype. | C | — |

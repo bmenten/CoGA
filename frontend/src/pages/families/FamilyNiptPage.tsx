@@ -13,11 +13,11 @@ import {
   lowCoverageDetail,
   pct,
 } from './niptClassification';
+import { parseCommaSeparatedValues } from '../../lib/sampleFilterState';
 import {
   buildPresetPayload,
   NIPT_BUILT_IN_PRESETS,
   normalizeReviewClassification,
-  parseCommaSeparatedValues,
   parsePedigree,
   useSmallVariantSearchState,
   type GenePanel,
@@ -38,6 +38,8 @@ import {
 } from './smallVariantReview';
 import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
+import QueryFailure from '../../components/QueryFailure';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 import { apiPath } from '../../lib/apiPath';
@@ -153,7 +155,13 @@ const FamilyNiptPage: React.FC = () => {
     { tone: 'error' | 'success'; message: string } | null
   >(null);
 
-  const { data: family, isLoading: familyLoading, isError: familyError } = useQuery<SmallVariantFamily>({
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<SmallVariantFamily>({
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
@@ -176,6 +184,7 @@ const FamilyNiptPage: React.FC = () => {
     applyPreset,
     applySavedPreset,
     draftFilters,
+    draftLocationProblems,
     filters,
     goToPage,
     handleApply,
@@ -196,7 +205,12 @@ const FamilyNiptPage: React.FC = () => {
     resolvedProjectId: projectId,
   });
 
-  const { data: panels = [] } = useQuery<GenePanel[]>({
+  const {
+    data: panels = [],
+    isError: panelsFailed,
+    error: panelsError,
+    refetch: refetchPanels,
+  } = useQuery<GenePanel[]>({
     queryKey: ['panels'],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
@@ -205,7 +219,12 @@ const FamilyNiptPage: React.FC = () => {
     },
   });
 
-  const { data: summary } = useQuery<ApiNiptSummary>({
+  const {
+    data: summary,
+    isError: summaryFailed,
+    error: summaryError,
+    refetch: refetchSummary,
+  } = useQuery<ApiNiptSummary>({
     queryKey: ['family', familyId, 'nipt', 'summary'],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
@@ -262,7 +281,12 @@ const FamilyNiptPage: React.FC = () => {
     },
   });
 
-  const { data: coverage } = useQuery<ApiNiptCoverageSummary>({
+  const {
+    data: coverage,
+    isError: coverageFailed,
+    error: coverageError,
+    refetch: refetchCoverage,
+  } = useQuery<ApiNiptCoverageSummary>({
     queryKey: ['family', familyId, 'nipt', 'coverage', filters.panel_id, filters.gene],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
@@ -275,7 +299,13 @@ const FamilyNiptPage: React.FC = () => {
   });
 
   const niptVariantsKey = ['family', familyId, 'nipt', 'variants'] as const;
-  const { data: variantPage, isFetching: variantsFetching } = useQuery<SmallVariantPage>({
+  const {
+    data: variantPage,
+    isFetching: variantsFetching,
+    isError: variantsFailed,
+    error: variantsError,
+    refetch: refetchVariants,
+  } = useQuery<SmallVariantPage>({
     queryKey: [...niptVariantsKey, JSON.stringify(filters), page],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
@@ -337,17 +367,30 @@ const FamilyNiptPage: React.FC = () => {
   });
 
   const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
-  const categoryCounts = summary?.category_counts ?? {};
+  // Unknown, not zero, while the summary could not be loaded (#606).
+  const categoryCounts = summaryFailed ? null : (summary?.category_counts ?? {});
 
   if (familyLoading) {
     return <PageState kicker="Monogenic NIPT" title="Loading family…" />;
   }
-  if (familyError || !family) {
+  if (familyFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Monogenic NIPT"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This family could not be found."
+        onRetry={() => void refetchFamily()}
+        action={<Link className="button-secondary" to="/families">Back to families</Link>}
+      />
+    );
+  }
+  if (!family) {
     return (
       <PageState
         kicker="Monogenic NIPT"
         title="Family not found"
-        message="This family could not be loaded."
+        message="This family could not be found."
         action={<Link className="button-secondary" to="/families">Back to families</Link>}
       />
     );
@@ -393,7 +436,15 @@ const FamilyNiptPage: React.FC = () => {
                 <h1 className="catalog-card-title">Family {familyId}</h1>
                 <div className="variant-sample-summary">
                   <div className="variant-summary-row">
-                    <span className="badge-chip badge-chip--signature">Fetal fraction {pct(ff?.ff)}</span>
+                    {summaryFailed ? (
+                      // Not "—": a failed estimate also hides its low-confidence and
+                      // disagreement warnings (#606, TF-12 U1).
+                      <span className="badge-chip badge-chip--signature" role="alert">
+                        Fetal fraction could not be loaded
+                      </span>
+                    ) : (
+                      <span className="badge-chip badge-chip--signature">Fetal fraction {pct(ff?.ff)}</span>
+                    )}
                     {ff?.ci_low != null && ff?.ci_high != null ? (
                       <span className="badge-chip">95% CI {pct(ff.ci_low)}–{pct(ff.ci_high)}</span>
                     ) : null}
@@ -411,7 +462,7 @@ const FamilyNiptPage: React.FC = () => {
                   <div className="variant-summary-row">
                     {FILTER_STEPS.map((step) => (
                       <span className="badge-chip" key={step.key}>
-                        {step.label} {summary?.filter_counts?.[step.key] ?? 0}
+                        {step.label} {summaryFailed ? '—' : (summary?.filter_counts?.[step.key] ?? 0)}
                       </span>
                     ))}
                     <span className="badge-chip">Active filters {activeFilterChips.length}</span>
@@ -467,6 +518,7 @@ const FamilyNiptPage: React.FC = () => {
             applySavedPreset={applySavedPreset}
             draftFilters={draftFilters}
             handleApply={handleApply}
+            draftLocationProblems={draftLocationProblems}
             handleGtToggle={handleGtToggle}
             handleReset={handleReset}
             handleSampleFieldChange={handleSampleFieldChange}
@@ -488,7 +540,29 @@ const FamilyNiptPage: React.FC = () => {
         )}
       </section>
 
+      {summaryFailed ? (
+        <QueryFailure
+          what="the fetal-fraction estimate"
+          error={summaryError}
+          onRetry={() => void refetchSummary()}
+          consequence="Its low-confidence and disagreement warnings, and the filter and category counts, are unknown. Do not interpret the category calls without it."
+        />
+      ) : null}
+      {panelsFailed ? (
+        <QueryFailure
+          what="the gene panel list"
+          error={panelsError}
+          onRetry={() => void refetchPanels()}
+          consequence="Panels cannot be chosen."
+        />
+      ) : null}
+
       <div className="variant-results-region">
+        {/* A failed search is said as such: it read "No variants match the current
+            search" (#606). */}
+        {variantsFailed ? (
+          <QueryFailure what="the NIPT variants" error={variantsError} onRetry={() => void refetchVariants()} />
+        ) : (
         <SmallVariantResults
           assemblyName={assemblyName}
           assemblyVersion={assemblyVersion}
@@ -535,6 +609,7 @@ const FamilyNiptPage: React.FC = () => {
             await reviewMutation.mutateAsync({ variant, payload });
           }}
         />
+        )}
 
         <section className="surface-card space-y-2" aria-label="On-target coverage">
           <h2 className="section-title">On-target coverage</h2>
@@ -581,6 +656,9 @@ const FamilyNiptPage: React.FC = () => {
                 )}
               </>
             )
+          ) : coverageFailed ? (
+            // It stayed at "Loading coverage…" for good (#606).
+            <QueryFailure what="the coverage QC" error={coverageError} onRetry={() => void refetchCoverage()} />
           ) : (
             <p className="table-subtle">Loading coverage…</p>
           )}

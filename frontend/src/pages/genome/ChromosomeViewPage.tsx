@@ -9,6 +9,7 @@ import type {
   ApiTrackAvailabilityResponse,
 } from '../../lib/apiTypes';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { getChromosomeWindow } from '../../lib/settings';
 import { parseExplicitSampleFilterMap } from '../../lib/sampleFilterState';
@@ -25,7 +26,8 @@ import ChromosomeViewSidebar, {
   type ChromosomeTrackVisibility,
 } from './ChromosomeViewSidebar';
 import ChromosomeViewWorkspace from './ChromosomeViewWorkspace';
-import { DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING, formatChromosomeLabel, normalizeChrom } from './viewerShared';
+import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
+import { DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING } from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
 
 interface ChromInfo {
@@ -86,7 +88,7 @@ const ChromosomeViewPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { data, isLoading } = useQuery<
+  const { data, isLoading, isError, error, refetch } = useQuery<
     Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>
   >({
     queryKey: ['family', familyId],
@@ -162,11 +164,6 @@ const ChromosomeViewPage: React.FC = () => {
     });
     return filters;
   }, [location.search]);
-  const hasSmallVariantUserFilters = useMemo(() => {
-    const hasVariantFilters = Object.values(variantFilters).some((value) => value.trim());
-    const hasSampleFilters = Object.values(sampleFilterMap).some((value) => value.trim());
-    return hasVariantFilters || hasSampleFilters;
-  }, [sampleFilterMap, variantFilters]);
 
   const projectIdParam = new URLSearchParams(location.search).get('project_id') || undefined;
   const {
@@ -176,6 +173,8 @@ const ChromosomeViewPage: React.FC = () => {
     assemblyId,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(data?.projects as string[] | undefined, projectIdParam);
   const resolvedSearch = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -218,7 +217,13 @@ const ChromosomeViewPage: React.FC = () => {
     return `${withProject}&back_path=${encodeURIComponent(backPath)}`;
   }, [chrom, familyId, location.pathname, region.end, region.start, resolvedProjectId, resolvedSearch]);
 
-  const { data: chromInfo, isLoading: chromInfoLoading } = useQuery<ChromInfo>({
+  const {
+    data: chromInfo,
+    isLoading: chromInfoLoading,
+    isError: chromInfoFailed,
+    error: chromInfoError,
+    refetch: refetchChromInfo,
+  } = useQuery<ChromInfo>({
     queryKey: ['chrom-info', assemblyName, chrom],
     queryFn: async () => {
       const response = await api.get(apiPath`/chromosomes/${assemblyName}/${chrom}`);
@@ -273,7 +278,6 @@ const ChromosomeViewPage: React.FC = () => {
     return params.toString();
   }, [
     chrom,
-    hasSmallVariantUserFilters,
     resolvedProjectId,
     region.end,
     region.start,
@@ -285,6 +289,9 @@ const ChromosomeViewPage: React.FC = () => {
     data: availabilityData,
     isLoading: availabilityLoading,
     isFetching: availabilityFetching,
+    isError: availabilityFailed,
+    error: availabilityError,
+    refetch: refetchAvailability,
   } = useQuery<ApiTrackAvailabilityResponse<ApiChromosomeTrackAvailability>>({
     queryKey: ['family', familyId, 'track-availability', availabilitySearch],
     queryFn: async () => {
@@ -451,12 +458,40 @@ const ChromosomeViewPage: React.FC = () => {
     );
   }
 
+  if (isError) {
+    return (
+      <FamilyLoadFailure
+        kicker="Visualization"
+        what="Family"
+        error={error}
+        notFoundMessage="This chromosome view could not resolve the requested family."
+        onRetry={() => void refetch()}
+      />
+    );
+  }
+
   if (!data) {
     return (
       <PageState
         kicker="Visualization"
         title="Family not found"
         message="This chromosome view could not resolve the requested family."
+      />
+    );
+  }
+
+  // The project catalogue failed: the reference is unknown, not missing (#608).
+  if (referenceFailed) {
+    return (
+      <PageState
+        kicker="Visualization"
+        title="Reference could not be loaded"
+        message="The family's project, and with it the reference assembly, could not be loaded. The chromosome view needs it to draw the tracks."
+        action={
+          <button type="button" className="button-secondary" onClick={retryReference}>
+            Retry
+          </button>
+        }
       />
     );
   }
@@ -487,8 +522,11 @@ const ChromosomeViewPage: React.FC = () => {
       entry?.repeatExpansions
     );
   });
+  // Without the chromosome's length there is no region to wait for: the failure is said
+  // in place of the tracks, not as a load that never ends (#610).
   const availabilityPending =
     visibleMembers.length > 0 &&
+    !chromInfoFailed &&
     (chromInfoLoading ||
       region.end <= region.start ||
       availabilityLoading ||
@@ -579,6 +617,21 @@ const ChromosomeViewPage: React.FC = () => {
         apcadPointLimit={apcadPointLimit}
         segmentLimit={segmentLimit}
         showViewerLoading={showViewerLoading}
+        tracksFailure={
+          chromInfoFailed
+            ? {
+                what: `the length of ${formatChromosomeLabel(chrom)}`,
+                error: chromInfoError,
+                retry: () => void refetchChromInfo(),
+              }
+            : availabilityFailed
+              ? {
+                  what: 'which tracks each sample has',
+                  error: availabilityError,
+                  retry: () => void refetchAvailability(),
+                }
+              : null
+        }
       />
     </div>
   );

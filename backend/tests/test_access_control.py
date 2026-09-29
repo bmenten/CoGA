@@ -5,10 +5,10 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from backend.app.services.metadata_service import (
+from backend.app.services.access_control import (
     CurrentUser,
-    _ensure_user_can_access_metadata_projects,
-    _visible_metadata_project_ids,
+    ensure_user_can_access_metadata_projects,
+    visible_metadata_project_ids,
 )
 from backend.app.services.ped_service import (
     _ensure_user_can_replace_existing_families,
@@ -79,7 +79,7 @@ def test_viewer_family_project_ids_are_filtered_to_visible_projects() -> None:
     visible_project_id = str(uuid4())
     hidden_project_id = str(uuid4())
 
-    assert _visible_metadata_project_ids(
+    assert visible_metadata_project_ids(
         [hidden_project_id, visible_project_id],
         _user("viewer", [visible_project_id]),
     ) == [visible_project_id]
@@ -99,7 +99,7 @@ def test_admin_can_replace_existing_families() -> None:
     _ensure_user_can_replace_existing_families(_user("admin", []))
 
 
-# --- PHI access gate: _ensure_user_can_access_metadata_projects -------------
+# --- PHI access gate: ensure_user_can_access_metadata_projects -------------
 # This is the central checkpoint every family/sample endpoint flows through
 # (build_family_metadata_context -> get_accessible_family_mapping -> here). The
 # cases below cover the cross-user / multi-project / admin scenarios so a
@@ -114,7 +114,7 @@ def test_viewer_cannot_access_family_in_unassigned_project() -> None:
     intruder = _user("viewer", [other_project])
 
     with pytest.raises(HTTPException) as exc_info:
-        _ensure_user_can_access_metadata_projects([owner_project], intruder)
+        ensure_user_can_access_metadata_projects([owner_project], intruder)
 
     assert exc_info.value.status_code == 403
 
@@ -126,12 +126,12 @@ def test_viewer_can_access_family_sharing_one_assigned_project() -> None:
     foreign = str(uuid4())
     viewer = _user("viewer", [shared])
 
-    _ensure_user_can_access_metadata_projects([foreign, shared], viewer)
+    ensure_user_can_access_metadata_projects([foreign, shared], viewer)
 
 
 def test_viewer_with_no_projects_is_denied() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        _ensure_user_can_access_metadata_projects([str(uuid4())], _user("viewer", []))
+        ensure_user_can_access_metadata_projects([str(uuid4())], _user("viewer", []))
 
     assert exc_info.value.status_code == 403
 
@@ -139,13 +139,13 @@ def test_viewer_with_no_projects_is_denied() -> None:
 def test_admin_bypasses_project_scoping() -> None:
     # Admins are not project-scoped: access is granted even with no project
     # assignments and a family in an arbitrary project.
-    _ensure_user_can_access_metadata_projects([str(uuid4())], _user("admin", []))
+    ensure_user_can_access_metadata_projects([str(uuid4())], _user("admin", []))
 
 
 def test_admin_sees_all_project_ids_while_viewer_sees_only_assigned() -> None:
     p_assigned, p_foreign = str(uuid4()), str(uuid4())
     family_projects = [p_assigned, p_foreign]
 
-    assert _visible_metadata_project_ids(family_projects, _user("admin", [])) == family_projects
-    assert _visible_metadata_project_ids(family_projects, _user("viewer", [p_assigned])) == [p_assigned]
-    assert _visible_metadata_project_ids(family_projects, _user("viewer", [])) == []
+    assert visible_metadata_project_ids(family_projects, _user("admin", [])) == family_projects
+    assert visible_metadata_project_ids(family_projects, _user("viewer", [p_assigned])) == [p_assigned]
+    assert visible_metadata_project_ids(family_projects, _user("viewer", [])) == []

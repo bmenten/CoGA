@@ -70,6 +70,14 @@ cat > "$${CONFIG_DIR}/tls.xml" <<'XML'
 </clickhouse>
 XML
 
+%{ if registry_host != "" ~}
+# Artifact Registry pulls need the VM's service-account credentials. COS keeps /root
+# read-only, so the Docker client configuration lives under a writable HOME.
+export HOME=/var/lib/coga-clickhouse
+mkdir -p "$${HOME}"
+docker-credential-gcr configure-docker --registries="${registry_host}"
+
+%{ endif ~}
 # Idempotent: remove any prior container before (re)starting.
 docker rm -f clickhouse-server >/dev/null 2>&1 || true
 

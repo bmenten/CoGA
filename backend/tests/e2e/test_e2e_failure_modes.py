@@ -92,6 +92,7 @@ async def _collect(base: Path) -> dict:
     from backend.app.core.clickhouse import init_clickhouse_schema
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
     from backend.app.services import family_package_import as package_import
+    from backend.app.services import family_package_jobs
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
         ensure_clickhouse_variant_tables,
@@ -321,7 +322,7 @@ async def _collect(base: Path) -> dict:
     # --- job lifecycle: queue -> claim -> run -> terminal status (mirrors the worker) ---
     async def lifecycle(root: Path) -> dict:
         async with sm() as s:
-            job = await package_import.queue_family_import_job(
+            job = await family_package_jobs.queue_family_import_job(
                 s,
                 folder_path=str(root),
                 project_id=project_id,
@@ -344,7 +345,7 @@ async def _collect(base: Path) -> dict:
             if claimed["id"] == job_id:
                 break
         async with sm() as s:
-            row = await package_import.get_family_import_job(s, job_id=job_id, user=admin)
+            row = await family_package_jobs.get_family_import_job(s, job_id=job_id, user=admin)
         return {"status": row.status, "error": row.error, "completed_at": row.completed_at is not None}
 
     fid = f"FAM_JOB_OK_{uuid4().hex[:8]}"
@@ -359,13 +360,13 @@ async def _collect(base: Path) -> dict:
 
 @pytest.fixture(scope="module")
 def results(tmp_path_factory, request) -> dict:
-    from backend.app.services import family_package_import as package_import
+    from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
     base = tmp_path_factory.mktemp("e2e_failure")
 
     mp = pytest.MonkeyPatch()
-    mp.setattr(package_import.settings, "family_import_roots", [str(base)])
+    mp.setattr(settings, "family_import_roots", [str(base)])
     request.addfinalizer(mp.undo)
 
     return _harness.run_async(lambda: _collect(base))

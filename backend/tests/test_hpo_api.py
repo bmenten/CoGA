@@ -10,7 +10,7 @@ from backend.app.main import app
 from backend.app.routers import admin as admin_router
 from backend.app.routers import families as families_router
 from backend.app.routers import hpo as hpo_router
-from backend.app.services.metadata_service import CurrentUser
+from backend.app.services.access_control import CurrentUser
 
 
 @dataclass

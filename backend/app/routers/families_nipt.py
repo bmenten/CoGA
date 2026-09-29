@@ -17,7 +17,7 @@ from ..schemas import (
 from ..services.clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
 )
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
 from ..services.nipt_service import (
     NiptClassifiedVariant,

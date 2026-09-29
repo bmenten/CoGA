@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import logging
 import types
 
@@ -155,7 +156,7 @@ class _ProvenanceResult:
 
 
 class _ProvenanceSession:
-    """Answers the two platform-module lookups, or fails them all."""
+    """Answers the three platform-module lookups, or fails them all."""
 
     def __init__(self, *, fail: bool) -> None:
         self.fail = fail
@@ -170,6 +171,10 @@ class _ProvenanceSession:
             raise RuntimeError('relation "monarch_gene_disease" does not exist')
         if "FROM assemblies" in str(statement):
             return _ProvenanceResult(row={"assembly_name": "GRCh38", "version": "p14", "release_date": None})
+        if "FROM reference_dataset_imports" in str(statement):
+            return _ProvenanceResult(
+                row={"source": "ucsc ncbiRefSeq", "performed_at": datetime(2026, 9, 1, tzinfo=timezone.utc)}
+            )
         return _ProvenanceResult(scalar="2026-03-01")
 
 
@@ -181,6 +186,9 @@ def test_platform_modules_read_the_reference_versions() -> None:
     modules = asyncio.run(ams._platform_modules(session, _ASSEMBLY_ID))
     assert modules == {
         "assembly": {"version": "GRCh38", "detail": "p14"},
+        # The source of the gene loci CoGA loaded, e.g. the UCSC table used when GENCODE
+        # could not be fetched (#536).
+        "gene_loci": {"version": "ucsc ncbiRefSeq", "detail": "imported 2026-09-01"},
         "monarch": {"version": "2026-03-01"},
     }
 
@@ -194,12 +202,17 @@ def test_a_failed_platform_lookup_is_recorded_not_dropped(caplog) -> None:
         modules = asyncio.run(ams._platform_modules(session, _ASSEMBLY_ID))
 
     marker = {"version": ams.UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
-    assert modules == {"assembly": marker, "monarch": marker}
+    assert modules == {"assembly": marker, "gene_loci": marker, "monarch": marker}
     # Each lookup is its own savepoint, so a failed statement cannot abort the
     # sign-out transaction around it.
-    assert session.savepoints == 2
+    assert session.savepoints == 3
     assert "Reference-assembly provenance lookup failed" in caplog.text
+    assert "Gene-locus provenance lookup failed" in caplog.text
     assert "Monarch-release provenance lookup failed" in caplog.text
     # The manifest (and so the report footer and the snapshot) shows them as such.
     listed = {m["key"]: (m["version"], m["detail"]) for m in ams._module_list({}, modules)}
-    assert listed == {"assembly": ("unavailable", "lookup failed"), "monarch": ("unavailable", "lookup failed")}
+    assert listed == {
+        "assembly": ("unavailable", "lookup failed"),
+        "gene_loci": ("unavailable", "lookup failed"),
+        "monarch": ("unavailable", "lookup failed"),
+    }

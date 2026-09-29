@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import api from '../../../lib/api';
 import { AUTH_STORAGE_KEYS } from '../../../lib/auth';
@@ -158,6 +158,32 @@ describe('PackageImportPage', () => {
     expect(screen.getByLabelText(/family folder path/i)).toHaveValue(
       '/data/families/FAM_NIPT_DEMO'
     );
+  });
+
+  // #610 — a failed folder scan read "No families found in the import folder".
+  it('says the import folder could not be scanned, not that it is empty', async () => {
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation((url: string, config?: unknown) =>
+      url === '/family-imports/packages'
+        ? Promise.reject(
+            Object.assign(new Error('HTTP 500'), {
+              response: { status: 500, data: { detail: 'Import folder is not mounted' } },
+            }),
+          )
+        : working(url, config),
+    );
+    try {
+      renderPage();
+
+      expect(
+        await screen.findByText(/Could not load the import folder's families — this is not an empty result/),
+      ).toHaveTextContent('Import folder is not mounted');
+      expect(screen.getByRole('option', { name: 'The import folder could not be scanned' })).toBeInTheDocument();
+      expect(screen.queryByText('No families found in the import folder')).not.toBeInTheDocument();
+    } finally {
+      get.mockImplementation(working);
+    }
   });
 
   it('discovers and writes a manifest draft for admins', async () => {

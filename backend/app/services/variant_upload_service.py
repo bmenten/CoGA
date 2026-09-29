@@ -1,34 +1,31 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime, timezone
 import gzip
 import io
 import json
 import logging
 import math
-import os
-import sqlite3
-import tempfile
 from typing import Any, Awaitable, Callable, Literal, Sequence
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .annotation_table_parser import VepAnnotationLookup, _coerce_int, _parse_vep_tsv_annotation_lines
 from .bed_service import get_track_presence_by_sample
 from .upload_safety import decode_upload_text
-from .clickhouse_family_variants import (
+from .clickhouse_family_variants import _fetch_structural_variant_rows
+from .clickhouse_variant_records import (
     SmallVariantCall,
     SmallVariantRecord,
     StructuralVariantCall,
     StructuralVariantRecord,
-    _fetch_structural_variant_rows,
 )
+from .clickhouse_variant_ids import build_small_variant_id, build_structural_variant_id
 from .clickhouse_variant_storage import (
-    build_small_variant_id,
-    build_structural_variant_id,
     count_family_small_variants,
     delete_family_small_variants,
     insert_small_variant_records,
@@ -42,9 +39,8 @@ from .clickhouse_interval_tracks import (
     upsert_interval_track_source,
 )
 from .data_scope import normalize_chromosome
-from .family_package_common import _normalize_header_key
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from .haplotype_lineage_service import build_pedigree, identify_core
+from .haplotype_block_builder import HaplotypeBlockBuilder
 from .family_variant_filters import StructuralVariantQueryFilters
 from .structural_variant_ingest import (
     ParsedStructuralVariant,
@@ -54,12 +50,10 @@ from .structural_variant_ingest import (
 from .variant_annotation_parser import (
     AnnotationHeaderState,
     extract_small_variant_annotations,
-    normalize_small_variant_annotation_entry,
     update_annotation_header_state,
 )
 from .vcf_header_provenance import (
     extract_header_provenance,
-    extract_vep_tab_provenance,
     merge_module_maps,
 )
 
@@ -87,8 +81,6 @@ _PROVENANCE_HEADER_CAP = 200
 SmallVariantFormat = Literal["auto", "clair3", "glimpse2", "mito"]
 ResolvedSmallVariantFormat = Literal["clair3", "glimpse2", "mito"]
 StructuralVariantFormat = Literal["auto", "manual", "sniffles", "spectre"]
-SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS = 50
-SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN = 500_000
 SMALL_VARIANT_UPLOAD_BATCH_SIZE = 1_000
 SMALL_VARIANT_PROGRESS_INTERVAL = 10_000
 # Upper bound on a single streamed upload line. Real VCF lines are KB-scale even with
@@ -96,64 +88,6 @@ SMALL_VARIANT_PROGRESS_INTERVAL = 10_000
 MAX_UPLOAD_LINE_BYTES = 16 * 1024 * 1024
 
 logger = logging.getLogger(__name__)
-
-
-def _coerce_int(value: Any) -> int | None:
-    """Parse an integer, tolerating float-like text; None when unparseable/missing."""
-    if value is None or str(value).strip() in {"", "."}:
-        return None
-    try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
-        try:
-            return int(float(str(value).strip()))
-        except (TypeError, ValueError):
-            return None
-
-
-@dataclass(slots=True)
-class VepAnnotationLookup:
-    row_count: int
-    conn: sqlite3.Connection | None = None
-    temp_path: str | None = None
-    # Annotation/DB versions parsed from the VEP TSV's ``## … version …`` header
-    # (where VEP/gnomAD/ClinVar/… releases live for TSV-annotated families).
-    provenance_modules: dict[str, Any] | None = None
-
-    def get(
-        self, variant_id: str, chrom: str, start: int, ref: str, alt: str
-    ) -> list[dict[str, Any]] | None:
-        if self.conn is None:
-            return None
-        rows = self.conn.execute(
-            "SELECT annotation_json FROM annotations WHERE key_type = ? AND key_value = ?",
-            ("variant_id", variant_id),
-        ).fetchall()
-        if rows:
-            return [json.loads(row[0]) for row in rows]
-        # VEP left-aligns/trims indels, so its reported coordinate (and the
-        # Uploaded_variation behind ``variant_id``) is shifted relative to the VCF
-        # POS. Fall back to VEP's normalized Location + Allele representation, which
-        # we can reconstruct from the VCF allele without a reference genome.
-        locus_key = _vep_location_allele_key(chrom, start, ref, alt)
-        if locus_key is None:
-            return None
-        rows = self.conn.execute(
-            "SELECT annotation_json FROM annotations WHERE key_type = ? AND key_value = ?",
-            ("locus_allele", locus_key),
-        ).fetchall()
-        return [json.loads(row[0]) for row in rows] or None
-
-    def close(self) -> None:
-        if self.conn is not None:
-            self.conn.close()
-            self.conn = None
-        if self.temp_path:
-            try:
-                os.unlink(self.temp_path)
-            except FileNotFoundError:
-                pass
-            self.temp_path = None
 
 
 def _upload_metadata(source: str, file: UploadFile) -> str:
@@ -193,7 +127,7 @@ def _iter_upload_text_lines(file: UploadFile, *, kind: str):
     try:
         raw.seek(0)
     except (AttributeError, OSError):
-        raise HTTPException(status_code=400, detail=f"{kind} file is not seekable")
+        raise HTTPException(status_code=400, detail=f"{kind} file is not seekable") from None
 
     magic = raw.read(2)
     raw.seek(0)
@@ -220,284 +154,6 @@ def _parse_info(info_field: str) -> dict[str, str]:
                 key, value = item.split("=", 1)
                 info[key] = value
     return info
-
-
-def _parse_vep_uploaded_variation(value: str) -> tuple[str, int, str | None, str | None] | None:
-    parts = value.strip().split("_", 2)
-    if len(parts) < 2:
-        return None
-    chrom = normalize_chromosome(parts[0])
-    try:
-        start = int(parts[1])
-    except ValueError:
-        return None
-    ref: str | None = None
-    alt: str | None = None
-    if len(parts) == 3 and "/" in parts[2]:
-        ref_value, alt_value = parts[2].split("/", 1)
-        ref = ref_value or None
-        alt = alt_value or None
-    return chrom, start, ref, alt
-
-
-def _parse_vep_location(value: str) -> tuple[str, int] | None:
-    if not value or ":" not in value:
-        return None
-    chrom_value, position_value = value.split(":", 1)
-    start_text = position_value.split("-", 1)[0].replace(",", "")
-    try:
-        return normalize_chromosome(chrom_value), int(start_text)
-    except ValueError:
-        return None
-
-
-def _vep_location_allele_key(chrom: str, pos: int, ref: str, alt: str) -> str | None:
-    """Reproduce VEP's ``{chrom}:{location}:{allele}`` for a VCF allele.
-
-    VEP normalizes (left-aligns and trims the shared anchor base) before
-    reporting a variant, so for indels its Location/Allele — and the
-    Uploaded_variation it derives — sit at a different coordinate than the VCF
-    POS. A VCF insertion ``A>AT`` is reported with Allele ``T`` and a deletion
-    ``AC>A`` with Allele ``-`` at the shifted position. Reconstructing the same
-    key here (no reference genome required) lets the annotation join find indels
-    that the exact ``variant_id`` match misses.
-    """
-    if not ref or not alt:
-        return None
-    # Trim any shared suffix, keeping at least one base on each side.
-    while len(ref) > 1 and len(alt) > 1 and ref[-1] == alt[-1]:
-        ref, alt = ref[:-1], alt[:-1]
-    prefix = 0
-    while prefix < len(ref) and prefix < len(alt) and ref[prefix] == alt[prefix]:
-        prefix += 1
-    ref_rem, alt_rem = ref[prefix:], alt[prefix:]
-    if not ref_rem and alt_rem:
-        # Insertion: bases inserted just after the last shared base.
-        return f"{chrom}:{pos + prefix - 1}:{alt_rem}"
-    if ref_rem and not alt_rem:
-        # Deletion: VEP marks the deleted span with a dash allele.
-        return f"{chrom}:{pos + prefix}:-"
-    if alt_rem:
-        # SNV / MNV / substitution.
-        return f"{chrom}:{pos + prefix}:{alt_rem}"
-    return None
-
-
-def _sqlite_annotation_lookup() -> VepAnnotationLookup:
-    temp_file = tempfile.NamedTemporaryFile(prefix="coga-vep-", suffix=".sqlite3", delete=False)
-    temp_file.close()
-    conn = sqlite3.connect(temp_file.name, check_same_thread=False)
-    conn.execute(
-        "CREATE TABLE annotations (key_type TEXT NOT NULL, key_value TEXT NOT NULL, annotation_json TEXT NOT NULL)"
-    )
-    conn.execute("CREATE INDEX idx_annotations_key ON annotations (key_type, key_value)")
-    return VepAnnotationLookup(
-        row_count=0,
-        conn=conn,
-        temp_path=temp_file.name,
-    )
-
-
-def _store_vep_annotation(
-    lookup: VepAnnotationLookup,
-    *,
-    key_type: str,
-    key_value: str,
-    annotation: dict[str, Any],
-) -> None:
-    if lookup.conn is None:
-        return
-    lookup.conn.execute(
-        "INSERT INTO annotations (key_type, key_value, annotation_json) VALUES (?, ?, ?)",
-        (key_type, key_value, json.dumps(annotation)),
-    )
-
-
-def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
-    header: list[str] | None = None
-    lookup = _sqlite_annotation_lookup()
-    row_count = 0
-    # VEP states its tool/database versions in the leading ``## … version …`` block
-    # (before "## Column descriptions:"); buffer it for provenance capture.
-    provenance_header: list[str] = []
-
-    for raw_line in lines:
-        line = raw_line.rstrip("\n\r")
-        if not line:
-            continue
-        if line.startswith("##"):
-            if len(provenance_header) < 80:
-                provenance_header.append(line)
-            continue
-        if line.startswith("#"):
-            header = line.lstrip("#").split("\t")
-            continue
-        if header is None:
-            continue
-        values = line.split("\t")
-        row = {key: value for key, value in zip(header, values)}
-        annotation = normalize_small_variant_annotation_entry(row)
-        if not annotation:
-            continue
-        row_count += 1
-
-        uploaded = _parse_vep_uploaded_variation(row.get("Uploaded_variation", ""))
-        allele = row.get("Allele") or None
-        location = _parse_vep_location(row.get("Location", ""))
-
-        if uploaded is not None:
-            chrom, start, ref, alt = uploaded
-            if ref and alt:
-                _store_vep_annotation(
-                    lookup,
-                    key_type="variant_id",
-                    key_value=build_small_variant_id(chrom, start, ref, alt),
-                    annotation=annotation,
-                )
-
-        # Index by VEP's normalized Location + Allele. VEP shifts/trims indels, so
-        # the Uploaded_variation position differs from the VCF POS; keying on the
-        # Location column (not the Uploaded_variation position) is what lets the
-        # join recover indels — see _vep_location_allele_key for the lookup side.
-        if location is not None and allele:
-            loc_chrom, loc_start = location
-            _store_vep_annotation(
-                lookup,
-                key_type="locus_allele",
-                key_value=f"{loc_chrom}:{loc_start}:{allele}",
-                annotation=annotation,
-            )
-        elif uploaded is not None:
-            # No usable Location column: fall back to the Uploaded_variation
-            # position (correct for SNVs, the best available for indels).
-            chrom, start, ref, alt = uploaded
-            fallback_allele = allele or alt
-            if fallback_allele:
-                _store_vep_annotation(
-                    lookup,
-                    key_type="locus_allele",
-                    key_value=f"{chrom}:{start}:{fallback_allele}",
-                    annotation=annotation,
-                )
-
-    if header is None:
-        lookup.close()
-        raise HTTPException(status_code=400, detail="VEP TSV annotation file is missing a header row")
-    lookup.row_count = row_count
-    lookup.provenance_modules = extract_vep_tab_provenance(provenance_header) or None
-    if lookup.conn is not None:
-        lookup.conn.commit()
-    return lookup
-
-
-# mutserve's mtDNA annotation columns, mapped onto the annotation keys the mtDNA
-# workspace reads. Everything not listed here is still carried through verbatim (the
-# annotation is stored as JSON), so haplogroup/selection/NuMT context is not lost.
-# Keys are matched after _normalize_header_key, which drops separators and case.
-_MUTSERVE_ANNOTATION_FIELDS = {
-    _normalize_header_key(column): key
-    for column, key in {
-        "VariantLevel": "variant_level",
-        "Coverage": "coverage",
-        "MeanBaseQuality": "mean_base_quality",
-        "Mutation": "mutation",
-        "Substitution": "substitution",
-        "Maplocus": "gene",
-        "Category": "category",
-        "Phylotree17_haplogroups": "haplogroup",
-        "Phylotree17_clades": "haplogroup_clades",
-        "HaploGrep2_weight": "haplogroup_weight",
-        "AminoAcid": "amino_acid",
-        "NewAminoAcid": "new_amino_acid",
-        "AminoAcid_pos_protein": "amino_acid_position",
-        "MutPred_Score": "mutpred_score",
-        "mtDNA_Selection_Score": "mtdna_selection_score",
-        "OXPHOS_complex": "oxphos_complex",
-        "Helix_vaf_hom": "helix_af",
-        "Helix_vaf_het": "helix_af_het",
-        "Helix_count_hom": "helix_count_hom",
-        "Helix_count_het": "helix_count_het",
-        "NuMTs_dayama": "numts",
-        "LowComplexityRegion": "low_complexity_region",
-    }.items()
-}
-
-# The mutserve TSV's ID column holds the caller's internal sample label (literally
-# "sample"), never a variant identifier. It must never be read as an rsid.
-_MUTSERVE_IGNORED_COLUMNS = frozenset({"id", "filter"})
-
-
-def _mutserve_annotation_row(row: dict[str, str]) -> dict[str, Any]:
-    annotation: dict[str, Any] = {}
-    for column, raw_value in row.items():
-        key = _normalize_header_key(column)
-        if key in _MUTSERVE_IGNORED_COLUMNS:
-            continue
-        value = (raw_value or "").strip()
-        if value in {"", "."}:
-            continue
-        annotation[_MUTSERVE_ANNOTATION_FIELDS.get(key, key)] = value
-    return annotation
-
-
-def parse_mutserve_annotation_lines(lines: Any) -> VepAnnotationLookup:
-    """Index a mutserve mtDNA annotation TSV by ``chrM`` variant id.
-
-    This is a sibling of the VEP-TSV parser rather than a reuse of it: mutserve writes
-    a bare (un-``#``-prefixed) header, has no ``Uploaded_variation``/``Location``
-    columns to key on, and its ``ID`` column holds the caller's sample label, which the
-    VEP parser's ``rsid`` alias list would otherwise store as every variant's rsid. The
-    join key here is built from ``Pos``/``Ref``/``Variant`` against the chrM contig.
-    """
-    lookup = _sqlite_annotation_lookup()
-    header: list[str] | None = None
-    row_count = 0
-    for raw_line in lines:
-        line = raw_line.rstrip("\n\r")
-        if not line or line.startswith("##"):
-            continue
-        values = line.split("\t")
-        if header is None:
-            header = [value.lstrip("#").strip() for value in values]
-            continue
-        row = {key: value for key, value in zip(header, values)}
-        normalized = {_normalize_header_key(key): value for key, value in row.items()}
-        position = _coerce_int(normalized.get("pos"))
-        ref = (normalized.get("ref") or "").strip()
-        alt = (normalized.get("variant") or normalized.get("alt") or "").strip()
-        if position is None or not ref or not alt:
-            continue
-        annotation = _mutserve_annotation_row(row)
-        if not annotation:
-            continue
-        row_count += 1
-        _store_vep_annotation(
-            lookup,
-            key_type="variant_id",
-            key_value=build_small_variant_id("M", position, ref, alt),
-            annotation=annotation,
-        )
-    lookup.row_count = row_count
-    if lookup.conn is not None:
-        lookup.conn.commit()
-    return lookup
-
-
-def parse_mutserve_annotation_path(path) -> VepAnnotationLookup | None:
-    """Parse a mutserve annotation TSV from disk, or None when it holds no rows.
-
-    A header-only file is the normal outcome for a run with nothing to annotate (the
-    mitochondrial SV annotation in this pipeline is routinely empty), so it returns
-    None rather than an empty lookup that would suppress the VCF's own annotations.
-    """
-    if path is None or not path.is_file():
-        return None
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        lookup = parse_mutserve_annotation_lines(handle)
-    if lookup.row_count == 0:
-        lookup.close()
-        return None
-    return lookup
 
 
 def _parse_vep_tsv_annotation_upload(file: UploadFile) -> VepAnnotationLookup:
@@ -726,393 +382,6 @@ async def _fetch_chromosome_sizes(
     }
 
 
-def _haplotype_state_end(
-    state: dict[str, Any],
-    *,
-    next_chrom: str | None,
-    next_start: int | None,
-    chromosome_sizes: dict[str, int],
-) -> int:
-    state_start = int(state["start"])
-    state_last_pos = int(state["last_pos"] or state_start)
-    state_chrom = normalize_chromosome(str(state["chr"]))
-    if next_chrom is not None and normalize_chromosome(next_chrom) == state_chrom:
-        return max(int(next_start or state_start), state_start + 1)
-    chrom_size = chromosome_sizes.get(state_chrom)
-    if chrom_size is not None:
-        return max(chrom_size, state_last_pos + 1)
-    return max(state_last_pos + 1, state_start + 1)
-
-
-def _phased_haplotype_alleles(gt_value: str | None) -> tuple[str, str] | None:
-    if not gt_value or "|" not in gt_value:
-        return None
-    hap1, hap2 = gt_value.split("|", 1)
-    if not hap1 or not hap2 or hap1 == "." or hap2 == ".":
-        return None
-    return hap1, hap2
-
-
-def _new_haplotype_state(
-    *,
-    chrom: str,
-    start: int,
-    hap1: str,
-    hap2: str,
-    ps: int | None,
-) -> dict[str, Any]:
-    return {
-        "start": start,
-        "hap1": hap1,
-        "hap2": hap2,
-        "ps": ps,
-        "chr": chrom,
-        "last_pos": start,
-    }
-
-
-def _empty_haplotype_state() -> dict[str, Any]:
-    return {
-        "start": None,
-        "hap1": None,
-        "hap2": None,
-        "ps": None,
-        "chr": None,
-        "last_pos": None,
-    }
-
-
-def _empty_segregation_side_state() -> dict[str, Any]:
-    return {
-        "chr": None,
-        "hap": None,
-        "pending_hap": None,
-        "pending_start": None,
-        "pending_last": None,
-        "pending_count": 0,
-    }
-
-
-def _clear_segregation_pending(state: dict[str, Any]) -> None:
-    state["pending_hap"] = None
-    state["pending_start"] = None
-    state["pending_last"] = None
-    state["pending_count"] = 0
-
-
-def _observe_segregation_haplotype(
-    state: dict[str, Any],
-    *,
-    chrom: str,
-    start: int,
-    hap: str | None,
-) -> tuple[int, str] | None:
-    if hap not in {"0", "1"}:
-        return None
-    if state["chr"] != chrom:
-        state["chr"] = chrom
-        state["hap"] = hap
-        _clear_segregation_pending(state)
-        return start, hap
-    if state["hap"] is None:
-        state["hap"] = hap
-        _clear_segregation_pending(state)
-        return start, hap
-    if hap == state["hap"]:
-        _clear_segregation_pending(state)
-        return None
-    if state["pending_hap"] == hap:
-        state["pending_count"] = int(state["pending_count"]) + 1
-        state["pending_last"] = start
-    else:
-        state["pending_hap"] = hap
-        state["pending_start"] = start
-        state["pending_last"] = start
-        state["pending_count"] = 1
-
-    pending_start = int(state["pending_start"] or start)
-    pending_last = int(state["pending_last"] or start)
-    if (
-        int(state["pending_count"]) >= SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS
-        and pending_last - pending_start >= SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN
-    ):
-        state["hap"] = hap
-        _clear_segregation_pending(state)
-        return pending_start, hap
-    return None
-
-
-def _confirmed_segregation_haplotype(state: dict[str, Any], chrom: str) -> str:
-    if state["chr"] == chrom and state["hap"] in {"0", "1"}:
-        return str(state["hap"])
-    return "?"
-
-
-def _haplotype_state_matches_block(
-    state: dict[str, Any],
-    *,
-    chrom: str,
-    ps: int | None,
-) -> bool:
-    if state["chr"] != chrom:
-        return False
-    if state["ps"] is not None or ps is not None:
-        return state["ps"] == ps
-    return True
-
-
-def _haplotype_state_matches_segment(
-    state: dict[str, Any],
-    *,
-    chrom: str,
-    hap1: str,
-    hap2: str,
-    ps: int | None,
-) -> bool:
-    return (
-        state["chr"] == chrom
-        and state["hap1"] == hap1
-        and state["hap2"] == hap2
-        and state["ps"] == ps
-    )
-
-
-def _append_haplotype_state_row(
-    rows: list[dict[str, Any]],
-    sample_context: SampleMetadataContext,
-    state: dict[str, Any],
-    *,
-    next_chrom: str | None,
-    next_start: int | None,
-    chromosome_sizes: dict[str, int],
-    metadata_json: str,
-) -> None:
-    if state["start"] is None:
-        return
-    rows.append(
-        _haplotype_row(
-            sample_context,
-            chrom=str(state["chr"]),
-            start=int(state["start"]),
-            end=_haplotype_state_end(
-                state,
-                next_chrom=next_chrom,
-                next_start=next_start,
-                chromosome_sizes=chromosome_sizes,
-            ),
-            hap1=str(state["hap1"]),
-            hap2=str(state["hap2"]),
-            ps=state["ps"],
-            metadata_json=metadata_json,
-        )
-    )
-
-
-def _update_haplotype_state(
-    *,
-    states: dict[str, dict[str, Any]],
-    rows: list[dict[str, Any]],
-    sample_contexts: dict[str, SampleMetadataContext],
-    sample_name: str,
-    chrom: str,
-    start: int,
-    hap1: str,
-    hap2: str,
-    ps: int | None,
-    chromosome_sizes: dict[str, int],
-    metadata_json: str,
-    split_on_haplotype_change: bool,
-) -> None:
-    state = states[sample_name]
-    if state["start"] is None:
-        states[sample_name] = _new_haplotype_state(
-            chrom=chrom,
-            start=start,
-            hap1=hap1,
-            hap2=hap2,
-            ps=ps,
-        )
-        return
-    if split_on_haplotype_change:
-        matches = _haplotype_state_matches_segment(
-            state,
-            chrom=chrom,
-            hap1=hap1,
-            hap2=hap2,
-            ps=ps,
-        )
-    else:
-        matches = _haplotype_state_matches_block(state, chrom=chrom, ps=ps)
-    if matches:
-        state["last_pos"] = start
-        return
-    _append_haplotype_state_row(
-        rows,
-        sample_contexts[sample_name],
-        state,
-        next_chrom=chrom,
-        next_start=start,
-        chromosome_sizes=chromosome_sizes,
-        metadata_json=metadata_json,
-    )
-    states[sample_name] = _new_haplotype_state(
-        chrom=chrom,
-        start=start,
-        hap1=hap1,
-        hap2=hap2,
-        ps=ps,
-    )
-
-
-def _close_haplotype_state(
-    *,
-    states: dict[str, dict[str, Any]],
-    rows: list[dict[str, Any]],
-    sample_contexts: dict[str, SampleMetadataContext],
-    sample_name: str,
-    next_chrom: str | None,
-    next_start: int | None,
-    chromosome_sizes: dict[str, int],
-    metadata_json: str,
-) -> None:
-    state = states[sample_name]
-    _append_haplotype_state_row(
-        rows,
-        sample_contexts[sample_name],
-        state,
-        next_chrom=next_chrom,
-        next_start=next_start,
-        chromosome_sizes=chromosome_sizes,
-        metadata_json=metadata_json,
-    )
-    states[sample_name] = _empty_haplotype_state()
-
-
-def _role_first_parent_names(
-    context: FamilyMetadataContext,
-) -> tuple[str | None, str | None]:
-    """First sample (in ``sample_rows`` order) tagged with the flat ``father`` /
-    ``mother`` role. Used only as a fallback when the pedigree cannot resolve the
-    index couple."""
-    father_name: str | None = None
-    mother_name: str | None = None
-    for row in context.sample_rows:
-        role = str(row.get("role") or "").strip().lower()
-        sample_name = str(row.get("sample_id") or "")
-        if role == "father" and sample_name:
-            father_name = father_name or sample_name
-        elif role == "mother" and sample_name:
-            mother_name = mother_name or sample_name
-    return father_name, mother_name
-
-
-def _parent_sample_names(context: FamilyMetadataContext) -> tuple[str | None, str | None]:
-    """Resolve the *index couple* — the father/mother who co-parent the index
-    children — so the marker overlay and the upload block builder agree with the
-    pedigree-aware lineage path (``identify_core``).
-
-    The flat role model reuses ``father`` / ``mother`` for *any* parent (a paternal
-    grandfather and the index father can both be ``role = "father"``), so the naive
-    role-first match can pick the wrong individual. We instead derive the index
-    parent(s) from the pedigree graph: ``identify_core`` selects the parents of the
-    embryos. This returns ``None`` for the donor side of a SINGLE-PARENT family — we
-    must preserve that ``None`` (not back-fill it with a role-first match, which would
-    grab a grandparent). We fall back to the role-first match only when no index
-    parent can be identified from the pedigree at all (missing relationships)."""
-    if context.relationship_rows:
-        pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
-        core = identify_core(pedigree)
-        if core.children and (core.father or core.mother):
-            return core.father, core.mother
-    return _role_first_parent_names(context)
-
-
-def _transmitted_parent_haplotype(
-    parent_alleles: tuple[str, str] | None,
-    other_parent_alleles: tuple[str, str] | None,
-    child_alleles: tuple[str, str] | None,
-) -> str | None:
-    if parent_alleles is None or other_parent_alleles is None or child_alleles is None:
-        return None
-    child_state = tuple(sorted(child_alleles))
-    possible: set[int] = set()
-    for parent_index, parent_allele in enumerate(parent_alleles):
-        for other_allele in other_parent_alleles:
-            if tuple(sorted((parent_allele, other_allele))) == child_state:
-                possible.add(parent_index)
-    if len(possible) != 1:
-        return None
-    return str(next(iter(possible)))
-
-
-def _flip_parent_haplotype(value: str, *, flip: bool) -> str:
-    if not flip:
-        return value
-    if value == "0":
-        return "1"
-    if value == "1":
-        return "0"
-    return value
-
-
-def _orient_haplotype_rows_by_affected_child(
-    rows: list[dict[str, Any]],
-    *,
-    sample_contexts: dict[str, SampleMetadataContext],
-    father_name: str,
-    mother_name: str,
-    affected_parent_counts: dict[str, dict[str, int]],
-) -> None:
-    father_counts = affected_parent_counts["father"]
-    mother_counts = affected_parent_counts["mother"]
-    father_flip = father_counts.get("0", 0) > father_counts.get("1", 0)
-    mother_flip = mother_counts.get("0", 0) > mother_counts.get("1", 0)
-    if not father_flip and not mother_flip:
-        return
-    sample_name_by_uuid = {
-        sample_context.sample_uuid: sample_name
-        for sample_name, sample_context in sample_contexts.items()
-    }
-    for row in rows:
-        sample_name = sample_name_by_uuid.get(str(row.get("sample_id")))
-        if sample_name == father_name:
-            row["hap1"] = _flip_parent_haplotype(str(row["hap1"]), flip=father_flip)
-            row["hap2"] = _flip_parent_haplotype(str(row["hap2"]), flip=father_flip)
-        elif sample_name == mother_name:
-            row["hap1"] = _flip_parent_haplotype(str(row["hap1"]), flip=mother_flip)
-            row["hap2"] = _flip_parent_haplotype(str(row["hap2"]), flip=mother_flip)
-        else:
-            row["hap1"] = _flip_parent_haplotype(str(row["hap1"]), flip=father_flip)
-            row["hap2"] = _flip_parent_haplotype(str(row["hap2"]), flip=mother_flip)
-
-
-def _haplotype_row(
-    sample_context: SampleMetadataContext,
-    *,
-    chrom: str,
-    start: int,
-    end: int,
-    hap1: str,
-    hap2: str,
-    ps: int | None,
-    metadata_json: str,
-) -> dict[str, Any]:
-    return {
-        "sample_id": sample_context.sample_uuid,
-        "family_id": sample_context.family_uuid,
-        "assembly_id": sample_context.assembly_id or "",
-        "track_type": "haplotype",
-        "source": "glimpse2",
-        "chr": normalize_chromosome(chrom),
-        "start": start,
-        "end": end,
-        "hap1": hap1,
-        "hap2": hap2,
-        "ps": ps,
-        "metadata_json": metadata_json,
-    }
-
-
 async def _insert_haplotype_rows(
     session: AsyncSession,
     *,
@@ -1251,26 +520,18 @@ async def upload_family_small_variant_file(
         inserted = 0
         skipped_malformed = 0
         last_reported = 0
-        haplotype_rows: list[dict[str, Any]] = []
-        hap_prev: dict[str, dict[str, Any]] = {}
-        segregation_side_prev: dict[str, dict[str, dict[str, Any]]] = {}
         variant_batch: list[SmallVariantRecord] = []
         metadata_json = _upload_metadata(resolved_format, file)
-        father_name, mother_name = _parent_sample_names(context)
-        use_segregation_haplotypes = (
-            resolved_format == "glimpse2"
-            and father_name in sample_contexts
-            and mother_name in sample_contexts
-        )
-        affected_sample_names = set(context.affected_sample_names)
-        affected_parent_counts = {
-            "father": {"0": 0, "1": 0},
-            "mother": {"0": 0, "1": 0},
-        }
-        chromosome_sizes = (
-            await _fetch_chromosome_sizes(session, context.assembly_id)
+        # Haplotype blocks come only from the imputed glimpse2 genotypes.
+        haplotype_blocks = (
+            HaplotypeBlockBuilder(
+                context=context,
+                sample_contexts=sample_contexts,
+                chromosome_sizes=await _fetch_chromosome_sizes(session, context.assembly_id),
+                metadata_json=metadata_json,
+            )
             if resolved_format == "glimpse2"
-            else {}
+            else None
         )
 
         async def flush_variant_batch() -> None:
@@ -1314,11 +575,8 @@ async def upload_family_small_variant_file(
                 for name in unique_names:
                     if name not in sample_contexts:
                         raise HTTPException(status_code=400, detail=f"Sample '{name}' not found in family")
-                    hap_prev[name] = _empty_haplotype_state()
-                    segregation_side_prev[name] = {
-                        "father": _empty_segregation_side_state(),
-                        "mother": _empty_segregation_side_state(),
-                    }
+                    if haplotype_blocks is not None:
+                        haplotype_blocks.add_sample(name)
                 continue
             if not line or line.startswith("#"):
                 continue
@@ -1381,157 +639,14 @@ async def upload_family_small_variant_file(
                 )
                 calls.append(call)
                 calls_by_sample[sample_name] = call
-                if resolved_format == "glimpse2" and not use_segregation_haplotypes:
-                    state = hap_prev[sample_name]
-                    ps_val = call.ps
-                    phased_alleles = _phased_haplotype_alleles(gt_val)
-                    if phased_alleles is not None:
-                        hap1, hap2 = phased_alleles
-                        _update_haplotype_state(
-                            states=hap_prev,
-                            rows=haplotype_rows,
-                            sample_contexts=sample_contexts,
-                            sample_name=sample_name,
-                            chrom=chrom,
-                            start=start,
-                            hap1=hap1,
-                            hap2=hap2,
-                            ps=ps_val,
-                            chromosome_sizes=chromosome_sizes,
-                            metadata_json=metadata_json,
-                            split_on_haplotype_change=False,
-                        )
-                    elif state["start"] is not None:
-                        _close_haplotype_state(
-                            states=hap_prev,
-                            rows=haplotype_rows,
-                            sample_contexts=sample_contexts,
-                            sample_name=sample_name,
-                            next_chrom=chrom,
-                            next_start=start,
-                            chromosome_sizes=chromosome_sizes,
-                            metadata_json=metadata_json,
-                        )
-
-            if use_segregation_haplotypes and father_name and mother_name:
-                father_call = calls_by_sample.get(father_name)
-                mother_call = calls_by_sample.get(mother_name)
-                father_alleles = _phased_haplotype_alleles(father_call.gt if father_call else None)
-                mother_alleles = _phased_haplotype_alleles(mother_call.gt if mother_call else None)
-
-                if father_call is not None and father_alleles is not None:
-                    _update_haplotype_state(
-                        states=hap_prev,
-                        rows=haplotype_rows,
-                        sample_contexts=sample_contexts,
-                        sample_name=father_name,
-                        chrom=chrom,
-                        start=start,
-                        hap1="0",
-                        hap2="1",
-                        ps=father_call.ps,
-                        chromosome_sizes=chromosome_sizes,
-                        metadata_json=metadata_json,
-                        split_on_haplotype_change=True,
-                    )
-                if mother_call is not None and mother_alleles is not None:
-                    _update_haplotype_state(
-                        states=hap_prev,
-                        rows=haplotype_rows,
-                        sample_contexts=sample_contexts,
-                        sample_name=mother_name,
-                        chrom=chrom,
-                        start=start,
-                        hap1="0",
-                        hap2="1",
-                        ps=mother_call.ps,
-                        chromosome_sizes=chromosome_sizes,
-                        metadata_json=metadata_json,
-                        split_on_haplotype_change=True,
-                    )
-
-                for sample_name in sample_names:
-                    if sample_name in {father_name, mother_name}:
-                        continue
-                    child_call = calls_by_sample.get(sample_name)
-                    child_alleles = _phased_haplotype_alleles(child_call.gt if child_call else None)
-                    paternal_hap = _transmitted_parent_haplotype(
-                        father_alleles,
-                        mother_alleles,
-                        child_alleles,
-                    )
-                    maternal_hap = _transmitted_parent_haplotype(
-                        mother_alleles,
-                        father_alleles,
-                        child_alleles,
-                    )
-                    if paternal_hap is None and maternal_hap is None:
-                        continue
-                    if sample_name in affected_sample_names:
-                        if paternal_hap is not None:
-                            affected_parent_counts["father"][paternal_hap] += 1
-                        if maternal_hap is not None:
-                            affected_parent_counts["mother"][maternal_hap] += 1
-                    side_states = segregation_side_prev[sample_name]
-                    changes: dict[int, dict[str, str]] = {}
-                    paternal_change = _observe_segregation_haplotype(
-                        side_states["father"],
-                        chrom=chrom,
-                        start=start,
-                        hap=paternal_hap,
-                    )
-                    maternal_change = _observe_segregation_haplotype(
-                        side_states["mother"],
-                        chrom=chrom,
-                        start=start,
-                        hap=maternal_hap,
-                    )
-                    if paternal_change is not None:
-                        switch_start, confirmed_hap = paternal_change
-                        changes.setdefault(switch_start, {})["hap1"] = confirmed_hap
-                    if maternal_change is not None:
-                        switch_start, confirmed_hap = maternal_change
-                        changes.setdefault(switch_start, {})["hap2"] = confirmed_hap
-                    for switch_start, change in sorted(changes.items()):
-                        state = hap_prev[sample_name]
-                        if state["chr"] == chrom and state["start"] is not None:
-                            hap1 = str(state["hap1"])
-                            hap2 = str(state["hap2"])
-                        else:
-                            hap1 = _confirmed_segregation_haplotype(side_states["father"], chrom)
-                            hap2 = _confirmed_segregation_haplotype(side_states["mother"], chrom)
-                        hap1 = change.get("hap1", hap1)
-                        hap2 = change.get("hap2", hap2)
-                        if (
-                            state["chr"] == chrom
-                            and state["start"] is not None
-                            and switch_start <= int(state["start"])
-                        ):
-                            state["hap1"] = hap1
-                            state["hap2"] = hap2
-                            state["ps"] = child_call.ps if child_call else None
-                            continue
-                        _update_haplotype_state(
-                            states=hap_prev,
-                            rows=haplotype_rows,
-                            sample_contexts=sample_contexts,
-                            sample_name=sample_name,
-                            chrom=chrom,
-                            start=switch_start,
-                            hap1=hap1,
-                            hap2=hap2,
-                            ps=child_call.ps if child_call else None,
-                            chromosome_sizes=chromosome_sizes,
-                            metadata_json=metadata_json,
-                            split_on_haplotype_change=True,
-                        )
-                    state = hap_prev[sample_name]
-                    if (
-                        state["chr"] == chrom
-                        and state["start"] is not None
-                        and start >= int(state["start"])
-                    ):
-                        state["last_pos"] = start
+            if haplotype_blocks is not None:
+                haplotype_blocks.observe(
+                    chrom=chrom,
+                    start=start,
+                    sample_names=sample_names,
+                    calls=calls,
+                    calls_by_sample=calls_by_sample,
+                )
 
             variant_batch.append(
                 SmallVariantRecord(
@@ -1570,27 +685,7 @@ async def upload_family_small_variant_file(
             context.family_uuid,
         )
 
-        if resolved_format == "glimpse2":
-            for sample_name, state in hap_prev.items():
-                if state["start"] is None:
-                    continue
-                _append_haplotype_state_row(
-                    haplotype_rows,
-                    sample_contexts[sample_name],
-                    state,
-                    next_chrom=None,
-                    next_start=None,
-                    chromosome_sizes=chromosome_sizes,
-                    metadata_json=metadata_json,
-                )
-            if use_segregation_haplotypes and father_name and mother_name:
-                _orient_haplotype_rows_by_affected_child(
-                    haplotype_rows,
-                    sample_contexts=sample_contexts,
-                    father_name=father_name,
-                    mother_name=mother_name,
-                    affected_parent_counts=affected_parent_counts,
-                )
+        haplotype_rows = haplotype_blocks.finish() if haplotype_blocks is not None else []
 
         await _insert_haplotype_rows(
             session,

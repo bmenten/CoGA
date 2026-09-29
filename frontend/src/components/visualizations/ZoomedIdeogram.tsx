@@ -6,6 +6,7 @@ import { getStainColor } from "../../lib/stainColors";
 import { getAcenDirection, getBandGradientStops, niceTickInterval } from "../../lib/ideogram";
 import VizTooltip from "./VizTooltip";
 import VizErrorOverlay from "./VizErrorOverlay";
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from "./trackRegion";
 import { apiPath } from '../../lib/apiPath';
 
 interface IdeogramBand {
@@ -33,9 +34,16 @@ interface Props {
 const AXIS_HEIGHT = 20;
 const BAND_STROKE = 0.5;
 
-const formatBp = (bp: number): string => {
-  if (bp >= 1_000_000) return `${(bp / 1_000_000).toFixed(2)} Mb`;
-  if (bp >= 1_000) return `${(bp / 1_000).toFixed(2)} kb`;
+// As many decimals as the tick spacing needs, and at least two: at gene-level zoom the
+// ticks are hundreds of bp apart, and two decimals of a Mb made most of them read the
+// same, each up to 5 kb off its position (#526).
+const formatBp = (bp: number, tickInterval: number): string => {
+  const scaled = (unit: number, suffix: string) => {
+    const decimals = Math.max(2, Math.ceil(-Math.log10(tickInterval / unit)));
+    return `${(bp / unit).toFixed(Math.min(decimals, 6))} ${suffix}`;
+  };
+  if (bp >= 1_000_000) return scaled(1_000_000, "Mb");
+  if (bp >= 1_000) return scaled(1_000, "kb");
   return `${bp} bp`;
 };
 
@@ -62,17 +70,29 @@ const ZoomedIdeogram: React.FC<Props> = ({
     name: string;
   } | null>(null);
 
+  // The surface's name for a screen reader (#529): the cytobands in the region, in ISCN
+  // form (13q13.1) like the band tooltip. A failure is never "none" (#510).
+  const chromName = chrom.replace(/^chr/i, "");
+  const bandsOn = `Cytobands on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
+
   if (isError) {
     return (
       <div className="relative" style={{ width, height }}>
-        <svg width={width} height={height} />
+        <svg width={width} height={height} role="img" aria-label={`${bandsOn}: failed to load`} />
         <VizErrorOverlay what="the chromosome ideogram" onRetry={() => void refetch()} />
       </div>
     );
   }
 
-  if (!data || regionEnd <= regionStart) {
-    return <svg width={width} height={height} />;
+  if (!data || !hasRegionInView(regionStart, regionEnd)) {
+    return (
+      <svg
+        width={width}
+        height={height}
+        role="img"
+        aria-label={`${bandsOn}: ${hasRegionInView(regionStart, regionEnd) ? "loading" : NO_REGION_IN_VIEW}`}
+      />
+    );
   }
 
   const bandHoverHandlers = (band: IdeogramBand) => ({
@@ -87,6 +107,10 @@ const ZoomedIdeogram: React.FC<Props> = ({
   const bands = data.bands.filter(
     (b) => b.end > regionStart && b.start < regionEnd
   );
+  const bandNames = bands.slice(0, 3).map((band) => `${chromName}${band.name}`).join(", ");
+  const ariaLabel = bands.length
+    ? `${bandsOn}: ${bands.length.toLocaleString()} (${bandNames}${bands.length > 3 ? ", …" : ""})`
+    : `${bandsOn}: none`;
 
   const tickInterval = niceTickInterval(regionLength, width);
   const tickValues: number[] = [regionStart];
@@ -119,7 +143,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
 
   return (
     <>
-    <svg width={width} height={height}>
+    <svg width={width} height={height} role="img" aria-label={ariaLabel}>
       <defs>{bandGradients}</defs>
       {bands.map((band, i) => {
         const start = Math.max(band.start, regionStart);
@@ -224,7 +248,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
               fontSize={10}
               textAnchor="middle"
             >
-              {formatBp(t)}
+              {formatBp(t, tickInterval)}
             </text>
           </g>
         );

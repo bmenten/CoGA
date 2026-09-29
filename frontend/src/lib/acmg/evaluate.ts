@@ -32,6 +32,9 @@ export interface AcmgVariantInput {
   revel?: number;
   spliceai_max?: number;
   annotation_extra?: Record<string, string | number | boolean | null> | null;
+  // The locus, for the sex-aware de novo rule (#621).
+  chr?: string;
+  hemizygous_in_males?: boolean;
 }
 
 // ---- Thresholds (named so they are easy to audit/tune) ----
@@ -190,7 +193,15 @@ export function evaluateAcmg(
     const hc = variant.lof === 'HC';
     const haplo = (gene?.clingenDosageHaploinsufficiency ?? '').toLowerCase();
     const lofMechanism = haplo.includes('sufficient evidence');
-    if (lofMechanism) {
+    if (gene?.unavailable) {
+      // Not "unconfirmed": whether the gene has a LOF mechanism was never looked up (#609).
+      add(
+        'PVS1',
+        'strong',
+        `${effect} predicted null${hc ? ' (LOFTEE high-confidence)' : ''}; the gene profile could not be loaded, so its LOF mechanism (ClinGen haploinsufficiency) is not assessed — review before applying.`,
+        'consider',
+      );
+    } else if (lofMechanism) {
       add(
         'PVS1',
         hc ? 'very_strong' : 'strong',
@@ -250,7 +261,13 @@ export function evaluateAcmg(
     add(
       'BS2',
       recessive ? 'strong' : 'supporting',
-      `${variant.gnomad_hom_count} homozygote(s) in gnomAD${recessive ? ' for a recessive-associated gene' : ' (confirm inheritance mode)'}.`,
+      `${variant.gnomad_hom_count} homozygote(s) in gnomAD${
+        recessive
+          ? ' for a recessive-associated gene'
+          : gene?.unavailable
+            ? ' (the gene profile could not be loaded: confirm inheritance mode)'
+            : ' (confirm inheritance mode)'
+      }.`,
       recessive ? 'applies' : 'consider',
     );
   } else {
@@ -289,7 +306,7 @@ export function evaluateAcmg(
   pp4Suggestion(gene, phenotype).forEach((suggestion) => out.push(suggestion));
 
   // ---- Trio / segregation: de novo (PS2/PM6), cosegregation (PP1/BS4) ----
-  evaluateFamily(family, add, notApplicable);
+  evaluateFamily(family, add, notApplicable, hemizygousChromosome(variant));
 
   // ---- Exclude criteria the molecular consequence rules out ----
   const klass = molecularClass(effect);
@@ -300,6 +317,17 @@ export function evaluateAcmg(
 
   return out;
 }
+
+// 'X' or 'Y' where a male carries one copy (the backend knows the PARs), else null.
+function hemizygousChromosome(variant: AcmgVariantInput): 'X' | 'Y' | null {
+  if (!variant.hemizygous_in_males) return null;
+  const chrom = (variant.chr ?? '').replace(/^chr/i, '').toUpperCase();
+  if (chrom === 'X' || chrom === '23') return 'X';
+  if (chrom === 'Y' || chrom === '24') return 'Y';
+  return null;
+}
+
+const isMale = (sex?: string) => ['m', 'male', '1'].includes((sex ?? '').trim().toLowerCase());
 
 type AddFn = (
   code: AcmgCriterionCode,
@@ -312,6 +340,7 @@ function evaluateFamily(
   family: AcmgFamilyContext | undefined,
   add: AddFn,
   notApplicable: (code: AcmgCriterionCode, evidence: string) => void,
+  hemizygousOn: 'X' | 'Y' | null,
 ): void {
   const members = family?.members ?? [];
   const byRole = (role: string) =>
@@ -325,7 +354,40 @@ function evaluateFamily(
   const ma = mother ? altAlleleCount(mother.gt) : null;
 
   // ---- De novo (PS2 / PM6) ----
-  if (probandCarries && fa != null && ma != null) {
+  if (probandCarries && hemizygousOn && isMale(proband?.sex)) {
+    // A son is hemizygous here (#621): his X comes from his mother and his Y from his father,
+    // so that parent decides. The other parent need not be genotyped, but must not carry
+    // the ALT: an ALT in both males points to an artifact. Mirrors the backend's de novo
+    // segregation mode (_record_matches_de_novo).
+    const fromMother = hemizygousOn === 'X';
+    const transmitting = fromMother ? mother : father;
+    const other = fromMother ? father : mother;
+    const transmittingName = fromMother ? 'mother' : 'father';
+    const otherName = fromMother ? 'father' : 'mother';
+    const passes = `who passes a son his ${hemizygousOn}`;
+    const ta = transmitting ? altAlleleCount(transmitting.gt) : null;
+    const oa = other ? altAlleleCount(other.gt) : null;
+    if (ta == null) {
+      const missing = `The ${transmittingName}'s genotype, ${passes}, is missing — de novo cannot be assessed.`;
+      notApplicable('PS2', missing);
+      notApplicable('PM6', missing);
+    } else if (ta > 0) {
+      const inherited = `Inherited from the ${transmittingName}, ${passes} — not de novo.`;
+      notApplicable('PS2', inherited);
+      notApplicable('PM6', inherited);
+    } else if (oa != null && oa > 0) {
+      const artifact = `Also called in the ${otherName}, who does not pass a son his ${hemizygousOn}: likely an artifact, not called de novo.`;
+      notApplicable('PS2', artifact);
+      notApplicable('PM6', artifact);
+    } else {
+      add(
+        'PM6',
+        'moderate',
+        `Absent in the ${transmittingName}, ${passes} (de novo) — parentage not molecularly confirmed (use PS2 if confirmed).`,
+        'applies',
+      );
+    }
+  } else if (probandCarries && fa != null && ma != null) {
     if (fa === 0 && ma === 0) {
       add(
         'PM6',
@@ -369,6 +431,27 @@ function evaluateFamily(
   }
 }
 
+/**
+ * PP4 when the lookup it needs failed: surfaced for review, never auto-applied, and never
+ * read as "no phenotype match" (#609).
+ */
+export function pp4NotAssessed(
+  gene: AcmgGeneContext | undefined,
+  phenotype: AcmgPhenotypeContext | undefined,
+): AcmgSuggestion | null {
+  const missing = [
+    gene?.unavailable ? "the gene's HPO associations" : null,
+    phenotype?.probandHpoUnavailable ? "the family's HPO terms" : null,
+  ].filter(Boolean);
+  if (!missing.length) return null;
+  return {
+    code: 'PP4',
+    strength: 'supporting',
+    evidence: `Not assessed: ${missing.join(' and ')} could not be loaded. Review the phenotype match by hand.`,
+    disposition: 'consider',
+  };
+}
+
 // PP4: phenotype specific for the gene. Scales strength from the Monarch
 // gene↔proband phenotype score when present, otherwise falls back to a binary
 // HPO-ID overlap at Supporting. Returns at most one suggestion.
@@ -380,6 +463,9 @@ function pp4Suggestion(
   const geneHpo = new Set(gene?.geneHpoIds ?? []);
   const overlap = probandHpo.filter((id) => geneHpo.has(id));
   const score = phenotype?.phenotypeScore;
+  // Without a usable score the overlap is all there is, and it needs both lookups.
+  const notAssessed = score != null && score >= PP4_SUPPORTING_SCORE ? null : pp4NotAssessed(gene, phenotype);
+  if (notAssessed) return [notAssessed];
 
   const matchedLabels = (phenotype?.phenotypeMatches ?? [])
     .map((m) => m.label || m.hpo_id)

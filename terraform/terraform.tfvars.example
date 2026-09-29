@@ -26,3 +26,22 @@ clickhouse_data_disk_gb = 200
 # Optional Azure AD / Entra institutional login.
 azure_ad_tenant_id = ""
 azure_ad_client_id = ""
+
+# ---- Go-live hardening (each off by default; switch on as a change-controlled deploy) ----
+# In CI these belong in the gcp-deploy environment's COGA_TFVARS variable.
+
+# Only institutional networks reach the app (Cloud Armor denies every other source).
+# Documentation ranges shown; use the UGent / UZ Gent / VPN egress ranges IT confirms.
+# allowed_ingress_cidrs = ["192.0.2.0/24", "198.51.100.0/24"]
+
+# Block OWASP CRS matches instead of only logging them, once the WAF logs show no false
+# positives against normal use (docs/deployment-gcp.md, section 12.7).
+# cloud_armor_waf_enforce = true
+
+# Run the API as the restricted role coga_app (docs/db-runtime-role-runbook.md, "Google
+# Cloud"): needs a version in coga-postgres-app-password and the coga-db-migrate account.
+# db_runtime_role = "coga_app"
+
+# ClickHouse VM may reach only Google APIs (egress.tf). Needs the image in Artifact Registry.
+# clickhouse_restrict_egress = true
+# clickhouse_image           = "europe-west1-docker.pkg.dev/my-registry-project/coga/clickhouse-server:26.8@sha256:<digest>"

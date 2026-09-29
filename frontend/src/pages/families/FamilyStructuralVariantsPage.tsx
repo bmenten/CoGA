@@ -8,12 +8,14 @@ import FamilyPageHeader from './FamilyPageHeader';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import LoadingBar from '../../components/LoadingBar';
+import QueryFailure from '../../components/QueryFailure';
 import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import StructuralVariantFilterForm from './StructuralVariantFilterForm';
 import StructuralVariantResults from './StructuralVariantResults';
 import {
   buildStructuralPresetPayload,
+  structuralLocationProblem,
   useStructuralVariantSearchState,
   type StructuralGenePanel,
   type StructuralSummary,
@@ -91,7 +93,13 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     },
   });
 
-  const { data: panels = [], isLoading: panelsLoading } = useQuery<StructuralGenePanel[]>({
+  const {
+    data: panels = [],
+    isLoading: panelsLoading,
+    isError: panelsFailed,
+    error: panelsError,
+    refetch: refetchPanels,
+  } = useQuery<StructuralGenePanel[]>({
     queryKey: ['panels'],
     queryFn: async () => {
       const res = await api.get('/panels');
@@ -110,6 +118,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     applyPreset,
     applySavedPreset,
     draftFilters,
+    draftLocationProblem,
     filters,
     goToPage,
     handleGtToggle,
@@ -146,12 +155,14 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     assemblyVersion,
     projectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(
     familyData?.projects as string[] | undefined,
     preferredProjectId,
   );
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion },
+    { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
     familyData?.projects?.length && referenceLoading
       ? 'Loading linked reference...'
       : 'Reference not linked',
@@ -179,9 +190,13 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     },
   });
 
-  const { data, isLoading, isFetching } = useQuery<StructuralVariantPage>({
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery<StructuralVariantPage>({
     queryKey: ['family', familyId, 'structural-variants', requestQueryString],
     queryFn: async () => {
+      // A location from the URL that reads as neither a gene nor a region fails the
+      // search: sent on, it was searched as a gene name and read as no SVs (#604).
+      const locationProblem = structuralLocationProblem(filters);
+      if (locationProblem) throw new Error(locationProblem);
       const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(requestQueryString)}`);
       return res.data as StructuralVariantPage;
     },
@@ -190,7 +205,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     placeholderData: keepPreviousData,
   });
 
-  const { data: allData } = useQuery<{ total: number }>({
+  const { data: allData, isError: allDataFailed } = useQuery<{ total: number }>({
     queryKey: ['family', familyId, 'structural-variants', 'total'],
     queryFn: async () => {
       const params = new URLSearchParams({ page: '1', page_size: '1' });
@@ -200,7 +215,8 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   });
 
   const filteredTotal = data?.total ?? 0;
-  const overallTotal = allData?.total ?? filteredTotal;
+  // A failed total is unknown, not the filtered count (#606).
+  const overallTotal = allDataFailed ? null : (allData?.total ?? filteredTotal);
   const totalPages = Math.max(1, Math.ceil(filteredTotal / 100));
 
   const savePresetMutation = useMutation({
@@ -301,7 +317,12 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   return (
     <div className="page-shell analysis-shell">
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Structural Variants"
         familyId={familyId}
         family={familyData}
@@ -347,6 +368,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           applyPreset={applyPreset}
           applySavedPreset={applySavedPreset}
           draftFilters={draftFilters}
+          draftLocationProblem={draftLocationProblem}
           feedback={workspaceFeedback}
           handleGtToggle={handleGtToggle}
           handleReset={handleReset}
@@ -371,13 +393,23 @@ const FamilyStructuralVariantsPage: React.FC = () => {
       >
         <p className="catalog-card-copy">{referenceLabel}</p>
         <div className="variant-summary-row">
-          <span className="badge-chip">Showing {filteredTotal}</span>
-          <span className="badge-chip">All variants {overallTotal}</span>
+          {/* A failed search counts nothing: its count is unknown, not 0 (#606). */}
+          <span className="badge-chip">Showing {isError ? '—' : filteredTotal}</span>
+          <span className="badge-chip">All variants {overallTotal ?? '—'}</span>
           <span className="badge-chip">Active filters {activeFilterCount}</span>
           <span className="badge-chip">Tag library {tags.length}</span>
           {isFetching ? <span className="badge-chip">Updating…</span> : null}
         </div>
       </FamilyPageHeader>
+
+      {panelsFailed ? (
+        <QueryFailure
+          what="the gene panel list"
+          error={panelsError}
+          onRetry={() => void refetchPanels()}
+          consequence="Panels cannot be chosen, and the default Mendeliome scope is not applied."
+        />
+      ) : null}
 
       <div className="variant-results-region">
         {isFetching ? <LoadingBar label="Loading variants" /> : null}
@@ -403,6 +435,11 @@ const FamilyStructuralVariantsPage: React.FC = () => {
             </div>
           </>
         ) : null}
+        {/* A failed search is said as such: its variants used to render as an empty
+            table, a family without SVs (#606). */}
+        {isError ? (
+          <QueryFailure what="the structural variants" error={error} onRetry={() => void refetch()} />
+        ) : (
         <div className={isFetching ? 'variant-results-fetching' : undefined} aria-busy={isFetching}>
       <StructuralVariantResults
         familyId={familyId}
@@ -447,6 +484,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         }}
       />
         </div>
+        )}
       </div>
       {familyId ? <AnnotationProvenanceSummary familyId={familyId} modality="sv" /> : null}
     </div>

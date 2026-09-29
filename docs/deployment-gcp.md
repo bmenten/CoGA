@@ -191,6 +191,11 @@ exist:
 - **Workload Identity Federation** + the CI service accounts (only needed for the
   GitHub Actions path).
 - Control over **DNS** for your domain (e.g. `coga.cmgg.be`).
+- The **runtime service accounts, their roles and the project APIs**, from the central
+  infra repo ([terraform/main-repo-reference/](../terraform/main-repo-reference/coga-prerequisites.tf.example)).
+  The go-live switches in 12.8 and 12.10 need two more things from it: the
+  `coga-db-migrate` account, and the Cloud DNS API with Artifact Registry read access for
+  the ClickHouse VM.
 
 ---
 
@@ -284,6 +289,8 @@ openssl rand -base64 48 | tr -d '\n' | gcloud secrets versions add coga-integrit
 printf '%s' 'CHOOSE-A-STRONG-ADMIN-PASSWORD'   | gcloud secrets versions add coga-admin-password   --data-file=-
 openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-postgres-password      --data-file=-
 openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-clickhouse-password    --data-file=-
+# Only before switching to the restricted database role (12.8); printable ASCII.
+openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-postgres-app-password  --data-file=-
 ```
 
 Notes:
@@ -454,7 +461,10 @@ And these **variables**:
 | `COGA_DEPLOY_TRIGGER` | repository | `main` (default) or `release`: which event deploys (#520) |
 | `COGA_TFVARS` | `gcp-deploy` environment | Every other Terraform variable, as HCL (for example `storage_backend = "gcs"`, `app_domain = "..."`). CI writes it to `ci.auto.tfvars` before planning, so a value set once is not reverted by the next deploy; the five values CI passes with `-var` still win. No secrets here: they live in Secret Manager. |
 
-Once configured, merging to `main` deploys automatically.
+Once configured, merging to `main` deploys automatically, after approval: the deploy job
+runs in the `gcp-deploy` environment and **refuses to run until that environment has at
+least one required reviewer** (Settings → Environments → `gcp-deploy` → Required
+reviewers). An infrastructure apply therefore never runs without a person approving it.
 
 ---
 
@@ -602,6 +612,51 @@ terraform apply -var="cloud_armor_waf_enforce=true"   # plus your other -vars
 
 Tune `cloud_armor_rate_limit_per_minute` to your real peak interactive load.
 
+### 12.8 Switch the API to the restricted database role
+
+Every deployment starts in owner mode: the API connects as the table owner and applies
+the schema on startup. At go-live, switch it to the restricted role `coga_app`, which
+cannot run DDL or change the append-only audit tables (TF-09b REQ-TRACE-008). This is a
+change-controlled deployment; the full procedure, verification and rollback are in
+[db-runtime-role-runbook.md](db-runtime-role-runbook.md), "Google Cloud". In short:
+
+1. Have the central infra repo create the `coga-db-migrate` service account, with
+   `roles/cloudsql.client`, and let the deploy account act as it.
+2. Add a version to `coga-postgres-app-password` (5.5).
+3. Set `db_runtime_role = "coga_app"` (in CI: the `COGA_TFVARS` environment variable) and
+   deploy.
+
+Terraform then runs the `coga-db-migrate` Cloud Run job as the owner. It applies the
+schema, seeds the admin user and enables `coga_app`'s login, and only then does the
+backend roll out, connecting as `coga_app`. The job runs again with every new backend
+image. The API's service account loses access to the owner's password.
+
+### 12.9 Restrict the app to institutional networks
+
+Set `allowed_ingress_cidrs` to the UGent / UZ Gent public ranges and the VPN egress
+ranges IT confirms. Cloud Armor then denies every other source at the edge, before rate
+limiting, the WAF or application authentication. Test it first from inside and outside
+those networks; an empty list (the default) leaves the app reachable from anywhere.
+
+### 12.10 ClickHouse egress lockdown
+
+By default the ClickHouse VM reaches the internet through Cloud NAT, to pull its Docker
+Hub image. With `clickhouse_restrict_egress = true` it may only reach Google APIs
+(Secret Manager, Logging, Artifact Registry) over `private.googleapis.com`, and every
+other outbound connection is denied. Before switching it on:
+
+1. Copy the ClickHouse image into Artifact Registry with its digest unchanged (for
+   example `gcrane cp`, which copies the manifest as it is), and set `clickhouse_image` to
+   it. The plan refuses a Docker Hub image while the lockdown is on.
+2. Grant the VM's service account `roles/artifactregistry.reader` on that repository, and
+   enable the Cloud DNS API (central infra repo).
+3. Deploy, then reset the VM so its startup script pulls the image the new way:
+   `gcloud compute instances reset coga-clickhouse-vm --zone "$REGION-b"`. Watch the serial
+   console (15) until ClickHouse is up and the app's health check is green.
+
+With the lockdown on, Container-Optimized OS can no longer update itself in place. Patch
+it by recreating the VM on a current image; the data disk is separate and is kept.
+
 ---
 
 ## 13. Security & compliance
@@ -616,14 +671,16 @@ This deployment closes the deployment-level security items tracked in
 | **S-2** TLS to datastores | Postgres via the Cloud SQL Connector (mTLS, verify-full grade); ClickHouse over HTTPS:8443 with a private CA the backend verifies |
 | **S-3** secrets management | Secret Manager; values injected at runtime, not baked into images |
 | **S-4** byte-level PHI audit | GCS Data Access audit logs (set in the central infra repo) |
-| **S-8** network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege service accounts, NAT/PGA, optional edge IP allowlist |
+| **S-8** network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege service accounts, NAT/PGA, optional edge IP allowlist (12.9) and ClickHouse egress lockdown (12.10) |
+| **P1-3/P1-4** DB privilege separation | `db_runtime_role = "coga_app"` (12.8): the API runs as a role that cannot change the audit trail and cannot read the owner's password |
 | **P1-13** backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots (**do a restore drill**) |
 | edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist |
 
-**Still your responsibility (process, not code):** IVDR **change control** (TF-18)
-and an updated **DPIA** (TF-14) — deploying to Google Cloud adds Google as a
-data sub-processor, which must be assessed and documented, and the IFU
-(TF-15) minimum-IT-requirements updated.
+**Still your responsibility (process, not code):** IVDR **change control** (TF-18) for
+each switch in 12.8–12.10 and for the first production deployment, and the IFU (TF-15)
+minimum IT requirements. Google Cloud is the chosen host. The DPIA that adds Google as a
+data sub-processor is signed and the data processing agreement is being signed (owner,
+2026-09-29); TF-14 and TF-02 §10 record this (CR-089).
 
 ---
 
@@ -652,7 +709,9 @@ To reduce a **dev** environment's cost: `db_availability_type = "ZONAL"`, a smal
 | Backend revision won't go healthy | A required secret has no `latest` version (Section 5.5), or the DB/ClickHouse isn't reachable. Check `gcloud run services logs read coga-backend`. |
 | "Refusing to start … insecure default credentials" | `SECRET_KEY`/`ADMIN_PASSWORD` still placeholders. Add real secret versions and redeploy. |
 | `terraform apply` fails reading the Postgres password | The `coga-postgres-password` secret version doesn't exist yet — complete the secret bootstrap (5.5) before the full apply. |
-| ClickHouse VM has no data / won't start the container | No Cloud NAT egress to pull the image, or the data disk didn't mount. Check the VM serial console: `gcloud compute instances get-serial-port-output coga-clickhouse-vm --zone "$REGION-b"`. |
+| ClickHouse VM has no data / won't start the container | No Cloud NAT egress to pull the image, or the data disk didn't mount. With the egress lockdown (12.10): the image is not in Artifact Registry, or the VM's account cannot read it. Check the VM serial console: `gcloud compute instances get-serial-port-output coga-clickhouse-vm --zone "$REGION-b"`. |
+| Deploy job fails at "Refuse to deploy without required reviewers" | The `gcp-deploy` environment has no required reviewer. Add one (Section 10) and re-run the job. |
+| `terraform apply` fails in `terraform_data.db_migrate` | The schema migration job failed (12.8); the running revision keeps serving. Read its logs: `gcloud run jobs executions list --job coga-db-migrate --region "$REGION"`, then `gcloud logging read 'resource.type="cloud_run_job" resource.labels.job_name="coga-db-migrate"' --limit 50`. |
 | Postgres connector errors | Backend SA missing `roles/cloudsql.client`, or the Cloud SQL Admin API disabled. Both are wired by Terraform — re-`apply`. |
 | Legitimate requests blocked | If you enabled `cloud_armor_waf_enforce`, review the WAF logs (12.6) and tune; revert to `false` to log-only. |
 | Frontend loads but API calls 404 | The LB path rule must route `/api/*` to the backend — re-`apply`; confirm the URL map exists. |

@@ -4,7 +4,8 @@ import { useModalDialog } from '../lib/useModalDialog';
 /**
  * A modal dialog shell with the behaviour of `useModalDialog` (#529): Escape, a focus
  * trap and focus restore, and a check before unsaved input is discarded. For dialogs
- * rendered inline and conditionally, where a hook cannot be called directly.
+ * rendered inline and conditionally, where a hook cannot be called directly. Children
+ * may be a function of `requestClose`, for Cancel/Close buttons that should ask too.
  */
 const ModalDialog: React.FC<{
   onClose: () => void;
@@ -17,7 +18,9 @@ const ModalDialog: React.FC<{
   closeOnBackdrop?: boolean;
   confirmDiscard?: boolean;
   discardMessage?: string;
-  children: React.ReactNode;
+  /** Whether closing now would lose input; see `useModalDialog`. */
+  isDirty?: () => boolean;
+  children: React.ReactNode | ((requestClose: () => void) => React.ReactNode);
 }> = ({
   onClose,
   labelledBy,
@@ -27,12 +30,14 @@ const ModalDialog: React.FC<{
   closeOnBackdrop = true,
   confirmDiscard = true,
   discardMessage,
+  isDirty,
   children,
 }) => {
-  const { dialogRef, surfaceProps, backdropProps } = useModalDialog({
+  const { dialogRef, requestClose, surfaceProps, backdropProps } = useModalDialog({
     onClose,
     confirmDiscard,
     discardMessage,
+    isDirty,
   });
   return (
     <div
@@ -50,7 +55,7 @@ const ModalDialog: React.FC<{
         tabIndex={-1}
         {...surfaceProps}
       >
-        {children}
+        {typeof children === 'function' ? children(requestClose) : children}
       </div>
     </div>
   );

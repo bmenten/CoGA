@@ -91,16 +91,19 @@ const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null; href?: string | nul
           {body}
         </a>
       ) : (
-        <span
+        // A button, so keyboard users can reach the explanation, as with the link; it
+        // has no action of its own.
+        <button
+          type="button"
           className={className}
-          tabIndex={0}
+          aria-label={message}
           onMouseEnter={showTip}
           onMouseLeave={hideTip}
           onFocus={showTip}
           onBlur={hideTip}
         >
           {body}
-        </span>
+        </button>
       )}
       {tip ? (
         <span

@@ -1,4 +1,5 @@
 import type {
+  ApiFamilyMemberDetail,
   ApiFamilyRecord,
   ApiFamilyRegionOfInterest,
   ApiHpoAnnotation,
@@ -9,6 +10,7 @@ import type {
   CarrierStatus,
   ClinicalStatus,
   CoupleDraft,
+  MemberDetailDraft,
   ParentChildDraft,
   PedRow,
   StructureMemberDraft,
@@ -72,6 +74,37 @@ export const memberDraftFromFamilyMember = (member: ApiFamilyRecord['members'][n
   isNew: false,
   removed: member.active === false,
 });
+
+// The member dialog's draft as stored, before any edit.
+export const memberDetailDraftFromDetail = (detail: ApiFamilyMemberDetail): MemberDetailDraft => ({
+  sample_id: detail.member.sample_id,
+  sex: detail.member.sex === 'male' || detail.member.sex === 'female' ? detail.member.sex : 'und',
+  role: ROLE_OPTIONS.includes(detail.member.role as StructureMemberDraft['role'])
+    ? (detail.member.role as StructureMemberDraft['role'])
+    : 'relative',
+  clinical_status: clinicalStatusForMember(detail.member),
+  carrier_status: carrierStatusForMember(detail.member),
+  carrier_type: detail.member.carrier_type ?? '',
+  father_id: detail.father_id ?? '',
+  mother_id: detail.mother_id ?? '',
+});
+
+// Typed as a record so that a field added to the draft cannot be left out of the comparison.
+const MEMBER_DETAIL_FIELDS: Record<keyof MemberDetailDraft, true> = {
+  sample_id: true,
+  sex: true,
+  role: true,
+  clinical_status: true,
+  carrier_status: true,
+  carrier_type: true,
+  father_id: true,
+  mother_id: true,
+};
+
+export const sameMemberDetailDraft = (a: MemberDetailDraft, b: MemberDetailDraft): boolean =>
+  (Object.keys(MEMBER_DETAIL_FIELDS) as (keyof MemberDetailDraft)[]).every(
+    (field) => a[field] === b[field],
+  );
 
 export const parentChildDraftsFromRelationships = (family: ApiFamilyRecord | undefined): ParentChildDraft[] => {
   const relationships = family?.relationships?.filter(

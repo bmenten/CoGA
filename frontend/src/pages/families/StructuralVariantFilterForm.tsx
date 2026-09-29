@@ -28,6 +28,7 @@ type StructuralVariantFilterFormProps = Pick<
   | 'activeFilterChips'
   | 'applyPreset'
   | 'draftFilters'
+  | 'draftLocationProblem'
   | 'handleGtToggle'
   | 'handleReset'
   | 'handleSampleFieldChange'
@@ -118,6 +119,7 @@ const StructuralVariantFilterForm = ({
   activeFilterChips,
   applyPreset,
   draftFilters,
+  draftLocationProblem,
   handleGtToggle,
   handleReset,
   handleSampleFieldChange,
@@ -363,6 +365,8 @@ const StructuralVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -402,6 +406,8 @@ const StructuralVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -510,6 +516,8 @@ const StructuralVariantFilterForm = ({
               </span>
               <span
                 className="variant-filter-dropdown-summary-controls"
+                // Only keeps a click on the checkbox from also toggling the <summary>.
+                role="presentation"
                 onMouseDown={stopSummaryInteraction}
                 onClick={stopSummaryInteraction}
               >
@@ -520,6 +528,11 @@ const StructuralVariantFilterForm = ({
                     {panels.map((panel) => (
                       <option key={panel._id} value={panel._id}>{panel.name}</option>
                     ))}
+                    {/* An applied panel missing from the list (it failed to load) still shows
+                        as applied, not as "Any gene panel" (#606). */}
+                    {draftFilters.panel_id && !panels.some((panel) => panel._id === draftFilters.panel_id) ? (
+                      <option value={draftFilters.panel_id}>{`Panel ${draftFilters.panel_id} (not in the panel list)`}</option>
+                    ) : null}
                   </select>
                 </label>
               </span>
@@ -558,6 +571,12 @@ const StructuralVariantFilterForm = ({
                   onChange={handleDraftFieldChange}
                 />
               </div>
+              {/* A location that is neither a gene nor a region is named, not searched (#604). */}
+              {draftLocationProblem ? (
+                <div className="variant-workspace-feedback variant-workspace-feedback--error" role="alert">
+                  {draftLocationProblem} Nothing was searched.
+                </div>
+              ) : null}
             </div>
           </details>
 

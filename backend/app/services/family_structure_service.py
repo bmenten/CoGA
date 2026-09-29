@@ -25,7 +25,8 @@ from .clickhouse_variant_storage import (
     delete_family_small_variants,
     delete_family_structural_variants,
 )
-from .metadata_service import CurrentUser, get_accessible_family_mapping, get_family_record
+from .metadata_service import get_accessible_family_mapping, get_family_record
+from .access_control import CurrentUser
 from .ped_service import _record_family_structure_version
 
 CLINICAL_STATUS_VALUES = {"unknown", "unaffected", "affected"}

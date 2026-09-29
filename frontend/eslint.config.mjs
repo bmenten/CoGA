@@ -8,6 +8,8 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import react from 'eslint-plugin-react';
+import reactHooks from 'eslint-plugin-react-hooks';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 import prettier from 'eslint-config-prettier';
 import globals from 'globals';
 
@@ -22,12 +24,21 @@ export default tseslint.config(
       parserOptions: { ecmaFeatures: { jsx: true } },
       globals: { ...globals.browser, ...globals.node },
     },
-    plugins: { react },
+    plugins: { react, 'react-hooks': reactHooks, 'jsx-a11y': jsxA11y },
     settings: { react: { version: 'detect' } },
     rules: {
       ...react.configs.flat.recommended.rules,
-      '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/no-unused-vars': 'warn',
+      ...jsxA11y.flatConfigs.recommended.rules,
+      // Label text often sits in nested spans ({count} — {label}); look that deep for it.
+      'jsx-a11y/label-has-associated-control': ['error', { depth: 3 }],
+      // A `role` prop on a component (e.g. a pedigree role) is not an ARIA role.
+      'jsx-a11y/aria-role': ['error', { ignoreNonDOM: true }],
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'error',
+      // Still a warning: the remaining `any`s are counted by the --max-warnings budget
+      // in package.json, which only ever goes down.
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-unused-vars': 'error',
       'react/react-in-jsx-scope': 'off',
     },
   },

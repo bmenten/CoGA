@@ -207,3 +207,43 @@ def test_seek_having_is_direction_aware_and_degenerate_safe() -> None:
     # When the sort column IS xpos the predicate still has a unique key tiebreaker.
     pos = _seek_having("xpos", "ASC")
     assert "xpos > %(cur_sort)s" in pos and "key > %(cur_key)s" in pos
+
+
+def test_clinvar_rescue_keeps_pathogenic_variants_past_the_frequency_ceilings() -> None:
+    # The explorer page offers "ClinVar P/LP overrules the frequency filter", on by
+    # default, and the service ignored it: a pathogenic variant above a cut-off was
+    # dropped although the page said it was kept (#526).
+    params: dict = {}
+    clauses = _annotation_index_clauses(
+        GlobalVariantFilters(max_gnomad_af=0.01, max_gnomad_hom_count=2, clinvar_overrides_frequency=True),
+        params,
+    )
+    rescue = [clause for clause in clauses if "ann_clinvar_rescue_terms" in clause]
+    assert rescue == [
+        "(((ai.max_gnomad_af IS NULL OR ai.max_gnomad_af <= %(ann_max_gnomad_af)s)"
+        " AND (ai.max_gnomad_hom_count IS NULL OR ai.max_gnomad_hom_count <= %(ann_max_gnomad_hom_count)s))"
+        " OR hasAny(ai.clinvar_terms, %(ann_clinvar_rescue_terms)s))"
+    ]
+    # The frequency ceilings sit only inside the rescued block, not also on their own.
+    assert not [c for c in clauses if "ai.max_gnomad_af" in c and c not in rescue]
+    # The family search's terms, including ClinVar's aggregate form.
+    assert params["ann_clinvar_rescue_terms"] == [
+        "pathogenic",
+        "likely pathogenic",
+        "pathogenic/likely pathogenic",
+    ]
+    # The query binds (the terms are an array parameter).
+    bind_query(
+        "SELECT 1 FROM t AS ai WHERE " + " AND ".join(clauses), params
+    )
+
+
+def test_frequency_ceilings_apply_to_every_variant_without_the_rescue() -> None:
+    params: dict = {}
+    clauses = _annotation_index_clauses(GlobalVariantFilters(max_gnomad_af=0.01), params)
+    assert "(ai.max_gnomad_af IS NULL OR ai.max_gnomad_af <= %(ann_max_gnomad_af)s)" in clauses
+    assert "ann_clinvar_rescue_terms" not in params
+    # The rescue alone, with no ceiling to lift, adds nothing.
+    params = {}
+    assert _annotation_index_clauses(GlobalVariantFilters(clinvar_overrides_frequency=True), params) == []
+    assert params == {}

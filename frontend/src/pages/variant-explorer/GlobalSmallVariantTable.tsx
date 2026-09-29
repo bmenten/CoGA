@@ -57,7 +57,7 @@ const GlobalSmallVariantTable = ({
         <tbody>
           {variants.map((variant) => {
             const geneHref = variant.gene
-              ? `/genes?symbol=${encodeURIComponent(variant.gene)}`
+              ? `/genes?gene=${encodeURIComponent(variant.gene)}`
               : null;
             return (
               <tr key={variant.key}>

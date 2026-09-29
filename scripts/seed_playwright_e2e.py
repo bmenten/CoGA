@@ -41,13 +41,13 @@ async def _seed() -> dict:
 
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.dependencies import get_password_hash
-    from backend.app.services import family_package_import as package_import
+    from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
     # Import the golden trio from an authorized staging copy.
     staging = Path(tempfile.mkdtemp(prefix="coga-pw-seed-")) / "FAM_TRIO"
     shutil.copytree(_FIXTURE, staging)
-    package_import.settings.family_import_roots = [str(staging.parent)]
+    settings.family_import_roots = [str(staging.parent)]
     facts = await _harness.import_golden_trio(staging)
 
     # Known-credential e2e user (admin -> sees every project, incl. the golden one).

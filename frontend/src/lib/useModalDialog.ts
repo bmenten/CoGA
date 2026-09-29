@@ -1,8 +1,8 @@
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   type MouseEvent,
   type RefObject,
 } from 'react';
@@ -19,7 +19,9 @@ import {
  * - moves focus into the dialog, keeps Tab inside it, and gives focus back on close.
  *
  * "Changed" means a change or input event from a form control inside the dialog, so
- * values a dialog fills in itself (auto-suggested criteria) do not count.
+ * values a dialog fills in itself (auto-suggested criteria) do not count. A dialog whose
+ * edits can be applied without closing it passes `isDirty` instead, so that applied
+ * edits no longer count.
  */
 export interface ModalDialogOptions {
   onClose: () => void;
@@ -27,6 +29,8 @@ export interface ModalDialogOptions {
   discardMessage?: string;
   /** False for dialogs whose input is only ever a deliberate submission. */
   confirmDiscard?: boolean;
+  /** Whether closing now would lose input, read from the dialog's own state. */
+  isDirty?: () => boolean;
 }
 
 export interface ModalDialog {
@@ -60,17 +64,26 @@ export function useModalDialog({
   onClose,
   discardMessage = 'Discard your unsaved changes?',
   confirmDiscard = true,
+  isDirty,
 }: ModalDialogOptions): ModalDialog {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const dirtyRef = useRef(false);
   const pressStartedOnBackdrop = useRef(false);
+  // Read while rendering: by the time an effect runs, an autoFocus control inside the
+  // dialog has taken focus, or the dialog underneath has gone inert and dropped it.
+  const [previouslyFocused] = useState(() =>
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   const onCloseRef = useRef(onClose);
+  const isDirtyRef = useRef(isDirty);
   useLayoutEffect(() => {
     onCloseRef.current = onClose;
+    isDirtyRef.current = isDirty;
   });
 
   const requestClose = useCallback(() => {
-    if (confirmDiscard && dirtyRef.current && !window.confirm(discardMessage)) return;
+    const dirty = isDirtyRef.current ? isDirtyRef.current() : dirtyRef.current;
+    if (confirmDiscard && dirty && !window.confirm(discardMessage)) return;
     onCloseRef.current();
   }, [confirmDiscard, discardMessage]);
 
@@ -79,11 +92,12 @@ export function useModalDialog({
     requestCloseRef.current = requestClose;
   });
 
-  useEffect(() => {
+  // A layout effect, so the dialog answers Escape from the commit that draws it: in a
+  // passive effect, which runs in a later task, an Escape pressed in between reached the
+  // dialog underneath (#529).
+  useLayoutEffect(() => {
     const token = {};
     openDialogs.push(token);
-    const previouslyFocused =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     if (dialog && !dialog.contains(document.activeElement)) {
       const [first] = focusableIn(dialog);
@@ -124,7 +138,7 @@ export function useModalDialog({
       openDialogs.splice(openDialogs.indexOf(token), 1);
       if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
-  }, []);
+  }, [previouslyFocused]);
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;

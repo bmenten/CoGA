@@ -134,7 +134,9 @@ app.use(express.static(distPath));
 // `path-to-regexp@6`, which does not accept "*" string paths. Use
 // a regular expression to match any remaining route instead.
 app.get(/.*/, (_req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
+  // `root` keeps send's dotfile rule to the file name: an absolute path through a
+  // dot-directory (a checkout under ~/.something) would otherwise answer 404.
+  res.sendFile('index.html', { root: distPath });
 });
 
 // Only start listening when run directly (`node server.mjs`); importing this module

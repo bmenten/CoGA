@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 import json
 
-from backend.app.services.small_variant_review_pg import _json_payload, _postgres_bigint_or_none
+from backend.app.services.review_pg_utils import _json_payload
+from backend.app.services.small_variant_review_repository import _postgres_bigint_or_none
 
 
 def test_json_payload_serializes_datetime_values() -> None:

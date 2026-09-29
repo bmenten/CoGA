@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import * as d3 from 'd3';
 
 interface PedRow {
@@ -41,16 +41,24 @@ interface Props {
   inheritanceModel?: string | null;
   phenotypeSampleIds?: string[];
   highlightedSampleIds?: string[];
-  // Per-sample QC roll-up drawn as a coloured ring around the node: green = pass,
-  // amber = warn, red (emphasised) = fail. The optional label becomes a tooltip.
+  // Per-sample QC roll-up drawn as a ring around the node, apart from the symbol and
+  // its clinical fills. The optional label becomes a tooltip.
   qcStatusBySample?: Record<string, PedigreeQcStatus>;
 }
 
-const QC_RING_COLORS: Record<PedigreeQcStatus['status'], string> = {
-  pass: '#16a34a',
-  warn: '#d97706',
-  fail: '#dc2626',
+// The QC ring tells the verdicts apart by line and glyph as well as colour: a thin solid
+// ring and ✓ for pass, a dashed ring and ! for warn, a thick ring and ✕ for fail (#529).
+// It used to recolour the symbol itself, which replaced the black affected fill and the
+// carrier-type half-fill, and told pass from warn by green versus amber alone.
+const QC_MARKS: Record<
+  PedigreeQcStatus['status'],
+  { color: string; width: number; dash: string | null; glyph: string }
+> = {
+  pass: { color: '#16a34a', width: 1.5, dash: null, glyph: '✓' },
+  warn: { color: '#d97706', width: 2, dash: '4 3', glyph: '!' },
+  fail: { color: '#dc2626', width: 3, dash: null, glyph: '✕' },
 };
+const QC_RING_OFFSET = 4;
 
 type ParentInfo = {
   father?: string;
@@ -1009,6 +1017,61 @@ const isConsanguineous = (
   return context.includes('consanguin') || context.includes('related');
 };
 
+const isAffectedMember = (row: PedRow, member?: PedigreeMember): boolean =>
+  isAffectedPhenotype(row.phen) ||
+  member?.clinical_status === 'affected' ||
+  member?.affected === true;
+
+const countOf = (count: number, one: string, many = `${one}s`): string =>
+  `${count.toLocaleString()} ${count === 1 ? one : many}`;
+
+/**
+ * The pedigree's accessible name. `role="img"` hides the per-symbol tooltips from
+ * assistive technology, so the name carries what the symbols draw: who is affected, the
+ * carriers (the half-fill, which the drawing gives only to an unaffected carrier), the
+ * consanguineous couples (the double line), the HPO badges and the QC rings.
+ */
+const describePedigree = (
+  layout: LayoutResult,
+  phenotypeSampleIds: string[],
+  qcStatusBySample: Record<string, PedigreeQcStatus>
+): string => {
+  if (!layout.rows.length) return 'Pedigree: no members';
+  const phenotypeSampleSet = new Set(phenotypeSampleIds);
+  let affected = 0;
+  let carriers = 0;
+  let withPhenotypes = 0;
+  const qcCounts: Record<PedigreeQcStatus['status'], number> = { fail: 0, warn: 0, pass: 0 };
+  layout.rows.forEach((row) => {
+    const member = layout.memberMap.get(row.iid);
+    const isAffected = isAffectedMember(row, member);
+    if (isAffected) affected += 1;
+    else if (isCarrierStatus(member?.carrier_status)) carriers += 1;
+    if (phenotypeSampleSet.has(row.iid)) withPhenotypes += 1;
+    const qc = qcStatusBySample[row.iid];
+    if (qc) qcCounts[qc.status] += 1;
+  });
+  const consanguineousCouples = layout.coupleEdges.filter((edge) => {
+    const left = layout.positions.get(edge.left);
+    const right = layout.positions.get(edge.right);
+    return (
+      !!left && !!right && left.generation === right.generation && isConsanguineous(edge.metadata)
+    );
+  }).length;
+
+  const facts = [
+    `${countOf(layout.rows.length, 'member')} in ${countOf(layout.generationCount, 'generation')}`,
+    `${affected.toLocaleString()} affected`,
+    carriers ? countOf(carriers, 'carrier') : null,
+    consanguineousCouples ? countOf(consanguineousCouples, 'consanguineous couple') : null,
+    withPhenotypes ? `${withPhenotypes.toLocaleString()} with HPO phenotypes` : null,
+  ].filter(Boolean);
+  const qc = (['fail', 'warn', 'pass'] as const)
+    .filter((status) => qcCounts[status] > 0)
+    .map((status) => `${qcCounts[status].toLocaleString()} ${status}`);
+  return `Pedigree: ${facts.join(', ')}${qc.length ? `; QC: ${qc.join(', ')}` : ''}`;
+};
+
 const Pedigree: React.FC<Props> = ({
   rows,
   members = [],
@@ -1019,12 +1082,20 @@ const Pedigree: React.FC<Props> = ({
   qcStatusBySample = {},
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  // Laid out once for both the drawing and the accessible name.
+  const layout = useMemo(
+    () => layoutPedigree(rows, members, relationships),
+    [rows, members, relationships]
+  );
+  const chartLabel = useMemo(
+    () => describePedigree(layout, phenotypeSampleIds, qcStatusBySample),
+    [layout, phenotypeSampleIds, qcStatusBySample]
+  );
 
   useEffect(() => {
     const normalizedInheritance = (inheritanceModel || '').trim().toUpperCase();
     const phenotypeSampleSet = new Set(phenotypeSampleIds);
     const highlightedSampleSet = new Set(highlightedSampleIds);
-    const layout = layoutPedigree(rows, members, relationships);
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
     svg
@@ -1176,23 +1247,17 @@ const Pedigree: React.FC<Props> = ({
       if (!position) return;
       const member = layout.memberMap.get(row.iid);
       const rowSex = normalizedSexFor(row, member);
-      const affected =
-        isAffectedPhenotype(row.phen) ||
-        member?.clinical_status === 'affected' ||
-        member?.affected === true;
+      const affected = isAffectedMember(row, member);
       const carrier = isCarrierStatus(member?.carrier_status);
       const hasPhenotypeAnnotation = phenotypeSampleSet.has(row.iid);
       const highlighted = highlightedSampleSet.has(row.iid);
       const xLinkedRecessiveFemaleCarrier =
         carrier && normalizedInheritance === 'XLR' && rowSex === '2';
       const qc = qcStatusBySample[row.iid];
-      // The individual's own symbol carries the QC verdict: its outline — and any
-      // filled region (affected fill, carrier half-fill) — turns green (pass) /
-      // amber (warn) / red (fail), or stays the default colour when not assessed.
-      const qcColor = qc ? QC_RING_COLORS[qc.status] : undefined;
-      const fill = affected ? qcColor ?? 'black' : 'white';
-      const stroke = qcColor ?? (highlighted ? '#b91c1c' : 'black');
-      const strokeWidth = qc ? (qc.status === 'fail' ? 3 : 2.2) : highlighted ? 2.4 : 1;
+      const qcMark = qc ? QC_MARKS[qc.status] : undefined;
+      const fill = affected ? 'black' : 'white';
+      const stroke = highlighted ? '#b91c1c' : 'black';
+      const strokeWidth = highlighted ? 2.4 : 1;
       const generationIndex =
         layout.generationMembers[position.generation]?.indexOf(row.iid) ?? -1;
       const group = svg
@@ -1201,14 +1266,20 @@ const Pedigree: React.FC<Props> = ({
         .attr('data-generation', position.generation)
         .attr('data-generation-index', generationIndex)
         .attr('transform', `translate(${position.x}, ${position.y})`);
-      if (qc) {
-        group.attr('data-qc-status', qc.status);
-        group.append('title').text(qc.label || `QC: ${qc.status}`);
-      }
+      if (qc) group.attr('data-qc-status', qc.status);
+      // One tooltip for what the symbol's colours say: the QC reason, and the carrier type,
+      // which the half-fill's colour alone would otherwise carry (#529).
+      const tooltip = [
+        qc ? qc.label || `QC: ${qc.status}` : null,
+        carrier && !affected
+          ? `Carrier${member?.carrier_type ? ` (${member.carrier_type})` : ''}`
+          : null,
+      ].filter(Boolean);
+      if (tooltip.length) group.append('title').text(tooltip.join(' · '));
 
       const appendCarrierFill = () => {
         if (!carrier || affected) return;
-        const cFill = qcColor ?? carrierFillFor(member?.carrier_type);
+        const cFill = carrierFillFor(member?.carrier_type);
 
         if (rowSex === '1') {
           // Male: draw left half of the square
@@ -1299,6 +1370,46 @@ const Pedigree: React.FC<Props> = ({
 
       appendCarrierFill();
 
+      if (qc && qcMark) {
+        // The ring follows the symbol's shape, QC_RING_OFFSET outside it.
+        const half = NODE_SIZE / 2 + QC_RING_OFFSET;
+        const ring = group.append<SVGElement>(
+          rowSex === '1' ? 'rect' : rowSex === '2' ? 'circle' : 'path',
+        );
+        if (rowSex === '1') {
+          ring.attr('x', -half).attr('y', -half).attr('width', half * 2).attr('height', half * 2);
+        } else if (rowSex === '2') {
+          ring.attr('cx', 0).attr('cy', 0).attr('r', half);
+        } else {
+          const tip = NODE_SIZE / 2 + QC_RING_OFFSET * Math.SQRT2;
+          ring.attr('d', `M0 ${-tip} L${tip} 0 L0 ${tip} L${-tip} 0 Z`);
+        }
+        ring
+          .attr('data-qc-ring', qc.status)
+          .attr('fill', 'none')
+          .attr('stroke', qcMark.color)
+          .attr('stroke-width', qcMark.width)
+          .attr('stroke-dasharray', qcMark.dash);
+        const badge = group
+          .append('g')
+          .attr('data-qc-glyph', qc.status)
+          .attr('transform', `translate(${-NODE_SIZE / 2 - 6}, ${-NODE_SIZE / 2 - 4})`);
+        badge
+          .append('circle')
+          .attr('r', 5.5)
+          .attr('fill', qcMark.color)
+          .attr('stroke', 'white')
+          .attr('stroke-width', 1.2);
+        badge
+          .append('text')
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'central')
+          .attr('font-size', 8)
+          .attr('font-weight', 700)
+          .attr('fill', 'white')
+          .text(qcMark.glyph);
+      }
+
       if (hasPhenotypeAnnotation) {
         group
           .append('circle')
@@ -1321,9 +1432,9 @@ const Pedigree: React.FC<Props> = ({
         .attr('font-size', member?.role === 'embryo' ? 7 : 8)
         .text(row.iid);
     });
-  }, [rows, members, relationships, inheritanceModel, phenotypeSampleIds, highlightedSampleIds, qcStatusBySample]);
+  }, [layout, inheritanceModel, phenotypeSampleIds, highlightedSampleIds, qcStatusBySample]);
 
-  return <svg ref={svgRef} className="pedigree-svg" />;
+  return <svg ref={svgRef} className="pedigree-svg" role="img" aria-label={chartLabel} />;
 };
 
 // Memoized: the layout effect is expensive (D3 layout + full SVG clear/redraw),

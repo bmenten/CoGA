@@ -103,6 +103,56 @@ describe('AcmgClassificationModal', () => {
     expect(screen.getByRole('link', { name: /PubMed/ })).toBeInTheDocument();
   });
 
+  // #609 — with the gene profile failed, PVS1 was not applied and its evidence read "LOF
+  // disease mechanism is unconfirmed", as if the gene had been checked. The dialog now
+  // says the lookup failed, and the criterion is not assessed, not negative.
+  it('says the gene profile failed, and does not read PVS1 as an unconfirmed mechanism', async () => {
+    let profileRequests = 0;
+    mockedGet.mockImplementation((url: string) => {
+      if (url.includes('/hpo')) return Promise.resolve({ data: [] });
+      profileRequests += 1;
+      return profileRequests === 1
+        ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+        : Promise.resolve({
+            data: {
+              extra: {
+                clingen_dosage_assertions: [{ haploinsufficiency: 'Sufficient evidence for dosage pathogenicity' }],
+                gencc_assertions: [],
+                hpo_terms: [],
+              },
+            },
+          });
+    });
+    renderModal();
+
+    const failure = await screen.findByText(/Could not load the gene profile of GENEX — this is not an empty result/);
+    expect(failure).toHaveTextContent(/PVS1, BS2 and PP4 are not assessed from it: review them by hand/);
+    expect(screen.getByRole('checkbox', { name: /PVS1/ })).not.toBeChecked();
+    expect(screen.queryByText(/LOF disease mechanism is unconfirmed/)).not.toBeInTheDocument();
+
+    // Loaded on retry, PVS1 applies from the gene's haploinsufficiency.
+    await userEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /PVS1/ })).toBeChecked());
+    expect(screen.queryByText(/Could not load the gene profile/)).not.toBeInTheDocument();
+  });
+
+  it('says the HPO terms failed, and offers PP4 for review rather than dropping it', async () => {
+    mockedGet.mockImplementation((url: string) =>
+      url.includes('/hpo')
+        ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+        : Promise.resolve({ data: { extra: { clingen_dosage_assertions: [], gencc_assertions: [], hpo_terms: [] } } }),
+    );
+    renderModal();
+
+    expect(await screen.findByText(/Could not load the family's HPO terms — this is not an empty result/)).toHaveTextContent(
+      /PP4 is not assessed from them/,
+    );
+    // PP4 is suggested for review (not applied), where it used to be left out.
+    const pp4 = (await screen.findByText('PP4')).closest('.acmg-criterion') as HTMLElement;
+    await waitFor(() => expect(pp4).toHaveClass('acmg-criterion--suggested'));
+    expect(within(pp4).getByRole('checkbox')).not.toBeChecked();
+  });
+
   it('recomputes the class when a strength is changed', async () => {
     renderModal();
     const user = userEvent.setup();

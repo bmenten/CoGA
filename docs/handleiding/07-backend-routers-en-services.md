@@ -73,15 +73,15 @@ Faalt de validatie ook maar ergens, dan volgt steeds dezelfde `credentials_excep
 
 ## Schemas: validatie en levende documentatie
 
-Alle request- en response-vormen staan in één centraal bestand, `backend/app/schemas.py` (ruim 260 Pydantic-modellen). Deze modellen doen drie dingen tegelijk:
+Alle request- en response-vormen staan in het pakket `backend/app/schemas/` (ruim 270 Pydantic-modellen), sinds #528 per domein opgesplitst (`families.py`, `variants.py`, `traceability.py`, …). Alles wordt opnieuw geëxporteerd, dus code importeert nog steeds uit `backend.app.schemas`. Deze modellen doen drie dingen tegelijk:
 
 - **Inkomende validatie.** Een `...Update`- of `...Request`-model (bv. `FamilyMetadataUpdate`, `SmallVariantReviewUpdate`, `ReportSignoutRequest`) beschrijft precies welke velden mogen binnenkomen en van welk type. Ongeldige JSON wordt met een 422-fout geweigerd nog vóór de router-code draait.
 - **Uitgaande vorm.** Een `...Out`-model (bv. `FamilyOut`, `VariantPage`, `SmallVariantReviewOut`, `IntegrityAnchorOut`) beschrijft wat de API teruggeeft; via `response_model=` in de decorator dwingt FastAPI die vorm af en filtert het onbedoelde velden weg.
 - **OpenAPI-documentatie.** Uit dezelfde modellen genereert FastAPI de interactieve `/docs` (OpenAPI/Swagger). In productie zijn `/docs`, `/redoc` en `/openapi.json` bewust uitgeschakeld (`_docs_kwargs` in `backend/app/main.py`) om schema-onthulling te beperken; de in-process schema-generatie (`app.openapi()`) blijft wel werken.
 
-Doordat alle schemas op één plek staan, kan een reviewer in één bestand nagaan welke gegevens het systeem in- en uitgaan — nuttig voor de dataflow-analyse die bij een IVDR-dossier hoort.
+Doordat alle schemas in één pakket staan, kan een reviewer op één plek nagaan welke gegevens het systeem in- en uitgaan — nuttig voor de dataflow-analyse die bij een IVDR-dossier hoort.
 
-**Waar in de code:** `backend/app/schemas.py`; de koppeling gebeurt in elke router via `response_model=...` en getypeerde parameters.
+**Waar in de code:** `backend/app/schemas/` (per domein één module, alles geëxporteerd in `__init__.py`); de koppeling gebeurt in elke router via `response_model=...` en getypeerde parameters.
 
 ## Veiligheids-invarianten die overal gelden
 
@@ -166,11 +166,11 @@ De servicelaag is groot; onderstaande tabel groepeert de modules in `backend/app
 
 | Servicegroep | Kernbestanden | Doel |
 |---|---|---|
-| **ClickHouse-variantlaag** | `clickhouse_variant_storage.py`, `clickhouse_variant_queries.py`, `clickhouse_variant_records.py`, `clickhouse_variant_rows.py`, `clickhouse_variant_ids.py`, `clickhouse_small_variants.py`, `clickhouse_family_variants.py`, `clickhouse_interval_tracks.py`, `clickhouse_integrity_monitor.py` | Opbouw en uitvoering van variant-queries tegen ClickHouse. De "leaf"-modules `clickhouse_variant_queries.py` (het *bouwen* van de SQL-tekst + parameters, met allowlist- en int-coercie) en `clickhouse_variant_records.py` (het *parsen* van ruwe rijen naar records) scheiden query-opbouw van resultaatverwerking. |
+| **ClickHouse-variantlaag** | `clickhouse_variant_storage.py`, `clickhouse_variant_queries.py`, `clickhouse_variant_records.py`, `clickhouse_variant_rows.py`, `clickhouse_variant_ids.py`, `clickhouse_small_variants.py`, `clickhouse_family_variants.py`, `clickhouse_interval_tracks.py`, `clickhouse_integrity_monitor.py` | Opbouw en uitvoering van variant-queries tegen ClickHouse. De "leaf"-modules `clickhouse_variant_queries.py` (het *bouwen* van de SQL-tekst + parameters, met allowlist- en int-coercie) en `clickhouse_variant_records.py` (het *parsen* van ruwe rijen naar records) scheiden query-opbouw van resultaatverwerking. Code importeert hun helpers rechtstreeks uit die twee modules; `clickhouse_family_variants.py` exporteert ze niet opnieuw, en de opslag- en rijmodules hangen niet van die familielaag af (#528). |
 | **Familie-metadata & context** | `family_metadata_context.py`, `family_service.py`, `family_member_management_service.py`, `family_structure_service.py`, `family_status_service.py`, `metadata_service.py`, `data_scope.py` | Familie/lid/structuur opzoeken met **toegangs-scoping**; `data_scope.py` normaliseert chromosoomnamen (bv. `chr1` → `1`) en scheidt primaire chromosomen van ALT/scaffold-contigs. |
-| **Import-pipeline** | `family_package_*.py` (o.a. `_manifest`, `_validation`, `_import`, `_registration`, `_datasets`, `_variants`), `variant_upload_service.py`, `raw_import_files_pg.py`, `vcf_header_provenance.py` | Pakket-import: manifest lezen, valideren, registreren, varianten laden; provenance van VCF-headers. Zie [hoofdstuk 6](06-import-pipeline.md). |
+| **Import-pipeline** | `family_package_*.py` (o.a. `_manifest`, `_validation`, `_import`, `_registration`, `_datasets`, `_variants`), `variant_upload_service.py`, `raw_import_files_pg.py`, `vcf_header_provenance.py` | Pakket-import: manifest lezen, valideren, registreren, varianten laden; provenance van VCF-headers. Code importeert elke helper uit de module die hem definieert; de orkestratie in `family_package_import.py` exporteert ze niet opnieuw (#528). Zie [hoofdstuk 6](06-import-pipeline.md). |
 | **Filters & prioritisatie** | `family_variant_filters.py`, `variant_prioritization.py`, `variant_ranking_cache.py`, `variant_explorer_service.py`, `variant_annotation_parser.py` | Filterlogica, variant-scoring/-ranking (incl. de sorteer-allowlist `_SORT_EXPR`), annotatie parsen. |
-| **ACMG & review** | `acmg_points.py`, `cnv_acmg_points.py`, `small_variant_review_*.py`, `structural_variant_review_pg.py`, `classification_drift_service.py` | Semi-automatische ACMG-classificatie, tags/presets, review-toestand, drift-detectie. Zie [hoofdstuk 10](10-tagging-en-acmg-classificatie.md). |
+| **ACMG & review** | `acmg_points.py`, `cnv_acmg_points.py`, `small_variant_review_*.py`, `structural_variant_review_pg.py`, `classification_drift_service.py` | Semi-automatische ACMG-classificatie, tags/presets, review-toestand, drift-detectie. Ook hier importeert code uit de definiërende module: `small_variant_review_pg.py` exporteert de ACMG-, opslag-, tag- en presethelpers niet opnieuw (#528). Zie [hoofdstuk 10](10-tagging-en-acmg-classificatie.md). |
 | **NIPT** | `nipt.py`, `nipt_analysis.py`, `nipt_coverage.py`, `nipt_service.py`, `nipt_artifact_pg.py` | Niet-invasieve prenatale test: fetale fractie, classificaties, coverage, artefacten. |
 | **Haplotype & lineage** | `haplotype_lineage_service.py`, `phased_marker_service.py`, `paraphase_pg.py` | Haplotype-blokken, gefaseerde markers, lineage/IBD, Paraphase. |
 | **HPO / Monarch** | `hpo_service.py`, `monarch_ingest.py`, `monarch_phenotype_score.py`, `monarch_semsim.py` | HPO-ontologie beheren, Monarch-fenotype-scoring en semantische similariteit. Zie [hoofdstuk 12](12-hpo-monarch-prioritisatie.md). |
@@ -212,7 +212,7 @@ De beveiligingsheaders in `backend/app/middleware/security_headers.py` zetten op
 | `backend/app/main.py` | Bouwt de FastAPI-app: monteert alle routers onder `/api`, hangt de middleware-keten op, regelt lifespan, schakelt `/docs` uit in productie. |
 | `backend/app/routers/__init__.py` | Verzamelt alle routers in `all_routers`. |
 | `backend/app/dependencies.py` | Authenticatie-dependencies `get_current_user` / `get_current_admin_user`, wachtwoord- en token-helpers, `ADMIN_ROLES`. |
-| `backend/app/schemas.py` | Alle Pydantic-request/response-modellen; validatie en OpenAPI-documentatie. |
+| `backend/app/schemas/` | Alle Pydantic-request/response-modellen, per domein één module; validatie en OpenAPI-documentatie. |
 | `backend/app/core/sql.py` | SQL-veiligheidshelpers: UUID-bindparameters (`uuid_list_bindparam`), schema-fout-detectie. |
 | `backend/app/core/postgres.py` | Postgres-engine/sessie (`get_postgres_session`), schema-initialisatie. |
 | `backend/app/core/clickhouse.py` | ClickHouse-client, `execute_clickhouse`/`insert_clickhouse` (geparametriseerd), dataset-sleutel-sanitisatie, per-query-begrenzing. |

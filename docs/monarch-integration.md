@@ -427,7 +427,8 @@ addressed:
 ## Documentation
 
 User-facing documentation lives in the in-app **CoGA User Guide**
-([UserGuidePage.tsx](../frontend/src/pages/docs/UserGuidePage.tsx), route `/docs`):
+(route `/docs`; the section text is Markdown under
+[content/docs/user-guide/](../frontend/src/content/docs/user-guide/)):
 
 - **Phenotype matching (Monarch Initiative)** — the gene-profile gene–disease blocks,
   expected-phenotype overlap, and the family candidate-gene panel.

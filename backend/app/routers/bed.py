@@ -14,7 +14,7 @@ from ..services.bed_service import (
     upload_bed_data,
 )
 from ..services.family_metadata_context import build_sample_metadata_context
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.raw_import_files_pg import record_upload_file_obj
 
 router = APIRouter(prefix="/bed", tags=["bed"])

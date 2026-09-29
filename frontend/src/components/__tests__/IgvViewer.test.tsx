@@ -286,4 +286,46 @@ describe('IgvViewer', () => {
     expect(options.tracks).toHaveLength(1);
     expect(options.tracks[0].type).toBe('alignment');
   });
+
+  // #610 — the failure was swallowed, so the depth and MAF tracks were silently absent, as
+  // for a family without them.
+  it('says the depth and MAF tracks could not be loaded, and retries them', async () => {
+    let signalFails = true;
+    apiGetMock.mockImplementation((url: string) => {
+      if (url.startsWith('/signal-tracks/')) {
+        return signalFails
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : Promise.resolve({
+              data: [
+                {
+                  sample_id: 'S1',
+                  source: 'hificnv',
+                  kind: 'depth_bigwig',
+                  name: 'S1 depth',
+                  format: 'bigwig',
+                  url: '/signal-tracks/F1/S1/hificnv/depth_bigwig',
+                },
+              ],
+            });
+      }
+      return Promise.resolve({
+        data: [{ sample_id: 'S1', format: 'cram', url: '/cram/F1/S1.cram', index_url: '/cram/F1/S1.cram.crai' }],
+      });
+    });
+    createBrowserMock.mockResolvedValue({ destroy: vi.fn(), search: searchMock });
+    loadIgvMock.mockResolvedValue({ createBrowser: createBrowserMock });
+
+    render(<IgvViewer familyId="F1" sampleIds={['S1']} genome="hg38" locus="chr1:10-20" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not load the depth and MAF tracks — this is not an empty result. The alignments are shown without them.',
+    );
+    expect(createBrowserMock.mock.calls[0][1].tracks).toHaveLength(1);
+
+    signalFails = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(createBrowserMock).toHaveBeenCalledTimes(2));
+    expect(createBrowserMock.mock.calls[1][1].tracks).toHaveLength(2);
+    expect(screen.queryByText(/Could not load the depth and MAF tracks/)).not.toBeInTheDocument();
+  });
 });

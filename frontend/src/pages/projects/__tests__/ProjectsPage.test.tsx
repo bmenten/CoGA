@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, it, vi, type Mock } from 'vitest';
 import ProjectsPage from '../ProjectsPage';
+import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 vi.mock('../../../lib/api', () => ({
@@ -98,6 +99,42 @@ describe('ProjectsPage', () => {
     expect(screen.getByText(/View Er · viewer@example.com/)).toBeInTheDocument();
     expect(screen.getAllByText('F1').length).toBeGreaterThan(0);
     expect(screen.getByText('S1')).toBeInTheDocument();
+  });
+
+  // #610 — a failed list read "No projects yet", with counts of 0.
+  it('says the projects could not be loaded, not that there are none, and retries', async () => {
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    let failing = true;
+    get.mockImplementation((url: string, config?: unknown) =>
+      failing && url === '/projects'
+        ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+        : working(url, config),
+    );
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/projects']}>
+            <Routes>
+              <Route path="/projects" element={<ProjectsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      expect(
+        await screen.findByText(/Could not load the projects — this is not an empty result/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('No projects yet')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Showing 0 of 0 projects/)).not.toBeInTheDocument();
+      expect(screen.getByText('Projects —')).toBeInTheDocument();
+
+      failing = false;
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText('Projects 1')).toBeInTheDocument();
+    } finally {
+      get.mockImplementation(working);
+    }
   });
 
   it('sorts linked families by upload date newest first by default', async () => {

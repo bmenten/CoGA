@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
 import api from '../../lib/api';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
+
+// The backend's minimum (UserCreate, NIST SP 800-63B-4): checked here first, so the form
+// says so before a request is made.
+const PASSWORD_MIN_LENGTH = 15;
 
 const SignupPage: React.FC = () => {
   const [firstName, setFirstName] = useState('');
@@ -10,29 +14,41 @@ const SignupPage: React.FC = () => {
   const [affiliation, setAffiliation] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const navigate = useNavigate();
+  const [submitting, setSubmitting] = useState(false);
+  // The server's acknowledgement. The account waits for an administrator, and the page
+  // says so: it used to go straight to the login page, where signing in then failed as
+  // "User not active" with no word of why (#526).
+  const [acknowledgement, setAcknowledgement] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setError('');
+    setSubmitting(true);
     try {
-      await api.post('/auth/signup', {
+      const response = await api.post('/auth/signup', {
         email,
         password,
         first_name: firstName,
         last_name: lastName,
         affiliation,
       });
-      navigate('/login');
-    } catch (err: unknown) {
-      if (import.meta.env.DEV && import.meta.env.MODE !== 'test') {
-        console.error(err);
-      }
-      setError(
-        getErrorMessage(err, 'Sign up failed', {
-          networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
-        })
+      setPassword('');
+      setAcknowledgement(
+        (response.data as { detail?: string } | undefined)?.detail ||
+          'Registration received. An administrator will review the request.',
       );
+    } catch (err: unknown) {
+      const message = getErrorMessage(err, 'Sign up failed', {
+        networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
+      });
+      if (import.meta.env.DEV && import.meta.env.MODE !== 'test') {
+        // The message only: the error object carries the request, password included.
+        console.error('Sign up failed:', message);
+      }
+      setError(message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -57,6 +73,14 @@ const SignupPage: React.FC = () => {
           <p className="page-subtitle mt-3">
             Use your professional details so administrators can assign the right access.
           </p>
+          {acknowledgement ? (
+            <div className="space-y-4 mt-6" role="status">
+              <p className="status-note status-note--success">{acknowledgement}</p>
+              <p className="page-subtitle">
+                You can sign in once your account has been activated.
+              </p>
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} className="field-grid">
             <label className="field-label">
               First Name
@@ -64,6 +88,8 @@ const SignupPage: React.FC = () => {
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 placeholder="First Name"
+                autoComplete="given-name"
+                required
               />
             </label>
             <label className="field-label">
@@ -72,14 +98,19 @@ const SignupPage: React.FC = () => {
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 placeholder="Last Name"
+                autoComplete="family-name"
+                required
               />
             </label>
             <label className="field-label">
               Email
               <input
+                type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Email"
+                autoComplete="email"
+                required
               />
             </label>
             <label className="field-label">
@@ -88,6 +119,8 @@ const SignupPage: React.FC = () => {
                 value={affiliation}
                 onChange={(e) => setAffiliation(e.target.value)}
                 placeholder="Affiliation"
+                autoComplete="organization"
+                required
               />
             </label>
             <label className="field-label">
@@ -97,10 +130,21 @@ const SignupPage: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
+                autoComplete="new-password"
+                minLength={PASSWORD_MIN_LENGTH}
+                required
+                aria-describedby="signup-password-rule"
               />
             </label>
-            <button type="submit" className="form-button w-full justify-center">
-              Sign Up
+            <p id="signup-password-rule" className="table-subtle">
+              At least {PASSWORD_MIN_LENGTH} characters. A passphrase of several words works well.
+            </p>
+            <button
+              type="submit"
+              className="form-button w-full justify-center"
+              disabled={submitting}
+            >
+              {submitting ? 'Signing up…' : 'Sign Up'}
             </button>
             {error && (
               <p className="status-note status-note--error text-center" aria-live="polite">
@@ -108,6 +152,7 @@ const SignupPage: React.FC = () => {
               </p>
             )}
           </form>
+          )}
           <p className="mt-6 text-center text-sm text-(--color-text-muted)">
             Already registered?{' '}
             <Link to="/login" className="subtle-link inline-flex!">

@@ -5,10 +5,13 @@ import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { logUiEvent } from '../../lib/telemetry';
 import {
+  describeGenotypeSelection,
   hasNonDefaultGenotypeSelection,
+  joinFilterValues,
+  parseCommaSeparatedValues,
   parseSerializedGenotypeSelection,
 } from '../../lib/sampleFilterState';
-import { parseGeneOrRegionInput } from '../../lib/variantSearch';
+import { intervalListProblems, parseGeneOrRegionInput } from '../../lib/variantSearch';
 import type { AcmgMitoContext } from '../../lib/acmg';
 
 export interface SmallVariantGenotype {
@@ -157,6 +160,9 @@ export interface SmallVariant {
   annotation_extra?: Record<string, string | number | boolean | null>;
   transcripts?: SmallVariantTranscript[];
   genotypes: SmallVariantGenotype[];
+  // On chrX/chrY outside the pseudo-autosomal regions, where a male carries one copy
+  // (#621). Set by the backend, which holds the PAR bounds.
+  hemizygous_in_males?: boolean;
   review?: SmallVariantReview | null;
   internal_cohort?: SmallVariantInternalCohort | null;
   priority?: SmallVariantPriority | null;
@@ -645,15 +651,6 @@ export const MULTI_VALUE_FILTER_KEYS = new Set<
   'category',
 ]);
 
-export const parseCommaSeparatedValues = (value: string) =>
-  value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-export const joinFilterValues = (values: Iterable<string>) =>
-  Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean))).join(', ');
-
 const cloneSingleSampleFilter = (
   filter?: Partial<SmallVariantSampleFilter> | null,
 ): SmallVariantSampleFilter => ({
@@ -1072,13 +1069,7 @@ const hasActiveSampleFilter = (filter: SmallVariantSampleFilter) => {
   return hasNonDefaultGenotypeSelection(filter.gt, ALL_GT_GROUPS);
 };
 
-const describeGenotypeSelection = (selection: string[]) => {
-  const labels: string[] = [];
-  if (HOM_GT_GROUP.every((gt) => selection.includes(gt))) labels.push('Hom');
-  if (HET_GT_GROUP.every((gt) => selection.includes(gt))) labels.push('Het');
-  if (REF_GT_GROUP.every((gt) => selection.includes(gt))) labels.push('WT');
-  return labels.length ? labels.join(' / ') : 'No genotype';
-};
+const SMALL_GT_GROUPS = { hom: HOM_GT_GROUP, het: HET_GT_GROUP, ref: REF_GT_GROUP };
 
 // `members` is expected proband-first (the search-state hook sorts it once via
 // useMemo); this intentionally does not re-sort per variant row.
@@ -1097,6 +1088,35 @@ export const buildCompactGenotypeSummary = (
       };
     })
     .filter((entry) => entry.gt !== '—');
+
+/** The location filters that cannot be searched as written, by where they are set. */
+export interface LocationProblems {
+  /** The locus (from a link) and the interval list. */
+  include: string[];
+  /** The excluded intervals. */
+  exclude: string[];
+}
+
+/**
+ * The location filters that cannot be read as written. Sent on, a malformed locus was
+ * searched as a gene name, and an unreadable interval was skipped, so the search covered
+ * less than it asked, or read as a family without variants (#604).
+ */
+export const smallVariantLocationProblems = (
+  filters: Pick<SmallFilterState, 'locus' | 'intervals' | 'exclude_intervals'>,
+): LocationProblems => {
+  const locus = parseGeneOrRegionInput(filters.locus);
+  return {
+    include: [
+      ...(locus?.kind === 'invalid' ? [locus.problem] : []),
+      ...intervalListProblems(filters.intervals),
+    ],
+    exclude: intervalListProblems(filters.exclude_intervals, 'Excluded interval'),
+  };
+};
+
+export const hasLocationProblems = (problems: LocationProblems | null): problems is LocationProblems =>
+  Boolean(problems && problems.include.length + problems.exclude.length > 0);
 
 export const buildSmallVariantQueryParams = (
   currentFilters: SmallFilterState,
@@ -1318,7 +1338,7 @@ export const buildActiveFilterChips = (
     if (hasNonDefaultGenotypeSelection(filter.gt, ALL_GT_GROUPS)) {
       chips.push({
         id: `sample:${member.sample_id}:gt`,
-        label: `${member.sample_id}: ${describeGenotypeSelection(filter.gt)}`,
+        label: `${member.sample_id}: ${describeGenotypeSelection(filter.gt, SMALL_GT_GROUPS)}`,
         kind: 'sample-gt',
         sample: member.sample_id,
       });
@@ -1476,6 +1496,9 @@ export const useSmallVariantSearchState = ({
 
   const [filters, setFilters] = useState(emptyFilters);
   const [draftFilters, setDraftFilters] = useState(emptyFilters);
+  // Draft location filters that cannot be read, named under their fields instead of
+  // searched (#604).
+  const [draftLocationProblems, setDraftLocationProblems] = useState<LocationProblems | null>(null);
   const [sampleFilters, setSampleFilters] = useState<Record<string, SmallVariantSampleFilter>>({});
   const [sampleDraftFilters, setSampleDraftFilters] = useState<Record<
     string,
@@ -1721,6 +1744,12 @@ export const useSmallVariantSearchState = ({
 
   const handleApply = (event: FormEvent) => {
     event.preventDefault();
+    const locationProblems = smallVariantLocationProblems(draftFilters);
+    if (hasLocationProblems(locationProblems)) {
+      setDraftLocationProblems(locationProblems);
+      return;
+    }
+    setDraftLocationProblems(null);
     const nextSampleFilters = cloneSampleFilters(sampleDraftFilters);
     // Record the deliberate variant query (the substantive search intent) in the UI
     // telemetry. Keys/counts only — no filter values — so it stays PHI-free.
@@ -1739,6 +1768,7 @@ export const useSmallVariantSearchState = ({
 
   const handleReset = () => {
     if (!family) return;
+    setDraftLocationProblems(null);
     const resetSampleFilters = buildDefaultSampleFilters(family.members);
     setDraftFilters(emptyFilters);
     setFilters(emptyFilters);
@@ -1819,6 +1849,7 @@ export const useSmallVariantSearchState = ({
     filters,
     goToPage,
     handleApply,
+    draftLocationProblems,
     handleFilterChange,
     handleGtToggle,
     handleReset,

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 import { GOLDEN_FAMILY, login } from './helpers';
 

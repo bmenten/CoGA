@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     postgres_run_schema_migrations_on_startup: bool = Field(
         default=True, alias="POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP"
     )
+    # Password of the restricted runtime role ``coga_app``, given to the owner-privileged
+    # migration only (``python -m app.db_migrate``; on Google Cloud the db-migrate job in
+    # terraform/migrate.tf). When set, the migration lets ``coga_app`` log in with it, so
+    # the switch to the restricted role needs no hand-run SQL. Never set it on the API.
+    postgres_app_password: str = Field(default="", alias="POSTGRES_APP_PASSWORD")
     clickhouse_host: str = Field(default="localhost", alias="CLICKHOUSE_HOST")
     clickhouse_http_port: int = Field(default=8123, alias="CLICKHOUSE_HTTP_PORT")
     clickhouse_database: str = Field(default="coga", alias="CLICKHOUSE_DATABASE")
@@ -151,6 +156,9 @@ class Settings(BaseSettings):
     admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
     admin_password: str = Field(default="change-me", alias="ADMIN_PASSWORD")
     admin_email: str = Field(default="admin@example.com", alias="ADMIN_EMAIL")
+    # The SMTP relay (port 25, no authentication) that sends the new-signup notification
+    # to ADMIN_EMAIL; the notification is only sent when ADMIN_EMAIL is configured.
+    smtp_host: str = Field(default="localhost", alias="SMTP_HOST")
     login_rate_limit_window_seconds: int = Field(default=900, ge=60, alias="LOGIN_RATE_LIMIT_WINDOW_SECONDS")
     login_rate_limit_threshold: int = Field(default=5, ge=1, alias="LOGIN_RATE_LIMIT_THRESHOLD")
     login_rate_limit_base_backoff_seconds: int = Field(
@@ -549,6 +557,11 @@ class Settings(BaseSettings):
             insecure_fields.append("INTEGRITY_ANCHOR_SIGNING_KEY")
         if self.postgres_password.strip() in _INSECURE_PASSWORD_VALUES:
             insecure_fields.append("POSTGRES_PASSWORD")
+        if self.postgres_app_password and self.postgres_app_password.strip() in {
+            "",
+            *_INSECURE_PASSWORD_VALUES,
+        }:
+            insecure_fields.append("POSTGRES_APP_PASSWORD")
         if self.admin_password.strip() in _INSECURE_PASSWORD_VALUES:
             insecure_fields.append("ADMIN_PASSWORD")
         if self.admin_username.strip().lower() == "admin" and self.admin_password.strip() in _INSECURE_PASSWORD_VALUES:

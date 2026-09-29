@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from backend.app.services.family_metadata_context import build_family_metadata_context
-from backend.app.services.metadata_service import CurrentUser
+from backend.app.services.access_control import CurrentUser
 from backend.app.services import family_metadata_context
 
 

@@ -41,13 +41,13 @@ def _run_with_ch_cleanup(run) -> None:
 
 
 def _call(sample: str, gt: str):
-    from backend.app.services.clickhouse_family_variants import SmallVariantCall
+    from backend.app.services.clickhouse_variant_records import SmallVariantCall
 
     return SmallVariantCall(sample=sample, gt=gt, gq=99.0, dp=30, af=[0.5], ad=[15, 15], ps=None)
 
 
 def _record(variant_id: str, pos: int, calls):
-    from backend.app.services.clickhouse_family_variants import SmallVariantRecord
+    from backend.app.services.clickhouse_variant_records import SmallVariantRecord
 
     return SmallVariantRecord(
         variant_key=None, variant_id=variant_id, chr="1", start=pos, end=pos, ref="A", alt="G",

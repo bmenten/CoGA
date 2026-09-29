@@ -14,7 +14,7 @@ from ..schemas import (
     SmallVariantTagDefinitionOut,
     SmallVariantTagDefinitionUpdate,
 )
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser, is_admin_user
 
 
 DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
@@ -238,7 +238,7 @@ async def _ensure_projects_visible(
     if not normalized:
         return []
 
-    if user.role != "admin":
+    if not is_admin_user(user):
         visible = set(_string_list(getattr(user, "metadata_project_ids", [])))
         unauthorized = [project_id for project_id in normalized if project_id not in visible]
         if unauthorized:
@@ -374,7 +374,7 @@ async def create_small_variant_tag_definition(
     default_project_id: str | None = None,
 ) -> SmallVariantTagDefinitionOut:
     del family_uuid
-    if user.role != "admin":
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Only admins can create variant tags")
     key = _slugify_tag(payload.label)
     if key in DEFAULT_SMALL_VARIANT_TAG_KEYS:
@@ -494,7 +494,7 @@ async def update_small_variant_tag_definition(
     default_project_id: str | None = None,
 ) -> SmallVariantTagDefinitionOut:
     del family_uuid
-    if user.role != "admin":
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Only admins can edit variant tags")
 
     normalized_tag_key = str(tag_key).strip().lower()
@@ -678,7 +678,7 @@ async def delete_small_variant_tag_definition(
     user: CurrentUser,
 ) -> None:
     del family_uuid
-    if user.role != "admin":
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Only admins can delete variant tags")
 
     normalized_tag_key = str(tag_key).strip().lower()

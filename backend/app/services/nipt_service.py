@@ -10,6 +10,7 @@ See docs/monogenic-nipt.md and docs/monogenic-nipt-classification.md.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from fastapi import HTTPException
@@ -17,17 +18,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import bindparam, text
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .clickhouse_family_variants import (
-    PanelFilterConstraints,
-    SmallVariantCall,
-    SmallVariantRecord,
+    _fetch_gene_regions,
     _fetch_panel_constraints,
     _fetch_small_variant_rows,
     _hydrate_small_variant_outs,
-    _small_variant_out,
-    _split_gene_terms,
+)
+from .clickhouse_variant_queries import _parse_interval_regions, _small_variant_out, _split_gene_terms
+from .clickhouse_variant_records import (
+    PanelFilterConstraints,
+    SmallVariantCall,
+    SmallVariantRecord,
 )
 
 if TYPE_CHECKING:
@@ -36,7 +39,8 @@ from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_variant_filters import SmallVariantQueryFilters
-from .metadata_service import CurrentUser, get_family_record
+from .metadata_service import get_family_record
+from .access_control import CurrentUser
 from .nipt import NiptTrio, nipt_assay_key, resolve_nipt_trio
 from .nipt_artifact_pg import load_nipt_artifact_ids
 from .nipt_coverage import (
@@ -237,13 +241,62 @@ async def run_family_nipt_analysis(
     )
     artifact_lookup = await _load_artifact_lookup(session, context, assay_key)
     records = await _load_family_records(context)
-    sites = _family_sites(records, trio)
+    # The whole family callset goes through the analysis: pure CPU work, so it runs in a
+    # worker thread and other requests are served meanwhile (#527).
+    return await asyncio.to_thread(
+        _analyse_family_sites, records, trio, qc or NiptQualityThresholds(), artifact_lookup, external_ff
+    )
+
+
+def _analyse_family_sites(
+    records: list[SmallVariantRecord],
+    trio: NiptTrio,
+    qc: NiptQualityThresholds,
+    artifact_lookup: Any,
+    external_ff: float | None,
+) -> NiptAnalysisResult:
     return run_nipt_analysis(
-        sites,
-        qc or NiptQualityThresholds(),
+        _family_sites(records, trio),
+        qc,
         artifact_lookup=artifact_lookup,
         external_ff=external_ff,
     )
+
+
+def _estimate_cohort_fetal_fraction(
+    records: list[SmallVariantRecord],
+    trio: NiptTrio,
+    qc: NiptQualityThresholds,
+    external_ff: float | None,
+) -> FetalFractionEstimate:
+    return estimate_fetal_fraction(_family_sites(records, trio), qc, external_ff=external_ff)
+
+
+def _classify_candidates(
+    records: list[SmallVariantRecord],
+    trio: NiptTrio,
+    artifact_ids: Any,
+    ff_estimate: FetalFractionEstimate,
+    qc: NiptQualityThresholds,
+    min_confidence: float | None,
+) -> tuple[list[NiptClassifiedVariant], dict[str, NiptSiteObservation]]:
+    observations = {
+        observation.variant_id: observation for observation in _family_sites(records, trio)
+    }
+    classified: list[NiptClassifiedVariant] = []
+    for record in records:
+        if record.variant_id in artifact_ids:
+            continue
+        observation = observations.get(record.variant_id)
+        if observation is None:
+            continue
+        classification = classify_site(observation, ff_estimate, qc)
+        if min_confidence is not None and (
+            classification.category is None or classification.confidence < min_confidence
+        ):
+            continue
+        classified.append(NiptClassifiedVariant(record=record, classification=classification))
+    return classified, observations
 
 
 def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
@@ -387,13 +440,27 @@ async def get_family_nipt_variants(
         session, assembly_id=context.assembly_id, assay_key=assay_key
     )
 
+    # The location filters, as the family search applies them: the interval list, the
+    # excluded intervals and the excluded genes were sent, chipped and never applied here
+    # (#604). Read before the cohort work, so an unreadable interval fails fast.
+    filters = _build_nipt_query_filters(query_filters or {})
+    include_regions = _parse_interval_regions(filters.intervals)
+    exclude_regions = _parse_interval_regions(filters.exclude_intervals, label="Excluded interval")
+    exclude_gene_regions = (
+        await _fetch_gene_regions(session, gene_query=filters.exclude_gene, assembly_id=context.assembly_id)
+        if filters.exclude_gene
+        else []
+    )
+
     # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are
     # rarely inside the clinical filter), then the filtered subset is classified
-    # against that FF.
-    cohort_sites = _family_sites(await _load_family_records(context), trio)
-    ff_estimate = estimate_fetal_fraction(cohort_sites, qc, external_ff=external_ff)
+    # against that FF. Both steps are CPU work over many sites, so they run in a
+    # worker thread (#527).
+    cohort_records = await _load_family_records(context)
+    ff_estimate = await asyncio.to_thread(
+        _estimate_cohort_fetal_fraction, cohort_records, trio, qc, external_ff
+    )
 
-    filters = _build_nipt_query_filters(query_filters or {})
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
         panel_constraints = await _fetch_panel_constraints(
@@ -406,25 +473,15 @@ async def get_family_nipt_variants(
         context,
         filters,
         panel_constraints=panel_constraints,
+        include_regions=include_regions,
+        exclude_regions=exclude_regions,
+        exclude_gene_regions=exclude_gene_regions,
+        exclude_gene_terms=_split_gene_terms(filters.exclude_gene),
         limit=_NIPT_VARIANT_FETCH_LIMIT,
     )
-    observations = {
-        observation.variant_id: observation for observation in _family_sites(records, trio)
-    }
-
-    classified: list[NiptClassifiedVariant] = []
-    for record in records:
-        if record.variant_id in artifact_ids:
-            continue
-        observation = observations.get(record.variant_id)
-        if observation is None:
-            continue
-        classification = classify_site(observation, ff_estimate, qc)
-        if min_confidence is not None and (
-            classification.category is None or classification.confidence < min_confidence
-        ):
-            continue
-        classified.append(NiptClassifiedVariant(record=record, classification=classification))
+    classified, observations = await asyncio.to_thread(
+        _classify_candidates, records, trio, artifact_ids, ff_estimate, qc, min_confidence
+    )
 
     # The category filter is applied after classification so recessive_at_risk
     # can group across the full candidate set by gene.
@@ -440,7 +497,7 @@ async def get_family_nipt_variants(
     # Serialize the page slice as full small-variant payloads (and hydrate their
     # review / internal-cohort / gene-constraint data) so the NIPT variant list
     # carries the same shape as the small-variant view, classification aside.
-    variant_outs = [_small_variant_out(item.record) for item in page_items]
+    variant_outs = [_small_variant_out(item.record, assembly_name=context.assembly_name) for item in page_items]
     await _hydrate_small_variant_outs(session, context=context, variants=variant_outs)
     for item, variant_out in zip(page_items, variant_outs):
         item.variant_out = variant_out
@@ -457,7 +514,7 @@ async def _fetch_labeled_gene_regions(
         return []
     clauses = ["(upper(hgnc_symbol) IN :terms OR upper(gene_id) IN :terms)"]
     params: dict = {"terms": [term.upper() for term in cleaned]}
-    bind_params = [bindparam("terms", expanding=True)]
+    bind_params: list[Any] = [bindparam("terms", expanding=True)]
     if assembly_id:
         clauses.append("assembly_id = CAST(:assembly_id AS uuid)")
         params["assembly_id"] = assembly_id

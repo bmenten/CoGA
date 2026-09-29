@@ -129,7 +129,10 @@ describe('CoverageSegmentsChart', () => {
       <CoverageSegmentsChart coverageUrls={['https://example.test/coverage']} chroms={['1']} width={320} height={120} />,
     );
     expect(screen.getByText('gain > +0.35 · loss < -0.35 (log2)')).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: /Coverage log2 ratio; gain > \+0\.35/ })).toBeInTheDocument();
+    // Drawn, the name carries no state: only the thresholds that colour it.
+    expect(
+      await screen.findByRole('img', { name: 'Coverage log2 ratio; gain > +0.35 · loss < -0.35 (log2)' }),
+    ).toBeInTheDocument();
     unmount();
 
     storage.setItem('coverageUpperThreshold', '0.5');
@@ -260,5 +263,30 @@ describe('CoverageSegmentsChart', () => {
 
     expect(await screen.findByText(/Could not load coverage — this is not an empty result/)).toBeInTheDocument();
     expect(screen.queryByText(/No coverage data in this region/)).not.toBeInTheDocument();
+    // The name says so too: it used to name only the thresholds, as if drawn (#602).
+    expect(screen.getByRole('img', { name: /^Coverage log2 ratio: failed to load; gain > / })).toBeInTheDocument();
+  });
+
+  // #602 — like every other chart's, the name says when the chart is loading or has
+  // nothing to show, not only which thresholds colour it.
+  it('is named as loading while its sources load, and as empty when they hold nothing', async () => {
+    serveTrackFetchFrom(vi.fn(() => new Promise<never>(() => {})));
+    const { unmount } = renderWithClient(
+      <CoverageSegmentsChart coverageUrls={['https://example.test/coverage']} chroms={['1']} width={320} height={120} />,
+    );
+    expect(screen.getByRole('img', { name: /^Coverage log2 ratio: loading; gain > / })).toBeInTheDocument();
+    unmount();
+
+    serveTrackFetchFrom(vi.fn(() => Promise.resolve({ ok: false, status: 404, json: async () => ({}) })));
+    renderWithClient(
+      <CoverageSegmentsChart
+        coverageUrls={['https://example.test/coverage-404']}
+        chroms={['1']}
+        width={320}
+        height={120}
+      />,
+    );
+    expect(await screen.findByRole('img', { name: /^Coverage log2 ratio: no data; gain > / })).toBeInTheDocument();
+    expect(screen.getByText('No coverage data in this region')).toBeInTheDocument();
   });
 });

@@ -66,6 +66,9 @@ deployment-level security items tracked in
    ready-to-lift template lives in
    [`main-repo-reference/`](main-repo-reference/coga-prerequisites.tf.example). If the
    SA names differ, pass their emails via the `*_service_account_email` variables.
+   Two go-live switches need more from it: the restricted database role needs a fourth
+   account, `coga-db-migrate` (below), and the ClickHouse egress lockdown needs the Cloud
+   DNS API plus Artifact Registry read access for the VM's account.
 
 GitHub repo secrets used by CI: `GCP_REGISTRY_PROJECT_ID`,
 `GCP_CLOUDBUILD_STAGING_BUCKET`, `GCP_WIF_PROVIDER`, `GCP_COGA_PROJECT_ID`,
@@ -96,6 +99,8 @@ printf '%s' "$CH_PW"       | gcloud secrets versions add coga-clickhouse-passwor
 ```
 
 - `SECRET_KEY` and `INTEGRITY_ANCHOR_SIGNING_KEY` must be **distinct**.
+- `coga-postgres-app-password` is created too but needs a version only before switching to
+  the restricted database role (below).
 - The backend refuses to start in production with placeholder secrets, so these must
   be real before the first full apply ([config.py](../backend/app/core/config.py)).
 
@@ -105,7 +110,8 @@ CI ([`.github/workflows/build.yml`](../.github/workflows/build.yml)) does it end
 end on push to `main`: builds both images from the **repo-root context** (so
 `APP_VERSION`/`GIT_SHA` are baked in and `scripts/` is included), then
 `terraform init/plan/apply`. PRs run `terraform fmt -check` + `validate` only — no
-apply.
+apply. The deploy job refuses to run until the `gcp-deploy` environment has at least one
+required reviewer (Settings → Environments), so an apply never runs unapproved.
 
 Manual:
 
@@ -127,7 +133,8 @@ the Google-managed cert provisions once DNS resolves (can take ~15–60 min).
 | S-2 TLS to datastores | Postgres: Cloud SQL Python Connector (mTLS + verify-full-grade) over private IP, `ssl_mode=ENCRYPTED_ONLY`. ClickHouse: HTTPS on 8443 with a private CA; backend verifies (`CLICKHOUSE_CA_CERT` + `SERVER_HOST_NAME`) |
 | S-3 secrets management | Secret Manager + `secret_key_ref`; VM reads its password at boot |
 | S-4 byte-level PHI audit | GCS Data Access audit logs (project-wide; set in the central infra repo) |
-| S-8 network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege SAs, NAT/PGA; optional edge IP allowlist (`allowed_ingress_cidrs`) |
+| S-8 network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege SAs, NAT/PGA; optional edge IP allowlist (`allowed_ingress_cidrs`) and ClickHouse egress lockdown (`clickhouse_restrict_egress`) |
+| P1-3/P1-4 DB privilege separation | `db_runtime_role = "coga_app"`: the API runs as the restricted role and cannot read the owner's password; the `db-migrate` job applies the schema as the owner |
 | P1-13 backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots |
 
 ## Object storage backend
@@ -158,6 +165,31 @@ to restrict access at the edge: any source outside the list is denied before rat
 limiting / WAF / app auth. Left empty (default) the app is reachable from anywhere and
 relies on application authentication only.
 
+## Restricted database role (`db_runtime_role`)
+
+Every deployment starts with `db_runtime_role = "owner"`: the API connects as the table
+owner, `coga_admin`, and applies the schema on startup. Set `"coga_app"` to close the
+owner-bypass gap of TF-09b REQ-TRACE-008. The API then connects as the restricted role,
+which cannot run DDL or change the append-only audit tables, and its service account loses
+access to the owner's password. The `coga-db-migrate` Cloud Run job ([`migrate.tf`](migrate.tf))
+takes over the owner's work: Terraform runs it with every new backend image, and the backend
+waits for it. It applies the schema, seeds the admin user and enables `coga_app`'s login from
+the `coga-postgres-app-password` secret, so no SQL is run by hand. The procedure, verification
+and rollback are in [docs/db-runtime-role-runbook.md](../docs/db-runtime-role-runbook.md),
+"Google Cloud".
+
+## ClickHouse egress lockdown (`clickhouse_restrict_egress`)
+
+Off by default: the ClickHouse VM reaches the internet through Cloud NAT, which it needs to
+pull the Docker Hub image. With the lockdown on ([`egress.tf`](egress.tf)) the VM may only
+open connections to Google APIs, over `private.googleapis.com` with private DNS zones for
+`googleapis.com` and `pkg.dev`. Everything else is denied, so a compromised database VM
+cannot send genotypes elsewhere. Before switching it on, mirror the ClickHouse image into
+Artifact Registry and point `clickhouse_image` at it (the plan refuses a Docker Hub image),
+grant the VM's account `roles/artifactregistry.reader` on that repository, and enable the
+Cloud DNS API. Container-Optimized OS can then no longer update itself in place: patch it by
+recreating the VM on a current image (the data disk is kept).
+
 ## ClickHouse cert rotation
 
 The server cert/key are re-fetched from Secret Manager by a daily systemd timer on
@@ -171,8 +203,13 @@ to pick up the new `CLICKHOUSE_CA_CERT`.
 - **ClickHouse graceful shutdown.** Best-effort `docker stop -t 90` on VM shutdown +
   `MIGRATE` on maintenance. For a guaranteed 5-min flush window, move ClickHouse to a
   GKE StatefulSet with `terminationGracePeriodSeconds = 300`.
-- **State holds the SQL user password.** The Cloud SQL user password is read from
-  Secret Manager into state; keep the state bucket private + CMEK. App secrets are
-  *not* in state (referenced by `secret_key_ref`).
-- **IVDR change control** (TF-18 + DPIA update adding Google as sub-processor,
-  TF-13/TF-15 IFU) is out of scope here.
+- **State holds the SQL user password and the ClickHouse TLS keys.** The Cloud SQL owner
+  password is read from Secret Manager into state, and the private CA and server keys are
+  generated in it (`tls.tf`). App secrets and `coga_app`'s password are *not* in state
+  (referenced by `secret_key_ref`). Keep the state bucket private, versioned and CMEK, with
+  tight IAM. Keeping these values out of state needs Terraform 1.11+ write-only arguments,
+  which means moving off the pinned 5.x google provider: a separate, change-controlled
+  upgrade. Until then this is an accepted residual risk for the owner to confirm (#364).
+- **IVDR change control.** Google Cloud is the chosen host; the DPIA is signed and the data
+  processing agreement with Google is being signed (owner, 2026-09-29). The decision is
+  recorded in TF-02 §10 and TF-14 (CR-089). The TF-13/TF-15 IFU updates follow at go-live.

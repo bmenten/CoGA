@@ -30,11 +30,12 @@
 | Level | Method | Where | Gate |
 | --- | --- | --- | --- |
 | Unit | pytest (backend), vitest (frontend) | `backend/tests`, `frontend/src/**/*.test.tsx` | CI `backend`, `frontend` jobs |
-| Static analysis | TypeScript `tsc`, ESLint | frontend | CI `frontend` job |
+| Static analysis | TypeScript `tsc`, ESLint with the React hooks and jsx-a11y accessibility rules and a warning budget (frontend); ruff over the backend and scripts, and mypy over the clinical-critical modules listed in `mypy.ini` (#526) | frontend, backend | CI `frontend` and `backend` jobs |
 | Integration | Real-startup smoke against Postgres 16 + ClickHouse 26.8 (schema init, admin seed, health probe) | `backend/tests/integration` | CI `smoke` job |
 | End-to-end (system) | Golden-dataset pipeline run (ingest → query/API → review/audit/sign-out) + realistic demo bundles, checked vs documented expected results — see **[TF-09c](TF-09c-e2e-pipeline-verification.md)** | `backend/tests/e2e` | CI `e2e` job |
-| Browser / GUI end-to-end | Real Chromium driving the UI (login → family workspace → genome render → in-browser sign-out) against a live backend + datastores. The UI is served by the **Vite dev server**, not the production `server.mjs` build: the journeys verify the application, not the production static-serving and `/api` proxy layer, which has its own tests (`frontend/src/__tests__/serverProxy.test.ts`, `serverSecurityHeaders.test.ts`) (#517); incl. a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job (required status check) |
+| Browser / GUI end-to-end | Real Chromium driving the UI (login → family workspace → genome render → in-browser sign-out) against a live backend + datastores. The UI is the **production build served by `server.mjs`**, with its enforcing CSP and `/api` proxy, so the journeys verify what is deployed; a journey fails on any CSP violation, and a spec checks the security headers are sent (#526; until then the Vite dev server was used, #517). The proxy and header code also has unit tests (`frontend/src/__tests__/serverProxy.test.ts`, `serverSecurityHeaders.test.ts`); incl. a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job (required status check) |
 | System / clinical | Concordance vs validated assays | [TF-10](TF-10-performance-evaluation-plan.md) | Performance report TF-11 |
+| Coverage | Unit coverage with per-module floors on the clinical-critical modules; the unit, smoke and e2e coverage combined, with floors for the modules real datastores exercise (#526) | `scripts/check-coverage-floor.py` | CI `backend` job (required); CI `coverage` job (not yet required) |
 | Regression | Full suite re-run on every PR & push to main | CI | Required checks |
 
 **CI enforcement:** the gates run on every PR and on push to `main`, and **ten of them are

@@ -29,19 +29,15 @@ from .clickhouse_family_variants import (
     _fetch_structural_variant_rows,
     _small_variant_present_sample_names,
     _structural_present_sample_names,
-    _structural_record_matches,
 )
+from .clickhouse_variant_queries import _structural_record_matches
 from .data_scope import normalize_chromosome
 from .family_metadata_context import build_family_metadata_context
 from .phased_marker_service import get_family_phased_markers_response
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 from .genotypes import genotype_has_alt
-from .metadata_service import (
-    CurrentUser,
-    get_family_record,
-    list_family_records,
-    update_family_roi_record,
-)
+from .metadata_service import get_family_record, list_family_records, update_family_roi_record
+from .access_control import CurrentUser
 
 GENOMIC_REGION_PATTERN = re.compile(
     r"^(?P<chrom>(?:chr)?[A-Za-z0-9_]+):(?P<start>[0-9,]+)(?:-(?P<end>[0-9,]+))?$",

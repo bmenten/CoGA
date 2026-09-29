@@ -19,7 +19,7 @@ from ..services.hpo_service import (
     import_hpo_ontology,
     search_hpo_terms,
 )
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 
 router = APIRouter(prefix="/hpo", tags=["hpo"])
 

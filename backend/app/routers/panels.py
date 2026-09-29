@@ -20,7 +20,7 @@ from ..schemas import (
     PanelAppImportResponse,
     PanelAppPanelSearchResponse,
 )
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 from ..services.panel_metadata_service import (
     create_panel_data,
     delete_panel_data,

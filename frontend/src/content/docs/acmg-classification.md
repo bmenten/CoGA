@@ -67,7 +67,10 @@ criterion for the exact evidence string behind its state.
 
 The data sources are the `SmallVariant` record (consequence, gnomAD, in-silico,
 ClinVar), the gene profile (ClinGen dosage, GenCC inheritance, gene–phenotype HPO),
-the family genotypes, and the proband's present HPO terms.
+the family genotypes, and the proband's present HPO terms. If the gene profile or the
+HPO terms cannot be loaded, the dialog says so, with a **Retry**. The criteria that read
+them — PVS1, BS2 and PP4 — then say they are *not assessed* and are offered as
+**Consider**. They are never scored as a negative finding.
 
 | Criterion | State | Rule |
 | --- | --- | --- |
@@ -84,7 +87,7 @@ the family genotypes, and the proband's present HPO terms.
 | **PP5** | Applied (Supporting) | ClinVar reports this exact variant pathogenic / likely pathogenic. Flags **BP6** *argues against*. |
 | **BP6** | Applied (Supporting) | ClinVar reports this exact variant benign / likely benign. Flags **PP5** *argues against*. |
 | **PP4** | Applied (Supporting / Moderate) | Phenotype specific for the gene. With a Monarch gene↔proband match score: ≥ 0.6 Moderate, ≥ 0.3 Supporting. Without a score, falls back to direct proband-HPO ∩ gene-HPO overlap at Supporting. Auto-capped at Moderate; raise to Strong manually for a highly specific single-gene phenotype. |
-| **PM6** | Applied (Moderate) | Trio: present in the proband, absent in **both** sequenced parents (assumed de novo; parentage not molecularly confirmed — upgrade to PS2 manually if it is). |
+| **PM6** | Applied (Moderate) | Trio: present in the proband, absent in **both** sequenced parents (assumed de novo; parentage not molecularly confirmed — upgrade to PS2 manually if it is). For a son on chrX or chrY outside the pseudo-autosomal regions, only the parent who passes him that chromosome counts: the mother for the X, the father for the Y. The variant must be absent there, and not called in the other parent. |
 | **PP1** | Consider (Supporting) | Variant carried by ≥ 2 affected family members (cosegregation). |
 | **BS4** | Consider (Strong) | An affected relative does **not** carry the variant (lack of segregation). |
 

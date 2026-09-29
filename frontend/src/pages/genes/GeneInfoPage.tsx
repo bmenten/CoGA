@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
 import PageState from '../../components/PageState';
+import { getErrorMessage } from '../../lib/errorMessage';
 import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { useFamilyReference } from '../../lib/reference';
@@ -765,7 +766,13 @@ const GeneInfoPage: React.FC = () => {
     },
   });
 
-  const { data: profile, isLoading } = useQuery<GeneProfile>({
+  const {
+    data: profile,
+    isLoading,
+    isError: profileFailed,
+    error: profileError,
+    refetch: refetchProfile,
+  } = useQuery<GeneProfile>({
     queryKey: ['gene-profile', geneParam, assemblyParam, familyId, resolvedProjectId],
     enabled: geneParam.trim().length > 0,
     queryFn: async () => {
@@ -1232,7 +1239,19 @@ const GeneInfoPage: React.FC = () => {
         )}
       </section>
 
-      {!profile ? (
+      {profileFailed ? (
+        // It fell back to "Select a human gene", as if none had been chosen (#610).
+        <PageState
+          kicker="Gene"
+          title={`${geneParam.trim()} could not be loaded`}
+          message={getErrorMessage(profileError, 'The gene profile could not be retrieved.')}
+          action={
+            <button type="button" className="button-secondary" onClick={() => void refetchProfile()}>
+              Retry
+            </button>
+          }
+        />
+      ) : !profile ? (
         <PageState
           kicker="Gene"
           title="Select a human gene"

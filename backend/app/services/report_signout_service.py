@@ -35,7 +35,7 @@ from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser
 from .sample_integrity_qc import (
     MIN_MATERNAL_TRANSMISSION_SITES,
     MIN_MENDEL_SITES,

@@ -49,7 +49,7 @@ Run the same gates CI will. These are the fast ones and they catch most of it:
 cd frontend && npm run tsc && npm run lint && npx vitest run
 
 # backend
-python -m pytest -q
+ruff check . && mypy && python -m pytest -q
 
 # repo gates
 ./scripts/check-test-catalogue.sh        # docs/testing.md lists every test file
@@ -63,6 +63,10 @@ Two gates surprise people:
   [docs/testing.md](docs/testing.md), or leave a row for a deleted one.
 - **`handleiding`** fails if you edit a chapter under `docs/handleiding/` without rerunning
   `python docs/handleiding/build_site.py`. It rebuilds the file for you — just commit it.
+
+`npm run lint` also fails when ESLint's warnings exceed the `--max-warnings` budget in
+`frontend/package.json` (today: the remaining `no-explicit-any` hits). When you type one of
+them, lower the budget to match; it never goes up.
 
 ### Branches and commits
 

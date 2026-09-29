@@ -158,7 +158,7 @@ post-import point that clears the ranking cache (`family_package_import.py`).
 - **Cross-type pairs** (`compound_het` analysis): a `_snv_sv_compound_het_pairs(snv_records,
   sv_records, affected, unaffected)` mirroring `_records_form_compound_het_pair`, returning
   pairs with `phase` (trans/cis/unknown) and a `deletion_unmasked` flag.
-- **Schema** (`schemas.py`): `SvSecondHitOut { sv_type, zygosity, count, svs[] }` on
+- **Schema** (`schemas/variants.py`): `SvSecondHitOut { sv_type, zygosity, count, svs[] }` on
   `VariantOut`; `require_sv_second_hit: bool` on the SNV filter; a `SnvSvPairOut` for the
   pair view.
 
@@ -233,7 +233,7 @@ whether or not the SVs are phased.
 - New service: `app/services/sv_gene_index_service.py`
 - SNV integration + cross-type pairs: `app/services/clickhouse_family_variants.py`
   (`get_family_small_variants_page`, new `_snv_sv_compound_het_pairs`)
-- Filters/schemas: `app/services/family_variant_filters.py`, `app/schemas.py`
+- Filters/schemas: `app/services/family_variant_filters.py`, `app/schemas/variants.py`
 - Re-import invalidation: `app/services/family_package_import.py`
 - Frontend: `SmallVariantResults.tsx`, `SmallVariantTable.tsx`, `SmallVariantCards.tsx`,
   `SmallVariantFilterForm.tsx`, `smallVariantSearch.ts`

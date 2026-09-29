@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from './api';
 import type { ApiProjectRecord } from './apiTypes';
@@ -15,6 +15,13 @@ export interface FamilyReferenceContext {
   assemblyValidated?: boolean;
   projectId?: string;
   isLoading: boolean;
+  /**
+   * The project catalogue could not be loaded, so the reference and its validation scope
+   * are unknown. Not "not linked": the family may well be linked, and off scope (#608).
+   */
+  isError: boolean;
+  /** Load the project catalogue again. */
+  retry: () => void;
   hasLinkedProject: boolean;
 }
 
@@ -45,9 +52,13 @@ export function formatResolvedReferenceLabel(
     speciesName?: string;
     assemblyName?: string;
     assemblyVersion?: string;
+    isError?: boolean;
   },
   fallback = 'Reference not linked',
 ): string {
+  if (reference.isError) {
+    return 'Reference could not be loaded';
+  }
   if (!reference.assemblyName) {
     return fallback;
   }
@@ -66,7 +77,10 @@ export function useFamilyReference(
   );
   const linkedProjectIdSet = useMemo(() => new Set(linkedProjectIds), [linkedProjectIds]);
   const enabled = linkedProjectIds.length > 0;
-  const { data: projects = [], isLoading } = useProjectCatalog(enabled);
+  const { data: projects = [], isLoading, isError, refetch } = useProjectCatalog(enabled);
+  const retry = useCallback(() => {
+    void refetch();
+  }, [refetch]);
 
   const project = useMemo(() => {
     if (!enabled || projects.length === 0) {
@@ -105,6 +119,8 @@ export function useFamilyReference(
       assemblyValidated: undefined,
       projectId: undefined as string | undefined,
       isLoading: false,
+      isError: false,
+      retry,
       hasLinkedProject: false,
     };
   }
@@ -117,6 +133,8 @@ export function useFamilyReference(
     assemblyValidated: project ? project.assembly_validated === true : undefined,
     projectId: project?.id,
     isLoading,
+    isError,
+    retry,
     hasLinkedProject: true,
   };
 }

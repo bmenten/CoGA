@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from backend.app.services import small_variant_review_pg
+from backend.app.services import small_variant_review_tags
 
 
 class _FakeResult:
@@ -73,10 +74,10 @@ async def test_get_small_variant_review_map_binds_variant_ids_expanding() -> Non
 
 def test_report_tag_registered_as_default_collaboration_tag() -> None:
     report = next(
-        (tag for tag in small_variant_review_pg.DEFAULT_SMALL_VARIANT_TAGS if tag["key"] == "report"),
+        (tag for tag in small_variant_review_tags.DEFAULT_SMALL_VARIANT_TAGS if tag["key"] == "report"),
         None,
     )
     assert report is not None, "the 'report' default tag should be registered"
     assert report["group"] == "collaboration"
     assert report["label"] == "Report"
-    assert "report" in small_variant_review_pg.DEFAULT_SMALL_VARIANT_TAG_KEYS
+    assert "report" in small_variant_review_tags.DEFAULT_SMALL_VARIANT_TAG_KEYS

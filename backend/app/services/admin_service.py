@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.clickhouse import clickhouse_dataset_key
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
     ClickHouseVariantAssemblyListOut,
@@ -36,7 +37,6 @@ from .clickhouse_variant_storage import (
     delete_family_small_variants,
     delete_family_structural_variants,
     check_clickhouse_variant_integrity,
-    clickhouse_dataset_key,
     ensure_clickhouse_variant_storage_ready,
     get_clickhouse_variant_storage_status,
     list_clickhouse_variant_assemblies,

@@ -144,7 +144,7 @@ def render_vcf() -> str:
     header = [
         "##fileformat=VCFv4.2",
         "##source=CoGANiptDemo",
-        f"##contig=<ID=1>",
+        "##contig=<ID=1>",
         '##INFO=<ID=GENE,Number=1,Type=String,Description="Gene symbol">',
         '##INFO=<ID=EXP_CAT,Number=1,Type=String,Description="Ground-truth NIPT category (1-8, QUAL_DROP, ARTIFACT)">',
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',

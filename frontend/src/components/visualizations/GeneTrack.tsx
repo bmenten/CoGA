@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { select } from "d3-selection";
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
@@ -37,6 +38,15 @@ interface Props {
   regionEnd: number;
 }
 
+const GENE_HEIGHT = 8;
+const LINE_HEIGHT = GENE_HEIGHT + 4;
+
+// How many genes are in view and the first three, in the order drawn (#529).
+const describeGenes = (genes: Gene[]): string => {
+  const names = genes.slice(0, 3).map((gene) => gene.hgnc_symbol).join(", ");
+  return `${genes.length.toLocaleString()} (${names}${genes.length > 3 ? ", …" : ""})`;
+};
+
 const GeneTrack: React.FC<Props> = ({
   assembly,
   chrom,
@@ -60,9 +70,10 @@ const GeneTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
   const genes = useSameSpanFallbackData(
-    isError ? null : rawGenes,
+    rawGenes,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${assembly}|${chrom}`,
+    isError,
   );
 
   const { data: panels } = useQuery<GenePanel[]>({
@@ -84,15 +95,18 @@ const GeneTrack: React.FC<Props> = ({
   }, [panels]);
 
   const regionLength = regionEnd - regionStart;
-  const geneHeight = 8;
-  const lineHeight = geneHeight + 4;
   const geneFill = cssVar("--color-gene-fill");
   const geneStroke = cssVar("--color-gene-stroke");
 
   const { genesWithLines, svgHeight } = useMemo(() => {
     if (!genes) return { genesWithLines: [], svgHeight: 0 };
     const lines: number[] = [];
-    const sortedGenes = genes.slice().sort((a, b) => a.start - b.start);
+    // Only what overlaps the region: while a pan loads, the previous window's genes are
+    // held, and one left of the new window was drawn at its left edge under its own name,
+    // as if that gene lay there (#586; the other interval tracks since #526).
+    const sortedGenes = genes
+      .filter((g) => g.end > regionStart && g.start < regionEnd)
+      .sort((a, b) => a.start - b.start);
     const withLines = sortedGenes.map((g) => {
       const start = Math.max(g.start, regionStart);
       const end = Math.min(g.end, regionEnd);
@@ -101,10 +115,26 @@ const GeneTrack: React.FC<Props> = ({
       lines[lineIndex] = end;
       return { g, start, end, lineIndex };
     });
-    return { genesWithLines: withLines, svgHeight: lines.length * lineHeight + 4 };
+    return { genesWithLines: withLines, svgHeight: lines.length * LINE_HEIGHT + 4 };
   }, [genes, regionStart, regionEnd]);
   const hasGenes = (genes?.length || 0) > 0;
   const containerHeight = Math.max(svgHeight, 24);
+
+  // The track's name for a screen reader (#529): the genes in the region. A failure is
+  // never "none" (#510), and neither is a pan whose window has not arrived yet: the
+  // held genes are named, like they are drawn, only where they lie in the new region.
+  // A view with no width asks for nothing, so it is not "loading" either (#602).
+  const genesInView = genesWithLines.map(({ g }) => g);
+  const geneSummary = isError
+    ? "failed to load"
+    : !hasRegionInView(regionStart, regionEnd)
+      ? NO_REGION_IN_VIEW
+      : genesInView.length > 0
+        ? describeGenes(genesInView)
+        : rawGenes
+          ? "none"
+          : "loading";
+  const ariaLabel = `Genes on ${describeTrackRegion(chrom, regionStart, regionEnd)}: ${geneSummary}`;
 
   useEffect(() => {
     const svg = select(svgRef.current);
@@ -118,7 +148,7 @@ const GeneTrack: React.FC<Props> = ({
       .join("g")
       .attr("transform", (d) => {
         const x = ((d.start - regionStart) / regionLength) * width;
-        const y = 2 + d.lineIndex * lineHeight;
+        const y = 2 + d.lineIndex * LINE_HEIGHT;
         return `translate(${x},${y})`;
       })
       .on("mousemove", function (event, d) {
@@ -145,11 +175,11 @@ const GeneTrack: React.FC<Props> = ({
     groups.each(function (d) {
       const g = select(this);
       const geneWidth = Math.max(((d.end - d.start) / regionLength) * width, 1);
-      const midY = geneHeight / 2;
+      const midY = GENE_HEIGHT / 2;
       if (geneWidth < 6) {
         g.append("rect")
           .attr("width", 6)
-          .attr("height", geneHeight)
+          .attr("height", GENE_HEIGHT)
           .attr("fill", geneStroke);
         return;
       }
@@ -165,7 +195,7 @@ const GeneTrack: React.FC<Props> = ({
       if (!showExons) {
         g.append("rect")
           .attr("width", geneWidth)
-          .attr("height", geneHeight)
+          .attr("height", GENE_HEIGHT)
           .attr("fill", geneFill)
           .attr("stroke", geneStroke);
         g.append("path").attr("d", arrowPath).attr("fill", cssVar("--color-gene-stroke"));
@@ -175,6 +205,18 @@ const GeneTrack: React.FC<Props> = ({
       const exons = d.g.exons
         .filter((e) => e.end > regionStart && e.start < regionEnd)
         .sort((a, b) => a.start - b.start);
+
+      // The gene's whole extent in view, under the exons. Drawn once, it also covers a
+      // view that falls inside an intron: with lines only between neighbouring exons in
+      // view, such a view showed no gene, as if the region were intergenic (#526).
+      g.append("line")
+        .attr("class", "gene-body")
+        .attr("x1", 0)
+        .attr("x2", geneWidth)
+        .attr("y1", midY)
+        .attr("y2", midY)
+        .attr("stroke", geneStroke)
+        .attr("stroke-width", 1);
 
       g.selectAll("rect.exon")
         .data(exons)
@@ -191,39 +233,25 @@ const GeneTrack: React.FC<Props> = ({
           const exonEnd = Math.min(exon.end, regionEnd);
           return Math.max(((exonEnd - exonStart) / regionLength) * width, 1);
         })
-        .attr("height", geneHeight)
+        .attr("height", GENE_HEIGHT)
         .attr("fill", geneStroke);
-
-      g.selectAll("line.intron")
-        .data(exons.slice(0, -1))
-        .enter()
-        .append("line")
-        .attr("class", "intron")
-        .attr("x1", (exon) => {
-          const exonEnd = Math.min(exon.end, regionEnd);
-          return ((exonEnd - regionStart) / regionLength) * width -
-            ((d.start - regionStart) / regionLength) * width;
-        })
-        .attr("x2", (_exon, i) => {
-          const nextStart = Math.max(exons[i + 1].start, regionStart);
-          return ((nextStart - regionStart) / regionLength) * width -
-            ((d.start - regionStart) / regionLength) * width;
-        })
-        .attr("y1", midY)
-        .attr("y2", midY)
-        .attr("stroke", geneStroke)
-        .attr("stroke-width", 1);
 
       g.append("path").attr("d", arrowPath).attr("fill", cssVar("--color-gene-stroke"));
     });
-  }, [genesWithLines, panelMap, width, regionLength, regionStart, regionEnd]);
+  }, [genesWithLines, panelMap, width, regionLength, regionStart, regionEnd, geneFill, geneStroke]);
 
   return (
     <div
       style={{ position: "relative", width, height: containerHeight }}
       className="text-text"
     >
-      <svg ref={svgRef} width={width} height={containerHeight} />
+      <svg
+        ref={svgRef}
+        width={width}
+        height={containerHeight}
+        role="img"
+        aria-label={ariaLabel}
+      />
       {isError && <VizErrorOverlay what="genes" onRetry={() => void refetch()} />}
       {!isError && genes !== null && !hasGenes && (
         <div className="viz-empty-overlay">No genes in this region</div>

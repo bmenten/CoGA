@@ -22,9 +22,9 @@ from ..schemas import (
     VariantCarriersOut,
     VariantExplorerAssemblyOut,
 )
-from ..services.metadata_service import CurrentUser, _is_admin_user
+from ..services.access_control import CurrentUser, is_admin_user
 from ..services.panel_metadata_service import _fetch_panel_genes
-from ..services.small_variant_review_pg import list_small_variant_tag_definitions
+from ..services.small_variant_review_tags import list_small_variant_tag_definitions
 from ..services.variant_explorer_service import (
     GlobalVariantFilters,
     export_global_small_variants,
@@ -48,13 +48,16 @@ def _parse_sample_genotype_filters(values: List[str]) -> list[tuple[str, str]]:
         text_value = str(entry or "").strip()
         if not text_value:
             continue
-        sample, _, mode = text_value.partition(":")
+        # A sample id may itself contain ":" (LAB:1), so the text after the last ":" is
+        # the mode only when it is one; otherwise the whole value is the sample id.
+        sample, separator, mode = text_value.rpartition(":")
+        mode = mode.strip().lower()
+        if not separator or (mode and mode not in _GENOTYPE_MODES):
+            sample, mode = text_value, "het_hom"
         sample = sample.strip()
-        mode = mode.strip().lower() or "het_hom"
+        mode = mode or "het_hom"
         if not sample:
             continue
-        if mode not in _GENOTYPE_MODES:
-            mode = "het_hom"
         parsed.append((sample, mode))
     return parsed
 
@@ -81,7 +84,7 @@ async def list_explorer_tag_definitions(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> List[SmallVariantTagDefinitionOut]:
-    if _is_admin_user(user):
+    if is_admin_user(user):
         return await list_small_variant_tag_definitions(
             session, family_uuid="", project_ids=[], include_all_project_tags=True
         )
@@ -117,6 +120,7 @@ async def _build_global_variant_filters(
     max_gnomad_ac: int | None = None,
     max_gnomad_hom_count: int | None = None,
     max_gnomad_hemi_count: int | None = None,
+    clinvar_overrides_frequency: bool = False,
     min_cadd: float | None = None,
     min_revel: float | None = None,
     min_spliceai: float | None = None,
@@ -165,6 +169,7 @@ async def _build_global_variant_filters(
         max_gnomad_ac=max_gnomad_ac,
         max_gnomad_hom_count=max_gnomad_hom_count,
         max_gnomad_hemi_count=max_gnomad_hemi_count,
+        clinvar_overrides_frequency=clinvar_overrides_frequency,
         min_cadd=min_cadd,
         min_revel=min_revel,
         min_spliceai=min_spliceai,

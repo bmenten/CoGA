@@ -1,4 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import GenomeOverviewWorkspace from '../GenomeOverviewWorkspace';
@@ -63,7 +64,86 @@ const MEMBER = {
   sex: 'male',
 } as const;
 
+/** A workspace whose selected sample mounts no track: the empty or failed states. */
+const renderWithoutTracks = (overrides: Partial<ComponentProps<typeof GenomeOverviewWorkspace>> = {}) =>
+  render(
+    <MemoryRouter>
+      <GenomeOverviewWorkspace
+        familyId="F1"
+        familyDisplayId="F1"
+        speciesName="Homo sapiens"
+        assemblyVersion="p14"
+        assembly="GRCh38"
+        projectId="p1"
+        trackAreaRef={{ current: null }}
+        backDest="/families/F1/structural-variants"
+        visibleRoi={null}
+        genomeRoiRange={null}
+        navigateToChromosome={vi.fn()}
+        familyMembers={[MEMBER]}
+        visibleMembers={[MEMBER]}
+        membersWithData={[]}
+        trackVisibility={{
+          coverage: true,
+          segments: false,
+          apcad: false,
+          sv: false,
+          haplotypes: false,
+          repeatExpansions: false,
+        }}
+        availability={{}}
+        variantFilters={{}}
+        sampleFilterMap={{}}
+        urlMaps={{
+          coverageTrackUrls: () => ({ coverageUrls: [], segmentsUrls: [] }),
+          apcad: {},
+          apcadPcf: {},
+          haplotypes: {},
+          sv: {},
+        }}
+        layout={{ chroms: ['1'], offsets: { '1': 0 }, lengths: { '1': 1000 }, total: 1000 }}
+        trackWidth={1200}
+        trackHeight={120}
+        svTrackHeight={80}
+        showViewerLoading={false}
+        {...overrides}
+      />
+    </MemoryRouter>,
+  );
+
 describe('GenomeOverviewWorkspace', () => {
+  // #607 — which tracks a sample has decides which are mounted: a failed availability
+  // request is not a sample without data.
+  it('says the track availability failed, not that the samples have no data', () => {
+    const retry = vi.fn();
+    renderWithoutTracks({
+      tracksFailure: { what: 'which tracks each sample has', error: new Error('Network Error'), retry },
+    });
+
+    expect(screen.getByText(/Could not load which tracks each sample has — this is not an empty result/)).toBeInTheDocument();
+    expect(screen.queryByText('No data for selected samples')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  // #610 — the chromosome lengths the view is laid out on failed: said by name, in place
+  // of the tracks, instead of loading for good.
+  it('names the request the tracks are waiting on when it is not the availability', () => {
+    renderWithoutTracks({
+      tracksFailure: { what: 'the chromosome lengths', error: new Error('HTTP 500'), retry: vi.fn() },
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "Could not load the chromosome lengths — this is not an empty result. HTTP 500 The samples' tracks are not shown until it loads.",
+    );
+  });
+
+  it('says a sample without tracks has no data once availability is known', () => {
+    renderWithoutTracks();
+
+    expect(screen.getByText('No data for selected samples')).toBeInTheDocument();
+  });
+
   it('keeps whole-chromosome clicks and supports region jumps from chromosome ideograms', () => {
     const navigateToChromosome = vi.fn();
 
@@ -186,6 +266,15 @@ describe('GenomeOverviewWorkspace', () => {
 
     fireEvent.click(screen.getByText('1'));
     expect(navigateToChromosome).toHaveBeenCalledWith('1');
+
+    // The keyboard opens a chromosome too (#529).
+    navigateToChromosome.mockClear();
+    const chromosome = screen.getByRole('button', { name: 'Open chromosome 1' });
+    expect(chromosome).toHaveAttribute('tabindex', '0');
+    fireEvent.keyDown(chromosome, { key: 'Enter' });
+    fireEvent.keyDown(chromosome, { key: ' ' });
+    fireEvent.keyDown(chromosome, { key: 'a' });
+    expect(navigateToChromosome.mock.calls).toEqual([['1'], ['1']]);
   });
 
   it('draws one labelled coverage track per CNV caller', () => {

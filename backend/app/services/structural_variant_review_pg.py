@@ -18,7 +18,7 @@ from ..schemas import (
 )
 from . import cnv_acmg_points
 from .family_metadata_context import FamilyMetadataContext
-from .metadata_service import CurrentUser
+from .access_control import CurrentUser
 from .review_pg_utils import (
     _has_stored_record,
     _lock_review,
@@ -29,7 +29,7 @@ from .review_pg_utils import (
     _normalize_tags,
     _require_uuid,
 )
-from .small_variant_review_pg import list_small_variant_tag_definitions
+from .small_variant_review_tags import list_small_variant_tag_definitions
 
 
 def _normalize_cnv_acmg_payload(

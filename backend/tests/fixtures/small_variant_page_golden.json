@@ -1,0 +1,3534 @@
+{
+ "candidates_capped": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "inheritance": "compound_het",
+      "page": 1,
+      "page_size": 2
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 1001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": []
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 0,
+   "total_is_estimated": true,
+   "unfiltered_total": 42
+  }
+ },
+ "compound_het": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "inheritance": "compound_het",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 1001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 1,
+   "unfiltered_total": 42,
+   "variant_groups": [
+    {
+     "gene": "GENE1",
+     "group_key": "v1::v2",
+     "variants": [
+      {
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 100,
+       "gene": "GENE1",
+       "gene_symbols": [
+        "GENE1"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v1",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 100,
+       "type": "SNV"
+      },
+      {
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 200,
+       "gene": "GENE1",
+       "gene_symbols": [
+        "GENE1"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v2",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 200,
+       "type": "SNV"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "compound_het_alias_second_page": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "inheritance": "compound_het",
+      "page": 2,
+      "page_size": 1
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 1001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": []
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 1,
+   "unfiltered_total": 42
+  }
+ },
+ "count_only": {
+  "calls": [
+   [
+    "_family_has_small_variants",
+    [
+     "<context>"
+    ],
+    {}
+   ]
+  ],
+  "page": {
+   "total": 1
+  }
+ },
+ "every_scope_filter": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_panel_constraints",
+    [
+     "<session>",
+     "panel-1"
+    ],
+    {
+     "assembly_id": "assembly-uuid"
+    }
+   ],
+   [
+    "list_matching_small_variant_review_ids",
+    [
+     "<session>"
+    ],
+    {
+     "classifications": [
+      "Pathogenic - class 5"
+     ],
+     "family_uuid": "family-uuid",
+     "has_notes": false,
+     "tags": null
+    }
+   ],
+   [
+    "list_matching_small_variant_review_ids",
+    [
+     "<session>"
+    ],
+    {
+     "family_uuid": "family-uuid",
+     "tags": [
+      "excluded"
+     ]
+    }
+   ],
+   [
+    "_fetch_gene_regions",
+    [
+     "<session>"
+    ],
+    {
+     "assembly_id": "assembly-uuid",
+     "gene_query": "GENE4"
+    }
+   ],
+   [
+    "_fetch_gene_regions",
+    [
+     "<session>"
+    ],
+    {
+     "assembly_id": "assembly-uuid",
+     "gene_query": "GENE1"
+    }
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "exclude_gene": "GENE4",
+      "exclude_intervals": "1:390-410",
+      "gene": "GENE1",
+      "inheritance": "recessive",
+      "intervals": "1:50-450",
+      "page": 1,
+      "page_size": 10,
+      "panel_id": "panel-1"
+     }
+    ],
+    {
+     "exclude_gene_regions": [
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 510,
+       "start": 490
+      }
+     ],
+     "exclude_gene_terms": [
+      "GENE4"
+     ],
+     "exclude_regions": [
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 410,
+       "start": 390
+      }
+     ],
+     "exclude_variant_ids": [
+      "v3"
+     ],
+     "include_regions": [
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 450,
+       "start": 50
+      },
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 210,
+       "start": 90
+      }
+     ],
+     "include_variant_ids": [
+      "v1",
+      "v2",
+      "v3"
+     ],
+     "limit": 1001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints",
+      "genes": [
+       "GENE1",
+       "GENE2"
+      ],
+      "regions": [
+       {
+        "__type": "Region",
+        "chr": "1",
+        "end": 350,
+        "start": 50
+       }
+      ]
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 1,
+   "unfiltered_total": 42,
+   "variant_groups": [
+    {
+     "gene": "GENE1",
+     "group_key": "v1::v2",
+     "variants": [
+      {
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 100,
+       "gene": "GENE1",
+       "gene_symbols": [
+        "GENE1"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v1",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 100,
+       "type": "SNV"
+      },
+      {
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 200,
+       "gene": "GENE1",
+       "gene_symbols": [
+        "GENE1"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v2",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 200,
+       "type": "SNV"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "expanded_carrier_screening": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "expanded_carrier_screening": true,
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 1001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2",
+      "v3",
+      "v5"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 4,
+   "unfiltered_total": 42,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 200,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v2",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 200,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 500,
+     "gene": "GENE4",
+     "gene_symbols": [
+      "GENE4"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v5",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 500,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
+ "intervals_and_exclusions": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_gene_regions",
+    [
+     "<session>"
+    ],
+    {
+     "assembly_id": "assembly-uuid",
+     "gene_query": "GENE4"
+    }
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "exclude_gene": "GENE4",
+      "exclude_intervals": "1:390-410",
+      "intervals": "1:50-450",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [
+      "GENE4"
+     ],
+     "exclude_regions": [
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 410,
+       "start": 390
+      }
+     ],
+     "exclude_variant_ids": [],
+     "include_regions": [
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 450,
+       "start": 50
+      }
+     ],
+     "include_variant_ids": null,
+     "limit": 11,
+     "offset": 0,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "exclude_gene": "GENE4",
+      "exclude_intervals": "1:390-410",
+      "intervals": "1:50-450",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [
+      "GENE4"
+     ],
+     "exclude_regions": [
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 410,
+       "start": 390
+      }
+     ],
+     "exclude_variant_ids": [],
+     "include_regions": [
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 450,
+       "start": 50
+      }
+     ],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2",
+      "v3",
+      "v4",
+      "v5"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 4,
+   "unfiltered_total": 42,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 200,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v2",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 200,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 400,
+     "gene": "GENE3",
+     "gene_symbols": [
+      "GENE3"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v4",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 400,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 500,
+     "gene": "GENE4",
+     "gene_symbols": [
+      "GENE4"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v5",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 500,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
+ "intervals_blank_lines": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "intervals": " \n \n",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 11,
+     "offset": 0,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "intervals": " \n \n",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2",
+      "v3",
+      "v4",
+      "v5"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 5,
+   "unfiltered_total": 42,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 200,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v2",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 200,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 400,
+     "gene": "GENE3",
+     "gene_symbols": [
+      "GENE3"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v4",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 400,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 500,
+     "gene": "GENE4",
+     "gene_symbols": [
+      "GENE4"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v5",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 500,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
+ "intervals_unparseable": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ]
+  ],
+  "refused": {
+   "detail": "Interval 'not an interval' is not chr:start-end.",
+   "status": 422
+  }
+ },
+ "native_empty_page": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 3,
+      "page_size": 2
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 3,
+     "offset": 4,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 3,
+      "page_size": 2
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 0,
+   "unfiltered_total": 42
+  }
+ },
+ "native_huge_page_is_clamped": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 5002,
+      "page_size": 2
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 3,
+     "offset": 10002,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 5002,
+      "page_size": 2
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 5,
+   "unfiltered_total": 42
+  }
+ },
+ "native_page": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 2
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 3,
+     "offset": 0,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 2
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 5,
+   "unfiltered_total": 42,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 200,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v2",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 200,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
+ "panel_with_regions": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_panel_constraints",
+    [
+     "<session>",
+     "panel-1"
+    ],
+    {
+     "assembly_id": "assembly-uuid"
+    }
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 10,
+      "panel_id": "panel-1"
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 11,
+     "offset": 0,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints",
+      "genes": [
+       "GENE1"
+      ],
+      "regions": [
+       {
+        "__type": "Region",
+        "chr": "1",
+        "end": 250,
+        "start": 50
+       }
+      ]
+     }
+    }
+   ],
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 10,
+      "panel_id": "panel-1"
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints",
+      "genes": [
+       "GENE1"
+      ],
+      "regions": [
+       {
+        "__type": "Region",
+        "chr": "1",
+        "end": 250,
+        "start": 50
+       }
+      ]
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2",
+      "v3",
+      "v4",
+      "v5"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 2,
+   "unfiltered_total": 42,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 200,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v2",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 200,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 400,
+     "gene": "GENE3",
+     "gene_symbols": [
+      "GENE3"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v4",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 400,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 500,
+     "gene": "GENE4",
+     "gene_symbols": [
+      "GENE4"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v5",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 500,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
+ "panel_without_genes_or_regions": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_panel_constraints",
+    [
+     "<session>",
+     "panel-empty"
+    ],
+    {
+     "assembly_id": "assembly-uuid"
+    }
+   ]
+  ],
+  "page": {
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 0
+  }
+ },
+ "prioritized": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_prioritized_small_variants_page",
+    [
+     "<session>"
+    ],
+    {
+     "context": "<context>",
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "excluded_review_variant_ids": [],
+     "filters": {
+      "__type": "SmallVariantQueryFilters",
+      "max_gnomad_af": 0.01,
+      "page": 1,
+      "page_size": 10
+     },
+     "include_regions": [],
+     "include_review_filter_active": false,
+     "page": 1,
+     "page_size": 10,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     },
+     "review_variant_ids": null,
+     "small_variant_summary": {
+      "indel_count": 2,
+      "snv_count": 40,
+      "total_variants": 42
+     }
+    }
+   ]
+  ],
+  "page": {
+   "total": 7
+  }
+ },
+ "prioritized_is_ignored_in_track_mode": {
+  "calls": [
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 3
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v3",
+      "v5"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "total": 0,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 500,
+     "gene": "GENE4",
+     "gene_symbols": [
+      "GENE4"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v5",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 500,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
+ "recessive": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "inheritance": "recessive",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 1001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2",
+      "v3"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 2,
+   "unfiltered_total": 42,
+   "variant_groups": [
+    {
+     "gene": "GENE1",
+     "group_key": "v1::v2",
+     "variants": [
+      {
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 100,
+       "gene": "GENE1",
+       "gene_symbols": [
+        "GENE1"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v1",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 100,
+       "type": "SNV"
+      },
+      {
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 200,
+       "gene": "GENE1",
+       "gene_symbols": [
+        "GENE1"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v2",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 200,
+       "type": "SNV"
+      }
+     ]
+    }
+   ],
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
+ "recessive_with_gene": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_gene_regions",
+    [
+     "<session>"
+    ],
+    {
+     "assembly_id": "assembly-uuid",
+     "gene_query": "GENE1"
+    }
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "gene": "GENE1",
+      "inheritance": "recessive",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [
+      {
+       "__type": "Region",
+       "chr": "1",
+       "end": 210,
+       "start": 90
+      }
+     ],
+     "include_variant_ids": null,
+     "limit": 1001,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 1,
+   "unfiltered_total": 42,
+   "variant_groups": [
+    {
+     "gene": "GENE1",
+     "group_key": "v1::v2",
+     "variants": [
+      {
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 100,
+       "gene": "GENE1",
+       "gene_symbols": [
+        "GENE1"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v1",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 100,
+       "type": "SNV"
+      },
+      {
+       "alt": "G",
+       "chr": "1",
+       "effect": "missense_variant",
+       "end": 200,
+       "gene": "GENE1",
+       "gene_symbols": [
+        "GENE1"
+       ],
+       "genotypes": [
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "PROBAND"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "MOM"
+        },
+        {
+         "dp": 30,
+         "gt": "0/1",
+         "sample": "DAD"
+        },
+        {
+         "dp": 30,
+         "gt": "0/0",
+         "sample": "SIB"
+        }
+       ],
+       "id": "v2",
+       "impact": "MODERATE",
+       "length": 0,
+       "ref": "A",
+       "source": "clair3",
+       "start": 200,
+       "type": "SNV"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "review_filter_without_matches": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "list_matching_small_variant_review_ids",
+    [
+     "<session>"
+    ],
+    {
+     "classifications": null,
+     "family_uuid": "family-uuid",
+     "has_notes": false,
+     "tags": [
+      "report"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 0
+  }
+ },
+ "review_filters": {
+  "calls": [
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "list_matching_small_variant_review_ids",
+    [
+     "<session>"
+    ],
+    {
+     "classifications": null,
+     "family_uuid": "family-uuid",
+     "has_notes": true,
+     "tags": [
+      "report"
+     ]
+    }
+   ],
+   [
+    "list_matching_small_variant_review_ids",
+    [
+     "<session>"
+    ],
+    {
+     "family_uuid": "family-uuid",
+     "tags": [
+      "excluded"
+     ]
+    }
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [
+      "v5"
+     ],
+     "include_regions": [],
+     "include_variant_ids": [
+      "v1",
+      "v3"
+     ],
+     "limit": 11,
+     "offset": 0,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 10
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [
+      "v5"
+     ],
+     "include_regions": [],
+     "include_variant_ids": [
+      "v1",
+      "v3"
+     ],
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2",
+      "v3",
+      "v4",
+      "v5"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 2,
+   "unfiltered_total": 42,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 200,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v2",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 200,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 400,
+     "gene": "GENE3",
+     "gene_symbols": [
+      "GENE3"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v4",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 400,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 500,
+     "gene": "GENE4",
+     "gene_symbols": [
+      "GENE4"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v5",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 500,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
+ "sv_second_hit": {
+  "calls": [
+   [
+    "_ensure_family_sv_gene_index",
+    [
+     "<session>",
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "get_sv_hit_genes",
+    [
+     "<session>"
+    ],
+    {
+     "family_uuid": "family-uuid"
+    }
+   ],
+   [
+    "_fetch_small_variant_summary",
+    [
+     "<context>"
+    ],
+    {}
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 2,
+      "require_sv_second_hit": true,
+      "sv_hit_genes": [
+       "GENE1"
+      ]
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 3,
+     "offset": 0,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 2,
+      "require_sv_second_hit": true,
+      "sv_hit_genes": [
+       "GENE1"
+      ]
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "small_variant_summary": {
+    "indel_count": 2,
+    "snv_count": 40,
+    "total_variants": 42
+   },
+   "total": 5,
+   "unfiltered_total": 42,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 200,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v2",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 200,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
+ "track_limit_empty_region": {
+  "calls": [
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 9
+     }
+    ],
+    {
+     "count_limit": 10,
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10,
+   "total": 0
+  }
+ },
+ "track_limit_estimated": {
+  "calls": [
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 9
+     }
+    ],
+    {
+     "count_limit": 10,
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10,
+   "total": 10,
+   "total_is_estimated": true
+  }
+ },
+ "track_limit_on_a_python_path": {
+  "calls": [],
+  "page": {
+   "count_limit": 50,
+   "total": 50,
+   "total_is_estimated": true
+  }
+ },
+ "track_limit_page": {
+  "calls": [
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 3
+     }
+    ],
+    {
+     "count_limit": 10000,
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 3
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": 3,
+     "offset": 0,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v2",
+      "v3"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "total": 5,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 200,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v2",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 200,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
+    }
+   ]
+  }
+ },
+ "track_limit_reached": {
+  "calls": [
+   [
+    "_count_small_variant_rows_bounded",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 2
+     }
+    ],
+    {
+     "count_limit": 3,
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 3,
+   "total": 3,
+   "total_is_estimated": true
+  }
+ },
+ "track_sampling_without_limit": {
+  "calls": [
+   [
+    "_fetch_small_variant_rows",
+    [
+     "<context>",
+     {
+      "__type": "SmallVariantQueryFilters",
+      "page": 1,
+      "page_size": 3
+     }
+    ],
+    {
+     "exclude_gene_regions": [],
+     "exclude_gene_terms": [],
+     "exclude_regions": [],
+     "exclude_variant_ids": [],
+     "include_regions": [],
+     "include_variant_ids": null,
+     "limit": null,
+     "panel_constraints": {
+      "__type": "PanelFilterConstraints"
+     }
+    }
+   ],
+   [
+    "_hydrate_small_variant_outs",
+    [
+     "<session>"
+    ],
+    {
+     "variants": [
+      "v1",
+      "v3",
+      "v5"
+     ]
+    }
+   ]
+  ],
+  "page": {
+   "count_limit": 10000,
+   "total": 0,
+   "variants": [
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 100,
+     "gene": "GENE1",
+     "gene_symbols": [
+      "GENE1"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/0",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v1",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 100,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 300,
+     "gene": "GENE2",
+     "gene_symbols": [
+      "GENE2"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "1/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v3",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 300,
+     "type": "SNV"
+    },
+    {
+     "alt": "G",
+     "chr": "1",
+     "effect": "missense_variant",
+     "end": 500,
+     "gene": "GENE4",
+     "gene_symbols": [
+      "GENE4"
+     ],
+     "genotypes": [
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "PROBAND"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "MOM"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "DAD"
+      },
+      {
+       "dp": 30,
+       "gt": "0/1",
+       "sample": "SIB"
+      }
+     ],
+     "id": "v5",
+     "impact": "MODERATE",
+     "length": 0,
+     "ref": "A",
+     "source": "clair3",
+     "start": 500,
+     "type": "SNV"
+    }
+   ]
+  }
+ }
+}
