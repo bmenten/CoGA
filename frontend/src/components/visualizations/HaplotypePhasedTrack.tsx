@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
-import { drawHaplotypeRiskOverlay } from '../../lib/haplotypeCanvas';
+import { drawHaplotypeRiskOverlay, haplotypeRiskPattern } from '../../lib/haplotypeCanvas';
+import { segregationStateLabel } from '../../lib/embryoSegregation';
 import {
   defaultHaplotypeRiskRegion,
   diseaseHaplotypeKindForLane,
@@ -20,6 +21,8 @@ import {
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { apiPath } from '../../lib/apiPath';
 
 interface Segment {
@@ -83,6 +86,9 @@ interface PhasedMarkerResponse {
 }
 
 const isDeletedHaplotype = (value: string): boolean => value === '.';
+
+const regionLabel = (chrom: string, start: number, end: number): string =>
+  `${formatChromosomeLabel(chrom)}:${start.toLocaleString()}–${end.toLocaleString()}`;
 
 const laneValue = (value: number | null): string => (value === null ? '.' : String(value));
 
@@ -226,7 +232,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     null,
   );
 
-  const hasRegion = regionEnd > regionStart;
+  const hasRegion = hasRegionInView(regionStart, regionEnd);
 
   const {
     data: rawHaplotypeData,
@@ -267,14 +273,16 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   // back to stale data (#510).
   const fallbackScope = `${familyId}|${chrom}`;
   const haplotypeData = useSameSpanFallbackData(
-    haplotypeError ? null : rawHaplotypeData,
+    rawHaplotypeData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     fallbackScope,
+    haplotypeError,
   );
   const phasedData = useSameSpanFallbackData(
-    markersError ? null : rawPhasedData,
+    rawPhasedData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     fallbackScope,
+    markersError,
   );
   const isLoading = haplotypeLoading && haplotypeData === null;
 
@@ -323,10 +331,11 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     () => haplotypeData?.samples.find((entry) => entry.sample === sampleId)?.segments || [],
     [haplotypeData?.samples, sampleId],
   );
-  const markersFor = (id: string | null): PhasedMarker[] =>
-    id ? phasedData?.samples.find((entry) => entry.sample === id)?.markers || [] : [];
   const markers = useMemo(
-    () => (showMarkers ? markersFor(sampleId) : []),
+    (): PhasedMarker[] =>
+      showMarkers && sampleId
+        ? phasedData?.samples.find((entry) => entry.sample === sampleId)?.markers || []
+        : [],
     [showMarkers, phasedData?.samples, sampleId],
   );
   // Positions the hover tooltip can anchor on: the UNION of every member's marker
@@ -516,7 +525,13 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
           ctx.stroke();
         }
         const riskKind = laneRiskKind(seg, lane);
-        if (riskKind) drawHaplotypeRiskOverlay(ctx, x1, y, w, BAND_THICKNESS, riskColors[riskKind]);
+        // The band is thin, so the risk line goes just below it and the band stays whole.
+        if (riskKind) {
+          drawHaplotypeRiskOverlay(ctx, x1, y, w, BAND_THICKNESS, riskColors[riskKind], {
+            pattern: haplotypeRiskPattern(riskKind),
+            placement: 'below',
+          });
+        }
       });
     });
 
@@ -578,6 +593,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
         MARKER_WIDTH,
         markerHalfHeight * 2,
         riskColors[kind],
+        { pattern: haplotypeRiskPattern(kind) },
       );
     };
     markers.forEach((marker) => {
@@ -730,8 +746,33 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     });
   };
 
-  // A failed load has no risk state — not "uninformative", which is a real outcome.
-  const shownRiskState = haplotypeError ? 'unavailable' : riskState;
+  // A failed load has no risk state — not "uninformative", which is a real outcome — and
+  // a view with no width asks for nothing, so it assessed none (#602).
+  const shownRiskState = haplotypeError ? 'unavailable' : !hasRegion ? 'not_assessed' : riskState;
+
+  // The accessible name: whose haplotypes, where, and the risk state the track's border
+  // shows — assessed at the ROI when there is one. A load in flight claims no risk state
+  // and a failed one says so (#510, #529).
+  const trackLabel = (() => {
+    const subject = `Haplotypes of ${sampleId} on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
+    if (haplotypeError) return `${subject}: failed to load; risk state: unavailable`;
+    if (!hasRegion) return `${subject}: ${NO_REGION_IN_VIEW}; risk state: not assessed`;
+    if (isLoading) return `${subject}: loading`;
+    const riskScope = riskRegion
+      ? ` at ${regionLabel(riskRegion.chr || chrom, riskRegion.start, riskRegion.end)}`
+      : '';
+    const markerNote = !showMarkers
+      ? ''
+      : markersError
+        ? '; phased markers failed to load'
+        : markersTruncated
+          ? '; phased markers hidden, too many sites'
+          : '';
+    return (
+      `${subject}${hasSegments ? '' : ': no data'}` +
+      `; risk state${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}${markerNote}`
+    );
+  })();
 
   return (
     <div
@@ -742,7 +783,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       <canvas
         ref={canvasRef}
         className={showMarkers && !markersTruncated ? 'cursor-pointer' : undefined}
-        aria-label={`Haplotype risk state: ${shownRiskState}`}
+        role="img"
+        aria-label={trackLabel}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setTooltip(null)}
       />
@@ -750,7 +792,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       {haplotypeError && (
         <VizErrorOverlay what="haplotypes" onRetry={() => void refetchHaplotypes()} />
       )}
-      {!isLoading && !haplotypeError && !hasSegments && (
+      {hasRegion && !isLoading && !haplotypeError && !hasSegments && (
         <div className="viz-empty-overlay">No haplotype data in this region</div>
       )}
       {showMarkers && markersError && !haplotypeError && (

@@ -137,6 +137,14 @@ Check backend env inside the container:
 docker exec coga-backend-1 printenv | egrep '^(POSTGRES_|CLICKHOUSE_|SECRET_KEY|READS_PATH|REFERENCE_)'
 ```
 
+## Upgrading a local ClickHouse volume
+
+When the ClickHouse image changes (25.3 → 26.8 LTS in #524), the next `docker compose up`
+upgrades the `clickhouse_data` volume in place, and the previous image is not guaranteed to
+read it afterwards. Stop the stack cleanly first (`docker compose stop`; the ClickHouse
+service has a five-minute stop grace period so it can finish merging). The local data is
+synthetic and can be re-imported; to keep it anyway, copy the volume before upgrading.
+
 ## Storage Notes
 
 - Metadata issues usually come from Postgres schema or bad UUID references.

@@ -1,14 +1,39 @@
 import { defineConfig } from '@playwright/test';
 
 // Browser end-to-end (M6). Drives a real Chromium against a real running stack:
-// a uvicorn backend + the Vite dev server (which proxies /api to the backend).
+// a uvicorn backend plus the production frontend server (server.mjs serving the built
+// bundle, with its CSP and /api proxy), so the journeys exercise what is deployed (#526).
 // Seed the data first (golden trio + a known e2e user):
 //   RUN_INTEGRATION=1 python scripts/seed_playwright_e2e.py
 // then: npx playwright test   (locally pass E2E_PYTHON=/path/to/python with deps).
+// E2E_FRONTEND=dev runs the journeys against the Vite dev server instead (no build, no
+// CSP), and E2E_BACKEND_PORT moves the backend off 8000 when that port is taken.
 
-const BACKEND = 'http://127.0.0.1:8000';
-const FRONTEND_PORT = 5173;
+const BACKEND_PORT = Number(process.env.E2E_BACKEND_PORT || 8000);
+const BACKEND = `http://127.0.0.1:${BACKEND_PORT}`;
+const DEV_FRONTEND = process.env.E2E_FRONTEND === 'dev';
+const FRONTEND_PORT = DEV_FRONTEND ? 5173 : 4173;
 const PY = process.env.E2E_PYTHON || 'python';
+
+const frontendServer = DEV_FRONTEND
+  ? {
+      // Bind IPv4 explicitly: vite defaults to localhost (often ::1), which the
+      // 127.0.0.1 readiness probe / baseURL can't reach.
+      command: `npm run dev -- --port ${FRONTEND_PORT} --strictPort --host 127.0.0.1`,
+      url: `http://127.0.0.1:${FRONTEND_PORT}`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+      env: { VITE_DEV_API_PROXY_TARGET: BACKEND },
+    }
+  : {
+      // The production path: build the bundle, then serve it with server.mjs, which sends
+      // the enforcing CSP and proxies /api to the backend.
+      command: 'npm run build && node server.mjs',
+      url: `http://127.0.0.1:${FRONTEND_PORT}/login`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 240_000,
+      env: { PORT: String(FRONTEND_PORT), BACKEND_URL: BACKEND },
+    };
 
 export default defineConfig({
   testDir: './e2e',
@@ -30,7 +55,7 @@ export default defineConfig({
     {
       // Backend reads Postgres/ClickHouse creds from .env; we override APP_ENV +
       // the bootstrap flags so startup stays light (no reference/HPO/gene loads).
-      command: `${PY} -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000`,
+      command: `${PY} -m uvicorn backend.app.main:app --host 127.0.0.1 --port ${BACKEND_PORT}`,
       cwd: '..',
       url: `${BACKEND}/api/health`,
       reuseExistingServer: !process.env.CI,
@@ -42,14 +67,6 @@ export default defineConfig({
         GENE_REFERENCE_BOOTSTRAP_ON_STARTUP: 'false',
       },
     },
-    {
-      // Bind IPv4 explicitly: vite defaults to localhost (often ::1), which the
-      // 127.0.0.1 readiness probe / baseURL can't reach.
-      command: `npm run dev -- --port ${FRONTEND_PORT} --strictPort --host 127.0.0.1`,
-      url: `http://127.0.0.1:${FRONTEND_PORT}`,
-      reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
-      env: { VITE_DEV_API_PROXY_TARGET: BACKEND },
-    },
+    frontendServer,
   ],
 });

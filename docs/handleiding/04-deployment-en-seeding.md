@@ -12,7 +12,7 @@ CoGA bestaat uit vier onderdelen die als aparte containers draaien: een PostgreS
 
 `docker-compose.yml` definieert de vier `services` (`postgres`, `clickhouse`, `backend`, `frontend`). Een paar bewuste keuzes zijn hier relevant voor traceerbaarheid en robuustheid:
 
-- **Vastgepinde image-versies.** Zowel `postgres:16` als `clickhouse/clickhouse-server:25.3` zijn niet alleen met een tag maar met een **digest** (`@sha256:...`) vastgelegd. Zo haalt elke machine exact hetzelfde image binnen — een pijler onder reproduceerbaarheid.
+- **Vastgepinde image-versies.** Zowel `postgres:16` als `clickhouse/clickhouse-server:26.8` zijn niet alleen met een tag maar met een **digest** (`@sha256:...`) vastgelegd. Zo haalt elke machine exact hetzelfde image binnen — een pijler onder reproduceerbaarheid.
 - **Health checks + startvolgorde.** De `backend` start pas nadat Postgres en ClickHouse `service_healthy` zijn (`depends_on`), en de `frontend` pas nadat de backend gezond is. De backend-healthcheck (een `python`-oproep naar `/api/health`, want er zit geen `curl` in het image) krijgt een ruime `start_period: 90s` omdat het opstarten het schema aanmaakt en de referentiedata seedt (zie verderop).
 - **Nette afsluiting van ClickHouse.** De `clickhouse`-service krijgt `stop_grace_period: 5m`. Een commentaarregel in het bestand legt uit waarom: bij een te korte afsluittermijn kan ClickHouse midden in een flush/merge worden gedood (`SIGKILL`), wat tot corrupte data-onderdelen ("parts") leidt bij de volgende boot.
 - **Build-identiteit als build-arg.** De backend-image wordt gebouwd met `APP_VERSION` en `GIT_SHA` als build-args (onder `backend.build.args`). `.env.example` waarschuwt expliciet dat je die *niet* in `.env` mag zetten: `docker-compose`'s `env_file: .env` zou dan de in het image ingebakken versie overschrijven en zo de versie *vervalsen* die in elk ondertekend rapport wordt bevroren.
@@ -49,14 +49,14 @@ Het `.env.example`-bestand levert de sjabloonwaarden (met `APP_ENV=production` e
 
 ### Postgres: genummerde schemabestanden, in volgorde
 
-De Postgres-structuur zit niet in code maar in losse SQL-bestanden onder `backend/db/schema/postgres/`, genummerd van `001_metadata.sql` tot en met `042_gene_search_indexes.sql`. De functie `init_postgres_schema` (in `backend/app/core/postgres.py`) haalt die bestanden op via de helper `_schema_files`, die ze **numeriek/alfabetisch sorteert** (`sorted(schema_dir.glob("*.sql"))`), splitst elk bestand in losse statements en voert ze uit binnen één transactie.
+De Postgres-structuur zit niet in code maar in vijf SQL-baseline-bestanden onder `backend/db/schema/postgres/`, `01_access.sql` tot en met `05_grants.sql` (sinds #373; daarvoor 43 genummerde migratiebestanden). De functie `init_postgres_schema` (in `backend/app/core/postgres.py`) haalt die bestanden op via de helper `_schema_files`, die ze **numeriek/alfabetisch sorteert** (`sorted(schema_dir.glob("*.sql"))`), splitst elk bestand in losse statements en voert ze uit binnen één transactie.
 
 Twee subtiliteiten:
 
 - De splitser `_split_sql_script` is bewust "dollar-quote-bewust": een puntkomma binnen een PL/pgSQL-functielichaam (`$$ ... $$` of `$tag$ ... $tag$`, bijvoorbeeld in de append-only audit-trigger) breekt een statement niet voortijdig af.
-- Alle DDL in `001_metadata.sql` gebruikt `CREATE TABLE IF NOT EXISTS`, dus het opnieuw draaien is idempotent — het schema wordt bij élke opstart opnieuw toegepast en dat is veilig.
+- Alle DDL in de baseline-bestanden gebruikt `CREATE TABLE IF NOT EXISTS`, dus het opnieuw draaien is idempotent — het schema wordt bij élke opstart opnieuw toegepast en dat is veilig.
 
-Het eerste bestand `001_metadata.sql` legt de kern vast: onder meer de tabellen `users`, `species`, `assemblies`, `projects`, `families`, `samples`, `chromosomes`, `genes` en `gene_info`. (De databankstructuren zelf worden in detail behandeld in [hoofdstuk 3](03-databankstructuren.md).)
+Het eerste bestand `01_access.sql` legt de kern vast: `species`, `assemblies` en `chromosomes`, plus `users`, `projects` en `project_users`; `families`, `samples`, `genes` en `gene_info` volgen in `02_reference.sql` en `03_assay.sql`. (De databankstructuren zelf worden in detail behandeld in [hoofdstuk 3](03-databankstructuren.md).)
 
 **Waar in de code:** `init_postgres_schema`, `_schema_files` en `_split_sql_script` in `backend/app/core/postgres.py`; de SQL-bronbestanden in `backend/db/schema/postgres/`.
 
@@ -77,9 +77,11 @@ Er is een bewuste scheiding tussen wie het schema mag aanmaken en wie de app dra
 
 Het bestand `backend/app/db_migrate.py` bevat de eigenaar-bevoorrechte helft: `run_schema_migrations` roept `wait_for_postgres`, `init_postgres_schema` en `init_postgres_admin_user` aan. Beide paden gebruiken **dezelfde** helperfuncties, dus er is één bron van waarheid voor het schema. ClickHouse blijft altijd bij het app-opstartpad, omdat het met eigen admin-credentials verbindt en geen `coga_app`-equivalent kent.
 
+Is `POSTGRES_APP_PASSWORD` gezet, dan zet `run_schema_migrations` na het schema ook de login van `coga_app` aan (`enable_app_role_login`). Het wachtwoord zelf gaat daarbij niet naar de server: `scram_sha256_verifier` berekent eerst de SCRAM-SHA-256-verifier, zoals `\password` in `psql` dat doet, en Postgres zet die zelf tussen aanhalingstekens in `ALTER ROLE` (`quote_literal`). Er wordt dus niets in SQL-tekst geplakt, en het klare wachtwoord komt in geen enkele logregel terecht. Op Google Cloud draait dit pad als de Cloud Run-job `coga-db-migrate` (`terraform/migrate.tf`), zodra `db_runtime_role = "coga_app"`.
+
 De docstring bovenaan `db_migrate.py` en de commentaren in `main.py` verwijzen voor de gecoördineerde "flip" naar `docs/db-runtime-role-runbook.md`.
 
-**Waar in de code:** `run_schema_migrations` en `main()` in `backend/app/db_migrate.py`; de schakelaar `postgres_run_schema_migrations_on_startup` in `backend/app/core/config.py`; de bewaking bij opstart in de `lifespan`-functie van `backend/app/main.py`.
+**Waar in de code:** `run_schema_migrations`, `enable_app_role_login`, `scram_sha256_verifier` en `main()` in `backend/app/db_migrate.py`; de instellingen `postgres_run_schema_migrations_on_startup` en `postgres_app_password` in `backend/app/core/config.py`; de bewaking bij opstart in de `lifespan`-functie van `backend/app/main.py`; de Cloud Run-job in `terraform/migrate.tf`.
 
 ## Seeding: admin, referentiegenoom en referentiedata
 

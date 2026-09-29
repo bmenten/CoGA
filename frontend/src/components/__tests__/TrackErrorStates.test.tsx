@@ -92,6 +92,66 @@ describe('GenomeHaplotypeTrack', () => {
     expect(await screen.findByText('No haplotype data')).toBeInTheDocument();
     expect(trackFetchMock).toHaveBeenCalledTimes(2);
   });
+
+  // #529: the canvas is a named image — whose haplotypes, where, and the risk state its
+  // border shows, with where that state was assessed.
+  it('is named with whose haplotypes, where, and where the risk state was assessed (#529)', async () => {
+    trackFetchMock.mockResolvedValue({
+      samples: [{ sample: 'E1', segments: [{ chr: '1', start: 0, end: 500, hap1: 'A', hap2: 'B' }] }],
+    });
+    const props = {
+      urls: ['/api/families/F1/haplotypes/batch?chr=1', '/api/families/F1/haplotypes/batch?chr=2'],
+      sampleId: 'E1',
+      role: 'child',
+      affected: false,
+      layout: LAYOUT,
+      chroms: ['1', '2'],
+    };
+    const { unmount } = renderWithClient(
+      <GenomeHaplotypeTrack {...props} riskRegion={{ chr: '2', start: 100, end: 200 }} />,
+    );
+    expect(
+      await screen.findByRole('img', {
+        name: 'Haplotypes of E1 across 2 chromosomes; risk state at chr2:100–200: uninformative',
+      }),
+    ).toBeInTheDocument();
+    unmount();
+
+    // Without an ROI no risk state is assessed: it used to be chr1's, whatever the
+    // disorder's locus (#588).
+    const { container } = renderWithClient(<GenomeHaplotypeTrack {...props} />);
+    expect(
+      await screen.findByRole('img', {
+        name: 'Haplotypes of E1 across 2 chromosomes; risk state: not assessed, no region of interest',
+      }),
+    ).toBeInTheDocument();
+    expect(container.querySelector('[data-risk-state]')?.getAttribute('data-risk-state')).toBe('not_assessed');
+  });
+
+  it('never names a failed or empty track by a risk state it does not have (#529, #510)', async () => {
+    trackFetchMock.mockRejectedValueOnce(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+    trackFetchMock.mockResolvedValue({ samples: [] });
+    renderWithClient(
+      <GenomeHaplotypeTrack
+        urls={['/api/families/F1/haplotypes/batch?chr=1']}
+        sampleId="E1"
+        role="child"
+        affected={false}
+        layout={LAYOUT}
+        chroms={['1']}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('img', { name: 'Haplotypes of E1 on chr1: failed to load; risk state: unavailable' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(
+      await screen.findByRole('img', {
+        name: 'Haplotypes of E1 on chr1: no data; risk state: not assessed, no region of interest',
+      }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('SvTrack', () => {
@@ -113,6 +173,10 @@ describe('BlacklistTrack', () => {
 
     expect(await screen.findByText(/Could not load blacklist regions/)).toBeInTheDocument();
     expect(screen.queryByText(/No blacklist regions in this region/)).not.toBeInTheDocument();
+    // Nor does its name for a screen reader say "none" (#529).
+    expect(
+      screen.getByRole('img', { name: 'Blacklist regions on chr1:0–1,000: failed to load' }),
+    ).toBeInTheDocument();
   });
 
   it('still shows a genuinely empty region as empty', async () => {
@@ -123,5 +187,21 @@ describe('BlacklistTrack', () => {
 
     await waitFor(() => expect(screen.getByText(/No blacklist regions in this region/)).toBeInTheDocument());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Blacklist regions on chr1:0–1,000: none' })).toBeInTheDocument();
+  });
+
+  it('names how many regions it draws for a screen reader, and says so while loading (#529)', async () => {
+    apiGetMock.mockResolvedValue({
+      data: [
+        { start: 100, end: 200, label: 'High Signal Region' },
+        { start: 400, end: 500, label: 'Low Mappability' },
+      ],
+    });
+    renderWithClient(
+      <BlacklistTrack assembly="GRCh38" chrom="1" width={200} height={20} regionStart={0} regionEnd={1000} />,
+    );
+
+    expect(screen.getByRole('img', { name: 'Blacklist regions on chr1:0–1,000: loading' })).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: 'Blacklist regions on chr1:0–1,000: 2' })).toBeInTheDocument();
   });
 });

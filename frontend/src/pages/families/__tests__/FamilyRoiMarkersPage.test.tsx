@@ -103,6 +103,48 @@ beforeEach(() => {
 });
 
 describe('FamilyRoiMarkersPage', () => {
+  // #607 — a failed request is not an uninformative ROI, nor a family without one.
+  describe('when a request fails', () => {
+    const failing = (matches: (url: string) => boolean) => {
+      const working = (api.get as Mock).getMockImplementation()!;
+      (api.get as Mock).mockImplementation((url: string, config?: unknown) =>
+        matches(url)
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : working(url, config),
+      );
+    };
+
+    it('says the markers failed to load, not that the ROI holds no informative markers', async () => {
+      failing((url) => url.endsWith('/phased-markers'));
+      renderPage();
+
+      expect(await screen.findByText(/Could not load the phased markers at the ROI — this is not an empty result/)).toHaveTextContent(
+        /Which markers are informative for the embryos is unknown/,
+      );
+      expect(screen.queryByText(/markers in view/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/informative for embryos$/)).not.toBeInTheDocument();
+    });
+
+    it('says the haplotype blocks failed to load, instead of leaving the bands uncoloured unsaid', async () => {
+      failing((url) => url.endsWith('/haplotypes'));
+      renderPage();
+
+      expect(await screen.findByText(/Could not load the haplotype blocks at the ROI/)).toHaveTextContent(
+        /The markers are not coloured by the inherited haplotype/,
+      );
+      // The markers themselves loaded, and are shown.
+      expect(screen.getByText(/markers in view/)).toBeInTheDocument();
+    });
+
+    it('says the family failed to load, not that it has no region of interest', async () => {
+      failing((url) => url === '/families/co1');
+      renderPage();
+
+      expect(await screen.findByText('Family could not be loaded')).toBeInTheDocument();
+      expect(screen.queryByText('No region of interest')).not.toBeInTheDocument();
+    });
+  });
+
   it('opens on the ROI with two homolog bands per member and an orange ROI line', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(/ROI marker review/)).toBeTruthy());

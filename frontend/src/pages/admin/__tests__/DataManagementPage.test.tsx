@@ -233,6 +233,22 @@ describe('DataManagementPage', () => {
     );
   });
 
+  it('cancels the family deletion on Escape, with focus starting in the name field (#529)', async () => {
+    mockResponses();
+    renderPage();
+
+    await selectFamily();
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete entire family' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Delete family F1' });
+    expect(document.activeElement).toBe(screen.getByPlaceholderText('F1'));
+    fireEvent.change(screen.getByPlaceholderText('F1'), { target: { value: 'F1' } });
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(dialog).not.toBeInTheDocument();
+    expect(api.delete).not.toHaveBeenCalled();
+  });
+
   it('invalidates shared project and family catalogs after saving family project access', async () => {
     mockResponses();
     (api.put as unknown as Mock).mockResolvedValue({ data: { ok: true } });

@@ -5,7 +5,9 @@ the exact deployed shape of the DSN flip (docs/db-runtime-role-runbook.md):
 
 1. Schema migrations run **out-of-band as the owner** (``run_schema_migrations`` — the
    ``python -m backend.app.db_migrate`` entrypoint), creating ``coga_app`` and its REVOKEs.
-2. ``coga_app`` is given a login (owner-only step).
+2. The same migration gives ``coga_app`` a login from ``POSTGRES_APP_PASSWORD``, as the
+   Google Cloud db-migrate job does. It stores a SCRAM verifier, not the password, so the
+   login below also proves that verifier matches the password the app then sends.
 3. The app is repointed at ``coga_app`` with ``POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP``
    disabled, and booted through its real lifespan. It must start and serve **without**
    attempting owner-only DDL (which would crash-loop, the gap codex flagged).
@@ -36,27 +38,15 @@ def test_app_boots_and_serves_as_restricted_coga_app_role(monkeypatch) -> None:
     from backend.app.core.config import settings
     from backend.app.core.postgres import (
         close_postgres_engine,
-        get_postgres_engine,
         get_postgres_sessionmaker,
     )
     from backend.app.db_migrate import run_schema_migrations
 
-    # 1) Owner path: apply the schema (creates coga_app NOLOGIN + the append-only REVOKEs)
-    #    and seed the admin user. This is what the deploy pipeline runs as the owner.
+    # 1) + 2) Owner path, as the deploy pipeline runs it: apply the schema (creates coga_app
+    #    NOLOGIN + the append-only REVOKEs), seed the admin user, and enable coga_app's login
+    #    from POSTGRES_APP_PASSWORD.
+    monkeypatch.setattr(settings, "postgres_app_password", _APP_ROLE_PASSWORD)
     asyncio.run(run_schema_migrations())
-
-    # 2) Grant coga_app a login so the app can connect directly as it (owner-only step).
-    async def _enable_coga_app_login() -> None:
-        engine = get_postgres_engine()
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text(f"ALTER ROLE coga_app WITH LOGIN PASSWORD '{_APP_ROLE_PASSWORD}'")
-                )
-        finally:
-            await close_postgres_engine()
-
-    asyncio.run(_enable_coga_app_login())
 
     # 3) The deployed flip: connect as coga_app and do NOT run schema migrations on startup.
     monkeypatch.setattr(settings, "postgres_user", "coga_app")

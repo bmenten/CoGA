@@ -11,6 +11,7 @@ import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import GenomeRepeatExpansionTrack from '../../components/visualizations/GenomeRepeatExpansionTrack';
 import Ideogram from '../../components/visualizations/Ideogram';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
+import QueryFailure from '../../components/QueryFailure';
 import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import type { GenomeTrackVisibility } from './GenomeOverviewSidebar';
@@ -87,6 +88,10 @@ interface GenomeOverviewWorkspaceProps {
   trackHeight: number;
   svTrackHeight: number;
   showViewerLoading: boolean;
+  /** A request the tracks need failed: which tracks each sample has (#607), or the
+   * chromosome lengths the view is laid out on (#610). The tracks are not mounted, and that
+   * is not "no data". `what` names what could not be loaded. */
+  tracksFailure?: { what: string; error: unknown; retry: () => void } | null;
 }
 
 const MIN_REGION_SELECT_WIDTH_PX = 5;
@@ -188,6 +193,9 @@ const GenomeRegionSelectionSurface: React.FC<{
   };
 
   return (
+    // Drag-to-select is a pointer shortcut. The keyboard route to the same region is the
+    // chromosome strip below the tracks: each chromosome opens with Enter.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       data-testid={testId}
       className="relative"
@@ -257,6 +265,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
   trackHeight,
   svTrackHeight,
   showViewerLoading,
+  tracksFailure = null,
 }) => {
   const roiTitle = visibleRoi ? `ROI: ${visibleRoi.label}` : undefined;
   const referenceLabel = formatResolvedReferenceLabel(
@@ -382,6 +391,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                           testId={`genome-region-select-apcad-${member.sample_id}`}
                         >
                           <ApcadChart
+                            sampleId={member.sample_id}
                             maxValue={apcadAxisMax(availability[member.sample_id]?.apcadSources)}
                             apcadUrls={urlMaps.apcad[member.sample_id]}
                             pcfUrls={
@@ -512,7 +522,18 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
           {membersWithData.length === 0 && !showViewerLoading && visibleMembers.length === 0 && (
             <p className="analysis-count">No samples selected</p>
           )}
-          {membersWithData.length === 0 && !showViewerLoading && visibleMembers.length > 0 && (
+          {tracksFailure ? (
+            <QueryFailure
+              what={tracksFailure.what}
+              error={tracksFailure.error}
+              onRetry={tracksFailure.retry}
+              consequence="The samples' tracks are not shown until it loads."
+            />
+          ) : null}
+          {membersWithData.length === 0 &&
+            !showViewerLoading &&
+            visibleMembers.length > 0 &&
+            !tracksFailure && (
             <p className="analysis-count">No data for selected samples</p>
           )}
         </section>
@@ -530,11 +551,20 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                   const width = (layout.lengths[chrom] / layout.total) * trackWidth;
                   const left = (layout.offsets[chrom] / layout.total) * trackWidth;
                   return (
+                    // A button to the keyboard as well as the pointer (#529).
                     <div
                       key={chrom}
-                      className="absolute cursor-pointer"
+                      className="absolute cursor-pointer genome-overview-chrom"
                       style={{ width, left }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open chromosome ${chrom}`}
                       onClick={() => handleChromosomeClick(chrom)}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        navigateToChromosome(chrom);
+                      }}
                     >
                       <Ideogram
                         assembly={assembly}

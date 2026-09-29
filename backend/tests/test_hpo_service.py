@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend.app.services.family_package_import import validate_family_package
+from backend.app.services.family_package_validation import validate_family_package
 from backend.app.services import hpo_service
 from backend.app.services.hpo_service import (
     compute_hpo_closure,
@@ -539,9 +539,9 @@ def test_family_package_validation_accepts_hpo_phenotype_manifest(
 ) -> None:
     # Clear the configured import roots (now defaulting to /data/families) so the
     # path guard does not reject this temp package.
-    from backend.app.services import family_package_import as fpi
+    from backend.app.core.config import settings
 
-    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
+    monkeypatch.setattr(settings, "family_import_roots", [])
     package = tmp_path / "FAMHPO"
     package.mkdir()
     (package / "family.ped").write_text(

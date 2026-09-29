@@ -96,6 +96,9 @@ const formatTimestamp = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 };
 
+// One empty list, so the memo and effect below see a stable value before data arrive.
+const NO_DISEASES: MonarchSearchDisease[] = [];
+
 const MonarchDataAdminPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<{
@@ -147,7 +150,7 @@ const MonarchDataAdminPage: React.FC = () => {
     setAppliedSearch(trimmed);
   };
 
-  const diseases = searchQuery.data?.diseases ?? [];
+  const diseases = searchQuery.data?.diseases ?? NO_DISEASES;
   const geneOverview = searchQuery.data?.gene_overview ?? null;
   const selectedDisease = useMemo(
     () => diseases.find((disease) => disease.mondo_id === selectedMondoId) ?? diseases[0] ?? null,

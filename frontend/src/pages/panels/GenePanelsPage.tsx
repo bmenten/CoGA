@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
 import type { GeneLocation, GenePanel } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
+import QueryFailure from '../../components/QueryFailure';
 
 interface PanelAppPanelSummary {
   panelapp_id: number;
@@ -39,7 +40,7 @@ const apiErrorMessage = (err: any, fallback: string) => {
 };
 
 const GenePanelsPage: React.FC = () => {
-  const { data: panels, refetch } = useQuery<GenePanel[]>({
+  const { data: panels, refetch, isError: panelsFailed, error: panelsError } = useQuery<GenePanel[]>({
     queryKey: ['panels'],
     queryFn: async () => {
       const res = await api.get('/panels');
@@ -402,6 +403,10 @@ const GenePanelsPage: React.FC = () => {
             className="panel-search-input"
           />
         </div>
+        {/* A failed catalogue is not an empty one: the table used to show no rows unsaid (#610). */}
+        {panelsFailed ? (
+          <QueryFailure what="the gene panels" error={panelsError} onRetry={() => void refetch()} />
+        ) : null}
         <div className="data-table-shell overflow-x-auto">
           <table className="analysis-table">
             <thead>

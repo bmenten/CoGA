@@ -95,7 +95,7 @@ are not installed in the production image, and the non-blocking dev-tree audit r
 | Component | Version | Function | Risk |
 | --- | --- | --- | --- |
 | PostgreSQL | 16 — compose and CI pinned by digest (`postgres:16@sha256:fe03a76…`); Cloud SQL `POSTGRES_16` | Metadata, review state, audit, sign-out | H |
-| ClickHouse | 25.3 — compose, CI and the Terraform VM pinned by digest (`clickhouse-server:25.3@sha256:b627d7a…`) | Variant & interval-track store | H |
+| ClickHouse | 26.8 LTS (26.8.14.3) — compose, CI and the Terraform VM pinned by digest (`clickhouse-server:26.8@sha256:4769eec…`) | Variant & interval-track store | H |
 | Backend base image | `python:3.12-slim@sha256:f77ac9e…` (Python 3.12.14) | Runtime packaging | M |
 | Frontend base image | `node:22-alpine@sha256:16e22a5…` | Runtime packaging | M |
 
@@ -113,7 +113,7 @@ The platforms the device runs on are SOUP too. Their support status, as of 2026-
 | Platform | Version | Where | Support status | Action |
 | --- | --- | --- | --- | --- |
 | Python | 3.12 | backend image, CI | Supported (security fixes until October 2028) | Moved from 3.10, which reached end of life in October 2026 (#523) |
-| ClickHouse | 25.3 LTS | compose, CI, Terraform VM | **Out of support** (the 25.3 LTS line was supported for one year from March 2025) | Upgrade to the 26.8 LTS line, tracked in #524 |
+| ClickHouse | 26.8 LTS | compose, CI, Terraform VM | Supported (the 26.8 LTS line until 2027-08-27) | Moved from 25.3 LTS, out of support since 2026-03-20 (#524) |
 | PostgreSQL | 16 | compose, CI, Cloud SQL | Supported (until November 2028) | — |
 | Node.js | 22 LTS | frontend image, CI | Supported (maintenance LTS until April 2027) | — |
 

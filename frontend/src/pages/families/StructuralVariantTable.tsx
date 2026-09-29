@@ -77,12 +77,14 @@ const compactText = (value: string, maxLength = 96) =>
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
+// Up to 1 kb in bp, like the report narrative. In kb with one decimal from 100 bp on, a
+// 150 bp SV read "0.1 kb" here while its report sentence said "150 bp".
 export const formatStructuralLength = (length?: number | null) => {
   if (typeof length !== 'number' || !Number.isFinite(length)) return '—';
   const sign = length < 0 ? '-' : '';
   const value = Math.abs(length);
   if (value >= 1_000_000) return `${sign}${(value / 1_000_000).toFixed(1)} Mb`;
-  if (value > 100) return `${sign}${(value / 1_000).toFixed(1)} kb`;
+  if (value > 1_000) return `${sign}${(value / 1_000).toFixed(1)} kb`;
   return `${length} bp`;
 };
 
@@ -320,6 +322,7 @@ export default function StructuralVariantTable({
                       <button
                         type="button"
                         className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
+                        aria-pressed={hasReviewTag}
                         disabled={reviewIsPending || !onToggleReviewTag}
                         onClick={() => {
                           void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.review);
@@ -330,6 +333,7 @@ export default function StructuralVariantTable({
                       <button
                         type="button"
                         className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
+                        aria-pressed={isExcluded}
                         disabled={reviewIsPending || !onToggleReviewTag}
                         onClick={() => {
                           void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.excluded);
@@ -340,6 +344,7 @@ export default function StructuralVariantTable({
                       <button
                         type="button"
                         className={`variant-quick-toggle${hasReportTag ? ' variant-quick-toggle--active' : ''}`}
+                        aria-pressed={hasReportTag}
                         disabled={reviewIsPending || !onToggleReviewTag}
                         title="Flag this SV for the family clinical report"
                         onClick={() => {

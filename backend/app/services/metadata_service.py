@@ -7,7 +7,6 @@ from typing import Any, Iterable
 from uuid import UUID
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,28 +25,16 @@ from ..schemas import (
     UserRead,
     UserRefOut,
 )
+from .access_control import (
+    CurrentUser,
+    ensure_user_can_access_metadata_projects,
+    is_admin_user,
+    user_metadata_project_ids,
+    visible_metadata_project_ids,
+)
 from .assembly_scope import is_validated_assembly
 
 logger = logging.getLogger(__name__)
-
-ADMIN_ROLES = {"admin", "superuser"}
-
-
-class CurrentUser(BaseModel):
-    id: str
-    username: str
-    email: EmailStr
-    first_name: str = ""
-    last_name: str = ""
-    affiliation: str = ""
-    is_active: bool = True
-    role: str
-    projects: list[str] = Field(default_factory=list)
-    metadata_project_ids: list[str] = Field(default_factory=list)
-    created_at: datetime
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
 
 def _is_uuid(value: str | None) -> bool:
     if not value:
@@ -57,10 +44,6 @@ def _is_uuid(value: str | None) -> bool:
     except (TypeError, ValueError):
         return False
     return True
-
-
-def _is_admin_user(user: CurrentUser) -> bool:
-    return user.role in ADMIN_ROLES
 
 
 def _string_list(values: Iterable[Any] | None) -> list[str]:
@@ -932,7 +915,7 @@ async def list_project_dashboards(
     session: AsyncSession,
     user: CurrentUser,
 ) -> list[ProjectDashboardOut]:
-    project_ids = None if _is_admin_user(user) else _string_list(user.metadata_project_ids)
+    project_ids = None if is_admin_user(user) else _string_list(user.metadata_project_ids)
     project_rows = await _fetch_project_mappings(session, project_ids=project_ids)
     if not project_rows:
         return []
@@ -971,25 +954,6 @@ async def list_project_dashboards(
             )
         )
     return dashboards
-
-
-def _user_metadata_project_ids(user: CurrentUser) -> list[str]:
-    return _string_list(getattr(user, "metadata_project_ids", []))
-
-
-def _visible_metadata_project_ids(project_ids: Iterable[Any] | None, user: CurrentUser) -> list[str]:
-    normalized_project_ids = _string_list(project_ids)
-    if _is_admin_user(user):
-        return normalized_project_ids
-    allowed_project_ids = set(_user_metadata_project_ids(user))
-    return [project_id for project_id in normalized_project_ids if project_id in allowed_project_ids]
-
-
-def _ensure_user_can_access_metadata_projects(project_ids: list[str], user: CurrentUser) -> None:
-    if _is_admin_user(user):
-        return
-    if not set(project_ids).intersection(_user_metadata_project_ids(user)):
-        raise HTTPException(status_code=403, detail="Not authorized")
 
 
 async def _fetch_family_rows(
@@ -1217,7 +1181,7 @@ async def list_family_records(
 ) -> list[FamilyOut]:
     family_rows = await _fetch_family_rows(
         session,
-        metadata_project_ids=None if _is_admin_user(user) else _user_metadata_project_ids(user),
+        metadata_project_ids=None if is_admin_user(user) else user_metadata_project_ids(user),
     )
     family_uuids = [row["id"] for row in family_rows]
     sample_rows_by_family = await _fetch_family_sample_rows(session, family_uuids)
@@ -1231,7 +1195,7 @@ async def list_family_records(
                 "structure_version": structure_versions_by_family.get(row["id"]),
             },
             sample_rows_by_family.get(row["id"], []),
-            _visible_metadata_project_ids(row.get("project_ids"), user),
+            visible_metadata_project_ids(row.get("project_ids"), user),
         )
         for row in family_rows
     ]
@@ -1246,7 +1210,7 @@ async def get_accessible_family_mapping(
     if not rows:
         raise HTTPException(status_code=404, detail="Family not found")
     family_row = rows[0]
-    _ensure_user_can_access_metadata_projects(_string_list(family_row.get("project_ids")), user)
+    ensure_user_can_access_metadata_projects(_string_list(family_row.get("project_ids")), user)
     return family_row
 
 
@@ -1266,7 +1230,7 @@ async def get_family_record(
             "structure_version": structure_versions_by_family.get(family_row["id"]),
         },
         sample_rows_by_family.get(family_row["id"], []),
-        _visible_metadata_project_ids(family_row.get("project_ids"), user),
+        visible_metadata_project_ids(family_row.get("project_ids"), user),
     )
     await _attach_sequencing_qc_verdicts(session, family_uuid=str(family_row["id"]), family=family_out)
     return family_out
@@ -1461,7 +1425,7 @@ async def get_accessible_sample_mapping(
     mapping = await _fetch_sample_access_mapping(session, sample_identifier)
     if mapping is None:
         raise HTTPException(status_code=404, detail="Sample not found")
-    _ensure_user_can_access_metadata_projects(_string_list(mapping.get("family_project_ids")), user)
+    ensure_user_can_access_metadata_projects(_string_list(mapping.get("family_project_ids")), user)
     return mapping
 
 

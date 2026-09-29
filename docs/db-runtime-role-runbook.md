@@ -20,11 +20,13 @@ change, no code change:
   crash-looping on DDL it is not allowed to run. Left at its default (`true`) the app
   self-migrates as the owner — the current single-DSN deployment, unchanged.
 - The owner-privileged migration is exposed as a standalone entrypoint,
-  `python -m backend.app.db_migrate` (applies the schema and seeds the admin user). Both the
-  startup path and this entrypoint call the same `init_postgres_schema` /
-  `init_postgres_admin_user`, so there is one source of truth for the schema apply.
-- Terraform exposes the knob as `var.run_db_schema_migrations_on_startup` (wired to the env
-  var; defaults to `true`).
+  `python -m backend.app.db_migrate` (`python -m app.db_migrate` inside the backend image).
+  It applies the schema and seeds the admin user, and with `POSTGRES_APP_PASSWORD` set it
+  also enables `coga_app`'s login (step 2). Both the startup path and this entrypoint call
+  the same `init_postgres_schema` / `init_postgres_admin_user`, so there is one source of
+  truth for the schema apply.
+- On Google Cloud the whole switch is one Terraform variable, `db_runtime_role` (see
+  "Google Cloud" below).
 
 > **Regulatory note (IVDR / TF-09b REQ-TRACE-008):** until this flip is done, the running
 > application credential *is* the owner and the owner-bypass tampering remains undetectable
@@ -46,7 +48,10 @@ tables or manage triggers.
 1. **Pick a secret.** Generate a strong password for `coga_app` and store it in the secret
    manager the deployment already uses (do **not** commit it). 
 2. **Enable login** (run once, as a role with the rights to do so — a superuser, or a role
-   with `CREATEROLE` and `ADMIN OPTION` on `coga_app`):
+   with `CREATEROLE` and `ADMIN OPTION` on `coga_app`). Either give the migration step
+   (step 5) the password as `POSTGRES_APP_PASSWORD`, which does this itself and hands
+   Postgres only a SCRAM-SHA-256 verifier (as `psql`'s `\password` does, so the plaintext is
+   in no statement or log), or run it by hand:
    ```sql
    ALTER ROLE coga_app WITH LOGIN PASSWORD '<from-secret-manager>';
    ```
@@ -69,6 +74,51 @@ tables or manage triggers.
 7. **Rollback** (if needed): repoint the application connection back to the owner role and
    set `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=true` again, then redeploy. No schema
    change is involved, so rollback is immediate.
+
+## Google Cloud (Terraform)
+
+On Google Cloud the database has only a private address, so the owner-only steps run
+inside the VPC as a Cloud Run job, `coga-db-migrate` ([terraform/migrate.tf](../terraform/migrate.tf)),
+and the switch is the variable `db_runtime_role`.
+
+**Before** (once):
+
+1. **First deployment in owner mode** (`db_runtime_role = "owner"`, the default). The app
+   applies the schema on startup, which creates `coga_app` without a login.
+2. **Service account.** The central infra repo creates `coga-db-migrate` with
+   `roles/cloudsql.client`, and gives the deploy pipeline's account
+   `roles/iam.serviceAccountUser` on it
+   ([coga-prerequisites.tf.example](../terraform/main-repo-reference/coga-prerequisites.tf.example)).
+   It is separate from the backend's account so the API never holds the owner's password.
+3. **Password.** Add a version to the `coga-postgres-app-password` secret: a generated,
+   printable-ASCII value, for example `openssl rand -base64 36 | tr -d '\n'`.
+
+**Switch:** set `db_runtime_role = "coga_app"` (in CI: the `gcp-deploy` environment's
+`COGA_TFVARS` variable) and deploy, as a change-controlled deployment. That one apply:
+
+- grants `coga-db-migrate` the secrets it reads and creates the job: the backend image
+  running `python -m app.db_migrate` as the owner, over the Cloud SQL connector;
+- runs the job and waits for it. It applies the schema, seeds the admin user and enables
+  `coga_app`'s login from `POSTGRES_APP_PASSWORD` (step 2);
+- only then rolls the backend out as `coga_app` with startup migrations off, and removes
+  the backend account's access to the owner's password.
+
+Every later deploy of a new backend image runs the job first. If it fails, the apply
+stops and the running revision keeps serving.
+
+**Verify:** the checks under "Verification" below. Connecting directly as `coga_app` needs a
+client inside the VPC, so the automated proof is the CI smoke test, which takes the same
+path. Also confirm that the backend's latest revision has `POSTGRES_USER=coga_app` and that
+the backend's service account has no accessor role on `coga-postgres-password`.
+
+**Rotate `coga_app`'s password:** add a new version to `coga-postgres-app-password`, run the
+job (`gcloud run jobs execute coga-db-migrate --region <region> --wait`), then roll the
+backend so new instances read the new version. Between those two steps, running instances
+cannot open new database connections, so do it at a quiet time.
+
+**Rollback:** set `db_runtime_role = "owner"` and deploy. The backend connects as the owner
+again and applies the schema on startup, and the job is removed. `coga_app` keeps its
+login, unused.
 
 ## Verification
 

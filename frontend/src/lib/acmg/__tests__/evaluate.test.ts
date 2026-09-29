@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { evaluateAcmg, type AcmgVariantInput } from '../evaluate';
 import { buildInitialSelections } from '../index';
-import type { AcmgCriterionCode, AcmgSuggestion } from '../types';
+import type { AcmgCriterionCode, AcmgFamilyMemberCall, AcmgSuggestion } from '../types';
 
 function codes(suggestions: AcmgSuggestion[]): AcmgCriterionCode[] {
   return suggestions.map((s) => s.code);
@@ -186,6 +186,57 @@ describe('evaluateAcmg — trio / segregation', () => {
   });
 });
 
+// #621 — a son is hemizygous on chrX/chrY outside the PARs: the parent who passes him that
+// chromosome decides PM6/PS2, as in the backend's de novo segregation mode.
+describe('evaluateAcmg — de novo in a son where he is hemizygous', () => {
+  const son = (gt: string): AcmgFamilyMemberCall => ({ sampleId: 'P', role: 'proband', affected: true, gt, sex: 'male' });
+  const father = (gt?: string): AcmgFamilyMemberCall => ({ sampleId: 'F', role: 'father', affected: false, gt, sex: 'male' });
+  const mother = (gt?: string): AcmgFamilyMemberCall => ({ sampleId: 'M', role: 'mother', affected: false, gt, sex: 'female' });
+  const onX: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrX', hemizygous_in_males: true };
+  const onY: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrY', hemizygous_in_males: true };
+  const pm6 = (variant: AcmgVariantInput, members: AcmgFamilyMemberCall[]) =>
+    find(evaluateAcmg(variant, undefined, undefined, { members }), 'PM6');
+
+  it('applies PM6 to a Y variant with a reference father, though the mother has no call', () => {
+    const suggestion = pm6(onY, [son('1'), father('0'), mother(undefined)]);
+    expect(suggestion?.disposition).toBe('applies');
+    expect(suggestion?.evidence).toBe(
+      'Absent in the father, who passes a son his Y (de novo) — parentage not molecularly confirmed (use PS2 if confirmed).',
+    );
+  });
+
+  it('applies PM6 to an X variant with a reference mother, though the father has no call', () => {
+    expect(pm6(onX, [son('1'), mother('0/0'), father('./.')])?.disposition).toBe('applies');
+    expect(pm6(onX, [son('1/1'), mother('0/0')])?.disposition).toBe('applies');
+  });
+
+  it('says a son\'s X variant is inherited from the mother, not from "a parent"', () => {
+    const suggestion = pm6(onX, [son('1'), mother('0/1'), father('0')]);
+    expect(suggestion?.disposition).toBe('not_applicable');
+    expect(suggestion?.evidence).toBe('Inherited from the mother, who passes a son his X — not de novo.');
+  });
+
+  it('does not call a variant shared with the father de novo on a son\'s X', () => {
+    const suggestion = pm6(onX, [son('1'), mother('0/0'), father('1')]);
+    expect(suggestion?.disposition).toBe('not_applicable');
+    expect(suggestion?.evidence).toMatch(/^Also called in the father, who does not pass a son his X/);
+  });
+
+  it('cannot assess de novo without the parent who passes the chromosome on', () => {
+    const suggestion = pm6(onY, [son('1'), mother('0/0')]);
+    expect(suggestion?.disposition).toBe('not_applicable');
+    expect(suggestion?.evidence).toBe("The father's genotype, who passes a son his Y, is missing — de novo cannot be assessed.");
+  });
+
+  it('keeps the trio rule in a PAR, for a daughter and without the backend flag', () => {
+    const inPar: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrX', hemizygous_in_males: false };
+    expect(pm6(inPar, [son('0/1'), mother('0/0'), father('./.')])?.disposition).toBe('not_applicable');
+    const daughter: AcmgFamilyMemberCall = { sampleId: 'P', role: 'proband', affected: true, gt: '0/1', sex: 'female' };
+    expect(pm6(onX, [daughter, mother('0/0'), father('./.')])?.disposition).toBe('not_applicable');
+    expect(pm6(onX, [daughter, mother('0/0'), father('0')])?.disposition).toBe('applies');
+  });
+});
+
 describe('evaluateAcmg — in-silico availability', () => {
   it('rules out PP3/BP4 when no in-silico prediction is available', () => {
     const suggestions = evaluateAcmg({ effect: 'missense_variant' });
@@ -228,5 +279,47 @@ describe('buildInitialSelections', () => {
     );
     expect(selections).toHaveLength(1);
     expect(selections[0]).toMatchObject({ accepted: true, strength: 'very_strong' });
+  });
+});
+
+// #609 — a lookup that failed is unknown, not a negative finding: the criteria that read it
+// say so, and are surfaced for review rather than silently changed.
+describe('evaluateAcmg when a lookup failed', () => {
+  it('does not call the LOF mechanism unconfirmed when the gene profile could not be loaded', () => {
+    const pvs1 = find(evaluateAcmg({ effect: 'stop_gained', lof: 'HC' }, { unavailable: true }), 'PVS1');
+
+    expect(pvs1?.disposition).toBe('consider');
+    expect(pvs1?.evidence).toMatch(/the gene profile could not be loaded, so its LOF mechanism .* is not assessed/);
+    expect(pvs1?.evidence).not.toMatch(/unconfirmed/);
+  });
+
+  it('asks to confirm the inheritance mode for BS2 when the gene profile could not be loaded', () => {
+    const bs2 = find(
+      evaluateAcmg({ effect: 'missense_variant', gnomad_af: 0.001, gnomad_hom_count: 3 }, { unavailable: true }),
+      'BS2',
+    );
+
+    expect(bs2?.disposition).toBe('consider');
+    expect(bs2?.evidence).toMatch(/the gene profile could not be loaded: confirm inheritance mode/);
+  });
+
+  it.each([
+    ['the gene profile', { unavailable: true }, { probandHpoIds: ['HP:1'] }, "the gene's HPO associations"],
+    ['the HPO terms', { geneHpoIds: ['HP:1'] }, { probandHpoUnavailable: true }, "the family's HPO terms"],
+  ])('offers PP4 for review, not as no match, when %s could not be loaded', (_what, gene, phenotype, missing) => {
+    const pp4 = find(evaluateAcmg({ effect: 'missense_variant' }, gene, phenotype), 'PP4');
+
+    expect(pp4?.disposition).toBe('consider');
+    expect(pp4?.evidence).toBe(`Not assessed: ${missing} could not be loaded. Review the phenotype match by hand.`);
+  });
+
+  it('still applies PP4 from a phenotype score, which needs neither lookup', () => {
+    const pp4 = find(
+      evaluateAcmg({ effect: 'missense_variant' }, { unavailable: true }, { probandHpoUnavailable: true, phenotypeScore: 0.7 }),
+      'PP4',
+    );
+
+    expect(pp4?.disposition).toBe('applies');
+    expect(pp4?.strength).toBe('moderate');
   });
 });

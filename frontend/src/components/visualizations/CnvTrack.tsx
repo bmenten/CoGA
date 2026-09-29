@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { useNavigate } from 'react-router';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
@@ -25,6 +26,22 @@ interface Props {
   regionStart: number;
   regionEnd: number;
 }
+
+// The CNV names are free text from the reference file, some near 100 characters long
+// ("1q21.1 recurrent (TAR syndrome) region (proximal and distal, BP1-BP4) (includes …)").
+const MAX_LABEL_LENGTH = 150;
+
+// The surface's name for a screen reader (#529): how many clinical CNVs are in view and
+// as many of the first three names as fit in about 150 characters, then "…".
+const describeCnvs = (lead: string, cnvs: Cnv[]): string => {
+  const head = `${lead}: ${cnvs.length.toLocaleString()} (`;
+  const budget = MAX_LABEL_LENGTH - head.length - ', …)'.length;
+  let named = cnvs.slice(0, 3).map((cnv) => cnv.label.trim());
+  while (named.length > 1 && named.join(', ').length > budget) named = named.slice(0, -1);
+  const names = named.join(', ');
+  const shown = names.length > budget ? `${names.slice(0, budget - 1)}…` : names;
+  return `${head}${shown}${named.length < cnvs.length ? ', …' : ''})`;
+};
 
 const CnvTrack: React.FC<Props> = ({
   assembly,
@@ -51,29 +68,48 @@ const CnvTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
   const data = useSameSpanFallbackData(
-    isError ? null : rawData,
+    rawData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${assembly}|${chrom}`,
+    isError,
   );
+
+  const cnvsOn = `Clinical CNVs on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
 
   // A failed request must never read as an empty region (#510).
   if (isError) {
     return (
       <div className="relative" style={{ width, height }}>
-        <svg width={width} height={height} />
+        <svg width={width} height={height} role="img" aria-label={`${cnvsOn}: failed to load`} />
         <VizErrorOverlay what="clinical CNV regions" onRetry={() => void refetch()} />
       </div>
     );
   }
 
-  if (!data) return <svg width={width} height={height} />;
+  // A view with no width asks for nothing: it is neither loading nor empty (#602).
+  if (!hasRegionInView(regionStart, regionEnd)) {
+    return <svg width={width} height={height} role="img" aria-label={`${cnvsOn}: ${NO_REGION_IN_VIEW}`} />;
+  }
+
+  if (!data) {
+    return <svg width={width} height={height} role="img" aria-label={`${cnvsOn}: loading`} />;
+  }
 
   const regionLength = regionEnd - regionStart;
   const trackY = Math.max(2, Math.floor(height * 0.2));
   const trackHeight = Math.max(height - trackY * 2, 4);
+  // Only what overlaps the region: while a pan loads, the previous window's regions
+  // are held, and one left of the new window was drawn at its left edge under its own
+  // name, as if that clinical CNV lay there (#526).
+  const inView = data.filter((r) => r.end > regionStart && r.start < regionEnd);
+  // Nothing in view while a pan's new window is still on its way is not "none".
+  const ariaLabel =
+    inView.length > 0
+      ? describeCnvs(cnvsOn, inView)
+      : `${cnvsOn}: ${rawData ? 'none' : 'loading'}`;
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
+      <svg width={width} height={height} role="img" aria-label={ariaLabel}>
         <line
           x1={0}
           x2={width}
@@ -82,7 +118,7 @@ const CnvTrack: React.FC<Props> = ({
           stroke={cssVar('--color-grid')}
           strokeWidth={1}
         />
-      {data.map((r, idx) => {
+      {inView.map((r, idx) => {
         const start = Math.max(r.start, regionStart);
         const end = Math.min(r.end, regionEnd);
         const x = ((start - regionStart) / regionLength) * width;

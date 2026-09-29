@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
@@ -65,6 +66,19 @@ const LANE_MIN_HEIGHT = 2.5;
 
 const dgvColor = (klass: DgvClass) => cssVar(CLASS_VAR[klass] ?? '--color-dgv-other');
 
+// How many variants are in view, by class as drawn: an unknown class is drawn as other.
+const describeClasses = (variants: DgvVariant[]): string => {
+  const counts: Record<DgvClass, number> = { gain: 0, loss: 0, mixed: 0, other: 0 };
+  variants.forEach(({ variant_class: klass }) => {
+    counts[klass === 'gain' || klass === 'loss' || klass === 'mixed' ? klass : 'other'] += 1;
+  });
+  const byClass = (Object.keys(counts) as DgvClass[])
+    .filter((klass) => counts[klass] > 0)
+    .map((klass) => `${counts[klass].toLocaleString()} ${klass}`)
+    .join(', ');
+  return `${variants.length.toLocaleString()} (${byClass})`;
+};
+
 const lineTooltip = (v: DgvVariant): React.ReactNode => (
   <div>
     <strong>{v.accession ?? 'DGV variant'}</strong>
@@ -119,22 +133,33 @@ const DgvTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
   const data = useSameSpanFallbackData(
-    isError ? null : rawData,
+    rawData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${assembly}|${chrom}`,
+    isError,
   );
+
+  // The surface's name for a screen reader (#529): the variants in view, by class.
+  const variantsOn = `DGV variants on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
 
   // A failed request must never read as an empty region (#510).
   if (isError) {
     return (
       <div className="relative" style={{ width, height }}>
-        <svg width={width} height={height} />
+        <svg width={width} height={height} role="img" aria-label={`${variantsOn}: failed to load`} />
         <VizErrorOverlay what="DGV variants" onRetry={() => void refetch()} />
       </div>
     );
   }
 
-  if (!data) return <svg width={width} height={height} />;
+  // A view with no width asks for nothing: it is neither loading nor empty (#602).
+  if (!hasRegionInView(regionStart, regionEnd)) {
+    return <svg width={width} height={height} role="img" aria-label={`${variantsOn}: ${NO_REGION_IN_VIEW}`} />;
+  }
+
+  if (!data) {
+    return <svg width={width} height={height} role="img" aria-label={`${variantsOn}: loading`} />;
+  }
 
   const regionLength = regionEnd - regionStart;
   // Tolerate an unexpected/empty response shape without crashing the track.
@@ -142,6 +167,18 @@ const DgvTrack: React.FC<Props> = ({
   const bins = Array.isArray(data.bins) ? data.bins : [];
   const total = typeof data.total === 'number' ? data.total : variants.length;
   const mode: 'lines' | 'density' = data.mode === 'density' ? 'density' : 'lines';
+  // Lines mode counts, by class, the variants that lie in the region (a pan holds the
+  // previous window's); density mode repeats its "density · N variants" note. Nothing
+  // in view while a pan's new window is still on its way is not "none".
+  const variantsInView = variants.filter((v) => v.end > regionStart && v.start < regionEnd);
+  const inViewSummary =
+    mode === 'density' && total > 0
+      ? `${total.toLocaleString()}, shown as density`
+      : mode === 'lines' && variantsInView.length > 0
+        ? describeClasses(variantsInView)
+        : rawData
+          ? 'none'
+          : 'loading';
 
   const packLanes = (group: DgvVariant[], maxLanes: number) => {
     const laneLastX: number[] = [];
@@ -178,8 +215,10 @@ const DgvTrack: React.FC<Props> = ({
     const half = height / 2;
     const maxLanes = Math.max(1, Math.floor(half / LANE_MIN_HEIGHT));
     // Gains (and minor mixed/other) above the baseline, losses below it.
-    const up = packLanes(variants.filter((v) => v.variant_class !== 'loss'), maxLanes);
-    const down = packLanes(variants.filter((v) => v.variant_class === 'loss'), maxLanes);
+    // Only what overlaps the region: while a pan loads, a held variant left of the new
+    // window was drawn as a bar at its left edge (#586).
+    const up = packLanes(variantsInView.filter((v) => v.variant_class !== 'loss'), maxLanes);
+    const down = packLanes(variantsInView.filter((v) => v.variant_class === 'loss'), maxLanes);
     const upLaneH = half / up.laneCount;
     const downLaneH = half / down.laneCount;
     const upBarH = Math.max(upLaneH - LANE_GAP_PX, 1);
@@ -243,7 +282,9 @@ const DgvTrack: React.FC<Props> = ({
     const half = height / 2;
     const sumOf = (b: DgvDensityBin, keys: DgvClass[]) => keys.reduce((s, k) => s + b[k], 0);
     // Scale up and down sides by the same factor so magnitudes stay comparable.
-    const maxAmp = bins.reduce(
+    // Held bins outside the new window are neither drawn nor allowed to set the scale.
+    const binsInView = bins.filter((b) => b.end > regionStart && b.start < regionEnd);
+    const maxAmp = binsInView.reduce(
       (m, b) => Math.max(m, sumOf(b, UP_CLASSES), sumOf(b, DOWN_CLASSES)),
       0,
     );
@@ -258,7 +299,7 @@ const DgvTrack: React.FC<Props> = ({
           stroke={cssVar('--color-grid')}
           strokeWidth={1}
         />
-        {bins.map((b, idx) => {
+        {binsInView.map((b, idx) => {
           const total = b.gain + b.loss + b.mixed + b.other;
           if (total === 0) return null;
           const x = ((b.start - regionStart) / regionLength) * width;
@@ -307,7 +348,7 @@ const DgvTrack: React.FC<Props> = ({
 
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
+      <svg width={width} height={height} role="img" aria-label={`${variantsOn}: ${inViewSummary}`}>
         {mode === 'lines' ? renderLines() : renderDensity()}
       </svg>
       {total === 0 ? (

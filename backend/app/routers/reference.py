@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import ReferenceReadsOut, ReferenceSequenceOut
-from ..services.metadata_service import CurrentUser, get_accessible_sample_mapping
+from ..services.metadata_service import get_accessible_sample_mapping
+from ..services.access_control import CurrentUser
 from ..services.reference_service import get_reference_reads_data, get_reference_sequence_data
 
 router = APIRouter(prefix="/reference", tags=["reference"])

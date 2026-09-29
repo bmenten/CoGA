@@ -40,7 +40,7 @@ _MAX_CACHE_ROWS_PER_FAMILY = 6
 def canonical_filters(filters: Any) -> dict[str, Any]:
     """The ranking-relevant filter fields (pagination removed) — used for the hash and
     to replay the query during background warming."""
-    data = asdict(filters) if is_dataclass(filters) else dict(filters)
+    data = asdict(filters) if is_dataclass(filters) and not isinstance(filters, type) else dict(filters)
     # Pagination doesn't change the ranking — the whole order is cached.
     data.pop("page", None)
     data.pop("page_size", None)

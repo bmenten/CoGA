@@ -4,7 +4,7 @@ import pytest
 
 from backend.app.schemas import SmallVariantReviewOut
 from backend.app.services import mitochondrial_analysis
-from backend.app.services.clickhouse_family_variants import SmallVariantCall, SmallVariantRecord
+from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 
 

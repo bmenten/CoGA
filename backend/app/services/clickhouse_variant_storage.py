@@ -4,19 +4,21 @@ import asyncio
 import secrets
 from typing import Any, Iterable, Sequence
 
-from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse  # noqa: F401  (clickhouse_dataset_key re-exported for admin_service)
+from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
-from .clickhouse_family_variants import (
-    IMPUTED_SMALL_VARIANT_SOURCES,
-    SmallVariantRecord,
-    StructuralVariantRecord,
+from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
+from .clickhouse_variant_records import SmallVariantRecord, StructuralVariantRecord
+from .clickhouse_variant_ids import (
+    _expected_clickhouse_variant_tables,
+    _require_clickhouse_identifier,
+    _small_table_name,
+    _structural_table_name,
 )
-
-
-# Re-exported so existing import paths keep resolving from this module and so
-# staying functions resolve these (pure) helpers in this module's namespace.
-from .clickhouse_variant_ids import build_small_variant_id, build_structural_variant_id, small_variant_key, structural_variant_key, _xpos, _stable_uint64, _require_clickhouse_identifier, _small_table_name, _structural_table_name, _expected_clickhouse_variant_tables  # noqa: F401
-from .clickhouse_variant_rows import _normalized_project_ids, _small_variant_entry_rows, _structural_variant_entry_rows  # noqa: F401
+from .clickhouse_variant_rows import (
+    _normalized_project_ids,
+    _small_variant_entry_rows,
+    _structural_variant_entry_rows,
+)
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, clickhouse_genotype_condition
 
 _SMALL_VARIANT_DETAIL_INSERT_ROWS = 1_000

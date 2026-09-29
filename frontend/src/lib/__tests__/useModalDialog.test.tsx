@@ -79,6 +79,35 @@ describe('useModalDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('asks from the dialog state when isDirty is given, not from change events', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    function StateDialog({ onClose }: { onClose: () => void }) {
+      const [applied, setApplied] = useState('');
+      const [draft, setDraft] = useState('');
+      const dialog = useModalDialog({ onClose, isDirty: () => draft !== applied });
+      return (
+        <div ref={dialog.dialogRef} role="dialog" aria-label="Member" tabIndex={-1} {...dialog.surfaceProps}>
+          <input aria-label="Sex" value={draft} onChange={(event) => setDraft(event.target.value)} />
+          <button type="button" onClick={() => setApplied(draft)}>
+            Apply
+          </button>
+        </div>
+      );
+    }
+    const onClose = vi.fn();
+    render(<StateDialog onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText('Sex'), { target: { value: 'female' } });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Applied edits are kept, so closing no longer asks, although a field did change.
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('does not close when a press inside the dialog is released over the backdrop', () => {
     // Dragging a text selection out of a field used to close the dialog.
     const onClose = vi.fn();
@@ -100,6 +129,41 @@ describe('useModalDialog', () => {
     expect(document.activeElement).toBe(note);
     fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(close);
+  });
+
+  it('gives focus back to the opener when a control inside takes focus with autoFocus', () => {
+    function Opener() {
+      const [open, setOpen] = useState(false);
+      const close = () => setOpen(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open
+          </button>
+          {open ? <AutoFocusDialog onClose={close} /> : null}
+        </>
+      );
+    }
+    function AutoFocusDialog({ onClose }: { onClose: () => void }) {
+      const dialog = useModalDialog({ onClose });
+      return (
+        <div ref={dialog.dialogRef} role="dialog" aria-label="Confirm" tabIndex={-1}>
+          <button type="button">Close</button>
+          {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the case under test */}
+          <button type="button" autoFocus onClick={dialog.requestClose}>
+            Cancel
+          </button>
+        </div>
+      );
+    }
+    render(<Opener />);
+    const opener = screen.getByRole('button', { name: 'Open' });
+    opener.focus();
+    fireEvent.click(opener);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(opener);
   });
 
   it('lets only the topmost of two dialogs answer Escape', () => {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 from functools import partial
 import json
 from math import log2
@@ -41,7 +42,8 @@ from .repeat_expansion_pg import (
     ingest_trgt_text,
 )
 from .upload_safety import read_path_text_bounded
-from .variant_upload_service import parse_mutserve_annotation_path, upload_family_small_variant_file
+from .annotation_table_parser import parse_mutserve_annotation_path
+from .variant_upload_service import upload_family_small_variant_file
 
 from .family_package_bigwig import autosomal_median, open_bigwig
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map  # noqa: F401
@@ -66,6 +68,40 @@ from .family_package_variants import _iter_cnv_structural_records, _iter_needlr_
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class DatasetImportJob:
+    """What a dataset importer is handed: the package, the dataset's manifest entry, the
+    summary to fill in, the family and sample contexts, how to treat data already there,
+    and where to report progress. Each importer reads the fields it needs."""
+
+    session: AsyncSession
+    bundle: FamilyPackageBundle
+    dataset: ManifestDataset
+    summary: FamilyImportDatasetSummary
+    family_context: FamilyMetadataContext
+    sample_contexts: dict[str, SampleMetadataContext]
+    conflict_mode: str = "overwrite"
+    progress: DatasetProgressCallback | None = None
+
+
+DatasetImporter = Callable[[DatasetImportJob], Awaitable[FamilyImportDatasetSummary]]
+
+# One importer per manifest dataset type, registered where it is defined (#528). A type
+# in SUPPORTED_DATASETS with no importer here is a bug; the registry test and
+# _import_dataset both say so.
+DATASET_IMPORTERS: dict[str, DatasetImporter] = {}
+
+
+def _dataset_importer(dataset_type: str) -> Callable[[DatasetImporter], DatasetImporter]:
+    def register(importer: DatasetImporter) -> DatasetImporter:
+        if dataset_type in DATASET_IMPORTERS:
+            raise RuntimeError(f"Two importers are registered for dataset type '{dataset_type}'")
+        DATASET_IMPORTERS[dataset_type] = importer
+        return importer
+
+    return register
+
+
 @asynccontextmanager
 async def _local_upload(path: Path):
     handle = path.open("rb")
@@ -76,17 +112,11 @@ async def _local_upload(path: Path):
         await upload.close()
 
 
-async def _import_snv_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    family_context: FamilyMetadataContext,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-    progress: DatasetProgressCallback | None = None,
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("snv")
+async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    family_context, sample_contexts = job.family_context, job.sample_contexts
+    conflict_mode, progress = job.conflict_mode, job.progress
     if not family_context.assembly_name:
         return await _register_only(summary, "Registered only; family is not linked to a single assembly")
     vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
@@ -223,17 +253,11 @@ async def _import_snv_dataset(
     )
 
 
-async def _import_haplotypes_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    family_context: FamilyMetadataContext,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-    progress: DatasetProgressCallback | None = None,
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("haplotypes")
+async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    family_context, sample_contexts = job.family_context, job.sample_contexts
+    conflict_mode, progress = job.conflict_mode, job.progress
     if not dataset.family_vcf:
         return await _register_only(
             summary,
@@ -336,16 +360,11 @@ async def _import_haplotypes_dataset(
     )
 
 
-async def _import_wisecondorx_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-    progress: DatasetProgressCallback | None = None,
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("wisecondorx")
+async def _import_wisecondorx_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
+    progress = job.progress
     sample_results: dict[str, Any] = {}
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
@@ -353,7 +372,10 @@ async def _import_wisecondorx_dataset(
             continue
         sample_results[sample_id] = {}
 
-        async def report_track(role: str, stats: dict[str, int]) -> None:
+        # sample_id is bound now, so the callback reports the sample it was made for.
+        async def report_track(
+            role: str, stats: dict[str, int], *, sample_id: str = sample_id
+        ) -> None:
             sample_results.setdefault(sample_id, {})[role] = stats
             if progress is not None:
                 await progress(
@@ -407,16 +429,11 @@ async def _import_wisecondorx_dataset(
     )
 
 
-async def _import_qdnaseq_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-    progress: DatasetProgressCallback | None = None,
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("qdnaseq")
+async def _import_qdnaseq_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
+    progress = job.progress
     sample_results: dict[str, Any] = {}
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
@@ -424,7 +441,10 @@ async def _import_qdnaseq_dataset(
             continue
         sample_results[sample_id] = {}
 
-        async def report_track(role: str, stats: dict[str, int]) -> None:
+        # sample_id is bound now, so the callback reports the sample it was made for.
+        async def report_track(
+            role: str, stats: dict[str, int], *, sample_id: str = sample_id
+        ) -> None:
             sample_results.setdefault(sample_id, {})[role] = stats
             if progress is not None:
                 await progress(
@@ -480,16 +500,11 @@ async def _import_qdnaseq_dataset(
     )
 
 
-async def _import_sv_needlr_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    family_context: FamilyMetadataContext,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("sv_needlr")
+async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    family_context, sample_contexts = job.family_context, job.sample_contexts
+    conflict_mode = job.conflict_mode
     if not family_context.assembly_name:
         return await _register_only(summary, "Registered only; family is not linked to a single assembly")
     vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
@@ -566,15 +581,10 @@ async def _import_sv_needlr_dataset(
     )
 
 
-async def _import_apcad_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("apcad")
+async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     if dataset.family_vcf:
         vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
         if vcf_path is None:
@@ -681,15 +691,10 @@ async def _import_apcad_dataset(
     )
 
 
-async def _import_coverage_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("coverage")
+async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     if not dataset.per_sample:
         return await _register_only(
             summary, "Registered only; coverage dataset has no per_sample entries"
@@ -736,15 +741,10 @@ async def _import_coverage_dataset(
     )
 
 
-async def _import_pcf_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("pcf")
+async def _import_pcf_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     if not dataset.per_sample:
         return await _register_only(summary, "No PCF segment files were provided")
     sample_results: dict[str, Any] = {}
@@ -805,15 +805,10 @@ async def _import_pcf_dataset(
     )
 
 
-async def _import_repeats_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("repeats_trgt")
+async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     if conflict_mode == "update":
         existing_count = await _repeat_expansion_count(session, sample_contexts=sample_contexts)
         if existing_count:
@@ -881,15 +876,10 @@ async def _import_repeats_dataset(
     )
 
 
-async def _import_paraphase_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("paraphase")
+async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     sample_results: dict[str, Any] = {}
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
@@ -1077,18 +1067,13 @@ async def _import_interval_track_unless_present(
     return await importer()
 
 
-async def _import_cnv_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    family_context: FamilyMetadataContext,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("cnv")
+async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Import depth-based CNV calls (HiFiCNV) as structural variants, plus the
     caller's per-bin copy-number track."""
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    family_context, sample_contexts = job.family_context, job.sample_contexts
+    conflict_mode = job.conflict_mode
     if not family_context.assembly_name:
         return await _register_only(summary, "Registered only; family is not linked to a single assembly")
     if not dataset.per_sample:
@@ -1272,17 +1257,8 @@ async def _import_cnv_dataset(
     )
 
 
-async def _import_mito_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    family_context: FamilyMetadataContext,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-    progress: DatasetProgressCallback | None = None,
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("mito")
+async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Import mitochondrial calls.
 
     chrM SNVs go into the ordinary small-variant store under a dedicated ``mito``
@@ -1290,6 +1266,9 @@ async def _import_mito_dataset(
     chromosome, not source) and what keeps a nuclear re-import from deleting them.
     The mutserve annotation TSV supplies heteroplasmy and haplogroup context.
     """
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    family_context, sample_contexts = job.family_context, job.sample_contexts
+    conflict_mode = job.conflict_mode
     if not family_context.assembly_name:
         return await _register_only(summary, "Registered only; family is not linked to a single assembly")
     if not dataset.per_sample:
@@ -1376,15 +1355,8 @@ async def _import_mito_dataset(
     )
 
 
-async def _import_qc_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("qc")
+async def _import_qc_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Record sequencing QC.
 
     The read-level numbers (NanoPlot/NanoStats) and per-chromosome depth (mosdepth)
@@ -1392,6 +1364,8 @@ async def _import_qc_dataset(
     re-reading pipeline output. The rendered HTML report is recorded by path only --
     it is untrusted pipeline output and is never inlined into the application.
     """
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    sample_contexts = job.sample_contexts
     if not dataset.per_sample:
         return await _register_only(summary, "Registered only; QC dataset has no per_sample entries")
     sample_results: dict[str, Any] = {}
@@ -1432,15 +1406,8 @@ async def _import_qc_dataset(
     )
 
 
-async def _import_alignments_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    sample_contexts: dict[str, SampleMetadataContext],
-    conflict_mode: str = "overwrite",
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("alignments")
+async def _import_alignments_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Record each sample's aligned-reads file so the CRAM/IGV endpoint can find it.
 
     The alignment itself is never copied or re-read: the package layout puts it under
@@ -1448,6 +1415,8 @@ async def _import_alignments_dataset(
     ``<family>/<sample>.cram``. Recording the package-relative path on the sample lets
     the endpoint resolve either layout.
     """
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    sample_contexts = job.sample_contexts
     if not dataset.per_sample:
         return await _register_only(summary, "Registered only; alignments dataset has no per_sample entries")
     sample_results: dict[str, Any] = {}
@@ -1482,14 +1451,8 @@ async def _import_alignments_dataset(
     )
 
 
-async def _import_pipeline_info_dataset(
-    session: AsyncSession,
-    *,
-    bundle: FamilyPackageBundle,
-    dataset: ManifestDataset,
-    summary: FamilyImportDatasetSummary,
-    family_context: FamilyMetadataContext,
-) -> FamilyImportDatasetSummary:
+@_dataset_importer("pipeline_info")
+async def _import_pipeline_info_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Capture the Nextflow run record into the family's annotation manifest.
 
     Every tool version behind the callset lives in ``software_versions.yaml``, and the
@@ -1497,6 +1460,8 @@ async def _import_pipeline_info_dataset(
     ``params_*.json``. Recording them per family is what makes a released report
     traceable back to the exact pipeline that produced its evidence.
     """
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    family_context = job.family_context
     from .annotation_manifest_service import merge_vcf_header_provenance
 
     extra = dataset.model_extra or {}
@@ -1609,6 +1574,7 @@ async def _import_dataset(
     progress: DatasetProgressCallback | None = None,
 ) -> FamilyImportDatasetSummary:
     if summary.dataset_type == "phenotypes":
+        # Not a manifest dataset: the phenotypes come from the package's HPO rows.
         return await _import_phenotypes_dataset(
             session,
             bundle=bundle,
@@ -1619,9 +1585,17 @@ async def _import_dataset(
     dataset = bundle.manifest.datasets.get(summary.dataset_type)
     if dataset is None or not dataset.enabled:
         return summary
-    if summary.dataset_type == "snv":
-        return await _import_snv_dataset(
-            session,
+    importer = DATASET_IMPORTERS.get(summary.dataset_type)
+    if importer is None:
+        # A validated, enabled dataset with no importer would otherwise report success
+        # while importing nothing. Fail loudly instead: adding a dataset type to
+        # SUPPORTED_DATASETS without an importer is a bug, not a runtime condition.
+        raise RuntimeError(
+            f"No importer is registered for dataset type '{summary.dataset_type}'"
+        )
+    return await importer(
+        DatasetImportJob(
+            session=session,
             bundle=bundle,
             dataset=dataset,
             summary=summary,
@@ -1630,142 +1604,4 @@ async def _import_dataset(
             conflict_mode=conflict_mode,
             progress=progress,
         )
-    if summary.dataset_type == "wisecondorx":
-        return await _import_wisecondorx_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-            progress=progress,
-        )
-    if summary.dataset_type == "qdnaseq":
-        return await _import_qdnaseq_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-            progress=progress,
-        )
-    if summary.dataset_type == "apcad":
-        return await _import_apcad_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-        )
-    if summary.dataset_type == "coverage":
-        return await _import_coverage_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-        )
-    if summary.dataset_type == "pcf":
-        return await _import_pcf_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-        )
-    if summary.dataset_type == "repeats_trgt":
-        return await _import_repeats_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-        )
-    if summary.dataset_type == "sv_needlr":
-        return await _import_sv_needlr_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            family_context=family_context,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-        )
-    if summary.dataset_type == "haplotypes":
-        return await _import_haplotypes_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            family_context=family_context,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-            progress=progress,
-        )
-    if summary.dataset_type == "paraphase":
-        return await _import_paraphase_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-        )
-    if summary.dataset_type == "cnv":
-        return await _import_cnv_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            family_context=family_context,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-        )
-    if summary.dataset_type == "mito":
-        return await _import_mito_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            family_context=family_context,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-            progress=progress,
-        )
-    if summary.dataset_type == "qc":
-        return await _import_qc_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-        )
-    if summary.dataset_type == "alignments":
-        return await _import_alignments_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            sample_contexts=sample_contexts,
-            conflict_mode=conflict_mode,
-        )
-    if summary.dataset_type == "pipeline_info":
-        return await _import_pipeline_info_dataset(
-            session,
-            bundle=bundle,
-            dataset=dataset,
-            summary=summary,
-            family_context=family_context,
-        )
-    # A validated, enabled dataset with no importer branch would otherwise report
-    # success while importing nothing. Fail loudly instead: adding a dataset type to
-    # SUPPORTED_DATASETS without an importer is a bug, not a runtime condition.
-    raise RuntimeError(
-        f"No importer is registered for dataset type '{summary.dataset_type}'"
     )

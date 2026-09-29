@@ -9,10 +9,19 @@ import yaml
 
 from backend.app.services import clickhouse_family_variants as family_variants
 from backend.app.services import family_package_import as package_import
+from backend.app.core.config import settings
+from backend.app.services import family_package_validation
+from backend.app.services import family_package_manifest
+from backend.app.services import family_package_discovery
+from backend.app.services import family_package_tracks
+from backend.app.services import family_package_common
+from backend.app.services import family_package_variants
+from backend.app.services import family_package_datasets
+from backend.app.services.family_package_datasets import DatasetImportJob
 from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageManifestBuildRequest
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services.metadata_service import CurrentUser
+from backend.app.services.access_control import CurrentUser
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +33,7 @@ def _authorize_tmp_import_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     ``tmp_path``, so point the configured root at it (mirrors
     ``test_nipt_package_import``).
     """
-    monkeypatch.setattr(package_import.settings, "family_import_roots", [str(tmp_path)])
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
 
 
 def _write_minimal_package(root: Path, *, family_id: str | None = None) -> None:
@@ -72,14 +81,14 @@ def test_manifest_parsing_supports_yaml_and_optional_dataset_warnings(tmp_path: 
     package_root = tmp_path / "FAM001"
     _write_minimal_package(package_root)
 
-    result = package_import.validate_family_package(package_root)
+    result = family_package_validation.validate_family_package(package_root)
 
     assert result.valid is True
     assert result.family_id == "FAM001"
     assert result.sample_ids == ["S1", "S2"]
     assert result.metadata["schema_version"] == 1
     assert {warning.code for warning in result.warnings} == {"optional_dataset_missing"}
-    assert {summary.dataset_type for summary in result.datasets} == set(package_import.SUPPORTED_DATASETS)
+    assert {summary.dataset_type for summary in result.datasets} == set(family_package_common.SUPPORTED_DATASETS)
 
 
 def test_family_id_defaults_to_folder_name_and_must_match_ped(tmp_path: Path) -> None:
@@ -88,7 +97,7 @@ def test_family_id_defaults_to_folder_name_and_must_match_ped(tmp_path: Path) ->
     (package_root / "family.ped").write_text("PED_FAM S1 0 0 1 2\n", encoding="utf-8")
     (package_root / "manifest.yaml").write_text("schema_version: 1\nped: family.ped\n", encoding="utf-8")
 
-    result = package_import.validate_family_package(package_root)
+    result = family_package_validation.validate_family_package(package_root)
 
     assert result.valid is False
     assert result.family_id == "FOLDER_FAM"
@@ -109,7 +118,7 @@ def test_missing_referenced_files_are_validation_errors(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = package_import.validate_family_package(package_root)
+    result = family_package_validation.validate_family_package(package_root)
 
     assert result.valid is False
     codes = {error.code for error in result.errors}
@@ -138,7 +147,7 @@ def test_dataset_sample_id_mismatches_are_validation_errors(tmp_path: Path) -> N
         encoding="utf-8",
     )
 
-    result = package_import.validate_family_package(package_root)
+    result = family_package_validation.validate_family_package(package_root)
 
     assert result.valid is False
     assert "dataset_unknown_sample" in {error.code for error in result.errors}
@@ -163,7 +172,7 @@ def test_vcf_index_checks_accept_manifest_index(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = package_import.validate_family_package(package_root)
+    result = family_package_validation.validate_family_package(package_root)
 
     assert result.valid is True
     snv_summary = next(summary for summary in result.datasets if summary.dataset_type == "snv")
@@ -196,7 +205,7 @@ def test_snv_dataset_accepts_optional_vep_annotation_tsv(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    result = package_import.validate_family_package(package_root)
+    result = family_package_validation.validate_family_package(package_root)
 
     assert result.valid is True
     snv_summary = next(summary for summary in result.datasets if summary.dataset_type == "snv")
@@ -229,7 +238,7 @@ def test_uncompressed_trgt_family_vcf_does_not_require_index(tmp_path: Path) -> 
         encoding="utf-8",
     )
 
-    result = package_import.validate_family_package(package_root)
+    result = family_package_validation.validate_family_package(package_root)
 
     assert result.valid is True
     summary = next(summary for summary in result.datasets if summary.dataset_type == "repeats_trgt")
@@ -250,7 +259,7 @@ def test_unsupported_dataset_types_are_clear_errors(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = package_import.validate_family_package(package_root)
+    result = family_package_validation.validate_family_package(package_root)
 
     assert result.valid is False
     assert result.errors[0].code == "dataset_unsupported"
@@ -278,7 +287,7 @@ def test_wisecondorx_per_sample_validation_requires_bins_and_segments(tmp_path: 
         encoding="utf-8",
     )
 
-    result = package_import.validate_family_package(package_root)
+    result = family_package_validation.validate_family_package(package_root)
 
     assert result.valid is True
     summary = next(summary for summary in result.datasets if summary.dataset_type == "wisecondorx")
@@ -287,7 +296,7 @@ def test_wisecondorx_per_sample_validation_requires_bins_and_segments(tmp_path: 
 
 
 def test_pgt_ped_accepts_carrier_status_and_embryo_roles() -> None:
-    ped, errors = package_import._parse_ped_text_strict(
+    ped, errors = family_package_manifest._parse_ped_text_strict(
         "FAM001 FATHER 0 0 male 1 role=father carrier=true carrier_type=proven\n"
         "FAM001 MOTHER 0 0 female 1 role=mother\n"
         "FAM001 AFFECTED FATHER MOTHER 1 2 role=relative\n"
@@ -301,7 +310,7 @@ def test_pgt_ped_accepts_carrier_status_and_embryo_roles() -> None:
     assert by_sample["FATHER"].sex == "1"
     assert by_sample["EMBRYO1"].role_hint == "embryo"
 
-    members = package_import._ped_members_for_import(ped)
+    members = family_package_manifest._ped_members_for_import(ped)
     assert [(member["sample_id"], member["role"], member["affected"]) for member in members] == [
         ("FATHER", "father", False),
         ("MOTHER", "mother", False),
@@ -313,7 +322,7 @@ def test_pgt_ped_accepts_carrier_status_and_embryo_roles() -> None:
 
 
 def test_ped_numeric_status_uses_gatk_mapping_with_separate_carrier_flags() -> None:
-    ped, errors = package_import._parse_ped_text_strict(
+    ped, errors = family_package_manifest._parse_ped_text_strict(
         "co619 D2316046 D2417382 D2417380 1 2\n"
         "co619 D2417380 0 0 2 1 carrier=true carrier_type=proven\n"
         "co619 D2417382 0 0 1 1 carrier=true carrier_type=obligate\n"
@@ -325,7 +334,7 @@ def test_ped_numeric_status_uses_gatk_mapping_with_separate_carrier_flags() -> N
     by_sample = {member.iid: member for member in ped.members}
     assert by_sample["D2316046"].clinical_status == "affected"
     assert by_sample["D2417380"].clinical_status == "unaffected"
-    members = package_import._ped_members_for_import(ped)
+    members = family_package_manifest._ped_members_for_import(ped)
     assert [(member["sample_id"], member["role"], member["affected"]) for member in members] == [
         ("D2316046", "proband", True),
         ("D2417380", "mother", False),
@@ -337,12 +346,12 @@ def test_ped_numeric_status_uses_gatk_mapping_with_separate_carrier_flags() -> N
 
 
 def test_manifest_pgt_metadata_marks_carriers_without_changing_ped_phenotype() -> None:
-    ped, errors = package_import._parse_ped_text_strict(
+    ped, errors = family_package_manifest._parse_ped_text_strict(
         "FAM001 FATHER 0 0 1 1\n"
         "FAM001 MOTHER 0 0 2 1\n"
         "FAM001 CHILD FATHER MOTHER 1 2\n"
     )
-    manifest = package_import.PackageManifest.model_validate(
+    manifest = family_package_common.PackageManifest.model_validate(
         {
             "schema_version": 1,
             "family_id": "FAM001",
@@ -359,14 +368,14 @@ def test_manifest_pgt_metadata_marks_carriers_without_changing_ped_phenotype() -
 
     assert errors == []
     assert ped is not None
-    assert package_import._manifest_pgt_metadata(manifest) == {
+    assert family_package_manifest._manifest_pgt_metadata(manifest) == {
         "inheritance_model": "AR",
         "obligate_carriers": ["FATHER"],
         "proven_carriers": ["MOTHER"],
     }
-    members = package_import._ped_members_for_import(
+    members = family_package_manifest._ped_members_for_import(
         ped,
-        carrier_types=package_import._manifest_carrier_types(manifest),
+        carrier_types=family_package_manifest._manifest_carrier_types(manifest),
     )
 
     by_sample = {member["sample_id"]: member for member in members}
@@ -420,7 +429,7 @@ def test_pgt_manifest_validates_glimpse2_apcad_and_qdnaseq_files(tmp_path: Path)
         encoding="utf-8",
     )
 
-    result = package_import.validate_family_package(package_root)
+    result = family_package_validation.validate_family_package(package_root)
 
     assert result.valid is True
     assert result.metadata["roi"] == "CFTR"
@@ -461,7 +470,7 @@ def test_pgt_manifest_discovery_detects_co619_style_files(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
-    result = package_import.discover_family_package_manifest(
+    result = family_package_discovery.discover_family_package_manifest(
         FamilyPackageManifestBuildRequest(folder_path=str(package_root), family_id="co619")
     )
 
@@ -477,7 +486,7 @@ def test_pgt_manifest_discovery_detects_co619_style_files(tmp_path: Path) -> Non
 
 
 def test_qdnaseq_parser_handles_csv_headers() -> None:
-    parsed = package_import._parse_copy_number_interval_row(
+    parsed = family_package_tracks._parse_copy_number_interval_row(
         ["1", "1000", "2000", "-0.42", "loss"],
         header={
             "chromosome": 0,
@@ -501,7 +510,7 @@ def test_qdnaseq_parser_handles_csv_headers() -> None:
 
 
 def test_qdnaseq_parser_prefers_segmented_column_for_segments() -> None:
-    parsed = package_import._parse_copy_number_interval_row(
+    parsed = family_package_tracks._parse_copy_number_interval_row(
         ["1:1-500000", "1", "1", "500000", "250000.5", "0.12", "0.08"],
         header={
             "": 0,
@@ -541,14 +550,14 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
         encoding="utf-8",
     )
 
-    bundle = package_import.FamilyPackageBundle(
+    bundle = family_package_common.FamilyPackageBundle(
         root=root,
         manifest_path=root / "manifest.yaml",
-        manifest=package_import.PackageManifest(schema_version=1, ped="family.ped"),
+        manifest=family_package_common.PackageManifest(schema_version=1, ped="family.ped"),
         ped_path=root / "family.ped",
-        ped=package_import.ParsedPed(family_ids=[], members=[], sample_ids=[], text=""),
+        ped=family_package_common.ParsedPed(family_ids=[], members=[], sample_ids=[], text=""),
     )
-    dataset = package_import.ManifestDataset(
+    dataset = family_package_common.ManifestDataset(
         per_sample={
             "D2417384": {
                 "bins": bins_path.name,
@@ -578,13 +587,16 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
         "backend.app.services.family_package_datasets._import_copy_number_track", fake_import_copy_number_track
     )
 
-    result = await package_import._import_qdnaseq_dataset(
-        session=object(),
-        bundle=bundle,
-        dataset=dataset,
-        summary=summary,
-        sample_contexts=sample_contexts,
-        conflict_mode="overwrite",
+    result = await family_package_datasets._import_qdnaseq_dataset(
+        DatasetImportJob(
+            session=object(),  # type: ignore[arg-type]
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            family_context=None,  # type: ignore[arg-type] - QDNAseq does not read it
+            sample_contexts=sample_contexts,
+            conflict_mode="overwrite",
+        )
     )
 
     assert result.message == "Imported QDNAseq bins as coverage and segments as segment interval tracks"
@@ -594,7 +606,7 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
 
 def test_apcad_parser_supports_import_tsv_and_vcf_fields() -> None:
     sample_context = _sample_context("EMBRYO1")
-    tsv_row = package_import._parse_apcad_interval_row(
+    tsv_row = family_package_tracks._parse_apcad_interval_row(
         ["1", "28994", "C", "T", "apcad_1", "maternal", "0.0696"],
         header=None,
         sample_context=sample_context,
@@ -607,11 +619,11 @@ def test_apcad_parser_supports_import_tsv_and_vcf_fields() -> None:
     assert tsv_row["end"] == 28994
     assert tsv_row["origin"] == "maternal"
     assert tsv_row["value"] == 0.0696
-    assert package_import._apcad_value({"BAF": "0.73"}, {}) == 0.73
-    assert package_import._apcad_origin({"PARENTAL_ORIGIN": "father"}, {}) == "paternal"
-    assert package_import._apcad_value({"AF": "0.25"}, {}, allow_info_fallback=False) is None
+    assert family_package_tracks._apcad_value({"BAF": "0.73"}, {}) == 0.73
+    assert family_package_tracks._apcad_origin({"PARENTAL_ORIGIN": "father"}, {}) == "paternal"
+    assert family_package_tracks._apcad_value({"AF": "0.25"}, {}, allow_info_fallback=False) is None
     assert (
-        package_import._infer_apcad_origin_from_parent_genotypes(
+        family_package_tracks._infer_apcad_origin_from_parent_genotypes(
             father_fmt={"GT": "0|0"},
             mother_fmt={"GT": "0|1"},
         )
@@ -632,7 +644,7 @@ def test_discover_manifest_generates_yaml_from_ped_and_available_files(tmp_path:
     (wise_root / "bins.bed").write_text("1\t0\t10\t0.1\n", encoding="utf-8")
     (wise_root / "segments.bed").write_text("1\t0\t10\t0.1\n", encoding="utf-8")
 
-    result = package_import.discover_family_package_manifest(
+    result = family_package_discovery.discover_family_package_manifest(
         FamilyPackageManifestBuildRequest(
             folder_path=str(package_root),
             ped_path="family.ped",
@@ -666,7 +678,7 @@ def test_discover_manifest_detects_uncompressed_trgt_family_vcf(tmp_path: Path) 
         encoding="utf-8",
     )
 
-    result = package_import.discover_family_package_manifest(
+    result = family_package_discovery.discover_family_package_manifest(
         FamilyPackageManifestBuildRequest(
             folder_path=str(package_root),
             ped_path="family.ped",
@@ -696,7 +708,7 @@ def test_write_manifest_creates_manifest_yaml_and_validates_package(tmp_path: Pa
         "    enabled: false\n"
     )
 
-    result = package_import.write_family_package_manifest(
+    result = family_package_discovery.write_family_package_manifest(
         folder_path=package_root,
         manifest_yaml=manifest_yaml,
         overwrite=False,
@@ -716,7 +728,7 @@ def test_wisecondorx_parser_handles_headers_and_skips_nan_values(tmp_path: Path)
     )
     header = {"chr": 0, "start": 1, "end": 2, "id": 3, "ratio": 4, "zscore": 5}
 
-    skipped = package_import._parse_wisecondorx_interval_row(
+    skipped = family_package_tracks._parse_wisecondorx_interval_row(
         ["1", "1", "10000", "1:1-10000", "nan", "nan"],
         header=header,
         sample_context=_sample_context("S1"),
@@ -724,7 +736,7 @@ def test_wisecondorx_parser_handles_headers_and_skips_nan_values(tmp_path: Path)
         path=path,
         line_no=2,
     )
-    parsed = package_import._parse_wisecondorx_interval_row(
+    parsed = family_package_tracks._parse_wisecondorx_interval_row(
         ["1", "10001", "20000", "1:10001-20000", "-0.25", "-1.5"],
         header=header,
         sample_context=_sample_context("S1"),
@@ -744,7 +756,7 @@ def test_wisecondorx_parser_handles_headers_and_skips_nan_values(tmp_path: Path)
 
 
 def test_needlr_family_vcf_parser_builds_proband_and_parent_calls() -> None:
-    ped, errors = package_import._parse_ped_text_strict(
+    ped, errors = family_package_manifest._parse_ped_text_strict(
         "FAM001 PROBAND FATHER MOTHER 1 2\n"
         "FAM001 MOTHER 0 0 2 1\n"
         "FAM001 FATHER 0 0 1 1\n"
@@ -763,7 +775,7 @@ def test_needlr_family_vcf_parser_builds_proband_and_parent_calls() -> None:
         for sample_id in ["PROBAND", "MOTHER", "FATHER"]
     }
 
-    records = package_import._iter_needlr_structural_records(
+    records = family_package_variants._iter_needlr_structural_records(
         text_value,
         ped=ped,
         sample_contexts=sample_contexts,
@@ -785,7 +797,7 @@ def test_needlr_family_vcf_parser_builds_proband_and_parent_calls() -> None:
 
 
 def test_needlr_annotations_are_exposed_for_structural_variants() -> None:
-    ped, errors = package_import._parse_ped_text_strict(
+    ped, errors = family_package_manifest._parse_ped_text_strict(
         "FAM001 PROBAND FATHER MOTHER 1 2\n"
         "FAM001 MOTHER 0 0 2 1\n"
         "FAM001 FATHER 0 0 1 1\n"
@@ -804,7 +816,7 @@ def test_needlr_annotations_are_exposed_for_structural_variants() -> None:
         "Allele_Freq_ALL=0.001;GT_het=2;HWE=TRUE\n"
     )
     sample_contexts = {"PROBAND": _sample_context("PROBAND")}
-    record = package_import._iter_needlr_structural_records(
+    record = family_package_variants._iter_needlr_structural_records(
         text_value,
         ped=ped,
         sample_contexts=sample_contexts,
@@ -822,7 +834,7 @@ def test_needlr_annotations_are_exposed_for_structural_variants() -> None:
 
 
 def test_structural_variant_annotation_filters_match_needlr_fields() -> None:
-    ped, errors = package_import._parse_ped_text_strict("FAM001 PROBAND 0 0 1 2\n")
+    ped, errors = family_package_manifest._parse_ped_text_strict("FAM001 PROBAND 0 0 1 2\n")
     assert errors == []
     text_value = (
         "##fileformat=VCFv4.2\n"
@@ -833,7 +845,7 @@ def test_structural_variant_annotation_filters_match_needlr_fields() -> None:
         "OMIM_phenotype=Spinal_muscular_atrophy;HPO_terms=HP:0001250;"
         "GENCC_support=Definitive;pLI=0.98;CDS=TRUE;Allele_Freq_ALL_Control=0.0005\n"
     )
-    record = package_import._iter_needlr_structural_records(
+    record = family_package_variants._iter_needlr_structural_records(
         text_value,
         ped=ped,
         sample_contexts={"PROBAND": _sample_context("PROBAND")},
@@ -858,7 +870,7 @@ def test_structural_variant_annotation_filters_match_needlr_fields() -> None:
 
 def test_paraphase_rows_store_gene_level_json_payload(tmp_path: Path) -> None:
     path = tmp_path / "S1.paraphase.json"
-    rows = package_import._paraphase_rows_for_sample(
+    rows = family_package_variants._paraphase_rows_for_sample(
         sample_context=_sample_context("S1"),
         path=path,
         payload={
@@ -1133,20 +1145,20 @@ def test_resolve_package_path_blocks_escape_outside_root(tmp_path: Path) -> None
 
     # Legitimate relative paths resolve inside the package root.
     assert (
-        package_import._resolve_package_path(root, "data/fam.ped")
+        family_package_common._resolve_package_path(root, "data/fam.ped")
         == (root / "data" / "fam.ped").resolve()
     )
-    assert package_import._resolve_package_path(root, None) is None
-    assert package_import._resolve_package_path(root, "   ") is None
+    assert family_package_common._resolve_package_path(root, None) is None
+    assert family_package_common._resolve_package_path(root, "   ") is None
 
     # A manifest pointing at an absolute host path is rejected (no arbitrary read).
     with pytest.raises(HTTPException) as exc:
-        package_import._resolve_package_path(root, "/etc/passwd")
+        family_package_common._resolve_package_path(root, "/etc/passwd")
     assert exc.value.status_code == 400
 
     # '..' traversal escaping the root is rejected.
     with pytest.raises(HTTPException) as exc:
-        package_import._resolve_package_path(root, "../../../../etc/passwd")
+        family_package_common._resolve_package_path(root, "../../../../etc/passwd")
     assert exc.value.status_code == 400
 
 
@@ -1157,4 +1169,4 @@ def test_resolve_package_path_allows_absolute_inside_root(tmp_path: Path) -> Non
     target.write_text("##\n")
 
     # An absolute path that still points inside the package root stays allowed.
-    assert package_import._resolve_package_path(root, str(target)) == target.resolve()
+    assert family_package_common._resolve_package_path(root, str(target)) == target.resolve()

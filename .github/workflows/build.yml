@@ -180,9 +180,9 @@ jobs:
     runs-on: ubuntu-latest
     # Gate every infrastructure apply behind a protected GitHub Environment. Configure
     # required reviewers on the `gcp-deploy` environment (Settings → Environments) so a
-    # human approves before Terraform runs; until that protection rule is added this is
-    # an inert placeholder (no behaviour change). Covers the current dev target and any
-    # future prod target — `terraform apply -auto-approve` must never run unattended.
+    # human approves before Terraform runs. Without that protection rule the job refuses
+    # to deploy (its first step). Covers the current dev target and any future prod
+    # target — `terraform apply -auto-approve` must never run unattended.
     environment: gcp-deploy
     # Serialize every apply against this environment, across refs. The workflow-level
     # concurrency above is keyed on the ref, so a release run and a main-push run sit in
@@ -194,7 +194,24 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      # Read the gcp-deploy environment's protection rules (the first step below).
+      actions: read
     steps:
+      - name: Refuse to deploy without required reviewers on gcp-deploy
+        # The environment above only gates the apply once it has required reviewers. Until
+        # someone adds them, `terraform apply -auto-approve` would run unattended, so this
+        # step stops the job before it touches the cloud (#364).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          reviewers=$(gh api "repos/$REPOSITORY/environments/gcp-deploy" \
+            --jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length')
+          if [ "${reviewers:-0}" -lt 1 ]; then
+            echo "::error::The gcp-deploy environment has no required reviewers. Add at least one under Settings -> Environments -> gcp-deploy, then re-run this job."
+            exit 1
+          fi
+          echo "gcp-deploy requires approval from $reviewers reviewer(s)."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:

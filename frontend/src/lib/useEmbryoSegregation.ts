@@ -40,12 +40,19 @@ export const useEmbryoSegregation = ({
   roi: ApiFamilyRegionOfInterest | null;
   members: ApiFamilyMember[];
   inheritanceModel?: string | null;
-}): { byEmbryo: Map<string, EmbryoClassification>; isLoading: boolean } => {
+}): {
+  byEmbryo: Map<string, EmbryoClassification>;
+  isLoading: boolean;
+  /** The haplotypes at the ROI could not be loaded: no segregation is derived, and the
+   * recombination and uninformative warnings are unknown, not absent (#607). */
+  isError: boolean;
+  retry: () => void;
+} => {
   const hasEmbryos = members.some((m) => String(m.role || '').toLowerCase() === 'embryo');
   const winStart = roi ? Math.max(0, roi.start - ROI_FLANK) : 0;
   const winEnd = roi ? roi.end + ROI_FLANK : 0;
 
-  const { data, isLoading } = useQuery<HaplotypeResponse>({
+  const { data, isLoading, isError, refetch } = useQuery<HaplotypeResponse>({
     queryKey: ['haplotypes', familyId, roi?.chr, winStart, winEnd],
     enabled: !!roi && !!familyId && hasEmbryos,
     staleTime: Infinity,
@@ -68,5 +75,12 @@ export const useEmbryoSegregation = ({
     return new Map(rows.map((r) => [r.sampleId, r]));
   }, [roi, data?.samples, members, inheritanceModel]);
 
-  return { byEmbryo, isLoading: isLoading && hasEmbryos && !!roi };
+  return {
+    byEmbryo,
+    isLoading: isLoading && hasEmbryos && !!roi,
+    isError: isError && hasEmbryos && !!roi,
+    retry: () => {
+      void refetch();
+    },
+  };
 };

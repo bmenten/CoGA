@@ -18,7 +18,7 @@ De reviewer ziet één pagina met bovenaan een keuzelijst voor de **assembly**, 
 Belangrijk detail voor de traceerbaarheid: de Variant Explorer **hergebruikt het bestaande filterformulier** van de familiepagina, maar in "familie-loze" modus.
 
 **Waar in de code (frontend):**
-- De pagina zelf: `GlobalSmallVariantExplorerPage` in `frontend/src/pages/variant-explorer/GlobalSmallVariantExplorerPage.tsx`. Deze rendert `SmallVariantFilterForm` met de prop `familyAware={false}`, waardoor de familie-/samplevelden verborgen worden.
+- De pagina zelf: `GlobalSmallVariantExplorerPage` in `frontend/src/pages/variant-explorer/GlobalSmallVariantExplorerPage.tsx`. Deze rendert `SmallVariantFilterForm` met de prop `familyAware={false}`, waardoor de familie-/samplevelden verborgen worden. Daarnaast geeft de pagina `unsupportedFilters={GLOBAL_UNSUPPORTED_FILTERS}` mee: de filters die de Explorer-backend niet toepast (een intervallenlijst, transcript, uitgesloten genen en intervallen, uitgesloten tags, "alleen met notities") krijgen geen besturingselement. Hun parameters worden ook niet verstuurd. Tot CR-057 bood het formulier ze wel aan en stond er een actieve filterchip, terwijl de backend de parameters negeerde.
 - De zoek-state-hook: `useGlobalSmallVariantSearchState` in `frontend/src/pages/variant-explorer/globalSmallVariantSearch.ts` — de "familie-agnostische tegenhanger" die dezelfde query-string-serialisatie (`buildSmallVariantQueryParams`) hergebruikt maar de familie- en sample-handlers bewust als no-ops (lege functies) invult.
 - De tabel en het dragervenster: `frontend/src/pages/variant-explorer/GlobalSmallVariantTable.tsx` en `frontend/src/pages/variant-explorer/VariantCarrierModal.tsx`.
 - De TypeScript-typen (spiegel van de backend-schema's): `frontend/src/pages/variant-explorer/types.ts` (`GlobalVariantRow`, `GlobalVariantPage`, `VariantCarriers`).
@@ -82,11 +82,11 @@ Cruciaal: als een familie **niet** zichtbaar is onder de projecten van de gebrui
 
 ## Filters: veilig geparametriseerd
 
-De Explorer kent twee klassen filters bovenop de gedeelde annotatiefilters (gen, panel, impact, ClinVar, gnomAD-frequenties, CADD/REVEL/SpliceAI, enz., opgebouwd in `_annotation_index_clauses`).
+De Explorer kent twee klassen filters bovenop de gedeelde annotatiefilters (gen, panel, impact, ClinVar, gnomAD-frequenties, CADD/REVEL/SpliceAI, enz., opgebouwd in `_annotation_index_clauses`). De frequentieplafonds vormen daar één blok. Met `clinvar_overrides_frequency`, dat in de UI standaard aan staat, laat een ClinVar-(likely-)pathogene variant het blok passeren. Dat gebeurt op dezelfde genormaliseerde termen als in de familiezoektocht (`CLINVAR_FREQUENCY_RESCUE_TERMS`, #534). Tot CR-057 negeerde de Explorer die optie.
 
 **1. Tag- en classificatiefilters (Postgres-brug).** Tags en ACMG-classificaties leven in Postgres (`small_variant_reviews`, per familie), niet in ClickHouse. Wanneer de gebruiker daarop filtert, resolvet `_variant_ids_matching_reviews` eerst de bijhorende `variant_id`-strings (bv. `1-1000-A-T`) binnen de toegankelijke projecten, en die lijst wordt als allow-list doorgegeven aan de ClickHouse-query (`variantId IN %(tag_variant_ids)s`). Zo overbrugt CoGA de review-status (Postgres) en de genotype-opslag (ClickHouse) op de gedeelde `variant_id` — dezelfde brug die de familiepagina gebruikt. Een lege match betekent "niets gevonden" en levert direct een leeg resultaat. Voor de weergegeven tags/classificatie per rij wordt `_review_display_map` gebruikt (unie van tags, meest-severe classificatie).
 
-**2. Per-sample-genotypefilters.** In de UI voegt de reviewer regels toe als `sampleId : {Het | Hom | Het+Hom}`. De frontend serialiseert die als queryparameters `sample_gt=<sampleId>:<mode>` (in `globalSmallVariantSearch.ts`). De router parseert ze in `_parse_sample_genotype_filters`, waarbij een onbekende modus veilig terugvalt op `het_hom`. In `_entries_where` wordt elke sample-constraint een **aparte membership-subquery** die met `AND` wordt gecombineerd: de variant moet aan élke per-sample-eis voldoen. Het, Hom en drager (Het+Hom) zijn genotype-**klassen** uit `backend/app/services/genotypes.py` (#511): een haploïde `1` of een `2/2` telt als Hom, een `1/2` als Het, en een haploïde `0` is geen drager.
+**2. Per-sample-genotypefilters.** In de UI voegt de reviewer regels toe als `sampleId : {Het | Hom | Het+Hom}`. De frontend serialiseert die als queryparameters `sample_gt=<sampleId>:<mode>` (in `globalSmallVariantSearch.ts`). De router parseert ze in `_parse_sample_genotype_filters`. De modus is de tekst na de laatste `:`, maar alleen als die een geldige modus is. Anders is de hele waarde het sample-ID, met `het_hom`. Zo mag een sample-ID zelf een `:` bevatten (`LAB:1:hom`). In `_entries_where` wordt elke sample-constraint een **aparte membership-subquery** die met `AND` wordt gecombineerd: de variant moet aan élke per-sample-eis voldoen. Het, Hom en drager (Het+Hom) zijn genotype-**klassen** uit `backend/app/services/genotypes.py` (#511): een haploïde `1` of een `2/2` telt als Hom, een `1/2` als Het, en een haploïde `0` is geen drager.
 
 **Veiligheid van de parametrisering.** Elke door de gebruiker aangeleverde waarde komt als een **benoemde parameter** (`%(naam)s`) in de query en wordt door de ClickHouse-client server-side gebonden — niet met stringconcatenatie. Dat blokkeert SQL-injectie.
 
@@ -99,10 +99,10 @@ Dit is het hart van het hoofdstuk voor een auditor. Elke aanvraag wordt hard beg
 De scope wordt centraal opgelost in `resolve_scope`, dat steunt op `_accessible_project_rows`. Die functie splitst expliciet op rol:
 
 ```python
-if _is_admin_user(user):
+if is_admin_user(user):
     result = await session.execute(text(base_query))          # admin -> alle projecten
 else:
-    project_ids = _user_metadata_project_ids(user)
+    project_ids = user_metadata_project_ids(user)
     if not project_ids:
         return []                                              # geen projecten -> leeg
     result = await session.execute(... WHERE p.id IN :project_ids ...)
@@ -111,7 +111,7 @@ else:
 - **Admins** (rol in `ADMIN_ROLES`, d.w.z. `admin` of `superuser`) zien alle projecten.
 - **Overige gebruikers** zien uitsluitend hun `metadata_project_ids`. Hebben ze er geen, dan is het resultaat gegarandeerd leeg: `_accessible_project_rows` geeft een lege lijst terug, `resolve_scope` geeft `None`, en de caller rendert dat als een leeg resultaat.
 
-**Waar in de code:** `resolve_scope` en `_accessible_project_rows` in `variant_explorer_service.py`, met de rolhelpers `_is_admin_user` (`ADMIN_ROLES = {"admin", "superuser"}`) en `_user_metadata_project_ids` uit `backend/app/services/metadata_service.py`.
+**Waar in de code:** `resolve_scope` en `_accessible_project_rows` in `variant_explorer_service.py`, met de rolhelpers `is_admin_user` (`ADMIN_ROLES = {"admin", "superuser"}`) en `user_metadata_project_ids` uit `backend/app/services/access_control.py`.
 
 De uit deze scope afgeleide project-GUID's worden vervolgens in **iedere** ClickHouse-query verplicht meegegeven. De eerste twee clausules in `_entries_where` zijn altijd:
 
@@ -149,7 +149,7 @@ De Explorer bevraagt varianten over mogelijk vele projecten en miljoenen genotyp
 | `backend/app/services/clickhouse_variant_ids.py` | Opbouw van variant-ID's/keys en `xpos` (`build_small_variant_id`, `small_variant_key`, `_xpos`) |
 | `backend/app/services/clickhouse_variant_rows.py` | Opbouw van de `entries`- en annotatie-index-rijen die bij import naar ClickHouse worden geschreven (leescontract van de Explorer) |
 | `backend/app/services/clickhouse_variant_storage.py` | DDL van de `entries`-tabel (`CollapsingMergeTree`, partitie op `project_guid`); opruimen legacy `gt_stats` |
-| `backend/app/services/metadata_service.py` | Rol-/toegangshelpers `_is_admin_user` (`ADMIN_ROLES`), `_user_metadata_project_ids` die de scope voeden |
+| `backend/app/services/access_control.py` | Rol-/toegangshelpers `is_admin_user` (`ADMIN_ROLES`), `user_metadata_project_ids` die de scope voeden |
 | `backend/app/services/data_scope.py` | Chromosoom-normalisatie (let op: géén projectafscherming ondanks de naam) |
 | `backend/app/core/clickhouse.py` | `execute_clickhouse` met server-side parameterbinding (`%(...)s`) |
 | `frontend/src/pages/variant-explorer/GlobalSmallVariantExplorerPage.tsx` | Hoofdpagina: assembly-keuze, genotypefilter, resultaattabel, CSV-download |

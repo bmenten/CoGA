@@ -163,4 +163,50 @@ describe('FamilyNiptReportPage', () => {
       await screen.findByRole('heading', { name: /not a monogenic nipt family/i }),
     ).toBeInTheDocument();
   });
+
+  // #605 — a failed request is never printed as a report without that part.
+  describe('when a request fails', () => {
+    const failing = (...urls: string[]) =>
+      apiMock.get.mockImplementation((url: string) => {
+        if (urls.includes(url)) {
+          return Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+        }
+        if (url === '/families/NIPT001') {
+          return Promise.resolve({
+            data: { family_id: 'NIPT001', members: [], metadata: { analysis_type: 'monogenic_nipt' } },
+          });
+        }
+        if (url === '/families/NIPT001/nipt/variants') {
+          return Promise.resolve({
+            data: { family_id: 'NIPT001', total: 1, variants: [niptVariant('v1', 'ARID1B', 1, 'De novo in fetus')] },
+          });
+        }
+        return Promise.resolve({ data: {} });
+      });
+
+    it('does not render an empty report when the family could not be loaded', async () => {
+      failing('/families/NIPT001');
+      renderPage();
+
+      expect(await screen.findByText('Report could not be loaded')).toBeInTheDocument();
+      expect(screen.getByText(/This is not a report without candidates/)).toBeInTheDocument();
+      expect(screen.queryByText(/No classified candidate variants were returned/)).not.toBeInTheDocument();
+    });
+
+    it('says the fetal fraction and the coverage QC could not be loaded, on screen and in print', async () => {
+      failing('/families/NIPT001/nipt/summary', '/families/NIPT001/nipt/coverage');
+      renderPage();
+
+      expect(await screen.findByText(/The fetal-fraction estimate could not be loaded/)).toBeInTheDocument();
+      expect(screen.getByText(/The coverage QC could not be loaded/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/^Incomplete — the fetal-fraction estimate and the coverage QC could not be loaded/),
+      ).toBeInTheDocument();
+      // Neither reads as a finding: no estimate, or no target regions.
+      expect(screen.queryByText(/No fetal-fraction estimate is available/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/No target regions were available/)).not.toBeInTheDocument();
+      // The candidates that did load are still reported.
+      expect(screen.getByText(/De novo in fetus \(1\)/)).toBeInTheDocument();
+    });
+  });
 });

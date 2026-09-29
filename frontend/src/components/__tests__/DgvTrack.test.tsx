@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { useQueryMock } = vi.hoisted(() => ({ useQueryMock: vi.fn() }));
@@ -111,4 +111,88 @@ test('density mode draws stacked bars with a per-bin tooltip', () => {
   const tooltip = document.body.querySelector('.viz-tooltip');
   expect(tooltip?.textContent).toContain('17 DGV variants');
   expect(tooltip?.textContent).toContain('gain 10');
+});
+
+test('names the variants it draws for a screen reader, by class, and keeps each one\'s name (#529)', () => {
+  useQueryMock.mockReturnValue({
+    data: {
+      total: 5,
+      mode: 'lines',
+      bin_size: 0,
+      variants: [
+        { chr: '1', start: 10, end: 60, accession: 'dup1', variant_class: 'gain' },
+        { chr: '1', start: 50, end: 150, accession: 'del1', variant_class: 'loss' },
+        { chr: '1', start: 160, end: 220, accession: 'del2', variant_class: 'loss' },
+        { chr: '1', start: 200, end: 250, accession: 'cx1', variant_class: 'mixed' },
+        { chr: '1', start: 260, end: 290, accession: 'ot1', variant_class: 'other' },
+      ],
+      bins: [],
+    },
+  });
+
+  const { container } = renderTrack();
+
+  expect(
+    screen.getByRole('img', { name: 'DGV variants on chr1:0–300: 5 (1 gain, 2 loss, 1 mixed, 1 other)' }),
+  ).toBeInTheDocument();
+  expect(container.querySelectorAll('rect[aria-label]')).toHaveLength(5);
+});
+
+test('names a density profile by its total, as its note does (#529)', () => {
+  useQueryMock.mockReturnValue({
+    data: {
+      total: 50000,
+      mode: 'density',
+      bin_size: 100,
+      variants: [],
+      bins: [{ start: 0, end: 100, gain: 10, loss: 5, mixed: 2, other: 0 }],
+    },
+  });
+
+  renderTrack();
+
+  expect(
+    screen.getByRole('img', { name: 'DGV variants on chr1:0–300: 50,000, shown as density' }),
+  ).toBeInTheDocument();
+});
+
+test.each([
+  ['an empty region', { data: { total: 0, mode: 'lines', bin_size: 0, variants: [], bins: [] } }, 'none'],
+  ['a request in flight', { data: undefined }, 'loading'],
+  ['a failed request (#510)', { data: undefined, isError: true, refetch: vi.fn() }, 'failed to load'],
+])('names %s as what it is, and only an empty region as "none" (#529)', (_label, state, summary) => {
+  useQueryMock.mockReturnValue(state);
+
+  renderTrack();
+
+  expect(screen.getByRole('img', { name: `DGV variants on chr1:0–300: ${summary}` })).toBeInTheDocument();
+});
+
+test('while a pan loads, a held variant left of the new window is not drawn at its edge (#586)', () => {
+  const region = (regionStart: number) => (
+    <DgvTrack assembly="GRCh38" chrom="1" width={100} height={48} regionStart={regionStart} regionEnd={regionStart + 300} />
+  );
+  const variant = (accession: string, start: number) => ({
+    chr: '1',
+    start,
+    end: start + 50,
+    accession,
+    variant_subtype: 'duplication',
+    variant_class: 'gain',
+    frequency: 0.05,
+  });
+  useQueryMock.mockReturnValue({
+    data: { total: 2, mode: 'lines', bin_size: 0, variants: [variant('left', 50), variant('right', 250)], bins: [] },
+  });
+  const { container, rerender } = render(region(0));
+  expect(container.querySelectorAll('rect[aria-label]')).toHaveLength(2);
+
+  // Same span, 200 bp right, still loading: "left" (50–100) now lies left of the window.
+  // It was drawn as a 1 px bar at x = 0 under its own name.
+  useQueryMock.mockReturnValue({ data: undefined, isLoading: true });
+  rerender(region(200));
+  const drawn = Array.from(container.querySelectorAll('rect[aria-label]')).map((rect) =>
+    rect.getAttribute('aria-label'),
+  );
+  expect(drawn).toEqual(['right']);
 });

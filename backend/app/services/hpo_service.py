@@ -665,7 +665,8 @@ async def ensure_hpo_ontology_on_startup(
         )
         return None
 
-    metadata = parse_hpo_ontology_release_metadata_path(resolved_path)
+    # Reading and parsing the ontology file is CPU and disk work: keep it off the event loop (#527).
+    metadata = await asyncio.to_thread(parse_hpo_ontology_release_metadata_path, resolved_path)
     try:
         imported = await import_hpo_ontology(
             session,
@@ -733,10 +734,10 @@ async def import_hpo_ontology(
     release_date: date | None = None,
     commit: bool = True,
 ) -> dict[str, int]:
-    ontology = parse_hpo_ontology_path(path)
+    ontology = await asyncio.to_thread(parse_hpo_ontology_path, path)
     if not ontology.terms:
         raise ValueError("HPO ontology import found no terms")
-    release_metadata = parse_hpo_ontology_release_metadata_path(path)
+    release_metadata = await asyncio.to_thread(parse_hpo_ontology_release_metadata_path, path)
     effective_release_version = release_version or release_metadata.release_version
     effective_release_date = release_date or release_metadata.release_date
 
@@ -1608,7 +1609,7 @@ async def preview_hpo_ontology_sync(
     *,
     path: str | Path,
 ) -> dict[str, int]:
-    ontology = parse_hpo_ontology_path(path)
+    ontology = await asyncio.to_thread(parse_hpo_ontology_path, path)
     if not ontology.terms:
         raise ValueError("HPO ontology import found no terms")
     existing: dict[str, dict[str, Any]] = {}
@@ -1677,7 +1678,7 @@ async def sync_hpo_ontology(
     preview_only: bool = True,
 ) -> dict[str, Any]:
     preview = await preview_hpo_ontology_sync(session, path=path)
-    release_metadata = parse_hpo_ontology_release_metadata_path(path)
+    release_metadata = await asyncio.to_thread(parse_hpo_ontology_release_metadata_path, path)
     effective_release_version = release_version or release_metadata.release_version
     effective_release_date = release_date or release_metadata.release_date
     if preview_only:

@@ -42,11 +42,11 @@
 
 - React/TypeScript + Tailwind + Vite: login flow, dashboard, family workspace, gene/global explorers, and interactive canvas/SVG/D3 visualizations under `frontend/src/components/visualizations/` (coverage/APCAD, small-variant/SV/CNV/gene/segdup/DGV/blacklist tracks, ideograms, Circos, pedigree, and the PGT haplotype/lineage tracks).
 - Configure Axios with the JWT, extend routing as needed, and reuse shared styles from `frontend/src/styles/theme.css` for buttons, links, tables, and layout to keep a consistent appearance.
-- In-app reference docs are authored under `frontend/src/content/docs/` and render at `/docs`.
+- In-app reference docs are authored under `frontend/src/content/docs/` and render at `/docs`; the user guide's sections are Markdown under `content/docs/user-guide/`, held to their text by `UserGuideContent.test.tsx`.
 
 ## Security & Testing
 
 - Follow the posture in `docs/security-posture.md`: project-scoped RBAC, append-only audit, encryption/TLS, rate limiting, and the CI gates (dependency-audit, secret-scan, SAST, SBOM).
-- **Backend:** run `python -m pytest` (from the repository root or `backend/`; both collect `backend/tests/`, the only test root). **Frontend:** run `npx vitest run` from `frontend/`. The catalogue gate enforces every test file is listed in `docs/testing.md` — keep that catalogue current. `tsc`/`eslint`/`build` do **not** catch component-test regressions, so run vitest for any frontend change.
+- **Backend:** run `ruff check .`, `mypy` (the clinical-critical modules in `mypy.ini`) and `python -m pytest` (from the repository root or `backend/`; both collect `backend/tests/`, the only test root). **Frontend:** run `npx vitest run` from `frontend/`. The catalogue gate enforces every test file is listed in `docs/testing.md` — keep that catalogue current. `tsc`/`eslint`/`build` do **not** catch component-test regressions, so run vitest for any frontend change.
 - An end-to-end harness (API-contract, import, sign-out, and Playwright browser journeys) backs the IVDR verification records — see `docs/regulatory/TF-09c`/`TF-09d`.
 - Run the relevant suites before committing.

@@ -37,7 +37,6 @@ import re
 import sys
 import tempfile
 import time
-import json
 import hashlib
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -342,8 +341,10 @@ def normalize_clingen_table(df: pd.DataFrame, source_url: str, assembly: str) ->
             "references": str(row.get(pmid_col, "")).strip() if pmid_col else "",
             "clingen_url": make_clingen_url(source_id),
             "source_url": source_url,
-            "clinvar_pathogenic_loss_count": 0,
-            "clinvar_pathogenic_gain_count": 0,
+            # Empty, not 0, until add_clinvar_overlap_support has counted: a knowledgebase
+            # built without ClinVar must not read as a region without ClinVar support (#624).
+            "clinvar_pathogenic_loss_count": "",
+            "clinvar_pathogenic_gain_count": "",
             "clinvar_pathogenic_accessions": "",
         })
 
@@ -410,6 +411,53 @@ def annotate_cytobands(df: pd.DataFrame, cyto: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# ClinVar's Type column states the side of a copy-number record directly (#566).
+_CLINVAR_LOSS_TYPES = frozenset({"copy number loss", "deletion"})
+_CLINVAR_GAIN_TYPES = frozenset({"copy number gain", "duplication", "tandem duplication"})
+
+# The copy number of an ISCN-style array record, written after its coordinates:
+# "GRCh38/hg38 7q11.23(chr7:73330452-74799773)x1".
+_ISCN_COPY_NUMBER = re.compile(r"\)\s*x(\d+)\b", re.IGNORECASE)
+
+
+def clinvar_cnv_side(type_value: object, name: object, chromosome: object) -> str:
+    """The side of a ClinVar copy-number record: "loss", "gain" or "unknown" (#566).
+
+    Read, in order, from ClinVar's ``Type`` column; from the copy number an array record
+    carries in its name (``x1``, ``x3``), and only then from words in the name. The side
+    used to come from the name's words only, so an array record, named in ISCN notation
+    without them, counted toward neither side.
+
+    On an autosome two copies are normal, so ``x0``/``x1`` is a loss and ``x3`` or more a
+    gain. On chrX and chrY the normal count depends on the carrier's sex, which ClinVar's
+    summary does not give: ``x1`` is a loss in a female and normal in a male, and ``x2``
+    normal in a female and a gain in a male. There only ``x0`` (a loss) and ``x3`` or more
+    (a gain) are read, and ``x1``/``x2`` fall through to the name's words.
+    """
+    typ = str(type_value or "").strip().lower()
+    if typ in _CLINVAR_LOSS_TYPES:
+        return "loss"
+    if typ in _CLINVAR_GAIN_TYPES:
+        return "gain"
+
+    text = "" if name is None or pd.isna(name) else str(name)
+    copy_numbers = _ISCN_COPY_NUMBER.findall(text)
+    if copy_numbers:
+        copies = int(copy_numbers[-1])
+        sex_chromosome = clean_chr(str(chromosome or "")) in {"X", "Y"}
+        if copies == 0 or (copies == 1 and not sex_chromosome):
+            return "loss"
+        if copies >= 3:
+            return "gain"
+
+    lower_name = text.lower()
+    if "dup" in lower_name or "duplication" in lower_name or "gain" in lower_name:
+        return "gain"
+    if "del" in lower_name or "deletion" in lower_name or "loss" in lower_name:
+        return "loss"
+    return "unknown"
+
+
 def load_clinvar_cnv_support(assembly: str) -> pd.DataFrame:
     """
     Loads ClinVar variant_summary and keeps likely pathogenic copy-number / structural CNVs.
@@ -472,6 +520,11 @@ def load_clinvar_cnv_support(assembly: str) -> pd.DataFrame:
             pass
 
     df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    return clinvar_support_rows(df)
+
+
+def clinvar_support_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """The filtered ClinVar CNV records as support rows: locus, side, accession and name."""
     if df.empty:
         return pd.DataFrame()
 
@@ -492,15 +545,7 @@ def load_clinvar_cnv_support(assembly: str) -> pd.DataFrame:
             continue
 
         name = str(r.get(name_col, "")) if name_col else ""
-        lower_name = name.lower()
-
-        if "dup" in lower_name or "duplication" in lower_name or "gain" in lower_name:
-            cnv_type = "gain"
-        elif "del" in lower_name or "deletion" in lower_name or "loss" in lower_name:
-            cnv_type = "loss"
-        else:
-            cnv_type = "unknown"
-
+        cnv_type = clinvar_cnv_side(r.get(type_col) if type_col else None, name, chrom)
         accession = str(r.get(acc_col, "")) if acc_col else ""
 
         rows.append({
@@ -897,8 +942,8 @@ def load_clingen_recurrent_regions(assembly: str) -> pd.DataFrame:
             "references": "",
             "clingen_url": "",
             "source_url": url,
-            "clinvar_pathogenic_loss_count": 0,
-            "clinvar_pathogenic_gain_count": 0,
+            "clinvar_pathogenic_loss_count": "",
+            "clinvar_pathogenic_gain_count": "",
             "clinvar_pathogenic_accessions": "",
         })
     if records:

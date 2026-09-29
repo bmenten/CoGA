@@ -143,3 +143,37 @@ def test_signup_duplicate_email_is_indistinguishable(signup_client) -> None:
     assert "email" not in body
     assert body["detail"]
     assert recorded["notified"] is None
+
+
+@pytest.mark.parametrize("password", ["", "short", "fourteen-chars"])
+def test_signup_refuses_a_password_under_15_characters(signup_client, password: str) -> None:
+    # Sign-up accepted any string, the empty one included; a local account's password is
+    # its only factor (NIST SP 800-63B-4: at least 15 characters).
+    client, monkeypatch = signup_client
+    touched = {"throttle": False, "create": False}
+
+    async def throttle(session, *, remote_ip, now=None):
+        touched["throttle"] = True
+        return None
+
+    async def create(session, **kwargs):
+        touched["create"] = True
+        return None
+
+    monkeypatch.setattr(auth_router, "get_signup_throttle_state", throttle)
+    monkeypatch.setattr(auth_router, "create_user_account", create)
+
+    response = client.post("/api/auth/signup", json={**_payload(), "password": password})
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "password"]
+    # Refused before any throttle bookkeeping, hashing or account creation.
+    assert touched == {"throttle": False, "create": False}
+
+
+def test_signup_accepts_a_15_character_password() -> None:
+    from backend.app.schemas.auth import SIGNUP_PASSWORD_MIN_LENGTH, UserCreate
+
+    assert SIGNUP_PASSWORD_MIN_LENGTH == 15
+    created = UserCreate(**{**_payload(), "password": "x" * 15})
+    assert created.password == "x" * 15

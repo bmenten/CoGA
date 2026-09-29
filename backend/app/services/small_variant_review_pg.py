@@ -22,24 +22,31 @@ from .clickhouse_small_variants import (
 )
 from .clinical_audit_service import record_review_changes
 from .family_metadata_context import FamilyMetadataContext
-from .metadata_service import CurrentUser
-# Re-exported here so existing `from ...small_variant_review_pg import _json_payload`
-# imports (and a test) keep working.
+from .access_control import CurrentUser
 from .review_pg_utils import (
     _has_stored_record,
     _lock_review,
     _raise_on_stale_review,
-    _json_payload,  # noqa: F401  (re-exported for import-path compatibility)
     _merge_tag_metadata,
     _normalize_tags,
 )
-
-
-# Re-exported so existing import paths keep resolving from this module.
-from .small_variant_review_acmg import build_evidence_snapshot, _normalize_acmg_payload, _deserialize_acmg, _acmg_json_or_none, _json_or_none  # noqa: F401
-from .small_variant_review_repository import _postgres_bigint_or_none, _fetch_review_row, _fetch_review_rows, _fetch_compound_het_group_rows, _insert_review_row, _update_review_row, _delete_review_row, _clear_compound_het_group, _compound_het_clear_payload, _compound_het_field_names, _preserve_existing_compound_het, _document_has_individual_review, _document_has_compound_het_review, _review_document_has_any_content  # noqa: F401
-from .small_variant_review_tags import list_small_variant_tag_definitions, create_small_variant_tag_definition, update_small_variant_tag_definition, delete_small_variant_tag_definition, DEFAULT_SMALL_VARIANT_TAGS, DEFAULT_SMALL_VARIANT_TAG_KEYS  # noqa: F401
-from .small_variant_review_presets import list_small_variant_filter_presets, list_small_variant_filter_presets_for_owner, list_small_variant_filter_presets_for_admin, save_small_variant_filter_preset, delete_small_variant_filter_preset, delete_small_variant_filter_preset_for_owner  # noqa: F401
+from .small_variant_review_acmg import (
+    build_evidence_snapshot,
+    _normalize_acmg_payload,
+    _deserialize_acmg,
+)
+from .small_variant_review_repository import (
+    _fetch_review_row,
+    _insert_review_row,
+    _update_review_row,
+    _delete_review_row,
+    _clear_compound_het_group,
+    _compound_het_clear_payload,
+    _preserve_existing_compound_het,
+    _document_has_compound_het_review,
+    _review_document_has_any_content,
+)
+from .small_variant_review_tags import list_small_variant_tag_definitions
 
 
 def _serialize_tag_metadata(

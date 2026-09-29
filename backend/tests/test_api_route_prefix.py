@@ -8,7 +8,7 @@ from backend.app.main import app
 from backend.app.routers import families as families_router
 from backend.app.routers import panels as panels_router
 from backend.app.routers import projects as projects_router
-from backend.app.services.metadata_service import CurrentUser
+from backend.app.services.access_control import CurrentUser
 
 
 def _route_paths() -> set[str]:

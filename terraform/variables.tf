@@ -67,6 +67,12 @@ variable "clickhouse_vm_service_account_email" {
   default     = ""
 }
 
+variable "db_migrate_service_account_email" {
+  description = "Email of the service account the db-migrate Cloud Run job runs as (used only with db_runtime_role = \"coga_app\"). Its own account, so the API's account never holds the Postgres owner's password. Created and IAM-granted (roles/cloudsql.client) in the central infra repo. Empty = derive the default name coga-db-migrate@<project>.iam.gserviceaccount.com."
+  type        = string
+  default     = ""
+}
+
 # ---------------------------------------------------------------------------
 # Database sizing
 # ---------------------------------------------------------------------------
@@ -113,7 +119,13 @@ variable "clickhouse_data_disk_gb" {
 variable "clickhouse_image" {
   description = "ClickHouse server container image, digest-pinned to match the local stack (tag kept for readability). Bump the digest alongside the tag."
   type        = string
-  default     = "clickhouse/clickhouse-server:25.3@sha256:b627d7a9bc0e0c1bac26cdbe9d2fc6316faa29c5d8a174f28f5abd57d0fa6ba2"
+  default     = "clickhouse/clickhouse-server:26.8@sha256:4769eec6a9b9842a7d102c8bdfca0400128bc6edf65dec4e19a7d3a2b25f32db"
+}
+
+variable "clickhouse_restrict_egress" {
+  description = "Limit the ClickHouse VM's outbound traffic to Google APIs (private.googleapis.com) and block everything else (egress.tf). Needs the ClickHouse image mirrored into Artifact Registry (clickhouse_image on a *-docker.pkg.dev host), the Cloud DNS API enabled, and the VM's service account allowed to read the registry. false = outbound through Cloud NAT, as today."
+  type        = bool
+  default     = false
 }
 
 variable "clickhouse_snapshot_retention_days" {
@@ -192,14 +204,30 @@ variable "allowed_ingress_cidrs" {
   description = "Source IP ranges (CIDR) allowed to reach the app through the load balancer — e.g. UGent / UZ Gent public ranges and institutional VPN egress. When non-empty, Cloud Armor denies every other source at the edge (highest-priority rule), so the app is only reachable on-network. Empty = no IP restriction (open to the internet; app authentication still applies). Requires enable_cloud_armor = true."
   type        = list(string)
   default     = []
+
+  validation {
+    condition     = alltrue([for cidr in var.allowed_ingress_cidrs : can(cidrhost(cidr, 0))])
+    error_message = "Every allowed_ingress_cidrs entry must be a CIDR range, such as 192.0.2.0/24."
+  }
 }
 
 # ---------------------------------------------------------------------------
 # Database privilege separation (P1-3 / P1-4)
 # ---------------------------------------------------------------------------
 
+variable "db_runtime_role" {
+  description = "Postgres login the API runs as. \"owner\" = the table owner (coga_admin), which also applies the schema on startup: the single-login mode every deployment starts in. \"coga_app\" = the restricted runtime role, which cannot run DDL or change the append-only audit tables (TF-09b REQ-TRACE-008). The db-migrate Cloud Run job (migrate.tf) then applies the schema as the owner before each backend rollout and enables coga_app's login from the coga-postgres-app-password secret, and the API no longer receives the owner's password. Needs a version in that secret and the db-migrate service account: docs/db-runtime-role-runbook.md, \"Google Cloud\"."
+  type        = string
+  default     = "owner"
+
+  validation {
+    condition     = contains(["owner", "coga_app"], var.db_runtime_role)
+    error_message = "db_runtime_role must be \"owner\" or \"coga_app\"."
+  }
+}
+
 variable "run_db_schema_migrations_on_startup" {
-  description = "Whether the API applies Postgres schema DDL + admin seed on startup. true = the app self-migrates as the table owner (current single-DSN deployment). false = migrations run out-of-band as the owner ('python -m backend.app.db_migrate') and the app boots as the restricted runtime role coga_app (which cannot run DDL). Part of the change-controlled DSN flip in docs/db-runtime-role-runbook.md — keep true until POSTGRES_USER is repointed at coga_app in the same deploy."
+  description = "Whether the API applies Postgres schema DDL + admin seed on startup, when it runs as the owner (db_runtime_role = \"owner\"). false = something else runs 'python -m app.db_migrate' as the owner before each rollout. Ignored with db_runtime_role = \"coga_app\": that role cannot run DDL, so the db-migrate job always does it (migrate.tf)."
   type        = bool
   default     = true
 }

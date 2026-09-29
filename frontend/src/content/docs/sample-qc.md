@@ -154,10 +154,18 @@ A sanity check on the shape of the category tally:
 
 ## Reading the page
 
-**Pedigree with QC overlay.** The family pedigree is drawn with each individual's own
-symbol carrying its roll-up verdict: the outline — and any filled region (affected
-fill, carrier half-fill) — turns **green** (pass), **amber** (warn) or **red** (fail),
-or stays black/white when not assessed. Hover a symbol for the reason.
+**Pedigree with QC overlay.** Each assessed individual gets a ring around their
+symbol, with a badge at its top left:
+
+| Verdict | Ring | Badge |
+| --- | --- | --- |
+| Pass | thin, solid, green | ✓ |
+| Warn | dashed, amber | ! |
+| Fail | thick, solid, red | ✕ |
+
+An individual without a ring was not assessed. Line and badge tell the verdicts apart as
+well as colour. The symbol itself keeps its clinical meaning: black for affected, the
+carrier half-fill in its carrier-type colour. Hover a symbol for the reason.
 
 **Per-sample QC table.** One row per family member: recorded sex vs genotype sex
 (green when concordant, red on mismatch) and the Mendelian-error rate, colour-coded by

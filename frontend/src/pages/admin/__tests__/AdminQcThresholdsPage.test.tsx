@@ -203,6 +203,32 @@ describe('AdminQcThresholdsPage', () => {
     expect(mockedPut).not.toHaveBeenCalled();
   });
 
+  it('asks before Escape discards a typed reason, and Cancel takes the reason with it (#529)', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderPage();
+    const warn = (await screen.findByLabelText('Mean depth warning threshold')) as HTMLInputElement;
+
+    await user.clear(warn);
+    await user.type(warn, '15');
+    await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+    await user.type(await screen.findByLabelText(/Reason for the change/i), 'per VAL-P07');
+
+    await user.keyboard('{Escape}');
+    expect(confirm).toHaveBeenCalledWith('Discard the reason you have typed?');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    confirm.mockReturnValue(true);
+    await user.click(screen.getByRole('button', { name: /Cancel/i }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mockedPut).not.toHaveBeenCalled();
+
+    // A reason belongs to one change: the next confirmation starts empty.
+    await user.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+    expect(await screen.findByLabelText(/Reason for the change/i)).toHaveValue('');
+    confirm.mockRestore();
+  });
+
   it('shows the append-only change history with the value each edit replaced', async () => {
     mockedGet.mockResolvedValue({
       data: {

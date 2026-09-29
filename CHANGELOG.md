@@ -107,6 +107,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   (#473, #475). The SV second-hit badge links to the SVs behind it (#468, #470).
 - **Release tooling** — `scripts/check-release-version.sh` fails a release whose tag does not
   match `VERSION` (#398); `RELEASING.md` and a release-record template (#400).
+- **ClinVar support in the Clinical CNV Explorer** — the knowledgebase's per-region count of
+  pathogenic ClinVar CNVs, per side, is stored in `clinical_cnvs` and shown in the explorer and on
+  the CNV page, with a link to each supporting ClinVar record. A knowledgebase built without
+  ClinVar reads "not recorded", not 0 (#625).
 
 ### Changed
 
@@ -159,6 +163,64 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   3.10, which reaches end of life on 2026-10-31, to Python 3.12 (3.12.14; security fixes until
   October 2028). No dependency version changed; the lock drops four backports only 3.10 needed
   (#555).
+- **ClickHouse 26.8 LTS** — compose, CI and the Terraform VM move from ClickHouse 25.3 LTS, out of
+  support since 2026-03-20, to 26.8 LTS (26.8.14.3, supported until 2027-08-27). An existing data
+  volume is upgraded in place on first start and cannot be moved back; snapshot it first. A test
+  keeps compose, CI and Terraform on the same datastore images (#563).
+- **Verification gates (#526)** — CI lints the backend (ruff), type-checks the clinical-critical
+  modules (mypy), records coverage in the smoke and e2e jobs and combines it with the unit run
+  under floors of its own, and runs the browser journeys against the production bundle and server,
+  failing on any CSP violation. The unit coverage floors are raised and the Playwright specs are
+  catalogued (#567).
+- **API models split by domain** — the 3,000-line `backend/app/schemas.py` is now a `schemas/`
+  package with one module per domain, all re-exported, so imports are unchanged. The OpenAPI
+  document is byte-identical (#571).
+- **Access rules in their own module** — `CurrentUser`, `ADMIN_ROLES` (defined twice until now)
+  and the project-visibility rules move from `metadata_service` to `services/access_control.py`,
+  so the 64 modules that needed only them no longer import the metadata layer (#572).
+- **Tests for the thinly tested review and job modules (#526)** — structural-variant reviews and
+  their CNV classification, variant tag definitions and the clinical CNV knowledgebase rebuild job
+  now have unit tests and coverage floors (#574).
+- **Frontend lint rules (#526)** — ESLint enforces the React hooks rules and the jsx-a11y
+  accessibility rules. `any` is now a warning, and `npm run lint` fails when the warning count
+  rises above its budget of 67 (#575).
+- **Small-variant loader split (#528)** — the VEP and mutserve annotation-table parsers and the
+  haplotype-block builder leave the 1,900-line upload module for modules of their own. The
+  builder is now a class fed one record at a time; a test built from its recorded output shows
+  the blocks are unchanged (#578).
+- **Frontend tests (#526)** — 19 new test files cover what had none: the gene track, the
+  ideograms, the interval and repeat tracks, the variant explorer, the SV summary, the clinical CNV
+  explorer, and the admin and sign-up pages. The coverage floors rise to just below the new figures
+  (lines 78 %), with a floor of their own for the visualisations (#579).
+- **ClickHouse variant imports (#528)** — modules import the ClickHouse query and record helpers
+  from the modules that define them, not through `clickhouse_family_variants.py`, which passed
+  120 names on. That ends a dependency cycle between the family-variant layer and variant storage
+  that two function-level imports had hidden (#584).
+- **Frontend coverage (#526)** — the SV results table, its column picker and the locus parser
+  have tests; no frontend file is below 30 % of lines, and the coverage floors rise to lines 80 %
+  (visualisations 88 %) (#594).
+- **Small-variant page split (#528)** — the 441-line function behind every small-variant page
+  resolves the request's scope once and serves each path from a function of its own; a test
+  recorded before the split shows every path makes the same calls and returns the same page (#595).
+- **User guide in Markdown (#528)** — the in-app guide's 20 sections are Markdown files under
+  `content/docs/user-guide/` instead of 2,000 lines of JSX; a test holds each section to the text
+  it had before the move (#596).
+- **Generated API types (#528)** — the frontend's API types are generated from the backend's
+  OpenAPI schema, CI fails when they are stale, and `tsc` checks the hand-written types against
+  them; a family member's `sequencing_qc` may be null, and two stale NIPT types are gone (#597).
+- **Dataset importer registry (#528)** — the package import's 15 dataset importers register
+  themselves by type and take one import job, replacing a 160-line dispatcher; a test holds the
+  registry to the supported dataset types (#598).
+- **Family member dialog (#528)** — the member dialog (metadata draft, HPO phenotypes, removal)
+  moved out of the 2,350-line family page into a component of its own; tests of its flows,
+  recorded before the move, pass after it (#599).
+- **Filter form sections (#528)** — the small-variant filter form, one ~1,800-line component, is
+  split into a shared section shell and 11 section components; a markup snapshot recorded before the
+  split shows the form renders exactly as it did (#600).
+- **Package-import and review imports (#528)** — modules import the package-import and
+  small-variant review helpers from the modules that define them, not through
+  `family_package_import.py` and `small_variant_review_pg.py`, which passed 213 and 19 names on
+  (#619).
 
 ### Removed
 
@@ -273,6 +335,176 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Quick Start ClickHouse login** — `.env.example` gave ClickHouse's built-in `default` user
   no password, which the ClickHouse image refuses for network clients, so the documented
   stack could not connect. It now names a `coga` user with a placeholder password (#553).
+- **Frontend server path** — `server.mjs` answered every page with a 404 when installed under a
+  path that runs through a dot-directory; it now serves `index.html` from its build directory (#567).
+- **Structural-variant filters** — the structural-variant search now shares the small-variant
+  search's filter-value helpers. A value typed with a stray space no longer appears twice, and a
+  sample filter without a genotype selection gets the defaults instead of throwing (#569).
+- **Package imports from a bucket** — a Package Import queued from a `gs://` or `s3://` folder
+  was stored as `gs:/bucket/…`, no longer a bucket URI, so the worker looked for a local folder
+  and the import failed. The URI is now stored unchanged (#570).
+- **Requests stalled behind slow work (#527)** — password hashing, the haplotype lineage step,
+  the NIPT fetal-fraction and classification work, the phenotype scoring behind the prioritised
+  view and the HPO ontology parse now run in worker threads, so other users' requests are served
+  meanwhile on the single worker. `SMTP_HOST`, which was read outside the settings, is now a
+  documented setting (#568).
+- **Gene-reference provenance and the variant card (#536)** — when GENCODE cannot be fetched, the
+  fall-back to the UCSC gene table is reported rather than logged only, and each report's manifest
+  records where CoGA's gene loci came from. The variant card's `g.` string is labelled "Genomic
+  change", since it is not HGVS-normalised, and a transcript's CCDS and RefSeq are withheld when the
+  variant names a different transcript version than the gene annotation holds (#573).
+- **Dialogs and keyboard access (#529)** — the family-member, QC cut-off, family-deletion,
+  transcript, carrier and reference-data dialogs close on Escape and keep keyboard focus inside.
+  The family-member dialog asks before dropping edits not yet applied, and the QC cut-off
+  confirmation before dropping a typed reason. Closing a dialog gives focus back to where it
+  was, also when a control inside took focus as it opened. The SV second-hit badge and the
+  genome overview's chromosomes work from the keyboard, and the badge shows a focus ring (#575).
+- **Superuser accounts** — twelve checks tested for the literal role `admin`, so a superuser,
+  an admin everywhere else, was refused when editing variant tags and gene panels, creating
+  families, reading import jobs, reading a gene profile outside its projects and listing
+  accounts. After a superuser's Monarch refresh the Mendeliome was not regenerated. Every check
+  now counts both admin roles (#576).
+- **Colour-only displays (#529)** — the pedigree's sample-QC verdict is a ring with a ✓, ! or
+  ✕ badge, and no longer recolours the symbol, which had replaced the black affected fill and
+  the carrier-type colour. Small variants are marked by shape as well as colour (a diamond for
+  ClinVar P/LP, a triangle for HIGH impact, a hollow square for ClinVar B/LB), a review tag rings
+  the mark instead of recolouring it, and the track has a legend. The risk-haplotype line is
+  solid for an affected and dashed for a carrier haplotype, set off from the band (#577).
+- **Track displays (#526)** — a view inside a gene's intron shows the gene. While a pan loads, a
+  segmental duplication, blacklisted region or clinical CNV from the previous window is no longer
+  drawn at the left edge under its own name. The zoomed ideogram gives each tick its own label at
+  gene-level zoom, and on the genome overview a pathogenic repeat locus is drawn over its normal
+  neighbours (#579).
+- **Variant explorer filters** — "ClinVar P/LP overrules the frequency filter", on by default,
+  was shown as applied but ignored, so a pathogenic variant above a gnomAD ceiling was left out; the
+  explorer now applies it. Six filters it cannot apply (interval list, transcript, excluded genes,
+  intervals and tags, saved notes) are no longer offered. The gene link opens the gene, a capped
+  total reads 10,000+, a loading or failed assembly list is no longer shown as "no variants", and a
+  sample id may contain ":" (#580).
+- **Failures shown as empty** — the family SV summary and the clinical CNV explorer showed a
+  failed load as "not enough data" and "no clinical CNVs match", so a failed lookup looked like a
+  syndrome missing from the catalogue. They now say the load failed and offer a retry. The SV
+  sharing matrix drops its totals, which counted a variant once per pair of carriers (#581).
+- **Sign-up and user list messages** — after signing up, the page says the account awaits an
+  administrator instead of opening a login that then fails; Sign Up cannot be sent twice. The user
+  list says when a (de)activation failed and why (#582).
+- **HPO sync and HPO term list** — "Apply sync" imports only the file and overrides that were
+  just previewed; it could apply without a preview, or another file than the one on screen. The
+  release date no longer shows a day early west of UTC, and "Back to SVs" keeps the project and
+  filters (#583).
+- **Charts for screen readers (#529)** — every track, chart, ideogram and the pedigree has a
+  text name that says what it shows: how many genes, variants, loci or segments are in view and
+  the salient ones, the haplotype risk state, or that it is loading or failed to load, never a
+  failure as none (#587).
+- **SV tracks cut without a trace** — in a view denser than one track page, the chromosome view's
+  SV track drew only the left-most SVs, and for a large family the genome overview stopped at
+  50,000 SVs, so the rest looked free of SVs. Both tracks now say that there are too many SVs to
+  display; the genome track's limit counts the sample's own SVs (#590).
+- **Stale marks under a track failure** — after a failed pan, the tracks drew the previous
+  window's marks, misplaced, under the error overlay; they now draw nothing there. While a pan
+  loads, the gene and DGV tracks no longer draw a held feature left of the new window at its
+  edge (#591).
+- **Circos page states** — a failed chromosome request no longer leaves the page loading for good,
+  a failed SV request no longer reads as a family without SVs, and past 50,000 SVs the plot says
+  there are too many to draw instead of leaving the last chromosomes without links (#593).
+- **Risk haplotype on the genome overview** — the risk haplotype found at the ROI was also
+  drawn on every other chromosome carrying the same homolog label, where it means nothing, and
+  without an ROI the overview showed chr1's risk state. It is now drawn on the ROI's chromosome
+  only, and without an ROI the risk state reads "not assessed" (#592).
+- **SV lengths and quick-tag state** — the SV table and cards wrote 101 bp–1 kb in kb with one
+  decimal (150 bp read "0.1 kb"); they now write bp up to 1 kb, as the report does. The Review,
+  Exclude and Report toggles show their pressed state with a check mark and `aria-pressed`, not by
+  a tint alone (#594).
+- **Escape in a dialog just opened** — a dialog answered Escape only after a later task, so an
+  Escape pressed as it appeared closed the dialog underneath (the reference upload instead of its
+  overwrite confirmation); a dialog now answers Escape from the moment it is drawn (#601).
+- **Track states that asked for nothing** — over a view with no width (start at or past the
+  end), the chromosome view's tracks named themselves "loading" for good, the small-variant track
+  said there were too many variants, and the SV and repeat tracks said there were none. They now
+  say there is no region in view, and ask the API for nothing. The genome overview's SV and
+  repeat tracks no longer say "none" before the genome layout is known, and the coverage chart's
+  name says when it failed to load, is loading or holds no data. The mitochondrion is chrM in
+  every track's name and chromosome list, as in the viewer header; it was chrMT in some. A
+  histogram of equal-width bins narrower than 1 no longer draws its bars on top of each other
+  (#603).
+- **A failed project catalogue hid the validation banner** — every family page reads its
+  reference assembly, and whether that assembly is inside the validated scope, from the project
+  catalogue. When that request failed, the scope stayed unknown, so the *Not validated for
+  clinical use* banner never appeared. The pages said "Reference not linked", the small-variant
+  page waited for good, and the report rendered without variants. The pages now say that the
+  reference could not be loaded and that the validated scope is unconfirmed, with a retry, and
+  the report is not prepared until it loads (#611).
+- **Report pages that printed a failure as complete** — when a request failed, the family report
+  could render as "0 small variants and 0 structural variants", drop its reported SVs, call a
+  signed case a draft, and print missing gene descriptions, HPO terms, drift check, audit trail
+  or provenance as "none". The NIPT report printed "No fetal-fraction estimate is available"
+  when the estimate could not be loaded. Both pages now show no report without the family or
+  its reported variants. They mark each part that could not be loaded where it belongs, and a
+  printout then starts with "Incomplete — … could not be loaded". While the sign-out record is
+  unknown, sign-out is not offered (#612).
+- **SV and NIPT searches that read a failure as no variants** — a failed SV search showed an
+  empty table and "Showing 0", and a failed NIPT search showed "No variants match the current
+  search". A failed NIPT summary hid the fetal fraction and its low-confidence and disagreement
+  warnings, and counted every category and filter step as 0. A failed coverage QC stayed
+  "Loading coverage…". A failed panel list left the select at "Any gene panel" while a panel
+  from the URL was still applied, and dropped the default Mendeliome scope without a word.
+  Each is now said where the result would be, with the server's reason and a retry. The counts
+  read "—", and an applied panel stays visible in the select (#613).
+- **Viewers, ROI markers and family page that read a failure as missing data** — failed requests
+  were shown as data that is not there:
+  - a failed track-availability request as "No BED data for selected samples";
+  - failed ROI markers as "0 markers in view · 0 informative for embryos", an uninformative
+    region;
+  - a failed family as "No region of interest";
+  - failed haplotypes at the ROI as an embryo with no segregation badge and no recombination or
+    uninformative warning;
+  - a failed presence check as a missing workspace link, with "Checking…" left up for good;
+  - failed curation counts and HPO terms as 0 and "-";
+  - a failed status list as "No status" on a reviewed case.
+
+  Each is now said as a failure, with a retry. An embryo reads *⚠ segregation not derived*. A
+  workspace whose check failed keeps its link. The current status stays shown, and cannot be
+  changed until its list loads (#614).
+- **Location filters dropped without notice** — an interval-list entry that did not parse was
+  skipped: a BED line, a single position, an en-dash range or an end before its start. The search
+  then covered less than the list asked, and a list with no readable entry came back as a family
+  without variants. A malformed region in the SV search's "Gene or region" box, such as
+  `chr1:100-`, was searched as a gene name and read as no SVs. The monogenic NIPT search sent,
+  and chipped, the interval list, excluded intervals and excluded genes, but never applied them.
+  An unreadable entry is now named under its field before the search, and refused by the server
+  (422) if it arrives in a URL. An en-dash range and a single position are read. The NIPT search
+  applies all three filters (#615).
+- **ACMG suggestions that changed without notice** — when the gene profile could not be loaded,
+  the ACMG dialog said nothing. PVS1's evidence read "LOF disease mechanism is unconfirmed", as
+  if the gene had been checked, and PP4 was not offered when the HPO terms failed. The dialog
+  now names the failed lookup, with a retry. PVS1, BS2 and PP4 say they are not assessed and are
+  offered for review. No point total changes (#616).
+- **Secondary pages that showed a failed request as none** — a failed request on a variant card,
+  the member dialog, a gene panel, the chromosome and genome viewers, the pipeline settings and
+  annotation provenance, the gene page, the panel, project and reference catalogues, the
+  package-import folder scan and IGV's depth and MAF tracks read as empty, or loaded for good. The
+  family-scoped pages titled any failure "Family not found". Each now says it could not load, with
+  the server's reason and a retry; "Family not found" is kept for a family the server does not know
+  (#617).
+- **De novo on a son's X and Y** — outside the pseudo-autosomal regions a male carries one X and one
+  Y, so a de novo variant there is hemizygous (`1` or `1/1`). The de novo patterns required a
+  heterozygous child, so it was never a de novo candidate. It now is, when the mother (for the X) or
+  the father (for the Y) is confidently reference and the other parent does not carry it; a
+  mother–son duo suffices for the X. Autosomes, the pseudo-autosomal regions and daughters keep the
+  diploid rule (#620).
+- **ACMG de novo (PM6) for a son's X and Y** — the ACMG dialog judged PM6 from both parents' calls
+  without regard to sex. A son's chrY de novo, where the mother has no call, read "de novo cannot be
+  assessed", and an X variant carried only by the father read "Inherited from a parent". Where a son
+  is hemizygous, the parent who passes him that chromosome now decides, as in the de novo filter;
+  the backend says where that is (`hemizygous_in_males`) (#622).
+- **ClinVar support counts in the CNV knowledgebase build** — the build read a ClinVar CNV's
+  loss/gain side from words in its name only. An array record, named in ISCN notation
+  (`…(chr7:73330452-74799773)x1`), therefore counted toward neither side of a region's support. The
+  side now comes from ClinVar's `Type`, then from the copy number in the name (on X and Y only `x0`
+  and `x3` or more), and only then from the name's words. CoGA does not load these counts into
+  `clinical_cnvs`, so nothing the app shows changes (#623).
+- **CNV page: failed or missing** — the clinical CNV page said "CNV not found." for any failure; a
+  server error now reads "CNV could not be loaded", with the reason and a retry (#625).
 
 ### Security
 
@@ -322,9 +554,24 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   unmaintained passlib 1.7.4, which had held bcrypt at 3.2.0. Stored hashes verify unchanged,
   including passwords longer than bcrypt's 72-byte limit. Dependabot now also refreshes the
   digests of the pinned container images (#554).
+- **Sign-up password** — a new account's password must be at least 15 characters; any string, the
+  empty one included, was accepted. A development build no longer logs a failed sign-up or login
+  request, which carries the password (#582).
+- **Google Cloud go-live hardening, ready and off by default** — `db_runtime_role = "coga_app"`
+  runs the API as the restricted database role, with a migration job under its own account that
+  applies the schema and enables the role's login, handing Postgres a SCRAM verifier rather than
+  the password. `clickhouse_restrict_egress` limits the ClickHouse VM to Google APIs. The deploy
+  job refuses to run until `gcp-deploy` has required reviewers, and ingress ranges are validated
+  as CIDRs (#627).
 
 ### Documentation
 
+- **Google Cloud is the production target** — the owner's decision (Terraform on Google Cloud;
+  DPIA signed, data-processing agreement being signed; no production deployment yet) is
+  recorded in TF-02 §10 and TF-14, and the deployment guide, runbook and Terraform README
+  describe the go-live switches (#627).
+- **Password policy confirmed** — the device owner confirmed the 15-character minimum for a new
+  local account (CR-059), recorded in TF-18 and `docs/security-posture.md` (#626).
 - **Docs and repo hygiene (#530)** — AGENTS.md, the README, `.env.example` (now every backend
   setting with its default), `docs/database.md` (eight undocumented tables, plus the HPO and
   Monarch tables), TF-08 §A.2 (locked frontend versions and where each runs), RELEASING.md

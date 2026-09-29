@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import PageState from '../../components/PageState';
+import QueryFailure from '../../components/QueryFailure';
 import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import VizTooltip from '../../components/visualizations/VizTooltip';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
@@ -137,6 +138,9 @@ const mendelianConsistent = (parents: number[][], child: number[]): boolean => {
   return child.some((allele) => parentAlleles.has(allele));
 };
 
+// One empty list, so the memos below see a stable value before data arrive.
+const NO_SITES: PhasedSite[] = [];
+
 const FamilyRoiMarkersPage: React.FC = () => {
   const { familyId = '' } = useParams();
   const [searchParams] = useSearchParams();
@@ -144,7 +148,12 @@ const FamilyRoiMarkersPage: React.FC = () => {
   // Floating hover tooltip (same component/style as the chromosome view's track).
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: React.ReactNode } | null>(null);
 
-  const { data: family, isLoading: familyLoading } = useQuery<ApiFamilyRecord>({
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    refetch: refetchFamily,
+  } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => (await api.get(apiPath`/families/${familyId}`)).data as ApiFamilyRecord,
   });
@@ -165,6 +174,9 @@ const FamilyRoiMarkersPage: React.FC = () => {
     data: phased,
     isLoading: phasedLoading,
     isFetching: phasedFetching,
+    isError: phasedFailed,
+    error: phasedError,
+    refetch: refetchPhased,
   } = useQuery<PhasedMarkerResponse>({
     queryKey: ['phased-markers', familyId, window?.chr, window?.start, window?.end],
     enabled: !!window,
@@ -177,7 +189,12 @@ const FamilyRoiMarkersPage: React.FC = () => {
       ).data as PhasedMarkerResponse,
   });
 
-  const { data: haplo } = useQuery<HaplotypeResponse>({
+  const {
+    data: haplo,
+    isError: haploFailed,
+    error: haploError,
+    refetch: refetchHaplo,
+  } = useQuery<HaplotypeResponse>({
     queryKey: ['haplotypes', familyId, window?.chr, window?.start, window?.end],
     enabled: !!window,
     placeholderData: keepPreviousData,
@@ -216,7 +233,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
     return set;
   }, [phased?.samples, roleBySample]);
 
-  const allSites = phased?.sites ?? [];
+  const allSites = phased?.sites ?? NO_SITES;
   const informativeSites = useMemo(
     () => allSites.filter((s) => embryoInformativePos.has(s.pos)),
     [allSites, embryoInformativePos],
@@ -285,6 +302,20 @@ const FamilyRoiMarkersPage: React.FC = () => {
 
   if (familyLoading || phasedLoading) {
     return <PageState title="Loading ROI markers…" />;
+  }
+  // Without the family its ROI is unknown, not absent (#607).
+  if (familyFailed) {
+    return (
+      <PageState
+        title="Family could not be loaded"
+        message="The family, and with it its region of interest, could not be loaded. This is not a family without a region of interest."
+        action={
+          <button type="button" className="button-secondary" onClick={() => void refetchFamily()}>
+            Retry
+          </button>
+        }
+      />
+    );
   }
   if (!roi || !window) {
     return (
@@ -476,6 +507,26 @@ const FamilyRoiMarkersPage: React.FC = () => {
         </span>
       </div>
 
+      {haploFailed ? (
+        <QueryFailure
+          what="the haplotype blocks at the ROI"
+          error={haploError}
+          onRetry={() => void refetchHaplo()}
+          consequence="The markers are not coloured by the inherited haplotype."
+        />
+      ) : null}
+
+      {/* The markers' failure is said in their place: it read "0 markers in view · 0
+          informative for embryos", an uninformative ROI (#607). */}
+      {phasedFailed ? (
+        <QueryFailure
+          what="the phased markers at the ROI"
+          error={phasedError}
+          onRetry={() => void refetchPhased()}
+          consequence="Which markers are informative for the embryos is unknown."
+        />
+      ) : (
+      <>
       <div className="roi-markers-summary">
         <span className="table-chip">{allSites.length.toLocaleString()} markers in view</span>
         <span className="table-chip">{informativeSites.length.toLocaleString()} informative for embryos</span>
@@ -610,6 +661,8 @@ const FamilyRoiMarkersPage: React.FC = () => {
           </tbody>
         </table>
       </div>
+      </>
+      )}
 
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>

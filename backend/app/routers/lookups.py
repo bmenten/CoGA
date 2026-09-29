@@ -16,7 +16,7 @@ from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import FamilyStatusOut, UserRefOut
 from ..services.family_status_service import list_assignable_users, list_family_statuses
-from ..services.metadata_service import CurrentUser
+from ..services.access_control import CurrentUser
 
 router = APIRouter(tags=["lookups"])
 

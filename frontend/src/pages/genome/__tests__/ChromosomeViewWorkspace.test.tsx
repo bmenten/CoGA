@@ -1,5 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import ChromosomeViewWorkspace from '../ChromosomeViewWorkspace';
@@ -85,7 +86,10 @@ vi.mock('../ViewerTrackBlock', () => ({
   ),
 }));
 
-const renderWorkspace = (onJumpToRegion = vi.fn()) => {
+const renderWorkspace = (
+  onJumpToRegion = vi.fn(),
+  overrides: Partial<ComponentProps<typeof ChromosomeViewWorkspace>> = {},
+) => {
   const queryClient = createTestQueryClient();
 
   render(
@@ -139,6 +143,7 @@ const renderWorkspace = (onJumpToRegion = vi.fn()) => {
           apcadPointLimit={2000}
           segmentLimit={500}
           showViewerLoading={false}
+          {...overrides}
         />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -146,6 +151,36 @@ const renderWorkspace = (onJumpToRegion = vi.fn()) => {
 };
 
 describe('ChromosomeViewWorkspace', () => {
+  // #607 — which tracks a sample has decides which are mounted: a failed availability
+  // request is not a sample without data.
+  it('says the track availability failed, not that the samples have no data', () => {
+    const retry = vi.fn();
+    const member = { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' };
+    renderWorkspace(vi.fn(), {
+      visibleMembers: [member],
+      tracksFailure: {
+        what: 'which tracks each sample has',
+        error: new Error('Request failed with status code 500'),
+        retry,
+      },
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "Could not load which tracks each sample has — this is not an empty result. Request failed with status code 500 The samples' tracks are not shown until it loads.",
+    );
+    expect(screen.queryByText('No BED data for selected samples.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it('says a sample without tracks has no data once availability is known', () => {
+    renderWorkspace(vi.fn(), {
+      visibleMembers: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male' }],
+    });
+
+    expect(screen.getByText('No BED data for selected samples.')).toBeInTheDocument();
+  });
+
   it('requests coverage and segments for the active chromosome window', () => {
     const queryClient = createTestQueryClient();
     const member = {

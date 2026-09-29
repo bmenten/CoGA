@@ -517,6 +517,10 @@ def _gencode_release_from_gzip(raw: bytes) -> GencodeRelease:
         return parse_gencode_release(itertools.islice(stream, 20))
 
 
+class _AnnotationDownloadFailed(Exception):
+    """The GTF annotation for a genome could not be fetched or read; the reason is the message."""
+
+
 async def _download_gencode_genes(
     client: httpx.AsyncClient,
     *,
@@ -531,8 +535,9 @@ async def _download_gencode_genes(
     Ensembl identifiers or MANE tags, which is why its rows are labelled by their real
     source rather than as GENCODE.
 
-    A reference bootstrap must not be blocked by an unreachable annotation, so every
-    other genome and every failure returns ``None`` rather than raising.
+    Returns ``None`` for a genome without a configured GTF. A failure to fetch or read
+    the GTF raises ``_AnnotationDownloadFailed``: the caller still falls back to the UCSC
+    track, so a bootstrap is not blocked, but it records that it did (#536).
     """
     if ucsc_genome == HUMAN_GRCH38_UCSC_GENOME:
         url = str(settings.reference_gencode_gtf_url or "").strip()
@@ -566,7 +571,7 @@ async def _download_gencode_genes(
             scrub_log(ucsc_genome),
             scrub_log(exc),
         )
-        return None
+        raise _AnnotationDownloadFailed(f"{type(exc).__name__}: {exc}"[:300]) from exc
 
 
 async def _download_gencode_refseq_metadata(client: httpx.AsyncClient) -> dict[str, list[str]]:
@@ -876,9 +881,13 @@ async def import_reference_from_ucsc(
             # GENCODE first: it is the annotation the variant pipeline is built on, and
             # it carries biotypes, Ensembl/HGNC identifiers and MANE tags that no UCSC
             # track does. Anything it cannot serve falls back to the UCSC track.
-            gencode = await _download_gencode_genes(
-                client, assembly_id=assembly_id, ucsc_genome=ucsc_genome
-            )
+            gtf_failure: str | None = None
+            try:
+                gencode = await _download_gencode_genes(
+                    client, assembly_id=assembly_id, ucsc_genome=ucsc_genome
+                )
+            except _AnnotationDownloadFailed as failure:
+                gencode, gtf_failure = None, str(failure)
             if gencode is not None:
                 gencode_rows, gene_source_url, gene_source = gencode
                 genes = await apply_reference_gene_rows(
@@ -889,6 +898,7 @@ async def import_reference_from_ucsc(
                     commit=False,
                     performed_by=performed_by,
                     source=gene_source,
+                    source_url=gene_source_url,
                 )
                 genes_inserted = genes.inserted
                 genes_replaced = genes.replaced
@@ -913,10 +923,22 @@ async def import_reference_from_ucsc(
                         overwrite=overwrite,
                         commit=False,
                         performed_by=performed_by,
-                        source="ucsc",
+                        # The table actually used, so the import record says which (#536).
+                        source=f"ucsc {gene_source}",
+                        source_url=gene_source_url,
                     )
                     genes_inserted = genes.inserted
                     genes_replaced = genes.replaced
+                if gtf_failure:
+                    # The configured annotation was wanted and is not what was loaded:
+                    # say so in the result instead of only in a log line (#536).
+                    fallback = (
+                        f"the UCSC {gene_source} table was used instead, without biotypes, "
+                        "Ensembl identifiers or MANE tags"
+                        if gene_text is not None
+                        else "no gene table could be loaded"
+                    )
+                    gene_warning = f"The gene annotation GTF could not be fetched ({gtf_failure}); {fallback}."
     await session.commit()
 
     return ReferenceAutoImportResult(
@@ -975,6 +997,12 @@ async def ensure_human_grch38_reference_on_startup(
                 result.cytobands_inserted,
                 result.genes_inserted,
             )
+        if result.gene_warning:
+            logger.warning(
+                "Homo sapiens %s gene reference: %s",
+                scrub_log(result.assembly_name),
+                scrub_log(result.gene_warning),
+            )
         return result
     except Exception:
         logger.exception(
@@ -1029,6 +1057,12 @@ async def ensure_human_t2t_reference_on_startup(
                 result.assembly_version,
                 result.cytobands_inserted,
                 result.genes_inserted,
+            )
+        if result.gene_warning:
+            logger.warning(
+                "Homo sapiens %s gene reference: %s",
+                scrub_log(result.assembly_name),
+                scrub_log(result.gene_warning),
             )
         return result
     except Exception:

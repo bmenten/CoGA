@@ -4,10 +4,11 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import nipt_service
-from backend.app.services.clickhouse_family_variants import SmallVariantCall, SmallVariantRecord
+from backend.app.services.clickhouse_variant_records import Region, SmallVariantCall, SmallVariantRecord
 from backend.app.services.nipt_service import (
     build_nipt_observations,
     derive_father_state,
@@ -187,7 +188,7 @@ async def test_run_family_nipt_analysis_end_to_end(monkeypatch: pytest.MonkeyPat
         return family
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(assembly_id="assembly-uuid")
+        return SimpleNamespace(assembly_id="assembly-uuid", assembly_name="GRCh38")
 
     async def fake_fetch(_context, _filters, *, limit=None, **_kwargs):
         return records
@@ -237,7 +238,7 @@ async def test_run_family_nipt_analysis_counts_artifacts(
         return family
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(assembly_id="assembly-uuid")
+        return SimpleNamespace(assembly_id="assembly-uuid", assembly_name="GRCh38")
 
     async def fake_fetch(_context, _filters, *, limit=None, **_kwargs):
         return records
@@ -316,7 +317,7 @@ def _wire_variants_mocks(
         return _nipt_family()
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(assembly_id="assembly-uuid")
+        return SimpleNamespace(assembly_id="assembly-uuid", assembly_name="GRCh38")
 
     async def fake_fetch(_context, filters, *, limit=None, **_kwargs):
         # The cohort (FF) load carries no gene filter; the variant load does.
@@ -529,6 +530,84 @@ async def test_get_family_nipt_variants_excludes_artifacts(
 
     assert result.total == 1
     assert {item.classification.category for item in result.variants} == {3}
+
+
+@pytest.mark.asyncio
+async def test_get_family_nipt_variants_applies_the_interval_and_exclusion_lists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # #604: the NIPT page sends the interval list, the excluded intervals and the excluded
+    # genes, and chips them; the variant load used to receive none of them.
+    _wire_variants_mocks(
+        monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records()
+    )
+    variant_loads: list[dict] = []
+    inner_fetch = nipt_service._fetch_small_variant_rows
+
+    async def recording_fetch(context, filters, **kwargs):
+        if filters.gene is not None:
+            variant_loads.append(kwargs)
+        return await inner_fetch(context, filters, **kwargs)
+
+    async def fake_gene_regions(_session, *, gene_query, assembly_id):
+        assert (gene_query, assembly_id) == ("GENE4", "assembly-uuid")
+        return [Region("1", 5_000, 5_100)]
+
+    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", recording_fetch)
+    monkeypatch.setattr(nipt_service, "_fetch_gene_regions", fake_gene_regions)
+
+    await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={
+            "gene": "BRCA1",
+            "intervals": "chr1:9,000-9,200",
+            "exclude_intervals": "1:9050-9060",
+            "exclude_gene": "GENE4",
+        },
+    )
+
+    (load,) = variant_loads
+    assert load["include_regions"] == [Region("1", 9_000, 9_200)]
+    assert load["exclude_regions"] == [Region("1", 9_050, 9_060)]
+    assert load["exclude_gene_regions"] == [Region("1", 5_000, 5_100)]
+    assert load["exclude_gene_terms"] == ["GENE4"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query_filters", "detail"),
+    [
+        ({"intervals": "chr1\t100\t200"}, "Interval 'chr1\\t100\\t200' is not chr:start-end."),
+        ({"exclude_intervals": "chr1:200-100"}, "Excluded interval 'chr1:200-100' ends before it starts."),
+    ],
+)
+async def test_get_family_nipt_variants_refuses_an_unreadable_interval(
+    monkeypatch: pytest.MonkeyPatch, query_filters: dict, detail: str
+) -> None:
+    _wire_variants_mocks(
+        monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records()
+    )
+    loads: list[object] = []
+
+    async def no_fetch(*args, **kwargs):
+        loads.append(args)
+        return []
+
+    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", no_fetch)
+
+    with pytest.raises(HTTPException) as refused:
+        await get_family_nipt_variants(
+            session=None,  # type: ignore[arg-type]
+            family_id="NIPT001",
+            user=None,  # type: ignore[arg-type]
+            query_filters=query_filters,
+        )
+
+    assert (refused.value.status_code, refused.value.detail) == (422, detail)
+    # Refused before the cohort-wide fetal-fraction load, not after it.
+    assert loads == []
 
 
 # --------------------------------------------------------------------------- #

@@ -7,6 +7,7 @@ import { isAdmin } from '../../lib/auth';
 import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { apiPath } from '../../lib/apiPath';
+import QueryFailure from '../../components/QueryFailure';
 
 interface Species {
   id: string;
@@ -211,7 +212,7 @@ const ReferenceCatalogPage: React.FC = () => {
   } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
-  const { data: species = [] } = useQuery<Species[]>({
+  const { data: species = [], isError: speciesFailed, refetch: refetchSpecies } = useQuery<Species[]>({
     queryKey: ['species'],
     queryFn: async () => {
       const res = await api.get('/species');
@@ -219,7 +220,7 @@ const ReferenceCatalogPage: React.FC = () => {
     },
   });
 
-  const { data: assemblies = [] } = useQuery<Assembly[]>({
+  const { data: assemblies = [], isError: assembliesFailed, refetch: refetchAssemblies } = useQuery<Assembly[]>({
     queryKey: ['assemblies', 'all'],
     queryFn: async () => {
       const res = await api.get('/assemblies');
@@ -227,7 +228,11 @@ const ReferenceCatalogPage: React.FC = () => {
     },
   });
 
-  const { data: referenceStatuses = [] } = useQuery<AssemblyReferenceStatus[]>({
+  const {
+    data: referenceStatuses = [],
+    isError: statusesFailed,
+    refetch: refetchStatuses,
+  } = useQuery<AssemblyReferenceStatus[]>({
     queryKey: ['assemblies', 'reference-status'],
     queryFn: async () => {
       const res = await api.get('/assemblies/reference-status');
@@ -606,8 +611,30 @@ const ReferenceCatalogPage: React.FC = () => {
     );
   };
 
+  // A failed list is not an empty catalogue: it read "No species are configured yet", with
+  // counts of 0 (#610).
+  const failedCatalogLists = [
+    speciesFailed ? 'the species' : null,
+    assembliesFailed ? 'the assemblies' : null,
+    statusesFailed ? 'the reference data counts' : null,
+  ].filter((name): name is string => Boolean(name));
+  // A count whose list failed is unknown, not 0.
+  const catalogCount = (value: number | undefined) =>
+    statusesFailed ? '—' : formatCatalogCount(value);
+
   return (
     <div className="page-shell admin-compact space-y-5">
+      {failedCatalogLists.length ? (
+        <QueryFailure
+          what={failedCatalogLists.join(' and ')}
+          onRetry={() => {
+            if (speciesFailed) void refetchSpecies();
+            if (assembliesFailed) void refetchAssemblies();
+            if (statusesFailed) void refetchStatuses();
+          }}
+          consequence="The counts and lists below are incomplete until it loads."
+        />
+      ) : null}
       <section className="surface-card dashboard-hero dashboard-hero-compact">
         <div className="dashboard-hero-shell">
           <div className="page-header">
@@ -617,15 +644,17 @@ const ReferenceCatalogPage: React.FC = () => {
             </div>
             <div className="reference-summary-grid">
               <div className="surface-card-muted reference-summary-card">
-                <span className="reference-summary-value">{species.length}</span>
+                <span className="reference-summary-value">{speciesFailed ? '—' : species.length}</span>
                 <span className="reference-summary-label">Species in catalog</span>
               </div>
               <div className="surface-card-muted reference-summary-card">
-                <span className="reference-summary-value">{assemblies.length}</span>
+                <span className="reference-summary-value">{assembliesFailed ? '—' : assemblies.length}</span>
                 <span className="reference-summary-label">Assemblies available</span>
               </div>
               <div className="surface-card-muted reference-summary-card">
-                <span className="reference-summary-value">{populatedSpeciesCount}</span>
+                <span className="reference-summary-value">
+                  {speciesFailed || assembliesFailed ? '—' : populatedSpeciesCount}
+                </span>
                 <span className="reference-summary-label">Species with assembly support</span>
               </div>
             </div>
@@ -635,7 +664,13 @@ const ReferenceCatalogPage: React.FC = () => {
             <div className="dashboard-link-stack">
               <p className="dashboard-link-note">
                 Latest dated assembly:{' '}
-                <strong>{latestAssembly ? `${latestAssembly.assembly_name} ${latestAssembly.version}` : 'None yet'}</strong>
+                <strong>
+                  {latestAssembly
+                    ? `${latestAssembly.assembly_name} ${latestAssembly.version}`
+                    : assembliesFailed
+                      ? 'Unknown'
+                      : 'None yet'}
+                </strong>
                 {latestAssembly?.release_date ? ` (${latestAssembly.release_date})` : ''}
               </p>
               {!userIsAdmin && (
@@ -684,7 +719,7 @@ const ReferenceCatalogPage: React.FC = () => {
               </Link>
             ) : null}
           </div>
-          {species.length === 0 ? (
+          {species.length === 0 && !speciesFailed ? (
             <p className="section-copy">
               No species are configured yet. Add one first, then attach one or more assemblies to
               it.
@@ -721,7 +756,9 @@ const ReferenceCatalogPage: React.FC = () => {
                             </div>
                           </td>
                           <td className="reference-catalog-summary-cell">
-                            {speciesAssemblies.length === 0 ? (
+                            {assembliesFailed ? (
+                              <span className="dashboard-link-note">Assemblies could not be loaded</span>
+                            ) : speciesAssemblies.length === 0 ? (
                               <span className="dashboard-link-note">
                                 No assemblies added yet
                               </span>
@@ -731,10 +768,16 @@ const ReferenceCatalogPage: React.FC = () => {
                                   {speciesAssemblies.length} in catalog
                                 </span>
                                 <span className="table-chip table-chip--neutral">
-                                  {speciesAssemblies.filter((assembly) => (statusByAssembly.get(assembly.id)?.genes ?? 0) > 0).length} with genes
+                                  {statusesFailed
+                                    ? '—'
+                                    : speciesAssemblies.filter((assembly) => (statusByAssembly.get(assembly.id)?.genes ?? 0) > 0).length}{' '}
+                                  with genes
                                 </span>
                                 <span className="table-chip table-chip--neutral">
-                                  {speciesAssemblies.filter((assembly) => (statusByAssembly.get(assembly.id)?.chromosomes ?? 0) > 0).length} with cytobands
+                                  {statusesFailed
+                                    ? '—'
+                                    : speciesAssemblies.filter((assembly) => (statusByAssembly.get(assembly.id)?.chromosomes ?? 0) > 0).length}{' '}
+                                  with cytobands
                                 </span>
                               </div>
                             )}
@@ -750,7 +793,9 @@ const ReferenceCatalogPage: React.FC = () => {
                                 </span>
                               </div>
                             ) : (
-                              <span className="dashboard-link-note">No assembly metadata yet</span>
+                              <span className="dashboard-link-note">
+                                {assembliesFailed ? 'Assemblies could not be loaded' : 'No assembly metadata yet'}
+                              </span>
                             )}
                           </td>
                         </tr>
@@ -759,7 +804,9 @@ const ReferenceCatalogPage: React.FC = () => {
                             <div className="reference-catalog-detail">
                               {speciesAssemblies.length === 0 ? (
                                 <p className="section-copy">
-                                  No assemblies have been added for this species yet.
+                                  {assembliesFailed
+                                    ? 'The assemblies could not be loaded.'
+                                    : 'No assemblies have been added for this species yet.'}
                                 </p>
                               ) : (
                                 <div className="overflow-x-auto">
@@ -814,37 +861,37 @@ const ReferenceCatalogPage: React.FC = () => {
                                             </td>
                                             <td className="table-mono">
                                               <span className="reference-count-with-action">
-                                                {formatCatalogCount(status?.chromosomes)}
+                                                {catalogCount(status?.chromosomes)}
                                                 {renderCountAction(assembly, entry.tax_id, 'cytobands')}
                                               </span>
                                             </td>
                                             <td className="table-mono">
                                               <span className="reference-count-with-action">
-                                                {formatCatalogCount(status?.genes)}
+                                                {catalogCount(status?.genes)}
                                                 {renderCountAction(assembly, entry.tax_id, 'genes')}
                                               </span>
                                             </td>
                                             <td className="table-mono">
                                               <span className="reference-count-with-action">
-                                                {formatCatalogCount(status?.blacklist_regions)}
+                                                {catalogCount(status?.blacklist_regions)}
                                                 {renderCountAction(assembly, entry.tax_id, 'blacklist')}
                                               </span>
                                             </td>
                                             <td className="table-mono">
                                               <span className="reference-count-with-action">
-                                                {formatCatalogCount(status?.clinical_cnvs)}
+                                                {catalogCount(status?.clinical_cnvs)}
                                                 {renderCountAction(assembly, entry.tax_id, 'clinical_cnvs')}
                                               </span>
                                             </td>
                                             <td className="table-mono">
                                               <span className="reference-count-with-action">
-                                                {formatCatalogCount(status?.segmental_duplications)}
+                                                {catalogCount(status?.segmental_duplications)}
                                                 {renderCountAction(assembly, entry.tax_id, 'segmental_duplications')}
                                               </span>
                                             </td>
                                             <td className="table-mono">
                                               <span className="reference-count-with-action">
-                                                {formatCatalogCount(status?.dgv)}
+                                                {catalogCount(status?.dgv)}
                                                 {renderCountAction(assembly, entry.tax_id, 'dgv')}
                                               </span>
                                             </td>
@@ -1228,6 +1275,9 @@ const ReferenceCatalogPage: React.FC = () => {
                 className="button-ghost"
                 onClick={dismissConfirm}
                 disabled={confirmBusy}
+                // The confirmation opens on its safe choice, as the WAI-ARIA dialog
+                // pattern advises before a destructive action (here: overwrite).
+                // eslint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
               >
                 Cancel

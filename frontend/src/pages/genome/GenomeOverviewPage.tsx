@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type { ApiFamilyRecord, ApiGenomeTrackAvailability, ApiTrackAvailabilityResponse } from '../../lib/apiTypes';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { getGenomeWindow } from '../../lib/settings';
 import { parseExplicitSampleFilterMap } from '../../lib/sampleFilterState';
@@ -17,7 +18,8 @@ import { useFamilyReference } from '../../lib/reference';
 import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
 import GenomeOverviewSidebar, { type GenomeTrackKey, type GenomeTrackVisibility } from './GenomeOverviewSidebar';
 import GenomeOverviewWorkspace from './GenomeOverviewWorkspace';
-import { CHROMS, DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING, normalizeChrom } from './viewerShared';
+import { normalizeChrom } from '../../lib/chromosomes';
+import { CHROMS, DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING } from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
 
 interface Layout {
@@ -36,7 +38,7 @@ const GenomeOverviewPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { data, isLoading } = useQuery<
+  const { data, isLoading, isError, error, refetch } = useQuery<
     Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>
   >({
     queryKey: ['family', familyId],
@@ -153,6 +155,8 @@ const GenomeOverviewPage: React.FC = () => {
     assemblyId,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(data?.projects as string[] | undefined, projectIdParam);
   const resolvedSearch = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -169,7 +173,13 @@ const GenomeOverviewPage: React.FC = () => {
     return params.toString();
   }, [resolvedSearch]);
 
-  const { data: chromSizes, isLoading: chromSizesLoading } = useQuery<Record<string, number>>({
+  const {
+    data: chromSizes,
+    isLoading: chromSizesLoading,
+    isError: chromSizesFailed,
+    error: chromSizesError,
+    refetch: refetchChromSizes,
+  } = useQuery<Record<string, number>>({
     queryKey: ['chromosome-sizes', assemblyName],
     queryFn: async () => {
       const response = await api.get(apiPath`/chromosomes/${assemblyName}`);
@@ -321,6 +331,9 @@ const GenomeOverviewPage: React.FC = () => {
     data: availabilityData,
     isLoading: availabilityLoading,
     isFetching: availabilityFetching,
+    isError: availabilityFailed,
+    error: availabilityError,
+    refetch: refetchAvailability,
   } = useQuery<ApiTrackAvailabilityResponse<ApiGenomeTrackAvailability>>({
     queryKey: ['family', familyId, 'track-availability', availabilitySearch],
     queryFn: async () => {
@@ -412,12 +425,40 @@ const GenomeOverviewPage: React.FC = () => {
     );
   }
 
+  if (isError) {
+    return (
+      <FamilyLoadFailure
+        kicker="Visualization"
+        what="Family"
+        error={error}
+        notFoundMessage="This genome overview could not resolve the requested family."
+        onRetry={() => void refetch()}
+      />
+    );
+  }
+
   if (!data) {
     return (
       <PageState
         kicker="Visualization"
         title="Family not found"
         message="This genome overview could not resolve the requested family."
+      />
+    );
+  }
+
+  // The project catalogue failed: the reference is unknown, not missing (#608).
+  if (referenceFailed) {
+    return (
+      <PageState
+        kicker="Visualization"
+        title="Reference could not be loaded"
+        message="The family's project, and with it the reference assembly, could not be loaded. The genome overview needs it to draw the tracks."
+        action={
+          <button type="button" className="button-secondary" onClick={retryReference}>
+            Retry
+          </button>
+        }
       />
     );
   }
@@ -448,9 +489,12 @@ const GenomeOverviewPage: React.FC = () => {
       entry?.repeatExpansions
     );
   });
+  // Without the chromosome lengths there is no layout to wait for: the failure is said in
+  // place of the tracks, not as a load that never ends (#610).
   const availabilityPending =
     visibleMembers.length > 0 &&
     chroms.length > 0 &&
+    !chromSizesFailed &&
     (chromSizesLoading || !layout || availabilityLoading || (!availabilityData && availabilityFetching));
   const showViewerLoading = !selectedInitialized || availabilityPending;
 
@@ -524,6 +568,21 @@ const GenomeOverviewPage: React.FC = () => {
         trackHeight={trackHeight}
         svTrackHeight={svTrackHeight}
         showViewerLoading={showViewerLoading}
+        tracksFailure={
+          chromSizesFailed
+            ? {
+                what: 'the chromosome lengths',
+                error: chromSizesError,
+                retry: () => void refetchChromSizes(),
+              }
+            : availabilityFailed
+              ? {
+                  what: 'which tracks each sample has',
+                  error: availabilityError,
+                  retry: () => void refetchAvailability(),
+                }
+              : null
+        }
       />
     </div>
   );
