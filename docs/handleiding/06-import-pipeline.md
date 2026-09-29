@@ -119,7 +119,7 @@ De foutafhandeling is zo gebouwd dat er nooit ongemerkt een half-geïmporteerde 
 Naast de hash per bestand houdt CoGA per familie één **annotatiemanifest** bij (`family_annotation_manifest`): per tool of databank de versie, met een detail en, waar nodig, de versie per modaliteit. Zo is elk resultaat later terug te voeren op de versies die het maakten. De regels:
 
 - **Verversen bij een nieuwe import:** nieuwe versies overschrijven de oude per tool; wat de nieuwe invoer niet noemt, blijft staan (een nieuwe SV-import wist de SNV-versies dus niet).
-- **Handwerk wint:** een door een beheerder gecureerd manifest (`manual`) wordt door een import nooit overschreven.
+- **Handwerk wint:** een handmatig gezet manifest (`manual`) wordt door een import nooit overschreven. Er is geen scherm voor; de API (`PUT /api/families/{family_id}/annotation-manifest`) laat elke gebruiker met toegang tot de familie het manifest zo vervangen. Het manifest is geen append-only tabel: de vorige waarde verdwijnt, en alleen de HTTP-auditlog bewaart het verzoek.
 - **Samen met de data:** de schrijfactie maakt deel uit van dezelfde transactie als de import. De herkomst wordt dus bewaard als, en alleen als, de data die ze beschrijft ook bewaard wordt; een fout in de herkomst breekt de import niet.
 - **Per modaliteit:** SNV, SV en repeats worden door verschillende pipelines geannoteerd en kunnen verschillende releases van dezelfde databank noemen (bv. twee GENCODE-versies). Daarom wordt ook de versie per modaliteit bewaard.
 

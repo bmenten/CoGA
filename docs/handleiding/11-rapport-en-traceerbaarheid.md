@@ -1,205 +1,178 @@
 # 11. Rapport & volledige traceerbaarheid
 
-In dit hoofdstuk komt alles samen. Beschreven wordt hoe een casus in CoGA wordt afgetekend ("sign-out") tot een **bevroren, geversioneerd en gehasht rapport-snapshot**, dat onlosmakelijk verbonden is met de software-, annotatie- en referentieversies die het produceerden. Aan bod komen de **gates** (drempels) die vervuld moeten zijn voordat aftekenen mag — de classificatie-drift-check en de Sample-QC-erkenning — en de manier waarop elke stap wordt vastgelegd in een **append-only, hash-geketende** audit- en sign-out-trail met externe **integriteitsankers**. De rode draad is de *volledige traceerbaarheidsketen*: van het ruwe importbestand met zijn hash, via het annotatie-manifest en de variant in ClickHouse, tot het ondertekende rapport en zijn extern verifieerbare anker. Dit is de kern van de explainability- en medico-legale boodschap voor het review board.
+In dit hoofdstuk komt alles samen. Het beschrijft hoe een casus wordt *ondertekend* (sign-out) tot een **bevroren, geversioneerd en gehasht snapshot** van het rapport, gebonden aan de software-, annotatie- en referentieversies die het maakten. Aan bod komen de **poorten** die eerst vervuld moeten zijn (de referentie binnen de gevalideerde scope, geen onverklaarde classificatiedrift, geen onverklaarde sample-QC-fout), het **append-only, hash-geketende** auditspoor en de externe **integriteitsankers**. De rode draad is de volledige keten: van het ruwe bestand met zijn hash, via het annotatiemanifest en de variant, tot het ondertekende rapport.
 
-Een paar begrippen die telkens terugkomen:
+Wat de gebruiker op de rapportpagina ziet (de kleuren van het ondertekeningsrecord, de meldingen bij een mislukte vraag), staat in de app: *Docs → Report traceability & sign-out* (`frontend/src/content/docs/clinical-traceability.md`). Het ontwerp staat in `docs/clinical-traceability.md`; de risico's en eisen in de technical file (`TF-06`, `TF-09b`).
 
-- **Snapshot** — een bevroren momentopname: een JSON-object (JSON = een tekstformaat om gestructureerde data in op te slaan) dat exact vastlegt wat op dat moment gold, zodat het later herleidbaar en herproduceerbaar blijft.
-- **Hash** — een korte, vaste "vingerafdruk" (SHA-256) van een stuk data. Wijzigt de data ook maar één teken, dan wijzigt de hash volledig. Zo wordt manipulatie *detecteerbaar*.
-- **Append-only** — alleen toevoegen; regels kunnen nooit worden gewijzigd of verwijderd. Afgedwongen op databankniveau met een *trigger* (een stukje databankcode dat vóór elke wijziging automatisch uitgevoerd wordt en de wijziging kan blokkeren).
+Enkele begrippen:
 
-## Het rapport zelf: opbouw en weergave
+- **Snapshot:** een bevroren JSON-object dat vastlegt wat op dat moment gold.
+- **Hash:** een korte, vaste vingerafdruk (SHA-256) van data. Verandert er één teken, dan verandert de hash volledig; zo wordt manipulatie *zichtbaar*.
+- **Append-only:** alleen toevoegen, nooit wijzigen of wissen. In de databank afgedwongen met een *trigger* (databankcode die vóór elke wijziging draait en ze kan weigeren).
 
-Het klinische rapport wordt in de frontend opgebouwd. Er zijn twee rapportpagina's:
+## Het rapport
 
-- **`frontend/src/pages/families/FamilyReportPage.tsx`** — het standaard familierapport (kiembaan-/small variants + structurele varianten). Deze pagina haalt de varianten op die getagd zijn met de review-tag **`report`** (`GET /families/{id}/small-variants?review_tag=report` en de structurele tegenhanger `GET /families/{id}/structural-variants?review_tag=report`), plus per gerapporteerd gen het genprofiel (`GET /genes/profile`) en de HPO-annotaties (fenotype-termen) van de familie (`GET /families/{id}/hpo`). De prozahelpers (variant-zin, segregatie-zin, ACMG-criteria) staan apart in `frontend/src/pages/families/reportNarrative.ts` — o.a. `buildVariantSentence`, `buildSegregationSentence` en `collectReportCriteria` — en worden los getest, zodat de formulering veilig kan evolueren.
-- **`frontend/src/pages/families/FamilyNiptReportPage.tsx`** — het aparte monogene-NIPT-rapport (prenataal, uit celvrij DNA in het bloed van de moeder). Het toont de geschatte foetale fractie, de on-target coverage-QC (kwaliteitscontrole van de sequencing-dekking) en de kandidaatvarianten. Dit rapport is een aparte weergave omdat NIPT een andere klinische logica volgt (zie hoofdstuk [08-filterpaginas-en-api.md](08-filterpaginas-en-api.md)).
+Er zijn twee rapportpagina's:
 
-De opbouw van elke variantsectie (variantbeschrijving, classificatiemotivatie met de aanvaarde ACMG/AMP-criteria, gencontext, fenotype/HPO-overlap, analistnotitie) is beschreven in de rapporttemplate-documentatie `docs/report-template.md` (zie de sectie "What each variant section contains"). Exporteren gebeurt via de browser-printdialoog (**Print report**); print-stijlen verbergen de UI-chrome en houden variantkaarten bijeen, zodat er een schone PDF ontstaat.
+- **`FamilyReportPage.tsx`** — het familierapport. Het toont de varianten met de reviewtag **`report`** (small variants en structurele varianten), met per gerapporteerd gen het genprofiel en de HPO-termen van de familie. De zinnen van het rapport bouwen hulpfuncties die apart getest worden (`reportNarrative.ts`).
+- **`FamilyNiptReportPage.tsx`** — het rapport voor monogene NIPT, met de foetale fractie, de dekking en de kandidaatvarianten (hoofdstuk 8).
 
-> **Belangrijk (decision support).** Het rapport is samengesteld uit data die al in CoGA zit; het is *beslissingsondersteuning* en moet door een gekwalificeerd klinisch wetenschapper worden bevestigd vóór klinisch gebruik. Die disclaimer staat letterlijk in beide pagina's (CSS-klasse `report-disclaimer`): "ACMG/AMP classifications are decision support and must be confirmed by a qualified clinical scientist before clinical use."
+Wat elke variantsectie bevat, beschrijft `docs/report-template.md`. Exporteren gebeurt via de printfunctie van de browser. **Beide pagina's dragen een disclaimer** dat het rapport beslissingsondersteuning is die een gekwalificeerd klinisch wetenschapper moet bevestigen; het NIPT-rapport vraagt ook bevestiging met een invasieve diagnostische test.
 
-**Waar in de code:** `frontend/src/pages/families/FamilyReportPage.tsx` (component `FamilyReportPage`) en `FamilyNiptReportPage.tsx` (`FamilyNiptReportPage`); prozahelpers in `reportNarrative.ts`; documentatie in `docs/report-template.md`.
+Naast de varianten toont het familierapport drie herkomstelementen, elk met een eigen endpoint in `backend/app/routers/families_reports.py`:
 
-### Drie dingen die met het rapport meereizen
-
-Naast de varianten toont `FamilyReportPage` drie provenance-elementen (provenance = herkomst/oorsprong), elk gevoed door een eigen endpoint uit `backend/app/routers/families_reports.py`:
-
-| Element | Wat het toont | Endpoint / service |
+| Element | Toont | Endpoint |
 | --- | --- | --- |
-| **Provenance-footer** | Generatietijdstip + de annotatie/referentie-**moduleversies** (assembly, VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, GENCODE, Monarch, HPO …), inclusief per-modaliteit-divergentie (bv. `GENCODE 49 (snv), 45 (sv)`) | `GET /{id}/annotation-manifest` → `get_family_annotation_manifest` |
-| **Evidence-drift-banner** | Waarschuwing: classificaties waarvan de onderliggende annotatie wijzigde sinds ze werden gemaakt | `GET /{id}/classification-drift` → `evaluate_classification_drift` |
-| **Klinische audittrail** | Onveranderlijke lijst van wie wat classificeerde/tagde, wanneer, en wat er wijzigde (before → after) | `GET /{id}/clinical-audit` → `list_clinical_audit` |
+| Herkomstvoettekst | De versies van annotatie en referentie (assembly, VEP, ClinVar, gnomAD, GENCODE, Monarch, …), met afwijkingen per modaliteit | `GET /families/{id}/annotation-manifest` |
+| Driftmelding | Classificaties waarvan de annotatie veranderde sinds ze gemaakt werden | `GET /families/{id}/classification-drift` |
+| Klinisch auditspoor | Wie wat classificeerde of tagde, wanneer, met de waarde ervoor en erna | `GET /families/{id}/clinical-audit` |
 
-Deze drie zijn tegelijk de *ingrediënten* die bij aftekenen worden bevroren (zie verder).
+Dezelfde drie worden bij het ondertekenen bevroren.
 
-## De sign-out flow: hoe een casus wordt afgetekend
+## Ondertekenen
 
-Aftekenen gebeurt via **`POST /families/{id}/report/sign-out`** (endpoint `sign_out_family_report_endpoint`), dat delegeert aan **`sign_out_report`** in `backend/app/services/report_signout_service.py`. De kern van die functie:
+Ondertekenen gaat via **`POST /api/families/{id}/report/sign-out`**. De service `sign_out_report` doet, in volgorde:
 
-0. **Gate 0 — referentie-assembly binnen de gevalideerde scope** (#515, TF-06 H12) — staat het assembly van de familie niet in `VALIDATED_ASSEMBLIES` (standaard `GRCh38`), of is er geen assembly gekoppeld, dan weigert de sign-out met `409` (`detail.gate = "assembly_scope"`), nog vóór het snapshot wordt samengesteld. Die weigering kan niet worden erkend of overschreven. Elke familiepagina en het rapport tonen zo'n familie als *Not validated for clinical use*, en de rapportpagina biedt de sign-out-knop niet aan. Kan de projectcatalogus niet geladen worden, dan is de scope onbekend en niet ‘nog aan het laden’: `useFamilyReference` (`frontend/src/lib/reference.ts`) meldt dan `isError` met een `retry`, de banner zegt *Validated scope not confirmed*, en de rapport-, small-variant- en viewerpagina's zeggen dat de referentie niet geladen kon worden (#611).
-1. **Snapshot samenstellen** — `build_report_snapshot` verzamelt: de familiecontext, het annotatie-manifest, de drift-evaluatie, de Sample-integrity-QC, de sequencing-QC met de afkapwaarden, de gerapporteerde reviews (`_reported_reviews`: alle rijen uit `small_variant_reviews` met de tag `report`, elk met hun ACMG-klasse, criteria, notitie en het bevroren `acmg_evidence_snapshot`) en de gerapporteerde structurele varianten en CNV's (`_reported_structural_reviews`: alle rijen uit `structural_variant_reviews` met de tag `report`, met classificatie, CNV-ACMG-criteria, tags en notitie — sinds #508; daarvoor werd een gerapporteerde CNV wel afgedrukt maar niet bevroren).
-2. **Gate 1 — drift** (zie hieronder).
-3. **Gate 2 — Sample-QC** (zie hieronder).
-4. **Versie + hash-keten bepalen onder een per-familie advisory lock** (`pg_advisory_xact_lock`) — een tijdelijk slot in de databank per familie, zodat versiekeuze, ketenkop-lezing en insert atomair (als één ondeelbaar geheel) gebeuren; gelijktijdige aftekeningen kunnen elkaar niet in de wielen rijden.
-5. **Content-hash + row-hash berekenen** en de nieuwe rij **append-only inserten** in `report_signouts` als de volgende `version`.
-6. **Klinisch audit-event schrijven** (`record_clinical_event`, `action="sign_out"`) — in dezelfde transactie — en dan committen.
+0. **Poort 0 — de referentie is gevalideerd.** Staat de assembly van de familie niet in `VALIDATED_ASSEMBLIES` (standaard alleen `GRCh38`), of is er geen, dan weigert de backend (`409`, `gate = "assembly_scope"`). Die weigering kan niet worden erkend of omzeild. De pagina's tonen zo'n familie als *Not validated for clinical use*, en het rapport biedt dan geen ondertekenknop aan (`TF-06`, gevaar H12).
+1. **Het snapshot samenstellen:** de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags en notitie.
+2. **Poort 1 — drift** (hieronder).
+3. **Poort 2 — sample-QC** (hieronder).
+4. **Versie en keten vastleggen** onder een slot per familie, zodat twee gelijktijdige ondertekeningen elkaar niet kunnen storen.
+5. **De hashes berekenen** en de nieuwe rij **toevoegen** aan `report_signouts` als volgende versie.
+6. **Een klinisch auditevent schrijven** (`sign_out`), in dezelfde transactie.
 
-**Wie mag tekenen.** Enkel wie het laboratorium als ondertekenaar heeft gemachtigd — dat is een procedurele maatregel, geen softwarecontrole: CoGA laat elk projectlid (ook de rol `viewer`) aftekenen en controleert de tekenbevoegdheid niet zelf (aanvaard restrisico, TF-06 H15, #519). Aftekenen is wel een geauthenticeerde actie: elk endpoint hangt af van `get_current_user` en alle databanktoegang loopt via `build_family_metadata_context`, dat de casus *scopet* (beperkt) op het project van de gebruiker (projectgebonden toegangscontrole — zie hoofdstuk [02-beveiliging-rollen-rechten.md](02-beveiliging-rollen-rechten.md)). De identiteit van de ondertekenaar wordt zowel als foreign key (`signed_out_by_id`, een verwijzing naar het gebruikersaccount) als *gedenormaliseerd* vastgelegd (`signed_out_by`, uit username/email), zodat de ondertekenaar herkenbaar blijft zelfs na accountverwijdering.
+**Wie mag ondertekenen.** Alleen wie het labo als ondertekenaar machtigt. Dat is een procedurele maatregel, geen controle in de software: CoGA laat elk lid van het project (ook een `viewer`) ondertekenen (`TF-06`, gevaar H15). Ondertekenen vraagt wel een login en projecttoegang. De ondertekenaar wordt vastgelegd als verwijzing naar het account én als tekst, zodat hij herkenbaar blijft als het account later verdwijnt.
 
-**Amendementen.** Elke sign-out is een nieuwe `version` (`_next_version` = `MAX(version)+1`); een bestaande ondertekende versie wordt nooit gemuteerd. In de UI heet de knop dan ook "Amend sign-out" zodra er al een sign-out bestaat.
+**Wijzigingen.** Elke ondertekening is een nieuwe versie; een ondertekende versie wordt nooit gewijzigd. In de UI heet de knop dan *Amend sign-out*.
 
-**Waar in de code:** `backend/app/services/report_signout_service.py`, functie `sign_out_report`; endpoint in `backend/app/routers/families_reports.py`.
+**Waar in de code:** `backend/app/services/report_signout_service.py` (`sign_out_report`, `build_report_snapshot`).
 
-### Gate 1 — classificatie-drift moet groen of erkend zijn
+### Poort 1 — geen onverklaarde drift
 
-Drift betekent: de *evidence* (het bewijs) achter een ACMG-classificatie is veranderd sinds die classificatie werd gemaakt — bijvoorbeeld een nieuwe ClinVar- of gnomAD-release. `evaluate_classification_drift` (in `classification_drift_service.py`) vergelijkt per gerapporteerde classificatie de **bevroren** `acmg_evidence_snapshot` met de *huidige* annotatie in ClickHouse. De autoritatieve driftsleutel is de **annotation-set-hash**: verschilt die van de bevroren waarde, dan is er drift (`status = "drifted"`). Belangrijke fail-safes (in de functie `_diff`):
+Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd (hoofdstuk 10). Voor elke gerapporteerde small variant vergelijkt de controle de bevroren hash van de annotatieset met de huidige. Een ontbrekende hash telt als `unknown`, en een gerapporteerde classificatie zonder bevroren bewijs als `no_snapshot`; beide tellen als drift. Is er drift en heeft de ondertekenaar die niet erkend, dan volgt `409`. Erkennen vraagt een reden (anders `422`); de erkenning en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen.
 
-- Ontbreekt een van beide hashes, dan is de binding *niet* verifieerbaar-ongewijzigd → status **`unknown`**, die door de gate als drift telt (in plaats van stilzwijgend "current"). Zonder deze fail-safe zou een classificatie zonder hash ongehinderd door de gate glippen.
-- Een gerapporteerde classificatie **zonder** bevroren snapshot kan niet drift-geverifieerd worden; `build_report_snapshot` markeert die apart als **`no_snapshot`** zodat de gate ook die dwingt te erkennen (#332).
+**Beperking:** de driftcontrole dekt alleen small variants. Gerapporteerde CNV's en SV's worden wel bevroren, maar nooit op drift gecontroleerd.
 
-In `sign_out_report` geldt: als `drifted_count > 0` en de aanroeper heeft `acknowledge_drift` niet gezet → **HTTP 409** (statuscode voor "conflict"). Pas met expliciete erkenning **én een reden** (`drift_acknowledgement_reason`; zonder reden → **HTTP 422**, net als bij de Sample-QC-override — sinds #508) gaat aftekenen door; die erkenning (`acknowledged_drift: true`) en de reden worden in het snapshot en dus in de content-hash gebakken, en in het audit-event vastgelegd. De classificatie-evidence en drift-logica zelf horen bij hoofdstuk [10-tagging-en-acmg-classificatie.md](10-tagging-en-acmg-classificatie.md).
+**Waar in de code:** `sign_out_report` en `backend/app/services/classification_drift_service.py`.
 
-**Waar in de code:** `report_signout_service.sign_out_report` (de 409-check op `drifted_count`); `classification_drift_service.evaluate_classification_drift` en `_diff`.
+### Poort 2 — geen onverklaarde sample-QC-fout
 
-### Gate 2 — Sample-QC-erkenning moet groen of erkend zijn
+De sample-QC spoort verwisselde samples of een foute stamboom op (`TF-06`, gevaar H4, ernst S5). De poort blokkeert in twee gevallen:
 
-De Sample-integrity-QC detecteert sample- of pedigree-verwisselingen (een verwisseld staal of een fout in de stamboom — TF-06 gevaar H4, geclassificeerd als catastrofaal, S5). `get_family_sample_integrity_qc` levert de checks (geslacht, verwantschap, Mendeliaanse consistentie, NIPT-paterniteit/categorie); de filterpagina-kant hoort bij hoofdstuk [08-filterpaginas-en-api.md](08-filterpaginas-en-api.md). Bij aftekenen blokkeert deze gate in twee gevallen:
+1. een **gevonden fout** (de totaalstatus is `fail`);
+2. een **controle die niet kon draaien** voor een relatie die de stamboom beweert (ouder-kind, broer-zus, de NIPT-lijn, of het geslacht van een sample zonder verwantschapsanker). Een verwisseling kan zich immers voordoen als *ontbrekende* data, en die mag niet stil worden ondertekend.
 
-1. **Harde fail** — een *gedetecteerde* mismatch (`overall_status == "fail"`, in `_QC_BLOCKING_STATUSES`).
-2. **Onverifieerbare swap-check** — een verwisseling die zich als *ontbrekende data* manifesteert (een sample afwezig in de callset, te weinig informatieve sites) laat de relevante check niet uitkomen op "fail". De helper `_unverifiable_swap_checks` vlagt zulke *geasserteerde* pedigree-relaties (ouder-kind, sibling, NIPT-lijn, en het geslacht van een sample zonder verwantschapsanker) apart (#330), zodat ze niet stilzwijgend afgetekend kunnen worden.
+Blokkeert de poort en is ze niet erkend, dan volgt `409` met de bevindingen. Erkennen vraagt een reden (anders `422`); de reden wordt, net als het QC-oordeel, in de hash bevroren en in het auditevent opgenomen. De rapportpagina opent daarvoor een aparte dialoog waarin de reden verplicht is.
 
-Blokkeert de gate en is `acknowledge_qc` niet gezet → **HTTP 409** met een gestructureerde `detail` (`gate: "sample_qc"`, een boodschap `_qc_gate_message`, een `qc_summary` en de lijst `unverifiable_checks`). Erkennen vereist bovendien een **niet-lege reden** (`qc_acknowledgement_reason`), anders **HTTP 422** ("onverwerkbare invoer"). Die reden wordt — net als het QC-verdict zelf — in de content-hash bevroren en in het audit-event opgenomen. In de UI opent hiervoor een aparte modal (`qcGate` in `FamilyReportPage.tsx`) die de gebruiker dwingt een reden te typen.
+**Waar in de code:** `sign_out_report` en `_unverifiable_swap_checks` in `report_signout_service.py`.
 
-**Waar in de code:** `report_signout_service.sign_out_report` (het `qc_blocks`-blok, 409/422); helpers `_unverifiable_swap_checks`, `_qc_gate_message`, `_qc_failure_summary`; frontend-modal in `FamilyReportPage.tsx` (`submitQcAcknowledgement`).
-
-## Het bevroren snapshot en waaraan het gebonden is
-
-`build_report_snapshot` bouwt het object dat wordt bevroren. Het bevat:
+## Het bevroren snapshot
 
 | Veld | Inhoud |
 | --- | --- |
-| `family_id`, `assembly` | familie-identifier en referentie-assembly (het gebruikte referentiegenoom) |
-| `modules` | het volledige annotatie/referentie-manifest (per-modaliteit) |
-| `software` | `{version: settings.app_version, git_sha: settings.git_sha}` — de **exacte softwarebuild** die het snapshot maakte |
-| `drift` | `checked`, `drifted_count` en de gesorteerde `drifted`-lijst (incl. `no_snapshot`-gevallen) |
-| `sample_qc` | de volledige, deterministische Sample-integrity-QC (`_canonical_sample_qc`) |
-| `sequencing_qc` | de sequencing-QC-verdicten per staal én de afkapwaarden waartegen ze beoordeeld werden |
-| `reported_variants` | elke gerapporteerde variant met ACMG-klasse, criteria, tags, notitie én zijn bevroren `evidence_snapshot` |
-| `reported_structural_variants` | elke gerapporteerde structurele variant/CNV met classificatie, CNV-ACMG-criteria, tags en notitie |
+| `family_id`, `assembly` | De familie en de referentie-assembly |
+| `modules` | Het volledige annotatie- en referentiemanifest, per modaliteit |
+| `software` | De build die het snapshot maakte (`app_version` en `git_sha`) |
+| `drift` | Het aantal gecontroleerde classificaties en de lijst met drift (ook `no_snapshot`) |
+| `sample_qc` | De volledige sample-QC |
+| `sequencing_qc` | De sequencing-QC per sample en de grenzen waartegen ze beoordeeld werd |
+| `reported_variants` | Elke gerapporteerde small variant met klasse, criteria, tags, notitie en bevroren bewijs |
+| `reported_structural_variants` | Elke gerapporteerde SV of CNV met classificatie, CNV-criteria, tags en notitie |
 
-Bij het feitelijke aftekenen worden hier nog `version`, `generated_at`, `signed_out_by` en de erkennings-vlaggen met hun redenen (`acknowledged_drift`, `drift_acknowledgement_reason`, `acknowledged_qc`, `qc_acknowledgement_reason`) aan toegevoegd. Zo is het snapshot gebonden aan **drie versie-assen tegelijk**:
+Bij het ondertekenen komen er de versie, het tijdstip, de ondertekenaar en de erkenningen met hun redenen bij. Het snapshot is zo aan **drie versie-assen** gebonden:
 
-- **Software** — via `software.version` + `git_sha` (build-time constanten, dus deterministisch, altijd hetzelfde voor dezelfde build).
-- **Annotatie/pipeline** — via het bevroren `modules`-manifest én, per classificatie, de annotation-set-hash in het evidence-snapshot.
-- **Referentie** — via de assembly en de platform-referentielaag in het manifest (assembly-release, Monarch-release, gelezen uit de referentietabellen).
+- **Software:** `app_version` en `git_sha`, bij het bouwen van de image vastgelegd.
+- **Annotatie en pipeline:** het bevroren manifest en, per classificatie, de hash van de annotatieset.
+- **Referentie:** de assembly, de bron van de genloci die CoGA zelf laadde (GENCODE, of de UCSC-tabel als GENCODE niet lukte) en de Monarch-release.
 
-**Waarom herproduceerbaar.** De content-hash wordt berekend met `canonical_hash` (een SHA-256 over een *canonieke*, op sleutel gesorteerde JSON-codering, `hash_chain.canonical_json`). Alle bevroren waarden zijn zuivere functies van deterministisch-geordende input (geen tijdstempels-in-de-inhoud, geen toevalsgetallen), dus identieke klinische inhoud levert altijd dezelfde hash. Lijsten worden expliciet gesorteerd op stabiele sleutels (bv. `drifted` op `variant_id`) omdat `sort_keys` in de JSON-codering alleen dict-sleutels (veldnamen) ordent, geen lijstvolgorde.
+**De hash.** De inhoudshash is een SHA-256 over een vaste, op sleutel gesorteerde JSON-codering; lijsten worden vooraf op een stabiele sleutel gesorteerd. De klinische secties zijn deterministisch: dezelfde inhoud geeft dezelfde vingerafdruk, en daarop steunt de controle hieronder. De inhoudshash zelf omvat ook de versie, het tijdstip en de ondertekenaar, en is dus per ondertekening uniek.
 
-**Ontkoppeling van ClickHouse.** Het snapshot *embed* (bevat een ingebedde kopie van) de variant- en evidence-waarden die het nodig heeft. Een latere ClickHouse-herbouw of `annotation_version`-wissel kan het ondertekende record dus niet veranderen.
+**Los van ClickHouse.** Het snapshot bevat zelf de waarden die het nodig heeft. Een latere herbouw van ClickHouse of een nieuwe annotatieversie verandert het ondertekende record niet.
 
-**Toont de rapportpagina het ondertekende rapport?** Niet vanzelf: de rapportpagina toont altijd de *huidige* data (en bevraagt daarvoor ClickHouse). Sinds #508 vergelijkt `GET /families/{id}/report/sign-out-check` (`compare_report_with_latest_signout`) het snapshot zoals het nu zou worden bevroren, sectie per sectie, met de laatste ondertekende versie. Alleen bij een geverifieerde overeenkomst is het sign-out-record groen ("This page matches signed version N"); is er na het aftekenen iets gewijzigd (een review, een rapport-tag, een herimport, een QC-afkapwaarde), dan kleurt het record oranje en noemt het de gewijzigde onderdelen, en kan de check niet worden uitgevoerd, dan is het grijs. Elke pagina die niet het geverifieerde ondertekende record is, wordt afgedrukt met een melding bovenaan ("Draft …", "Not the signed report …", "Not verified …"), en het bevroren record zelf kan als JSON worden gedownload. Een aanvraag die mislukt, toont de pagina nooit als leeg (#612). Zonder familie of zonder een van beide lijsten gerapporteerde varianten is er geen rapport, alleen "Report could not be loaded" met Retry. Zonder sign-out-record is de status `unknown`: geen "Draft", en geen sign-out-knop. Een genbeschrijving, de HPO-termen, de driftcheck, het audittraject of het annotatie-manifest dat niet laadde, wordt ter plaatse gemeld, en de afdruk begint dan met "Incomplete — … could not be loaded" (`failedParts` in `FamilyReportPage.tsx`). Het paneel met de pijplijninstellingen zegt dan dat de toolversies niet geladen konden worden, en toont bij een caller "version could not be loaded" in plaats van "version not reported" (#617). Het NIPT-rapport doet hetzelfde voor de foetale fractie en de coverage-QC. Mislukt tijdens het aftekenen een opzoeking (de QC-afkapwaarden, of de versie van het referentie-assembly of van Monarch), dan gaat de sign-out door, maar bevriest het snapshot dat onderdeel als expliciet *niet beschikbaar* met de reden (`sequencing_qc.unavailable`, moduleversie `unavailable`) in plaats van als een leeg blok; het audit-event registreert die onderdelen als `not_captured` en het sign-out-record vermeldt ze ("Not captured in signed version N: …") (#514). Het rapport volledig *uit* het snapshot opbouwen is nog niet gerealiseerd: het snapshot bevat de verhalende invoer (genprofielen, HGVS, frequenties) nog niet.
+**Waar in de code:** `build_report_snapshot`; de codering in `backend/app/services/hash_chain.py`; de tabel `report_signouts` in `04_traceability.sql`.
 
-**Waar in de code:** `report_signout_service.build_report_snapshot`; canonicalisatie in `backend/app/services/hash_chain.py` (`canonical_json`, `canonical_hash`). Schema van de tabel: `backend/db/schema/postgres/04_traceability.sql` (`report_signouts`: kolommen `version`, `content_hash`, `snapshot`, `UNIQUE(family_id, version)`); evidence-snapshot: kolom `acmg_evidence_snapshot` van `small_variant_reviews` in `03_assay.sql`.
+### Toont de rapportpagina het ondertekende rapport?
 
-## Append-only, hash-geketende audit- en sign-out-trail
+Nee, niet vanzelf. In het kort:
 
-CoGA houdt **twee** verschillende auditlogs bij, met verschillende doelen:
+- De rapportpagina toont altijd de **huidige** data.
+- Een controle (`GET /families/{id}/report/sign-out-check`) bouwt het snapshot zoals het nu zou worden bevroren en vergelijkt het, sectie per sectie, met de laatste ondertekende versie. Alleen bij een bevestigde overeenkomst toont het record "This page matches signed version N"; anders noemt het de gewijzigde delen, of zegt het dat de controle niet kon draaien.
+- Een afdruk die niet het bevestigde ondertekende record is, krijgt bovenaan een melding. Het bevroren record zelf is als JSON te downloaden.
+- Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly of van Monarch), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als *niet beschikbaar*, met de reden. Het auditevent en het ondertekeningsrecord noemen die delen.
+- Het rapport volledig **uit het snapshot** opbouwen, is nog niet gerealiseerd: het snapshot bevat de verhalende invoer (genprofielen, HGVS, frequenties) nog niet.
 
-- **HTTP-toegangslog** — `audit_log_events` (`04_traceability.sql`), geschreven door `backend/app/services/audit_log_pg.py`: elke HTTP-request (methode, pad, statuscode, gebruiker). Infrastructureel, afgeleid uit method+path+body.
-- **Klinische actielog** — `clinical_audit_events` (`04_traceability.sql`), geschreven door `backend/app/services/clinical_audit_service.py`: semantische klinische acties (classificatie, tag toegevoegd/verwijderd, notitie bewerkt, rapport afgetekend), mét veld-niveau `before`/`after`. Deze wordt geschreven **in dezelfde transactie** als de wijziging zelf (`record_review_changes`, `diff_review_changes`), zodat de trail nooit uit de pas loopt met de data.
+## Append-only, hash-geketend auditspoor
 
-Beide zijn op databankniveau **append-only**: een trigger blokkeert `DELETE` volledig en `UPDATE` behalve de ene toegestane uitzondering — het `ON DELETE SET NULL`-cascaden dat de foreign keys `user_id`/`actor_id`/`family_id` op NULL zet als een account of familie verwijderd wordt (de gedenormaliseerde velden bewaren dan nog de identiteit). De vergelijking gebeurt kolom-agnostisch (`to_jsonb(NEW) - 'actor_id' - 'family_id'` vergeleken met dezelfde uitdrukking op de oude rij), zodat nieuw toegevoegde kolommen automatisch beschermd blijven.
+CoGA houdt twee auditlogs bij:
 
-**Waar in de code:** de triggerfuncties `audit_log_events_block_mutation`, `clinical_audit_events_block_mutation` en `report_signouts_block_mutation` met hun triggers, alle in `backend/db/schema/postgres/04_traceability.sql` (daar staat ook `integrity_anchors_block_mutation`, zie verder).
+- **De HTTP-toegangslog** `audit_log_events`: elk verzoek, met methode, pad, status en gebruiker (hoofdstuk 7).
+- **Het klinische auditspoor** `clinical_audit_events`: betekenisvolle klinische handelingen (classificeren, een tag zetten of weghalen, een notitie wijzigen, ondertekenen), met per veld de waarde ervoor en erna. Het wordt in dezelfde transactie geschreven als de wijziging zelf, zodat het nooit uit de pas loopt met de data.
 
-### Wat een hash-keten is — en waarom ze manipulatie zichtbaar maakt
+Beide zijn in de databank **append-only**: een trigger blokkeert wissen en wijzigen, met één uitzondering: het op `NULL` zetten van een verwijzing naar een account of familie die verwijderd wordt. De gedenormaliseerde velden bewaren dan wie het was. Dezelfde bescherming geldt voor `report_signouts`, `integrity_anchors` en `qc_threshold_changes`.
 
-Append-only-triggers *verhinderen* dat de normale applicatiepaden een regel wijzigen. Maar een geprivilegieerde databankgebruiker die de trigger kan uitschakelen, zou dat kunnen omzeilen. Daartegen legt CoGA een **hash-keten** over de twee klinische tabellen.
+**Waar in de code:** de triggers in `backend/db/schema/postgres/04_traceability.sql`; het schrijven in `backend/app/services/clinical_audit_service.py`.
 
-Stel u de regels voor als schakels in een ketting. Elke regel krijgt een `row_hash`: een SHA-256 over de *onveranderlijke inhoud van die regel* **plus de `row_hash` van de vorige regel** (`chain_row_hash(prev_hash, payload)` = `SHA-256(prev_hash ‖ "\n" ‖ canonical(payload))`; de allereerste regel gebruikt de tekst `GENESIS`). Gevolg:
+### De hash-keten
 
-- Wijzig je één regel, dan klopt zijn `row_hash` niet meer → detecteerbaar.
-- Verwijder of herschik je een regel, dan wijst de `prev_hash` van de volgende regel niet meer naar de juiste voorganger → detecteerbaar.
+Een trigger houdt de normale applicatie tegen, maar een databankgebruiker met genoeg rechten kan een trigger uitschakelen. Daarom ligt over `clinical_audit_events` en `report_signouts` een **hash-keten**. Elke rij krijgt een `row_hash`: een SHA-256 over haar eigen onveranderlijke inhoud **plus** de `row_hash` van de vorige rij (de eerste rij gebruikt de tekst `GENESIS`). Wijzig je een rij, dan klopt haar hash niet meer; wis of verplaats je er een, dan wijst de volgende rij niet meer naar de juiste voorganger.
 
-`verify_chain` (in `hash_chain.py`) herloopt de keten en herberekent elke schakel; `verify_clinical_audit_chain` en `verify_report_signout_chain` doen dat per familie. Voor de sign-out-keten wordt daarnaast bij *elke leesactie* de `content_hash` opnieuw tegen het snapshot berekend (`get_report_signout` zet een `verified`-vlag en logt bij mismatch een `ERROR` met de tekst "possible tampering").
+- De keten loopt **per familie**, op de onveranderlijke familienaam (`family_identifier`), niet op de UUID die bij verwijderen op `NULL` gaat. De ondertekende geschiedenis van een verwijderde familie blijft zo controleerbaar.
+- De gehashte inhoud **laat de verwijzingen weg** die op `NULL` mogen gaan, zodat een toegelaten verwijdering de keten niet breekt.
+- Bij elke lezing van een ondertekening wordt de inhoudshash opnieuw berekend; een verschil wordt als fout gelogd ("possible tampering"). Een beheerder kan de keten van een familie ook volledig laten nalopen (`GET /api/admin/integrity/verify`).
 
-Twee ontwerpkeuzes zijn cruciaal voor robuustheid:
+**Eerlijke reikwijdte.** De keten is **tamper-evident, niet tamper-proof**: ze maakt manipulatie zichtbaar, niet onmogelijk. Ze betrapt iedereen die de keten niet kan herberekenen. De eigenaar van de tabellen kan echter een trigger uitschakelen, een rij wijzigen en de hashes van die rij en alle volgende opnieuw berekenen. Zolang de app als eigenaar draait (hoofdstuk 2), is dat de app zelf. Daarvoor dienen de ankers hieronder. Formuleer het tegenover een regulator dus als "tamper-evident tegen een tegenstander die alleen de databank heeft, tussen bewaarde ankers", nooit als "tamper-proof" of "onveranderlijk".
 
-- De keten is **gepartitioneerd op de onveranderlijke `family_identifier`** (de menselijke familie-id), niet op de muteerbare `family_id` (de UUID die het cascaden op NULL zet). Zo blijft de getekende historie van een verwijderde familie verifieerbaar.
-- De gehashte payload **sluit de FK-kolommen uit** die het cascaden mag nullen, en bindt in plaats daarvan de gedenormaliseerde identiteit. Een legitieme account-/familieverwijdering breekt de keten dus niet.
+**Waar in de code:** `backend/app/services/hash_chain.py`; de kolommen `row_hash` en `prev_hash` in `04_traceability.sql`.
 
-**Eerlijke reikwijdte (belangrijk voor het review board).** De hash-keten is **tamper-EVIDENT, niet tamper-proof** (manipulatie wordt *zichtbaar*, maar niet *onmogelijk* gemaakt). Ze detecteert manipulatie door iedereen die de keten *niet kan herberekenen*. Maar de tabel-*eigenaar* (tot de niet-eigenaar-runtime-rol `coga_app` volledig is uitgerold, is dat de app-DB-rol zelf — zie `05_grants.sql`) kan de trigger uitschakelen, een interne regel bewerken en vervolgens `row_hash`/`prev_hash` voor die regel én alle opvolgers herrekenen tot een zelf-consistente keten. Dat sluit het volgende blok — de externe ankers — af. Deze reikwijdte staat expliciet in de docstrings van `hash_chain.py` en `integrity_anchor_service.py` en moet in regulator-taal zo geformuleerd blijven ("tamper-evident tegen een database-only tegenstander, tussen bewaarde ankers"), nooit "tamper-proof" of "immutable".
+## Integriteitsankers
 
-**Waar in de code:** `backend/app/services/hash_chain.py` (`chain_row_hash`, `verify_chain`, `ChainVerification`); ketenschrijving in `clinical_audit_service.record_clinical_event` en `report_signout_service.sign_out_report`; de hash-kolommen `row_hash`/`prev_hash` staan in de tabeldefinities van `clinical_audit_events` en `report_signouts` in `04_traceability.sql`.
+Een anker maakt ook een herberekende keten zichtbaar. Bij het maken van een anker legt `create_integrity_anchor`:
 
-## Integriteitsankers: de keten extern verifieerbaar maken
+1. de **kop van elke keten** vast (per familie, voor `report_signouts` en `clinical_audit_events`: de lengte en de laatste `row_hash`);
+2. die koppen samen in één hash, geketend aan het vorige anker, en **ondertekent** het geheel met een Ed25519-sleutel die in de configuratie staat, **nooit in de databank**;
+3. het anker append-only weg in `integrity_anchors`.
 
-Om ook de "eigenaar die de trigger uitschakelt en herketent" detecteerbaar te maken, bestaat er een **extern getekend anker**. `backend/app/services/integrity_anchor_service.py` (`create_integrity_anchor`) doet periodiek het volgende:
+Wie de sleutel niet heeft, kan een keten wel herberekenen, maar geen geldig ondertekend anker vervalsen. Een controle vergelijkt de huidige ketens met het laatste anker, of loopt de hele ankerketen en alle handtekeningen na, en meldt `ok`, `diverged`, `chain_broken`, `signature_invalid`, `unknown_key` of `unverifiable_unsigned`.
 
-1. **Alle keten-koppen vastleggen** (`_capture_heads`): voor elke familie, voor beide tabellen (`report_signouts` en `clinical_audit_events`), de hoogte (`height`) en de `head_row_hash`.
-2. Deze koppen **canoniek hashen** tot een `anchor_root`, ze aan het vorige anker ketenen (`prev_anchor_hash` → `anchor_hash`), en het geheel **ondertekenen met een Ed25519-privésleutel** (een moderne digitale-handtekening­techniek) die in app-config/omgeving zit — **nooit in de databank**.
-3. Het anker **append-only** wegschrijven in `integrity_anchors` (`04_traceability.sql`).
+**Wanneer ontstaat een anker?** Een beheerder of een externe planner roept `POST /api/admin/integrity/anchor` aan; de controles zijn `GET /api/admin/integrity/anchor/verify` en `…/verify-chain`. De code plant dit niet in en er is geen scherm voor: hoe vaak een anker wordt gemaakt, is een procedureafspraak.
 
-Waarom dit werkt: een eigenaar zonder de privésleutel kan een geketende regel wel *herrekenen*, maar kan **geen geldig getekend anker vervalsen**. De divergentie tussen de live keten en het laatst *getekende* anker wordt dan zichtbaar voor een verifier die de databank niet vertrouwt. `verify_against_latest_anchor` (koppen van het laatste anker vs. de live ketens) en `verify_anchor_chain` (de volledige ankerketen + alle handtekeningen) geven statussen als `ok`, `diverged`, `chain_broken`, `signature_invalid`, `unknown_key` en `unverifiable_unsigned`.
+**Grenzen.** Een ankersleutel die in handen valt (bv. bij een gecompromitteerde server) doorbreekt de bescherming; daartegen zou een hardwaresleutel (HSM) nodig zijn. Het wissen van de *laatste* ankers is alleen te zien met een kopie buiten de databank. Die export naar een externe opslag is voorzien maar nog niet gebouwd (`export_anchor` doet nog niets).
 
-De docstring van de service formuleert de trustgrens eerlijk: de aanpak detecteert interne herketening/inkorting tussen bewaarde ankers, maar verdedigt **niet** tegen een tegenstander die de tekensleutel bezit (host-compromittering — daarvoor is een HSM, een hardware-sleutelmodule, nodig), en detecteert het wissen van de *laatste* ankers alleen als er een out-of-band bewaarde kopie is. Die out-of-band export is bewust een nog niet-gekoppelde naad (`export_anchor`, momenteel een no-op — een functie die nog niets doet). De tabel is bovendien strikt vergrendeld voor de runtime-rol: `05_grants.sql` trekt na de brede `GRANT` weer `UPDATE, DELETE, TRUNCATE` in (`REVOKE`), net als voor de andere append-only tabellen, zodat `coga_app` er enkel `SELECT` en `INSERT` op houdt.
+**Waar in de code:** `backend/app/services/integrity_anchor_service.py`; de tabel en trigger in `04_traceability.sql`; de rechten in `05_grants.sql`.
 
-### Integriteit van de variantopslag (ClickHouse)
+### De variantopslag in ClickHouse
 
-De ankers dekken de Postgres-ketens. De grootschalige variantopslag in ClickHouse wordt bewaakt door **`backend/app/services/clickhouse_integrity_monitor.py`**: kort na opstart en daarna op een vast interval draait `run_integrity_sweep` de controle `check_clickhouse_variant_integrity` over elke assembly. Bij status `corrupt` of `missing` (in `_ALERT_STATUSES`) escaleert het naar een `ERROR`-log — de alert-haak — *vóór* de corruptie zich als query-500's manifesteert. Het laatste resultaat per assembly wordt gecached voor admin/health-surfacing (`last_integrity_results`).
+De ankers dekken de Postgres-ketens. De variantopslag in ClickHouse bewaakt een aparte monitor: kort na het opstarten en daarna op een vast interval controleert hij de varianttabellen van elke assembly, en bij een beschadigde of ontbrekende tabel schrijft hij een fout naar de log, bedoeld om een waarschuwing te laten afgaan vóór gebruikers er last van hebben. Het laatste resultaat wordt in het geheugen bewaard, maar door geen endpoint getoond; een beheerder start de controle zelf via `GET /api/admin/clickhouse/variants/{assembly}/integrity`.
 
-**Waar in de code:** `backend/app/services/integrity_anchor_service.py` (`create_integrity_anchor`, `verify_against_latest_anchor`, `verify_anchor_chain`); schema `04_traceability.sql` (tabel + trigger) en `05_grants.sql` (runtime-rolrechten); `backend/app/services/clickhouse_integrity_monitor.py` (`run_integrity_sweep`).
+**Waar in de code:** `backend/app/services/clickhouse_integrity_monitor.py`.
 
-## De volledige traceerbaarheidsketen, stap voor stap
+## De volledige traceerbaarheidsketen
 
-Dit is het hart van de explainability-boodschap: elk gerapporteerd resultaat is herleidbaar tot exact wat het produceerde. De keten, met per stap de plaats in de code:
+1. **Ruw bestand → hash.** Elk bronbestand staat in `raw_import_files`, met zijn SHA-256 (hoofdstuk 6).
+2. **Annotatiemanifest.** De tool- en databankversies uit de VCF-headers staan per familie in `family_annotation_manifest` (hoofdstuk 6).
+3. **Variant in ClickHouse.** Elke variant draagt de hash van de annotatieset waarmee hij werd geannoteerd (hoofdstuk 3).
+4. **Classificatie en bewijs.** Bij elke ACMG-classificatie van een small variant worden de annotatieversie, de hash van de annotatieset, de ClinVar-waarde en het tijdstip bevroren (hoofdstuk 10).
+5. **Poorten.** Vóór het ondertekenen worden de assembly, de drift en de sample-QC gecontroleerd; wat niet in orde is, moet worden erkend, met een reden.
+6. **Bevroren rapport.** Het snapshot met manifest, softwareversie, drift, QC en gerapporteerde varianten wordt gehasht en append-only opgeslagen als nieuwe versie.
+7. **Keten en anker.** De ondertekening komt in de hash-keten van de familie, er komt een `sign_out`-regel in het klinische auditspoor, en een ondertekend anker kan de ketenkoppen extern vastleggen.
 
-1. **Ruw bestand → hash.** Bij import wordt elk bronbestand vastgelegd in `raw_import_files` met `file_name`, `storage_path`, `file_size`, `source` en een **`sha256`**-integriteitshash. *(`backend/db/schema/postgres/04_traceability.sql`; importpijplijn — hoofdstuk [06-import-pipeline.md](06-import-pipeline.md).)*
-2. **Annotatie-manifest.** De `##`-headers van de VCF-bestanden worden geparsed en per familie opgeslagen in `family_annotation_manifest` (bron `vcf_header`, `manifest` of `manual`); versies verversen bij re-import, maar een handmatig gecureerde (`manual`) manifest wint en wordt nooit overschreven. *(`backend/app/services/annotation_manifest_service.py` — `merge_vcf_header_provenance`, `get_family_annotation_manifest`; schema `04_traceability.sql`; zie `docs/annotation-provenance.md`.)*
-3. **Variant in ClickHouse.** Elke variant draagt een `annotationSetHash` — een inhoudsvingerafdruk die vastpint welke annotatie-set gold. *(zie hoofdstuk [03-databankstructuren.md](03-databankstructuren.md).)*
-4. **Review / ACMG-evidence-snapshot.** Bij elke ACMG-save wordt de geziene evidence (annotation-set-hash, ClinVar-significantie, moduleversies) bevroren in `small_variant_reviews.acmg_evidence_snapshot`. *(`03_assay.sql`; hoofdstuk [10-tagging-en-acmg-classificatie.md](10-tagging-en-acmg-classificatie.md).)*
-5. **Gating.** Voor sign-out worden **drift** (bevroren vs. huidige annotation-set-hash) en **Sample-QC** (swap-detectie) geëvalueerd; niet-groen moet expliciet worden erkend, bij QC met een verplichte reden. *(`report_signout_service.sign_out_report`; `classification_drift_service`; `sample_integrity_service`.)*
-6. **Bevroren rapport.** Het snapshot — manifest, software-`version`+`git_sha`, driftstatus, Sample-QC, gerapporteerde varianten met evidence — wordt content-gehasht en append-only weggeschreven als nieuwe `version`. *(`report_signout_service.build_report_snapshot` + insert in `report_signouts`; schema `04_traceability.sql`.)*
-7. **Hash-geketende sign-out + anker.** De sign-out-regel wordt in de per-familie hash-keten gehangen (`row_hash`/`prev_hash`), er wordt een `sign_out`-event in de klinische audittrail geschreven, en periodiek verzegelt een Ed25519-getekend integriteitsanker de keten-koppen extern. *(`hash_chain`, `clinical_audit_service.record_clinical_event`, `integrity_anchor_service`; schema `04_traceability.sql`.)*
-
-Zo loopt een auditor van de SHA-256 van het ruwe bestand, via de versies die het annoteerden en de exacte evidence achter elke classificatie, tot een ondertekend rapport waarvan de integriteit extern verifieerbaar is.
-
-## Veiligheid & traceerbaarheid — waar het wordt afgedwongen
-
-| Waarborg | Afgedwongen in |
-| --- | --- |
-| Toegangscontrole / projectscoping op alle rapportendpoints | `families_reports.py` (`get_current_user`) + `build_family_metadata_context` |
-| Gate op classificatie-drift vóór sign-out (409 tenzij erkend) | `report_signout_service.sign_out_report` |
-| Gate op Sample-QC vóór sign-out (409, en 422 zonder reden) | `report_signout_service.sign_out_report`, `_unverifiable_swap_checks` |
-| Onveranderlijkheid van audit- en sign-out-regels (append-only) | DB-triggers in `04_traceability.sql` |
-| Manipulatiedetectie binnen een keten (per familie) | `hash_chain.py`, ketenkolommen `row_hash`/`prev_hash` in `04_traceability.sql` |
-| Externe, sleutelgebaseerde verzegeling van keten-koppen | `integrity_anchor_service.py`, tabel `integrity_anchors` in `04_traceability.sql` |
-| Runtime-rol zonder UPDATE/DELETE op de append-only tabellen | `05_grants.sql` |
-| Integriteitsbewaking variantopslag (ClickHouse) | `clickhouse_integrity_monitor.py` |
-| Herverificatie content-hash bij elke leesactie van een sign-out | `report_signout_service.get_report_signout` (`verified`) |
+Zo loopt een auditor van de hash van het ruwe bestand, via de versies en het bewijs achter elke classificatie, tot een ondertekend rapport waarvan de integriteit extern te controleren is.
 
 ## IVDR-koppeling
 
-Deze hele keten is de technische invulling van de traceerbaarheidseis onder IVDR (in-house IVD, Artikel 5(5); device-grens "geannoteerde VCF → ondertekend klinisch rapport"). Het ontwerpdossier en de fasering (Phase 0-3 + de P1-4-ankerlaag, alle vier de fasen geïmplementeerd) staan in **`docs/clinical-traceability.md`**; de annotatie-provenance in **`docs/annotation-provenance.md`**. Voor het regelgevende dossier verwijzen we naar de technical file in **`docs/regulatory/`**, met name **TF-06** (risicomanagement — het H4 sample-swap-gevaar dat de Sample-QC-gate adresseert) en **TF-09** (verificatie & validatie / traceerbaarheid). Houd bij het citeren de eerlijke trustgrens aan: **tamper-evident tegen een database-only tegenstander, tussen bewaarde ankers** — niet "tamper-proof".
+Deze keten is de technische invulling van de eis tot traceerbaarheid onder de IVDR (in-house IVD, Artikel 5(5); device boundary "geannoteerde VCF → ondertekend klinisch rapport"). Het ontwerp staat in `docs/clinical-traceability.md`, de herkomst van annotaties in `docs/annotation-provenance.md`. Voor het regelgevende dossier: `docs/regulatory/`, met name TF-06 (risicobeheer, o.a. de gevaren H4, H12 en H15) en TF-09 (verificatie en validatie).
 
 ## Belangrijkste bestanden
 
 | Bestand | Rol |
 | --- | --- |
-| `backend/app/routers/families_reports.py` | Rapport-/traceerbaarheidsendpoints: manifest, drift, clinical-audit, sign-out, Sample-QC |
-| `backend/app/services/report_signout_service.py` | Sign-out flow, snapshot-opbouw, drift- + QC-gates, content-hash + ketenschrijving |
-| `backend/app/services/hash_chain.py` | Canonieke JSON/SHA-256, `chain_row_hash`, ketenverificatie |
-| `backend/app/services/clinical_audit_service.py` | Append-only, hash-geketende klinische actielog (before/after) |
-| `backend/app/services/integrity_anchor_service.py` | Ed25519-getekende externe ankers over de keten-koppen |
-| `backend/app/services/classification_drift_service.py` | Drift-evaluatie (bevroren vs. huidige annotation-set-hash) |
-| `backend/app/services/annotation_manifest_service.py` | Per-familie annotatie/referentie-manifest (provenance-footer) |
-| `backend/app/services/clickhouse_integrity_monitor.py` | Geplande integriteitsbewaking van de variantopslag |
-| `backend/app/services/audit_log_pg.py` | HTTP-toegangslog (`audit_log_events`) |
-| `backend/db/schema/postgres/04_traceability.sql` | HTTP-audittabel, klinische audittabel en sign-out-snapshottabel, elk met append-only trigger; hash-keten-kolommen op de klinische audit- en sign-out-tabel; ankertabel + trigger; ruwe-bestandprovenance met SHA-256; annotatiemanifest |
-| `backend/db/schema/postgres/05_grants.sql` | Restrictieve runtime-rol (`coga_app`), REVOKE UPDATE/DELETE/TRUNCATE op de append-only tabellen (incl. de ankertabel) |
-| `backend/db/schema/postgres/03_assay.sql` | Bevroren ACMG-evidence per classificatie (`small_variant_reviews.acmg_evidence_snapshot`) |
-| `frontend/src/pages/families/FamilyReportPage.tsx` | Familierapport, provenance-footer, drift-banner, sign-out + QC-modal |
-| `frontend/src/pages/families/FamilyNiptReportPage.tsx` | Monogeen-NIPT-rapport |
-| `frontend/src/pages/families/reportNarrative.ts` | Prozahelpers voor de rapportzinnen (los getest) |
-| `docs/clinical-traceability.md` / `docs/report-template.md` / `docs/annotation-provenance.md` | Ontwerp- en templatedocumentatie |
+| `backend/app/routers/families_reports.py` | Manifest, drift, klinische audit, sample-QC, ondertekenen |
+| `backend/app/services/report_signout_service.py` | Ondertekenen, snapshot, poorten, hashes en keten |
+| `backend/app/services/hash_chain.py` | Vaste JSON-codering, SHA-256, de keten en haar controle |
+| `backend/app/services/clinical_audit_service.py` | Het klinische auditspoor |
+| `backend/app/services/integrity_anchor_service.py` | Ondertekende ankers en hun controle |
+| `backend/app/services/classification_drift_service.py` | Drift |
+| `backend/app/services/annotation_manifest_service.py` | Het annotatie- en referentiemanifest |
+| `backend/app/services/clickhouse_integrity_monitor.py` | Bewaking van de variantopslag |
+| `backend/db/schema/postgres/04_traceability.sql` · `05_grants.sql` | De tabellen, triggers en rechten |
+| `frontend/src/pages/families/FamilyReportPage.tsx` · `FamilyNiptReportPage.tsx` | De rapportpagina's |
