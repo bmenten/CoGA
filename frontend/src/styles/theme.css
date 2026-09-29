@@ -996,6 +996,13 @@ tbody tr:hover {
   color: var(--color-secondary);
 }
 
+/* The guide's Markdown writes a callout as a blockquote, which holds a paragraph (#528):
+   it keeps the callout's colour instead of the prose paragraph's. */
+.user-guide-callout > p {
+  margin: 0;
+  color: inherit;
+}
+
 /* "In-depth reference" link from a guide section to an in-app reference doc. */
 .user-guide-further-reading {
   display: flex;
