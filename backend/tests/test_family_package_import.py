@@ -1136,6 +1136,101 @@ async def test_total_failure_on_existing_family_is_not_rolled_back(
     assert deleted == [], "a pre-existing family must never be deleted by compensation"
 
 
+@pytest.mark.asyncio
+async def test_a_failed_import_flags_the_family_with_its_import_job(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The import_incomplete flag names the job that holds each dataset's error, so the
+    family pages and the signed report can point to it."""
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    _wire_total_failure(monkeypatch, created=False, deleted=[])
+    flagged: list[dict] = []
+
+    async def fake_flag(session, family_context, **kwargs):
+        flagged.append(kwargs)
+
+    monkeypatch.setattr(package_import, "_flag_family_import_incomplete", fake_flag)
+
+    await package_import.execute_family_package_import(
+        _CommitRollbackSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        project_id="project-uuid",
+        dry_run=False,
+        user=_current_admin(),
+        job_id="job-uuid",
+    )
+    # Run outside a job (a script or test): nothing to name.
+    await package_import.execute_family_package_import(
+        _CommitRollbackSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        project_id="project-uuid",
+        dry_run=False,
+        user=_current_admin(),
+    )
+
+    assert [flag["job_id"] for flag in flagged] == ["job-uuid", None]
+    assert flagged[0]["failed_datasets"] == ["snv"]
+
+
+@pytest.mark.asyncio
+async def test_the_import_job_runs_the_import_under_its_own_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    job_row = {
+        "id": "job-uuid",
+        "submitted_path": "/data/families/FAM001",
+        "project_id": "project-uuid",
+        "dry_run": False,
+        "requested_by": "admin@example.com",
+        "metadata": {"conflict_mode": "update", "requested_family_id": "FAM001"},
+    }
+
+    class _Session:
+        async def execute(self, *args, **kwargs):
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: job_row))
+
+        async def rollback(self) -> None:  # pragma: no cover - trivial
+            ...
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc) -> bool:
+            return False
+
+    captured: dict = {}
+
+    async def fake_user(session, email):
+        return _current_admin()
+
+    async def fake_execute(session, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            error="Family package import failed for dataset(s): snv",
+            family_id="FAM001",
+            validation=None,
+            datasets=[],
+            logs=[],
+        )
+
+    async def fake_update_job_progress(session, **kwargs):
+        captured.setdefault("final_status", kwargs.get("status"))
+
+    monkeypatch.setattr(package_import, "get_postgres_sessionmaker", lambda: _Session)
+    monkeypatch.setattr(package_import, "get_current_user_by_email", fake_user)
+    monkeypatch.setattr(package_import, "execute_family_package_import", fake_execute)
+    monkeypatch.setattr(package_import, "_update_job_progress", fake_update_job_progress)
+
+    await package_import.run_family_import_job(job_id="job-uuid", worker_id="worker-1")
+
+    assert captured["job_id"] == "job-uuid"
+    assert captured["conflict_mode"] == "update"
+    assert captured["final_status"] == "failed"
+
+
 def test_resolve_package_path_blocks_escape_outside_root(tmp_path: Path) -> None:
     from fastapi import HTTPException
 

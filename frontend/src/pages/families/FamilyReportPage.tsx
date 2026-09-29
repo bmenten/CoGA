@@ -431,6 +431,7 @@ const FamilyReportPage: React.FC = () => {
     vars: SignOutVars;
     failed: string[];
     imported: string[];
+    jobId: string | null;
   } | null>(null);
   const [importReason, setImportReason] = useState('');
   const [signOutError, setSignOutError] = useState<string | null>(null);
@@ -512,12 +513,17 @@ const FamilyReportPage: React.FC = () => {
       if (gate === 'import_incomplete') {
         const incomplete = detail as {
           message?: string;
-          import_incomplete?: { failed_datasets?: string[]; imported_datasets?: string[] } | null;
+          import_incomplete?: {
+            failed_datasets?: string[];
+            imported_datasets?: string[];
+            job_id?: string | null;
+          } | null;
         };
         setImportGate({
           message: incomplete.message || 'The family’s import is incomplete.',
           failed: incomplete.import_incomplete?.failed_datasets ?? [],
           imported: incomplete.import_incomplete?.imported_datasets ?? [],
+          jobId: incomplete.import_incomplete?.job_id ?? null,
           vars,
         });
         return;
@@ -870,7 +876,7 @@ const FamilyReportPage: React.FC = () => {
             <p className="report-paragraph">
               To sign out anyway you must record a reason — it is frozen into the signed record.
             </p>
-            {importGate.failed.length || importGate.imported.length ? (
+            {importGate.failed.length || importGate.imported.length || importGate.jobId ? (
               <ul>
                 {importGate.failed.length ? (
                   <li>Failed to import: {importGate.failed.join(', ')}</li>
@@ -878,6 +884,8 @@ const FamilyReportPage: React.FC = () => {
                 {importGate.imported.length ? (
                   <li>Imported: {importGate.imported.join(', ')}</li>
                 ) : null}
+                {/* Its record holds each dataset's error. */}
+                {importGate.jobId ? <li>Import job: {importGate.jobId}</li> : null}
               </ul>
             ) : null}
             <label className="report-footer-label" htmlFor="import-ack-reason">
@@ -996,7 +1004,14 @@ const FamilyReportPage: React.FC = () => {
             <p className="report-signout-qc">
               <span className="report-footer-label">Incomplete import</span>{' '}
               {latestSignout.import_incomplete_failed_datasets?.length
-                ? `${joinWithAnd(latestSignout.import_incomplete_failed_datasets)} not imported — `
+                ? `${joinWithAnd(latestSignout.import_incomplete_failed_datasets)} not imported `
+                : ''}
+              {latestSignout.import_incomplete_job_id
+                ? `(import job ${latestSignout.import_incomplete_job_id}) `
+                : ''}
+              {latestSignout.import_incomplete_failed_datasets?.length ||
+              latestSignout.import_incomplete_job_id
+                ? '— '
                 : ''}
               override acknowledged:{' '}
               {latestSignout.import_incomplete_acknowledgement_reason || 'no reason recorded'}

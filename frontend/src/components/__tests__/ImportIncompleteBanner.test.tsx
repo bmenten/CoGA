@@ -11,6 +11,13 @@ const FLAG = {
   at: '2026-09-12T10:14:00.123456+00:00',
   failed_datasets: ['snv', 'sv'],
   imported_datasets: ['coverage'],
+  job_id: '3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b',
+};
+// A flag written before the import job was recorded: the datasets only.
+const OLD_FLAG = {
+  at: FLAG.at,
+  failed_datasets: FLAG.failed_datasets,
+  imported_datasets: FLAG.imported_datasets,
 };
 
 describe('ImportIncompleteBanner', () => {
@@ -23,7 +30,19 @@ describe('ImportIncompleteBanner', () => {
       /A family-package import \(2026-09-12 10:14 UTC\) failed for snv and sv; coverage did import\./,
     );
     expect(banner).toHaveTextContent(/results and the report may be incomplete/);
+    // The import job's record holds each dataset's error.
+    expect(banner).toHaveTextContent(
+      /Each dataset.s error is recorded in import job 3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b\./,
+    );
     expect(banner).toHaveTextContent(/Sign-out needs this acknowledged with a reason/);
+  });
+
+  it('names no job for a flag written before the job was recorded', () => {
+    render(<ImportIncompleteBanner metadata={{ import_incomplete: OLD_FLAG }} />);
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(/failed for snv and sv; coverage did import\./);
+    expect(banner).not.toHaveTextContent(/import job/);
   });
 
   it('still warns when the flag records nothing to name', () => {
@@ -54,12 +73,17 @@ describe('importIncompleteFromMetadata', () => {
       at: FLAG.at,
       failedDatasets: ['snv', 'sv'],
       importedDatasets: ['coverage'],
+      jobId: FLAG.job_id,
     });
+    expect(importIncompleteFromMetadata({ import_incomplete: OLD_FLAG })?.jobId).toBeNull();
+    expect(
+      importIncompleteFromMetadata({ import_incomplete: { ...FLAG, job_id: 7 } })?.jobId,
+    ).toBeNull();
   });
 
   it('takes a flag of another shape as incomplete, with nothing to name', () => {
     // As sign-out does: a set flag is never read as a complete import.
-    const unknown = { at: null, failedDatasets: [], importedDatasets: [] };
+    const unknown = { at: null, failedDatasets: [], importedDatasets: [], jobId: null };
     expect(importIncompleteFromMetadata({ import_incomplete: 'yes' })).toEqual(unknown);
     expect(importIncompleteFromMetadata({ import_incomplete: {} })).toEqual(unknown);
     expect(

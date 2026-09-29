@@ -6,6 +6,8 @@ export interface FamilyImportIncomplete {
   at: string | null;
   failedDatasets: string[];
   importedDatasets: string[];
+  /** The import job whose record holds each dataset's error, or null when not recorded. */
+  jobId: string | null;
 }
 
 const stringList = (value: unknown): string[] | null =>
@@ -17,7 +19,8 @@ const stringList = (value: unknown): string[] | null =>
  * A family-package import that partly fails keeps the datasets that did import and stamps
  * `metadata.import_incomplete` (family_package_registration._flag_family_import_incomplete);
  * a later, fully successful import removes it. As on the server, a flag that is set but
- * not in the shape the import writes still counts as incomplete, with nothing to name.
+ * not in the shape the import writes still counts as incomplete, with nothing to name,
+ * and a flag written before the import job was recorded has no job to point to.
  */
 export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportIncomplete | null => {
   if (!metadata || typeof metadata !== 'object') return null;
@@ -29,6 +32,7 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
     at: typeof record.at === 'string' && record.at ? record.at : null,
     failedDatasets: stringList(record.failed_datasets) ?? [],
     importedDatasets: stringList(record.imported_datasets) ?? [],
+    jobId: typeof record.job_id === 'string' && record.job_id ? record.job_id : null,
   };
 };
 
@@ -53,8 +57,13 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
   return (
     <div className="import-incomplete-banner" role="alert">
       <strong>Import incomplete.</strong> {what} Data from what failed is missing here, so the
-      results and the report may be incomplete. Re-run the import to complete it. Sign-out
-      needs this acknowledged with a reason.
+      results and the report may be incomplete.{' '}
+      {flag.jobId ? (
+        <>
+          Each dataset&rsquo;s error is recorded in import job <code>{flag.jobId}</code>.{' '}
+        </>
+      ) : null}
+      Re-run the import to complete it. Sign-out needs this acknowledged with a reason.
     </div>
   );
 };

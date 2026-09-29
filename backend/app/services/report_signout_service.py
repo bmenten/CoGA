@@ -242,13 +242,14 @@ async def _import_incomplete_state(
 
     A family-package import that partly fails keeps the family and the datasets that did
     import, and stamps ``families.metadata.import_incomplete`` with when it ran, which
-    datasets failed and which imported
-    (``family_package_registration._flag_family_import_incomplete``); a later, fully
-    successful import removes it. Frozen into the snapshot and gating sign-out, so a
-    report on partly loaded data is never released as if it were complete.
+    datasets failed, which imported and the import job whose record holds each dataset's
+    error (``family_package_registration._flag_family_import_incomplete``); a later,
+    fully successful import removes it. Frozen into the snapshot and gating sign-out, so
+    a report on partly loaded data is never released as if it were complete.
 
     Fails safe: a flag that is set but not in the shape the import writes still counts
-    as incomplete, with nothing to name.
+    as incomplete, with nothing to name. A flag written before the job was recorded
+    reads the same, with ``job_id`` None.
     """
     raw = (
         await session.execute(
@@ -276,6 +277,8 @@ async def _import_incomplete_state(
         state[key] = (
             sorted({str(value) for value in values if value}) if isinstance(values, list) else []
         )
+    job_id = flag.get("job_id")
+    state["job_id"] = job_id if isinstance(job_id, str) and job_id else None
     return state
 
 
@@ -292,10 +295,15 @@ def _import_gate_message(state: Mapping[str, Any]) -> str:
             f"a package import{when} did not complete, and which datasets it left out "
             "was not recorded"
         )
+    job = (
+        f" Each dataset's error is recorded in import job {state['job_id']}."
+        if state.get("job_id")
+        else ""
+    )
     return (
         f"This family's data is incomplete: {what}. The report may lack data from what "
-        "failed. Re-run the import to complete it, or acknowledge with a reason to sign "
-        "out anyway."
+        f"failed.{job} Re-run the import to complete it, or acknowledge with a reason to "
+        "sign out anyway."
     )
 
 
@@ -562,6 +570,7 @@ def _serialize_signout(row: dict[str, Any]) -> dict[str, Any]:
         "import_incomplete_failed_datasets": _dataset_list(
             row.get("import_incomplete_failed_datasets")
         ),
+        "import_incomplete_job_id": row.get("import_incomplete_job_id"),
         "import_incomplete_acknowledged": row.get("import_incomplete_acknowledged"),
         "import_incomplete_acknowledgement_reason": row.get(
             "import_incomplete_acknowledgement_reason"
@@ -815,6 +824,9 @@ async def sign_out_report(
         "import_incomplete_failed_datasets": (
             import_incomplete.get("failed_datasets") if import_incomplete is not None else None
         ),
+        "import_incomplete_job_id": (
+            import_incomplete.get("job_id") if import_incomplete is not None else None
+        ),
         "import_incomplete_acknowledged": import_acknowledged,
         "import_incomplete_acknowledgement_reason": snapshot[
             "import_incomplete_acknowledgement_reason"
@@ -847,6 +859,7 @@ async def list_report_signouts(
                        snapshot->>'drift_acknowledgement_reason' AS drift_acknowledgement_reason,
                        snapshot->'import_incomplete'->'failed_datasets'
                            AS import_incomplete_failed_datasets,
+                       snapshot->'import_incomplete'->>'job_id' AS import_incomplete_job_id,
                        (snapshot->>'acknowledged_import_incomplete')::boolean
                            AS import_incomplete_acknowledged,
                        snapshot->>'import_incomplete_acknowledgement_reason'
@@ -892,6 +905,7 @@ async def get_report_signout(
                        snapshot->>'drift_acknowledgement_reason' AS drift_acknowledgement_reason,
                        snapshot->'import_incomplete'->'failed_datasets'
                            AS import_incomplete_failed_datasets,
+                       snapshot->'import_incomplete'->>'job_id' AS import_incomplete_job_id,
                        (snapshot->>'acknowledged_import_incomplete')::boolean
                            AS import_incomplete_acknowledged,
                        snapshot->>'import_incomplete_acknowledgement_reason'

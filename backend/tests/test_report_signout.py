@@ -1011,11 +1011,16 @@ def test_signout_check_older_snapshot_sections(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 # As family_package_registration._flag_family_import_incomplete records it.
+_IMPORT_JOB_ID = "3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b"
 _INCOMPLETE = {
     "at": "2026-09-12T10:14:00+00:00",
     "failed_datasets": ["snv", "sv"],
     "imported_datasets": ["coverage"],
+    # The import job that holds each dataset's error.
+    "job_id": _IMPORT_JOB_ID,
 }
+# A flag written before the job was recorded: the datasets only.
+_OLD_INCOMPLETE = {key: value for key, value in _INCOMPLETE.items() if key != "job_id"}
 _IMPORT_ACK_REASON = "SV calls are not part of this referral; SNV re-import is booked."
 
 
@@ -1039,6 +1044,8 @@ def test_incomplete_import_blocks_sign_out(monkeypatch) -> None:
     assert detail["import_incomplete"] == _INCOMPLETE
     assert "snv" in detail["message"] and "sv" in detail["message"]
     assert "coverage" in detail["message"]
+    # It points to the job whose record holds each dataset's error.
+    assert f"import job {_IMPORT_JOB_ID}" in detail["message"]
     assert _inserts(session) == [], "nothing may be written for a refused sign-out"
     assert captured == {}, "nor audited"
 
@@ -1082,6 +1089,7 @@ def test_acknowledged_incomplete_import_is_frozen_and_audited(monkeypatch) -> No
     # Surfaced at top level, as the list/detail endpoints do.
     assert out["import_incomplete_acknowledged"] is True
     assert out["import_incomplete_acknowledgement_reason"] == _IMPORT_ACK_REASON
+    assert out["import_incomplete_job_id"] == _IMPORT_JOB_ID
     # And in the clinical audit event, as the QC override is.
     after = captured["after"]
     assert after["import_incomplete"] == _INCOMPLETE
@@ -1189,10 +1197,39 @@ def test_the_import_flag_reader_is_deterministic_and_fails_safe() -> None:
     assert read(messy)["failed_datasets"] == ["snv", "sv"]
     # Set, but not in the shape the import writes: still incomplete — it gates, with
     # nothing to name — rather than being taken for a complete import.
-    unknown = {"at": None, "failed_datasets": [], "imported_datasets": []}
+    unknown = {"at": None, "failed_datasets": [], "imported_datasets": [], "job_id": None}
     assert read(True) == unknown
     assert read({}) == unknown
     assert read("not json") == unknown
+    # A job id that is not a string names no job.
+    assert read({**_INCOMPLETE, "job_id": 7})["job_id"] is None
+
+
+def test_an_old_flag_without_an_import_job_still_gates(monkeypatch) -> None:
+    # Flags written before the job was recorded carry only the datasets. They read and
+    # gate the same, with no job to point to.
+    state = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_OLD_INCOMPLETE)), "u1"))
+    assert state == {**_OLD_INCOMPLETE, "job_id": None}
+    assert "import job" not in rss._import_gate_message(state)
+
+    _patch_common(monkeypatch, drifted_count=0, import_incomplete=state)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["gate"] == "import_incomplete"
+
+    _patch_common(monkeypatch, drifted_count=0, import_incomplete=state)
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_import_incomplete=True,
+            import_incomplete_acknowledgement_reason=_IMPORT_ACK_REASON,
+        )
+    )
+    assert out["snapshot"]["import_incomplete"]["job_id"] is None
+    assert out["import_incomplete_job_id"] is None
 
 
 # A sign-out exactly as the writer stored it before the incomplete-import gate existed,
@@ -1281,6 +1318,7 @@ def _pre_gate_row() -> dict:
         "drift_acknowledged": False,
         "drift_acknowledgement_reason": None,
         "import_incomplete_failed_datasets": None,
+        "import_incomplete_job_id": None,
         "import_incomplete_acknowledged": None,
         "import_incomplete_acknowledgement_reason": None,
     }
@@ -1311,6 +1349,7 @@ def test_a_sign_out_made_before_the_import_gate_still_verifies(monkeypatch) -> N
     assert detail["import_incomplete_acknowledged"] is None
     assert detail["import_incomplete_acknowledgement_reason"] is None
     assert detail["import_incomplete_failed_datasets"] is None
+    assert detail["import_incomplete_job_id"] is None
 
 
 def test_serialize_signout_exposes_the_frozen_import_acknowledgement() -> None:
@@ -1320,11 +1359,13 @@ def test_serialize_signout_exposes_the_frozen_import_acknowledgement() -> None:
         "signed_out_at": None,
         "content_hash": "h",
         "import_incomplete_failed_datasets": ["snv", "sv"],
+        "import_incomplete_job_id": _IMPORT_JOB_ID,
         "import_incomplete_acknowledged": True,
         "import_incomplete_acknowledgement_reason": _IMPORT_ACK_REASON,
     }
     serialized = rss._serialize_signout(row)
     assert serialized["import_incomplete_failed_datasets"] == ["snv", "sv"]
+    assert serialized["import_incomplete_job_id"] == _IMPORT_JOB_ID
     assert serialized["import_incomplete_acknowledged"] is True
     assert serialized["import_incomplete_acknowledgement_reason"] == _IMPORT_ACK_REASON
     # A driver without the jsonb codec hands the extracted array back as text.

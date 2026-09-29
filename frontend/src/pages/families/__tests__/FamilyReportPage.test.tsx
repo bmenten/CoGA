@@ -849,10 +849,12 @@ describe('FamilyReportPage', () => {
   // The report warns while it is set, and sign-out needs it acknowledged with a reason, as
   // a Sample-QC concern does.
   describe('when the family’s import is incomplete', () => {
+    const IMPORT_JOB_ID = '3f6c1a2e-8b4d-4e5f-9a7b-1c2d3e4f5a6b';
     const IMPORT_FLAG = {
       at: '2026-09-12T10:14:00+00:00',
       failed_datasets: ['snv', 'sv'],
       imported_datasets: ['coverage'],
+      job_id: IMPORT_JOB_ID,
     };
     const IMPORT_409 = {
       response: {
@@ -916,6 +918,8 @@ describe('FamilyReportPage', () => {
       expect(within(dialog).getByText(/failed for snv, sv \(coverage did import\)/)).toBeInTheDocument();
       expect(within(dialog).getByText('Failed to import: snv, sv')).toBeInTheDocument();
       expect(within(dialog).getByText('Imported: coverage')).toBeInTheDocument();
+      // The job whose record holds each dataset's error.
+      expect(within(dialog).getByText(`Import job: ${IMPORT_JOB_ID}`)).toBeInTheDocument();
 
       const confirm = within(dialog).getByRole('button', { name: /Sign out anyway/ });
       expect(confirm).toBeDisabled();
@@ -999,6 +1003,7 @@ describe('FamilyReportPage', () => {
       const signed = {
         ...SIGNED_LATEST,
         import_incomplete_failed_datasets: ['snv', 'sv'],
+        import_incomplete_job_id: IMPORT_JOB_ID,
         import_incomplete_acknowledged: true,
         import_incomplete_acknowledgement_reason: REASON,
       };
@@ -1012,7 +1017,7 @@ describe('FamilyReportPage', () => {
 
       const label = await screen.findByText('Incomplete import');
       expect(label.closest('p')).toHaveTextContent(
-        `Incomplete import snv and sv not imported — override acknowledged: ${REASON}`,
+        `Incomplete import snv and sv not imported (import job ${IMPORT_JOB_ID}) — override acknowledged: ${REASON}`,
       );
     });
 

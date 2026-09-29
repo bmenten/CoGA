@@ -81,9 +81,11 @@ async def execute_family_package_import(
     requested_family_id: str | None = None,
     conflict_mode: str = "cancel",
     progress: ProgressCallback | None = None,
+    job_id: str | None = None,
 ) -> PackageExecutionResult:
     """Run an import, staging the package from S3 to a temp dir first when the
-    source is an s3:// URI (cleaned up afterwards)."""
+    source is an s3:// URI (cleaned up afterwards). ``job_id`` is the import job
+    running it, if any: an incomplete-import flag names it."""
     async with staged_package_source_async(folder_path) as (local_root, source_uri):
         return await _execute_family_package_import_local(
             session,
@@ -95,6 +97,7 @@ async def execute_family_package_import(
             requested_family_id=requested_family_id,
             conflict_mode=conflict_mode,
             progress=progress,
+            job_id=job_id,
         )
 
 
@@ -109,6 +112,7 @@ async def _execute_family_package_import_local(
     requested_family_id: str | None = None,
     conflict_mode: str = "cancel",
     progress: ProgressCallback | None = None,
+    job_id: str | None = None,
 ) -> PackageExecutionResult:
     fallback_ped_text = await db_pedigree_fallback(session, requested_family_id)
     validation, bundle = load_validated_family_package(
@@ -333,6 +337,7 @@ async def _execute_family_package_import_local(
                 family_context,
                 failed_datasets=failed_datasets,
                 imported_datasets=imported_datasets,
+                job_id=job_id,
             )
             logs.append(
                 "Import failed and the snapshot restore also failed; flagged the family "
@@ -344,6 +349,7 @@ async def _execute_family_package_import_local(
             family_context,
             failed_datasets=failed_datasets,
             imported_datasets=imported_datasets,
+            job_id=job_id,
         )
         logs.append(
             "Import left the family partially populated (some datasets failed); flagged "
@@ -472,6 +478,7 @@ async def run_family_import_job(
                 requested_family_id=job_metadata.get("requested_family_id"),
                 conflict_mode=str(job_metadata.get("conflict_mode") or "cancel"),
                 progress=progress,
+                job_id=job_id,
             )
             if result.error:
                 await _update_job_progress(

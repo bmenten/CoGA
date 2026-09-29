@@ -116,8 +116,10 @@ class ReportSignoutSummary(BaseModel):
     drift_acknowledgement_reason: Optional[str] = None
     # Frozen incomplete-import state and its override: the datasets a partly failed
     # package import had not loaded when the report was signed (NULL when the import was
-    # complete), and the acknowledgement. All NULL for sign-outs made before the gate.
+    # complete), the import job whose record holds each dataset's error (NULL when not
+    # recorded), and the acknowledgement. All NULL for sign-outs made before the gate.
     import_incomplete_failed_datasets: Optional[List[str]] = None
+    import_incomplete_job_id: Optional[str] = None
     import_incomplete_acknowledged: Optional[bool] = None
     import_incomplete_acknowledgement_reason: Optional[str] = None
     # Re-verification of the stored content hash against the snapshot, done on detail

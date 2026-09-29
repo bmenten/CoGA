@@ -84,6 +84,26 @@ async def test_flag_family_import_incomplete_records_datasets() -> None:
 
 
 @pytest.mark.asyncio
+async def test_flag_family_import_incomplete_records_the_import_job() -> None:
+    # The flag names the job that holds each dataset's error; it never copies the error
+    # texts, which can carry file paths.
+    session = _FakeSession()
+    await fpi._flag_family_import_incomplete(
+        session, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-uuid"
+    )
+    payload = json.loads(session.executed[0][1]["payload"])
+    assert payload["job_id"] == "job-uuid"
+    assert set(payload) == {"at", "failed_datasets", "imported_datasets", "job_id"}
+
+    # An import run outside a job records none.
+    session = _FakeSession()
+    await fpi._flag_family_import_incomplete(
+        session, _ctx(), failed_datasets=["snv"], imported_datasets=[]
+    )
+    assert json.loads(session.executed[0][1]["payload"])["job_id"] is None
+
+
+@pytest.mark.asyncio
 async def test_clear_family_import_incomplete_drops_the_flag() -> None:
     session = _FakeSession()
     await fpi._clear_family_import_incomplete(session, _ctx())

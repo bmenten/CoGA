@@ -454,9 +454,11 @@ export interface ApiReportSignout {
   drift_acknowledged?: boolean | null;
   drift_acknowledgement_reason?: string | null;
   // Frozen incomplete-import state and override: the datasets a partly failed package
-  // import had not loaded at sign-out (null when the import was complete), and the
+  // import had not loaded at sign-out (null when the import was complete), the import
+  // job whose record holds each dataset's error (null when not recorded), and the
   // acknowledgement. All null for sign-outs made before the incomplete-import gate.
   import_incomplete_failed_datasets?: string[] | null;
+  import_incomplete_job_id?: string | null;
   import_incomplete_acknowledged?: boolean | null;
   import_incomplete_acknowledgement_reason?: string | null;
   snapshot?: Record<string, unknown> | null;

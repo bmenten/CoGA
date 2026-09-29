@@ -6,8 +6,9 @@ fully successful import clears it (``_clear_family_import_incomplete``). Sign-ou
 the flag from the same row. This drives the REAL flag writers, the sign-out writer and
 the sign-out readers against the real schema:
 
-- a flagged family is refused sign-out (409, naming the failed datasets) and nothing is
-  written: no ``report_signouts`` row, no clinical audit event;
+- a flagged family is refused sign-out (409, naming the failed datasets and the import
+  job that holds their errors) and nothing is written: no ``report_signouts`` row, no
+  clinical audit event;
 - an acknowledgement without a reason is refused (422); with one, the flag's details and
   the reason are frozen in the content-hashed snapshot, extracted by the list/detail
   reads, and recorded in the audit event;
@@ -55,6 +56,8 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
     from backend.app.services.sample_integrity_qc import SampleIntegrityReport
 
     label = f"import-gate-{uuid4()}"
+    # The job whose record holds each dataset's error; the flag only names it.
+    job_id = str(uuid4())
     holder: dict = {}
 
     def _context() -> SimpleNamespace:
@@ -164,7 +167,11 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             # A re-import partly fails: the real import helper flags the family.
             async with sm() as s:
                 await _flag_family_import_incomplete(
-                    s, _context(), failed_datasets=["sv", "snv"], imported_datasets=["coverage"]
+                    s,
+                    _context(),
+                    failed_datasets=["sv", "snv"],
+                    imported_datasets=["coverage"],
+                    job_id=job_id,
                 )
 
             # (a) Refused without an acknowledgement; nothing written or audited.
@@ -178,6 +185,8 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             assert flag["failed_datasets"] == ["snv", "sv"]
             assert flag["imported_datasets"] == ["coverage"]
             assert flag["at"]
+            assert flag["job_id"] == job_id
+            assert f"import job {job_id}" in refused.value.detail["message"]
             async with sm() as s:
                 assert await _count(s, "report_signouts") == 1
                 assert await _count(s, "clinical_audit_events") == 0
@@ -226,10 +235,12 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                 assert by_version[2]["import_incomplete_acknowledged"] is True
                 assert by_version[2]["import_incomplete_acknowledgement_reason"] == _REASON
                 assert by_version[2]["import_incomplete_failed_datasets"] == ["snv", "sv"]
+                assert by_version[2]["import_incomplete_job_id"] == job_id
                 # The pre-gate record claims no acknowledgement either way.
                 assert by_version[1]["import_incomplete_acknowledged"] is None
                 assert by_version[1]["import_incomplete_acknowledgement_reason"] is None
                 assert by_version[1]["import_incomplete_failed_datasets"] is None
+                assert by_version[1]["import_incomplete_job_id"] is None
 
                 old = await rss.get_report_signout(s, family_id=label, version=1, user=user)
                 new = await rss.get_report_signout(s, family_id=label, version=2, user=user)
@@ -237,6 +248,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                 assert old["import_incomplete_acknowledged"] is None
                 assert new["verified"] is True
                 assert new["import_incomplete_failed_datasets"] == ["snv", "sv"]
+                assert new["import_incomplete_job_id"] == job_id
 
                 events = (
                     await s.execute(

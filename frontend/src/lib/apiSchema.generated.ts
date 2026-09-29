@@ -2276,6 +2276,7 @@ export interface ReportSignoutDetail {
   drift_acknowledged: boolean | null;
   drift_acknowledgement_reason: string | null;
   import_incomplete_failed_datasets: string[] | null;
+  import_incomplete_job_id: string | null;
   import_incomplete_acknowledged: boolean | null;
   import_incomplete_acknowledgement_reason: string | null;
   verified: boolean | null;
@@ -2317,6 +2318,7 @@ export interface ReportSignoutSummary {
   drift_acknowledged: boolean | null;
   drift_acknowledgement_reason: string | null;
   import_incomplete_failed_datasets: string[] | null;
+  import_incomplete_job_id: string | null;
   import_incomplete_acknowledged: boolean | null;
   import_incomplete_acknowledgement_reason: string | null;
   verified: boolean | null;
