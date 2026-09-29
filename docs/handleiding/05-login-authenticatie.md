@@ -193,7 +193,7 @@ Om te voorkomen dat iemand wachtwoorden blijft raden, houdt de backend mislukte 
 | `last_failure_at` | tijdstip van de laatste mislukking |
 | `locked_until` | tot wanneer dit bereik geblokkeerd is |
 
-**Waar in de code:** het schema in `backend/db/schema/postgres/010_auth_login_attempts.sql`; de logica in `backend/app/services/auth_rate_limit_pg.py`.
+**Waar in de code:** het schema in `backend/db/schema/postgres/01_access.sql`; de logica in `backend/app/services/auth_rate_limit_pg.py`.
 
 De werking (functies `record_failed_login`, `get_login_throttle_state`, `clear_login_failures`):
 
@@ -266,7 +266,7 @@ Voor een IVD-platform moet elke poging tot toegang navolgbaar zijn. De maatregel
 - **Accountability wordt niet stilletjes weggegooid.** In productie weigert de config om `AUDIT_LOG_DROP_ALLOWED=true` te accepteren (`validate_security_defaults` in `backend/app/core/config.py`), zodat auditgebeurtenissen bij een volle wachtrij niet zomaar verloren gaan.
 - **Korte tokenlevensduur + harde 401-afhandeling** beperken de gevolgen van een gelekt token: het verloopt na 2 uur en elke `401` wist automatisch de clientsessie.
 
-**Waar in de code:** `log_request_response`, `_get_request_user`, `_sanitize_for_logging`, `_parse_request_body` in `backend/app/middleware/request_logging.py`; `auth_login_attempts` in `backend/db/schema/postgres/010_auth_login_attempts.sql`.
+**Waar in de code:** `log_request_response`, `_get_request_user`, `_sanitize_for_logging`, `_parse_request_body` in `backend/app/middleware/request_logging.py`; `auth_login_attempts` in `backend/db/schema/postgres/01_access.sql`.
 
 ## Belangrijkste bestanden
 
@@ -277,8 +277,7 @@ Voor een IVD-platform moet elke poging tot toegang navolgbaar zijn. De maatregel
 | `backend/app/core/config.py` | Instellingen: `SECRET_KEY`, tokenlevensduur, rate-limit-parameters, Azure-config; weigert onveilige defaults in productie |
 | `backend/app/core/azure.py` | Azure AD-tokenvalidatie (JWKS ophalen, RS256, issuer/audience-controle) |
 | `backend/app/services/auth_rate_limit_pg.py` | Rate limiting / lockout-logica (back-off, scopes email/IP/signup) |
-| `backend/db/schema/postgres/010_auth_login_attempts.sql` | Tabel `auth_login_attempts` voor mislukte-pogingtellers en lockouts |
-| `backend/db/schema/postgres/01_access.sql` | Tabel `users` (o.a. `hashed_password`, `role`, `is_active`) |
+| `backend/db/schema/postgres/01_access.sql` | Tabel `users` (o.a. `hashed_password`, `role`, `is_active`) en tabel `auth_login_attempts` voor mislukte-pogingtellers en lockouts |
 | `backend/app/services/metadata_service.py` | Gebruiker opzoeken, aanmaken (viewer/inactief) en activeren; project-scoping |
 | `backend/app/middleware/request_logging.py` | Audittrail van elke aanvraag, met maskering van wachtwoorden/tokens |
 | `frontend/src/pages/auth/LoginPage.tsx` | Inlogformulier, tokenopslag, veilige `next`-redirect |

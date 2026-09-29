@@ -28,13 +28,15 @@ De Clinical CNV Explorer laat curatoren de *gecureerde kennisbank van terugkeren
 
 De letterlijke prefix-routes (`/entry/...`, `/{assembly}/catalog`) staan bewust vóór de generieke `/{assembly}/{chrom}` zodat ze in de match-volgorde voorrang krijgen (een commentaarregel in het bestand legt dit uit). De echte data-ophaal zit in `reference_metadata_service` (`get_clinical_cnv_by_id_data`, `list_clinical_cnvs_catalog_data`, `get_clinical_cnvs_data`).
 
-**Databankstructuur (traceerbaarheid & provenance).** De curatie-velden zijn additief toegevoegd via idempotente migraties (`ADD COLUMN IF NOT EXISTS`), zodat oude installaties veilig meegroeien:
-- `018_clinical_cnv_details.sql` voegt `omim_id`, `decipher_id` en `description` toe. Als deze ontbreken, valt de detailpagina terug op afgeleide links (OMIM-zoekopdracht op naam, DECIPHER-regio).
-- `020_clinical_cnv_enrichment.sql` voegt `cytoband`, `source_id` (ISCA-regio-id), `omim_title`, `orpha_id` en `orpha_name` toe — verrijkingsvelden die door de kennisbank-build worden gevuld.
+**Databankstructuur (traceerbaarheid & provenance).** De curatie-velden staan in de tabeldefinitie van `clinical_cnvs` in `02_reference.sql` (voorheen additief toegevoegd door de migraties 018 en 020):
+- `omim_id`, `decipher_id` en `description`. Als deze ontbreken, valt de detailpagina terug op afgeleide links (OMIM-zoekopdracht op naam, DECIPHER-regio).
+- `cytoband`, `source_id` (ISCA-regio-id), `omim_title`, `orpha_id` en `orpha_name` — verrijkingsvelden die door de kennisbank-build worden gevuld.
+
+Kolommen die pas later bijkwamen, zoals de ClinVar-tellingen hieronder, volgen in `02_reference.sql` nog als idempotente `ADD COLUMN IF NOT EXISTS`, zodat een bestaande installatie veilig meegroeit.
 
 **Kennisbank herbouwen (admin).** De service `backend/app/services/clinical_cnv_kb_jobs.py` verzorgt de door de admin getriggerde herbouw van de kennisbank. Kernpunten voor veiligheid en traceerbaarheid:
 - Het zware build-script (`scripts/clinical_cnv_knowledgebase.py`, dat externe bronnen zoals ClinVar ophaalt) draait als een **geïsoleerd subprocess** (`asyncio.create_subprocess_exec`), zodat de netwerkfetches en optionele afhankelijkheden nooit het API-proces raken. Het resultaat is een TSV die via de standaard reference-loader (`apply_reference_dataset_text`) in de tabel `clinical_cnvs` wordt geladen.
-- De voortgang wordt bijgehouden in tabel `clinical_cnv_kb_jobs` (migratie `019_clinical_cnv_kb_jobs.sql`): status `queued/running/completed/failed`, `requested_by`, tijdstempels (`requested_at`/`started_at`/`completed_at`), een `inserted`-teller, en een foutmelding (`error`) plus stderr-staart (`log`).
+- De voortgang wordt bijgehouden in tabel `clinical_cnv_kb_jobs` (in `02_reference.sql`): status `queued/running/completed/failed`, `requested_by`, tijdstempels (`requested_at`/`started_at`/`completed_at`), een `inserted`-teller, en een foutmelding (`error`) plus stderr-staart (`log`).
 - Een **partiële unieke index** (`idx_clinical_cnv_kb_jobs_active` op `(status)` met `WHERE status IN ('queued','running')`) dwingt af dat er hooguit één herbouw tegelijk loopt; een tweede poging krijgt netjes een 409.
 - **ClinVar-steun (#566).** Per regio telt de build de pathogene ClinVar-CNV's die de regio voor minstens 30 % wederzijds overlappen, gesplitst in verlies (`clinvar_pathogenic_loss_count`) en winst (`clinvar_pathogenic_gain_count`). De kant komt eerst uit ClinVars kolom `Type` (`copy number loss`/`gain`, `Deletion`/`Duplication`), dan uit het kopieaantal dat een array-record in zijn ISCN-naam draagt (`…)x1` verlies, `…)x3` winst; op X en Y alleen `x0` en `x3` of meer, want daar hangt het normale aantal af van het geslacht), en pas dan uit woorden in de naam (`clinvar_cnv_side`). De loader bewaart ze in `clinical_cnvs` (`clinvar_pathogenic_loss_count`, `…_gain_count`, `…_accessions`), en de Clinical CNV Explorer en de detailpagina tonen ze (#624). De build schrijft de tellingen pas nadat ClinVar werkelijk is geraadpleegd; een kennisbank zonder ClinVar (`--skip-clinvar`, of een BED-bestand) staat als NULL in de tabel en leest in de app als "not recorded", nooit als 0.
 - Beschikbaarheid is defensief: ontbreekt het script op de server, dan meldt `get_clinical_cnv_kb_status` dat (`available: false`) en weigert `queue_clinical_cnv_kb_rebuild` met een 503.
@@ -49,7 +51,7 @@ Een *genpaneel* is een benoemde, versioneerbare lijst van genen (eventueel met r
 - Lezen (`get_current_user`): `GET /panels/` (lijst), `GET /panels/{panel_id}`, plus versiegeschiedenis `GET /panels/{panel_id}/versions` en `.../versions/{version}`, en de PanelApp-zoekopdracht `GET /panels/panelapp/search`.
 - Schrijven (`get_current_admin_user`): `POST /panels/` (aanmaken), `PUT /panels/{panel_id}`, `DELETE /panels/{panel_id}`, de PanelApp-import (`POST /panels/import/panelapp`) en de Mendeliome-hergeneratie (`POST /panels/mendeliome/regenerate`).
 
-**Versiebeheer (traceerbaarheid).** In `backend/app/services/panel_metadata_service.py` zorgt `_snapshot_panel_version` dat elke wijziging aan een paneel een onveranderlijke versie-snapshot vastlegt; `list_panel_versions` / `get_panel_version` maken die geschiedenis opvraagbaar. Zo is voor elke rapportage terug te vinden welke genset op welk moment gold — belangrijk in de IVDR-context. De snapshots worden bewaard in tabel `gene_panel_versions` (migratie `034_gene_panel_versions.sql`).
+**Versiebeheer (traceerbaarheid).** In `backend/app/services/panel_metadata_service.py` zorgt `_snapshot_panel_version` dat elke wijziging aan een paneel een onveranderlijke versie-snapshot vastlegt; `list_panel_versions` / `get_panel_version` maken die geschiedenis opvraagbaar. Zo is voor elke rapportage terug te vinden welke genset op welk moment gold — belangrijk in de IVDR-context. De snapshots worden bewaard in tabel `gene_panel_versions` (in `02_reference.sql`).
 
 **Externe bron: PanelApp.** `backend/app/services/panelapp_service.py` haalt panelen op bij Genomics England PanelApp (`PANELAPP_API_ROOT = "https://panelapp.genomicsengland.co.uk/api/v1"`). De frontend (`GenePanelsPage.tsx`) laat admins zoeken (`search_panelapp`) en importeren (`import_panelapp_panel`) met keuzes voor confidence-niveau, assembly en het al dan niet meenemen van regio's en STR's. De importmetadata (bron, PanelApp-id, versie) wordt bij het paneel bewaard, zodat de herkomst traceerbaar blijft.
 
@@ -179,7 +181,7 @@ Naast de HTTP-audittrail (elke API-call) legt CoGA ook *betekenisvolle UI-intera
 - **Detail-blob wordt gesaneerd** (`_sanitize_detail`): sleutels die op `password`, `secret`, `token`, `authorization`, `api_key`, `access_key` beginnen worden `***`; geneste structuren worden vervangen door alleen hun type (bv. `[dict]`), zodat een token diep in een payload niet per ongeluk verbatim wordt opgeslagen.
 - De acteur (user-id/e-mail/rol) komt uit het token; IP en user-agent uit de request.
 
-**Duurzame opslag.** `backend/app/services/ui_event_pg.py` schrijft events naar de Postgres-tabel `ui_events` (migratie `023_ui_events.sql`). In de `async`-modus lopen ze via een begrensde `asyncio.Queue` en een achtergrond-worker die in batches wegschrijft (`start_ui_event_worker`, `write_ui_event`). De gedeelde duurzaamheidslaag `backend/app/services/event_pipeline.py` — die ook de HTTP-audittrail bedient — garandeert dat een accountability-event nooit stil verloren gaat:
+**Duurzame opslag.** `backend/app/services/ui_event_pg.py` schrijft events naar de Postgres-tabel `ui_events` (in `04_traceability.sql`). In de `async`-modus lopen ze via een begrensde `asyncio.Queue` en een achtergrond-worker die in batches wegschrijft (`start_ui_event_worker`, `write_ui_event`). De gedeelde duurzaamheidslaag `backend/app/services/event_pipeline.py` — die ook de HTTP-audittrail bedient — garandeert dat een accountability-event nooit stil verloren gaat:
 - Bij een volle queue in productie wordt backpressure toegepast en zo nodig synchroon weggeschreven (`enqueue_event`); een echt onopslaanbaar event wordt met zijn volledige (reeds gesaniteerde) payload gelogd én geteld, nooit stil gedropt (`_record_unpersisted`).
 - Batch-writes worden met begrensde backoff herprobeerd (`write_event_batch_with_retry`).
 - Alleen in niet-productie (`AUDIT_LOG_DROP_ALLOWED`) mag een vol queue met een WARN droppen — de settings-validator weigert dit in productie.
@@ -194,10 +196,10 @@ Naast de statuscatalogus (hierboven) beheert CoGA de feitelijke gezinsstructuur 
 - **`family_structure_service.py`** — `update_family_structure_for_admin` valideert en herschrijft de volledige gezinsstructuur: leden, ouder-kind- en partner-relaties, met een relatie-graafvalidatie (`_validate_relationship_graph`) die inconsistente stambomen weigert, plus het opnieuw genereren van PED-tekst. Bij verwijderen van een lid wordt bijbehorende genomische data opgeruimd (`_clear_family_genomic_data`).
 - **`family_member_management_service.py`** — fijnmaziger beheer per lid: `get_family_member_impact_for_user` toont vooraf de impact van een verandering (hoeveel data eraan hangt), `update_family_member_for_admin` / `update_family_members_batch_for_admin` wijzigen leden, en `delete_family_member_for_admin` verwijdert een lid. Een hernoeming/verwijdering wordt geblokkeerd wanneer er nog genomische data aan hangt (`_rename_block_reason`) — een veiligheidsrem tegen dataverlies.
 
-De onderliggende migraties (zoals gevraagd, `011`/`014`/`024`) bouwen dit incrementeel op:
-- `011_pgt_family_roles.sql` — breidt de toegestane ledenrollen uit (voegt o.a. `embryo` en `relative` toe aan de rol-constraint), nodig voor PGT/embryo-families.
-- `014_family_structure_relationships.sql` — voegt `clinical_status`/`carrier_status` (+ carrier-detailkolommen) toe aan `family_members` en introduceert de tabel `family_relationships` (relatietypes `parent_child` / `couple`).
-- `024_family_metadata.sql` — de catalogustabel `family_statuses` (met geseede default-statussen) plus de kolommen `families.status_id`, `assigned_to_id` en `reviewed_by_id`, elk met `ON DELETE SET NULL`.
+De onderliggende tabellen staan in hun eindvorm in `03_assay.sql` (voorheen bouwden de migraties `011`/`014`/`024` dit incrementeel op):
+- **Ledenrollen** — de rol-constraint van `family_members` laat o.a. `embryo` en `relative` toe, nodig voor PGT/embryo-families.
+- **Status en relaties** — `family_members` draagt `clinical_status`/`carrier_status` (+ carrier-detailkolommen), en de tabel `family_relationships` legt de relaties tussen leden vast (relatietypes `parent_child` / `couple`).
+- **Workflow-metadata** — de catalogustabel `family_statuses` (met geseede default-statussen) plus de kolommen `families.status_id`, `assigned_to_id` en `reviewed_by_id`, elk met `ON DELETE SET NULL`.
 
 Deze services worden aangesproken vanuit de admin- en familie-detailschermen; de stamboomlogica sluit aan op de haplotype-/pedigree-context uit [hoofdstuk 9](09-visualisaties.md).
 
@@ -223,7 +225,7 @@ Bevestiging dat elke top-level bron-map in de handleiding aan bod komt:
 | --- | --- |
 | `backend/app/routers/cnvs.py` | Lees-API voor de klinische-CNV-catalogus (auth-only) |
 | `backend/app/services/clinical_cnv_kb_jobs.py` | Admin-getriggerde, geïsoleerde herbouw van de CNV-kennisbank + job-tracking |
-| `backend/db/schema/postgres/018–020_*.sql` | Curatie- en verrijkingskolommen + `clinical_cnv_kb_jobs`-tabel |
+| `backend/db/schema/postgres/02_reference.sql` | `clinical_cnvs` met de curatie- en verrijkingskolommen + `clinical_cnv_kb_jobs`-tabel |
 | `backend/app/routers/panels.py` | Genpaneel-CRUD (lezen: user; schrijven: admin) + PanelApp-import |
 | `backend/app/services/panel_metadata_service.py` | Panelenlogica, versie-snapshots, Mendeliome-generatie |
 | `backend/app/services/panelapp_service.py` | PanelApp-client (zoeken/ophalen bij Genomics England) |

@@ -12,7 +12,7 @@ Enkele begrippen die telkens terugkomen, kort uitgelegd:
 
 ### Wat wordt opgeslagen
 
-De HPO-ontologie wordt in Postgres opgeslagen in vier tabellen, gedefinieerd in `backend/db/schema/postgres/015_hpo.sql`:
+De HPO-ontologie wordt in Postgres opgeslagen in vier tabellen, gedefinieerd in `backend/db/schema/postgres/02_reference.sql`:
 
 | Tabel | Rol |
 | --- | --- |
@@ -21,9 +21,9 @@ De HPO-ontologie wordt in Postgres opgeslagen in vier tabellen, gedefinieerd in 
 | `hpo_edge` | De ouder-kindrelaties (`child_id` → `parent_id`, standaard relatie `is_a`). |
 | `hpo_closure` | De vooraf-berekende *transitieve sluiting*: voor elke term álle voorouders met hun afstand. Dit maakt "heeft de patiënt deze term of een specifieker subtype?" één snelle query in plaats van een recursieve boomdoorloop. |
 
-De aparte tabel `individual_hpo` koppelt waargenomen fenotypes aan een concreet familielid (via `family_id` en een `sample_id` die naar `samples(id)` verwijst), met een `status` van `present`, `absent` of `unknown`. Alleen `present`-termen tellen mee voor prioritisatie.
+De aparte tabel `individual_hpo` (in `03_assay.sql`, bij de familie- en samplegegevens) koppelt waargenomen fenotypes aan een concreet familielid (via `family_id` en een `sample_id` die naar `samples(id)` verwijst), met een `status` van `present`, `absent` of `unknown`. Alleen `present`-termen tellen mee voor prioritisatie.
 
-**Waar in de code:** het schema in `backend/db/schema/postgres/015_hpo.sql`; de laadlogica in `backend/app/services/hpo_service.py`.
+**Waar in de code:** het schema in `backend/db/schema/postgres/02_reference.sql` (de HPO-tabellen) en `03_assay.sql` (`individual_hpo`); de laadlogica in `backend/app/services/hpo_service.py`.
 
 ### Hoe de ontologie geladen en versiebeheerd wordt
 
@@ -66,8 +66,8 @@ Uit deze twee wordt afgeleid: **gen → fenotype** (via de gedeelde MONDO-sleute
 
 | Tabel (schema) | Inhoud |
 | --- | --- |
-| `monarch_gene_disease` (`026_monarch_associations.sql`) | Eén rij per `(hgnc_id, mondo_id)`. Aggregeert `predicates` en `sources`; `predicate` bevat de *sterkste* relatie; `causal` is `TRUE` als een causale relatie (`biolink:causes`) aanwezig is; `release_version` bewaart de Monarch-release. |
-| `monarch_disease_phenotype` (`027_monarch_disease_phenotype.sql`) | Eén rij per `(mondo_id, hpo_id)`. `negated = TRUE` markeert een *uitgesloten* fenotype (de ziekte presenteert dit specifiek níet); bij tegenstrijdige bronnen wint de aanwezige assertie. |
+| `monarch_gene_disease` (`02_reference.sql`) | Eén rij per `(hgnc_id, mondo_id)`. Aggregeert `predicates` en `sources`; `predicate` bevat de *sterkste* relatie; `causal` is `TRUE` als een causale relatie (`biolink:causes`) aanwezig is; `release_version` bewaart de Monarch-release. |
+| `monarch_disease_phenotype` (`02_reference.sql`) | Eén rij per `(mondo_id, hpo_id)`. `negated = TRUE` markeert een *uitgesloten* fenotype (de ziekte presenteert dit specifiek níet); bij tegenstrijdige bronnen wint de aanwezige assertie. |
 
 ### Hoe de data geladen wordt
 
@@ -148,7 +148,7 @@ Het prioritiseren kost ~10 s (vooral het per-gen fenotype-scoren). Omdat de uitk
 
 ### Wat wordt gecachet
 
-De tabel `family_variant_ranking_cache` (`035_family_variant_ranking_cache.sql`, uitgebreid door `036_ranking_cache_superset.sql`) bewaart per familie en per query-signatuur de **compacte gerangschikte volgorde** — een geordende lijst van `{variant_id, priority}` plus `total`, de truncatie-vlag en provenance. Bewust wordt de variant-*annotatie* en de *review-status* níet meegecachet: die worden bij elk verzoek vers uit ClickHouse/Postgres gehaald. Zo kan een gecachete ranking nooit verouderde annotaties of een verouderde reviewstatus serveren.
+De tabel `family_variant_ranking_cache` (`03_assay.sql`) bewaart per familie en per query-signatuur de **compacte gerangschikte volgorde** — een geordende lijst van `{variant_id, priority}` plus `total`, de truncatie-vlag en provenance. Bewust wordt de variant-*annotatie* en de *review-status* níet meegecachet: die worden bij elk verzoek vers uit ClickHouse/Postgres gehaald. Zo kan een gecachete ranking nooit verouderde annotaties of een verouderde reviewstatus serveren.
 
 ### Vers houden via de `inputs_hash`
 
@@ -207,18 +207,16 @@ Zo sluit de lus: patiëntfenotypes → gerangschikte kandidaat-genen → klik �
 
 | Bestand | Rol |
 | --- | --- |
-| `backend/db/schema/postgres/015_hpo.sql` | HPO-tabellen: `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure`, `individual_hpo` |
+| `backend/db/schema/postgres/02_reference.sql` | HPO-tabellen `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure`; Monarch-tabellen `monarch_gene_disease` (gen → ziekte) en `monarch_disease_phenotype` (ziekte → fenotype) |
 | `backend/app/services/hpo_service.py` | HPO parsen/laden, versiebeheer, zoeken, sluitingsberekening, padvalidatie |
 | `backend/app/routers/hpo.py` | HPO-browser-endpoints (`/hpo/search`, `/hpo/{id}`, `/hpo/import`) |
-| `backend/db/schema/postgres/026_monarch_associations.sql` | `monarch_gene_disease` (gen → ziekte) |
-| `backend/db/schema/postgres/027_monarch_disease_phenotype.sql` | `monarch_disease_phenotype` (ziekte → fenotype) |
 | `backend/app/services/monarch_ingest.py` | Monarch-download/parse/replace, atomische refresh, status, zoeken |
 | `backend/app/services/monarch_semsim.py` | Live semsim-API voor kandidaatgen-rangschikking |
 | `backend/app/services/monarch_phenotype_score.py` | Lokale Phenomizer/Resnik-scoring + IC-cache |
 | `backend/app/services/variant_prioritization.py` | Exomiser-achtige scoring-wiskunde (pure functie) |
 | `backend/app/services/variant_ranking_cache.py` | Ranking-cache: hashing, opslag, superset-selectie, invalidatie |
 | `backend/app/services/clickhouse_family_variants.py` | Prioritaire pagina, superset-serveren, achtergrond-opwarming |
-| `backend/db/schema/postgres/035_family_variant_ranking_cache.sql`, `036_ranking_cache_superset.sql` | Cachetabel + `base_hash`/`panel_id` voor superset-serveren |
+| `backend/db/schema/postgres/03_assay.sql` | `individual_hpo` (fenotypes per familielid); cachetabel `family_variant_ranking_cache` + `base_hash`/`panel_id` voor superset-serveren |
 | `backend/app/routers/admin.py` | Admin-endpoints voor HPO- en Monarch-beheer |
 | `frontend/src/pages/families/MonarchPhenotypeMatchPanel.tsx` | Kandidaatgen-paneel op de familiepagina |
 | `frontend/src/pages/admin/HpoTerminologyAdminPage.tsx` | HPO-beheer (overzicht, sync-preview/apply, browser) |

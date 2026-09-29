@@ -121,15 +121,15 @@ onderaan het gen-profiel zichtbaar is.
 
 De externe bronnen worden **niet live per paginabezoek** bevraagd. Dat zou traag, fragiel (afhankelijk van externe uptime) en niet-reproduceerbaar zijn — twee reviewers zouden verschillende data zien. In plaats daarvan cachet CoGA de verrijking in Postgres, en leest de pagina uitsluitend uit die cache.
 
-De centrale cachetabel is **`gene_info`**, gedefinieerd in `backend/db/schema/postgres/001_metadata.sql`. Één rij per `(assembly_id, hgnc_symbol)` (uniek), met kolommen voor `display_name`, `summary`, `aliases`, ids (`ensembl_gene_id`, `ncbi_gene_id`, `hgnc_id`, `omim_gene_id`), `homologs`, de JSONB-kolom `source_status` (de provenance-status per bron) en de JSONB-kolom `extra` (constraint-metrieken en ziekte-associaties). `updated_at` legt vast wanneer de rij voor het laatst is ververst.
+De centrale cachetabel is **`gene_info`**, gedefinieerd in `backend/db/schema/postgres/02_reference.sql`. Één rij per `(assembly_id, hgnc_symbol)` (uniek), met kolommen voor `display_name`, `summary`, `aliases`, ids (`ensembl_gene_id`, `ncbi_gene_id`, `hgnc_id`, `omim_gene_id`), `homologs`, de JSONB-kolom `source_status` (de provenance-status per bron) en de JSONB-kolom `extra` (constraint-metrieken en ziekte-associaties). `updated_at` legt vast wanneer de rij voor het laatst is ververst.
 
-Voor performante zoek- en lookup-queries zijn in **`backend/db/schema/postgres/042_gene_search_indexes.sql`** expressie-indexen aangelegd op de `genes`- en `gene_info`-tabellen. Zonder deze indexen zou elke toetsaanslag in de autocomplete (`upper(hgnc_symbol) LIKE 'PREFIX%'`) en elke panel-/regio-resolve een sequentiële scan over 120.000+ rijen veroorzaken. De indexen dekken exact de query-predicaten: `text_pattern_ops` voor de prefix-`LIKE` van `search_genes`, en losse `upper()`/`lower()`-indexen op symbool, gene-id en transcript-id zodat de query-planner een BitmapOr kan doen in plaats van te scannen.
+Voor performante zoek- en lookup-queries zijn in **`backend/db/schema/postgres/02_reference.sql`**, direct na de `CREATE TABLE` van `genes` en `gene_info`, expressie-indexen aangelegd op beide tabellen. Zonder deze indexen zou elke toetsaanslag in de autocomplete (`upper(hgnc_symbol) LIKE 'PREFIX%'`) en elke panel-/regio-resolve een sequentiële scan over 120.000+ rijen veroorzaken. De indexen dekken exact de query-predicaten: `text_pattern_ops` voor de prefix-`LIKE` van `search_genes`, en losse `upper()`/`lower()`-indexen op symbool, gene-id en transcript-id zodat de query-planner een BitmapOr kan doen in plaats van te scannen.
 
 **Waar in de code:** het lezen uit de cache gebeurt in `build_gene_profile` (`gene_metadata_service.py`); het schrijven in `_upsert_gene_info_row` (`gene_info_jobs_pg.py`), met een `INSERT … ON CONFLICT (assembly_id, hgnc_symbol) DO UPDATE` zodat een sync bestaande rijen bijwerkt zonder duplicaten.
 
 ## Refresh-jobs & worker
 
-Omdat een volledige sync van alle humane genen duizenden externe verrijkingen omvat, draait dit als achtergrond-job, niet inline in een webverzoek. De job-tabel is **`gene_info_refresh_jobs`** in `001_metadata.sql`.
+Omdat een volledige sync van alle humane genen duizenden externe verrijkingen omvat, draait dit als achtergrond-job, niet inline in een webverzoek. De job-tabel is **`gene_info_refresh_jobs`** in `02_reference.sql`.
 
 ### De job-tabel
 
@@ -158,7 +158,7 @@ Dit is het hart van reproduceerbaarheid onder IVDR: elke geïmporteerde referent
 
 ### Referentiedataset-imports
 
-Elke import van referentiedata (cytobanden, genen, blacklist, klinische CNV's, segmentale duplicaties, DGV) loopt via één enkel schrijfpad, `apply_reference_dataset_text` in `backend/app/services/reference_metadata_service.py`. Aan het eind van dat pad schrijft de functie — ongeacht of de import van een handmatige upload, een UCSC-import of een CNV-kennisbank-rebuild kwam — een rij naar **`reference_dataset_imports`** (schema `backend/db/schema/postgres/021_reference_dataset_imports.sql`):
+Elke import van referentiedata (cytobanden, genen, blacklist, klinische CNV's, segmentale duplicaties, DGV) loopt via één enkel schrijfpad, `apply_reference_dataset_text` in `backend/app/services/reference_metadata_service.py`. Aan het eind van dat pad schrijft de functie — ongeacht of de import van een handmatige upload, een UCSC-import of een CNV-kennisbank-rebuild kwam — een rij naar **`reference_dataset_imports`** (schema `backend/db/schema/postgres/02_reference.sql`):
 
 | Kolom | Betekenis |
 |---|---|
@@ -176,9 +176,9 @@ De **UCSC-import** zelf zit in `backend/app/services/reference_source_service.py
 
 ### Genpaneelbronnen en -versies
 
-Genpanels dragen hun herkomst in de kolommen die schema **`013_gene_panel_sources.sql`** aan `gene_panels` toevoegt: `source`, `external_id`, `external_version`, `external_url`, `source_updated_at`, `source_metadata`. Een uniek index op `(source, external_id)` voorkomt dat hetzelfde externe panel (bv. een PanelApp-panel) dubbel wordt geïmporteerd.
+Genpanels dragen hun herkomst in deze kolommen van `gene_panels` (schema **`02_reference.sql`**): `source`, `external_id`, `external_version`, `external_url`, `source_updated_at`, `source_metadata`. Een uniek index op `(source, external_id)` voorkomt dat hetzelfde externe panel (bv. een PanelApp-panel) dubbel wordt geïmporteerd.
 
-De echte versiecontrole komt van schema **`034_gene_panel_versions.sql`**. Dit voegt een `version`-teller aan `gene_panels` toe en introduceert de tabel **`gene_panel_versions`**: bij elke wijziging van een panel wordt een **onveranderlijke momentopname** gearchiveerd met `version`, `name`, `source`, `external_version` (bv. de PanelApp- of Monarch-release), `gene_count`, de volledige `genes`- en `regions`-JSONB, `source_metadata`, plus `created_by` én `created_by_email` (het e-mailadres wordt gedenormaliseerd opgeslagen zodat de auteur traceerbaar blijft, zelfs als het account later verdwijnt). Het commentaar in het schema vat het principe samen: het live panel is altijd gelijk aan de laatste versie-momentopname, en een update overschrijft of verwijdert nooit de vorige inhoud — die blijft getimestampeerd bewaard en opvraagbaar.
+De echte versiecontrole zit in hetzelfde baseline-bestand. `gene_panels` draagt een `version`-teller, en de tabel **`gene_panel_versions`** houdt de geschiedenis bij: bij elke wijziging van een panel wordt een **onveranderlijke momentopname** gearchiveerd met `version`, `name`, `source`, `external_version` (bv. de PanelApp- of Monarch-release), `gene_count`, de volledige `genes`- en `regions`-JSONB, `source_metadata`, plus `created_by` én `created_by_email` (het e-mailadres wordt gedenormaliseerd opgeslagen zodat de auteur traceerbaar blijft, zelfs als het account later verdwijnt). Het principe: het live panel is altijd gelijk aan de laatste versie-momentopname, en een update overschrijft of verwijdert nooit de vorige inhoud — die blijft getimestampeerd bewaard en opvraagbaar.
 
 De schrijf- en leeslogica staat in `backend/app/services/panel_metadata_service.py` (`_snapshot_panel_version`, `list_panel_versions`, `get_panel_version`), ontsloten via `GET /panels/{panel_id}/versions` en `GET /panels/{panel_id}/versions/{version}` in `backend/app/routers/panels.py`. Zo kan een reviewer voor elk rapport terug naar de exacte paneelversie die op dat moment gold.
 
@@ -222,11 +222,7 @@ Klinisch is niet elk transcript gelijkwaardig: het **MANE Select**-transcript (M
 | `backend/app/services/reference_metadata_service.py` | Eén schrijfpad `apply_reference_dataset_text`; transcript-prioriteit/MANE-selectie |
 | `backend/app/services/panel_metadata_service.py` | Paneelversie-momentopnamen schrijven en lezen |
 | `backend/app/services/github_releases_service.py` | Gecachte GitHub-release-catalogus (software-versiecontext) |
-| `backend/db/schema/postgres/001_metadata.sql` | Tabellen `genes`, `gene_info`, `gene_info_refresh_jobs`, `gene_panels` |
-| `backend/db/schema/postgres/013_gene_panel_sources.sql` | Paneel-herkomstkolommen (`source`, `external_id`, `external_version`, …) |
-| `backend/db/schema/postgres/021_reference_dataset_imports.sql` | Audit-tabel voor elke referentiedataset-import |
-| `backend/db/schema/postgres/034_gene_panel_versions.sql` | Onveranderlijke paneelversie-momentopnamen |
-| `backend/db/schema/postgres/042_gene_search_indexes.sql` | Expressie-indexen voor gen-autocomplete en constraint-lookups |
+| `backend/db/schema/postgres/02_reference.sql` | Tabellen `genes`, `gene_info`, `gene_info_refresh_jobs`, `gene_panels` (met de paneel-herkomstkolommen `source`, `external_id`, `external_version`, …) en `gene_panel_versions` (onveranderlijke paneelversie-momentopnamen); de audit-tabel `reference_dataset_imports` voor elke referentiedataset-import; de expressie-indexen voor gen-autocomplete en constraint-lookups |
 | `backend/app/routers/admin.py` | Admin-endpoints `/admin/gene-reference/status`, `/refresh-all`, `/refresh-gene` |
 | `backend/app/routers/panels.py` | PanelApp-import en paneelversie-endpoints (`/panels/{panel_id}/versions`) |
 | `frontend/src/pages/genes/GeneInfoPage.tsx` | De Gene Explorer-pagina inclusief transcript-badging |

@@ -570,6 +570,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Schema references repointed** — the handleiding, the runtime-role runbook and three other
+  docs named Postgres schema files that #373 replaced. Each reference now names the baseline
+  (`01_access.sql` to `05_grants.sql`) that holds the object, and the runbook and handleiding
+  list all four tables the append-only `REVOKE` covers (CR-090, #628).
 - **Google Cloud is the production target** — the owner's decision (Terraform on Google Cloud;
   DPIA signed, data-processing agreement being signed; no production deployment yet) is
   recorded in TF-02 §10 and TF-14, and the deployment guide, runbook and Terraform README

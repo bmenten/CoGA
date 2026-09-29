@@ -23,7 +23,7 @@ So the ranked order is cached and reused until an input actually changes.
 
 ## What is cached
 
-`family_variant_ranking_cache` (migration `035`, extended by `036`) stores, per family and
+`family_variant_ranking_cache` (in `03_assay.sql`) stores, per family and
 per query signature, the **compact ranked order** — an ordered list of
 `{variant_id, priority}` (the score breakdown), plus `total`, the truncation flag, and
 provenance. It does **not** store the variant annotations or review state; those are
@@ -71,7 +71,7 @@ variants are in scope, it never changes a variant's pathogenicity / rarity / seg
 phenotype score. So a narrower panel's ranking is exactly the broader (superset) ranking
 restricted to the narrower panel's variants, **in the same order**.
 
-To exploit this, each cache row also carries a `base_hash` (migration `036`) = the same
+To exploit this, each cache row also carries a `base_hash` column = the same
 digest as `inputs_hash` but **with the panel removed**. All panels over the same
 family / phenotype / filters share a `base_hash`.
 

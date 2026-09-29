@@ -40,18 +40,18 @@ Voor elke tag wordt bovendien **tag-metadata** bijgehouden: *wie* de tag zette e
 
 **Waar in de code:** de opslaglaag is `upsert_small_variant_review` in `backend/app/services/small_variant_review_pg.py`. De per-tag-herkomst wordt geserialiseerd door `_serialize_tag_metadata` (in datzelfde bestand) en samengevoegd door de helper `_merge_tag_metadata` uit `backend/app/services/review_pg_utils.py`.
 
-### Project-gescoopte tag-definities (schema 006)
+### Project-gescoopte tag-definities
 
 Welke tags *bestaan* wordt bepaald door **tag-definities**. Er zijn twee soorten:
 
 - **Systeemtags** (ingebouwd): vast in `DEFAULT_SMALL_VARIANT_TAGS` in `backend/app/services/small_variant_review_tags.py`. Deze omvatten collaboratie-tags (`review`, `send_for_validation`, `validated`, `report`, `excluded`, …) én de classificatietags (`acmg_class_1`..`acmg_class_5`, de VUS-subtiers `acmg_vus_hot` / `acmg_vus_warm` / `acmg_vus_cold`, en `secondary_finding`). Systeemtags kunnen **niet** worden bewerkt of verwijderd.
 - **Custom tags**: door een admin aangemaakt, opgeslagen in de tabel `small_variant_tag_definitions`.
 
-Custom tags hebben een **scope**: `global` (zichtbaar in alle projecten) of `project` (gebonden aan één project). Een project-tag kan bovendien met extra projecten *gedeeld* worden via de koppeltabel `small_variant_tag_definition_project_links`. Dit hele scope-mechanisme is toegevoegd in migratie 006.
+Custom tags hebben een **scope**: `global` (zichtbaar in alle projecten) of `project` (gebonden aan één project). Een project-tag kan bovendien met extra projecten *gedeeld* worden via de koppeltabel `small_variant_tag_definition_project_links`. Dit hele scope-mechanisme zit in `03_assay.sql` (voorheen migratie 006).
 
-**Waar in de code:** `backend/db/schema/postgres/006_project_scoped_variant_tags.sql` voegt de kolommen `scope` en `project_id` toe met CHECK-constraints (globaal ⇒ geen project; project ⇒ verplicht project) en maakt de koppeltabel aan. De zichtbaarheidslogica (welke tags mag deze reviewer in deze familie/projecten gebruiken) zit in `list_small_variant_tag_definitions` in `small_variant_review_tags.py`.
+**Waar in de code:** `backend/db/schema/postgres/03_assay.sql` definieert de kolommen `scope` en `project_id` van `small_variant_tag_definitions` met CHECK-constraints (globaal ⇒ geen project; project ⇒ verplicht project) en maakt de koppeltabel aan. De zichtbaarheidslogica (welke tags mag deze reviewer in deze familie/projecten gebruiken) zit in `list_small_variant_tag_definitions` in `small_variant_review_tags.py`.
 
-> **Traceerbaarheid & idempotentie:** schema 006 bevat een expliciete waarschuwing (commentaarblok vanaf regel 24) dat een eerdere *backfill*-`UPDATE` is verwijderd. Omdat de schema-initialisatie élk `.sql`-bestand bij *elke* opstart opnieuw uitvoert (er is geen migratie-ledger), zette die onvoorwaardelijke UPDATE bij elke herstart alle project-tags terug naar `global` — stille dataverlies. Les: schema-bestanden moeten idempotent zijn en mogen geen destructieve datamutaties bevatten. Een nieuwe database heeft géén backfill nodig, want de kolom `scope` krijgt de default `global`.
+> **Traceerbaarheid & idempotentie:** het vroegere schemabestand 006 bevatte een expliciete waarschuwing dat een eerdere *backfill*-`UPDATE` was verwijderd. Omdat de schema-initialisatie élk `.sql`-bestand bij *elke* opstart opnieuw uitvoert (er is geen migratie-ledger), zette die onvoorwaardelijke UPDATE bij elke herstart alle project-tags terug naar `global` — stille dataverlies. `03_assay.sql` maakt de kolommen nu meteen in hun eindvorm aan, zonder backfill (zie [hoofdstuk 3](03-databankstructuren.md)). Les: schema-bestanden moeten idempotent zijn en mogen geen destructieve datamutaties bevatten. Een nieuwe database heeft géén backfill nodig, want de kolom `scope` krijgt de default `global`.
 
 ### Validatie bij het opslaan
 
@@ -215,14 +215,14 @@ Net als bij SNV **klemt en herberekent** de server: `clamp_points` snoeit elke i
 
 ## Deel 4 — Persistentie & het evidence-snapshot
 
-### De ACMG-kolommen (schema 025 / 026)
+### De ACMG-kolommen
 
 De volledige per-criterium-blob wordt als JSONB bewaard, samen met het herberekende totaal en de klasse-sleutel (gedenormaliseerd voor filteren en samenvattingen):
 
 | Kolom | Tabel | Schema |
 | --- | --- | --- |
-| `acmg` (JSONB), `acmg_point_total` (INTEGER), `acmg_class` (TEXT) | `small_variant_reviews` | `025_acmg_classification.sql` |
-| `cnv_acmg` (JSONB), `cnv_point_total` (DOUBLE PRECISION), `cnv_class` (TEXT) | `structural_variant_reviews` | `026_structural_acmg_classification.sql` |
+| `acmg` (JSONB), `acmg_point_total` (INTEGER), `acmg_class` (TEXT) | `small_variant_reviews` | `03_assay.sql` |
+| `cnv_acmg` (JSONB), `cnv_point_total` (DOUBLE PRECISION), `cnv_class` (TEXT) | `structural_variant_reviews` | `03_assay.sql` |
 
 De blob bevat de criteria (code, sterkte/punten, evidence-tekst, `accepted`-vlag, `auto_suggested`-vlag), het `point_total`, de `classification`-label en voor SNV de `vus_tier`. Zo is een classificatie **reproduceerbaar en auditeerbaar**: men kan exact terugzien welke criteria met welke sterkte en welk bewijs zijn toegepast.
 
@@ -230,7 +230,7 @@ Bij het opslaan schrijft de modal de berekende klasse ook terug als review-tag (
 
 **Waar in de code:** de auto-managed tags worden in `handleSave` (`AcmgClassificationModal.tsx`) toegevoegd; de opslag loopt via `upsert_small_variant_review` en de repository-`_insert_review_row` / `_update_review_row`.
 
-### Het bevroren evidence-snapshot (schema 031)
+### Het bevroren evidence-snapshot
 
 Dit is de kern van klinische traceerbaarheid. Op het moment van classificeren vriest CoGA de *evidence* in waarop de classificatie steunde, in de JSONB-kolom `acmg_evidence_snapshot`:
 
@@ -238,7 +238,7 @@ Dit is de kern van klinische traceerbaarheid. Op het moment van classificeren vr
 - `clinvar` — de meest beslissingsrelevante waarde, uit de per-transcript-annotaties;
 - `captured_at` — het tijdstip.
 
-**Waar in de code:** `build_evidence_snapshot` in `backend/app/services/small_variant_review_acmg.py`; het snapshot wordt gevuld in `upsert_small_variant_review` (`acmg_evidence_snapshot = build_evidence_snapshot(variant, now) if normalized_acmg else None`). De kolom komt uit `backend/db/schema/postgres/031_classification_evidence_snapshot.sql`.
+**Waar in de code:** `build_evidence_snapshot` in `backend/app/services/small_variant_review_acmg.py`; het snapshot wordt gevuld in `upsert_small_variant_review` (`acmg_evidence_snapshot = build_evidence_snapshot(variant, now) if normalized_acmg else None`). De kolom staat in de tabeldefinitie van `small_variant_reviews` in `backend/db/schema/postgres/03_assay.sql`.
 
 ### De onveranderlijke klinische audittrail
 
@@ -304,7 +304,4 @@ De UI voor tag-definities zit onder Administratie. Een admin kiest een project-c
 | `backend/app/services/classification_drift_service.py` | Detecteert dat evidence sinds classificatie is gewijzigd (drift). |
 | `backend/app/services/clinical_audit_service.py` | Append-only, hash-chained klinische audittrail van reviews. |
 | `backend/app/services/hash_chain.py` | Tamper-evidence hashketen (`chain_row_hash`, `verify_chain`). |
-| `backend/db/schema/postgres/006_project_scoped_variant_tags.sql` | Project-scope + koppeltabel voor tag-definities. |
-| `backend/db/schema/postgres/025_acmg_classification.sql` | ACMG-kolommen op `small_variant_reviews`. |
-| `backend/db/schema/postgres/026_structural_acmg_classification.sql` | CNV-ACMG-kolommen op `structural_variant_reviews`. |
-| `backend/db/schema/postgres/031_classification_evidence_snapshot.sql` | `acmg_evidence_snapshot`-kolom (drift-sleutel). |
+| `backend/db/schema/postgres/03_assay.sql` | Project-scope + koppeltabel voor tag-definities; ACMG-kolommen en de `acmg_evidence_snapshot`-kolom (drift-sleutel) op `small_variant_reviews`; CNV-ACMG-kolommen op `structural_variant_reviews`. |

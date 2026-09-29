@@ -277,8 +277,8 @@ Emit from the classify / tag / note / structure / sign-out service paths. Add a 
 
 ### Phase 1 — Evidence snapshot + drift surfacing — ✅ #221
 
-- `acmg_evidence_snapshot` JSONB on `small_variant_reviews` (`031_…`). Captured on every ACMG
-  save from the ClickHouse record the save path already fetches: `annotation_version` +
+- `acmg_evidence_snapshot` JSONB on `small_variant_reviews` (`03_assay.sql`). Captured on every
+  ACMG save from the ClickHouse record the save path already fetches: `annotation_version` +
   `annotationSetHash` (the drift key) + ClinVar significance. `get_small_variant_family_record`
   was extended to return the annotation identity.
 - `classification_drift_service.py` compares each classification's frozen snapshot against the
@@ -290,10 +290,11 @@ Emit from the classify / tag / note / structure / sign-out service paths. Add a 
 
 ### Phase 2 — Clinical audit trail — ✅ #222
 
-- `clinical_audit_events` append-only table + DB-level immutability trigger (`032_…`, mirroring
-  `029`). `clinical_audit_service.py` derives granular before→after events (classification with
-  ACMG class + criteria, tags added/removed, note lifecycle) and writes them **in the same
-  transaction** as the review save (`upsert_small_variant_review`).
+- `clinical_audit_events` append-only table + DB-level immutability trigger
+  (`04_traceability.sql`, mirroring the `audit_log_events` trigger). `clinical_audit_service.py`
+  derives granular before→after events (classification with ACMG class + criteria, tags
+  added/removed, note lifecycle) and writes them **in the same transaction** as the review save
+  (`upsert_small_variant_review`).
   `GET /families/{id}/clinical-audit`; a "Classification audit trail" section on the report.
 - **Concurrent saves (#513).** A review save carries `expected_updated_at`, the review's
   `updated_at` as the client loaded it (null for "no review yet"). Saves of one variant are
@@ -310,11 +311,12 @@ Emit from the classify / tag / note / structure / sign-out service paths. Add a 
 
 ### Phase 3 — Case sign-out & frozen report snapshot — ✅ #223
 
-- `report_signouts` append-only table + immutability trigger (`033_…`). `report_signout_service.py`
-  freezes the manifest + reported variant list + each classification & its evidence snapshot +
-  the reported structural variants / CNVs with their classification (since #508 — before, a
-  reported CNV was printed but not frozen) + the drift state, SHA-256 content-hashes a canonical
-  encoding, and stores it as the next **version**; the sign-out is recorded in the audit trail.
+- `report_signouts` append-only table + immutability trigger (`04_traceability.sql`).
+  `report_signout_service.py` freezes the manifest + reported variant list + each classification
+  & its evidence snapshot + the reported structural variants / CNVs with their classification
+  (since #508 — before, a reported CNV was printed but not frozen) + the drift state, SHA-256
+  content-hashes a canonical encoding, and stores it as the next **version**; the sign-out is
+  recorded in the audit trail.
 - **Assembly-scope gate (#515, TF-06 H12):** before anything else, sign-out returns `409` with
   `detail.gate = "assembly_scope"` when the family's reference assembly is not in
   `VALIDATED_ASSEMBLIES` (default `GRCh38`), or no assembly is linked. It cannot be acknowledged
@@ -378,7 +380,9 @@ via the dollar-quote-aware loader and is exercised by the CI smoke job.
 ## 7. Code touch-points (per phase)
 
 - **Schema:** new `backend/db/schema/postgres/0NN_*.sql` migrations (append-only triggers reuse
-  the `029` pattern). Loader is dollar-quote-aware (`core/postgres.py`).
+  the `029` pattern, the `audit_log_events` trigger). Loader is dollar-quote-aware
+  (`core/postgres.py`). *(Since #373 the schema is five baseline files; these tables and their
+  triggers are in `04_traceability.sql`, the evidence snapshot in `03_assay.sql`.)*
 - **Services:** `services/annotation_manifest_service.py` (new), `small_variant_review_pg.py` /
   `structural_variant_review_pg.py` (evidence snapshot + audit emit), `services/clinical_audit_pg.py`
   (new), `services/report_snapshot_service.py` (new), `family_package_import.py` (manifest capture).
@@ -388,4 +392,4 @@ via the dollar-quote-aware loader and is exercised by the CI smoke job.
   drift badge in the variant review, a sign-out action, an audit timeline, a "stale
   classifications" view.
 - **Tests:** backend pytest per service + the integration/smoke suite; frontend vitest per UI;
-  reuse the append-only-trigger test pattern from `029`.
+  reuse the append-only-trigger test pattern from `029` (the `audit_log_events` trigger).
