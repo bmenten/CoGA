@@ -8,7 +8,7 @@
 // modal, scorer and `buildInitialSelections` are shared unchanged.
 
 import { ACMG_CRITERIA_BY_CODE } from './criteria';
-import { effectIncludes, fmtAf, LOF_EFFECTS, type AcmgVariantInput } from './evaluate';
+import { effectIncludes, fmtAf, LOF_EFFECTS, pp4NotAssessed, type AcmgVariantInput } from './evaluate';
 import type {
   AcmgCriterionCode,
   AcmgDisposition,
@@ -191,6 +191,11 @@ function evaluatePp4(
   phenotype: AcmgPhenotypeContext | undefined,
   add: MitoAddFn,
 ): void {
+  const notAssessed = pp4NotAssessed(gene, phenotype);
+  if (notAssessed) {
+    add(notAssessed.code, notAssessed.strength, notAssessed.evidence, notAssessed.disposition);
+    return;
+  }
   const probandHpo = phenotype?.probandHpoIds ?? [];
   const geneHpo = new Set(gene?.geneHpoIds ?? []);
   const overlap = probandHpo.filter((id) => geneHpo.has(id));
