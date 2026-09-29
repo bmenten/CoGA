@@ -241,4 +241,59 @@ describe('ClinicalCnvExplorerPage', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(resultCount()).toHaveTextContent('0');
   });
+  it('does not read an unfinished or failed lookup as "no match" (#526)', async () => {
+    // Still loading the assemblies: no catalogue request yet, and no "no match".
+    mockedGet.mockImplementation(() => new Promise(() => undefined));
+    const { unmount } = renderPage();
+    expect(await screen.findByText('Loading assemblies…')).toBeInTheDocument();
+    expect(screen.queryByText(/No clinical CNVs match/)).not.toBeInTheDocument();
+    unmount();
+
+    // The catalogue request fails: a failure with the reason and a retry.
+    let fail = true;
+    mockedGet.mockImplementation((url: string) => {
+      if (url === '/assemblies') return Promise.resolve({ data: [GRCH38] });
+      if (fail) return Promise.reject({ response: { status: 500, data: { detail: 'ClickHouse unavailable' } } });
+      return Promise.resolve({ data: [DEL_22Q11] });
+    });
+    renderPage();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Could not load the clinical CNV catalogue (ClickHouse unavailable)');
+    expect(alert).toHaveTextContent('this is not an empty result');
+    expect(screen.queryByText(/No clinical CNVs match/)).not.toBeInTheDocument();
+    expect(resultCount()).toBeNull();
+    fail = false;
+    await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('link', { name: DEL_22Q11.label })).toBeInTheDocument();
+  });
+
+  it('shows a failed or empty assembly list for what it is', async () => {
+    let fail = true;
+    mockedGet.mockImplementation((url: string) => {
+      if (url === '/assemblies') {
+        return fail ? Promise.reject(new Error('500')) : Promise.resolve({ data: [] });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    renderPage();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Could not load the assemblies — this is not an empty result.');
+    fail = false;
+    await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
+    expect(
+      await screen.findByText(/No assembly is set up in this CoGA instance/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No clinical CNVs match/)).not.toBeInTheDocument();
+  });
+
+  it('says when the 1,000-row page is full, so the list may go on', async () => {
+    serve({
+      catalogue: Array.from({ length: 1000 }, (_, index) =>
+        cnv({ _id: `cnv-${index}`, label: `CNV ${index}`, chr: '1', start: index, end: index + 1 }),
+      ),
+    });
+    renderPage();
+    expect(await screen.findByText(/Showing the first 1,000 CNVs; narrow the search/)).toBeInTheDocument();
+    expect(resultCount()).toHaveTextContent('1,000+');
+  });
 });
