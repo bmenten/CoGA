@@ -11,6 +11,7 @@ import type {
 import GlobalSmallVariantTable from './GlobalSmallVariantTable';
 import VariantCarrierModal from './VariantCarrierModal';
 import {
+  GLOBAL_UNSUPPORTED_FILTERS,
   useGlobalSmallVariantSearchState,
   type GenotypeFilterMode,
   type SampleGenotypeFilter,
@@ -109,7 +110,12 @@ const GlobalSmallVariantExplorerPage = () => {
     [genotypeRows, genotypeFilters],
   );
 
-  const { data: assemblies } = useQuery<VariantExplorerAssembly[]>({
+  const {
+    data: assemblies,
+    isLoading: assembliesLoading,
+    isError: assembliesFailed,
+    refetch: refetchAssemblies,
+  } = useQuery<VariantExplorerAssembly[]>({
     queryKey: ['variant-explorer', 'assemblies'],
     queryFn: async () => {
       const res = await api.get('/variant-explorer/assemblies');
@@ -171,6 +177,9 @@ const GlobalSmallVariantExplorerPage = () => {
   const tags = tagDefinitions ?? [];
   const variants = variantPage?.variants ?? [];
   const total = variantPage?.total ?? 0;
+  // The count stops at a cap: past it the server says so, and the page shows N+ (#526).
+  const totalLabel = `${total.toLocaleString()}${variantPage?.total_is_estimated ? '+' : ''}`;
+  const noAssemblies = !assembliesLoading && !assembliesFailed && (assemblies?.length ?? 0) === 0;
   const nextCursor = variantPage?.next_cursor ?? null;
 
   return (
@@ -203,7 +212,13 @@ const GlobalSmallVariantExplorerPage = () => {
                   </option>
                 ))
               ) : (
-                <option value="">No accessible assemblies</option>
+                <option value="">
+                  {assembliesLoading
+                    ? 'Loading assemblies…'
+                    : assembliesFailed
+                      ? 'Could not load assemblies'
+                      : 'No accessible assemblies'}
+                </option>
               )}
             </select>
           </div>
@@ -309,6 +324,7 @@ const GlobalSmallVariantExplorerPage = () => {
       <section className="surface-card space-y-4">
         <SmallVariantFilterForm
           familyAware={false}
+          unsupportedFilters={GLOBAL_UNSUPPORTED_FILTERS}
           activeFilterChips={search.activeFilterChips}
           applyPreset={search.applyPreset}
           applySavedPreset={search.applySavedPreset}
@@ -333,8 +349,14 @@ const GlobalSmallVariantExplorerPage = () => {
       <section className="surface-card space-y-4">
         <div className="variant-explorer-results-header">
           <p className="analysis-section-title">
-            {total.toLocaleString()} variant{total === 1 ? '' : 's'}
-            {isFetching ? ' · updating…' : ''}
+            {assemblyId ? (
+              <>
+                {totalLabel} variant{total === 1 && !variantPage?.total_is_estimated ? '' : 's'}
+                {isFetching ? ' · updating…' : ''}
+              </>
+            ) : (
+              'Variants'
+            )}
           </p>
           <button
             type="button"
@@ -353,7 +375,22 @@ const GlobalSmallVariantExplorerPage = () => {
           </div>
         ) : null}
 
-        {isLoading ? (
+        {/* Until an assembly is chosen the variant query does not run, so its idle state
+            is not an empty result: say what is actually happening (#526, as #510). */}
+        {assembliesLoading ? (
+          <p className="table-subtle">Loading the accessible assemblies…</p>
+        ) : assembliesFailed ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--error" role="alert">
+            Could not load the accessible assemblies — this is not an empty result.{' '}
+            <button type="button" className="button-link" onClick={() => void refetchAssemblies()}>
+              Retry
+            </button>
+          </div>
+        ) : noAssemblies ? (
+          <p className="table-subtle">
+            You have no access to a project with small variants, so there is nothing to search.
+          </p>
+        ) : isLoading ? (
           <p className="table-subtle">Loading variants…</p>
         ) : isError ? (
           <div className="variant-workspace-feedback variant-workspace-feedback--error">

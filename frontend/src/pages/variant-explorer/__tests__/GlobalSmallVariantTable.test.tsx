@@ -111,11 +111,10 @@ describe('GlobalSmallVariantTable', () => {
     const [brca2, mecp2] = bodyCells();
     expect(bodyCells()).toHaveLength(2);
 
-    // The gene links to the gene page for that gene.
+    // The gene links to the gene page for that gene, under the parameter the gene page
+    // reads: it was ?symbol=, which opened an empty gene search (#526).
     const geneLink = within(brca2[0]).getByRole('link', { name: 'BRCA2' });
-    const [path, query = ''] = (geneLink.getAttribute('href') ?? '').split('?');
-    expect(path).toBe('/genes');
-    expect([...new URLSearchParams(query).values()]).toContain('BRCA2');
+    expect(geneLink).toHaveAttribute('href', '/genes?gene=BRCA2');
 
     expect(within(brca2[1]).getByText('13:32316461 G>A')).toBeInTheDocument();
     expect(within(brca2[1]).getByText('c.7007G>A')).toBeInTheDocument();

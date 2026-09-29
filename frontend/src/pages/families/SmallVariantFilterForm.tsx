@@ -55,6 +55,12 @@ type SmallVariantFilterFormProps = Pick<
    */
   familyAware?: boolean;
   /**
+   * Filters the search behind this form does not apply. They get no control, so the
+   * form never offers a filter the results would not reflect (the Global Small Variant
+   * Explorer, #526). Defaults to none.
+   */
+  unsupportedFilters?: ReadonlySet<keyof SmallFilterState>;
+  /**
    * Monogenic NIPT mode. When 'nipt', the genotype/inheritance subsection is
    * replaced by a maternal/fetal Categories subsection and the review-state
    * subsection is hidden (it does not apply to inferred cfDNA calls). Defaults
@@ -189,12 +195,14 @@ const SmallVariantFilterForm = ({
   savingPreset = false,
   feedback = null,
   familyAware = true,
+  unsupportedFilters,
   mode = 'small-variant',
   categoryCounts = {},
   categoryLabels,
   niptInheritancePresets,
   builtInPresets = BUILT_IN_SMALL_PRESETS,
 }: SmallVariantFilterFormProps) => {
+  const offers = (key: keyof SmallFilterState) => !unsupportedFilters?.has(key);
   const [selectedQuickPreset, setSelectedQuickPreset] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
   const [openSections, setOpenSections] = useState({
@@ -1422,12 +1430,14 @@ const SmallVariantFilterForm = ({
               </div>
 
               <div className="analysis-filter-grid analysis-filter-grid--4">
-                <input
-                  name="transcript"
-                  placeholder="Transcript"
-                  value={draftFilters.transcript}
-                  onChange={handleDraftFieldChange}
-                />
+                {offers('transcript') ? (
+                  <input
+                    name="transcript"
+                    placeholder="Transcript"
+                    value={draftFilters.transcript}
+                    onChange={handleDraftFieldChange}
+                  />
+                ) : null}
                 <input
                   name="rsid"
                   placeholder="dbSNP / rsID"
@@ -1718,13 +1728,15 @@ const SmallVariantFilterForm = ({
                 value={draftFilters.gene}
                 onChange={handleDraftFieldChange}
               />
-              <textarea
-                name="intervals"
-                rows={3}
-                placeholder="Intervals: chr13:32315086-32400266&#10;chr17:43044295-43125482"
-                value={draftFilters.intervals}
-                onChange={handleDraftFieldChange}
-              />
+              {offers('intervals') ? (
+                <textarea
+                  name="intervals"
+                  rows={3}
+                  placeholder="Intervals: chr13:32315086-32400266&#10;chr17:43044295-43125482"
+                  value={draftFilters.intervals}
+                  onChange={handleDraftFieldChange}
+                />
+              ) : null}
             </div>
           </details>
 
@@ -1756,8 +1768,12 @@ const SmallVariantFilterForm = ({
                   >
                     <option value="all">None</option>
                     <option value="benign_likely_benign">Benign/Likely benign</option>
-                    <option value="excluded_tag">Excluded tag</option>
-                    <option value="excluded_and_benign">Excluded + benign</option>
+                    {offers('exclude_review_tags') ? (
+                      <>
+                        <option value="excluded_tag">Excluded tag</option>
+                        <option value="excluded_and_benign">Excluded + benign</option>
+                      </>
+                    ) : null}
                     <option value="custom">Custom</option>
                   </select>
                 </label>
@@ -1780,70 +1796,76 @@ const SmallVariantFilterForm = ({
                   </label>
                 ))}
               </div>
-              <div className="variant-review-curation-columns">
-                <div>
-                  <p className="variant-annotation-impact-title">Excluded standard tags</p>
-                  {standardTagOptions.length ? (
-                    <div className="variant-checkbox-grid variant-checkbox-grid--small">
-                      {standardTagOptions.map((option) => (
-                        <label
-                          key={option.value}
-                          className="analysis-checkbox variant-compact-checkbox"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedExcludeReviewTagValues.includes(option.value)}
-                            onChange={() =>
-                              toggleDraftFilterListValue('exclude_review_tags', option.value)
-                            }
-                          />
-                          {option.label}
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="table-subtle">No standard tags available.</p>
-                  )}
+              {offers('exclude_review_tags') ? (
+                <div className="variant-review-curation-columns">
+                  <div>
+                    <p className="variant-annotation-impact-title">Excluded standard tags</p>
+                    {standardTagOptions.length ? (
+                      <div className="variant-checkbox-grid variant-checkbox-grid--small">
+                        {standardTagOptions.map((option) => (
+                          <label
+                            key={option.value}
+                            className="analysis-checkbox variant-compact-checkbox"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedExcludeReviewTagValues.includes(option.value)}
+                              onChange={() =>
+                                toggleDraftFilterListValue('exclude_review_tags', option.value)
+                              }
+                            />
+                            {option.label}
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="table-subtle">No standard tags available.</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="variant-annotation-impact-title">Excluded custom tags</p>
+                    {customTagOptions.length ? (
+                      <div className="variant-checkbox-grid variant-checkbox-grid--small">
+                        {customTagOptions.map((option) => (
+                          <label
+                            key={option.value}
+                            className="analysis-checkbox variant-compact-checkbox"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedExcludeReviewTagValues.includes(option.value)}
+                              onChange={() =>
+                                toggleDraftFilterListValue('exclude_review_tags', option.value)
+                              }
+                            />
+                            {option.label}
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="table-subtle">No custom tags available.</p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <p className="variant-annotation-impact-title">Excluded custom tags</p>
-                  {customTagOptions.length ? (
-                    <div className="variant-checkbox-grid variant-checkbox-grid--small">
-                      {customTagOptions.map((option) => (
-                        <label
-                          key={option.value}
-                          className="analysis-checkbox variant-compact-checkbox"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedExcludeReviewTagValues.includes(option.value)}
-                            onChange={() =>
-                              toggleDraftFilterListValue('exclude_review_tags', option.value)
-                            }
-                          />
-                          {option.label}
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="table-subtle">No custom tags available.</p>
-                  )}
-                </div>
-              </div>
-              <textarea
-                name="exclude_gene"
-                rows={3}
-                placeholder="Excluded genes: TTN&#10;MUC4"
-                value={draftFilters.exclude_gene}
-                onChange={handleDraftFieldChange}
-              />
-              <textarea
-                name="exclude_intervals"
-                rows={3}
-                placeholder="Excluded intervals: chr1:1000-5000"
-                value={draftFilters.exclude_intervals}
-                onChange={handleDraftFieldChange}
-              />
+              ) : null}
+              {offers('exclude_gene') ? (
+                <textarea
+                  name="exclude_gene"
+                  rows={3}
+                  placeholder="Excluded genes: TTN&#10;MUC4"
+                  value={draftFilters.exclude_gene}
+                  onChange={handleDraftFieldChange}
+                />
+              ) : null}
+              {offers('exclude_intervals') ? (
+                <textarea
+                  name="exclude_intervals"
+                  rows={3}
+                  placeholder="Excluded intervals: chr1:1000-5000"
+                  value={draftFilters.exclude_intervals}
+                  onChange={handleDraftFieldChange}
+                />
+              ) : null}
             </div>
           </details>
 
@@ -1943,16 +1965,18 @@ const SmallVariantFilterForm = ({
                 </div>
               </div>
 
-              <label className="analysis-checkbox">
-                <input
-                  type="checkbox"
-                  checked={draftFilters.has_notes === 'true'}
-                  onChange={(event) =>
-                    setDraftFilterValue('has_notes', event.target.checked ? 'true' : '')
-                  }
-                />
-                Only show variants with saved notes
-              </label>
+              {offers('has_notes') ? (
+                <label className="analysis-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={draftFilters.has_notes === 'true'}
+                    onChange={(event) =>
+                      setDraftFilterValue('has_notes', event.target.checked ? 'true' : '')
+                    }
+                  />
+                  Only show variants with saved notes
+                </label>
+              ) : null}
 
             </div>
           </details>

@@ -222,6 +222,80 @@ describe('GlobalSmallVariantExplorerPage', () => {
     mockApi();
   });
 
+  describe('what the explorer can apply (#526)', () => {
+    it('offers no filter its backend drops, and never sends one', async () => {
+      renderPage();
+      await findResults();
+      // The shared form offered these; the explorer's endpoint read none of them, so an
+      // applied chip claimed a filter the results did not reflect.
+      expect(screen.queryByPlaceholderText('Transcript')).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText(/^Intervals:/)).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText(/^Excluded genes:/)).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText(/^Excluded intervals:/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Excluded standard tags')).not.toBeInTheDocument();
+      expect(screen.queryByText('Only show variants with saved notes')).not.toBeInTheDocument();
+      const quickExclude = screen.getByLabelText('Quick exclude') as HTMLSelectElement;
+      expect([...quickExclude.options].map((option) => option.value)).toEqual([
+        'all',
+        'benign_likely_benign',
+        'custom',
+      ]);
+      // What the explorer applies is still there: one locus, genes, ClinVar, review tags.
+      expect(screen.getByPlaceholderText(/^Gene list:/)).toBeInTheDocument();
+      expect(screen.getByText('Excluded ClinVar status')).toBeInTheDocument();
+
+      const request = lastVariantRequest();
+      for (const unread of ['intervals', 'transcript', 'exclude_gene', 'exclude_intervals', 'exclude_review_tag', 'has_notes', 'locus', 'inheritance', 'prioritize']) {
+        expect(request.has(unread), unread).toBe(false);
+      }
+      // The ClinVar P/LP rescue, on by default, is now applied by the explorer too.
+      expect(request.get('clinvar_overrides_frequency')).toBe('true');
+    });
+
+    it('shows a capped total as N+, not as an exact count', async () => {
+      mockApi({ variants: () => reply(page({ total: 10000, total_is_estimated: true })) });
+      renderPage();
+      await findResults();
+      expect(screen.getByText(/^10,000\+ variants/)).toBeInTheDocument();
+    });
+
+    it('does not read a loading assembly list as an empty result', async () => {
+      const assemblies = deferred();
+      mockApi({ assemblies: () => assemblies.promise });
+      renderPage();
+      expect(await screen.findByText('Loading the accessible assemblies…')).toBeInTheDocument();
+      expect(screen.queryByText(/No variants match/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^0 variants/)).not.toBeInTheDocument();
+      assemblies.resolve({ data: ASSEMBLIES });
+      await findResults();
+    });
+
+    it('shows a failed assembly list as a failure with a retry, never as no variants', async () => {
+      let fail = true;
+      mockApi({
+        assemblies: () => (fail ? Promise.reject(new Error('500')) : reply(ASSEMBLIES)),
+      });
+      renderPage();
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Could not load the accessible assemblies — this is not an empty result.',
+      );
+      expect(screen.queryByText(/No variants match/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^0 variants/)).not.toBeInTheDocument();
+      fail = false;
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      await findResults();
+    });
+
+    it('says so when the user can reach no assembly at all', async () => {
+      mockApi({ assemblies: () => reply([]) });
+      renderPage();
+      expect(
+        await screen.findByText(/You have no access to a project with small variants/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/No variants match/)).not.toBeInTheDocument();
+    });
+  });
+
   describe('assembly scope', () => {
     it('defaults to the most common accessible assembly and scopes every search to it', async () => {
       renderPage();
