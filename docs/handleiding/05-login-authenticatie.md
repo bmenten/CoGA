@@ -206,6 +206,8 @@ Een geblokkeerde poging levert `429` met een `Retry-After`-header op, zodat de c
 
 **Signup-throttling** werkt apart en enkel per bron-IP (`_signup_scope_rows` gebruikt `signup_ip`). E-mail-scoping heeft daar geen zin, omdat een aanvaller bij enumeratie juist telkens een ander adres probeert. De relevante instellingen staan in `backend/app/core/config.py` (de `login_rate_limit_*`-velden).
 
+**Het wachtwoord bij registratie** moet minstens 15 tekens lang zijn (`SIGNUP_PASSWORD_MIN_LENGTH` in `backend/app/schemas/auth.py`, naar NIST SP 800-63B-4 voor een wachtwoord dat de enige factor is). Een korter wachtwoord krijgt `422` nog vóór de throttling, het hashen of het aanmaken van een account. Tot CR-059 werd elk wachtwoord aanvaard, ook een leeg. Na een geslaagde registratie toont `SignupPage` de bevestiging van de server: de account wacht op activatie door een beheerder. Vroeger ging de pagina meteen naar `/login`, waar aanmelden daarna mislukte met "User not active", zonder uitleg.
+
 ## Optioneel: Azure AD (SSO) en de admin-override
 
 CoGA kan optioneel inloggen via **Azure AD** (Microsofts identiteitsdienst). Dit wordt geactiveerd zodra zowel `AZURE_TENANT_ID` als `AZURE_CLIENT_ID` zijn ingesteld.

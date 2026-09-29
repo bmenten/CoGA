@@ -10,9 +10,15 @@ from .common import (
 )
 
 
+# A password is the only factor for a local account, so it must be at least 15
+# characters (NIST SP 800-63B-4). Sign-up accepted any string, the empty one included.
+# bcrypt reads only the first 72 bytes (#554), so no maximum is needed for its cost.
+SIGNUP_PASSWORD_MIN_LENGTH = 15
+
+
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=SIGNUP_PASSWORD_MIN_LENGTH)
     first_name: str
     last_name: str
     affiliation: str

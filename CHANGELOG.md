@@ -352,6 +352,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   failed load as "not enough data" and "no clinical CNVs match", so a failed lookup looked like a
   syndrome missing from the catalogue. They now say the load failed and offer a retry. The SV
   sharing matrix drops its totals, which counted a variant once per pair of carriers (#581).
+- **Sign-up and user list messages** — after signing up, the page says the account awaits an
+  administrator instead of opening a login that then fails; Sign Up cannot be sent twice. The user
+  list says when a (de)activation failed and why (#582).
 
 ### Security
 
@@ -401,6 +404,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   unmaintained passlib 1.7.4, which had held bcrypt at 3.2.0. Stored hashes verify unchanged,
   including passwords longer than bcrypt's 72-byte limit. Dependabot now also refreshes the
   digests of the pinned container images (#554).
+- **Sign-up password** — a new account's password must be at least 15 characters; any string, the
+  empty one included, was accepted. A development build no longer logs a failed sign-up or login
+  request, which carries the password (#582).
 
 ### Documentation
 
