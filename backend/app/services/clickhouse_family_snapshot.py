@@ -33,6 +33,7 @@ from ..core.config import settings
 from .clickhouse_interval_tracks import ensure_clickhouse_interval_table
 from .clickhouse_variant_ids import _require_clickhouse_identifier
 from .clickhouse_variant_storage import (
+    bump_family_structural_variant_data_version,
     ensure_clickhouse_variant_tables,
     refresh_family_small_variant_summaries,
 )
@@ -116,7 +117,9 @@ async def restore_family_clickhouse_state(snapshot: FamilyClickHouseSnapshot) ->
 
     For each table: synchronously delete the family's current rows (whatever the
     failed import wrote) then re-insert the snapshotted rows. The rebuildable
-    small-variant summaries are recomputed from the restored ``entries`` afterwards.
+    small-variant summaries are recomputed from the restored ``entries`` afterwards,
+    which also moves the small-variant data version; the SV data version is moved
+    explicitly, since the restore rewrites the SV tables without the storage helpers.
     Raises on any failure so the caller can fall back to the incomplete flag.
     """
     family_guid = snapshot.family_uuid
@@ -130,6 +133,9 @@ async def restore_family_clickhouse_state(snapshot: FamilyClickHouseSnapshot) ->
     # Summaries are not snapshotted (they are derived); rebuild them from the
     # now-restored SNV entries so counts match the restored data exactly.
     await refresh_family_small_variant_summaries(snapshot.assembly_name, family_guid)
+    # An SV→gene index built from the failed import's SVs while it ran must not outlive
+    # the restore.
+    await bump_family_structural_variant_data_version(snapshot.assembly_name, family_guid)
 
 
 async def discard_family_clickhouse_snapshot(

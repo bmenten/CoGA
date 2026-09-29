@@ -387,6 +387,19 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         ALTER TABLE {database}.`{dataset}/SV/entries`
         ADD COLUMN IF NOT EXISTS `calls.cn` Array(Nullable(UInt16)) AFTER `calls.ps`
         """,
+        # One row per mutation of a family's structural variants (see
+        # bump_family_structural_variant_data_version), the SV counterpart of
+        # SNV_INDEL/family_data_version. Plain MergeTree for the same reason.
+        f"""
+        CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SV/family_data_version`
+        (
+            `family_guid` String,
+            `token` UInt64,
+            `bumped_at` DateTime64(3) DEFAULT now64(3)
+        )
+        ENGINE = MergeTree
+        ORDER BY (family_guid, bumped_at)
+        """,
     ]
     async with _ensure_variant_tables_lock:
         if dataset in _ensured_variant_table_assemblies:
@@ -456,6 +469,24 @@ async def _drop_legacy_gt_stats_aggregates(database: str, dataset: str) -> None:
         )
 
 
+async def _bump_family_data_version(version_table: str, family_uuid: str) -> None:
+    await _execute(
+        f"INSERT INTO {version_table} (family_guid, token) VALUES",
+        data=[(family_uuid, secrets.randbits(63))],
+    )
+
+
+async def _family_data_version(version_table: str, family_uuid: str) -> str:
+    rows = await _execute(
+        f"SELECT count(), sum(token) FROM {version_table} WHERE family_guid = %(family_guid)s",
+        {"family_guid": family_uuid},
+    )
+    if not rows:
+        return "0:0"
+    count, total = rows[0]
+    return f"{int(count or 0)}:{int(total or 0)}"
+
+
 async def bump_family_small_variant_data_version(assembly_name: str, family_uuid: str) -> None:
     """Record that a family's small-variant data changed.
 
@@ -467,10 +498,8 @@ async def bump_family_small_variant_data_version(assembly_name: str, family_uuid
     an admin delete left a stale prioritised ranking behind (#509).
     """
     await ensure_clickhouse_variant_tables(assembly_name)
-    await _execute(
-        f"INSERT INTO {_small_table_name(assembly_name, 'family_data_version')} "
-        "(family_guid, token) VALUES",
-        data=[(family_uuid, secrets.randbits(63))],
+    await _bump_family_data_version(
+        _small_table_name(assembly_name, "family_data_version"), family_uuid
     )
 
 
@@ -482,15 +511,36 @@ async def get_family_small_variant_data_version(assembly_name: str, family_uuid:
     table existed reads ``0:0`` until its next write.
     """
     await ensure_clickhouse_variant_tables(assembly_name)
-    rows = await _execute(
-        f"SELECT count(), sum(token) FROM {_small_table_name(assembly_name, 'family_data_version')} "
-        "WHERE family_guid = %(family_guid)s",
-        {"family_guid": family_uuid},
+    return await _family_data_version(
+        _small_table_name(assembly_name, "family_data_version"), family_uuid
     )
-    if not rows:
-        return "0:0"
-    count, total = rows[0]
-    return f"{int(count or 0)}:{int(total or 0)}"
+
+
+async def bump_family_structural_variant_data_version(assembly_name: str, family_uuid: str) -> None:
+    """Record that a family's structural variants changed.
+
+    The SV counterpart of :func:`bump_family_small_variant_data_version`, called after
+    every SV insert and delete below and after a snapshot restore. The SV→gene index behind
+    the small-variant "second hit" badge is stamped with this version, so any write, from
+    whichever path (package import, per-sample upload, admin delete, pedigree change),
+    makes the next read rebuild it; only the package import used to clear it.
+    """
+    await ensure_clickhouse_variant_tables(assembly_name)
+    await _bump_family_data_version(
+        _structural_table_name(assembly_name, "family_data_version"), family_uuid
+    )
+
+
+async def get_family_structural_variant_data_version(assembly_name: str, family_uuid: str) -> str:
+    """A fingerprint that changes whenever the family's structural variants change.
+
+    Read like :func:`get_family_small_variant_data_version`: ``0:0`` for a family whose
+    SVs were last written before this table existed, until their next write.
+    """
+    await ensure_clickhouse_variant_tables(assembly_name)
+    return await _family_data_version(
+        _structural_table_name(assembly_name, "family_data_version"), family_uuid
+    )
 
 
 async def delete_family_small_variants(
@@ -548,6 +598,7 @@ async def delete_family_structural_variants(
                 f"ALTER TABLE {_structural_table_name(assembly_name, suffix)} DELETE WHERE family_guid = %(family_guid)s SETTINGS mutations_sync = 1",
                 {"family_guid": family_uuid},
             )
+    await bump_family_structural_variant_data_version(assembly_name, family_uuid)
 
 
 async def insert_small_variant_records(
@@ -895,6 +946,7 @@ async def insert_structural_variant_records(
             """,
             data=entry_rows,
         )
+        await bump_family_structural_variant_data_version(assembly_name, family_uuid)
 
 
 async def replace_family_structural_variants(

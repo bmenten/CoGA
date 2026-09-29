@@ -185,11 +185,13 @@ class SmallVariantGroupOut(BaseModel):
     gene_id: Optional[str] = None
     variants: List[VariantOut] = Field(default_factory=list)
     review: Optional[SmallVariantCompoundHetReviewOut] = None
-    # Phase derived from the caller's own phasing, not the curator's judgement (which is
+    # Phase derived from the calls, not the curator's judgement (which is
     # `review.phase_status`). "trans" means the two alts were placed on opposite
-    # haplotypes of one phase set; "unknown" means no shared phase block resolved them.
-    # Cis pairs are excluded from the results, so they never appear here.
+    # haplotypes: by the reads (one phase set) or by the parents' genotypes (one hit
+    # traced to each parent); `phase_evidence` says which. "unknown" means neither
+    # resolved them. Cis pairs are excluded from the results, so they never appear here.
     phase: Literal["trans", "unknown"] = "unknown"
+    phase_evidence: Optional[Literal["read", "segregation"]] = None
 
 
 class SmallVariantSampleSummaryOut(BaseModel):

@@ -178,3 +178,138 @@ async def test_ensure_tables_creates_the_family_data_version_table(monkeypatch) 
     # Plain MergeTree: rows must never collapse, or the (count, sum) fingerprint could
     # return to an earlier value.
     assert "CREATE TABLE IF NOT EXISTS" in ddl[0] and "ENGINE = MergeTree" in ddl[0]
+
+
+def _sv_data_version_bumps(issued, family_uuid="fam-1"):
+    return [
+        payload
+        for query, payload in issued
+        if query.startswith("INSERT INTO") and "SV/family_data_version" in query
+        and payload and payload[0][0] == family_uuid
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", [None, "needlr"])
+async def test_structural_variant_delete_bumps_the_sv_data_version_last(monkeypatch, source) -> None:
+    # The SV→gene index (the small-variant "second hit" badge) is keyed on this version, so
+    # an admin delete or the delete half of a per-sample upload must move it.
+    issued = _capture_storage_writes(monkeypatch)
+    await cvs.delete_family_structural_variants("GRCh38", "fam-1", source=source)
+    assert len(_sv_data_version_bumps(issued)) == 1
+    assert "SV/family_data_version" in issued[-1][0]
+    assert any(query.startswith("ALTER TABLE") and "DELETE" in query for query, _ in issued[:-1])
+    # The small-variant version is a different family of data and stays put.
+    assert _data_version_bumps(issued) == []
+
+
+@pytest.mark.asyncio
+async def test_structural_variant_insert_bumps_the_version_only_when_entries_were_written(
+    monkeypatch,
+) -> None:
+    issued = _capture_storage_writes(monkeypatch)
+    monkeypatch.setattr(cvs, "_structural_variant_entry_rows", lambda *a, **k: ([], [], []))
+    await cvs.insert_structural_variant_records("GRCh38", "fam-1", ["p1"], [])
+    assert _sv_data_version_bumps(issued) == []
+
+    monkeypatch.setattr(
+        cvs, "_structural_variant_entry_rows", lambda *a, **k: ([("detail",)], [("lookup",)], [("entry",)])
+    )
+    await cvs.insert_structural_variant_records("GRCh38", "fam-1", ["p1"], [])
+    assert len(_sv_data_version_bumps(issued)) == 1
+    assert "SV/family_data_version" in issued[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_a_per_sample_sv_replace_moves_the_sv_data_version(monkeypatch) -> None:
+    # The per-sample SV upload (and the admin per-sample SV delete) rewrite the family's
+    # SVs through replace_family_structural_variants.
+    issued = _capture_storage_writes(monkeypatch)
+    monkeypatch.setattr(
+        cvs, "_structural_variant_entry_rows", lambda *a, **k: ([("detail",)], [("lookup",)], [("entry",)])
+    )
+    await cvs.replace_family_structural_variants("GRCh38", "fam-1", ["p1"], ["record"], source="sniffles")
+    assert len(_sv_data_version_bumps(issued)) == 2  # the delete, then the insert
+    assert "SV/family_data_version" in issued[-1][0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [([(2, 777)], "2:777"), ([(0, None)], "0:0"), ([], "0:0")],
+)
+async def test_sv_data_version_is_the_token_count_and_sum(monkeypatch, rows, expected) -> None:
+    captured: dict = {}
+
+    async def fake_ensure(assembly_name):
+        return None
+
+    async def fake_execute(query, params=None, data=None):
+        captured["query"] = " ".join(query.split())
+        captured["params"] = params
+        return rows
+
+    monkeypatch.setattr(cvs, "ensure_clickhouse_variant_tables", fake_ensure)
+    monkeypatch.setattr(cvs, "_execute", fake_execute)
+
+    assert await cvs.get_family_structural_variant_data_version("GRCh38", "fam-1") == expected
+    assert "SELECT count(), sum(token)" in captured["query"]
+    assert "SV/family_data_version" in captured["query"]
+    assert captured["params"] == {"family_guid": "fam-1"}
+
+
+@pytest.mark.asyncio
+async def test_ensure_tables_creates_the_sv_data_version_table(monkeypatch) -> None:
+    statements: list[str] = []
+
+    async def fake_execute(query, params=None, data=None):
+        statements.append(" ".join(query.split()))
+        return []
+
+    async def _noop(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(cvs, "_execute", fake_execute)
+    monkeypatch.setattr(cvs, "_migrate_legacy_family_sample_variant_summary", _noop)
+    monkeypatch.setattr(cvs, "_drop_legacy_gt_stats_aggregates", _noop)
+    monkeypatch.setattr(cvs, "_ensured_variant_table_assemblies", set())
+
+    await cvs.ensure_clickhouse_variant_tables("GRCh38")
+
+    ddl = [s for s in statements if "SV/family_data_version" in s]
+    assert len(ddl) == 1
+    assert "CREATE TABLE IF NOT EXISTS" in ddl[0] and "ENGINE = MergeTree" in ddl[0]
+
+
+@pytest.mark.asyncio
+async def test_restoring_a_family_snapshot_moves_the_sv_data_version(monkeypatch) -> None:
+    # A failed overwrite import rolls the family's SV rows back by rewriting the tables
+    # directly; an index built from the half-imported SVs in the meantime must not survive.
+    from backend.app.services import clickhouse_family_snapshot as snapshot_module
+
+    executed: list[str] = []
+    bumped: list[tuple[str, str]] = []
+
+    async def fake_execute(query, params=None):
+        executed.append(" ".join(query.split()))
+        return []
+
+    async def fake_refresh(assembly_name, family_uuid):
+        return None
+
+    async def fake_bump(assembly_name, family_uuid):
+        bumped.append((assembly_name, family_uuid))
+
+    monkeypatch.setattr(snapshot_module, "execute_clickhouse", fake_execute)
+    monkeypatch.setattr(snapshot_module, "refresh_family_small_variant_summaries", fake_refresh)
+    monkeypatch.setattr(
+        snapshot_module, "bump_family_structural_variant_data_version", fake_bump, raising=False
+    )
+    snapshot = snapshot_module.FamilyClickHouseSnapshot(
+        assembly_name="GRCh38",
+        family_uuid="fam-1",
+        token="t",
+        specs=snapshot_module._snapshot_specs("GRCh38", "t"),
+    )
+    await snapshot_module.restore_family_clickhouse_state(snapshot)
+    assert bumped == [("GRCh38", "fam-1")]

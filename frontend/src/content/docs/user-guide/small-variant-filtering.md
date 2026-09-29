@@ -58,6 +58,7 @@ Narrowing from the Mendeliome to a smaller panel is served from the broader rank
 
 A small variant whose gene is also hit by an SV carries an **SV badge** (for example `SV: DEL`), with a
 `trans` or `cis` chip when a phase was decided. **Also hit by an SV** under *Structural second hit* keeps
-only these genes. Check a segregation-based `trans` before you rely on it: the reference explains why.
+only these genes. The phase comes from read phasing or from the parents' genotypes, by the same rule
+as for compound-het pairs; the reference gives the rule.
 
 [SNV + SV compound heterozygosity reference (the badge, trans or cis)](/docs/reference/sv-second-hit "further-reading")

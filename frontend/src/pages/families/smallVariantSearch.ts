@@ -261,9 +261,11 @@ export interface SmallVariantGroup {
   gene_id?: string;
   variants: SmallVariant[];
   review?: SmallVariantCompoundHetReview | null;
-  // Derived from the caller's phasing, unlike review.phase_status which is the
-  // curator's own call. Cis pairs are excluded server-side and never arrive here.
+  // Derived from the calls, unlike review.phase_status which is the curator's own
+  // call: the reads (one phase set) or the parents' genotypes, as phase_evidence says.
+  // Cis pairs are excluded server-side and never arrive here.
   phase?: 'trans' | 'unknown';
+  phase_evidence?: 'read' | 'segregation' | null;
 }
 
 export type SmallVariantReviewSavePayload = {

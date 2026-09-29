@@ -523,10 +523,18 @@ CREATE TABLE IF NOT EXISTS family_sv_gene_index_status (
     family_id uuid NOT NULL,
     sv_total integer DEFAULT 0 NOT NULL,
     gene_count integer DEFAULT 0 NOT NULL,
+    -- The family's storage-level SV data version (ClickHouse SV/family_data_version) the
+    -- index was built from. Any SV insert, delete or restore moves it, and a read that
+    -- finds it moved rebuilds the index; NULL (built before the column) always rebuilds.
+    sv_data_version text,
     computed_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT family_sv_gene_index_status_pkey PRIMARY KEY (family_id),
     CONSTRAINT family_sv_gene_index_status_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
 );
+
+-- Added after the table shipped; the baselines re-run on every boot, so an existing
+-- deployment picks the column up without a migration ledger.
+ALTER TABLE family_sv_gene_index_status ADD COLUMN IF NOT EXISTS sv_data_version text;
 
 -- ---------------------------------------------------------------------------
 -- family_variant_ranking_cache (folds superset cols from 036)

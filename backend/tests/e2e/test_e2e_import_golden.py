@@ -76,6 +76,16 @@ def test_compound_het_pair_detected(facts, expected) -> None:
     assert expected["snv"]["compound_het_gene"] in genes, facts["comp_het_groups"]
 
 
+def test_compound_het_pair_is_traced_through_the_parents(facts, expected) -> None:
+    # One variant from each parent, no read-backed phasing: the same segregation rule as
+    # the SNV+SV second hit places the pair in trans.
+    group = next(
+        g for g in facts["comp_het_groups"] if g["gene"] == expected["snv"]["compound_het_gene"]
+    )
+    assert group["phase"] == expected["snv"]["compound_het_phase"], group
+    assert group["phase_evidence"] == expected["snv"]["compound_het_phase_evidence"], group
+
+
 def test_structural_variants_ingested(facts, expected) -> None:
     assert facts["n_structural_variants"] == expected["structural_variants"]["count"]
 

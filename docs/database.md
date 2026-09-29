@@ -76,7 +76,7 @@ alone. PanelApp's own coordinates are stored for the assembly they were requeste
 | `structural_variant_reviews` | the same for a structural variant or CNV, with the CNV ACMG points |
 | `small_variant_filter_presets`, `structural_variant_filter_presets` | saved filter sets, per user and for one family or all |
 | `small_variant_tag_definitions`, `small_variant_tag_definition_project_links` | the review-tag catalogue, global or per project |
-| `family_sv_gene_index`, `family_sv_gene_index_status` | per family, which genes a structural variant hits (for the "also hit by an SV" flag), and when that index was built. A package import clears it, and it is rebuilt on next use; a direct SV upload does not clear it |
+| `family_sv_gene_index`, `family_sv_gene_index_status` | per family, which genes a structural variant hits (for the "also hit by an SV" flag), and when and from which SV data version (`sv_data_version`, below) that index was built. It is rebuilt on next use once the family's SVs have changed |
 | `family_variant_ranking_cache` | cached prioritised rankings (see [variant-ranking-cache.md](variant-ranking-cache.md)) |
 | `qc_threshold_profiles` | named sets of sequencing-QC cut-offs, one per assay type (below) |
 | `qc_thresholds` | per profile and metric, a warning and an error bound (either may be null) |
@@ -158,6 +158,7 @@ Their names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SV/variants/details` | one row per structural variant: type, span, the full annotation |
 | `SV/key_lookup` | maps a family's variant ids to their internal keys |
 | `SV/entries` | the structural-variant calls per family and sample |
+| `SV/family_data_version` | one token per change to a family's structural variants (below) |
 | `INTERVAL/entries` | the interval-track rows: coverage, segments, APCAD, PCF segments and haplotype blocks |
 
 Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
@@ -182,6 +183,10 @@ that also follows a snapshot restore) appends one row with a random token once t
 completes. The count and sum of the family's tokens are its small-variant data version, which
 the ranking cache puts in its key. Rows are never collapsed, so the version never returns to
 an earlier value.
+
+`SV/family_data_version` does the same for structural variants: every SV insert and delete, and
+a snapshot restore, appends a token. The SV→gene index stores the version it was built from in
+`family_sv_gene_index_status.sv_data_version` and is rebuilt when the family's version has moved.
 
 ## Identifier Rules
 

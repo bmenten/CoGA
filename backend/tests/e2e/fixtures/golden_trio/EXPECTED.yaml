@@ -16,6 +16,8 @@ dataset_status:
 snv:
   count: 8
   compound_het_gene: GENE_CH
+  compound_het_phase: trans
+  compound_het_phase_evidence: segregation
   de_novo_gene: GENE_DENOVO
   indel_gene: GENE_INDEL
   mnv_gene: GENE_MNV

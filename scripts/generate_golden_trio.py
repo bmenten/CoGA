@@ -224,6 +224,10 @@ def _write_expected(root: Path) -> None:
         "snv": {
             "count": len(SNVS),
             "compound_het_gene": "GENE_CH",
+            # One GENE_CH variant from each parent: the parents' genotypes place the
+            # pair in trans (no read-backed phasing in this fixture).
+            "compound_het_phase": "trans",
+            "compound_het_phase_evidence": "segregation",
             "de_novo_gene": "GENE_DENOVO",
             "indel_gene": "GENE_INDEL",
             "mnv_gene": "GENE_MNV",

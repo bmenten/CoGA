@@ -35,7 +35,7 @@ Het ClickHouse-schemabestand `backend/db/schema/clickhouse/001_coga_variant_stor
 | `SNV_INDEL/variants/details`, `…/annotations`, `…/annotation_index`, `…/gene_index` | Het variantrecord, de volledige annotatie per annotatieversie, en de indexen waarop de filterpagina's zoeken (op annotatievelden en op gen) |
 | `SNV_INDEL/entries` | De calls per familie: per variant de genotypes, diepte en kwaliteit van elk sample. De meest gelezen tabel |
 | `SNV_INDEL/family_variant_summary`, `…/family_sample_variant_summary`, `…/family_data_version` | Samenvattingen per familie en per sample, en een versie die bij elke wijziging van de variantdata van een familie verandert (de ranking-cache gebruikt die, hoofdstuk 12) |
-| `SV/variants/details`, `SV/key_lookup`, `SV/entries` | Hetzelfde voor structurele varianten |
+| `SV/variants/details`, `SV/key_lookup`, `SV/entries`, `…/family_data_version` | Hetzelfde voor structurele varianten, met een eigen versie die bij elke wijziging van de SV's van een familie verandert (de SV-index voor de tweede hit gebruikt die, hoofdstuk 8) |
 | `INTERVAL/entries` | Interval-tracks: dekking, CNV-segmenten, APCAD en haplotypeblokken, met per rij de bron en de bestandsnaam |
 
 Voor een reviewer zijn drie dingen belangrijk:

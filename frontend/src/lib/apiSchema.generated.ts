@@ -2537,6 +2537,7 @@ export interface SmallVariantGroupOut {
   variants: VariantOut[];
   review: SmallVariantCompoundHetReviewOut | null;
   phase: "trans" | "unknown";
+  phase_evidence: "read" | "segregation" | null;
 }
 
 export interface SmallVariantReviewOut {
