@@ -14,6 +14,7 @@ export {
 export { computeClassification, selectionPoints, vusTierForPoints } from './score';
 export { evaluateAcmg, type AcmgVariantInput } from './evaluate';
 export { evaluateMitoAcmg } from './evaluateMito';
+export { parentLinksFromRelationships, parentsOf, type PedigreeRelationshipLike } from './pedigree';
 
 import { ACMG_CRITERIA_BY_CODE } from './criteria';
 import type { AcmgSelection, AcmgSuggestion } from './types';

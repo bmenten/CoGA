@@ -280,3 +280,26 @@ async def test_family_mitochondrial_analysis_count_only_coverage_without_variant
     # Coverage-only families still register as present via has_coverage.
     assert response.variant_count == 0
     assert response.has_coverage is True
+
+
+# "Conflicting classifications of pathogenicity" contains "pathogenic": matched as a substring
+# it was read as pathogenic, so the mtDNA table said Pathogenic and the mt ACMG evaluator
+# suggested PP5. A conflicting record is neither pathogenic nor benign.
+@pytest.mark.parametrize(
+    ("annotation", "expected"),
+    [
+        ({"clinvar": "Conflicting_classifications_of_pathogenicity"}, "uncertain"),
+        ({"ClinVar_CLNSIG": "Conflicting_interpretations_of_pathogenicity"}, "uncertain"),
+        ({"clinvar": "Conflicting_classifications_of_pathogenicity", "mitomap_status": "Cfrm"}, "uncertain"),
+        ({"clinical_significance": "Pathogenic"}, "pathogenic"),
+        ({"clinvar": "Likely_pathogenic"}, "likely_pathogenic"),
+        ({"clinvar": "Benign"}, "benign"),
+        ({"clinvar": "Uncertain_significance"}, "uncertain"),
+        ({"mitomap_status": "Cfrm"}, "reported"),
+        ({}, "unknown"),
+    ],
+)
+def test_clinical_significance_reads_a_conflicting_record_as_uncertain(
+    annotation: dict[str, str], expected: str
+) -> None:
+    assert mitochondrial_analysis._clinical_significance(annotation) == expected

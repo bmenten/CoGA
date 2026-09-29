@@ -205,6 +205,12 @@ def _clinical_significance(annotation: dict[str, Any]) -> str:
     ).lower()
     if not status_text:
         return "unknown"
+    # ClinVar's "Conflicting classifications of pathogenicity" contains "pathogenic" but is
+    # neither pathogenic nor benign, as in variant_prioritization and the frontend's ClinVar
+    # reading: checked after the words below, it read as pathogenic and the mt ACMG evaluator
+    # suggested PP5. A conflicting record makes the status uncertain, whatever else is joined.
+    if "conflict" in status_text:
+        return "uncertain"
     if "pathogenic" in status_text and "likely" in status_text:
         return "likely_pathogenic"
     if "pathogenic" in status_text:
@@ -215,7 +221,7 @@ def _clinical_significance(annotation: dict[str, Any]) -> str:
         return "benign"
     if "polymorphism" in status_text or "common" in status_text:
         return "polymorphism"
-    if "uncertain" in status_text or "vus" in status_text or "conflict" in status_text:
+    if "uncertain" in status_text or "vus" in status_text:
         return "uncertain"
     if "reported" in status_text or "confirmed" in status_text or "cfrm" in status_text:
         return "reported"

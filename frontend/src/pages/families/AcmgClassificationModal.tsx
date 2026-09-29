@@ -12,6 +12,7 @@ import {
   computeClassification,
   evaluateAcmg,
   evaluateMitoAcmg,
+  parentLinksFromRelationships,
   type AcmgCriterionCode,
   type AcmgCriterionDef,
   type AcmgGeneContext,
@@ -39,6 +40,7 @@ import {
 } from './smallVariantSearch';
 import type { AcmgFamilyContext } from '../../lib/acmg';
 import { apiPath } from '../../lib/apiPath';
+import type { ApiFamilyRelationship } from '../../lib/apiTypes';
 import QueryFailure from '../../components/QueryFailure';
 
 type AcmgClassificationModalProps = {
@@ -46,6 +48,8 @@ type AcmgClassificationModalProps = {
   projectId?: string;
   variant: SmallVariant;
   members?: FamilyMember[];
+  // The family's pedigree links: PS2/PM6 compare the proband with the parents linked here.
+  relationships?: ApiFamilyRelationship[];
   tagDefinitions?: SmallVariantTagDefinition[];
   speciesName?: string;
   assemblyName?: string;
@@ -66,6 +70,7 @@ type HpoAnnotationLite = {
 // Stable empty defaults — fresh `[]` literals as render-time defaults would change
 // identity every render and retrigger the seeding effect in an infinite loop.
 const EMPTY_MEMBERS: FamilyMember[] = [];
+const EMPTY_RELATIONSHIPS: ApiFamilyRelationship[] = [];
 const EMPTY_HPO: HpoAnnotationLite[] = [];
 const EMPTY_TAGS: SmallVariantTagDefinition[] = [];
 
@@ -113,6 +118,7 @@ export default function AcmgClassificationModal({
   projectId,
   variant,
   members = EMPTY_MEMBERS,
+  relationships = EMPTY_RELATIONSHIPS,
   tagDefinitions = EMPTY_TAGS,
   speciesName,
   assemblyName,
@@ -213,18 +219,25 @@ export default function AcmgClassificationModal({
     };
   }, [hpoData, probandSampleId, hpoFailed]);
 
-  // Trio / segregation context: each member's genotype call for this variant.
+  // Trio / segregation context: each member's genotype call for this variant, and who is
+  // whose parent (the member roles cannot say: a grandparent is a 'father' or 'mother' too).
+  const parentLinks = useMemo(() => parentLinksFromRelationships(relationships), [relationships]);
   const familyContext = useMemo<AcmgFamilyContext>(
     () => ({
-      members: members.map((member) => ({
-        sampleId: member.sample_id,
-        role: member.role,
-        affected: Boolean(member.affected) || member.clinical_status === 'affected',
-        gt: variant.genotypes.find((g) => g.sample === member.sample_id)?.gt,
-        sex: member.sex,
-      })),
+      members: members.map((member) => {
+        const call = variant.genotypes.find((g) => g.sample === member.sample_id);
+        return {
+          sampleId: member.sample_id,
+          role: member.role,
+          affected: Boolean(member.affected) || member.clinical_status === 'affected',
+          gt: call?.gt,
+          dp: call?.dp,
+          sex: member.sex,
+        };
+      }),
+      parentLinks,
     }),
-    [members, variant],
+    [members, variant, parentLinks],
   );
 
   // External resource links (reuse the variant-card builder) + a smart PubMed search.

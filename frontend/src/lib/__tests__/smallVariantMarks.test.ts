@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   SMALL_VARIANT_MARKS,
-  clinvarClass,
   markDrawRank,
   smallVariantMarkExtent,
   smallVariantMarkKind,
@@ -19,8 +18,8 @@ describe('smallVariantMarkKind', () => {
     expect(smallVariantMarkKind({ clinvar: 'Benign/Likely benign', impact: 'HIGH' })).toBe('benign');
   });
 
+  // The ClinVar reading itself (lib/clinvar) is tested in clinvar.test.ts.
   it('does not read "conflicting interpretations of pathogenicity" as pathogenic', () => {
-    expect(clinvarClass('Conflicting interpretations of pathogenicity')).toBeUndefined();
     expect(
       smallVariantMarkKind({ clinvar: 'Conflicting_interpretations_of_pathogenicity', impact: 'HIGH' }),
     ).toBe('high');

@@ -1,5 +1,7 @@
 import * as d3 from 'd3';
 
+import { clinvarClass } from './clinvar';
+
 /**
  * How the small-variant track marks a variant (#529).
  *
@@ -59,24 +61,6 @@ const DRAW_RANK: Record<SmallVariantMarkKind, number> = {
   benign: 2,
   high: 3,
   pathogenic: 4,
-};
-
-const normalizeClinvar = (clinvar?: string | null): string =>
-  (clinvar || '')
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-/** "pathogenic" / "benign" for a decisive ClinVar class, else undefined. */
-export const clinvarClass = (clinvar?: string | null): 'pathogenic' | 'benign' | undefined => {
-  const value = normalizeClinvar(clinvar);
-  if (!value) return undefined;
-  // "conflicting interpretations of pathogenicity" must not read as pathogenic.
-  if (value.includes('conflicting')) return undefined;
-  if (value.includes('pathogenic')) return 'pathogenic';
-  if (value.includes('benign')) return 'benign';
-  return undefined;
 };
 
 export const smallVariantMarkKind = (variant: {

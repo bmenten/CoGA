@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { evaluateAcmg, type AcmgVariantInput } from '../evaluate';
 import { buildInitialSelections } from '../index';
-import type { AcmgCriterionCode, AcmgFamilyMemberCall, AcmgSuggestion } from '../types';
+import type { AcmgCriterionCode, AcmgFamilyMemberCall, AcmgParentLink, AcmgSuggestion } from '../types';
 
 function codes(suggestions: AcmgSuggestion[]): AcmgCriterionCode[] {
   return suggestions.map((s) => s.code);
@@ -80,6 +80,33 @@ describe('evaluateAcmg', () => {
   it('maps ClinVar assertions to PP5 / BP6', () => {
     expect(codes(evaluateAcmg({ clinvar: 'pathogenic' }))).toContain('PP5');
     expect(codes(evaluateAcmg({ clinvar: 'likely_benign' }))).toContain('BP6');
+
+    const pathogenic = evaluateAcmg({ clinvar: 'Pathogenic/Likely_pathogenic' });
+    expect(find(pathogenic, 'PP5')?.disposition).toBe('applies');
+    expect(find(pathogenic, 'BP6')?.disposition).toBe('contraindicated');
+    const benign = evaluateAcmg({ clinvar: 'Benign/Likely_benign' });
+    expect(find(benign, 'BP6')?.disposition).toBe('applies');
+    expect(find(benign, 'PP5')?.disposition).toBe('contraindicated');
+  });
+
+  // "Conflicting classifications of pathogenicity" contains "pathogenic": read as a
+  // substring, it applied PP5 and argued against BP6.
+  it.each([
+    'Conflicting_classifications_of_pathogenicity',
+    'Conflicting interpretations of pathogenicity',
+    'Conflicting_classifications_of_pathogenicity|risk_factor',
+  ])('suggests neither PP5 nor BP6 for a conflicting ClinVar record (%s)', (clinvar) => {
+    const suggestions = evaluateAcmg({ effect: 'missense_variant', clinvar });
+
+    expect(find(suggestions, 'PP5')).toBeUndefined();
+    expect(find(suggestions, 'BP6')).toBeUndefined();
+  });
+
+  it('suggests neither PP5 nor BP6 for an uncertain ClinVar record', () => {
+    const suggestions = evaluateAcmg({ effect: 'missense_variant', clinvar: 'Uncertain_significance' });
+
+    expect(find(suggestions, 'PP5')).toBeUndefined();
+    expect(find(suggestions, 'BP6')).toBeUndefined();
   });
 
   it('suggests PP4 only when proband HPO overlaps the gene phenotype', () => {
@@ -126,6 +153,12 @@ describe('evaluateAcmg', () => {
   });
 });
 
+// The pedigree's parent-child links of a trio: PM6/PS2 read the proband's parents from them.
+const trioLinks: AcmgParentLink[] = [
+  { childId: 'P', parentId: 'F', role: 'father' },
+  { childId: 'P', parentId: 'M', role: 'mother' },
+];
+
 describe('evaluateAcmg — trio / segregation', () => {
   const probandHet = { sampleId: 'P', role: 'proband', affected: true, gt: '0/1' };
 
@@ -136,6 +169,7 @@ describe('evaluateAcmg — trio / segregation', () => {
         { sampleId: 'F', role: 'father', affected: false, gt: '0/0' },
         { sampleId: 'M', role: 'mother', affected: false, gt: '0/0' },
       ],
+      parentLinks: trioLinks,
     });
     expect(find(suggestions, 'PM6')?.disposition).toBe('applies');
   });
@@ -147,8 +181,10 @@ describe('evaluateAcmg — trio / segregation', () => {
         { sampleId: 'F', role: 'father', affected: false, gt: '0/1' },
         { sampleId: 'M', role: 'mother', affected: false, gt: '0/0' },
       ],
+      parentLinks: trioLinks,
     });
     expect(find(suggestions, 'PM6')?.disposition).toBe('not_applicable');
+    expect(find(suggestions, 'PM6')?.evidence).toBe('Inherited from a parent — not de novo.');
     expect(find(suggestions, 'PS2')?.disposition).toBe('not_applicable');
   });
 
@@ -186,16 +222,190 @@ describe('evaluateAcmg — trio / segregation', () => {
   });
 });
 
+// PM6/PS2 compare the proband with the parents the pedigree links to them, as the backend's de
+// novo mode does. The member roles cannot say who they are: a PED import stores everyone who has
+// a child as 'father' or 'mother', grandparents included.
+describe('evaluateAcmg — de novo against the parents the pedigree names', () => {
+  const call = (sampleId: string, role: string, gt: string, dp?: number): AcmgFamilyMemberCall => ({
+    sampleId,
+    role,
+    affected: sampleId === 'P',
+    gt,
+    dp,
+  });
+  // The paternal grandparents (GF, GM) are the father's parents.
+  const threeGenerationLinks: AcmgParentLink[] = [
+    ...trioLinks,
+    { childId: 'F', parentId: 'GF', role: 'father' },
+    { childId: 'F', parentId: 'GM', role: 'mother' },
+  ];
+  const deNovo = (members: AcmgFamilyMemberCall[], parentLinks?: AcmgParentLink[]) => {
+    const suggestions = evaluateAcmg({ effect: 'missense_variant' }, undefined, undefined, { members, parentLinks });
+    return { pm6: find(suggestions, 'PM6'), ps2: find(suggestions, 'PS2') };
+  };
+
+  it('does not call a variant de novo from reference grandparents when the father carries it', () => {
+    // The grandparents are listed first, so a lookup by role finds them.
+    const { pm6, ps2 } = deNovo(
+      [
+        call('GF', 'father', '0/0'),
+        call('GM', 'mother', '0/0'),
+        call('P', 'proband', '0/1'),
+        call('F', 'father', '0/1'),
+        call('M', 'mother', '0/0'),
+      ],
+      threeGenerationLinks,
+    );
+
+    expect(pm6?.disposition).toBe('not_applicable');
+    expect(pm6?.evidence).toBe('Inherited from a parent — not de novo.');
+    expect(ps2?.disposition).toBe('not_applicable');
+  });
+
+  it('applies PM6 when both parents are reference, though a grandparent carries the variant', () => {
+    const { pm6 } = deNovo(
+      [
+        call('GF', 'father', '0/1'),
+        call('GM', 'mother', '0/0'),
+        call('P', 'proband', '0/1'),
+        call('F', 'father', '0/0'),
+        call('M', 'mother', '0/0'),
+      ],
+      threeGenerationLinks,
+    );
+
+    expect(pm6?.disposition).toBe('applies');
+  });
+
+  it('does not assess de novo when the pedigree does not link the proband to both parents', () => {
+    const members = [call('P', 'proband', '0/1'), call('F', 'father', '0/0'), call('M', 'mother', '0/0')];
+    const unlinked = {
+      disposition: 'not_applicable',
+      evidence: 'The pedigree does not name both parents of the proband — de novo cannot be assessed.',
+    };
+
+    // Reference parents by role, but no links.
+    expect(deNovo(members).pm6).toMatchObject(unlinked);
+    expect(deNovo(members).ps2).toMatchObject(unlinked);
+    // One parent linked (e.g. a donor conception).
+    expect(deNovo(members, [{ childId: 'P', parentId: 'M', role: 'mother' }]).pm6).toMatchObject(unlinked);
+  });
+
+  it('cannot assess de novo when a linked parent has no call or is not sequenced', () => {
+    const missing = 'No complete parental genotypes — de novo cannot be assessed.';
+
+    expect(deNovo([call('P', 'proband', '0/1'), call('F', 'father', './.'), call('M', 'mother', '0/0')], trioLinks).pm6)
+      .toMatchObject({ disposition: 'not_applicable', evidence: missing });
+    expect(deNovo([call('P', 'proband', '0/1'), call('M', 'mother', '0/0')], trioLinks).pm6?.evidence).toBe(missing);
+  });
+
+  // The backend's de novo mode trusts a parent's reference call from 8 reads
+  // (_DE_NOVO_MIN_PARENT_DP): at lower depth the parent may be a missed heterozygote.
+  it('offers PM6 for review, not applied, when a reference parent is covered by fewer than 8 reads', () => {
+    const { pm6, ps2 } = deNovo(
+      [call('P', 'proband', '0/1', 35), call('F', 'father', '0/0', 5), call('M', 'mother', '0/0', 30)],
+      trioLinks,
+    );
+
+    expect(pm6?.disposition).toBe('consider');
+    expect(pm6?.evidence).toBe(
+      "Absent in both sequenced parents, but the father's reference call has read depth 5, below the 8 the de novo filter requires, so an inherited allele may have been missed — review before applying.",
+    );
+    expect(ps2).toBeUndefined();
+  });
+
+  it('names every parent whose reference call is too shallow', () => {
+    const { pm6 } = deNovo([call('P', 'proband', '0/1'), call('F', 'father', '0/0', 5), call('M', 'mother', '0/0', 6)], trioLinks);
+
+    expect(pm6?.disposition).toBe('consider');
+    expect(pm6?.evidence).toMatch(/but the father's and the mother's reference calls have read depth 5 and 6, below the 8/);
+  });
+
+  // As in the backend's de novo mode, which wants a heterozygous proband on an autosome, in a
+  // PAR and in a daughter: a de novo event changes one copy.
+  it('offers PM6 for review, not applied, when the proband is homozygous and both parents are reference', () => {
+    const { pm6, ps2 } = deNovo([call('P', 'proband', '1/1'), call('F', 'father', '0/0'), call('M', 'mother', '0/0')], trioLinks);
+
+    expect(pm6?.disposition).toBe('consider');
+    expect(pm6?.evidence).toBe(
+      'Absent in both sequenced parents, but the proband is homozygous, which a de novo event alone does not explain (a deletion of the other allele, uniparental disomy or a genotyping error) — review before applying.',
+    );
+    expect(ps2).toBeUndefined();
+  });
+
+  it('names both reasons for a homozygous proband with a shallow parent', () => {
+    const { pm6 } = deNovo([call('P', 'proband', '1/1'), call('F', 'father', '0/0', 5), call('M', 'mother', '0/0')], trioLinks);
+
+    expect(pm6?.disposition).toBe('consider');
+    expect(pm6?.evidence).toMatch(
+      /but the proband is homozygous, .*genotyping error\), and the father's reference call has read depth 5, below the 8 .* — review before applying\.$/,
+    );
+  });
+
+  it('applies PM6 from 8 reads, and when the depth is not reported', () => {
+    expect(deNovo([call('P', 'proband', '0/1'), call('F', 'father', '0/0', 8), call('M', 'mother', '0/0', 8)], trioLinks).pm6?.disposition)
+      .toBe('applies');
+    expect(deNovo([call('P', 'proband', '0/1'), call('F', 'father', '0/0'), call('M', 'mother', '0/0', 40)], trioLinks).pm6?.disposition)
+      .toBe('applies');
+  });
+});
+
 // #621 — a son is hemizygous on chrX/chrY outside the PARs: the parent who passes him that
 // chromosome decides PM6/PS2, as in the backend's de novo segregation mode.
 describe('evaluateAcmg — de novo in a son where he is hemizygous', () => {
   const son = (gt: string): AcmgFamilyMemberCall => ({ sampleId: 'P', role: 'proband', affected: true, gt, sex: 'male' });
-  const father = (gt?: string): AcmgFamilyMemberCall => ({ sampleId: 'F', role: 'father', affected: false, gt, sex: 'male' });
-  const mother = (gt?: string): AcmgFamilyMemberCall => ({ sampleId: 'M', role: 'mother', affected: false, gt, sex: 'female' });
+  const father = (gt?: string, dp?: number): AcmgFamilyMemberCall => ({
+    sampleId: 'F',
+    role: 'father',
+    affected: false,
+    gt,
+    dp,
+    sex: 'male',
+  });
+  const mother = (gt?: string, dp?: number): AcmgFamilyMemberCall => ({
+    sampleId: 'M',
+    role: 'mother',
+    affected: false,
+    gt,
+    dp,
+    sex: 'female',
+  });
   const onX: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrX', hemizygous_in_males: true };
   const onY: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrY', hemizygous_in_males: true };
-  const pm6 = (variant: AcmgVariantInput, members: AcmgFamilyMemberCall[]) =>
-    find(evaluateAcmg(variant, undefined, undefined, { members }), 'PM6');
+  const pm6 = (variant: AcmgVariantInput, members: AcmgFamilyMemberCall[], parentLinks: AcmgParentLink[] = trioLinks) =>
+    find(evaluateAcmg(variant, undefined, undefined, { members, parentLinks }), 'PM6');
+
+  it("follows the son's mother on his X, not a grandmother who shares the role", () => {
+    // The maternal grandmother (MGM) is listed first, so a lookup by role finds her.
+    const grandmother: AcmgFamilyMemberCall = { sampleId: 'MGM', role: 'mother', affected: false, gt: '0/0', sex: 'female' };
+    const suggestion = pm6(onX, [grandmother, son('1'), mother('0/1'), father('0')], [
+      ...trioLinks,
+      { childId: 'M', parentId: 'MGM', role: 'mother' },
+    ]);
+
+    expect(suggestion?.disposition).toBe('not_applicable');
+    expect(suggestion?.evidence).toBe('Inherited from the mother, who passes a son his X — not de novo.');
+  });
+
+  it('cannot assess de novo when the pedigree does not name the parent who passes the chromosome on', () => {
+    const suggestion = pm6(onX, [son('1'), mother('0/0'), father('0')], [{ childId: 'P', parentId: 'F', role: 'father' }]);
+
+    expect(suggestion?.disposition).toBe('not_applicable');
+    expect(suggestion?.evidence).toBe(
+      "The pedigree does not name the proband's mother, who passes a son his X — de novo cannot be assessed.",
+    );
+  });
+
+  it('offers PM6 for review when the reference call of the parent who passes the chromosome on is shallow', () => {
+    const suggestion = pm6(onX, [son('1'), mother('0/0', 5), father('0', 30)]);
+
+    expect(suggestion?.disposition).toBe('consider');
+    expect(suggestion?.evidence).toBe(
+      "Absent in the mother, who passes a son his X, but the mother's reference call has read depth 5, below the 8 the de novo filter requires, so an inherited allele may have been missed — review before applying.",
+    );
+    // The other parent does not pass a son his X: only an ALT call there counts against de novo.
+    expect(pm6(onX, [son('1'), mother('0/0', 30), father('0', 3)])?.disposition).toBe('applies');
+  });
 
   it('applies PM6 to a Y variant with a reference father, though the mother has no call', () => {
     const suggestion = pm6(onY, [son('1'), father('0'), mother(undefined)]);
@@ -226,6 +436,15 @@ describe('evaluateAcmg — de novo in a son where he is hemizygous', () => {
     const suggestion = pm6(onY, [son('1'), mother('0/0')]);
     expect(suggestion?.disposition).toBe('not_applicable');
     expect(suggestion?.evidence).toBe("The father's genotype, who passes a son his Y, is missing — de novo cannot be assessed.");
+  });
+
+  it('asks a heterozygous call in a PAR and of a daughter, but takes a son\'s hemizygous call of either ploidy', () => {
+    const inPar: AcmgVariantInput = { effect: 'missense_variant', chr: 'chrX', hemizygous_in_males: false };
+    const daughter: AcmgFamilyMemberCall = { sampleId: 'P', role: 'proband', affected: true, gt: '1/1', sex: 'female' };
+
+    expect(pm6(inPar, [son('1/1'), mother('0/0'), father('0/0')])?.disposition).toBe('consider');
+    expect(pm6(onX, [daughter, mother('0/0'), father('0')])?.disposition).toBe('consider');
+    expect(pm6(onX, [son('1/1'), mother('0/0')])?.disposition).toBe('applies');
   });
 
   it('keeps the trio rule in a PAR, for a daughter and without the backend flag', () => {

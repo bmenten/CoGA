@@ -6,11 +6,15 @@
 // before it contributes points. Criteria needing human judgement that we cannot
 // derive from data (PS1, PS3, PM5, segregation, de novo, …) are never emitted.
 
+import { clinvarClass } from '../clinvar';
+import { classifyGenotype } from '../genotypes';
 import { ACMG_CRITERIA_BY_CODE } from './criteria';
+import { parentsOf } from './pedigree';
 import type {
   AcmgCriterionCode,
   AcmgDisposition,
   AcmgFamilyContext,
+  AcmgFamilyMemberCall,
   AcmgGeneContext,
   AcmgPhenotypeContext,
   AcmgStrength,
@@ -66,6 +70,13 @@ const PP2_MISSENSE_Z = 3.09;
 const PP4_MODERATE_SCORE = 0.6; // highly specific match → PP4_Moderate
 const PP4_SUPPORTING_SCORE = 0.3; // meaningful match → PP4_Supporting
 
+// PM6 (de novo): a parent's reference call is trusted from this read depth, as in the
+// backend's de novo mode (clickhouse_variant_queries._DE_NOVO_MIN_PARENT_DP). Below it the
+// parent may be a missed heterozygote and an inherited variant look de novo, so PM6 is offered
+// for review, not applied. A call without a reported depth is not held against it, as in the
+// backend.
+const DE_NOVO_MIN_PARENT_DP = 8;
+
 export const LOF_EFFECTS = [
   'stop_gained',
   'frameshift_variant',
@@ -94,13 +105,6 @@ function isMissense(effect: string | undefined): boolean {
 
 function isSynonymous(effect: string | undefined): boolean {
   return effectIncludes(effect, ['synonymous_variant']);
-}
-
-function clinvarSays(clinvar: string | undefined, needles: string[]): boolean {
-  if (!clinvar) return false;
-  const lower = clinvar.toLowerCase();
-  // Avoid matching "non-pathogenic"/"likely_benign" when looking for pathogenic.
-  return needles.some((needle) => lower.includes(needle));
 }
 
 function isRecessiveGene(gene?: AcmgGeneContext): boolean {
@@ -292,10 +296,13 @@ export function evaluateAcmg(
   }
 
   // ---- PP5 / BP6: ClinVar reputable-source assertion ----
-  if (clinvarSays(variant.clinvar, ['pathogenic'])) {
+  // A conflicting record ("Conflicting classifications of pathogenicity") is neither
+  // pathogenic nor benign, so it suggests neither criterion (lib/clinvar).
+  const clinvar = clinvarClass(variant.clinvar);
+  if (clinvar === 'pathogenic') {
     add('PP5', 'supporting', `ClinVar reports ${variant.clinvar}.`);
     against('BP6', `ClinVar reports ${variant.clinvar}, not benign.`);
-  } else if (clinvarSays(variant.clinvar, ['benign'])) {
+  } else if (clinvar === 'benign') {
     add('BP6', 'supporting', `ClinVar reports ${variant.clinvar}.`);
     against('PP5', `ClinVar reports ${variant.clinvar}, not pathogenic.`);
   }
@@ -329,6 +336,22 @@ function hemizygousChromosome(variant: AcmgVariantInput): 'X' | 'Y' | null {
 
 const isMale = (sex?: string) => ['m', 'male', '1'].includes((sex ?? '').trim().toLowerCase());
 
+// A reference call with too few reads to rule out an allele the parent carries.
+const isShallow = (call?: AcmgFamilyMemberCall): boolean => call?.dp != null && call.dp < DE_NOVO_MIN_PARENT_DP;
+
+// "the father's reference call has read depth 5, below the 8 …", for the shallow parents.
+function shallowCallsNote(parents: { name: string; call?: AcmgFamilyMemberCall }[]): string {
+  const whose = parents.map((parent) => `the ${parent.name}'s`).join(' and ');
+  const depths = parents.map((parent) => parent.call?.dp).join(' and ');
+  const calls = parents.length > 1 ? 'reference calls have' : 'reference call has';
+  return `${whose} ${calls} read depth ${depths}, below the ${DE_NOVO_MIN_PARENT_DP} the de novo filter requires, so an inherited allele may have been missed`;
+}
+
+// Why a homozygous proband with reference parents is not a plain de novo: the event changes
+// one copy, and the other copy needs its own explanation.
+const HOMOZYGOUS_PROBAND_NOTE =
+  'the proband is homozygous, which a de novo event alone does not explain (a deletion of the other allele, uniparental disomy or a genotyping error)';
+
 type AddFn = (
   code: AcmgCriterionCode,
   strength: AcmgStrength,
@@ -348,18 +371,29 @@ function evaluateFamily(
   const proband = byRole('proband') ?? members.find((m) => m.affected);
   const probandCarries = proband ? (altAlleleCount(proband.gt) ?? 0) > 0 : false;
 
-  const father = byRole('father');
-  const mother = byRole('mother');
+  // The proband's parents are the members the pedigree links to them as father and mother,
+  // as in the backend's de novo mode (_parent_child_links). Not the members with the role
+  // 'father' or 'mother': a grandparent has that role too (ped_service), and a lookup by role
+  // could compare the proband with them. A linked parent who is not sequenced has no call.
+  const parentIds = proband ? parentsOf(proband.sampleId, family?.parentLinks) : {};
+  const callOf = (sampleId?: string) => (sampleId ? members.find((m) => m.sampleId === sampleId) : undefined);
+  const father = callOf(parentIds.father);
+  const mother = callOf(parentIds.mother);
   const fa = father ? altAlleleCount(father.gt) : null;
   const ma = mother ? altAlleleCount(mother.gt) : null;
 
   // ---- De novo (PS2 / PM6) ----
+  // PM6 applies when the parents' calls are reference with enough reads to trust them
+  // (DE_NOVO_MIN_PARENT_DP) and, on an autosome, in a PAR and in a daughter, the proband's call
+  // is heterozygous, as in the backend's de novo mode (_record_matches_de_novo). Otherwise it
+  // is offered for review, with the reason. A son's hemizygous call is an ALT of either ploidy.
   if (probandCarries && hemizygousOn && isMale(proband?.sex)) {
     // A son is hemizygous here (#621): his X comes from his mother and his Y from his father,
     // so that parent decides. The other parent need not be genotyped, but must not carry
     // the ALT: an ALT in both males points to an artifact. Mirrors the backend's de novo
     // segregation mode (_record_matches_de_novo).
     const fromMother = hemizygousOn === 'X';
+    const transmittingId = fromMother ? parentIds.mother : parentIds.father;
     const transmitting = fromMother ? mother : father;
     const other = fromMother ? father : mother;
     const transmittingName = fromMother ? 'mother' : 'father';
@@ -367,7 +401,11 @@ function evaluateFamily(
     const passes = `who passes a son his ${hemizygousOn}`;
     const ta = transmitting ? altAlleleCount(transmitting.gt) : null;
     const oa = other ? altAlleleCount(other.gt) : null;
-    if (ta == null) {
+    if (!transmittingId) {
+      const unlinked = `The pedigree does not name the proband's ${transmittingName}, ${passes} — de novo cannot be assessed.`;
+      notApplicable('PS2', unlinked);
+      notApplicable('PM6', unlinked);
+    } else if (ta == null) {
       const missing = `The ${transmittingName}'s genotype, ${passes}, is missing — de novo cannot be assessed.`;
       notApplicable('PS2', missing);
       notApplicable('PM6', missing);
@@ -379,6 +417,13 @@ function evaluateFamily(
       const artifact = `Also called in the ${otherName}, who does not pass a son his ${hemizygousOn}: likely an artifact, not called de novo.`;
       notApplicable('PS2', artifact);
       notApplicable('PM6', artifact);
+    } else if (isShallow(transmitting)) {
+      add(
+        'PM6',
+        'moderate',
+        `Absent in the ${transmittingName}, ${passes}, but ${shallowCallsNote([{ name: transmittingName, call: transmitting }])} — review before applying.`,
+        'consider',
+      );
     } else {
       add(
         'PM6',
@@ -387,8 +432,22 @@ function evaluateFamily(
         'applies',
       );
     }
+  } else if (probandCarries && !(parentIds.father && parentIds.mother)) {
+    const unlinked = 'The pedigree does not name both parents of the proband — de novo cannot be assessed.';
+    notApplicable('PS2', unlinked);
+    notApplicable('PM6', unlinked);
   } else if (probandCarries && fa != null && ma != null) {
-    if (fa === 0 && ma === 0) {
+    const shallow = [
+      { name: 'father', call: father },
+      { name: 'mother', call: mother },
+    ].filter((parent) => isShallow(parent.call));
+    const reasons = [
+      classifyGenotype(proband?.gt) === 'hom_alt' ? HOMOZYGOUS_PROBAND_NOTE : null,
+      shallow.length ? shallowCallsNote(shallow) : null,
+    ].filter(Boolean);
+    if (fa === 0 && ma === 0 && reasons.length) {
+      add('PM6', 'moderate', `Absent in both sequenced parents, but ${reasons.join(', and ')} — review before applying.`, 'consider');
+    } else if (fa === 0 && ma === 0) {
       add(
         'PM6',
         'moderate',

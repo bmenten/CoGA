@@ -7,6 +7,7 @@
 // mirrors the nuclear `evaluateAcmg` contract (returns AcmgSuggestion[]) so the
 // modal, scorer and `buildInitialSelections` are shared unchanged.
 
+import { clinvarClass } from '../clinvar';
 import { ACMG_CRITERIA_BY_CODE } from './criteria';
 import { effectIncludes, fmtAf, LOF_EFFECTS, pp4NotAssessed, type AcmgVariantInput } from './evaluate';
 import type {
@@ -99,12 +100,15 @@ export function evaluateMitoAcmg(
   }
 
   // ---- PP5 / BP6: MITOMAP / ClinVar reputable-source assertion ----
+  // Read as the nuclear evaluator reads ClinVar (lib/clinvar): a conflicting record is neither
+  // pathogenic nor benign. The backend already reads one as 'uncertain'.
   const disorders = (mito.disorders ?? []).filter(Boolean);
   const disorderNote = disorders.length ? ` Associated: ${disorders.slice(0, 3).join(', ')}.` : '';
-  if (clinSigIncludes(clinSig, ['pathogenic'])) {
+  const clinClass = clinvarClass(clinSig);
+  if (clinClass === 'pathogenic') {
     add('PP5', 'supporting', `MITOMAP/ClinVar reports ${clinSig}.${disorderNote}`);
     against('BP6', `MITOMAP/ClinVar reports ${clinSig}, not benign.`);
-  } else if (clinSigIncludes(clinSig, ['benign', 'polymorphism'])) {
+  } else if (clinClass === 'benign' || isPolymorphism) {
     add('BP6', 'supporting', `MITOMAP/ClinVar reports ${clinSig}.`);
     against('PP5', `MITOMAP/ClinVar reports ${clinSig}, not pathogenic.`);
   }
