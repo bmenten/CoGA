@@ -36,28 +36,37 @@ switch. It keeps only variants in genes that also carry an SV, and combines with
 ## trans or cis
 
 A second hit completes a recessive genotype only if the two variants are on opposite alleles (in
-trans). CoGA decides the phase in one of two ways.
+trans). CoGA decides the phase in one of two ways, and the badge says which.
 
 **By read phasing**, when the SVs were phased upstream (for example long-read calling with Sniffles2
 and HiPhase or LongPhase). If the SNV and the SV share a phase set in an affected member, CoGA reads
 trans or cis directly. A cis in any affected member wins.
 
-**By segregation**, otherwise. CoGA calls the pair **trans** when all of this holds:
+**By segregation**, otherwise, from the family's genotypes. Every affected member must be
+heterozygous for the SNV and carry the SV. Then:
 
-- every affected member is heterozygous for the SNV and carries the SV;
-- the family holds at least one unaffected member;
-- no unaffected member carries both variants.
+- **cis** when an unaffected member carries both variants: either both sit on one copy in this family,
+  or that member has the same genotype without the disease.
+- Otherwise CoGA traces each affected member's two variants through their parents in the pedigree. A
+  parent with a reference call for a variant did not pass it on, so the child's copy came from the
+  other parent. Failing that, a variant goes to the only parent known to carry it.
+  - One variant from each parent gives **trans**. One sequenced parent who carries one of the two and
+    has a reference call for the other is enough: the other variant then came from the other parent.
+  - Both from the same parent gives **cis**, but only when both parents are genotyped for both
+    variants.
+- **unknown** in every other case. A sibling or other relative who carries neither variant says
+  nothing about the phase. Neither does a variant that both parents lack (de novo): it may sit on
+  either copy.
 
-If an unaffected member carries both, the pair is **cis**. Without an unaffected member, the phase is
-**unknown**.
+A reference call counts only with at least 8 reads behind it, where the call reports its depth; a
+missing call or a no-call is not a reference call. An SV file uploaded for one sample holds no calls for
+the other members, so it never shows that a parent lacks the SV; a parent counts as carrying it when any
+SV of theirs hits the same gene. A male is not traced on chrX or chrY outside the pseudo-autosomal
+regions, where he has a single copy.
 
-> **A segregation "trans" can rest on nothing.** The rule does not require an unaffected member to
-> carry either variant. Relatives who carry neither the SNV nor the SV still give "trans", although
-> they say nothing about the phase. Before you accept a segregation-based trans, check that each parent
-> carries one of the two variants.
-
-For two small variants in the same gene (SNV + SNV), CoGA is more careful: it reports trans only from
-read phasing, and a pair that passes the genotype rule stays *unknown*.
+Two small variants in the same gene (SNV + SNV) follow the same rule, after read phasing. Their pair card
+says *In trans · read-backed* or *In trans · by segregation*. A pair in cis is not shown: it cannot be the
+recessive cause.
 
 ---
 
@@ -67,12 +76,8 @@ read phasing, and a pair that passes the genotype rule stays *unknown*.
   badge and the filter agree.
 - Matching is at the **gene** level (any overlap), so a whole-gene deletion is included.
 - CoGA builds the map of *which genes the family's SVs hit* the first time you open the family's small
-  variants, and keeps it.
-
-> **After a per-sample SV upload the map is not rebuilt.** A package import rebuilds the map. An SV file
-> uploaded for a single sample (on the **Upload family and sample data** page) does not: the badges and
-> the filter can then miss the new SVs. Check the structural-variant page directly for the genes that
-> matter.
+  variants. Any change to the family's SVs (a package import, an SV file uploaded for one sample, a
+  deletion) makes the next open rebuild it, so the badges and the filter follow the current SVs.
 
 ---
 
@@ -80,5 +85,8 @@ read phasing, and a pair that passes the genotype rule stays *unknown*.
 
 - The badge only says that an SV overlaps the gene. Review the SV itself (type, size, quality,
   breakpoints) on the structural-variant page before acting.
-- A `cis` or `unknown` verdict does not rule a pair out: it reflects the evidence available, which is
-  limited in small families and singletons.
+- An `unknown` verdict does not rule a pair out: it reflects the evidence available, which is limited
+  in small families, duos and singletons.
+- A `cis` from an unaffected member who carries both variants assumes that member is truly unaffected.
+  For a late-onset or incompletely penetrant disorder, check the variants yourself: such an SNV + SNV
+  pair is not listed as a pair.

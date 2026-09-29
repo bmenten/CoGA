@@ -44,8 +44,8 @@ hand-derivable and auditable. The planted records and their expected outcomes:
 | MNV | two-base substitution | ingested; typed INDEL by the family query, MNV by the Variant Explorer |
 | Pathogenic SNV | nonsense variant | ingested; on review → ACMG **Likely Pathogenic (class 4)** from PVS1+PM2 |
 | De novo SNV | proband het, both parents hom-ref | flagged de novo |
-| Compound het (SNV+SNV) | two variants in one gene, trans across parents | paired as a compound-het group |
-| Compound het (SNV+SV) | maternal SNV + paternal DEL over the same gene | SV second-hit: `phase=trans`, `deletion_unmasked=true` |
+| Compound het (SNV+SNV) | two variants in one gene, trans across parents | paired as a compound-het group: `phase=trans`, `phase_evidence=segregation` |
+| Compound het (SNV+SV) | maternal SNV + paternal DEL over the same gene | SV second-hit: `phase=trans`, `phase_evidence=segregation`, `deletion_unmasked=true` |
 | Structural variants | a DEL and a BND | ingested with type/length/gene overlap |
 | Repeat expansion | HTT (HD_HTT), 40-CAG allele | classified **pathogenic** |
 | Coverage | per-sample BED tracks | interval-track rows registered |
@@ -67,6 +67,7 @@ Each suite drives the real stack and asserts against `EXPECTED.yaml`. Skipped un
 | Realistic demo bundles through their real ingestion paths | [test_e2e_demo_smoke.py](../../backend/tests/e2e/test_e2e_demo_smoke.py) |
 | Haplotype / lineage stage against the real stack (PGT segregation) | [test_e2e_haplotypes.py](../../backend/tests/e2e/test_e2e_haplotypes.py) |
 | Prioritised-ranking cache invalidated by a variant-data change on a non-import path | [test_e2e_ranking_cache.py](../../backend/tests/e2e/test_e2e_ranking_cache.py) |
+| SV second-hit index rebuilt after SV writes on non-import paths (admin delete, per-sample upload) | [test_e2e_sv_second_hit_index.py](../../backend/tests/e2e/test_e2e_sv_second_hit_index.py) |
 
 A consolidated catalogue of these is in [docs/testing.md](../testing.md) ("End-to-end (golden pipeline)").
 
