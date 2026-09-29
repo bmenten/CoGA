@@ -82,32 +82,37 @@ const CnvTrack: React.FC<Props> = ({
           stroke={cssVar('--color-grid')}
           strokeWidth={1}
         />
-      {data.map((r, idx) => {
-        const start = Math.max(r.start, regionStart);
-        const end = Math.min(r.end, regionEnd);
-        const x = ((start - regionStart) / regionLength) * width;
-        const w = Math.max(((end - start) / regionLength) * width, 2);
-        // Clinical CNVs use a single orange accent (like genes use one blue),
-        // independent of gain/loss type.
-        const color = cssVar('--color-cnv-clinical');
-        return (
-          <rect
-            key={idx}
-            x={x}
-            y={trackY}
-            width={w}
-            height={trackHeight}
-            fill={color}
-            className="cursor-pointer"
-            aria-label={r.label}
-            onMouseMove={(event) =>
-              setTooltip({ x: event.clientX, y: event.clientY, label: r.label })
-            }
-            onMouseLeave={() => setTooltip(null)}
-            onClick={() => navigate(`/cnv-details/${r._id}`)}
-          />
-        );
-      })}
+      {/* Only what overlaps the region: while a pan loads, the previous window's
+          regions are held, and one left of the new window was drawn at its left
+          edge under its own name, as if that clinical CNV lay there (#526). */}
+      {data
+        .filter((r) => r.end > regionStart && r.start < regionEnd)
+        .map((r, idx) => {
+          const start = Math.max(r.start, regionStart);
+          const end = Math.min(r.end, regionEnd);
+          const x = ((start - regionStart) / regionLength) * width;
+          const w = Math.max(((end - start) / regionLength) * width, 2);
+          // Clinical CNVs use a single orange accent (like genes use one blue),
+          // independent of gain/loss type.
+          const color = cssVar('--color-cnv-clinical');
+          return (
+            <rect
+              key={idx}
+              x={x}
+              y={trackY}
+              width={w}
+              height={trackHeight}
+              fill={color}
+              className="cursor-pointer"
+              aria-label={r.label}
+              onMouseMove={(event) =>
+                setTooltip({ x: event.clientX, y: event.clientY, label: r.label })
+              }
+              onMouseLeave={() => setTooltip(null)}
+              onClick={() => navigate(`/cnv-details/${r._id}`)}
+            />
+          );
+        })}
       </svg>
       {data.length === 0 && (
         <div className="viz-empty-overlay">No Clin CNVs in this region</div>

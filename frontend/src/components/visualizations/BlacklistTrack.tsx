@@ -73,24 +73,27 @@ const BlacklistTrack: React.FC<Props> = ({
           stroke={cssVar("--color-grid")}
           strokeWidth={1}
         />
-      {data.map((r, idx) => {
-        const start = Math.max(r.start, regionStart);
-        const end = Math.min(r.end, regionEnd);
-        const x = ((start - regionStart) / regionLength) * width;
-        const w = Math.max(((end - start) / regionLength) * width, 2);
-        return (
-          <rect
-            key={idx}
-            x={x}
-            y={trackY}
-            width={w}
-            height={trackHeight}
-            fill={cssVar("--color-blacklist")}
-          >
-            <title>{r.label}</title>
-          </rect>
-        );
-      })}
+      {/* Only what overlaps the region; see SegmentalDuplicationTrack (#526). */}
+      {data
+        .filter((r) => r.end > regionStart && r.start < regionEnd)
+        .map((r, idx) => {
+          const start = Math.max(r.start, regionStart);
+          const end = Math.min(r.end, regionEnd);
+          const x = ((start - regionStart) / regionLength) * width;
+          const w = Math.max(((end - start) / regionLength) * width, 2);
+          return (
+            <rect
+              key={idx}
+              x={x}
+              y={trackY}
+              width={w}
+              height={trackHeight}
+              fill={cssVar("--color-blacklist")}
+            >
+              <title>{r.label}</title>
+            </rect>
+          );
+        })}
       </svg>
       {data.length === 0 && (
         <div className="viz-empty-overlay">No blacklist regions in this region</div>

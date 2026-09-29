@@ -69,17 +69,28 @@ export default defineConfig({
         'src/**/*.test.{ts,tsx}',
         'src/**/__tests__/**',
         'src/**/*.d.ts',
-        'src/main.tsx',
+        // The entry point: the route table and bootstrap, driven end to end by the
+        // Playwright journeys (TF-09d). The exclude named a main.tsx that does not exist.
+        'src/index.tsx',
         'src/setupTests.ts',
         'src/vite-env.d.ts'
       ],
-      // Ratchet floors set just below the measured baseline (2026-06-28:
-      // lines 69.3 / statements 67.7 / functions 65.1 / branches 57.2).
+      // Ratchet floors set just below the measured baseline (2026-09-29, #526: lines 80.3 /
+      // statements 78.4 / functions 75.7 / branches 66.2; before: 69.3 / 67.7 / 65.1 /
+      // 57.2 on 2026-06-28). The visualisations, which draw what the clinician reads off
+      // a track, have a floor of their own (lines 84.3 / statements 82.7 / functions
+      // 85.5 / branches 68.7).
       thresholds: {
-        lines: 65,
-        functions: 59,
-        branches: 51,
-        statements: 63
+        lines: 78,
+        functions: 73,
+        branches: 64,
+        statements: 76,
+        'src/components/visualizations/**': {
+          lines: 82,
+          functions: 83,
+          branches: 66,
+          statements: 80
+        }
       }
     }
   }
