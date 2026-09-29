@@ -474,9 +474,17 @@ CREATE TABLE IF NOT EXISTS structural_variant_reviews (
     cnv_acmg jsonb,
     cnv_point_total double precision,
     cnv_class text,
+    -- The evidence a CNV (ClinGen) classification rested on, frozen when it was saved
+    -- (services/structural_variant_evidence.py); NULL when the scoring was saved without
+    -- it. The sign-out drift gate compares it with the SV as it is now.
+    cnv_evidence_snapshot jsonb,
     CONSTRAINT structural_variant_reviews_pkey PRIMARY KEY (id),
     CONSTRAINT structural_variant_reviews_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
 );
+
+-- Added after the table shipped; the baselines re-run on every boot, so an existing
+-- deployment picks the column up without a migration ledger.
+ALTER TABLE structural_variant_reviews ADD COLUMN IF NOT EXISTS cnv_evidence_snapshot jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_structural_variant_reviews_family ON structural_variant_reviews USING btree (family_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_reviews_family_variant_id ON structural_variant_reviews USING btree (family_id, variant_id) WHERE (variant_id IS NOT NULL);

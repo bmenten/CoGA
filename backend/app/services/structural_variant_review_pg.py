@@ -31,6 +31,12 @@ from .review_pg_utils import (
     _require_uuid,
 )
 from .small_variant_review_tags import list_small_variant_tag_definitions
+from .clickhouse_variant_records import StructuralVariantRecord
+from .structural_variant_evidence import (
+    build_structural_evidence_snapshot,
+    fetch_structural_variant_record,
+    read_structural_evidence_versions,
+)
 
 
 def _normalize_cnv_acmg_payload(
@@ -153,6 +159,7 @@ async def _fetch_review_row(
                 cnv_acmg,
                 cnv_point_total,
                 cnv_class,
+                cnv_evidence_snapshot,
                 updated_by,
                 updated_at
             FROM structural_variant_reviews
@@ -325,6 +332,19 @@ async def upsert_structural_variant_review(
     # one that sends it replaces the scoring, and sending null or no criteria clears it.
     cnv_requested = "cnv_acmg" in payload.model_fields_set
     cnv_blob, cnv_point_total, cnv_class = _normalize_cnv_acmg_payload(payload.cnv_acmg)
+    # A scoring that is saved freezes the evidence it rests on, as an ACMG save does for a
+    # small variant: the SV as the family's data holds it, and the annotation versions
+    # behind it, read before the lock. Without SV storage (no assembly) there is nothing
+    # to read, and the scoring is saved without it; sign-out counts that as unverified.
+    evidence_source: tuple[StructuralVariantRecord, dict[str, str]] | None = None
+    if cnv_requested and cnv_blob is not None and getattr(context, "assembly_name", None):
+        sv_record = await fetch_structural_variant_record(context, normalized_variant_id)
+        if sv_record is None:
+            raise HTTPException(status_code=404, detail="Structural variant not found")
+        evidence_source = (
+            sv_record,
+            await read_structural_evidence_versions(session, context=context, user=user),
+        )
     # One save of this variant's review at a time, checked against the version the
     # client loaded (#513).
     await _lock_review(
@@ -371,6 +391,13 @@ async def upsert_structural_variant_review(
             await session.commit()
         return SmallVariantReviewOut(variant_id=normalized_variant_id, tags=[])
 
+    # Kept with a scoring the save leaves out; replaced (or cleared) with one it sends.
+    if evidence_source is not None:
+        cnv_evidence_snapshot = build_structural_evidence_snapshot(*evidence_source, captured_at=now)
+    elif cnv_requested:
+        cnv_evidence_snapshot = None
+    else:
+        cnv_evidence_snapshot = (existing or {}).get("cnv_evidence_snapshot")
     fields = {
         "variant_id": normalized_variant_id,
         "classification": normalized_classification,
@@ -388,6 +415,7 @@ async def upsert_structural_variant_review(
         "cnv_acmg_json": _cnv_json_or_none(cnv_blob),
         "cnv_point_total": cnv_point_total,
         "cnv_class": cnv_class,
+        "cnv_evidence_snapshot_json": _cnv_json_or_none(cnv_evidence_snapshot),
         "updated_by": user.username,
         "updated_at": now,
     }
@@ -404,6 +432,7 @@ async def upsert_structural_variant_review(
                     cnv_acmg = CAST(:cnv_acmg_json AS jsonb),
                     cnv_point_total = :cnv_point_total,
                     cnv_class = :cnv_class,
+                    cnv_evidence_snapshot = CAST(:cnv_evidence_snapshot_json AS jsonb),
                     updated_by = :updated_by,
                     updated_at = :updated_at
                 WHERE id = CAST(:review_id AS uuid)
@@ -425,6 +454,7 @@ async def upsert_structural_variant_review(
                     cnv_acmg,
                     cnv_point_total,
                     cnv_class,
+                    cnv_evidence_snapshot,
                     updated_by,
                     created_at,
                     updated_at
@@ -439,6 +469,7 @@ async def upsert_structural_variant_review(
                     CAST(:cnv_acmg_json AS jsonb),
                     :cnv_point_total,
                     :cnv_class,
+                    CAST(:cnv_evidence_snapshot_json AS jsonb),
                     :updated_by,
                     :created_at,
                     :updated_at

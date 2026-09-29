@@ -33,6 +33,10 @@ def _user():
     return types.SimpleNamespace(username="bjorn", email="b@x.org", id=None)
 
 
+# What evaluate_classification_drift reports for a family with no SV/CNV classification.
+_NO_STRUCTURAL_DRIFT = {"checked": 0, "drifted_count": 0, "drifted": []}
+
+
 class _Result:
     def scalar_one(self):
         return 0  # no prior sign-out -> next version 1
@@ -67,6 +71,7 @@ def _patch_common(
             "checked": drifted_count,
             "drifted_count": drifted_count,
             "drifted": [{"variant_id": "x"}] * drifted_count,
+            "structural": _NO_STRUCTURAL_DRIFT,
         }
 
     async def _reviews(session, family_uuid):
@@ -322,6 +327,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
                 "checked": len(drift_rows),
                 "drifted_count": len(drift_rows),
                 "drifted": list(drift_rows),
+                "structural": _NO_STRUCTURAL_DRIFT,
             }
 
         async def _reviews(session, family_uuid):
@@ -1027,7 +1033,8 @@ def test_signout_check_older_snapshot_sections(monkeypatch) -> None:
     monkeypatch.setattr(rss, "_reported_structural_reviews", _one_cnv)
     out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
     assert out["matches"] is False
-    assert out["changed_sections"] == ["reported_structural_variants"]
+    # The CNV was reported without frozen evidence, so it is in the SV/CNV drift as well.
+    assert out["changed_sections"] == ["reported_structural_variants", "structural_drift"]
 
 
 # ---------------------------------------------------------------------------
@@ -1694,3 +1701,335 @@ def test_signout_check_flags_a_new_hpo_release(monkeypatch) -> None:
     )
     assert out["matches"] is False
     assert out["changed_sections"] == ["modules"]
+
+
+# ---------------------------------------------------------------------------
+# The evidence of the reported structural variants and CNVs (TF-09a REQ-TRACE-014)
+# ---------------------------------------------------------------------------
+
+_SV_ID = "DEL-18-55000000-55400000"
+_SV_CNV_ACMG = {
+    "kind": "loss",
+    "criteria": [{"code": "2A", "points": 1.0, "accepted": True}],
+    "point_total": 1.0,
+    "classification": "Pathogenic - class 5",
+}
+_SV_EVIDENCE = {
+    "evidence": {
+        "source": "needlr",
+        "sv_type": "DEL",
+        "chrom": "18",
+        "start": 55000000,
+        "end": 55400000,
+        "sv_len": -400000,
+        "remote_chrom": None,
+        "remote_start": None,
+        "gene_symbols": ["TCF4", "TXNL1"],
+        "gene_count": 2,
+        "pli": 0.99,
+        "inheritance": "de_novo",
+        "annotation_hash": "a" * 64,
+    },
+    "evidence_hash": "e" * 64,
+    "versions": {"assembly": "GRCh38", "gencode": "45"},
+    "captured_at": "2026-09-30T09:00:00+00:00",
+}
+
+
+def _reported_sv(evidence_snapshot=_SV_EVIDENCE, **overrides) -> dict:
+    return {
+        "variant_id": _SV_ID,
+        "variant_key": 7,
+        "classification": "Pathogenic - class 5",
+        "cnv_class": "cnv_class_5",
+        "cnv_point_total": 1.0,
+        "cnv_acmg": _SV_CNV_ACMG,
+        "tags": ["report"],
+        "note": None,
+        "evidence_snapshot": evidence_snapshot,
+        **overrides,
+    }
+
+
+def _sv_drift_entry(**overrides) -> dict:
+    return {
+        "variant_id": _SV_ID,
+        "classification": "Pathogenic - class 5",
+        "cnv_class": "cnv_class_5",
+        "classified_by": "alice",
+        "classified_at": "2026-09-30T09:00:00+00:00",
+        "status": "drifted",
+        "changed": ["gene_symbols"],
+        "evidence_from": _SV_EVIDENCE["evidence"],
+        "evidence_to": {**_SV_EVIDENCE["evidence"], "gene_symbols": ["TCF4"], "gene_count": 1},
+        **overrides,
+    }
+
+
+def _patch_sv(monkeypatch, *, reported: list, structural_drifted: list, small_drifted: int = 0) -> None:
+    """A family whose reported SVs and SV/CNV drift are given; nothing else drifted."""
+    _patch_common(monkeypatch, drifted_count=small_drifted)
+
+    async def _drift(session, *, family_id, user, project_id=None):
+        return {
+            "checked": small_drifted,
+            "drifted_count": small_drifted,
+            "drifted": [{"variant_id": "x"}] * small_drifted,
+            "structural": {
+                "checked": len(reported),
+                "drifted_count": len(structural_drifted),
+                "drifted": list(structural_drifted),
+            },
+        }
+
+    async def _sv_reviews(session, family_uuid):
+        return [dict(item) for item in reported]
+
+    monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
+    monkeypatch.setattr(rss, "_reported_structural_reviews", _sv_reviews)
+
+
+def test_a_reported_cnv_whose_evidence_changed_blocks_sign_out(monkeypatch) -> None:
+    _patch_sv(monkeypatch, reported=[_reported_sv()], structural_drifted=[_sv_drift_entry()])
+    session = _Session()
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
+    assert refused.value.status_code == 409
+    assert "1 classification(s) (1 of them structural-variant or CNV classifications)" in refused.value.detail
+    assert _inserts(session) == [], "nothing may be written for a refused sign-out"
+
+    # Acknowledged like any drift: with a reason.
+    with pytest.raises(HTTPException) as no_reason:
+        asyncio.run(
+            rss.sign_out_report(
+                _Session(), family_id="FAM1", user=_user(), acknowledge_drift=True, drift_acknowledgement_reason=" "
+            )
+        )
+    assert no_reason.value.status_code == 422
+
+
+def test_an_acknowledged_sv_drift_is_frozen_and_audited(monkeypatch) -> None:
+    _patch_sv(monkeypatch, reported=[_reported_sv()], structural_drifted=[_sv_drift_entry()])
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_drift=True,
+            drift_acknowledgement_reason="TXNL1 dropped from the gene list; class 5 rests on TCF4.",
+        )
+    )
+    snapshot = out["snapshot"]
+    assert snapshot["structural_drift"] == {"checked": 1, "drifted_count": 1, "drifted": [_sv_drift_entry()]}
+    assert snapshot["acknowledged_drift"] is True
+    assert snapshot["drift_acknowledgement_reason"].startswith("TXNL1 dropped")
+    # The small-variant drift section is unchanged in shape.
+    assert snapshot["drift"] == {"checked": 0, "drifted_count": 0, "drifted": []}
+    assert captured["after"]["drifted_count"] == 1
+    assert captured["after"]["structural_drifted_count"] == 1
+    assert "drift acknowledged" in captured["summary"]
+
+
+def test_a_reported_sv_without_frozen_evidence_blocks_sign_out(monkeypatch) -> None:
+    # A reported SV whose classification froze no evidence (no CNV scoring saved, or one
+    # saved before CoGA froze it) cannot be shown unchanged, like an unsnapshotted small
+    # variant (#332).
+    _patch_sv(monkeypatch, reported=[_reported_sv(evidence_snapshot=None)], structural_drifted=[])
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert refused.value.status_code == 409
+    assert "cannot be verified" in refused.value.detail
+
+    _patch_sv(monkeypatch, reported=[_reported_sv(evidence_snapshot=None)], structural_drifted=[])
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(), family_id="FAM1", user=_user(), acknowledge_drift=True, drift_acknowledgement_reason="Re-read."
+        )
+    )
+    assert out["snapshot"]["structural_drift"]["drifted"] == [
+        {"variant_id": _SV_ID, "classification": "Pathogenic - class 5", "cnv_class": "cnv_class_5", "status": "no_snapshot"}
+    ]
+
+
+def test_small_variant_and_sv_drift_are_one_gate_and_one_acknowledgement(monkeypatch) -> None:
+    _patch_sv(monkeypatch, reported=[_reported_sv()], structural_drifted=[_sv_drift_entry()], small_drifted=2)
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert "3 classification(s) (1 of them structural-variant or CNV classifications)" in refused.value.detail
+
+    _patch_sv(monkeypatch, reported=[_reported_sv()], structural_drifted=[_sv_drift_entry()], small_drifted=2)
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(), family_id="FAM1", user=_user(), acknowledge_drift=True, drift_acknowledgement_reason="Reviewed."
+        )
+    )
+    assert out["drift_acknowledged"] is True
+    assert (out["snapshot"]["drift"]["drifted_count"], out["snapshot"]["structural_drift"]["drifted_count"]) == (2, 1)
+
+
+def test_unchanged_sv_evidence_needs_no_acknowledgement(monkeypatch) -> None:
+    _patch_sv(monkeypatch, reported=[_reported_sv()], structural_drifted=[])
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["snapshot"]["acknowledged_drift"] is False
+    assert out["snapshot"]["structural_drift"] == {"checked": 1, "drifted_count": 0, "drifted": []}
+
+
+def test_the_reported_sv_evidence_is_frozen_into_the_content_hash(monkeypatch) -> None:
+    def _body(evidence):
+        _patch_sv(monkeypatch, reported=[_reported_sv(evidence_snapshot=evidence)], structural_drifted=[])
+        return asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+
+    frozen = _body(_SV_EVIDENCE)
+    assert frozen["reported_structural_variants"][0]["evidence_snapshot"] == _SV_EVIDENCE
+    moved = _body({**_SV_EVIDENCE, "evidence_hash": "f" * 64})
+    assert rss._canonical_hash(frozen) != rss._canonical_hash(moved)
+
+
+# A sign-out exactly as the writer stored it before SV/CNV classifications froze their
+# evidence, captured from that writer (origin/main at 0633db8) for a family with one
+# reported CNV: no `structural_drift` section and no evidence in the reported SV. The
+# stored hashes are the ones it computed; the record is never re-hashed, so it must keep
+# verifying as stored.
+_PRE_SV_EVIDENCE_SIGNED_AT = "2026-09-29T23:02:28.105813+00:00"
+_PRE_SV_EVIDENCE_SNAPSHOT = {
+    "acknowledged_drift": False,
+    "acknowledged_import_incomplete": False,
+    "acknowledged_qc": False,
+    "assembly": "GRCh38",
+    "drift": {"checked": 0, "drifted": [], "drifted_count": 0},
+    "drift_acknowledgement_reason": None,
+    "family_id": "FAM1",
+    "generated_at": _PRE_SV_EVIDENCE_SIGNED_AT,
+    "import_incomplete": None,
+    "import_incomplete_acknowledgement_reason": None,
+    "modules": [{"key": "clinvar", "version": "2026-05"}],
+    "qc_acknowledgement_reason": None,
+    "reference_modules": ["assembly", "gene_loci", "monarch", "hpo"],
+    "reported_structural_variants": [
+        {
+            "classification": "Pathogenic - class 5",
+            "cnv_acmg": {
+                "classification": "Pathogenic - class 5",
+                "criteria": [{"accepted": True, "code": "2A", "points": 1.0}],
+                "kind": "loss",
+                "point_total": 1.0,
+            },
+            "cnv_class": "cnv_class_5",
+            "cnv_point_total": 1.0,
+            "note": None,
+            "tags": ["report"],
+            "variant_id": _SV_ID,
+            "variant_key": 7,
+        }
+    ],
+    "reported_variants": [],
+    "sample_qc": {
+        "application": "unknown",
+        "application_label": "",
+        "application_summary": "",
+        "autosomal_sites": 0,
+        "category_qc_check": None,
+        "fetal_sex_check": None,
+        "genotype_source": None,
+        "mendelian_checks": [],
+        "notes": [],
+        "overall_status": "pass",
+        "paternity_check": None,
+        "relatedness_checks": [],
+        "sex_checks": [],
+    },
+    "sequencing_qc": {"profile_key": "wgs", "profile_label": "WGS", "samples": {}, "thresholds": {}},
+    "signed_out_by": "bjorn",
+    "software": {"git_sha": "0633db8", "version": "1.5.0"},
+    "version": 1,
+}
+_PRE_SV_EVIDENCE_CONTENT_HASH = "6156d04eb0c40c35c459890a1da9c365ad6f0639ca055e96e12bd44349da383b"
+_PRE_SV_EVIDENCE_ROW_HASH = "ac4958a8d570a1702d62c384ceb6aeaf833bc8f338e89435f0c623b5f1333af7"
+_SV_EVIDENCE_PREDATES_GAP = {
+    "section": "reported_structural_variants",
+    "item": "Evidence of the reported structural variants and CNVs",
+    "reason": "signed before CoGA froze it",
+}
+
+
+def _pre_sv_evidence_row() -> dict:
+    return {
+        **_pre_gate_row(),
+        "signed_out_at": datetime.fromisoformat(_PRE_SV_EVIDENCE_SIGNED_AT),
+        "content_hash": _PRE_SV_EVIDENCE_CONTENT_HASH,
+        "snapshot": json.loads(json.dumps(_PRE_SV_EVIDENCE_SNAPSHOT)),
+        "row_hash": _PRE_SV_EVIDENCE_ROW_HASH,
+        "import_incomplete_acknowledged": False,
+    }
+
+
+def test_a_sign_out_made_before_sv_evidence_was_frozen_still_verifies(monkeypatch) -> None:
+    assert "structural_drift" not in _PRE_SV_EVIDENCE_SNAPSHOT
+    assert "evidence_snapshot" not in _PRE_SV_EVIDENCE_SNAPSHOT["reported_structural_variants"][0]
+    # The verifier hashes the record as stored: nothing adds the new section, or a default
+    # for it, before hashing.
+    assert rss._canonical_hash(_pre_sv_evidence_row()["snapshot"]) == _PRE_SV_EVIDENCE_CONTENT_HASH
+
+    chain = asyncio.run(rss.verify_report_signout_chain(_RowsSession([_pre_sv_evidence_row()]), "FAM1"))
+    assert chain.verified and chain.rows_checked == 1, chain
+
+    _patch_common(monkeypatch, drifted_count=0)
+    detail = asyncio.run(
+        rss.get_report_signout(_RowsSession([_pre_sv_evidence_row()]), family_id="FAM1", version=1, user=_user())
+    )
+    assert detail["verified"] is True
+
+
+def _as_now(monkeypatch, *, reported: list, structural_drifted: list) -> None:
+    """The family as it would be signed now, over the same content as the older record."""
+    _patch_sv(monkeypatch, reported=reported, structural_drifted=structural_drifted)
+
+    async def _no_small_reviews(session, family_uuid):
+        return []
+
+    async def _sequencing_qc(session, context):
+        return {"profile_key": "wgs", "profile_label": "WGS", "thresholds": {}, "samples": {}}
+
+    monkeypatch.setattr(rss, "_reported_reviews", _no_small_reviews)
+    monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
+
+
+def test_signout_check_does_not_compare_the_sv_evidence_an_older_record_predates(monkeypatch) -> None:
+    # The same reported CNV, now with frozen evidence that has not drifted. The older record
+    # froze no evidence and no SV/CNV drift: neither is compared, and the record is not
+    # called changed; the page is told the record holds no SV evidence.
+    row = _pre_sv_evidence_row()
+    _as_now(monkeypatch, reported=[_reported_sv()], structural_drifted=[])
+    out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
+    assert out["matches"] is True, out
+    assert out["changed_sections"] == []
+    assert out["not_compared"] == ["reported_structural_variants.evidence_snapshot", "structural_drift"]
+    assert out["not_captured"] == [_SV_EVIDENCE_PREDATES_GAP]
+
+    # Everything else about the reported CNV is still compared.
+    _as_now(monkeypatch, reported=[_reported_sv(cnv_class="cnv_class_4")], structural_drifted=[])
+    out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["reported_structural_variants"]
+
+
+def test_signout_check_flags_sv_evidence_that_drifted_after_sign_out(monkeypatch) -> None:
+    _as_now(monkeypatch, reported=[_reported_sv()], structural_drifted=[])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()))
+    assert (out["matches"], out["not_compared"], out["not_captured"]) == (True, [], [])
+
+    # A re-import changed the genes the CNV overlaps.
+    _as_now(monkeypatch, reported=[_reported_sv()], structural_drifted=[_sv_drift_entry()])
+    out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()))
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["structural_drift"]
+
+
+def test_snapshot_gaps_name_the_sv_evidence_an_older_record_lacks() -> None:
+    assert _SV_EVIDENCE_PREDATES_GAP in rss.snapshot_gaps(_PRE_SV_EVIDENCE_SNAPSHOT)
+    # An older record with no reported SV lacks nothing; a newer one holds the evidence.
+    assert rss.snapshot_gaps({**_PRE_SV_EVIDENCE_SNAPSHOT, "reported_structural_variants": []}) == []
+    newer = {**_PRE_SV_EVIDENCE_SNAPSHOT, "structural_drift": {"checked": 1, "drifted_count": 0, "drifted": []}}
+    assert rss.snapshot_gaps(newer) == []

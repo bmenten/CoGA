@@ -53,13 +53,44 @@ class ClassificationDriftItem(BaseModel):
     clinvar_to: Optional[str] = None
 
 
+class StructuralClassificationDriftItem(BaseModel):
+    """A structural-variant / CNV classification whose frozen evidence changed since it
+    was made (services/structural_variant_evidence.py)."""
+
+    variant_id: str
+    classification: Optional[str] = None
+    cnv_class: Optional[str] = None
+    classified_by: Optional[str] = None
+    classified_at: Optional[datetime] = None
+    status: str  # "drifted" | "unknown" | "variant_missing"
+    # What moved: "source", "sv_type", "locus", "gene_symbols", "pli", "inheritance",
+    # "annotations".
+    changed: List[str] = Field(default_factory=list)
+    # The evidence as frozen and as it is now: source, sv_type, locus, gene_symbols,
+    # gene_count, pli, inheritance, annotation_hash. None when not available.
+    evidence_from: Optional[Dict[str, Any]] = None
+    evidence_to: Optional[Dict[str, Any]] = None
+
+
+class StructuralClassificationDriftOut(BaseModel):
+    """Evidence-drift summary for a family's structural-variant / CNV classifications."""
+
+    checked: int = 0
+    drifted_count: int = 0
+    drifted: List[StructuralClassificationDriftItem] = Field(default_factory=list)
+
+
 class ClassificationDriftOut(BaseModel):
-    """Evidence-drift summary for a family's ACMG classifications."""
+    """Evidence-drift summary for a family's ACMG classifications: the small variants at
+    the top level, the structural variants and CNVs under ``structural``."""
 
     family_id: str
     checked: int
     drifted_count: int
     drifted: List[ClassificationDriftItem] = Field(default_factory=list)
+    structural: StructuralClassificationDriftOut = Field(
+        default_factory=StructuralClassificationDriftOut
+    )
 
 
 class ClinicalAuditEventOut(BaseModel):
