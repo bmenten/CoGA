@@ -18,6 +18,9 @@ Loading data files, replacing an existing family and every reference-data upload
 admin-only. All API paths below sit under `/api`. Every setting named here is listed with
 its default in [.env.example](../.env.example).
 
+For a new family: check that its assembly has its reference data (section 1), make sure its
+project exists (**Admin → Projects & Access**), then import the package (section 3).
+
 ## 1. Reference data
 
 Genes, cytobands and the annotation layers belong to one genome assembly. A viewer that
