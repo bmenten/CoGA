@@ -452,6 +452,8 @@ const FamilyParaphasePage: React.FC = () => {
     assemblyVersion,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(family?.projects, projectIdParam);
 
   const { data: paraphaseTable, isLoading: paraphaseLoading } =
@@ -471,7 +473,7 @@ const FamilyParaphasePage: React.FC = () => {
     [family?.members, paraphaseTable?.samples],
   );
   const referenceLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion },
+    { assemblyName, assemblyVersion, isError: referenceFailed },
     'Not linked',
   );
 
@@ -532,7 +534,12 @@ const FamilyParaphasePage: React.FC = () => {
   return (
     <div className="page-shell family-paraphase-page space-y-6">
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Paraphase"
         family={family}
         projectId={resolvedProjectId}

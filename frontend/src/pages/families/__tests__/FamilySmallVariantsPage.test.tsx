@@ -319,6 +319,49 @@ describe('FamilySmallVariantsPage', () => {
     expect(await screen.findByText('Showing 7')).toBeInTheDocument();
   });
 
+  // #608 — the search runs within the linked project; with the catalogue failed it used to
+  // wait for the project for good. It says the reference failed, and retries.
+  it('says the reference failed, instead of loading for good, and runs the search on retry', async () => {
+    let projectRequests = 0;
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { members: [], projects: ['p1'] } });
+      }
+      if (url === '/projects') {
+        projectRequests += 1;
+        return projectRequests === 1
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : Promise.resolve({
+              data: [{ _id: 'p1', name: 'Demo project', assembly_id: 'asm1', assembly_name: 'GRCh38' }],
+            });
+      }
+      if (url.startsWith('/families/F1/small-variants?')) {
+        return Promise.resolve({ data: { variants: [], total: 7 } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('Reference could not be loaded')).toBeInTheDocument();
+    expect(screen.queryByText('Loading small variants')).not.toBeInTheDocument();
+    expect(apiMock.get.mock.calls.some(([url]) => String(url).startsWith('/families/F1/small-variants?'))).toBe(
+      false,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('Showing 7')).toBeInTheDocument();
+  });
+
   it('formats bounded variant totals as 1000+', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {

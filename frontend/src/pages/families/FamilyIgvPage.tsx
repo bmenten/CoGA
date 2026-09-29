@@ -35,13 +35,15 @@ const FamilyIgvPage: React.FC = () => {
     assemblyName,
     assemblyVersion,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(
     data?.projects,
     projectIdParam,
   );
   const resolvedGenome = useMemo(() => mapAssemblyToIgvGenome(assemblyName), [assemblyName]);
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion },
+    { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
     'Reference not linked',
   );
 
@@ -65,6 +67,22 @@ const FamilyIgvPage: React.FC = () => {
         kicker="Viewer"
         title="Family not found"
         message="The IGV view could not resolve the requested family."
+      />
+    );
+  }
+
+  // The project catalogue failed: the reference is unknown, not missing (#608).
+  if (referenceFailed) {
+    return (
+      <PageState
+        kicker="Viewer"
+        title="Reference could not be loaded"
+        message="The family's project, and with it the reference assembly, could not be loaded. IGV needs it to load the genome."
+        action={
+          <button type="button" className="button-secondary" onClick={retryReference}>
+            Retry
+          </button>
+        }
       />
     );
   }

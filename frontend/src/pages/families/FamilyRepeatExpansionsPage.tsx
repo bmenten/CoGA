@@ -170,6 +170,8 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
     assemblyVersion,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(family?.projects, projectIdParam);
 
   const { data: repeatTable, isLoading: repeatLoading } = useQuery<ApiFamilyRepeatExpansionTable>({
@@ -212,7 +214,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
     [aberrantOnly, diseaseFilter, geneFilter, repeatTable?.loci],
   );
   const referenceLabel = formatResolvedReferenceLabel(
-    { assemblyName, assemblyVersion },
+    { assemblyName, assemblyVersion, isError: referenceFailed },
     'Not linked',
   );
 
@@ -239,7 +241,12 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
   return (
     <div className="page-shell family-repeat-page space-y-6">
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Repeat expansions"
         family={family}
         projectId={resolvedProjectId}

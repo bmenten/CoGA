@@ -18,15 +18,20 @@ vi.mock('../../../lib/api', () => ({
   },
 }));
 
+const GRCH38_REFERENCE = {
+  speciesName: 'Homo sapiens',
+  assemblyName: 'GRCh38',
+  assemblyVersion: 'p14',
+  assemblyId: 'asm1',
+  projectId: 'p1',
+  isLoading: false,
+  isError: false,
+  retry: () => undefined,
+};
+const referenceMock = vi.hoisted(() => ({ value: undefined as unknown }));
+
 vi.mock('../../../lib/reference', () => ({
-  useFamilyReference: () => ({
-    speciesName: 'Homo sapiens',
-    assemblyName: 'GRCh38',
-    assemblyVersion: 'p14',
-    assemblyId: 'asm1',
-    projectId: 'p1',
-    isLoading: false,
-  }),
+  useFamilyReference: () => referenceMock.value,
 }));
 
 vi.mock('../../../lib/useMeasuredWidth', () => ({
@@ -68,6 +73,7 @@ const LocationProbe = () => {
 
 describe('ChromosomeViewPage', () => {
   beforeEach(() => {
+    referenceMock.value = GRCH38_REFERENCE;
     vi.clearAllMocks();
   });
 
@@ -181,6 +187,40 @@ describe('ChromosomeViewPage', () => {
       .at(-1);
     expect(latestAvailabilityCall).toContain('start=120');
     expect(latestAvailabilityCall).toContain('end=180');
+  });
+
+  // #608 — with the project catalogue failed the reference is unknown, not missing: the page
+  // says it could not be loaded, and retries, instead of "Reference not linked".
+  it('says the reference could not be loaded, not that it is not linked', async () => {
+    const retry = vi.fn();
+    referenceMock.value = {
+      ...GRCH38_REFERENCE,
+      assemblyName: undefined,
+      assemblyId: undefined,
+      projectId: undefined,
+      isError: true,
+      retry,
+    };
+    (api.get as unknown as Mock).mockImplementation((url: string) =>
+      url === '/families/F1'
+        ? Promise.resolve({ data: { family_id: 'F1', members: [], projects: ['p1'], roi: null } })
+        : Promise.resolve({ data: {} }),
+    );
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/chromosome/1']}>
+          <Routes>
+            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('Reference could not be loaded')).toBeInTheDocument();
+    expect(screen.queryByText('Reference not linked')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   it('honors repeated sample params when initializing visible members', async () => {

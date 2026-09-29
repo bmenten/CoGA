@@ -67,6 +67,8 @@ const FamilySmallVariantsPage: React.FC = () => {
     assemblyValidated,
     assemblyVersion,
     projectId,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(
     family?.projects as string[] | undefined,
     preferredProjectId,
@@ -263,6 +265,23 @@ const FamilySmallVariantsPage: React.FC = () => {
 
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / 100));
 
+  // The project catalogue failed: the search runs within the family's project, and would
+  // otherwise wait for it for good (#608).
+  if (referenceFailed) {
+    return (
+      <PageState
+        kicker="Small Variants"
+        title="Reference could not be loaded"
+        message="The family's project, and with it the reference assembly, could not be loaded. The search runs within that project, so it cannot run without it."
+        action={
+          <button type="button" className="button-secondary" onClick={retryReference}>
+            Retry
+          </button>
+        }
+      />
+    );
+  }
+
   if (!variantQueryReady || (isLoading && !data)) {
     return (
       <PageState
@@ -287,7 +306,12 @@ const FamilySmallVariantsPage: React.FC = () => {
   return (
     <div className="page-shell analysis-shell">
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Small Variants"
         familyId={familyId}
         family={family}

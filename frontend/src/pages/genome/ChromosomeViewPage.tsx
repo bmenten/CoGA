@@ -172,6 +172,8 @@ const ChromosomeViewPage: React.FC = () => {
     assemblyId,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(data?.projects as string[] | undefined, projectIdParam);
   const resolvedSearch = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -452,6 +454,22 @@ const ChromosomeViewPage: React.FC = () => {
         kicker="Visualization"
         title="Family not found"
         message="This chromosome view could not resolve the requested family."
+      />
+    );
+  }
+
+  // The project catalogue failed: the reference is unknown, not missing (#608).
+  if (referenceFailed) {
+    return (
+      <PageState
+        kicker="Visualization"
+        title="Reference could not be loaded"
+        message="The family's project, and with it the reference assembly, could not be loaded. The chromosome view needs it to draw the tracks."
+        action={
+          <button type="button" className="button-secondary" onClick={retryReference}>
+            Retry
+          </button>
+        }
       />
     );
   }

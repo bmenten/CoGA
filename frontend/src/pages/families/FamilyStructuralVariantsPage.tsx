@@ -146,12 +146,14 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     assemblyVersion,
     projectId,
     isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
   } = useFamilyReference(
     familyData?.projects as string[] | undefined,
     preferredProjectId,
   );
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion },
+    { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
     familyData?.projects?.length && referenceLoading
       ? 'Loading linked reference...'
       : 'Reference not linked',
@@ -301,7 +303,12 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   return (
     <div className="page-shell analysis-shell">
       <FamilyPageHeader
-        assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Structural Variants"
         familyId={familyId}
         family={familyData}
