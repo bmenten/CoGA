@@ -3048,235 +3048,104 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </table></div>
 </section><section id="hs-15" class="chapter">
 <h1>15. Overige modules &amp; adminfunctionaliteit</h1>
-<p>In dit hoofdstuk sluiten we de handleiding af met de modules die geen eigen hoofdstuk kregen, zodat de volledige codebase gedekt is. Dit hoofdstuk beschrijft hoe curatoren de klinische-CNV-kennisbank doorbladeren, hoe herbruikbare genpanelen worden beheerd, wat elke adminfunctie precies doet en welke rechten daarvoor nodig zijn, hoe de in-app documentatie en de releasepagina werken, en hoe de UI-telemetrie (klik- en navigatiegedrag van gebruikers) in dezelfde duurzame audit-pijplijn terechtkomt als de HTTP-audittrail uit <a href="#hs-11">hoofdstuk 11</a>. We eindigen met een dekkingschecklist die per top-level map aangeeft in welk hoofdstuk die aan bod komt.</p>
-<p>Termen die we hier gebruiken: een <em>router</em> is een FastAPI-bestand dat een groep API-adressen (endpoints) definieert; een <em>service</em> bevat de eigenlijke logica en databasequery's; een <em>dependency</em> is een functie die FastAPI vóór het endpoint uitvoert (hier vooral voor toegangscontrole). Aan de frontend-kant is een <em>page</em> een React-component die een volledig scherm rendert.</p>
-<h2>Toegangscontrole als rode draad</h2>
-<p>Bijna elke module in dit hoofdstuk hangt aan één van twee poortwachters (zie ook <a href="#hs-2">hoofdstuk 2</a> en <a href="#hs-5">hoofdstuk 5</a>):</p>
+<p>Dit hoofdstuk behandelt de modules zonder eigen hoofdstuk: de Clinical CNV Explorer met de kennisbank van klinische CNV's, de genpanels, de beheerfuncties en hun rechten, de in-app documentatie, de releasepagina en de UI-telemetrie. De uitleg voor beheerders staat in de gebruikersgids in de app (<code>frontend/src/content/docs/user-guide/administration.md</code>); het beheer van familieleden en stamboom in <code>docs/family-member-management.md</code>; alle tabellen in <code>docs/database.md</code>.</p>
+<h2>Toegang als rode draad</h2>
+<p>Bijna elke module hangt aan een van twee poorten (hoofdstuk 2):</p>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Dependency</th>
 <th>Betekenis</th>
-<th>Waar toegepast</th>
+<th>Toegepast op</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>get_current_user</code></td>
 <td>Elke ingelogde gebruiker met een geldig token</td>
-<td>CNV-catalogus, panelen lezen, releases, UI-events insturen</td>
+<td>De CNV-catalogus, panels lezen, releases, UI-events insturen</td>
 </tr>
 <tr>
 <td><code>get_current_admin_user</code></td>
-<td>Alleen gebruikers met de rol admin</td>
-<td>De volledige <code>/admin</code>-router, panelen aanmaken/wijzigen, PanelApp-import</td>
+<td>Alleen beheerders: de rol <code>admin</code> of <code>superuser</code> (<code>ADMIN_ROLES</code>)</td>
+<td>De volledige beheerrouter <code>/api/admin</code>, panels aanmaken en wijzigen, de PanelApp-import</td>
 </tr>
 </tbody>
 </table></div>
-<p>Deze dependencies komen uit <code>backend/app/dependencies.py</code>. Cruciaal: de acteur (wie iets doet) wordt altijd uit het auth-token gehaald, nooit uit de request-body. Dat is expliciet vastgelegd in de docstring van <code>ingest_ui_events</code> in <code>backend/app/routers/ui_events.py</code> ("the actor is always taken from the auth token, never the request body").</p>
+<p>De actor van een handeling komt altijd uit het token, nooit uit de inhoud van het verzoek.</p>
 <h2>Clinical CNV Explorer</h2>
-<p>De Clinical CNV Explorer laat curatoren de <em>gecureerde kennisbank van terugkerende CNV-syndromen</em> doorbladeren. Een CNV (Copy Number Variant) is een structurele variant waarbij een stuk DNA in kopieaantal afwijkt; bekende voorbeelden zijn microdeletiesyndromen. De kennisbank is samengesteld uit bronnen als ClinGen/ISCA, DECIPHER, OMIM/Orphanet en ClinVar.</p>
-<p><strong>Frontend.</strong> De pagina <code>frontend/src/pages/cnv-explorer/ClinicalCnvExplorerPage.tsx</code> kiest eerst een assembly (referentiegenoom, bv. GRCh38), haalt dan de catalogus op via <code>GET /cnvs/{assembly}/catalog</code> met een optionele zoekterm, en toont per CNV de gegevens uit de kennisbank, met de ClinVar-steun (aantal pathogene ClinVar-CNV's per kant, of "—" als de kennisbank die niet registreerde). Elke rij linkt naar een detailpagina, die ook de ondersteunende ClinVar-records linkt; de route is <code>/cnv-details/:cnvId</code> en het scherm is <code>frontend/src/pages/genome/CnvDetailsPage.tsx</code>.</p>
-<p><strong>Backend router.</strong> <code>backend/app/routers/cnvs.py</code> definieert drie leesendpoints, allemaal achter een router-brede <code>Depends(get_current_user)</code> (referentiedata vereist authenticatie):
-- <code>GET /cnvs/entry/{cnv_id}</code> — één CNV op id (functie <code>get_clinical_cnv_entry</code>).
-- <code>GET /cnvs/{assembly}/catalog</code> — de doorzoekbare catalogus (functie <code>list_clinical_cnv_catalog</code>; <code>limit</code> begrensd op 1–2000).
-- <code>GET /cnvs/{assembly}/{chrom}</code> — CNV's die een genomisch bereik overlappen (functie <code>get_clinical_cnvs</code>, met <code>start</code>/<code>end</code>-parameters); wordt gebruikt door de visualisaties (zie <a href="#hs-9">hoofdstuk 9</a>).</p>
-<p>De letterlijke prefix-routes (<code>/entry/...</code>, <code>/{assembly}/catalog</code>) staan bewust vóór de generieke <code>/{assembly}/{chrom}</code> zodat ze in de match-volgorde voorrang krijgen (een commentaarregel in het bestand legt dit uit). De echte data-ophaal zit in <code>reference_metadata_service</code> (<code>get_clinical_cnv_by_id_data</code>, <code>list_clinical_cnvs_catalog_data</code>, <code>get_clinical_cnvs_data</code>).</p>
-<p><strong>Databankstructuur (traceerbaarheid &amp; provenance).</strong> De curatie-velden staan in de tabeldefinitie van <code>clinical_cnvs</code> in <code>02_reference.sql</code> (voorheen additief toegevoegd door de migraties 018 en 020):
-- <code>omim_id</code>, <code>decipher_id</code> en <code>description</code>. Als deze ontbreken, valt de detailpagina terug op afgeleide links (OMIM-zoekopdracht op naam, DECIPHER-regio).
-- <code>cytoband</code>, <code>source_id</code> (ISCA-regio-id), <code>omim_title</code>, <code>orpha_id</code> en <code>orpha_name</code> — verrijkingsvelden die door de kennisbank-build worden gevuld.</p>
-<p>Kolommen die pas later bijkwamen, zoals de ClinVar-tellingen hieronder, volgen in <code>02_reference.sql</code> nog als idempotente <code>ADD COLUMN IF NOT EXISTS</code>, zodat een bestaande installatie veilig meegroeit.</p>
-<p><strong>Kennisbank herbouwen (admin).</strong> De service <code>backend/app/services/clinical_cnv_kb_jobs.py</code> verzorgt de door de admin getriggerde herbouw van de kennisbank. Kernpunten voor veiligheid en traceerbaarheid:
-- Het zware build-script (<code>scripts/clinical_cnv_knowledgebase.py</code>, dat externe bronnen zoals ClinVar ophaalt) draait als een <strong>geïsoleerd subprocess</strong> (<code>asyncio.create_subprocess_exec</code>), zodat de netwerkfetches en optionele afhankelijkheden nooit het API-proces raken. Het resultaat is een TSV die via de standaard reference-loader (<code>apply_reference_dataset_text</code>) in de tabel <code>clinical_cnvs</code> wordt geladen.
-- De voortgang wordt bijgehouden in tabel <code>clinical_cnv_kb_jobs</code> (in <code>02_reference.sql</code>): status <code>queued/running/completed/failed</code>, <code>requested_by</code>, tijdstempels (<code>requested_at</code>/<code>started_at</code>/<code>completed_at</code>), een <code>inserted</code>-teller, en een foutmelding (<code>error</code>) plus stderr-staart (<code>log</code>).
-- Een <strong>partiële unieke index</strong> (<code>idx_clinical_cnv_kb_jobs_active</code> op <code>(status)</code> met <code>WHERE status IN ('queued','running')</code>) dwingt af dat er hooguit één herbouw tegelijk loopt; een tweede poging krijgt netjes een 409.
-- <strong>ClinVar-steun (#566).</strong> Per regio telt de build de pathogene ClinVar-CNV's die de regio voor minstens 30 % wederzijds overlappen, gesplitst in verlies (<code>clinvar_pathogenic_loss_count</code>) en winst (<code>clinvar_pathogenic_gain_count</code>). De kant komt eerst uit ClinVars kolom <code>Type</code> (<code>copy number loss</code>/<code>gain</code>, <code>Deletion</code>/<code>Duplication</code>), dan uit het kopieaantal dat een array-record in zijn ISCN-naam draagt (<code>…)x1</code> verlies, <code>…)x3</code> winst; op X en Y alleen <code>x0</code> en <code>x3</code> of meer, want daar hangt het normale aantal af van het geslacht), en pas dan uit woorden in de naam (<code>clinvar_cnv_side</code>). De loader bewaart ze in <code>clinical_cnvs</code> (<code>clinvar_pathogenic_loss_count</code>, <code>…_gain_count</code>, <code>…_accessions</code>), en de Clinical CNV Explorer en de detailpagina tonen ze (#624). De build schrijft de tellingen pas nadat ClinVar werkelijk is geraadpleegd; een kennisbank zonder ClinVar (<code>--skip-clinvar</code>, of een BED-bestand) staat als NULL in de tabel en leest in de app als "not recorded", nooit als 0.
-- Beschikbaarheid is defensief: ontbreekt het script op de server, dan meldt <code>get_clinical_cnv_kb_status</code> dat (<code>available: false</code>) en weigert <code>queue_clinical_cnv_kb_rebuild</code> met een 503.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/admin.py</code> — endpoints <code>get_clinical_cnv_kb_rebuild_status</code> (<code>GET /admin/clinical-cnv-kb/status</code>) en <code>rebuild_clinical_cnv_kb</code> (<code>POST /admin/clinical-cnv-kb/rebuild</code>), beide admin-only; logica in <code>backend/app/services/clinical_cnv_kb_jobs.py</code>.</p>
-<h2>Gene-panel-catalogus</h2>
-<p>Een <em>genpaneel</em> is een benoemde, versioneerbare lijst van genen (eventueel met regio's en STR-loci) die je herbruikt om variantfilters te scopen. De catalogus is de bron voor het "panel"-filter op de filterpagina's uit <a href="#hs-8">hoofdstuk 8</a> en voor de Gene Explorer uit <a href="#hs-13">hoofdstuk 13</a>.</p>
-<p><strong>Backend router.</strong> <code>backend/app/routers/panels.py</code> scheidt lees- van schrijfrechten heel expliciet:
-- Lezen (<code>get_current_user</code>): <code>GET /panels/</code> (lijst), <code>GET /panels/{panel_id}</code>, plus versiegeschiedenis <code>GET /panels/{panel_id}/versions</code> en <code>.../versions/{version}</code>, en de PanelApp-zoekopdracht <code>GET /panels/panelapp/search</code>.
-- Schrijven (<code>get_current_admin_user</code>): <code>POST /panels/</code> (aanmaken), <code>PUT /panels/{panel_id}</code>, <code>DELETE /panels/{panel_id}</code>, de PanelApp-import (<code>POST /panels/import/panelapp</code>) en de Mendeliome-hergeneratie (<code>POST /panels/mendeliome/regenerate</code>).</p>
-<p><strong>Versiebeheer (traceerbaarheid).</strong> In <code>backend/app/services/panel_metadata_service.py</code> zorgt <code>_snapshot_panel_version</code> dat elke wijziging aan een paneel een onveranderlijke versie-snapshot vastlegt; <code>list_panel_versions</code> / <code>get_panel_version</code> maken die geschiedenis opvraagbaar. Zo is voor elke rapportage terug te vinden welke genset op welk moment gold — belangrijk in de IVDR-context. De snapshots worden bewaard in tabel <code>gene_panel_versions</code> (in <code>02_reference.sql</code>).</p>
-<p><strong>Externe bron: PanelApp.</strong> <code>backend/app/services/panelapp_service.py</code> haalt panelen op bij Genomics England PanelApp (<code>PANELAPP_API_ROOT = "https://panelapp.genomicsengland.co.uk/api/v1"</code>). De frontend (<code>GenePanelsPage.tsx</code>) laat admins zoeken (<code>search_panelapp</code>) en importeren (<code>import_panelapp_panel</code>) met keuzes voor confidence-niveau, assembly en het al dan niet meenemen van regio's en STR's. De importmetadata (bron, PanelApp-id, versie) wordt bij het paneel bewaard, zodat de herkomst traceerbaar blijft.</p>
-<p><strong>Mendeliome.</strong> Een speciaal, gegenereerd paneel ("Mendeliome", constante <code>MENDELIOME_SOURCE = "mendeliome"</code>) wordt afgeleid uit de Monarch-kennisgraaf via <code>regenerate_mendeliome</code>. De genselectie (<code>_select_mendeliome_genes</code>) neemt genen uit tabel <code>monarch_gene_disease</code> met de predicaten <code>causes</code> en <code>gene_associated_with_condition</code> (<code>_MENDELIOME_PREDICATES</code>). Dit paneel wordt automatisch her-geversioneerd wanneer een nieuwe Monarch-release wordt geladen — zie de best-effort aanroep <code>await regenerate_mendeliome(session, user)</code> binnen <code>refresh_monarch_associations</code> in <code>admin.py</code>. Meer over Monarch in <a href="#hs-12">hoofdstuk 12</a>.</p>
-<p><strong>Frontend-detail.</strong> <code>frontend/src/pages/panels/GenePanelDetailPage.tsx</code> toont één paneel met zijn genen/regio's en versiehistoriek; <code>GenePanelsPage.tsx</code> toont de catalogus en de PanelApp-importworkflow. Schrijfacties zijn in de UI verborgen voor niet-admins, maar de echte afdwinging zit altijd server-side in de router.</p>
-<h2>Adminfunctionaliteit</h2>
-<p>De hele admin-API zit in <code>backend/app/routers/admin.py</code> (prefix <code>/admin</code>), waar <strong>elk</strong> endpoint <code>Depends(get_current_admin_user)</code> gebruikt. De achterliggende logica staat vooral in <code>backend/app/services/admin_service.py</code>. De frontend-schermen staan onder <code>frontend/src/pages/admin/</code>. Hieronder per functie wat het doet.</p>
-<h3>Gebruikers &amp; projecten</h3>
+<p>De Clinical CNV Explorer (<code>/cnv-explorer</code>) laat curatoren de <strong>kennisbank van terugkerende CNV-syndromen</strong> doorbladeren (bv. microdeletiesyndromen), samengesteld uit o.a. ClinGen/ISCA, DECIPHER, OMIM/Orphanet en ClinVar. De pagina toont per CNV de gegevens uit de kennisbank en de steun in ClinVar: het aantal (waarschijnlijk) pathogene ClinVar-CNV's (<strong>ClinVar P/LP</strong>) per kant, verlies en winst. Elke rij linkt naar een detailpagina (<code>/cnv-details/{id}</code>), die ook de ondersteunende ClinVar-records linkt.</p>
+<p>De router <code>/api/cnvs</code> heeft drie leesendpoints, alle achter een login: één CNV op id, de doorzoekbare catalogus per assembly, en de CNV's die een genomisch bereik overlappen (voor de tracks, hoofdstuk 9).</p>
+<p><strong>De kennisbank herbouwen.</strong> Een beheerder kan de kennisbank opnieuw laten opbouwen vanaf de pagina <em>Organisms and assemblies</em> (<code>/reference-data</code>). Het zware bouwscript (<code>scripts/clinical_cnv_knowledgebase.py</code>, dat o.a. ClinVar ophaalt) draait als een <strong>apart proces</strong>, zodat de downloads en de extra afhankelijkheden het API-proces niet raken. Het resultaat wordt via de gewone referentielader in <code>clinical_cnvs</code> geladen en als import geregistreerd (hoofdstuk 13). De voortgang staat in <code>clinical_cnv_kb_jobs</code>, met wie het vroeg, de tijdstippen, het aantal rijen en een eventuele fout. Ontbreekt het script op de server, dan zegt de status dat en weigert de backend een herbouw (<code>503</code>).</p>
+<p><strong>ClinVar-steun.</strong> Per regio telt de build de (waarschijnlijk) pathogene ClinVar-CNV's (niet de "conflicting") die de regio voldoende wederzijds overlappen, apart voor verlies en winst. De kant volgt eerst uit het type in ClinVar, dan uit het kopieaantal in de naam van een array-record, en pas dan uit woorden in de naam. De tellingen worden alleen geschreven als ClinVar echt geraadpleegd werd; een kennisbank zonder ClinVar staat als leeg in de tabel en leest in de app als "not recorded", nooit als 0.</p>
+<p><strong>Een herbouw kan vastlopen.</strong> De databank laat hooguit één job met status <code>queued</code> en één met status <code>running</code> tegelijk toe. Een aanvraag tijdens een lopende herbouw wordt daardoor aanvaard; die nieuwe job kan niet naar <code>running</code>, blijft op <code>queued</code> staan en blokkeert zo elke volgende herbouw (<code>409</code>). Ook een herbouw die loopt wanneer de server herstart, blijft op <code>running</code> staan: er is geen herstel voor een verweesde job. De knop staat uit zolang er een job actief is, wat het risico verkleint maar niet wegneemt. Er is geen scherm of endpoint om zo'n job op te ruimen; dat vraagt een ingreep in de databank.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/cnvs.py</code>; de herbouw in <code>backend/app/services/clinical_cnv_kb_jobs.py</code> en de endpoints <code>/api/admin/clinical-cnv-kb/...</code>; de pagina's <code>frontend/src/pages/cnv-explorer/ClinicalCnvExplorerPage.tsx</code> en <code>frontend/src/pages/genome/CnvDetailsPage.tsx</code>.</p>
+<h2>Genpanels</h2>
+<p>Een <strong>genpanel</strong> is een benoemde lijst genen (eventueel met regio's en repeatloci) waarmee je variantfilters afbakent. De catalogus voedt het panelfilter op de filterpagina's (hoofdstuk 8) en het panellidmaatschap in de Gene Explorer (hoofdstuk 13).</p>
 <ul>
-<li><strong>UserListPage</strong> (<code>UserListPage.tsx</code>): toont per gebruiker e-mail, naam, affiliatie, rol, actief-status en projecttoegang (via <code>GET /auth/users</code>). Admins kunnen een account (de-)activeren via <code>PATCH /auth/users/{user_id}</code> (kolom <code>is_active</code>). Projecttoegang wordt hier alleen getoond, niet bewerkt.</li>
-<li><strong>Projecttoewijzing van families:</strong> <code>GET /admin/projects</code> (<code>list_project_assignments</code>) en <code>PUT /admin/families/{family_id}/projects</code> (<code>update_family_projects</code>) beheren welke projecten een familie zien. De frontend gebruikt dit vanuit <code>DataManagementPage.tsx</code>.</li>
+<li><strong>Lezen</strong> (elke ingelogde gebruiker): de lijst, één panel, zijn versies, en zoeken in PanelApp.</li>
+<li><strong>Schrijven</strong> (alleen beheerders): aanmaken, wijzigen, verwijderen, een PanelApp-panel importeren en het Mendeliome opnieuw opbouwen.</li>
 </ul>
-<h3>Datamanagement &amp; provenance</h3>
+<p><strong>Versies.</strong> Elke wijziging aan een panel bewaart een onveranderlijke versie met de volledige genen- en regiolijst, de bron en de externe versie, en wie de wijziging deed (ook als tekst, zodat die herkenbaar blijft als het account verdwijnt). Zo is terug te vinden welke genset een panel op een bepaald moment had. <strong>Let op:</strong> een panel verwijderen wist ook zijn versiegeschiedenis.</p>
+<p><strong>PanelApp.</strong> Beheerders zoeken en importeren panels uit Genomics England PanelApp, met keuzes voor het betrouwbaarheidsniveau, de assembly en het al dan niet meenemen van regio's en repeats. Het PanelApp-id, de versie en de bron-URL worden bij het panel bewaard.</p>
+<p><strong>Mendeliome.</strong> Een gegenereerd panel met de genen die in de Monarch-kennisgraaf een oorzakelijke of geassocieerde relatie met een aandoening hebben. Het wordt opnieuw opgebouwd, en dus opnieuw geversioneerd, wanneer een nieuwe Monarch-release wordt geladen (hoofdstuk 12).</p>
+<p>De schrijfknoppen zijn in de UI verborgen voor niet-beheerders, maar de afscherming zit op de server.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/panels.py</code>, <code>backend/app/services/panel_metadata_service.py</code> en <code>panelapp_service.py</code>; de pagina's in <code>frontend/src/pages/panels/</code>.</p>
+<h2>Beheerfuncties</h2>
+<p>De hele beheer-API staat in <code>backend/app/routers/admin.py</code> (<code>/api/admin</code>); elk endpoint vraagt <code>get_current_admin_user</code>. De schermen staan in <code>frontend/src/pages/admin/</code>, met <code>AdminDashboardPage.tsx</code> als ingang.</p>
+<h3>Gebruikers en projecten</h3>
 <ul>
-<li><strong>DataManagementPage</strong> (<code>DataManagementPage.tsx</code>): kies een familie (gegroepeerd per project) en beheer leden, samples, projecttoegang, assay-data en de ruwe bronbestanden. Elke destructieve actie loopt via een <code>confirm=true</code>-queryparameter naar de backend.</li>
-<li><strong>DataInventoryDetail</strong> (<code>pages/admin/DataInventoryDetail.tsx</code>): het detailpaneel per familie; leunt op <code>GET /admin/data/families/{family_id}</code> (<code>get_family_data_inventory_detail</code>) voor de telling van Postgres- en ClickHouse-data per type.</li>
-<li><strong>Selectief verwijderen:</strong> de admin-router biedt fijnmazige delete-endpoints: per data-type voor een sample of familie (<code>DELETE /admin/data/samples/{sample_id}/{data_type}</code>, <code>.../families/{family_id}/{data_type}</code>) en volledige verwijdering (<code>DELETE /admin/samples/{sample_id}</code>, <code>.../families/{family_id}</code>). Alle vereisen <code>confirm=true</code>.</li>
-<li><strong>RawFileProvenanceTable</strong> (<code>pages/admin/RawFileProvenanceTable.tsx</code>): dit is het traceerbaarheidshart van datamanagement. Per familie (<code>GET /admin/data/families/{family_id}/files</code>) toont het alle ruwe bronbestanden met opslagpad, grootte en <strong>SHA-256-checksum</strong>. Twee acties:</li>
-<li><em>Download</em> — <code>GET /admin/data/files/{file_id}/download</code>; geeft een 410 als het bronbestand niet meer op zijn opslagpad staat (<code>download_raw_import_file</code> controleert <code>Path(storage_path).is_file()</code>).</li>
-<li><em>Verify</em> — <code>POST /admin/data/files/{file_id}/verify</code> (<code>verify_raw_import_file_by_id</code>) herberekent de SHA-256 en vergelijkt met de opgeslagen waarde; het resultaat wordt als gekleurde badge getoond. Dit levert het integriteitsbewijs "wat is er precies geïmporteerd" uit <a href="#hs-6">hoofdstuk 6</a>.</li>
-<li><strong>Pedigree-export:</strong> <code>GET /admin/families/{family_id}/ped</code> levert een PED-bestand (stamboom) als download (<code>build_pedigree_text</code>).</li>
+<li><strong>Gebruikers:</strong> per gebruiker e-mail, naam, affiliatie, rol, actief en projecttoegang. Een beheerder activeert of deactiveert een account (<code>PATCH /api/auth/users/{user_id}</code>); projecttoegang wordt daar alleen getoond.</li>
+<li><strong>Projecten van een familie:</strong> welke projecten een familie zien (<code>GET /api/admin/projects</code>, <code>PUT /api/admin/families/{family_id}/projects</code>).</li>
+</ul>
+<h3>Datamanagement en herkomst</h3>
+<ul>
+<li><strong>Datamanagement</strong> (<code>DataManagementPage.tsx</code>): per familie de leden, samples, projecttoegang, assaydata en ruwe bronbestanden, met per soort data het aantal rijen in Postgres en ClickHouse. Elke verwijdering (per datasoort van een sample of familie, of een volledig sample of volledige familie) vraagt <code>confirm=true</code>.</li>
+<li><strong>Bronbestanden</strong> (<code>RawFileProvenanceTable.tsx</code>): alle ruwe bronbestanden van een familie met opslagpad, grootte en SHA-256. Een bestand is te downloaden (<code>410</code> als het niet meer op zijn pad staat) en te <strong>verifiëren</strong>: de backend berekent de SHA-256 opnieuw en vergelijkt met de opgeslagen waarde (hoofdstuk 6).</li>
+<li><strong>Stamboomexport:</strong> een PED-bestand per familie.</li>
+<li><strong>Familiestructuur:</strong> leden, ouder-kindrelaties en partners bewerken, met een controle die inconsistente stambomen weigert. Vooraf toont de backend wat een wijziging raakt, en het hernoemen of verwijderen van een lid wordt geweigerd zolang er genomische data aan hangt. Zie <code>docs/family-member-management.md</code>.</li>
 </ul>
 <h3>ClickHouse-onderhoud</h3>
+<p>Per assembly: de status van de tabellen, en onderhoudsacties achter een bevestiging: tabellen aanmaken of bijwerken, onderdelen samenvoegen (<em>optimize</em>), de gen-index van de small variants herbouwen, en een integriteitscontrole (hoofdstuk 11).</p>
+<h3>Familiestatussen</h3>
+<p>De catalogus van werkstatussen (bv. "Solved", "Analysis in progress"). Een status verwijderen verwijdert geen familie: haar statusveld wordt leeg. De status en de toewijzing van een familie zelf zet elke gebruiker met toegang tot die familie.</p>
+<h3>Grenzen voor sequencing-QC</h3>
+<p>Op de pagina <em>Sequencing QC thresholds</em> stelt een beheerder per QC-metriek een <strong>waarschuwings-</strong> en een <strong>foutgrens</strong> in, per profiel:</p>
 <ul>
-<li><strong>AdminClickhouseManagementPage</strong> (<code>AdminClickhouseManagementPage.tsx</code>): houdt de grootschalige varianttabellen gezond, los van de familie-levenscyclus. Het toont per assembly de tabelstatus (<code>GET /admin/clickhouse/variants</code>) en biedt onderhoudsacties, elk achter een bevestigingsdialoog:</li>
-<li><code>POST .../{assembly_name}/ensure</code> — tabellen/materialized views aanmaken/bijwerken.</li>
-<li><code>POST .../{assembly_name}/optimize</code> (optioneel <code>final</code>) — parts samenvoegen.</li>
-<li><code>POST .../{assembly_name}/rebuild-small-variant-gene-index</code> — de gene-index herbouwen (dit is precies de herstelactie uit de projectnotitie over corrupte gene-index).</li>
-<li><code>GET .../{assembly_name}/integrity</code> — integriteitscheck.</li>
+<li><strong>Een profiel per assay.</strong> Eén grens kan geen twee assays dienen; wat normaal is voor een long-read-genoom, is een fout voor een panel. Een familie gebruikt het profiel uit haar metadata, en anders het standaardprofiel (er is er precies één).</li>
+<li><strong>De metrieken staan in de code, de grenzen in de databank.</strong> Welke metrieken bestaan en of een lage of een hoge waarde de foutkant is, volgt uit wat de QC-parsers schrijven; een beheerder kan de richting niet omdraaien.</li>
+<li><strong>Geen standaardgrenzen.</strong> Een grens is een klinische beslissing; er worden er geen meegeleverd. Zonder grens wordt een metriek gemeld als <em>niet beoordeeld</em>, nooit als geslaagd.</li>
+<li><strong>Eén oordeel voor iedereen.</strong> De backend evalueert de grenzen, zodat de werkruimte, de sample-QC en het rapport hetzelfde oordeel tonen. Ook de mtDNA-grenzen komen van hier.</li>
+<li><strong>Streng vastgelegd.</strong> Een wijziging vraagt een bevestiging die beide waarden herhaalt en een <strong>reden</strong>. Ze komt in de append-only tabel <code>qc_threshold_changes</code>, samen met de waarde die ze vervangt en de reden. Een trigger weigert wijzigen en wissen, en de runtime-rol <code>coga_app</code> heeft er geen rechten voor (hoofdstuk 2). De HTTP-auditlog kent de vorige waarde niet: alleen hier is te zien wie een grens verlaagde en van welke waarde.</li>
 </ul>
-<p>Meer achtergrond over deze tabellen staat in <a href="#hs-3">hoofdstuk 3</a>.</p>
-<h3>Family-statussen</h3>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/qc_threshold_service.py</code>; de pagina <code>AdminQcThresholdsPage.tsx</code>.</p>
+<h3>Presets en tags</h3>
+<p>Een overzicht van de gedeelde filterpresets, en het beheer van de eigen varianttags (hoofdstuk 10).</p>
+<h3>Auditlogs en integriteit</h3>
 <ul>
-<li><strong>AdminFamilyStatusesPage</strong> (<code>AdminFamilyStatusesPage.tsx</code>): beheert de catalogus van workflow-statussen (bv. "Solved", "Analysis in progress"). CRUD via <code>GET/POST/PUT/DELETE /admin/family-statuses[...]</code>. De logica staat in <code>backend/app/services/family_status_service.py</code>:</li>
-<li>Statussen leven in de lookup-tabel <code>family_statuses</code>; een familie verwijst ernaar via <code>families.status_id</code>.</li>
-<li>Een sleutel (<code>key</code>) wordt uniek geslugd uit het label (<code>_unique_status_key</code> + <code>_slugify_status</code>); kleuren worden gevalideerd tegen een hex-patroon (<code>_normalize_color</code>) met een veilige default.</li>
-<li><strong>Non-destructief verwijderen:</strong> door <code>ON DELETE SET NULL</code> op <code>families.status_id</code> blijft een familie bestaan wanneer haar status wordt verwijderd — het statusveld wordt simpelweg leeggemaakt (zie de comment in <code>delete_family_status</code>).</li>
-<li>De feitelijke status/toewijzing per familie (<code>assigned_to</code>, <code>reviewed_by</code>) wordt gezet door elke gebruiker mét toegang tot de familie via <code>update_family_metadata_for_user</code>, met 404 bij onbekende familie en 403 bij geen toegang.</li>
+<li><strong>Auditlogs</strong> (<code>AdminAuditLogsPage.tsx</code>): de HTTP-auditlog (<em>Requests</em>), te filteren op methode, status, gebruiker en pad, met per verzoek de afgeleide databankwijziging; en de UI-telemetrie (<em>Interactions</em>).</li>
+<li><strong>Integriteit:</strong> de hash-keten van een familie nalopen, en integriteitsankers maken en controleren (hoofdstuk 11). Daarvoor bestaan alleen endpoints, geen scherm.</li>
 </ul>
-<h3>Sequencing-QC drempelwaarden</h3>
-<ul>
-<li><strong>AdminQcThresholdsPage</strong> (<code>AdminQcThresholdsPage.tsx</code>): stelt per sequencing-QC-parameter
-  een <strong>waarschuwings-</strong> en een <strong>foutgrens</strong> in. <code>GET /admin/qc-thresholds</code> levert de
-  metriekcatalogus én alle profielen; <code>PUT /admin/qc-thresholds/{profile_key}</code> zet of wist
-  één grens. Logica in <code>backend/app/services/qc_threshold_service.py</code>:</li>
-<li><strong>Profielen per assay.</strong> Eén grens kan geen twee assays dienen — ~18x gemiddelde dekking
-    is normaal voor PacBio HiFi WGS en een harde fout op een 100x panel. Een familie gebruikt
-    het profiel uit <code>families.metadata-&gt;&gt;'qc_profile'</code>, en anders het standaardprofiel (een
-    partiële unieke index garandeert dat er precies één standaard is).</li>
-<li><strong>De catalogus staat in code, de grenzen in de databank.</strong> Welke metrieken bestaan en of
-    een <em>lage</em> of een <em>hoge</em> waarde de foutzijde is, volgt uit wat de QC-parsers uitschrijven
-    (<code>QC_METRICS</code>) — geen configuratie. Zo kan een beheerder geen vergelijkingsrichting
-    omdraaien en een falende run groen maken. <code>direction</code> wordt wél meegeschreven in de rij,
-    zodat een historische configuratie leesbaar blijft zonder die codeversie.</li>
-<li><strong>Geen standaardgrenzen.</strong> Er worden geen waarden geseed: een grens is een klinische
-    beslissing. Zonder grens wordt een metriek gerapporteerd als <em>niet beoordeeld</em>, nooit als
-    geslaagd.</li>
-<li><strong>Evaluatie gebeurt server-side</strong> (<code>evaluate_sequencing_qc</code>), zodat werkplek, sample-QC en
-    rapport hetzelfde oordeel lezen. Het slechtste oordeel van alle metrieken wordt de
-    chip-kleur in de tabel Familieleden: amber bij waarschuwing, rood bij fout, met het
-    oordeelwoord ernaast zodat kleur niet de enige drager is.</li>
-<li><strong>Ook de mitochondriale grenzen komen hiervandaan</strong> (<code>mtdna.mean_depth</code>,
-    <code>mtdna.contamination</code>). Die stonden eerder hard-coded in <code>mitochondrial_analysis.py</code>
-    (<code>mean_depth &lt; 50</code>, contaminatie 1%/3%) en waren dus onzichtbaar en onwijzigbaar; geen
-    enkele QC-grens zit nog in code.</li>
-<li><strong>Streng afgeschermd.</strong> Wijzigen kan alleen als beheerder, vereist een bevestiging
-    waarin beide zijden van de wijziging herhaald worden, en wordt weggeschreven naar de
-    <strong>append-only</strong> tabel <code>qc_threshold_changes</code> — met de <em>vervangen</em> waarde erbij. De
-    HTTP-auditpijplijn legt het verzoek vast maar kent de vorige waarde niet, dus alleen
-    hier is te zien wie een grens verlaagde en vanaf welke waarde. UPDATE en DELETE worden
-    door een trigger geweigerd, en de runtime-rol <code>coga_app</code> heeft er geen <code>UPDATE</code>-,
-    <code>DELETE</code>- of <code>TRUNCATE</code>-recht op (<code>05_grants.sql</code>).</li>
-</ul>
-<h3>Preset-filters &amp; variant-tags</h3>
-<ul>
-<li><strong>AdminPresetFiltersPage</strong> (<code>AdminPresetFiltersPage.tsx</code>): overzicht van de herbruikbare small-variant filter-presets (<code>GET /admin/small-variant-filter-presets</code>). Zie voor de filters zelf <a href="#hs-8">hoofdstuk 8</a>.</li>
-<li><strong>AdminVariantTagsPage</strong> (<code>AdminVariantTagsPage.tsx</code>): beheert de tag-definities voor varianten (<code>GET/POST/PUT/DELETE /admin/variant-tags</code>). De admin-variant bekijkt tags project-breed. De tagging-workflow zelf staat in <a href="#hs-10">hoofdstuk 10</a>.</li>
-</ul>
-<h3>Audit logs &amp; UI-events</h3>
-<ul>
-<li><strong>AdminAuditLogsPage</strong> (<code>AdminAuditLogsPage.tsx</code>): één scherm met twee weergaven (<code>requests</code> en <code>interactions</code>):</li>
-<li><em>Requests</em> — de HTTP-audittrail via <code>GET /admin/audit-logs</code> (<code>list_audit_log_events</code>), met filters op methode, statuscode, gebruikers-e-mail en pad. Toont ook de samengevatte DB-mutatie per request (frontend-helper <code>summarizeDbUpdate</code>). Dit is de trail uit <a href="#hs-11">hoofdstuk 11</a>.</li>
-<li><em>Interactions</em> — de UI-telemetrie via <code>GET /admin/ui-events</code> (<code>list_ui_events</code>, zie verderop).</li>
-<li><strong>Integriteitsketens (tamper-evidence).</strong> <code>admin.py</code> bevat de operator/auditor-tools voor de append-only hash-ketens: <code>GET /admin/integrity/verify</code> (<code>verify_integrity_chain</code>) herwandelt een familie-keten en lokaliseert de eerste afwijkende rij; <code>POST /admin/integrity/anchor</code> (<code>create_integrity_anchor_endpoint</code>) verzegelt alle keten-koppen met een Ed25519-handtekening; <code>GET /admin/integrity/anchor/verify</code> en <code>.../verify-chain</code> controleren respectievelijk tegen het laatste anker en de ankerketen zelf. Deze zijn integraal onderdeel van de traceerbaarheid uit <a href="#hs-11">hoofdstuk 11</a>.</li>
-</ul>
-<h3>Overige admin-onderdelen (kort)</h3>
-<p><code>admin.py</code> bundelt ook: NIPT-artefactbeheer (<code>/admin/nipt/artifacts...</code>, incl. <code>auto-seed</code>), gene-reference-refresh (<code>/admin/gene-reference/...</code>, zie <a href="#hs-13">hoofdstuk 13</a>), HPO-ontologiebeheer (<code>/admin/hpo/...</code>) en Monarch-beheer (<code>/admin/monarch/...</code>, zie <a href="#hs-12">hoofdstuk 12</a>). De bijbehorende schermen zijn o.a. <code>GeneReferenceAdminPage.tsx</code>, <code>HpoTerminologyAdminPage.tsx</code> en <code>MonarchDataAdminPage.tsx</code>; <code>AdminDashboardPage.tsx</code> is het instappunt.</p>
+<h3>Overige</h3>
+<p>Het beheer van de NIPT-artefacten (de lijst terugkerende artefacten per assay, met een automatische eerste vulling uit het cohort; hoofdstuk 8), de synchronisatie van de genreferentie (hoofdstuk 13), en het beheer van HPO en Monarch (hoofdstuk 12).</p>
 <h2>In-app documentatie</h2>
-<p>Omdat de repository privé is, worden externe links naar <code>.md</code>-bestanden vermeden en wordt de referentiedocumentatie <strong>in de app zelf</strong> gebundeld en gerenderd.</p>
+<p>De documentatie voor gebruikers zit in de app zelf, onder <code>/docs</code>.</p>
 <ul>
-<li><strong>Bron:</strong> <code>frontend/src/content/docs/*.md</code> — negen Markdown-referenties (<code>data-import.md</code>, <code>sample-qc.md</code>, <code>monarch-integration.md</code>, <code>acmg-classification.md</code>, <code>haplotype-segregation.md</code>, <code>monogenic-nipt.md</code>, <code>variant-ranking-cache.md</code>, <code>sv-second-hit.md</code>, <code>clinical-traceability.md</code>).</li>
-<li><strong>Registratie:</strong> <code>frontend/src/pages/docs/referenceDocs.ts</code> importeert elk bestand met Vite's <code>?raw</code>-suffix (zodat de tekst als string wordt ingebed) en koppelt er een <code>slug</code>, <code>title</code> en <code>summary</code> aan. Een nieuwe referentie voeg je toe door een <code>.md</code> te droppen en hier te registreren (dit staat ook in de comment bovenaan het bestand).</li>
-<li><strong>Rendering:</strong> <code>frontend/src/pages/docs/ReferenceDocPage.tsx</code> zoekt het doc op via <code>referenceDocBySlug.get(slug)</code> en rendert de Markdown met <code>react-markdown</code> + <code>remark-gfm</code>. Interne links (<code>/...</code>) gaan via React Router; externe links openen in een nieuw tabblad (<code>target="_blank" rel="noreferrer"</code>).</li>
-<li><strong>Gebruikersgids:</strong> <code>frontend/src/pages/docs/UserGuidePage.tsx</code> is de gebruikersgids die per sectie naar de betreffende schermen linkt en doorverwijst naar de diepere referentiedocs. Sinds #528 staat de tekst van elke sectie in Markdown, in <code>frontend/src/content/docs/user-guide/&lt;id&gt;.md</code>. <code>userGuideSections.ts</code> bevat de lijst van secties: <code>id</code>, titel, samenvatting en snelkoppelingen. Drie conventies staan voor de eigen blokken van de gids:</li>
-<li>een blockquote (<code>&gt; …</code>) is een callout;</li>
-<li>een <code>```cards</code>-blok met één regel <code>Titel | Tekst</code> per kaart is een kaartenrooster;</li>
-<li>een alinea met één link die de titel <code>"further-reading"</code> heeft, is het blok <em>In-depth reference</em>.</li>
+<li><strong>Referentiedocumenten:</strong> Markdown-bestanden in <code>frontend/src/content/docs/</code>, geregistreerd in <code>frontend/src/pages/docs/referenceDocs.ts</code> en getoond op <code>/docs/reference/&lt;slug&gt;</code>.</li>
+<li><strong>De gebruikersgids:</strong> één Markdown-bestand per sectie in <code>frontend/src/content/docs/user-guide/</code>, met de lijst van secties in <code>frontend/src/pages/docs/userGuideSections.ts</code>.</li>
 </ul>
-<p>De gids hoort bij de informatie voor veiligheid (TF-15). Daarom houdt <code>UserGuideContent.test.tsx</code> elke sectie bij wat de JSX-gids zei (<code>fixtures/user-guide-content.json</code>). Een bedoelde tekstwijziging vraagt een nieuwe momentopname (<code>COGA_REGENERATE_GOLDEN=1</code>).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/docs/</code> (schermen) en <code>frontend/src/content/docs/</code> (inhoud).</p>
-<h2>Releases / New features</h2>
-<p>De New-features-pagina toont de versiegeschiedenis, gesynchroniseerd vanaf GitHub-releases.</p>
+<p>De gebruikersgids hoort bij de informatie voor veilig gebruik (<code>docs/regulatory/TF-15-instructions-for-use.md</code>). Een test legt de tekst van elke sectie vast (<code>UserGuideContent.test.tsx</code>), zodat elke tekstwijziging bewust gebeurt.</p>
+<h2>Releases</h2>
+<p>De pagina <em>New features</em> (<code>NewFeaturesPage.tsx</code>) toont de versiegeschiedenis uit de GitHub-releases (<code>GET /api/product/releases</code>, achter een login). De backend vraagt de GitHub-API op, met een token als dat is ingesteld. Lukt dat niet, dan geeft hij een nette foutmelding en verwijst de pagina rechtstreeks naar GitHub. Het resultaat wordt een tijd bewaard, zodat GitHub niet bij elke opening wordt bevraagd. Deze catalogus is informatie voor de gebruiker; de softwareversie die een rapport bindt, komt uit de build (hoofdstuk 11).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/product.py</code> en <code>backend/app/services/github_releases_service.py</code>.</p>
+<h2>UI-telemetrie</h2>
+<p>Naast de HTTP-auditlog legt CoGA <strong>betekenisvolle interacties</strong> in de interface vast die de backend anders niet ziet: klikken op knoppen, links en tabs, en navigatie binnen de app.</p>
 <ul>
-<li><strong>Frontend:</strong> <code>frontend/src/pages/product/NewFeaturesPage.tsx</code> haalt <code>GET /product/releases</code> op en toont per release de versie, titel, datum, een korte samenvatting en een link naar GitHub. Bij een mislukte sync (<code>sync_error</code>) valt het scherm terug op directe GitHub-links.</li>
-<li><strong>Backend router:</strong> <code>backend/app/routers/product.py</code> — één endpoint <code>list_product_releases</code>, achter <code>get_current_user</code>.</li>
-<li><strong>Veilig ophalen (privé repo → token):</strong> <code>backend/app/services/github_releases_service.py</code> bevraagt de GitHub API. Als er een token geconfigureerd is (<code>settings.github_api_token</code>), wordt een <code>Authorization: Bearer &lt;token&gt;</code> meegestuurd; is de repo niet toegankelijk (status 401/403/404), dan geeft de service een nette <code>sync_error</code> in plaats van te crashen ("Configure GITHUB_API_TOKEN for a private repository or make the repository public"). De release-bodies worden geschoond en samengevat (<code>summarize_release_body</code> strip't Markdown/HTML en beperkt tot vier regels), en het resultaat wordt in een proces-lokale cache met TTL gehouden (<code>_ReleaseCatalogCache</code>) om GitHub niet te overvragen.</li>
+<li><strong>In de browser</strong> vangt <code>frontend/src/lib/telemetry.ts</code> die gebeurtenissen op en stuurt ze in groepjes naar <code>POST /api/ui-events</code>, ook bij het verlaten van de pagina. Telemetrie is <em>best effort</em>: een netwerkfout laat een gebeurtenis vallen, maar verstoort de app nooit.</li>
+<li><strong>Op de server</strong> is <code>ingest_ui_events</code> de filter: alleen een vaste lijst soorten wordt aanvaard (<code>click</code>, <code>navigation</code>, <code>submit</code>, <code>view</code>, <code>query</code>); in paden worden id's gemaskeerd en querystrings tot hun sleutels teruggebracht, zodat klinische identificaties niet worden opgeslagen; gevoelige velden (wachtwoord, token, …) worden gemaskeerd en geneste structuren tot hun type herleid. De actor komt uit het token.</li>
+<li><strong>Opslag:</strong> de gebeurtenissen gaan naar de tabel <code>ui_events</code>, via dezelfde verliesvrije wachtrij als de HTTP-auditlog (hoofdstuk 7).</li>
 </ul>
-<h2>UI-telemetrie &amp; audit-pijplijn</h2>
-<p>Naast de HTTP-audittrail (elke API-call) legt CoGA ook <em>betekenisvolle UI-interacties</em> vast die de backend anders nooit zien zou — kliks op knoppen/links/tabs en in-app navigaties. Dit voedt dezelfde duurzame audit-/telemetrie-infrastructuur uit <a href="#hs-11">hoofdstuk 11</a>.</p>
-<p><strong>Client-zijde.</strong> <code>frontend/src/lib/telemetry.ts</code> (<code>startUiTelemetry</code>) hangt in de capture-fase globale <code>click</code>- en <code>submit</code>-listeners op interactieve elementen (<code>button, a[href], [role="button"], [role="tab"], [role="menuitem"], ...</code>). Componenten kunnen via <code>data-audit-id</code> / <code>data-audit-label</code> een stabiel label meegeven. Events worden lokaal gebufferd (max 200), elke 5 s in batches naar <code>POST /ui-events</code> gestuurd, en bij het verbergen/verlaten van de pagina synchroon geflusht met <code>fetch(..., { keepalive: true })</code> (zodat de bearer-token nog meekan — <code>sendBeacon</code> kan die Authorization-header niet zetten). Telemetrie is strikt best-effort: netwerkfouten laten events vallen en verstoren de app nooit.</p>
-<p><strong>Server-zijde ingestie &amp; sanitisatie (privacy).</strong> <code>backend/app/routers/ui_events.py</code> (<code>ingest_ui_events</code>) is het beveiligingsfilter:
-- Alleen een whitelist van event-types (<code>click</code>, <code>navigation</code>, <code>submit</code>, <code>view</code>, <code>query</code> — <code>_ALLOWED_EVENT_TYPES</code>) wordt geaccepteerd; de rest wordt stil weggegooid, zodat een gemanipuleerde client geen willekeurige types kan opslaan.
-- <strong>Paden worden gemaskeerd</strong> (<code>_mask_path</code>): UUID's en numerieke id-segmenten worden <code>:id</code>, en query-strings worden gereduceerd tot hun (gesorteerde) sleutels. Zo belanden klinische identifiers nooit in de opslag.
-- <strong>Detail-blob wordt gesaneerd</strong> (<code>_sanitize_detail</code>): sleutels die op <code>password</code>, <code>secret</code>, <code>token</code>, <code>authorization</code>, <code>api_key</code>, <code>access_key</code> beginnen worden <code>***</code>; geneste structuren worden vervangen door alleen hun type (bv. <code>[dict]</code>), zodat een token diep in een payload niet per ongeluk verbatim wordt opgeslagen.
-- De acteur (user-id/e-mail/rol) komt uit het token; IP en user-agent uit de request.</p>
-<p><strong>Duurzame opslag.</strong> <code>backend/app/services/ui_event_pg.py</code> schrijft events naar de Postgres-tabel <code>ui_events</code> (in <code>04_traceability.sql</code>). In de <code>async</code>-modus lopen ze via een begrensde <code>asyncio.Queue</code> en een achtergrond-worker die in batches wegschrijft (<code>start_ui_event_worker</code>, <code>write_ui_event</code>). De gedeelde duurzaamheidslaag <code>backend/app/services/event_pipeline.py</code> — die ook de HTTP-audittrail bedient — garandeert dat een accountability-event nooit stil verloren gaat:
-- Bij een volle queue in productie wordt backpressure toegepast en zo nodig synchroon weggeschreven (<code>enqueue_event</code>); een echt onopslaanbaar event wordt met zijn volledige (reeds gesaniteerde) payload gelogd én geteld, nooit stil gedropt (<code>_record_unpersisted</code>).
-- Batch-writes worden met begrensde backoff herprobeerd (<code>write_event_batch_with_retry</code>).
-- Alleen in niet-productie (<code>AUDIT_LOG_DROP_ALLOWED</code>) mag een vol queue met een WARN droppen — de settings-validator weigert dit in productie.</p>
-<p class="waar"><strong>Waar in de code:</strong> client <code>frontend/src/lib/telemetry.ts</code>; ingestie <code>backend/app/routers/ui_events.py</code>; opslag <code>backend/app/services/ui_event_pg.py</code>; duurzaamheid <code>backend/app/services/event_pipeline.py</code>; admin-weergave <code>frontend/src/pages/admin/AdminAuditLogsPage.tsx</code>.</p>
-<h2>Family-status &amp; -structuur</h2>
-<p>Naast de statuscatalogus (hierboven) beheert CoGA de feitelijke gezinsstructuur — leden, samples en onderlinge relaties.</p>
-<ul>
-<li><strong><code>family_status_service.py</code></strong> — de statuscatalogus en per-familie workflow-metadata (status, <code>assigned_to</code>, <code>reviewed_by</code>), zie boven.</li>
-<li><strong><code>family_structure_service.py</code></strong> — <code>update_family_structure_for_admin</code> valideert en herschrijft de volledige gezinsstructuur: leden, ouder-kind- en partner-relaties, met een relatie-graafvalidatie (<code>_validate_relationship_graph</code>) die inconsistente stambomen weigert, plus het opnieuw genereren van PED-tekst. Bij verwijderen van een lid wordt bijbehorende genomische data opgeruimd (<code>_clear_family_genomic_data</code>).</li>
-<li><strong><code>family_member_management_service.py</code></strong> — fijnmaziger beheer per lid: <code>get_family_member_impact_for_user</code> toont vooraf de impact van een verandering (hoeveel data eraan hangt), <code>update_family_member_for_admin</code> / <code>update_family_members_batch_for_admin</code> wijzigen leden, en <code>delete_family_member_for_admin</code> verwijdert een lid. Een hernoeming/verwijdering wordt geblokkeerd wanneer er nog genomische data aan hangt (<code>_rename_block_reason</code>) — een veiligheidsrem tegen dataverlies.</li>
-</ul>
-<p>De onderliggende tabellen staan in hun eindvorm in <code>03_assay.sql</code> (voorheen bouwden de migraties <code>011</code>/<code>014</code>/<code>024</code> dit incrementeel op):
-- <strong>Ledenrollen</strong> — de rol-constraint van <code>family_members</code> laat o.a. <code>embryo</code> en <code>relative</code> toe, nodig voor PGT/embryo-families.
-- <strong>Status en relaties</strong> — <code>family_members</code> draagt <code>clinical_status</code>/<code>carrier_status</code> (+ carrier-detailkolommen), en de tabel <code>family_relationships</code> legt de relaties tussen leden vast (relatietypes <code>parent_child</code> / <code>couple</code>).
-- <strong>Workflow-metadata</strong> — de catalogustabel <code>family_statuses</code> (met geseede default-statussen) plus de kolommen <code>families.status_id</code>, <code>assigned_to_id</code> en <code>reviewed_by_id</code>, elk met <code>ON DELETE SET NULL</code>.</p>
-<p>Deze services worden aangesproken vanuit de admin- en familie-detailschermen; de stamboomlogica sluit aan op de haplotype-/pedigree-context uit <a href="#hs-9">hoofdstuk 9</a>.</p>
-<h2>Dekkingschecklist</h2>
-<p>Bevestiging dat elke top-level bron-map in de handleiding aan bod komt:</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Top-level map</th>
-<th>Behandeld in</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>backend/app/core</code></td>
-<td><a href="#hs-1">Hfdst. 1 (architectuur)</a>, <a href="#hs-3">3 (databank)</a>, <a href="#hs-4">4 (deployment)</a>, <a href="#hs-5">5 (auth)</a></td>
-</tr>
-<tr>
-<td><code>backend/app/routers</code></td>
-<td><a href="#hs-7">Hfdst. 7 (routers &amp; services)</a>; filters <a href="#hs-8">8</a>; dit hoofdstuk (<code>cnvs</code>, <code>panels</code>, <code>admin</code>, <code>product</code>, <code>ui_events</code>)</td>
-</tr>
-<tr>
-<td><code>backend/app/services</code></td>
-<td><a href="#hs-7">Hfdst. 7</a>; domein-specifiek in <a href="#hs-6">6</a>, <a href="#hs-10">10</a>, <a href="#hs-11">11</a>, <a href="#hs-12">12</a>; dit hoofdstuk (CNV-KB, panelen, admin, releases, event-pipeline, family-status/-structuur)</td>
-</tr>
-<tr>
-<td><code>backend/app/middleware</code></td>
-<td><a href="#hs-2">Hfdst. 2 (beveiliging)</a> &amp; <a href="#hs-11">11 (audit-middleware)</a></td>
-</tr>
-<tr>
-<td><code>frontend/src/pages</code></td>
-<td>Verspreid over <a href="#hs-5">5</a>, <a href="#hs-8">8</a>, <a href="#hs-10">10</a>–<a href="#hs-14">14</a>; dit hoofdstuk dekt <code>admin/</code>, <code>cnv-explorer/</code>, <code>panels/</code>, <code>docs/</code>, <code>product/</code> (en de CNV-detailpagina in <code>genome/</code>)</td>
-</tr>
-<tr>
-<td><code>frontend/src/components</code></td>
-<td><a href="#hs-8">Hfdst. 8</a> &amp; <a href="#hs-9">9</a> (filter- en visualisatiecomponenten); de admin-hulpcomponenten die dit hoofdstuk behandelt (<code>DataInventoryDetail</code>, <code>RawFileProvenanceTable</code>) staan in <code>pages/admin/</code>, niet in <code>components/</code></td>
-</tr>
-<tr>
-<td><code>frontend/src/lib</code></td>
-<td><a href="#hs-5">Hfdst. 5 (<code>api</code>, <code>auth</code>)</a>; dit hoofdstuk (<code>telemetry.ts</code>)</td>
-</tr>
-<tr>
-<td><code>frontend/src/visualizations</code></td>
-<td><a href="#hs-9">Hfdst. 9 (visualisaties)</a></td>
-</tr>
-<tr>
-<td><code>frontend/src/content</code></td>
-<td>Dit hoofdstuk (in-app referentiedocs onder <code>content/docs</code>)</td>
-</tr>
-</tbody>
-</table></div>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/telemetry.ts</code>, <code>backend/app/routers/ui_events.py</code> en <code>backend/app/services/ui_event_pg.py</code>.</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
 <thead>
@@ -3287,80 +3156,44 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </thead>
 <tbody>
 <tr>
-<td><code>backend/app/routers/cnvs.py</code></td>
-<td>Lees-API voor de klinische-CNV-catalogus (auth-only)</td>
+<td><code>backend/app/routers/admin.py</code></td>
+<td>De volledige beheer-API, alleen voor beheerders</td>
 </tr>
 <tr>
-<td><code>backend/app/services/clinical_cnv_kb_jobs.py</code></td>
-<td>Admin-getriggerde, geïsoleerde herbouw van de CNV-kennisbank + job-tracking</td>
+<td><code>backend/app/routers/cnvs.py</code> · <code>backend/app/services/clinical_cnv_kb_jobs.py</code></td>
+<td>De CNV-catalogus en de herbouw van de kennisbank</td>
 </tr>
 <tr>
-<td><code>backend/db/schema/postgres/02_reference.sql</code></td>
-<td><code>clinical_cnvs</code> met de curatie- en verrijkingskolommen + <code>clinical_cnv_kb_jobs</code>-tabel</td>
-</tr>
-<tr>
-<td><code>backend/app/routers/panels.py</code></td>
-<td>Genpaneel-CRUD (lezen: user; schrijven: admin) + PanelApp-import</td>
-</tr>
-<tr>
-<td><code>backend/app/services/panel_metadata_service.py</code></td>
-<td>Panelenlogica, versie-snapshots, Mendeliome-generatie</td>
+<td><code>backend/app/routers/panels.py</code> · <code>backend/app/services/panel_metadata_service.py</code></td>
+<td>Genpanels, versies, Mendeliome</td>
 </tr>
 <tr>
 <td><code>backend/app/services/panelapp_service.py</code></td>
-<td>PanelApp-client (zoeken/ophalen bij Genomics England)</td>
-</tr>
-<tr>
-<td><code>backend/app/routers/admin.py</code></td>
-<td>Volledige admin-API (data, ClickHouse, statussen, tags, audit, integriteit), admin-only</td>
+<td>PanelApp</td>
 </tr>
 <tr>
 <td><code>backend/app/services/admin_service.py</code></td>
-<td>Data-inventaris, delete-logica, ruw-bestand-verificatie</td>
+<td>Data-inventaris, verwijderen, bronbestanden verifiëren</td>
 </tr>
 <tr>
-<td><code>backend/app/routers/product.py</code> + <code>services/github_releases_service.py</code></td>
-<td>Release-feed, veilig via token voor privé repo</td>
+<td><code>backend/app/services/qc_threshold_service.py</code></td>
+<td>Grenzen voor sequencing-QC en hun geschiedenis</td>
 </tr>
 <tr>
-<td><code>backend/app/routers/ui_events.py</code></td>
-<td>Ingestie + sanitisatie (padmaskering, secret-redactie) van UI-telemetrie</td>
+<td><code>backend/app/services/family_structure_service.py</code> · <code>family_member_management_service.py</code></td>
+<td>Familiestructuur en ledenbeheer</td>
 </tr>
 <tr>
-<td><code>backend/app/services/ui_event_pg.py</code> + <code>event_pipeline.py</code></td>
-<td>Duurzame opslag en verliesvrije audit-/telemetrie-pijplijn</td>
+<td><code>backend/app/routers/ui_events.py</code> · <code>backend/app/services/ui_event_pg.py</code></td>
+<td>UI-telemetrie</td>
 </tr>
 <tr>
-<td><code>backend/app/services/family_status_service.py</code></td>
-<td>Statuscatalogus en per-familie workflow-metadata</td>
+<td><code>frontend/src/pages/admin/</code></td>
+<td>De beheerschermen</td>
 </tr>
 <tr>
-<td><code>backend/app/services/family_structure_service.py</code> / <code>family_member_management_service.py</code></td>
-<td>Gezinsstructuur- en ledenbeheer met validatie en impact-checks</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/cnv-explorer/ClinicalCnvExplorerPage.tsx</code> + <code>frontend/src/pages/genome/CnvDetailsPage.tsx</code></td>
-<td>CNV-browser en CNV-detailpagina</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/panels/*</code></td>
-<td>Panelencatalogus en -detail</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/admin/*</code></td>
-<td>Adminschermen (users, data, ClickHouse, statussen, presets, tags, audit, provenance)</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/docs/*</code> + <code>frontend/src/content/docs/*</code></td>
-<td>In-app gebruikersgids en referentiedocumentatie</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/product/NewFeaturesPage.tsx</code></td>
-<td>Release-/features-overzicht</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/telemetry.ts</code></td>
-<td>Client-zijde UI-telemetrie (kliks, navigaties, keepalive-flush)</td>
+<td><code>frontend/src/pages/docs/</code> · <code>frontend/src/content/docs/</code></td>
+<td>De in-app documentatie</td>
 </tr>
 </tbody>
 </table></div>
