@@ -28,7 +28,7 @@ De import zelf draait niet binnen het webverzoek maar in een **achtergrondworker
 
 ## Waar het pakket vandaan komt
 
-CoGA leest pakketten uit een lokale map, een AWS **S3**-bucket of **Google Cloud Storage** (GCS). Welke bron actief is, bepaalt `STORAGE_BACKEND`. Het verschil tussen `s3://` en `gs://` zit in één module; de rest van de importcode weet niet waar de bytes vandaan komen. Een pakket uit de cloud wordt eerst naar een tijdelijke map gekopieerd, zodat dezelfde importlogica draait; die map wordt daarna opgeruimd.
+CoGA leest pakketten uit een lokale map, een AWS **S3**-bucket of **Google Cloud Storage** (GCS). Welke bron actief is, bepaalt `STORAGE_BACKEND`. Het verschil tussen `s3://` en `gs://` zit in één module; de rest van de importcode weet niet waar de bytes vandaan komen. Een pakket uit de cloud wordt eerst naar een tijdelijke map gekopieerd, zodat dezelfde importlogica draait; die map wordt daarna opgeruimd. De alignments (`.cram`, `.crai`, `.bam`, `.bai` en een `.csi` van een alignment) blijven in de bucket: geen importer leest ze, en een CRAM van een volledig genoom is tientallen gigabytes. Alleen de dataset `alignments` mag naar zo'n bestand verwijzen; de import controleert dat het object bestaat en legt zijn URI vast. Omdat de tijdelijke map verdwijnt, noemen de joblog, het validatierapport, de herkomst van de familie en het register van bronbestanden de map en de objecten in de bucket. Heeft het manifest geen `family_id`, dan krijgt de familie de naam van de map in de bucket, zoals bij een lokale map.
 
 Welke locaties gescand mogen worden, staat in `FAMILY_IMPORT_ROOTS`: een **allowlist**. Een pad buiten die lijst wordt geweigerd (`HTTP 403`), zodat een beheerder niet zomaar een willekeurig bestand op de server kan laten inlezen. Alleen als de lijst leeg is, staat de controle open; dat is een bewuste ontwikkelmodus.
 
@@ -56,7 +56,7 @@ De dry-run is de veiligheidspoort van de import. Hij voert exact dezelfde contro
 2. **Bestaan** — de map bestaat en het manifest bestaat.
 3. **Manifestversie** — `schema_version` moet `1` zijn (ontbreekt ze, dan volgt een waarschuwing).
 4. **PED** — zes kolommen, één familie, unieke sample-id's, de juiste familie-id.
-5. **Per dataset** — de bestanden bestaan, en een gecomprimeerde VCF/BCF heeft een index (`.tbi`, `.csi` of `.idx`); een ongecomprimeerde `.vcf` mag zonder. Een onbekende dataset is een **fout**; een ontbrekende kerndataset (`snv` of `sv_needlr`) geeft een **waarschuwing**.
+5. **Per dataset** — de bestanden bestaan (een alignment van een pakket uit de cloud: in de bucket), en een gecomprimeerde VCF/BCF heeft een index (`.tbi`, `.csi` of `.idx`); een ongecomprimeerde `.vcf` mag zonder. Een onbekende dataset is een **fout**; een ontbrekende kerndataset (`snv` of `sv_needlr`) geeft een **waarschuwing**.
 6. **Fenotypes (HPO)** — een fenotypetabel moet naar samples uit de PED verwijzen; slechte rijen worden waarschuwingen.
 
 Elke bevinding heeft een vaste `code`, zodat de UI en een auditor een fout eenduidig kunnen benoemen. Is er één fout, dan stopt de import met "Package validation failed; no data were imported." en wordt er niets weggeschreven.
@@ -66,7 +66,7 @@ Elke bevinding heeft een vaste `code`, zodat de UI en een auditor een fout eendu
 ## Integriteit van de gegevens
 
 - **Herkomst uit de VCF-header.** Bij elke VCF-import leest CoGA de `##`-regels en leidt daaruit af welke caller (bv. DeepVariant, Sniffles, TRGT, GLIMPSE), welke annotatietool (VEP, snpEff, bcftools) en welke databankversies (gnomAD, ClinVar, dbNSFP, SpliceAI, …) de data maakten. Dat is *best effort* en faalt nooit: een onbekende header levert minder op, maar laat de import niet mislukken. **Waar in de code:** `backend/app/services/vcf_header_provenance.py`.
-- **Een SHA-256 per bronbestand.** Van elk bronbestand wordt een SHA-256-vingerafdruk berekend, in blokken, zodat ook een CRAM van vele gigabytes niet in het geheugen hoeft. Een beheerder kan die hash later opnieuw laten controleren; voor zeer grote bestanden (boven een vaste grootte- of tijdsgrens) slaat de controle over en meldt ze `too_large`. **Waar in de code:** `backend/app/services/raw_import_files_pg.py`.
+- **Een SHA-256 per bronbestand.** Van elk bronbestand wordt een SHA-256-vingerafdruk berekend, in blokken, zodat ook een CRAM van vele gigabytes niet in het geheugen hoeft. Een beheerder kan die hash later opnieuw laten controleren; voor zeer grote bestanden (boven een vaste grootte- of tijdsgrens) slaat de controle over en meldt ze `too_large`. Bij een pakket uit de cloud wordt de tijdelijke kopie gehasht, en krijgt elk bestand ook het record van de opslag: grootte, generatie (GCS) of versie (S3), ETag en de checksums van de opslag, elk met zijn algoritme. Een alignment die in de bucket blijft, heeft geen SHA-256. De controle achteraf vergelijkt een bestand in de bucket met dat record, zonder het opnieuw te hashen: het object moet nog bestaan, met dezelfde grootte en generatie of versie. **Waar in de code:** `backend/app/services/raw_import_files_pg.py`.
 - **Begrensd lezen en uitpakken.** Pakketbestanden en uploads worden begrensd gelezen en uitgepakt, tegen "decompressiebommen" (hoofdstuk 2). Downloads van referentiedata hebben een eigen begrenzing. **Waar in de code:** `backend/app/services/upload_safety.py` en `bounded_download.py`.
 - **Geen ontsnapping uit de map.** Elk pad uit het manifest moet binnen de pakketmap blijven (`../../etc/passwd` geeft `HTTP 400`), en bij het kopiëren uit de cloud moet elk doelpad binnen de tijdelijke map blijven. **Waar in de code:** `family_package_common.py` en `backend/app/core/object_storage.py`.
 
@@ -129,9 +129,9 @@ Naast de hash per bestand houdt CoGA per familie één **annotatiemanifest** bij
 
 ## Het register van bronbestanden
 
-Het traceerbaarheidsregister bij uitstek is **`raw_import_files`**: één rij per fysiek bronbestand, met bestandsnaam, soort, familie of sample, opslagpad, grootte, SHA-256 en bron. Een nieuwe import van hetzelfde bestand werkt de rij bij in plaats van een dubbel te maken. Pakketbestanden worden ter plaatse geregistreerd: CoGA verplaatst of verwijdert ze niet. Voor een pakket uit de cloud wordt de blijvende bucket-URI vastgelegd, niet de tijdelijke kopie.
+Het traceerbaarheidsregister bij uitstek is **`raw_import_files`**: één rij per fysiek bronbestand, met bestandsnaam, soort, familie of sample, opslagpad, grootte, SHA-256 en bron. Een nieuwe import van hetzelfde bestand werkt de rij bij in plaats van een dubbel te maken. Pakketbestanden worden ter plaatse geregistreerd: CoGA verplaatst of verwijdert ze niet. Voor een pakket uit de cloud wordt de blijvende bucket-URI vastgelegd, niet de tijdelijke kopie, samen met het record van de opslag (`metadata.store_object`).
 
-Een auditor kan zo per familie nagaan: welke bestanden zijn ingelezen, met welke hash (opnieuw te controleren), in welke dataset; met welke tool- en databankversies (`family_annotation_manifest`); en hoe de job verliep, met status, tijdstippen, logregels en validatiebevindingen (`family_import_jobs`). Dat sluit de keten *geannoteerde VCF → opgeslagen data → herkomst → rapport*.
+Een auditor kan zo per familie nagaan: welke bestanden zijn ingelezen, met welke hash of welk opslagrecord (opnieuw te controleren), in welke dataset; met welke tool- en databankversies (`family_annotation_manifest`); en hoe de job verliep, met status, tijdstippen, logregels en validatiebevindingen (`family_import_jobs`). Dat sluit de keten *geannoteerde VCF → opgeslagen data → herkomst → rapport*.
 
 **Waar in de code:** `backend/app/services/raw_import_files_pg.py` en `family_package_registration.py`.
 
