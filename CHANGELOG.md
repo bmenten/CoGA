@@ -544,6 +544,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   hit. Phase comes from the reads or the parents, by the same rule for SNV + SNV pairs, which now
   also show trans by segregation. The SV→gene index is rebuilt after any SV change, not only after
   a package import (CR-107, #645).
+- **Monogenic NIPT consistency** — the variant list reports and classifies against the Summary's fetal
+  fraction; categories respect the father's genotype, and a father call under 10× counts as no call;
+  paternity rests on confident father calls only; haploid chrX calls inform fetal sex and the
+  father's sex check; artifact auto-seeding counts only the assay's cfDNA samples and never lists a
+  common or ClinVar pathogenic/conflicting variant; the Sample-QC NIPT summary describes the checks
+  that run (CR-108, #646).
 
 ### Security
 

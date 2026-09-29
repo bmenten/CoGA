@@ -1,9 +1,12 @@
 """Tests for the Exomiser-style variant prioritization scoring math."""
 
+import pytest
+
 from backend.app.services.variant_prioritization import (
     MODE_COMPOUND_HET,
     MODE_DE_NOVO,
     MODE_DOMINANT,
+    clinvar_may_assert_pathogenic,
     combine,
     frequency_score,
     pathogenicity_score,
@@ -24,6 +27,40 @@ def test_pathogenicity_clinvar_pathogenic_overrides() -> None:
         impact="low", clinvar="Pathogenic", cadd_phred=0, revel=0,
         spliceai_max=0, lof=None,
     ) == 1.0
+
+
+@pytest.mark.parametrize(
+    ("clinvar", "protected"),
+    [
+        ("Pathogenic", True),
+        ("Likely_pathogenic", True),
+        ("Pathogenic/Likely_pathogenic", True),
+        ("Pathogenic,_low_penetrance", True),
+        ("Likely_pathogenic,_low_penetrance", True),
+        ("Pathogenic|risk_factor", True),
+        ("uncertain_significance&likely_pathogenic", True),  # a VEP CLIN_SIG list
+        # A conflict may hold a P/LP submission, and ClinVar's per-submission breakdown is
+        # not imported, so every conflicting record is protected.
+        ("Conflicting_classifications_of_pathogenicity", True),
+        ("Conflicting_interpretations_of_pathogenicity", True),
+        ("conflicting_interpretations_of_pathogenicity&pathogenic", True),
+        # The normalised terms stored in clinvar_terms read the same way.
+        (["likely pathogenic"], True),
+        (["conflicting classifications of pathogenicity"], True),
+        (["uncertain significance", "pathogenic"], True),
+        (["benign", "likely benign"], False),
+        ("Uncertain_significance", False),
+        ("Benign/Likely_benign", False),
+        ("risk_factor", False),
+        ("drug_response", False),
+        ("not_provided", False),
+        ("", False),
+        (None, False),
+        ([], False),
+    ],
+)
+def test_clinvar_may_assert_pathogenic(clinvar, protected: bool) -> None:
+    assert clinvar_may_assert_pathogenic(clinvar) is protected
 
 
 def test_pathogenicity_clinvar_conflicting_is_not_scored_pathogenic() -> None:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Iterable
 
 # Segregation modes (compatible inheritance patterns given the pedigree).
 MODE_DE_NOVO = "de_novo"
@@ -57,6 +58,27 @@ _PLI_CONSTRAINED = 0.9
 _MISSENSE_Z_CONSTRAINED = 3.0
 _CONSTRAINED_LOF_FLOOR = 0.9  # a LoF in a highly LoF-intolerant gene is high-confidence
 _CONSTRAINED_MISSENSE_PRIOR = 0.6  # missense in a missense-constrained gene
+
+
+def clinvar_may_assert_pathogenic(clinvar: str | Iterable[str] | None) -> bool:
+    """True when a ClinVar significance carries, or may carry, a pathogenic or likely
+    pathogenic assertion: a variant no automatic step may set aside.
+
+    Read on whole words, as ``pathogenicity_score`` reads ClinVar: any "pathogenic" token
+    counts -- Pathogenic, Likely_pathogenic, Pathogenic/Likely_pathogenic, "Pathogenic,
+    low penetrance", a VEP CLIN_SIG list such as ``uncertain_significance&pathogenic`` --
+    and "pathogenicity" does not. Unlike the score, a conflicting record counts too: a
+    conflict can hold a P/LP submission, and only ClinVar's aggregate significance is
+    imported (not its per-submission CLNSIGCONF breakdown), so no conflict can be shown
+    to lack one. Takes a raw significance, or the normalised terms kept in
+    ``clinvar_terms``.
+    """
+    values = [clinvar] if clinvar is None or isinstance(clinvar, str) else list(clinvar)
+    for value in values:
+        text = (value or "").strip().lower()
+        if "conflict" in text or "pathogenic" in _CLINVAR_TOKEN_RE.findall(text):
+            return True
+    return False
 
 
 @dataclass(slots=True)

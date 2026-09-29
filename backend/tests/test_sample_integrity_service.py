@@ -5,6 +5,8 @@ import random
 import types
 import zlib
 
+import pytest
+
 from backend.app.services import sample_integrity_service
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 
@@ -141,6 +143,7 @@ def test_service_nipt_runs_paternity_parent_sex_and_category_qc(monkeypatch) -> 
     async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
         return types.SimpleNamespace(
             category_counts={1: 1, 2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
+            paternal_evidence={7: 40, 8: 2},
             fetal_sex=types.SimpleNamespace(
                 inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
             ),
@@ -194,3 +197,122 @@ def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> No
     assert report.overall_status == "warn"
     assert any("NIPT cfDNA analysis could not run" in note for note in report.notes)
     assert report.paternity_check is None
+
+
+def _nipt_site(variant_id: str, *, father_state: str, father_dp: int | None, present: bool):
+    from backend.app.services.nipt_analysis import NiptSiteObservation
+
+    return NiptSiteObservation(
+        variant_id=variant_id, chrom="1", pos=100, is_autosomal=True,
+        cf_present=present, cf_dp=400 if present else 120, cf_alt_reads=20 if present else 0,
+        cf_vaf=0.05 if present else 0.0, cf_qual=40.0,
+        father_state=father_state, father_dp=father_dp, father_qual=None,
+    )
+
+
+def test_service_nipt_paternity_ignores_sites_without_a_confident_father_call(monkeypatch) -> None:
+    # The recorded father has no call at any FF/2 site, and his confident hom-alt alleles are
+    # absent from the cfDNA. The no-call sites land in category 7 on the de novo prior alone;
+    # counted as paternal transmission, they read "paternity supported".
+    from backend.app.services.nipt_analysis import NiptQualityThresholds, run_nipt_analysis
+
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(
+        sample_integrity_service, "resolve_nipt_trio",
+        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
+    )
+    import backend.app.services.nipt_service as nipt_service
+
+    sites = [
+        _nipt_site(f"nocall-{i}", father_state="missing", father_dp=None, present=True)
+        for i in range(40)
+    ] + [
+        _nipt_site(f"absent-{i}", father_state="hom_alt", father_dp=50, present=False)
+        for i in range(12)
+    ]
+    analysis = run_nipt_analysis(sites, NiptQualityThresholds(), external_ff=0.10)
+    assert analysis.category_counts[7] == 40 and analysis.category_counts[8] == 12
+
+    async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
+        return analysis
+
+    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=None, family_id="FAM1", user=None
+        )
+    )
+
+    assert report.paternity_check is not None
+    assert (report.paternity_check.cat7_transmitted, report.paternity_check.cat8_absent) == (0, 12)
+    assert report.paternity_check.status == "fail"
+    assert report.overall_status == "fail"
+
+
+@pytest.mark.parametrize(
+    ("gt", "expected"),
+    [
+        ("0|1", (0, 1)),
+        ("1/1", (1, 1)),
+        ("0/0", (0, 0)),
+        # Haploid (a male's non-PAR chrX from ploidy-1 callers) reads as the homozygote.
+        ("1", (1, 1)),
+        ("0", (0, 0)),
+        # Missing data stays missing: a no-call, a half call, a non-genotype, a polyploid call.
+        ("./.", None),
+        (".", None),
+        ("", None),
+        (None, None),
+        ("./1", None),
+        ("1/.", None),
+        ("HET", None),
+        ("0/0/1", None),
+    ],
+)
+def test_parse_genotype(gt, expected) -> None:
+    assert sample_integrity_service._parse_genotype(gt) == expected
+
+
+def test_service_sexes_a_haploid_called_nipt_father(monkeypatch) -> None:
+    # A caller that emits ploidy-1 calls writes the father's non-PAR chrX as "0" / "1". Read
+    # as missing, his sex check stayed indeterminate, which the sign-out gate treats as an
+    # unverified identity for a NIPT father.
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(
+        sample_integrity_service, "resolve_nipt_trio",
+        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
+    )
+    import backend.app.services.nipt_service as nipt_service
+
+    async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
+        return types.SimpleNamespace(
+            category_counts={2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
+            paternal_evidence={7: 40, 8: 2},
+            fetal_sex=types.SimpleNamespace(
+                inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
+            ),
+        )
+
+    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
+    rng = random.Random(5)
+
+    async def _haploid_x_fetch(context, *, chrom, start, end, limit, source=None):
+        assert chrom == sample_integrity_service.QC_X_CHROM
+        rows = []
+        for i in range(600):
+            father = "1" if i % 2 else "0"
+            mother = _phased((int(rng.random() < 0.5), int(rng.random() < 0.5)))
+            rows.append((i, "A", "G", SAMPLES, [father, mother, "."]))
+        return rows
+
+    monkeypatch.setattr(sample_integrity_service, "fetch_imputed_phased_genotypes", _haploid_x_fetch)
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=None, family_id="FAM1", user=None
+        )
+    )
+
+    father = next(c for c in report.sex_checks if c.sample_id == "FATHER")
+    assert (father.inferred_sex, father.x_sites, father.status) == ("male", 600, "pass")

@@ -27,10 +27,10 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 ### Monogenic NIPT
 | Req | Implementation | Verifying test | Risk | Status |
 | --- | --- | --- | --- | --- |
-| REQ-NIPT-001 | `services/nipt_analysis.py::estimate_fetal_fraction` | `test_nipt_analysis.py::test_fetal_fraction_recovery` | H6 | ✅ |
-| REQ-NIPT-002 | `services/nipt_analysis.py::classify_site` | `test_nipt_analysis.py::test_category_*` | H6 | ✅ |
+| REQ-NIPT-001 | `services/nipt_analysis.py::estimate_fetal_fraction`, `::filter_sites_and_estimate_ff` | `test_nipt_analysis.py::test_fetal_fraction_recovery`; `test_nipt_service.py::test_the_variant_list_reports_the_summary_fetal_fraction` | H6 | ✅ |
+| REQ-NIPT-002 | `services/nipt_analysis.py::classify_site`; `services/nipt_service.py::derive_father_state` | `test_nipt_analysis.py::test_category_*`, `::test_classification_never_reports_a_state_the_father_rules_out`, `::test_a_father_call_below_min_father_dp_is_treated_as_no_call`; `test_nipt_service.py::test_derive_father_state*` | H6 | ✅ |
 | REQ-NIPT-003 | `services/nipt_analysis.py` | `test_nipt_analysis.py::test_ff_too_low_suppresses_fetal_inheritance` | H6 | ✅ |
-| REQ-NIPT-004 | `services/nipt_artifact_pg.py`, `services/nipt_service.py` | `test_nipt_artifact_pg.py`; `test_nipt_analysis.py::test_run_nipt_analysis_filter_counts` | H1 | ✅ |
+| REQ-NIPT-004 | `services/nipt_artifact_pg.py`, `services/nipt_service.py`; `services/clickhouse_family_variants.py::fetch_recurrent_small_variant_ids`; `services/variant_prioritization.py::clinvar_may_assert_pathogenic` | `test_nipt_artifact_pg.py`; `test_nipt_analysis.py::test_run_nipt_analysis_filter_counts`; `test_variant_prioritization.py::test_clinvar_may_assert_pathogenic`; `integration/test_nipt_artifact_seed_integration.py` | H1 | ✅ |
 | REQ-NIPT-005 | `services/nipt_analysis.py::estimate_fetal_fraction` (external-FF cross-check) | `test_nipt_analysis.py::test_external_ff_*` (agreement / flagged disagreement / prefer-external) | H6 | ✅ |
 | REQ-NIPT-006 | `services/nipt_coverage.py::summarize_on_target_coverage` | `test_nipt_coverage.py` (weighted median, low-coverage flags) | H1 | ✅ |
 | REQ-NIPT-007 | `services/nipt_service.py`; `routers/families_nipt.py` (`/nipt/variants`) | `test_nipt_service.py` (presets); `test_nipt_end_to_end.py::test_nipt_demo_recessive_at_risk` | — | ✅ |
@@ -127,7 +127,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 ### Sample QC
 | Req | Implementation | Verifying test | Risk | Status |
 | --- | --- | --- | --- | --- |
-| REQ-QC-001 | `services/sample_integrity_service.py` | `test_sample_integrity_qc.py`; `test_sample_integrity_service.py` | H4 | ✅ |
+| REQ-QC-001 | `services/sample_integrity_service.py`; `services/nipt_analysis.py` (`paternal_evidence`, `infer_fetal_sex`) | `test_sample_integrity_qc.py`; `test_sample_integrity_service.py` (incl. `::test_service_nipt_paternity_ignores_sites_without_a_confident_father_call`, `::test_service_sexes_a_haploid_called_nipt_father`); `test_nipt_analysis.py::test_paternity_evidence_counts_only_sites_with_a_confident_father_call`; `test_nipt_service.py::test_a_haploid_paternal_x_call_sexes_the_fetus` | H4 | ✅ |
 | REQ-QC-002 | `routers/families_reports.py` (`/qc/sample-integrity`) | `test_sample_integrity_service.py`; `FamilySampleQcPage.test.tsx` | H4 | ✅ |
 | REQ-QC-003 | `services/qc_threshold_service.py` (`QC_METRICS`, `list_qc_threshold_profiles`, `set_qc_threshold`); `routers/admin.py` (`GET/PUT /admin/qc-thresholds`); `03_assay.sql` (`qc_threshold_profiles`, `qc_thresholds`) | `test_qc_threshold_service.py` (catalogue integrity, unknown metric rejected, inverted bounds rejected); `AdminQcThresholdsPage.test.tsx` (per-profile isolation, save/clear) | H14 | ✅ |
 | REQ-QC-004 | `services/qc_threshold_service.py` (`evaluate_metric`, `evaluate_sequencing_qc`, `worst_verdict`, `resolve_family_qc_thresholds`); `services/metadata_service.py::_attach_sequencing_qc_verdicts` | `test_qc_threshold_service.py` (bound semantics per direction; unmeasured and unconfigured both `skip`; worst-metric rollup) | H14 | ✅ |

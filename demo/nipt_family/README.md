@@ -133,8 +133,10 @@ family-VCF importer accepts the uncompressed `.vcf`.)
 5. **Artifact filter (optional):** add `1-9501-A-G` to the artifact list via
    `POST /api/admin/nipt/artifacts` (`{"assembly_id": "<id>", "variant_id":
    "1-9501-A-G"}`) and reload — the funnel's "artifact-filtered" count becomes 1
-   and that variant drops out. `POST /api/admin/nipt/artifacts/auto-seed` would seed
-   recurrent variants automatically on a real cohort.
+   and that variant drops out. On a real cohort, `POST /api/admin/nipt/artifacts/auto-seed`
+   proposes candidates: variants carried by at least 5 cfDNA samples of the assay, leaving out
+   common variants and any variant with a ClinVar pathogenic, likely pathogenic or conflicting
+   record.
 
 ## Regenerate
 

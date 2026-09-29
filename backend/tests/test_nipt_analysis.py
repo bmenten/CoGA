@@ -202,7 +202,8 @@ def test_category_2_maternal_het_not_inherited() -> None:
 
 
 def test_category_4_maternal_het_hom_fetus() -> None:
-    site = _site("v", father_state="hom_ref", dp=600, alt=330)  # VAF 0.55 = 0.5 + FF/2
+    # A hom-alt fetus needs an alt from the father too, so he carries one.
+    site = _site("v", father_state="het", dp=600, alt=330)  # VAF 0.55 = 0.5 + FF/2
     c = classify_site(site, _ff(0.10), NiptQualityThresholds())
     assert c.category == 4
 
@@ -296,6 +297,93 @@ def test_father_no_coverage_flag() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 6b. The father's genotype bounds the fetal state
+# --------------------------------------------------------------------------- #
+# The fetus carries one maternal and one paternal allele. A hom-ref father passes
+# no alt, so the fetus is not hom-alt (categories 4 and 6) and nothing is paternal
+# (7); a hom-alt father always passes one, so the fetus is not hom-ref (2), not het
+# beside a hom-alt mother (5), and a de novo (1) cannot be told from his allele.
+
+_POSSIBLE_BY_FATHER = {
+    "hom_ref": {1, 2, 3, 5},
+    "het": {2, 3, 4, 5, 6, 7},
+    "hom_alt": {3, 4, 6, 7},
+}
+
+
+@pytest.mark.parametrize("father_state", sorted(_POSSIBLE_BY_FATHER))
+@pytest.mark.parametrize("alt", [15, 30, 120, 240, 270, 300, 330, 360, 480, 570, 600])
+def test_classification_never_reports_a_state_the_father_rules_out(
+    father_state: str, alt: int
+) -> None:
+    site = _site("v", father_state=father_state, dp=600, alt=alt)  # VAF 0.025 .. 1.0
+    c = classify_site(site, _ff(0.10), NiptQualityThresholds())
+    possible = _POSSIBLE_BY_FATHER[father_state]
+    assert c.category in possible
+    assert c.runner_up_category is None or c.runner_up_category in possible
+
+
+@pytest.mark.parametrize(
+    ("father_state", "alt", "expected"),
+    [
+        ("hom_ref", 330, 3),  # VAF 0.55: no paternal alt, so the fetus is het, not hom-alt
+        ("hom_ref", 600, 5),  # VAF 1.0: a hom-alt mother, and the father's ref in the fetus
+        ("hom_alt", 270, 3),  # VAF 0.45: the father's alt is in the fetus, so it is not hom-ref
+        ("hom_alt", 570, 6),  # VAF 0.95: the father's alt makes the fetus hom-alt
+    ],
+)
+def test_a_site_takes_the_closest_state_the_father_allows(
+    father_state: str, alt: int, expected: int
+) -> None:
+    site = _site("v", father_state=father_state, dp=600, alt=alt)
+    c = classify_site(site, _ff(0.10), NiptQualityThresholds())
+    assert c.category == expected
+
+
+def test_a_father_call_below_min_father_dp_is_treated_as_no_call() -> None:
+    # Pruning by the father's genotype is only as good as his call. A het father read
+    # as hom-ref at 3x would turn his transmitted allele into a de novo and rule out
+    # a hom-alt fetus; the thin call is treated as missing (and flagged) instead.
+    qc = NiptQualityThresholds()
+    assert qc.min_father_dp == 10
+    ff = _ff(0.10)
+
+    paternal = classify_site(_site("v", father_state="hom_ref", father_dp=3, dp=200, alt=10), ff, qc)
+    assert "father_no_coverage" in paternal.flags
+    assert paternal.category != 1
+
+    hom_fetus = classify_site(_site("v", father_state="hom_ref", father_dp=3, dp=600, alt=330), ff, qc)
+    assert "father_no_coverage" in hom_fetus.flags
+    assert hom_fetus.category == 4
+
+    # Nor is an absent allele of a thin hom-alt call a category-8 false negative.
+    absent = classify_site(
+        _site("v", father_state="hom_alt", father_dp=3, present=False, dp=120, alt=0, vaf=0.0),
+        ff,
+        qc,
+    )
+    assert absent.category is None
+    assert "false_negative" not in absent.flags
+
+    # At min_father_dp the call is trusted and prunes as before.
+    trusted = classify_site(_site("v", father_state="hom_ref", father_dp=10, dp=200, alt=10), ff, qc)
+    assert trusted.category == 1
+    assert "father_no_coverage" not in trusted.flags
+
+
+def test_fetal_sex_needs_a_trusted_paternal_x_call() -> None:
+    thin = [
+        _site(
+            f"X-{3_000_000 + i * 1000}-A-G", father_state="hom_alt", father_dp=3, chrom="X",
+            pos=3_000_000 + i * 1000, is_autosomal=False, dp=200, alt=10,
+        )
+        for i in range(10)
+    ]
+    result = infer_fetal_sex(thin, _ff(0.10), NiptQualityThresholds())
+    assert result.inferred == "indeterminate" and result.informative_sites == 0
+
+
+# --------------------------------------------------------------------------- #
 # 7. Orchestration and filter counts
 # --------------------------------------------------------------------------- #
 
@@ -316,6 +404,29 @@ def test_run_nipt_analysis_filter_counts() -> None:
         "failed_quality": 1,
         "failed_artifact": 1,
     }
+
+
+def test_paternity_evidence_counts_only_sites_with_a_confident_father_call() -> None:
+    # A present FF/2 site whose father call is missing or thin is classified category 7 on
+    # the de novo prior alone: it says nothing about who the father is.
+    qc = NiptQualityThresholds()
+    sites = [_site(f"cat7-{i}", father_state="het", dp=400, alt=20) for i in range(40)]
+    sites += [_site(f"nocall-{i}", father_state="missing", father_dp=None, dp=400, alt=20) for i in range(20)]
+    sites += [_site(f"thin-{i}", father_state="hom_ref", father_dp=3, dp=400, alt=20) for i in range(10)]
+    sites += [
+        _site(f"absent-{i}", father_state="hom_alt", present=False, dp=120, alt=0, vaf=0.0)
+        for i in range(3)
+    ]
+    sites += [
+        _site(f"thin-absent-{i}", father_state="hom_alt", father_dp=3, present=False, dp=120, alt=0, vaf=0.0)
+        for i in range(2)
+    ]
+
+    result = run_nipt_analysis(sites, qc)
+
+    assert result.category_counts[7] == 70  # the prior still places the thin/no calls here
+    assert result.category_counts[8] == 3
+    assert result.paternal_evidence == {7: 40, 8: 3}
 
 
 def test_run_nipt_analysis_end_to_end_recovers_ff_and_categories() -> None:

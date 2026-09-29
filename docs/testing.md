@@ -103,12 +103,12 @@ taken.
 | Test file | Purpose |
 | --- | --- |
 | [backend/tests/test_nipt.py](../backend/tests/test_nipt.py) | NIPT family/trio identification and assay-key resolution. |
-| [backend/tests/test_nipt_analysis.py](../backend/tests/test_nipt_analysis.py) | Fetal-fraction estimation (+ external-FF reconciliation), fetal-sex inference, 8-category site classification, empty-input fail-safe. |
+| [backend/tests/test_nipt_analysis.py](../backend/tests/test_nipt_analysis.py) | Fetal-fraction estimation (+ external-FF reconciliation), fetal-sex inference, 8-category site classification, empty-input fail-safe. Categories stay within the fetal states the father's genotype allows; a father call below `min_father_dp` counts as no call; paternity evidence counts only sites with a usable father call. |
 | [backend/tests/test_nipt_coverage.py](../backend/tests/test_nipt_coverage.py) | On-target coverage summarization, weighted-median, low-coverage flagging. |
 | [backend/tests/test_nipt_end_to_end.py](../backend/tests/test_nipt_end_to_end.py) | End-to-end NIPT on a demo VCF: FF + category recovery, recessive-at-risk. |
-| [backend/tests/test_nipt_artifact_pg.py](../backend/tests/test_nipt_artifact_pg.py) | Recurrent-artifact list CRUD, auto-seed, per-assay scoping. |
+| [backend/tests/test_nipt_artifact_pg.py](../backend/tests/test_nipt_artifact_pg.py) | Recurrent-artifact list CRUD, per-assay scoping. Auto-seed counts only the assay's own cfDNA samples and never returns a common variant or one with a ClinVar P/LP or conflicting record. |
 | [backend/tests/test_nipt_package_import.py](../backend/tests/test_nipt_package_import.py) | Discovery/validation of NIPT family packages (manifest/PED, analysis-type tags). |
-| [backend/tests/test_nipt_service.py](../backend/tests/test_nipt_service.py) | NIPT orchestration: observation building, filters, coverage, inheritance presets. The interval list, excluded intervals and excluded genes reach the variant load, and an unreadable interval is refused (422) before the cohort load (CR-080). |
+| [backend/tests/test_nipt_service.py](../backend/tests/test_nipt_service.py) | NIPT orchestration: observation building, filters, coverage, inheritance presets. The interval list, excluded intervals and excluded genes reach the variant load, and an unreadable interval is refused (422) before the cohort load (CR-080). The variant list reports the Summary's fetal fraction; the father's state follows the shared genotype classes, so a haploid chrX `1` sexes the fetus. |
 
 ### Expanded carrier screening / gene panels
 | Test file | Purpose |
@@ -241,7 +241,7 @@ taken.
 ### Variant prioritization & explorer
 | Test file | Purpose |
 | --- | --- |
-| [backend/tests/test_variant_prioritization.py](../backend/tests/test_variant_prioritization.py) | Exomiser-style scoring (pathogenicity, frequency, segregation, mode combinations). |
+| [backend/tests/test_variant_prioritization.py](../backend/tests/test_variant_prioritization.py) | Exomiser-style scoring (pathogenicity, frequency, segregation, mode combinations), and the ClinVar reading that keeps P/LP and conflicting variants off the NIPT artifact list. |
 | [backend/tests/test_variant_ranking_cache.py](../backend/tests/test_variant_ranking_cache.py) | Ranking-cache invalidation keyed by family/filters, the family's variant-data version and the scoring reference releases (HPO, gene_info) (#509). |
 | [backend/tests/test_variant_explorer_service.py](../backend/tests/test_variant_explorer_service.py) | Cross-project variant aggregation, ranking, carrier pagination. The ClinVar P/LP rescue lifts the frequency ceilings on the family search's terms, and adds nothing without a ceiling (CR-057). |
 | [backend/tests/test_variant_explorer_router.py](../backend/tests/test_variant_explorer_router.py) | Variant-explorer export column formatting. Sample genotype values whose sample id contains `:` (CR-057). |
@@ -250,8 +250,8 @@ taken.
 ### Sample QC
 | Test file | Purpose |
 | --- | --- |
-| [backend/tests/test_sample_integrity_qc.py](../backend/tests/test_sample_integrity_qc.py) | Relatedness, paternity, sex inference, Mendelian consistency, QC aggregation (sample-swap/data-integrity). |
-| [backend/tests/test_sample_integrity_service.py](../backend/tests/test_sample_integrity_service.py) | Family-scoped sample-integrity report generation. |
+| [backend/tests/test_sample_integrity_qc.py](../backend/tests/test_sample_integrity_qc.py) | Relatedness, paternity, sex inference, Mendelian consistency, QC aggregation (sample-swap/data-integrity); the NIPT profile summary names the checks that run. |
+| [backend/tests/test_sample_integrity_service.py](../backend/tests/test_sample_integrity_service.py) | Family-scoped sample-integrity report generation. NIPT paternity ignores sites without a usable father call; haploid chrX calls are parsed, so a haploid-called father is sexed; missing data stays missing. |
 | [backend/tests/test_family_structure_validation.py](../backend/tests/test_family_structure_validation.py) | Pedigree-graph validation and parent-sex consistency. |
 
 ### SQL / driver contracts
@@ -298,6 +298,7 @@ taken.
 | [backend/tests/integration/test_panel_regions_per_assembly.py](../backend/tests/integration/test_panel_regions_per_assembly.py) | #515 on real Postgres: per-assembly resolution and storage, a family's panel filter never reads another assembly's coordinates, and a pre-#515 `gene_panel_regions` table is upgraded in place (rows attributed or dropped, assembly in the primary key, idempotent). |
 | [backend/tests/integration/test_gene_search_indexes.py](../backend/tests/integration/test_gene_search_indexes.py) | P2-3: the gene-search expression indexes serve their real queries — seeds ~600 genes/gene_info + ANALYZE, then EXPLAINs the actual autocomplete / panel / region-OR / candidate-OR / gene_info-constraint shapes asserting no Seq Scan on genes/gene_info (and the autocomplete is pinned to its prefix index). |
 | [backend/tests/integration/test_track_availability_presence_integration.py](../backend/tests/integration/test_track_availability_presence_integration.py) | P2-1a end-to-end (real ClickHouse): ingests a tiny small-variant fixture and asserts the aggregated per-sample presence — non-ref counts, ref does not, chromosome filter scopes correctly. |
+| [backend/tests/integration/test_nipt_artifact_seed_integration.py](../backend/tests/integration/test_nipt_artifact_seed_integration.py) | NIPT artifact auto-seed on real Postgres + ClickHouse: each assay lists only the variants recurrent in its own cfDNA samples (tagged `assay: nipt_cfdna`, scoped by `assay_panel`) — not common SNPs, not a rare variant with a ClinVar P/LP or conflicting record (a recurrent VUS is still listed), not other assays' or WGS samples' recurrence, not a variant below the carrier threshold — and a sample stored under its UUID in one import and its name in another counts once. |
 | [backend/tests/integration/test_variant_explorer_keyset_integration.py](../backend/tests/integration/test_variant_explorer_keyset_integration.py) | P2-4b end-to-end (real ClickHouse): pages five variants (incl. a carrier-count tie) at page_size 2 via next_cursor — every variant once, non-increasing sort across page boundaries, correct page count — validating the HAVING seek + cursor round-trip. |
 | [backend/tests/integration/test_gcs_storage_integration.py](../backend/tests/integration/test_gcs_storage_integration.py) | GCS storage backend end-to-end against fake-gcs-server (real JSON API): seeds a bucket and asserts `object_exists`, `download_prefix` (nested-prefix layout), and remote package discovery (`list_remote_package_candidates` — manifest vs `.ped` vs neither). Endpoint from `GCS_ENDPOINT_URL`, else a container started via docker. Complements the mocked unit tests; signed-URL signing stays unit-only (needs real IAM SignBlob). |
 

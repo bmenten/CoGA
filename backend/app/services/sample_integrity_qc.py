@@ -518,12 +518,18 @@ _PROFILES: dict[ApplicationKind, QcProfile] = {
         run_sex=True, run_relatedness=True, run_mendelian=True,
         run_paternity=False, highlight_embryos=True,
     ),
+    # The per-member sex check is off here; the service sexes the father and the cfDNA
+    # sample itself (extra_sex_checks), which is why the summary still names it.
     "nipt": QcProfile(
         "nipt", "Monogenic NIPT (cfDNA)",
-        "cfDNA integrity: paternity is confirmed from paternal-transmitted sites "
-        "(categories 7/8), which excludes a sample mixup. Genotype relatedness and "
-        "chrX-heterozygosity sex do not apply to a maternal/fetal mixture; fetal "
-        "sex (chrY) is a separate check not yet wired here.",
+        "cfDNA integrity from the NIPT classification: paternity is confirmed from "
+        "paternal-transmitted sites (categories 7/8), which excludes a sample mixup; "
+        "fetal sex is read from paternal-X transmission (no chrY needed); and the "
+        "category distribution is checked (de-novo excess, ~50% maternal transmission). "
+        "Parent sex is checked from chrX zygosity for the father and for the cfDNA "
+        "sample, which reads as the mother because maternal DNA dominates the plasma. "
+        "Genotype relatedness and Mendelian errors do not apply to a maternal/fetal "
+        "mixture.",
         run_sex=False, run_relatedness=False, run_mendelian=False,
         run_paternity=True, highlight_embryos=False,
     ),
@@ -555,7 +561,8 @@ def profile_for(application: ApplicationKind) -> QcProfile:
 
 
 def evaluate_paternity(father: str, category_counts: dict[int, int]) -> PaternityCheck:
-    """Paternity verdict from the NIPT category tally (categories 7 and 8)."""
+    """Paternity verdict from the category-7 / -8 tally of the sites whose father call
+    is confident (``NiptAnalysisResult.paternal_evidence``), not the raw category counts."""
     cat7 = int(category_counts.get(7, 0))
     cat8 = int(category_counts.get(8, 0))
     informative = cat7 + cat8

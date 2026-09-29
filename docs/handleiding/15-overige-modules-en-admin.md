@@ -91,7 +91,7 @@ Een overzicht van de gedeelde filterpresets, en het beheer van de eigen variantt
 
 ### Overige
 
-Het beheer van de NIPT-artefacten (de lijst terugkerende artefacten per assay, met een automatische eerste vulling uit het cohort; hoofdstuk 8), de synchronisatie van de genreferentie (hoofdstuk 13), en het beheer van HPO en Monarch (hoofdstuk 12).
+Het beheer van de NIPT-artefacten (de lijst terugkerende artefacten per assay; op aanvraag stelt de API kandidaten voor uit de cfDNA-samples van dezelfde assay, zonder frequente varianten en zonder varianten met een ClinVar-melding pathogeen, waarschijnlijk pathogeen of conflicterend; hoofdstuk 8), de synchronisatie van de genreferentie (hoofdstuk 13), en het beheer van HPO en Monarch (hoofdstuk 12).
 
 ## In-app documentatie
 

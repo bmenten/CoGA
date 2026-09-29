@@ -28,7 +28,11 @@ from typing import Callable, Iterable, Sequence
 
 _EPS = 1e-4
 # De novo (category 1) is rare; down-weight it so a de novo call needs strong
-# likelihood evidence rather than winning on a near-tie at the FF/2 centre.
+# likelihood evidence rather than winning on a near-tie at the FF/2 centre. With a
+# trusted hom-ref father call and min_cf_alt_reads alt reads, this prior is the only
+# bar: the site's VAF is not separately tested against the FF interval, so a present
+# low-VAF site well below FF/2 still scores as category 1 (no other candidate sits
+# near 0).
 _DE_NOVO_PRIOR_WEIGHT = 0.02
 _LOG_PRIOR: dict[int, float] = {1: math.log(_DE_NOVO_PRIOR_WEIGHT)}
 
@@ -73,7 +77,8 @@ class NiptSiteObservation:
     cf_alt_reads: int | None
     cf_vaf: float | None
     cf_qual: float | None
-    # father -- germline; used only to prune candidate categories.
+    # father -- germline; prunes the candidate categories. The analysis reads it as
+    # 'missing' when father_dp / father_qual fall below the thresholds.
     father_state: str  # 'hom_ref' | 'het' | 'hom_alt' | 'missing'
     father_dp: int | None = None
     father_qual: float | None = None
@@ -142,6 +147,11 @@ class NiptAnalysisResult:
     fetal_sex: FetalSexResult = field(
         default_factory=lambda: FetalSexResult("indeterminate", 0, 0, 0)
     )
+    # The paternity evidence: category-7 (transmitted) and category-8 (absent) sites
+    # whose father call is confident -- called, at min_father_dp or deeper. A missing
+    # or thin call lands in category 7 on the de novo prior alone, which says nothing
+    # about who the father is, so category_counts[7] is not paternity evidence.
+    paternal_evidence: dict[int, int] = field(default_factory=lambda: {7: 0, 8: 0})
 
 
 # --------------------------------------------------------------------------- #
@@ -170,13 +180,40 @@ def _expected_vaf(category: int, ff: float) -> float:
     }[category]
 
 
-def _candidate_categories(father_state: str) -> list[int]:
-    if father_state == "hom_ref":
-        return [1, 2, 3, 4, 5, 6]
-    if father_state in ("het", "hom_alt"):
-        return [2, 3, 4, 5, 6, 7]
-    # 'missing' -- cannot separate de novo (1) from paternal (7).
-    return [1, 2, 3, 4, 5, 6, 7]
+# The fetus carries one maternal and one paternal allele, so the father's genotype
+# bounds the fetal state. A hom-ref father passes no alt: the fetus is not hom-alt
+# (categories 4 and 6) and nothing is paternal (7). A hom-alt father always passes
+# one: the fetus is not hom-ref (2), not het beside a hom-alt mother (5), and a de
+# novo (1) cannot be told from his allele. A het father allows every maternal state;
+# only a missing (or untrusted) call leaves de novo and paternal side by side.
+_CANDIDATES_BY_FATHER: dict[str, tuple[int, ...]] = {
+    "hom_ref": (1, 2, 3, 5),
+    "het": (2, 3, 4, 5, 6, 7),
+    "hom_alt": (3, 4, 6, 7),
+    "missing": (1, 2, 3, 4, 5, 6, 7),
+}
+
+
+def _candidate_categories(father_state: str) -> tuple[int, ...]:
+    return _CANDIDATES_BY_FATHER.get(father_state, _CANDIDATES_BY_FATHER["missing"])
+
+
+def _trusted_father_state(site: NiptSiteObservation, qc: NiptQualityThresholds) -> str:
+    """The father's genotype state, or ``missing`` when his call is too thin to trust.
+
+    The candidate categories, the category-8 absence check, the FF sites and the
+    paternal-X fetal sex all rest on the father's genotype, so a call below
+    ``min_father_dp`` (or ``min_father_qual``, when a quality is known) counts as no
+    call. A het father read as hom-ref at 3x would otherwise turn his transmitted
+    allele into a de novo and rule out a hom-alt fetus.
+    """
+    if site.father_state == "missing":
+        return "missing"
+    if (site.father_dp or 0) < qc.min_father_dp:
+        return "missing"
+    if site.father_qual is not None and site.father_qual < qc.min_father_qual:
+        return "missing"
+    return site.father_state
 
 
 def _log_beta_binom(k: int, n: int, mu: float, rho: float) -> float:
@@ -224,11 +261,7 @@ def _is_ff_site(site: NiptSiteObservation, qc: NiptQualityThresholds, vaf_ceilin
     """A category-7 site: father carries, mother hom-ref, present at low VAF."""
     if not site.is_autosomal:
         return False
-    if site.father_state not in ("het", "hom_alt"):
-        return False
-    if (site.father_dp or 0) < qc.min_father_dp:
-        return False
-    if site.father_qual is not None and site.father_qual < qc.min_father_qual:
+    if _trusted_father_state(site, qc) not in ("het", "hom_alt"):
         return False
     if not site.cf_present:
         return False
@@ -382,10 +415,11 @@ def classify_site(
     n = site.cf_dp or 0
     k = site.cf_alt_reads or 0
     present = bool(site.cf_present) and n > 0 and k >= qc.min_cf_alt_reads
+    father_state = _trusted_father_state(site, qc)
 
     # ---- Absence handling ------------------------------------------------- #
     if not present:
-        if site.father_state == "hom_alt":
+        if father_state == "hom_alt":
             if n < qc.min_cf_dp:
                 flags.append("low_depth_dropout")
                 return _classification(
@@ -406,7 +440,7 @@ def classify_site(
                 fetal_inheritance="paternal_not_transmitted", expected_vaf=ff / 2.0,
                 confidence=0.0, flags=flags,
             )
-        if site.father_state == "het":
+        if father_state == "het":
             return _classification(
                 site, category=None, maternal_state="hom_ref",
                 fetal_inheritance="paternal_not_transmitted", expected_vaf=ff / 2.0,
@@ -419,10 +453,10 @@ def classify_site(
         )
 
     # ---- Present: likelihood over the candidate categories ---------------- #
-    if site.father_state == "missing":
+    if father_state == "missing":
         flags.append("father_no_coverage")
 
-    candidates = _candidate_categories(site.father_state)
+    candidates = _candidate_categories(father_state)
     log_scores = {
         category: _log_beta_binom(k, n, _expected_vaf(category, ff), overdispersion)
         + _LOG_PRIOR.get(category, 0.0)
@@ -514,7 +548,8 @@ def infer_fetal_sex(
     for site in sites:
         if site.is_autosomal or not _is_nonpar_x(site.chrom, site.pos):
             continue
-        if site.father_state != "hom_alt":
+        # Hemizygous: a haploid "1" or a diploid "1/1" call both read hom_alt.
+        if _trusted_father_state(site, qc) != "hom_alt":
             continue
         n = site.cf_dp or 0
         k = site.cf_alt_reads or 0
@@ -537,6 +572,55 @@ def infer_fetal_sex(
     return FetalSexResult(inferred, transmitted, not_transmitted, informative)
 
 
+@dataclass(slots=True)
+class NiptFilteredSites:
+    """The sites that pass the quality and artifact filters, the funnel counts, and the
+    fetal fraction estimated over those sites."""
+
+    passed: list[NiptSiteObservation]
+    filter_counts: dict[str, int]
+    fetal_fraction: FetalFractionEstimate
+
+
+def filter_sites_and_estimate_ff(
+    sites: Iterable[NiptSiteObservation],
+    qc: NiptQualityThresholds,
+    *,
+    artifact_lookup: Callable[[str], bool] = lambda _variant_id: False,
+    external_ff: float | None = None,
+) -> NiptFilteredSites:
+    """Apply the quality and artifact filters, then estimate FF over what passes.
+
+    This is the one fetal-fraction computation. The summary (``run_nipt_analysis``)
+    and the variant list (``nipt_service.get_family_nipt_variants``) both take FF from
+    here, so the two views report the same estimate and classify against it; a listed
+    artifact or a failed-quality site never reaches the estimate.
+    """
+    total_in = 0
+    failed_quality = 0
+    failed_artifact = 0
+    passed: list[NiptSiteObservation] = []
+    for site in sites:
+        total_in += 1
+        if not _passes_quality(site, qc):
+            failed_quality += 1
+            continue
+        if artifact_lookup(site.variant_id):
+            failed_artifact += 1
+            continue
+        passed.append(site)
+    return NiptFilteredSites(
+        passed=passed,
+        filter_counts={
+            "total_in": total_in,
+            "passed": len(passed),
+            "failed_quality": failed_quality,
+            "failed_artifact": failed_artifact,
+        },
+        fetal_fraction=estimate_fetal_fraction(passed, qc, external_ff=external_ff),
+    )
+
+
 def run_nipt_analysis(
     sites: Sequence[NiptSiteObservation],
     qc: NiptQualityThresholds,
@@ -546,42 +630,31 @@ def run_nipt_analysis(
     overdispersion: float = 0.005,
 ) -> NiptAnalysisResult:
     """Filter, estimate FF, classify, and tally."""
-    total_in = 0
-    failed_quality = 0
-    failed_artifact = 0
-    survivors: list[NiptSiteObservation] = []
-    for site in sites:
-        total_in += 1
-        if not _passes_quality(site, qc):
-            failed_quality += 1
-            continue
-        if artifact_lookup(site.variant_id):
-            failed_artifact += 1
-            continue
-        survivors.append(site)
-
-    ff_estimate = estimate_fetal_fraction(survivors, qc, external_ff=external_ff)
+    filtered = filter_sites_and_estimate_ff(
+        sites, qc, artifact_lookup=artifact_lookup, external_ff=external_ff
+    )
+    ff_estimate = filtered.fetal_fraction
     classifications = [
         classify_site(site, ff_estimate, qc, overdispersion=overdispersion)
-        for site in survivors
+        for site in filtered.passed
     ]
 
     category_counts = {category: 0 for category in range(1, 9)}
-    for classification in classifications:
-        if classification.category is not None:
-            category_counts[classification.category] += 1
-
-    filter_counts = {
-        "total_in": total_in,
-        "passed": len(survivors),
-        "failed_quality": failed_quality,
-        "failed_artifact": failed_artifact,
-    }
+    paternal_evidence = {7: 0, 8: 0}
+    for site, classification in zip(filtered.passed, classifications):
+        if classification.category is None:
+            continue
+        category_counts[classification.category] += 1
+        if classification.category in paternal_evidence and _trusted_father_state(
+            site, qc
+        ) in ("het", "hom_alt"):
+            paternal_evidence[classification.category] += 1
 
     return NiptAnalysisResult(
         fetal_fraction=ff_estimate,
         category_counts=category_counts,
-        filter_counts=filter_counts,
+        filter_counts=filtered.filter_counts,
         classifications=classifications,
-        fetal_sex=infer_fetal_sex(survivors, ff_estimate, qc),
+        fetal_sex=infer_fetal_sex(filtered.passed, ff_estimate, qc),
+        paternal_evidence=paternal_evidence,
     )
