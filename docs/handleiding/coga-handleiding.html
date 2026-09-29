@@ -2156,198 +2156,135 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </table></div>
 </section><section id="hs-10" class="chapter">
 <h1>10. Variant-tagging &amp; semi-automatische ACMG-classificatie</h1>
-<p>Dit hoofdstuk beschrijft hoe een analist in CoGA varianten <em>labelt</em> (taggen) en <em>classificeert</em>, en hoe de tool daarbij assisteert met een <strong>semi-automatische ACMG/AMP-classificator</strong>. De kern is dat CoGA geen "auto-classifier" is: de software evalueert elk classificatiecriterium <strong>vooraf</strong> uit de beschikbare variant-, trio- en gendata, positioneert het op een puntenschaal, maar laat <em>elk</em> criterium overrijden door de reviewer. De uiteindelijke klasse en het puntentotaal worden altijd <strong>op de server herberekend</strong>, de gebruikte bewijsstukken worden <strong>bevroren</strong> (evidence-snapshot), en als het onderliggende bewijs later verandert wordt dat als <em>classification drift</em> gedetecteerd — wat de rapportvrijgave blokkeert (zie hoofdstuk 11). We behandelen zowel Small Variants (SNV/indel) als kopie-aantalvarianten (CNV), en zowel de frontend-evaluatielogica als de backend-scoring en -persistentie.</p>
-<p>Enkele begrippen die vaak terugkomen:
-- <strong>ACMG/AMP-criteria</strong>: een gestandaardiseerde set bewijsregels (Richards et al., 2015) met codes als <code>PVS1</code>, <code>PM2</code>, <code>BA1</code>. Een <code>P</code>-prefix duidt op pathogeen bewijs, een <code>B</code>-prefix op benigne bewijs.
-- <strong>Tag</strong>: een label dat aan een variant hangt (bv. "Report", "Send for validation", "Pathogenic - class 5").
-- <strong>Snapshot</strong> (momentopname): een bevroren kopie van de data zoals ze op een bepaald moment was.
-- <strong>JSONB</strong>: een Postgres-kolomtype dat een volledig JSON-document opslaat en doorzoekbaar maakt.
-- <strong>Upsert</strong>: één bewerking die een rij <em>invoegt als ze nog niet bestaat</em> en anders <em>bijwerkt</em>.</p>
-<hr />
-<h2>Twee onafhankelijke assen: fenotype en dragerschap</h2>
-<p>Voordat we bij classificatie komen: CoGA houdt op <em>familielid</em>-niveau twee volledig <strong>losstaande</strong> eigenschappen bij, die door de review- en ACMG-logica apart worden gelezen:</p>
+<p>Dit hoofdstuk beschrijft hoe een analist in CoGA varianten <em>labelt</em> (taggen) en <em>classificeert</em>, en hoe de software daarbij helpt met een <strong>semi-automatische ACMG/AMP-classificator</strong>. CoGA classificeert niet zelf: de software beoordeelt elk criterium vooraf uit de beschikbare variant-, familie- en gendata en zet het op een puntenschaal, maar de reviewer kan <em>elk</em> criterium aanpassen. De klasse en het puntentotaal worden altijd <strong>op de server herberekend</strong>, het gebruikte bewijs wordt <strong>bevroren</strong>, en verandert dat bewijs later, dan meldt CoGA <strong>drift</strong>, wat het ondertekenen tegenhoudt (hoofdstuk 11). De regels per criterium staan in de app: <em>Docs → Semi-automatic ACMG classification</em> (<code>frontend/src/content/docs/acmg-classification.md</code>).</p>
+<p>Enkele begrippen:</p>
 <ul>
-<li><strong>Klinische status (fenotype)</strong> — <code>clinical_status</code>: <code>unknown</code> / <code>unaffected</code> / <code>affected</code>. Dit zegt of het individu de aandoening <em>heeft</em>.</li>
-<li><strong>Dragerschap</strong> — <code>carrier_status</code>: <code>unknown</code> / <code>not_carrier</code> / <code>carrier</code>. Dit zegt of het individu de variant/het risico-allel <em>draagt</em>, ongeacht of het ziek is.</li>
+<li><strong>ACMG/AMP-criteria:</strong> een gestandaardiseerde set bewijsregels (Richards et al., 2015) met codes als <code>PVS1</code>, <code>PM2</code> of <code>BA1</code>. Een <code>P</code> wijst op pathogeen bewijs, een <code>B</code> op benigne bewijs.</li>
+<li><strong>Tag:</strong> een label aan een variant (bv. "Report" of "Send for validation").</li>
+<li><strong>Snapshot:</strong> een bevroren kopie van de gegevens zoals ze op een bepaald moment waren.</li>
 </ul>
-<p>Deze scheiding is klinisch essentieel: bij recessieve aandoeningen is een ouder vaak <em>drager maar niet aangedaan</em>. De ACMG-segregatielogica (PP1/BS4, zie verder) redeneert daarom over de combinatie van beide assen, niet over één samengevoegde "rol".</p>
-<p class="waar"><strong>Waar in de code:</strong> het datamodel in <code>frontend/src/lib/apiTypes.ts</code> (sinds #528 getoetst aan de uit het backend-schema gegenereerde typen in <code>apiSchema.generated.ts</code>) (<code>clinical_status</code> en <code>carrier_status</code> als aparte velden op een familielid). De ACMG-familiecontext in <code>AcmgClassificationModal.tsx</code> markeert een lid als "aangedaan" via <code>Boolean(member.affected) || member.clinical_status === 'affected'</code>.</p>
-<hr />
-<h2>Deel 1 — Variant-tagging</h2>
+<h2>Twee aparte eigenschappen: fenotype en dragerschap</h2>
+<p>CoGA houdt per familielid twee losse eigenschappen bij:</p>
+<ul>
+<li><strong>Klinische status</strong> (<code>clinical_status</code>): <code>unknown</code>, <code>unaffected</code> of <code>affected</code>: heeft de persoon de aandoening?</li>
+<li><strong>Dragerschap</strong> (<code>carrier_status</code>): <code>unknown</code>, <code>not_carrier</code> of <code>carrier</code>: draagt de persoon het risicoallel, ziek of niet?</li>
+</ul>
+<p>Die scheiding is klinisch belangrijk: bij een recessieve aandoening is een ouder vaak drager maar niet aangedaan. De segregatieregels van de ACMG-evaluator lezen beide eigenschappen.</p>
+<h2>Deel 1 — Taggen</h2>
 <h3>Wat wordt vastgelegd</h3>
-<p>Bij het reviewen van een Small Variant legt CoGA per variant, per familie, minstens drie dingen vast:</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Element</th>
-<th>Betekenis</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>classification</strong></td>
-<td>De vrije-tekstlabel van de klasse (bv. "VUS - class 3").</td>
-</tr>
-<tr>
-<td><strong>tags</strong></td>
-<td>Een lijst met tag-sleutels (bv. <code>review</code>, <code>report</code>, <code>acmg_class_4</code>).</td>
-</tr>
-<tr>
-<td><strong>note</strong></td>
-<td>Een vrije notitie / rationale van de reviewer.</td>
-</tr>
-</tbody>
-</table></div>
-<p>Voor elke tag wordt bovendien <strong>tag-metadata</strong> bijgehouden: <em>wie</em> de tag zette en <em>wanneer</em> (<code>updated_by</code> / <code>updated_at</code> per tag). Dat maakt tagging traceerbaar tot op de individuele tag.</p>
-<p class="waar"><strong>Waar in de code:</strong> de opslaglaag is <code>upsert_small_variant_review</code> in <code>backend/app/services/small_variant_review_pg.py</code>. De per-tag-herkomst wordt geserialiseerd door <code>_serialize_tag_metadata</code> (in datzelfde bestand) en samengevoegd door de helper <code>_merge_tag_metadata</code> uit <code>backend/app/services/review_pg_utils.py</code>.</p>
-<h3>Project-gescoopte tag-definities</h3>
-<p>Welke tags <em>bestaan</em> wordt bepaald door <strong>tag-definities</strong>. Er zijn twee soorten:</p>
+<p>Per variant en per familie legt een review vast: de <strong>klasse</strong> (bv. "VUS - class 3"), een lijst <strong>tags</strong> en een <strong>notitie</strong>. Per tag wordt ook bewaard <em>wie</em> hem zette en <em>wanneer</em>.</p>
+<p><strong>Gelijktijdig bewerken.</strong> Slaat een reviewer op tegen een review die intussen door iemand anders werd gewijzigd, dan weigert de server (<code>409</code>) en stuurt hij de actuele versie mee, zodat niemand ongemerkt het werk van een ander overschrijft. Dat geldt voor small variants en structurele varianten.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/small_variant_review_pg.py</code>; de controle op gelijktijdige wijzigingen in <code>_raise_on_stale_review</code> (<code>backend/app/services/review_pg_utils.py</code>).</p>
+<h3>Welke tags bestaan</h3>
 <ul>
-<li><strong>Systeemtags</strong> (ingebouwd): vast in <code>DEFAULT_SMALL_VARIANT_TAGS</code> in <code>backend/app/services/small_variant_review_tags.py</code>. Deze omvatten collaboratie-tags (<code>review</code>, <code>send_for_validation</code>, <code>validated</code>, <code>report</code>, <code>excluded</code>, …) én de classificatietags (<code>acmg_class_1</code>..<code>acmg_class_5</code>, de VUS-subtiers <code>acmg_vus_hot</code> / <code>acmg_vus_warm</code> / <code>acmg_vus_cold</code>, en <code>secondary_finding</code>). Systeemtags kunnen <strong>niet</strong> worden bewerkt of verwijderd.</li>
-<li><strong>Custom tags</strong>: door een admin aangemaakt, opgeslagen in de tabel <code>small_variant_tag_definitions</code>.</li>
+<li><strong>Systeemtags</strong> zijn ingebouwd en niet te wijzigen: samenwerkingstags (bv. <code>review</code>, <code>send_for_validation</code>, <code>validated</code>, <code>report</code>, <code>excluded</code>) en de klassetags (<code>acmg_class_1</code> tot <code>acmg_class_5</code>, de VUS-niveaus <code>acmg_vus_hot</code>, <code>acmg_vus_warm</code> en <code>acmg_vus_cold</code>, en <code>secondary_finding</code>).</li>
+<li><strong>Eigen tags</strong> maakt een beheerder aan. Ze gelden overal (<code>global</code>) of voor één project (<code>project</code>), en een projecttag kan met extra projecten gedeeld worden.</li>
 </ul>
-<p>Custom tags hebben een <strong>scope</strong>: <code>global</code> (zichtbaar in alle projecten) of <code>project</code> (gebonden aan één project). Een project-tag kan bovendien met extra projecten <em>gedeeld</em> worden via de koppeltabel <code>small_variant_tag_definition_project_links</code>. Dit hele scope-mechanisme zit in <code>03_assay.sql</code> (voorheen migratie 006).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/db/schema/postgres/03_assay.sql</code> definieert de kolommen <code>scope</code> en <code>project_id</code> van <code>small_variant_tag_definitions</code> met CHECK-constraints (globaal ⇒ geen project; project ⇒ verplicht project) en maakt de koppeltabel aan. De zichtbaarheidslogica (welke tags mag deze reviewer in deze familie/projecten gebruiken) zit in <code>list_small_variant_tag_definitions</code> in <code>small_variant_review_tags.py</code>.</p>
-<blockquote>
-<p><strong>Traceerbaarheid &amp; idempotentie:</strong> het vroegere schemabestand 006 bevatte een expliciete waarschuwing dat een eerdere <em>backfill</em>-<code>UPDATE</code> was verwijderd. Omdat de schema-initialisatie élk <code>.sql</code>-bestand bij <em>elke</em> opstart opnieuw uitvoert (er is geen migratie-ledger), zette die onvoorwaardelijke UPDATE bij elke herstart alle project-tags terug naar <code>global</code> — stille dataverlies. <code>03_assay.sql</code> maakt de kolommen nu meteen in hun eindvorm aan, zonder backfill (zie <a href="#hs-3">hoofdstuk 3</a>). Les: schema-bestanden moeten idempotent zijn en mogen geen destructieve datamutaties bevatten. Een nieuwe database heeft géén backfill nodig, want de kolom <code>scope</code> krijgt de default <code>global</code>.</p>
-</blockquote>
-<h3>Validatie bij het opslaan</h3>
-<p>Bij het opslaan van een review controleert de backend dat <em>elke</em> opgegeven tag ook echt bestaat in de toegestane set voor die familie/projecten. Onbekende tags leveren een <code>400</code>-fout. Deze query wordt lui uitgevoerd: alleen wanneer de payload daadwerkelijk tags bevat, wordt de (relatief dure) join naar de toegestane tags uitgevoerd — hij draait hooguit één keer per opslag.</p>
-<p class="waar"><strong>Waar in de code:</strong> de geneste helper <code>_allowed_tags()</code> en de <code>unknown_tags</code>-check in <code>upsert_small_variant_review</code> (<code>small_variant_review_pg.py</code>); dezelfde controle staat in <code>upsert_structural_variant_review</code> voor structurele varianten.</p>
-<h3>Toegangscontrole op tag-beheer</h3>
-<p>Custom tags aanmaken/bewerken/verwijderen mag <strong>alleen een admin</strong>. Bovendien controleert <code>_ensure_projects_visible</code> dat een niet-admin geen tag koppelt aan een project waartoe hij geen toegang heeft (via <code>metadata_project_ids</code>).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>create_small_variant_tag_definition</code>, <code>update_small_variant_tag_definition</code>, <code>delete_small_variant_tag_definition</code> in <code>small_variant_review_tags.py</code> (elke functie begint met <code>if not is_admin_user(user): raise HTTPException(403, …)</code>, zodat ook een <code>superuser</code> als admin telt). Verwijderen is een <em>soft delete</em> (<code>is_active = FALSE</code>), geen fysieke verwijdering — belangrijk voor traceerbaarheid.</p>
-<h3>Filter-presets</h3>
-<p>Naast tags kan een analist zijn filterinstellingen bewaren als <strong>preset</strong>, met scope <code>family</code> (alleen deze familie) of <code>global</code> (alle families van deze eigenaar). Presets zijn eigenaar-gebonden: verwijderen mag alleen de eigenaar.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/small_variant_review_presets.py</code> (<code>save_small_variant_filter_preset</code>, <code>list_small_variant_filter_presets</code>, <code>delete_small_variant_filter_preset</code> — deze laatste bevat de <code>row["owner"] != user.username</code>-check die niet-eigenaars met een <code>403</code> weert).</p>
-<h3>De repository-laag</h3>
-<p>De ruwe SQL (SELECT/INSERT/UPDATE/DELETE op <code>small_variant_reviews</code>) is afgezonderd in een repository-module, los van de businesslogica. Hier zit de gedeelde kolomlijst (<code>_SMALL_VARIANT_REVIEW_SELECT</code>) en de helperfuncties voor compound-het-groepen (twee varianten in <em>trans</em> op hetzelfde gen).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/small_variant_review_repository.py</code> (o.a. <code>_fetch_review_row</code>, <code>_insert_review_row</code>, <code>_update_review_row</code>, <code>_clear_compound_het_group</code>). De INSERT/UPDATE bevatten ook de ACMG-kolommen (<code>acmg</code>, <code>acmg_point_total</code>, <code>acmg_class</code>, <code>acmg_evidence_snapshot</code>) die we hieronder bespreken.</p>
-<h3>De eenvoudige review-dialoog</h3>
-<p>Naast de volledige ACMG-classificator bestaat er een lichtere review-dialoog waarin de analist enkel een klasse aanvinkt, standaard-/custom-tags toggelt en een notitie schrijft — zonder de criteria door te lopen. Ook toont die dialoog een Exomiser-achtige prioriteitsscore (variantimpact + zeldzaamheid + segregatie + fenotype-match) als beslissingssteun.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/families/SmallVariantReviewDialog.tsx</code> (met de <code>PriorityBreakdown</code>-subcomponent).</p>
-<hr />
-<h2>Deel 2 — De semi-automatische ACMG-classificator (SNV)</h2>
-<h3>Het idee: beslissingssteun, geen automaat</h3>
-<p>Vanuit een variantkaart of tabelrij opent <strong>ACMG classify</strong> een modal. Die:
-1. <strong>pre-evalueert</strong> de ACMG-criteria uit data die CoGA al heeft;
-2. positioneert elk criterium in één van vier toestanden;
-3. laat de analist elk criterium bevestigen, aanpassen of overrijden;
-4. scoort de geaccepteerde criteria op een groen→rood puntenschaal;
-5. herberekent bij het opslaan alles <strong>server-side</strong>.</p>
-<p>De canonieke documentatie van hoe elk criterium wordt gepositioneerd, staat in <code>docs/acmg-classification.md</code>; dat document benoemt zichzelf expliciet als <em>decision support, not an autoclassifier</em>.</p>
-<h3>De vier criteriumtoestanden</h3>
+<p>Bij het opslaan controleert de backend dat elke tag bestaat en in deze familie gebruikt mag worden; een onbekende tag geeft <code>400</code>. Eigen tags aanmaken, wijzigen of verwijderen mag alleen een beheerder (<code>admin</code> of <code>superuser</code>). Verwijderen zet een tag op inactief in plaats van hem te wissen, zodat oude reviews leesbaar blijven. Het beheerscherm staat onder Administratie (<code>frontend/src/pages/admin/AdminVariantTagsPage.tsx</code>).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/small_variant_review_tags.py</code>; de tabellen <code>small_variant_tag_definitions</code> en <code>small_variant_tag_definition_project_links</code> in <code>03_assay.sql</code>.</p>
+<h3>Filterpresets en de lichte reviewdialoog</h3>
+<p>Een analist kan zijn filterinstellingen bewaren als <strong>preset</strong>, voor één familie of voor al zijn families; alleen de eigenaar kan een preset verwijderen. Naast de volledige ACMG-classificator is er een <strong>lichte reviewdialoog</strong> om een klasse te kiezen, tags aan of uit te zetten en een notitie te schrijven, met de prioriteitsscore (hoofdstuk 12) als hulp.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/small_variant_review_presets.py</code>; <code>frontend/src/pages/families/SmallVariantReviewDialog.tsx</code>.</p>
+<h2>Deel 2 — De ACMG-classificator voor small variants</h2>
+<h3>Beslissingssteun, geen automaat</h3>
+<p>Vanuit een variant opent <strong>ACMG classify</strong> een dialoog die:</p>
+<ol>
+<li>de criteria vooraf beoordeelt uit de gegevens die CoGA al heeft;</li>
+<li>elk criterium in één van vier toestanden zet;</li>
+<li>de analist elk criterium laat bevestigen, aanpassen of verwerpen;</li>
+<li>de aanvaarde criteria op een puntenschaal zet;</li>
+<li>bij het opslaan alles <strong>op de server</strong> herberekent.</li>
+</ol>
+<h3>De vier toestanden</h3>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Toestand</th>
-<th>UI</th>
+<th>Weergave</th>
 <th>Betekenis</th>
-<th><code>disposition</code>-waarde</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Applied</strong></td>
+<td><strong>Applies</strong></td>
 <td>aangevinkt, groen</td>
-<td>Data steunt het duidelijk; telt mee in de score.</td>
-<td><code>applies</code></td>
+<td>De data steunt het criterium duidelijk; het telt mee</td>
 </tr>
 <tr>
 <td><strong>Consider</strong></td>
-<td>● amber, niet aangevinkt</td>
-<td>Relevant maar niet doorslaggevend signaal.</td>
-<td><code>consider</code></td>
+<td>oranje stip, niet aangevinkt</td>
+<td>Relevant signaal, niet doorslaggevend</td>
 </tr>
 <tr>
 <td><strong>Argues against</strong></td>
-<td>✕ rood, niet aangevinkt</td>
-<td>Data wijst de andere kant op (bv. in-silico benigne bij PP3).</td>
-<td><code>contraindicated</code></td>
+<td>rood kruis, niet aangevinkt</td>
+<td>De data wijst de andere kant op (bv. een benigne voorspelling bij PP3)</td>
 </tr>
 <tr>
 <td><strong>Not applicable</strong></td>
-<td>grijs, doorstreept</td>
-<td>Kan niet gelden voor dit varianttype; toch klikbaar.</td>
-<td><code>not_applicable</code></td>
+<td>grijs, doorgestreept</td>
+<td>Kan voor dit varianttype niet gelden, maar blijft aanklikbaar</td>
 </tr>
 </tbody>
 </table></div>
-<p>Alle vier zijn overrijdbaar: klikken op een criterium togglet het altijd.</p>
-<p class="waar"><strong>Waar in de code:</strong> de toestanden zijn getypeerd als <code>AcmgDisposition</code> in <code>frontend/src/lib/acmg/types.ts</code>. De weergave zit in <code>CriterionRow</code> binnen <code>AcmgClassificationModal.tsx</code>.</p>
-<h3>Welke criteria automatisch worden voorgeëvalueerd, en waaruit</h3>
-<p>De pure evaluatiefunctie <code>evaluateAcmg</code> leest een subset van de variantvelden plus optionele gen-, fenotype- en familiecontext, en produceert een lijst <em>suggesties</em>. Ze is bewust <strong>side-effect-vrij</strong>: ze wijzigt niets, ze stelt alleen voor.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/acmg/evaluate.ts</code> (functie <code>evaluateAcmg</code>).</p>
-<p>De belangrijkste automatische regels (drempels als benoemde constanten bovenaan <code>evaluate.ts</code>, kalibratie volgens ClinGen 2022):</p>
+<p>Alle vier zijn aan te passen: een klik op een criterium zet het altijd aan of uit.</p>
+<h3>Wat de evaluator vooraf beoordeelt</h3>
+<p>De evaluator leest de variant, en waar beschikbaar het genprofiel (ClinGen-dosage, overervingswijze uit GenCC, fenotypes van het gen), de HPO-termen van de proband en de genotypes in de familie. Hij verandert niets; hij stelt alleen voor. De belangrijkste regels:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
 <th>Criterium</th>
-<th>Databron</th>
+<th>Bron</th>
 <th>Regel (samengevat)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>PVS1</strong></td>
-<td>consequence + LOFTEE + ClinGen-dosage</td>
-<td>Predicted-null effect (<code>stop_gained</code>, <code>frameshift_variant</code>, canonieke splice, <code>start_lost</code>, <code>transcript_ablation</code>). <em>Very strong</em> als LOFTEE=<code>HC</code> én het LOF-mechanisme bewezen is (ClinGen "sufficient evidence"); anders <em>Strong</em> (applies); is het LOF-mechanisme onbevestigd, dan <em>Strong</em> als <strong>Consider</strong>. Kon het genprofiel niet geladen worden (<code>AcmgGeneContext.unavailable</code>), dan zegt het bewijs dat het mechanisme <em>niet beoordeeld</em> is, niet dat het onbevestigd is; hetzelfde geldt voor BS2 en voor PP4 zonder score, ook bij mislukte HPO-termen (<code>probandHpoUnavailable</code>, #616).</td>
+<td>gevolg, LOFTEE, ClinGen-dosage</td>
+<td>Een voorspeld verlies van functie (stopcodon, frameshift, canonieke splicing, …). <em>Very strong</em> als LOFTEE <code>HC</code> zegt én het verliesmechanisme bewezen is; anders <em>strong</em>, of <em>consider</em> als het mechanisme niet bevestigd is</td>
 </tr>
 <tr>
-<td><strong>PM2</strong></td>
-<td>gnomAD-frequentie</td>
-<td>Afwezig of AF &lt; 1×10⁻⁴ → Supporting (ClinGen-downgrade).</td>
-</tr>
-<tr>
-<td><strong>BA1</strong></td>
-<td>gnomAD-frequentie</td>
-<td>AF ≥ 5% → <em>stand-alone</em> benigne override.</td>
-</tr>
-<tr>
-<td><strong>BS1 / BS2</strong></td>
-<td>gnomAD-frequentie / homozygoten</td>
-<td>AF 1–5% → BS1 (Strong); homozygoten aanwezig → BS2 (Strong als gen recessief, anders Consider/Supporting).</td>
+<td><strong>PM2</strong>, <strong>BA1</strong>, <strong>BS1</strong>, <strong>BS2</strong></td>
+<td>gnomAD</td>
+<td>Afwezig of zeer zeldzaam → PM2 (<em>supporting</em>); zeer frequent → BA1, dat op zichzelf de variant benigne maakt; frequent → BS1; homozygoten aanwezig → BS2</td>
 </tr>
 <tr>
 <td><strong>PP2</strong></td>
 <td>gnomAD missense-Z</td>
-<td>Missense in constrained gen (Z ≥ 3.09).</td>
+<td>Missense in een gen dat weinig missense verdraagt</td>
 </tr>
 <tr>
-<td><strong>PP3 / BP4</strong></td>
+<td><strong>PP3</strong> / <strong>BP4</strong></td>
 <td>REVEL, SpliceAI, AlphaMissense</td>
-<td>REVEL/SpliceAI-drempels bepalen de sterkte; PP3 flag't BP4 als <em>argues against</em> en omgekeerd.</td>
+<td>De voorspellers bepalen de sterkte; het ene criterium telt als tegenargument voor het andere</td>
 </tr>
 <tr>
 <td><strong>BP7</strong></td>
-<td>consequence + SpliceAI</td>
-<td>Synoniem zonder splice-impact (SpliceAI &lt; 0.1); mét voorspelde splice-impact wordt BP7 juist <em>argues against</em>.</td>
+<td>gevolg en SpliceAI</td>
+<td>Synoniem zonder voorspelde splice-impact</td>
 </tr>
 <tr>
-<td><strong>PP5 / BP6</strong></td>
+<td><strong>PP5</strong> / <strong>BP6</strong></td>
 <td>ClinVar</td>
-<td>ClinVar meldt de variant pathogeen → PP5 (BP6 contra); benigne → BP6 (PP5 contra).</td>
+<td>ClinVar zegt pathogeen → PP5; benigne → BP6</td>
 </tr>
 <tr>
 <td><strong>PP4</strong></td>
 <td>Monarch-fenotypescore of HPO-overlap</td>
-<td>Gen↔proband-fenotype-specificiteit; sterkte schaalt met de Monarch-score (≥0.6 Moderate, ≥0.3 Supporting), anders directe HPO-overlap op Supporting.</td>
+<td>Hoe specifiek het fenotype bij het gen past</td>
 </tr>
 <tr>
-<td><strong>PM6 / PS2 / PP1 / BS4</strong></td>
-<td>trio-genotypes</td>
-<td><em>De novo</em> (afwezig bij beide sequenced ouders; bij een zoon op X of Y buiten de PAR's beslist de ouder die dat chromosoom doorgeeft, de moeder voor X en de vader voor Y, en mag de andere ouder de variant niet dragen; <code>hemizygous_in_males</code> komt van de backend, #621) → PM6 (PS2 blijft manueel); ≥2 aangedane dragers → PP1 (Consider); aangedaan familielid zónder variant → BS4 (Consider).</td>
+<td><strong>PM6</strong>, <strong>PP1</strong>, <strong>BS4</strong></td>
+<td>genotypes in de familie</td>
+<td>De novo (afwezig bij beide ouders) → PM6; bij een zoon op X of Y buiten de pseudo-autosomale regio's beslist alleen de ouder die dat chromosoom doorgeeft. Meerdere aangedane dragers → PP1 (<em>consider</em>); een aangedaan familielid zonder de variant → BS4 (<em>consider</em>). PS2 blijft een manuele keuze</td>
 </tr>
 </tbody>
 </table></div>
-<p>De frequentie-, in-silico- en molecular-consequence-blokken markeren de <em>niet-passende</em> criteria bovendien expliciet als <code>not_applicable</code>, zodat de werkset eerlijk blijft (bv. bij een missense-variant worden PVS1, PM4, BP3 en BP7 grijs).</p>
-<p>De gendata komt uit <code>GET /genes/profile</code> (ClinGen-dosage, GenCC-overervingsmodus, gen-HPO), de proband-HPO uit <code>GET /families/{id}/hpo</code>. Deze worden in de modal opgehaald en via <code>toGeneContext</code> naar de evaluator gevoed.</p>
-<p class="waar"><strong>Waar in de code:</strong> het ophalen en samenstellen van context (<code>useQuery</code> voor gene-profile en HPO; <code>familyContext</code>, <code>probandHpo</code>, <code>toGeneContext</code>) staat in <code>AcmgClassificationModal.tsx</code>. Criteria die menselijke input vereisen die CoGA niet uit de annotatie kan afleiden (onder meer PS1, PS3, PM1, PM3, PM5, PS4, BP2) worden <strong>nooit</strong> automatisch als <em>applies</em> voorgesteld en zijn in <code>criteria.ts</code> gemarkeerd met <code>autoEvaluable: false</code>.</p>
-<h3>De statische criteria-catalogus</h3>
-<p>Alle 28 ACMG/AMP-criteria (code, richting, standaardsterkte, toegestane sterktes) staan in één catalogus. Dit is de "single source of truth" voor de UI en de scorer.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/acmg/criteria.ts</code> (<code>ACMG_CRITERIA</code>, <code>ACMG_CRITERIA_BY_CODE</code>).</p>
+<p>De drempels volgen de ClinGen-kalibratie van 2022 en staan als benoemde constanten in de evaluator. Kon het genprofiel of de HPO-lijst niet geladen worden, dan zegt het bewijs dat het criterium <em>niet beoordeeld</em> is, niet dat het niet geldt. Criteria die een menselijk oordeel vragen dat CoGA niet uit de annotatie kan afleiden (o.a. PS1, PS3, PS4, PM1, PM3, PM5 en BP2), stelt de evaluator nooit als van toepassing voor.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/acmg/evaluate.ts</code> (de evaluator) en <code>criteria.ts</code> (de catalogus van de 28 criteria); het ophalen van de context in <code>frontend/src/pages/families/AcmgClassificationModal.tsx</code>.</p>
 <h3>De puntenschaal en de vijf klassen</h3>
-<p>CoGA gebruikt het <strong>Tavtigian/ClinGen Bayesiaanse puntensysteem</strong>. Elk geaccepteerd criterium draagt punten bij volgens zijn toegepaste sterkte; benigne criteria zijn negatief:</p>
+<p>CoGA gebruikt het Bayesiaanse puntensysteem van Tavtigian en ClinGen. Elk aanvaard criterium telt punten volgens zijn sterkte; benigne criteria tellen negatief.</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -2358,103 +2295,49 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </thead>
 <tbody>
 <tr>
-<td>Supporting (PP/BP)</td>
+<td>Supporting</td>
 <td style="text-align: right;">+1</td>
 <td style="text-align: right;">−1</td>
 </tr>
 <tr>
-<td>Moderate (PM)</td>
+<td>Moderate</td>
 <td style="text-align: right;">+2</td>
 <td style="text-align: right;">−2</td>
 </tr>
 <tr>
-<td>Strong (PS/BS)</td>
+<td>Strong</td>
 <td style="text-align: right;">+4</td>
 <td style="text-align: right;">−4</td>
 </tr>
 <tr>
-<td>Very strong (PVS1)</td>
+<td>Very strong</td>
 <td style="text-align: right;">+8</td>
 <td style="text-align: right;">—</td>
 </tr>
 </tbody>
 </table></div>
-<p>Het getekende totaal mapt op vijf klassen: <strong>≥10</strong> Pathogeen (klasse 5) · <strong>6…9</strong> Likely Pathogenic (4) · <strong>0…5</strong> VUS (3) · <strong>−1…−6</strong> Likely benign (2) · <strong>≤−7</strong> Benign (1). <code>BA1</code> (AF ≥ 5%) is een <strong>stand-alone override</strong>: één geaccepteerde BA1 maakt de variant benigne, ongeacht de rest.</p>
-<p>De VUS-band (0–5) wordt volgens de MAGI-ACMG-aanpak nog opgesplitst in subtiers naar nabijheid van de LP-drempel: <strong>4–5 hot</strong>, <strong>2–3 warm</strong>, <strong>0–1 cold</strong>. Deze tier is <code>null</code> voor niet-VUS.</p>
-<p class="waar"><strong>Waar in de code (frontend):</strong> <code>frontend/src/lib/acmg/score.ts</code> — <code>computeClassification</code>, <code>classKeyForPoints</code> (interne helper), <code>vusTierForPoints</code>. De sterkte→punten-tabel staat als <code>STRENGTH_POINTS</code> in <code>criteria.ts</code>.</p>
-<p class="waar"><strong>Waar in de code (backend):</strong> <code>backend/app/services/acmg_points.py</code> — spiegelt de frontend exact: <code>STRENGTH_POINTS</code>, <code>class_key_for_points</code>, <code>vus_tier_for_points</code>, <code>compute_classification</code>. De twee implementaties zijn <strong>parity-getest</strong> (identieke drempels; het commentaar verwijst naar elkaars functie).</p>
-<h3>Overrijdbaarheid en herberekening op de server</h3>
-<p>Elke rij in de modal heeft een checkbox (accepteren) en een sterkte-dropdown (<code>allowedStrengths</code>). Wijzigt de analist iets, dan wordt dat lokaal als <em>edit</em> gemarkeerd zodat een laat binnenkomende gene/HPO-query zijn werk niet overschrijft (<code>markEdited</code> / de <code>analystEdited</code>-ref, issue #337).</p>
-<p>Cruciaal voor veiligheid: bij het opslaan stuurt de frontend wél zijn berekende totaal mee, maar de <strong>backend negeert dat en herberekent</strong>. <code>_normalize_acmg_payload</code> valideert elke criteriumcode (<code>is_valid_code</code>) en -sterkte (<code>VALID_STRENGTHS</code>) — onbekende waarden geven een <code>400</code> — en roept <code>acmg_points.compute_classification</code> aan. Zo hangt een opgeslagen classificatie <strong>nooit</strong> af van de browser.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>handleSave</code> in <code>AcmgClassificationModal.tsx</code> (bouwt de <code>criteria</code>-payload en de auto-managed <code>acmg_class_*</code> / <code>acmg_vus_*</code> tags); server-herberekening in <code>_normalize_acmg_payload</code> in <code>backend/app/services/small_variant_review_acmg.py</code>.</p>
-<h3>De schaalbalk</h3>
-<p>De groen→rood balk toont de klasse (als label), het puntentotaal, de VUS-tier-chip en een pijl op de positie van het totaal. Bij een BA1-override staat de pijl helemaal links op benigne en toont hij "BA1" in plaats van een puntenwaarde.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/families/AcmgScaleBar.tsx</code> (o.a. <code>positionPct</code>, <code>standAloneBenign</code>).</p>
-<h3>Mitochondriale varianten (mtDNA)</h3>
-<p>Opent men de classificator op een variant uit de mtDNA-analyse (<code>variant.chr === 'MT'</code> mét <code>variant.mito</code>), dan routeert de modal naar een <strong>aparte</strong> evaluator volgens de ClinGen/McCormick-2020 mtDNA-specificaties. mtDNA is haploïd en maternaal overgeërfd, dus: geen <em>de novo</em>-logica (PS2/PM6 → <code>not_applicable</code>), striktere frequentiedrempels (<code>MT_BA1_AF = 0.005</code>), PVS1 alleen in eiwitcoderende loci, PP3/BP4 <code>not_applicable</code> (geen mt-predictoren geladen), en segregatie via de maternale lijn + heteroplasmie. De puntenschaal, de vijf klassen en de VUS-tiers zijn identiek — alleen de pre-evaluatie verschilt.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/acmg/evaluateMito.ts</code> (functie <code>evaluateMitoAcmg</code>). De selectie tussen de nucleaire en de mt-evaluator gebeurt in het seed-effect van <code>AcmgClassificationModal.tsx</code>.</p>
-<h3>Van suggesties naar werkselecties</h3>
-<p>De brug tussen de evaluator en de modal is <code>buildInitialSelections</code>: opgeslagen selecties (een eerdere classificatie) hebben voorrang op verse suggesties (de evaluator ververst enkel hun evidence-tekst), en bij meerdere suggesties voor één code wint de hoogste dispositie (<code>applies</code> &gt; <code>consider</code> &gt; <code>contraindicated</code> &gt; <code>not_applicable</code>).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/acmg/index.ts</code> (<code>buildInitialSelections</code>).</p>
-<hr />
-<h2>Deel 3 — CNV-ACMG (structurele varianten)</h2>
-<p>Kopie-aantalvarianten worden geclassificeerd volgens de <strong>ClinGen-2019 CNV-standaard</strong> (Riggs et al., 2020) — een fundamenteel ander puntensysteem dan de SNV-ACMG:</p>
+<p>Het totaal geeft de klasse: <strong>≥ 10</strong> pathogeen (klasse 5), <strong>6 tot 9</strong> waarschijnlijk pathogeen (4), <strong>0 tot 5</strong> VUS (3), <strong>−1 tot −6</strong> waarschijnlijk benigne (2), <strong>≤ −7</strong> benigne (1). Een aanvaarde <strong>BA1</strong> maakt de variant benigne, ongeacht de rest. Een VUS krijgt nog een niveau naar de afstand tot de grens van klasse 4: <strong>4–5 hot</strong>, <strong>2–3 warm</strong>, <strong>0–1 cold</strong>.</p>
+<p><strong>Server herberekent altijd.</strong> De frontend stuurt zijn eigen totaal mee, maar de backend negeert dat. Hij controleert elke criteriumcode en elke sterkte (onbekend geeft <code>400</code>) en berekent klasse, totaal en VUS-niveau opnieuw. Een opgeslagen classificatie hangt dus nooit af van de browser. Frontend en backend gebruiken dezelfde drempels, en beide kanten worden tegen die drempels getest. De dialoog schrijft de klasse ook terug als tag (<code>acmg_class_N</code>, en voor een VUS <code>acmg_vus_&lt;niveau&gt;</code>), zodat kaarten en samenvattingen ze tonen.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/acmg/score.ts</code> en <code>backend/app/services/acmg_points.py</code>; de herberekening in <code>backend/app/services/small_variant_review_acmg.py</code>.</p>
+<h3>Mitochondriale varianten</h3>
+<p>Een variant uit de mtDNA-analyse gaat naar een <strong>aparte evaluator</strong> volgens de ClinGen-specificaties voor mtDNA (McCormick 2020). mtDNA erft via de moeder en is haploïd, dus: geen de-novoregels, strengere frequentiedrempels, PVS1 alleen in eiwitcoderende loci, geen in-silicovoorspellers, en segregatie via de moederlijn en de heteroplasmie. De puntenschaal en de klassen zijn gelijk.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/acmg/evaluateMito.ts</code>.</p>
+<h2>Deel 3 — ACMG voor CNV's</h2>
+<p>Kopieaantalvarianten worden geclassificeerd volgens de <strong>ClinGen-CNV-standaard van 2019</strong> (Riggs et al., 2020), een ander puntensysteem:</p>
 <ul>
-<li>De bewijs-secties en gewichten <strong>verschillen tussen verlies (deletie) en winst (duplicatie)</strong>. Er zijn dus twee aparte catalogi (<code>CNV_LOSS_CRITERIA</code> / <code>CNV_GAIN_CRITERIA</code>).</li>
-<li>Punten zijn <strong>continu</strong> (bv. +0.90, −0.60) in plaats van discrete sterkten, en veel criteria hebben een <strong>toegestaan bereik</strong> (<code>min</code>/<code>max</code>, of <code>minPoints</code>/<code>maxPoints</code> in de frontend) waarbinnen de reviewer een waarde kiest.</li>
-<li>De klasse-drempels werken op ronde fracties: <strong>≥0.99</strong> P · <strong>0.90–0.98</strong> LP · <strong>−0.89…0.89</strong> VUS · <strong>−0.98…−0.90</strong> LB · <strong>≤−0.99</strong> B.</li>
+<li>De bewijssecties en gewichten verschillen tussen <strong>verlies</strong> (deletie) en <strong>winst</strong> (duplicatie): er zijn twee catalogi.</li>
+<li>Punten zijn <strong>continu</strong> (bv. +0,90 of −0,60), en veel criteria hebben een toegestaan bereik waarbinnen de reviewer een waarde kiest.</li>
+<li>De klassen: <strong>≥ 0,99</strong> pathogeen, <strong>0,90 tot 0,98</strong> waarschijnlijk pathogeen, <strong>−0,89 tot 0,89</strong> VUS, <strong>−0,98 tot −0,90</strong> waarschijnlijk benigne, <strong>≤ −0,99</strong> benigne.</li>
 </ul>
-<p>De auto-evaluator is bewust conservatief: hij vuurt alleen op signalen die de SV-payload betrouwbaar draagt (gen-overlap, gen-constraint pLI, geannoteerde overerving, aantal overlappende genen voor sectie 3). De sectie-3-genstelling verschilt per event-type: bij deletie/duplicatie (<code>all</code>-modus) tellen alle overlappende genen mee en scoort de evaluator de tier automatisch; bij inversie/translocatie/insertie (<code>disrupted</code>-modus) tellen alleen door breekpunten <em>verstoorde</em> genen en blijft de tier op 3A staan met een uitleg voor de reviewer.</p>
-<p>Net als bij SNV <strong>klemt en herberekent</strong> de server: <code>clamp_points</code> snoeit elke ingediende waarde binnen het toegestane bereik van dat criterium vóór het optellen, zodat een opgeslagen classificatie nooit een client-totaal vertrouwt. De numerieke invoervelden in de modal klemmen de waarde ook al lokaal binnen <code>minPoints</code>/<code>maxPoints</code>.</p>
-<p class="waar"><strong>Waar in de code:</strong>
-- Frontend: <code>frontend/src/lib/cnvAcmg/criteria.ts</code> (catalogi + <code>CNV_CLASS_LABELS</code>), <code>evaluate.ts</code> (<code>evaluateCnv</code>, <code>cnvGeneCountTier</code>, <code>cnvKindForType</code>, <code>cnvGeneCountMode</code>), <code>score.ts</code> (<code>computeCnvClassification</code>, <code>classKeyForPoints</code>, met interne puntenklemming).
-- Backend: <code>backend/app/services/cnv_acmg_points.py</code> (<code>CNV_LOSS_CRITERIA</code>, <code>CNV_GAIN_CRITERIA</code>, <code>clamp_points</code>, <code>compute_classification</code>) — parity met de frontend.
-- UI: <code>frontend/src/pages/families/CnvAcmgClassificationModal.tsx</code> (kies loss/gain, per criterium een checkbox + numeriek puntenveld + notitie), met <code>CnvScaleBar</code>.
-- Persistentie: <code>backend/app/services/structural_variant_review_pg.py</code> (<code>_normalize_cnv_acmg_payload</code>, <code>upsert_structural_variant_review</code>).</p>
-<p><strong>Verschil met SNV in één zin:</strong> SNV gebruikt discrete sterkten met vaste punten en een stand-alone BA1-override; CNV gebruikt continue, geklemde puntenbereiken die per verlies/winst verschillen en géén BA1-analoog kennen.</p>
-<hr />
-<h2>Deel 4 — Persistentie &amp; het evidence-snapshot</h2>
-<h3>De ACMG-kolommen</h3>
-<p>De volledige per-criterium-blob wordt als JSONB bewaard, samen met het herberekende totaal en de klasse-sleutel (gedenormaliseerd voor filteren en samenvattingen):</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Kolom</th>
-<th>Tabel</th>
-<th>Schema</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>acmg</code> (JSONB), <code>acmg_point_total</code> (INTEGER), <code>acmg_class</code> (TEXT)</td>
-<td><code>small_variant_reviews</code></td>
-<td><code>03_assay.sql</code></td>
-</tr>
-<tr>
-<td><code>cnv_acmg</code> (JSONB), <code>cnv_point_total</code> (DOUBLE PRECISION), <code>cnv_class</code> (TEXT)</td>
-<td><code>structural_variant_reviews</code></td>
-<td><code>03_assay.sql</code></td>
-</tr>
-</tbody>
-</table></div>
-<p>De blob bevat de criteria (code, sterkte/punten, evidence-tekst, <code>accepted</code>-vlag, <code>auto_suggested</code>-vlag), het <code>point_total</code>, de <code>classification</code>-label en voor SNV de <code>vus_tier</code>. Zo is een classificatie <strong>reproduceerbaar en auditeerbaar</strong>: men kan exact terugzien welke criteria met welke sterkte en welk bewijs zijn toegepast.</p>
-<p>Bij het opslaan schrijft de modal de berekende klasse ook terug als review-tag (<code>acmg_class_N</code>, plus <code>acmg_vus_&lt;tier&gt;</code> voor een VUS), zodat kaarten en samenvattingen ze oppikken. Herclassificeren buiten de VUS-band laat de tier-tag automatisch weg.</p>
-<p class="waar"><strong>Waar in de code:</strong> de auto-managed tags worden in <code>handleSave</code> (<code>AcmgClassificationModal.tsx</code>) toegevoegd; de opslag loopt via <code>upsert_small_variant_review</code> en de repository-<code>_insert_review_row</code> / <code>_update_review_row</code>.</p>
-<h3>Het bevroren evidence-snapshot</h3>
-<p>Dit is de kern van klinische traceerbaarheid. Op het moment van classificeren vriest CoGA de <em>evidence</em> in waarop de classificatie steunde, in de JSONB-kolom <code>acmg_evidence_snapshot</code>:</p>
-<ul>
-<li><code>annotation_version</code> en <code>annotation_set_hash</code> — de identiteit van de annotatieset; de hash is de goedkope <strong>drift-sleutel</strong> (verandert zodra <em>enige</em> annotatie verandert);</li>
-<li><code>clinvar</code> — de meest beslissingsrelevante waarde, uit de per-transcript-annotaties;</li>
-<li><code>captured_at</code> — het tijdstip.</li>
-</ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>build_evidence_snapshot</code> in <code>backend/app/services/small_variant_review_acmg.py</code>; het snapshot wordt gevuld in <code>upsert_small_variant_review</code> (<code>acmg_evidence_snapshot = build_evidence_snapshot(variant, now) if normalized_acmg else None</code>). De kolom staat in de tabeldefinitie van <code>small_variant_reviews</code> in <code>backend/db/schema/postgres/03_assay.sql</code>.</p>
-<h3>De onveranderlijke klinische audittrail</h3>
-<p>Naast het snapshot schrijft elke <em>Small-Variant</em>-review-wijziging een before→after-record in de <strong>append-only</strong> <code>clinical_audit_events</code>-tabel, in dezelfde transactie als de wijziging: <em>wie</em> welke variant classificeerde/taggde, <em>wanneer</em>, en <em>wat</em> veranderde (klasse, criteria-codes, tags, notitie). Dit is de klinische <em>actie</em>-log, los van de HTTP-<em>toegangs</em>-log <code>audit_log_pg</code>. De records worden bovendien in een <strong>hash-chain</strong> aan elkaar gebonden (per familie), zodat wissen, herordenen of bewerken van een record detecteerbaar is.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>record_review_changes</code> (aangeroepen als <code>_audit()</code> in <code>upsert_small_variant_review</code>, vóór de <code>commit</code>), met <code>diff_review_changes</code> en <code>record_clinical_event</code> in <code>backend/app/services/clinical_audit_service.py</code>; de hashketen zit in <code>chain_row_hash</code> / <code>verify_chain</code> uit <code>backend/app/services/hash_chain.py</code>.</p>
-<hr />
-<h2>Deel 5 — Classification drift</h2>
-<p>Een ondertekend rapport moet aantoonbaar gebonden zijn aan het bewijs achter elke gerapporteerde classificatie. Maar annotaties evolueren: een nieuwe ClinVar-/gnomAD-/annotatierelease kan het bewijs onder een reeds gemaakte classificatie doen verschuiven. CoGA detecteert dit als <strong>drift</strong>.</p>
-<p>De drift-service vergelijkt, per ACMG-geclassificeerde variant, het <strong>bevroren snapshot</strong> met de <strong>huidige</strong> annotatie. Ze berekent "current" met exact dezelfde snapshot-builder (<code>build_evidence_snapshot</code>), zodat frozen en current op identieke wijze worden geëxtraheerd. De uitkomst is één van:</p>
+<p>De evaluator is voorzichtig: hij stelt alleen voor op basis van wat de SV betrouwbaar meedraagt (overlappende genen, genconstraint, geannoteerde overerving, het aantal genen). Net als bij small variants <strong>begrenst en herberekent</strong> de server: elke waarde wordt binnen het bereik van haar criterium gehouden voordat ze wordt opgeteld. Anders dan bij small variants bestaat er geen analoog van BA1.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/cnvAcmg/</code> (catalogi, evaluator, score) en <code>frontend/src/pages/families/CnvAcmgClassificationModal.tsx</code>; <code>backend/app/services/cnv_acmg_points.py</code> en <code>structural_variant_review_pg.py</code>.</p>
+<h2>Deel 4 — Opslag en het bevroren bewijs</h2>
+<p>De volledige beoordeling per criterium wordt als JSON bewaard, met het herberekende totaal en de klasse ernaast (voor filters en samenvattingen): <code>acmg</code>, <code>acmg_point_total</code> en <code>acmg_class</code> op <code>small_variant_reviews</code>, en <code>cnv_acmg</code>, <code>cnv_point_total</code> en <code>cnv_class</code> op <code>structural_variant_reviews</code>. Zo is achteraf te zien welke criteria met welke sterkte en welk bewijs werden toegepast.</p>
+<p><strong>Het bewijssnapshot.</strong> Bij het classificeren van een small variant bevriest CoGA het bewijs in <code>acmg_evidence_snapshot</code>: de annotatieversie en de <strong>hash van de annotatieset</strong> (die verandert zodra enige annotatie verandert), de ClinVar-waarde en het tijdstip. Elke wijziging van een small-variantreview schrijft bovendien, in dezelfde transactie, een voor-en-na-regel in het append-only, hash-geketende <strong>klinische auditspoor</strong> (hoofdstuk 11): wie, wanneer en wat veranderde (klasse, criteria, tags, notitie).</p>
+<p><strong>Beperking.</strong> Alleen classificaties van small variants krijgen een bewijssnapshot, een driftcontrole en regels in het klinische auditspoor. Een wijziging aan een CNV- of SV-review staat alleen in de HTTP-auditlog en, na het ondertekenen, in het bevroren rapport.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>build_evidence_snapshot</code> in <code>backend/app/services/small_variant_review_acmg.py</code>; het auditspoor in <code>backend/app/services/clinical_audit_service.py</code>.</p>
+<h2>Deel 5 — Classificatiedrift</h2>
+<p>Annotaties veranderen: een nieuwe ClinVar- of gnomAD-release kan het bewijs onder een bestaande classificatie verschuiven. CoGA vergelijkt daarom per geclassificeerde small variant het bevroren snapshot met de huidige annotatie, met dezelfde functie die het snapshot bouwde:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -2465,30 +2348,24 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 <tbody>
 <tr>
 <td><code>current</code></td>
-<td>Ongewijzigd (hashes gelijk).</td>
+<td>Ongewijzigd (de hashes zijn gelijk)</td>
 </tr>
 <tr>
 <td><code>drifted</code></td>
-<td>Annotatie-hash veranderd sinds de classificatie.</td>
+<td>De annotatie veranderde sinds de classificatie</td>
 </tr>
 <tr>
 <td><code>variant_missing</code></td>
-<td>De variant zit niet meer in de dataset.</td>
+<td>De variant zit niet meer in de data</td>
 </tr>
 <tr>
 <td><code>unknown</code></td>
-<td>Eén van beide hashes ontbreekt → binding niet verifieerbaar.</td>
+<td>Een van beide hashes ontbreekt; de koppeling is niet te controleren</td>
 </tr>
 </tbody>
 </table></div>
-<p>Een subtiel maar belangrijk veiligheidsdetail: als een hash ontbreekt, wordt de status <strong>niet</strong> stilzwijgend als <code>current</code> gerapporteerd maar als <code>unknown</code> — en de sign-out-gate telt <code>unknown</code> als échte drift (vereist bevestiging). Een eerdere bug liet een hash-loos "current"-record de gate klaren, waardoor een verouderde classificatie ongemerkt in een rapport bevroor; het commentaar in <code>_diff</code> documenteert deze <em>fail-safe</em>.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/classification_drift_service.py</code> — <code>evaluate_classification_drift</code> (haalt alle reviews met een snapshot op, vergelijkt met <code>get_small_variant_family_record</code>), <code>_diff</code> (de statuslogica, inclusief de <code>unknown</code>-fail-safe), <code>_current_evidence</code>.</p>
-<p><strong>Waarom dit rapport-gating triggert:</strong> een gedetecteerde drift betekent dat een reviewer zijn classificatie opnieuw moet bekijken vóór ondertekening. De rapportvrijgave wordt hierop geblokkeerd tot de drift is erkend. De volledige rapport-gating en het traceerbaarheidskader worden behandeld in <a href="#hs-11">hoofdstuk 11 — Rapport &amp; volledige traceerbaarheid</a>.</p>
-<hr />
-<h2>Deel 6 — Adminbeheer van tags</h2>
-<p>De UI voor tag-definities zit onder Administratie. Een admin kiest een project-context (of "alle projecten"), maakt custom tags aan (label, scope global/project, primair project, gedeelde projecten, groep, kleur, beschrijving), en bewerkt/verwijdert ze in een tabel. Ingebouwde systeemtags worden getoond maar zijn "Not editable". Verwijderen vraagt een bevestiging (<code>window.confirm</code>).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/admin/AdminVariantTagsPage.tsx</code> (met <code>createTagMutation</code> / <code>updateTagMutation</code> / <code>deleteTagMutation</code> tegen <code>/admin/variant-tags</code>). De server dwingt de admin-only-regel en de projectzichtbaarheid af in <code>small_variant_review_tags.py</code> (zie Deel 1).</p>
-<hr />
+<p>Ontbreekt een hash, dan meldt de controle <strong>niet</strong> <code>current</code> maar <code>unknown</code>, en bij het ondertekenen telt <code>unknown</code> als drift. Een drift moet worden herbekeken of, met een reden, erkend voordat een rapport ondertekend kan worden (hoofdstuk 11).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/classification_drift_service.py</code> (de statuslogica in <code>_diff</code>).</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
 <thead>
@@ -2499,100 +2376,44 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </thead>
 <tbody>
 <tr>
-<td><code>docs/acmg-classification.md</code></td>
-<td>Canonieke referentie van de pre-evaluatie-/exclusieregels per criterium.</td>
+<td><code>frontend/src/content/docs/acmg-classification.md</code></td>
+<td>De regels per criterium, zoals het labo ze leest</td>
 </tr>
 <tr>
-<td><code>frontend/src/lib/acmg/criteria.ts</code></td>
-<td>Statische catalogus van de 28 ACMG/AMP-criteria + sterkte→punten.</td>
+<td><code>frontend/src/lib/acmg/</code></td>
+<td>Catalogus, evaluator (ook mtDNA) en puntenschaal</td>
 </tr>
 <tr>
-<td><code>frontend/src/lib/acmg/evaluate.ts</code></td>
-<td>Nucleaire auto-evaluator (variant/gen/fenotype/trio → suggesties).</td>
+<td><code>frontend/src/lib/cnvAcmg/</code></td>
+<td>CNV-catalogi, evaluator en puntenschaal</td>
 </tr>
 <tr>
-<td><code>frontend/src/lib/acmg/evaluateMito.ts</code></td>
-<td>mtDNA-specifieke auto-evaluator (McCormick 2020).</td>
+<td><code>frontend/src/pages/families/AcmgClassificationModal.tsx</code> · <code>CnvAcmgClassificationModal.tsx</code></td>
+<td>De classificatiedialogen</td>
 </tr>
 <tr>
-<td><code>frontend/src/lib/acmg/score.ts</code></td>
-<td>Puntenscorer + klasse- en VUS-tier-mapping (frontend).</td>
+<td><code>backend/app/services/acmg_points.py</code> · <code>cnv_acmg_points.py</code></td>
+<td>Herberekening op de server</td>
 </tr>
 <tr>
-<td><code>frontend/src/lib/acmg/index.ts</code></td>
-<td><code>buildInitialSelections</code>: suggesties + opgeslagen selecties samenvoegen.</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/cnvAcmg/{criteria,evaluate,score}.ts</code></td>
-<td>ClinGen-2019 CNV-catalogi, auto-suggestie en geklemde scorer.</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/AcmgClassificationModal.tsx</code></td>
-<td>SNV-classificatie-UI (context ophalen, criteria toggelen, opslaan).</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/AcmgScaleBar.tsx</code></td>
-<td>Groen→rood puntenschaalbalk met VUS-tier-chip.</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/CnvAcmgClassificationModal.tsx</code></td>
-<td>CNV-classificatie-UI (loss/gain, per criterium punten).</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/families/SmallVariantReviewDialog.tsx</code></td>
-<td>Lichte review-dialoog (klasse/tags/notitie + prioriteitsscore).</td>
-</tr>
-<tr>
-<td><code>frontend/src/pages/admin/AdminVariantTagsPage.tsx</code></td>
-<td>Adminbeheer van (project-gescoopte) custom tags.</td>
-</tr>
-<tr>
-<td><code>backend/app/services/acmg_points.py</code></td>
-<td>Server-herberekening SNV-punten/klasse/VUS-tier (parity met frontend).</td>
-</tr>
-<tr>
-<td><code>backend/app/services/cnv_acmg_points.py</code></td>
-<td>Server-herberekening CNV-punten met bereikklemming.</td>
-</tr>
-<tr>
-<td><code>backend/app/services/small_variant_review_acmg.py</code></td>
-<td>ACMG-payload valideren, evidence-snapshot bouwen.</td>
-</tr>
-<tr>
-<td><code>backend/app/services/small_variant_review_pg.py</code></td>
-<td>Upsert van Small-Variant-reviews (tags, notitie, ACMG, audit).</td>
-</tr>
-<tr>
-<td><code>backend/app/services/small_variant_review_repository.py</code></td>
-<td>Ruwe SQL voor <code>small_variant_reviews</code> (incl. ACMG-kolommen).</td>
-</tr>
-<tr>
-<td><code>backend/app/services/small_variant_review_tags.py</code></td>
-<td>Tag-definities: systeemtags, custom tags, scope, admin-checks.</td>
-</tr>
-<tr>
-<td><code>backend/app/services/small_variant_review_presets.py</code></td>
-<td>Filter-presets (family/global, eigenaar-gebonden).</td>
+<td><code>backend/app/services/small_variant_review_pg.py</code> · <code>small_variant_review_acmg.py</code></td>
+<td>Reviews opslaan, ACMG controleren, het bewijssnapshot</td>
 </tr>
 <tr>
 <td><code>backend/app/services/structural_variant_review_pg.py</code></td>
-<td>Upsert van CNV-reviews + CNV-ACMG-validatie/herberekening.</td>
+<td>CNV/SV-reviews en CNV-ACMG</td>
+</tr>
+<tr>
+<td><code>backend/app/services/small_variant_review_tags.py</code></td>
+<td>Systeemtags, eigen tags, rechten</td>
 </tr>
 <tr>
 <td><code>backend/app/services/classification_drift_service.py</code></td>
-<td>Detecteert dat evidence sinds classificatie is gewijzigd (drift).</td>
+<td>Drift</td>
 </tr>
 <tr>
 <td><code>backend/app/services/clinical_audit_service.py</code></td>
-<td>Append-only, hash-chained klinische audittrail van reviews.</td>
-</tr>
-<tr>
-<td><code>backend/app/services/hash_chain.py</code></td>
-<td>Tamper-evidence hashketen (<code>chain_row_hash</code>, <code>verify_chain</code>).</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/03_assay.sql</code></td>
-<td>Project-scope + koppeltabel voor tag-definities; ACMG-kolommen en de <code>acmg_evidence_snapshot</code>-kolom (drift-sleutel) op <code>small_variant_reviews</code>; CNV-ACMG-kolommen op <code>structural_variant_reviews</code>.</td>
+<td>Het klinische auditspoor</td>
 </tr>
 </tbody>
 </table></div>
