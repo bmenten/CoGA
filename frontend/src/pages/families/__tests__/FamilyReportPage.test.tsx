@@ -134,10 +134,10 @@ const mockApi = () => {
   });
 };
 
-const renderPage = (queryClient = createTestQueryClient()) =>
+const renderPage = (queryClient = createTestQueryClient(), path = '/families/F1/report') =>
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/families/F1/report']}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/families/:familyId/report" element={<FamilyReportPage />} />
         </Routes>
@@ -317,108 +317,6 @@ describe('FamilyReportPage', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('alice')).toBeInTheDocument();
     expect(screen.getByText(/2026-06-25 09:04 UTC/)).toBeInTheDocument();
-  });
-
-  it('shows the frozen sign-out record when the case is signed out', async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
-      }
-      if (url.startsWith('/families/F1/small-variants')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      if (url === '/families/F1/report/sign-outs') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            latest: {
-              version: 2,
-              signed_out_by: 'bjorn',
-              signed_out_at: '2026-06-25T10:00:00Z',
-              content_hash: 'abc123def456',
-              software_version: '0.1.0',
-              git_sha: 'abc1234def567',
-            },
-            signouts: [],
-          },
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-    renderPage();
-
-    expect(await screen.findByText(/Signed out — version 2 by/)).toBeInTheDocument();
-    expect(screen.getByText(/abc123def456/)).toBeInTheDocument();
-    // The frozen software identity ("as signed") is shown: version + short git sha.
-    expect(screen.getByText(/CoGA 0\.1\.0 \(abc1234\)/)).toBeInTheDocument();
-    // Once signed out, the action becomes an amendment.
-    expect(screen.getByRole('button', { name: /Amend sign-out/ })).toBeInTheDocument();
-  });
-
-  it('hides the Software line for a pre-binding sign-out (backfill-safe)', async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
-      }
-      if (url.startsWith('/families/F1/small-variants')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      if (url === '/families/F1/report/sign-outs') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            latest: {
-              version: 1,
-              signed_out_by: 'bjorn',
-              signed_out_at: '2026-06-25T10:00:00Z',
-              content_hash: 'oldhash',
-              software_version: null,
-              git_sha: null,
-            },
-            signouts: [],
-          },
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-    renderPage();
-
-    expect(await screen.findByText(/Signed out — version 1 by/)).toBeInTheDocument();
-    // Older sign-outs predate version-binding: no Software line, no crash.
-    expect(screen.queryByText('Software')).not.toBeInTheDocument();
-  });
-
-  it('omits the git-sha parens when the build identity is unknown', async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
-      }
-      if (url.startsWith('/families/F1/small-variants')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      if (url === '/families/F1/report/sign-outs') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            latest: {
-              version: 1,
-              signed_out_by: 'bjorn',
-              signed_out_at: '2026-06-25T10:00:00Z',
-              content_hash: 'h',
-              software_version: '0.0.0+unknown',
-              git_sha: 'unknown',
-            },
-            signouts: [],
-          },
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-    renderPage();
-
-    // An unstamped build shows the version but suppresses the "(unknown)" parens.
-    expect(await screen.findByText('CoGA 0.0.0+unknown')).toBeInTheDocument();
-    expect(screen.queryByText(/unknown\)/)).not.toBeInTheDocument();
   });
 
   function mockUnsignedFamily() {
@@ -620,74 +518,6 @@ describe('FamilyReportPage', () => {
     expect(posts[1]).toMatchObject({ acknowledge_qc: true });
   });
 
-  it('renders the frozen Sample QC status + override reason in the signed-out record', async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
-      }
-      if (url.startsWith('/families/F1/small-variants')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      if (url === '/families/F1/report/sign-outs') {
-        return Promise.resolve({
-          data: {
-            family_id: 'F1',
-            latest: {
-              version: 2,
-              signed_out_by: 'bjorn',
-              signed_out_at: '2026-06-25T10:00:00Z',
-              content_hash: 'abc123',
-              // Scalar fields the list endpoint actually returns (extracted from the
-              // frozen JSONB snapshot), not a nested `snapshot` object.
-              qc_status: 'fail',
-              qc_acknowledged: true,
-              qc_acknowledgement_reason: 'Repeat genotyping confirms identity',
-            },
-            signouts: [],
-          },
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-    renderPage();
-
-    expect(await screen.findByText(/Signed out — version 2/)).toBeInTheDocument();
-    expect(screen.getByText('Sample QC')).toBeInTheDocument();
-    expect(
-      screen.getByText(/override acknowledged: Repeat genotyping confirms identity/),
-    ).toBeInTheDocument();
-  });
-
-  // #508 — the report page must only present itself as the signed record when its live
-  // content still matches the latest sign-out.
-  const SIGNED_LATEST = {
-    version: 2,
-    signed_out_by: 'bjorn',
-    signed_out_at: '2026-06-25T10:00:00Z',
-    content_hash: 'abc123def456',
-  };
-
-  function mockSignedFamily(check: () => Promise<unknown>) {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === '/families/F1') {
-        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
-      }
-      if (url.startsWith('/families/F1/small-variants')) {
-        return Promise.resolve({ data: { variants: [], total: 0 } });
-      }
-      if (url === '/families/F1/report/sign-outs') {
-        return Promise.resolve({ data: { family_id: 'F1', latest: SIGNED_LATEST, signouts: [] } });
-      }
-      if (url === '/families/F1/report/sign-out-check') {
-        return check();
-      }
-      if (url === '/families/F1/report/sign-outs/2') {
-        return Promise.resolve({ data: { version: 2, snapshot: { reported_variants: [] } } });
-      }
-      return Promise.resolve({ data: [] });
-    });
-  }
-
   const checkResult = (overrides: Record<string, unknown>) =>
     Promise.resolve({
       data: {
@@ -702,73 +532,638 @@ describe('FamilyReportPage', () => {
       },
     });
 
-  it('presents the page as signed only when it matches the latest sign-out', async () => {
-    mockSignedFamily(() => checkResult({ matches: true }));
-    const { container } = renderPage();
 
-    expect(await screen.findByText(/This page matches signed version 2/)).toBeInTheDocument();
-    expect(screen.getByText(/✓ Signed out — version 2 by/)).toBeInTheDocument();
-    // A verified match prints without any "not the signed report" notice.
-    expect(container.querySelector('.report-print-notice')).toBeNull();
-  });
+  // REQ-TRACE-007, TF-06 H9: a signed version is rendered from its frozen record alone — never
+  // from live data — and Print prints it. The live report is always labelled as not the
+  // signed version, even when its content matches.
+  const SIGNED_ENTRY = {
+    version: 2,
+    signed_out_by: 'bjorn',
+    signed_out_at: '2026-06-25T10:00:00Z',
+    content_hash: 'abc123def456',
+    software_version: '0.1.0',
+    git_sha: 'abc1234def567',
+    qc_status: 'pass',
+    qc_acknowledged: false,
+    qc_acknowledgement_reason: null,
+    drift_acknowledged: false,
+    drift_acknowledgement_reason: null,
+    import_incomplete_failed_datasets: null,
+    import_incomplete_job_id: null,
+    import_incomplete_acknowledged: false,
+    import_incomplete_acknowledgement_reason: null,
+    verified: null,
+  };
+  const V1_ENTRY = {
+    ...SIGNED_ENTRY,
+    version: 1,
+    signed_out_by: 'alice',
+    signed_out_at: '2026-06-20T09:00:00Z',
+    content_hash: 'v1hash',
+  };
 
-  it('warns — on screen and in print — when the content changed after sign-out', async () => {
-    mockSignedFamily(() =>
-      checkResult({ matches: false, changed_sections: ['reported_variants', 'sequencing_qc'] }),
-    );
-    const { container } = renderPage();
+  // What was signed. It differs from the live data of mockApi (BRCA1, its gene profile, its
+  // note, ClinVar 2026-05), so anything live on the signed view would show.
+  const SIGNED_SNAPSHOT = {
+    family_id: 'F1',
+    assembly: 'GRCh38',
+    modules: [
+      { key: 'assembly', label: 'Reference assembly', version: 'GRCh38', detail: '2013-12-01', layer: 'reference' },
+      { key: 'clinvar', label: 'ClinVar', version: '2026-04', detail: null, layer: 'pipeline' },
+    ],
+    reference_modules: ['assembly', 'gene_loci', 'monarch', 'hpo'],
+    software: { version: '0.1.0', git_sha: 'abc1234def567' },
+    drift: { checked: 1, drifted_count: 0, drifted: [] },
+    sample_qc: {
+      overall_status: 'pass',
+      application: 'wgs',
+      application_label: 'Trio WGS',
+      application_summary: '',
+      genotype_source: null,
+      sex_checks: [{ sample_id: 'PROBAND', status: 'pass', message: 'Recorded and inferred sex agree.' }],
+      relatedness_checks: [],
+      mendelian_checks: [],
+      paternity_check: null,
+      fetal_sex_check: null,
+      category_qc_check: null,
+      autosomal_sites: 10000,
+      notes: [],
+    },
+    sequencing_qc: {
+      profile_key: 'wgs',
+      profile_label: 'WGS default',
+      thresholds: {},
+      samples: {
+        PROBAND: {
+          verdict: 'warn',
+          metrics: [
+            { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn' },
+          ],
+          breached: ['mean_coverage'],
+        },
+      },
+    },
+    import_incomplete: null,
+    reported_variants: [
+      {
+        variant_id: '17-43000000-A-G',
+        acmg_class: 'acmg_class_4',
+        acmg: {
+          criteria: [
+            { code: 'PS3', strength: 'strong', accepted: true, evidence: 'Functional assay shows loss of function.', auto_suggested: false },
+            { code: 'PM2', strength: 'moderate', accepted: true, evidence: null, auto_suggested: true },
+            { code: 'PP3', strength: 'supporting', accepted: true, evidence: null, auto_suggested: true },
+            { code: 'BP4', strength: 'supporting', accepted: false, evidence: null, auto_suggested: true },
+          ],
+          point_total: 7,
+          classification: 'Likely Pathogenic - class 4',
+          vus_tier: null,
+        },
+        tags: ['acmg_class_4', 'report'],
+        note: 'Interpretation as signed.',
+        evidence_snapshot: {
+          annotation_version: 'v1',
+          annotation_set_hash: 'h1',
+          clinvar: 'Likely_pathogenic',
+          captured_at: '2026-06-20T08:30:00+00:00',
+        },
+      },
+    ],
+    reported_structural_variants: [
+      {
+        variant_id: '2-1000-50000-DEL---',
+        variant_key: 123,
+        classification: 'Pathogenic - class 5',
+        cnv_class: 'cnv_class_5',
+        cnv_point_total: 1,
+        cnv_acmg: {
+          kind: 'loss',
+          criteria: [{ code: '2A', points: 1, accepted: true, evidence: 'Covers the HI region.', auto_suggested: false }],
+          point_total: 1,
+          classification: 'Pathogenic - class 5',
+        },
+        tags: ['report'],
+        note: null,
+      },
+    ],
+    version: 2,
+    generated_at: '2026-06-25T10:00:00+00:00',
+    signed_out_by: 'bjorn',
+    acknowledged_drift: false,
+    drift_acknowledgement_reason: null,
+    acknowledged_qc: false,
+    qc_acknowledgement_reason: null,
+    acknowledged_import_incomplete: false,
+    import_incomplete_acknowledgement_reason: null,
+  };
 
-    expect(
-      await screen.findByText(/reported small variants and sequencing QC cut-offs/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Changed since sign-out/)).toBeInTheDocument();
-    // No check mark: the record line no longer claims the page is the signed report.
-    expect(screen.queryByText(/✓ Signed out/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Signed out — version 2 by/)).toBeInTheDocument();
-    expect(container.querySelector('.report-print-notice')?.textContent).toMatch(
-      /Not the signed report — the content differs from signed version 2/,
-    );
-  });
+  type SignedCase = {
+    versions?: Array<Record<string, unknown>>;
+    snapshot?: Record<string, unknown>;
+    detail?: (version: number) => Promise<unknown>;
+    check?: () => Promise<unknown>;
+  };
 
-  it('names what the signed record could not capture (#514)', async () => {
-    mockSignedFamily(() =>
-      checkResult({
-        matches: true,
-        not_captured: [
-          {
-            section: 'sequencing_qc',
-            item: 'Sequencing-QC cut-offs',
-            reason: 'QC thresholds could not be resolved',
+  /** A signed case: the live data of mockApi, and signed versions whose records differ from it. */
+  function mockSignedCase({
+    versions = [SIGNED_ENTRY],
+    snapshot = SIGNED_SNAPSHOT,
+    detail,
+    check = () => checkResult({ matches: true }),
+  }: SignedCase = {}) {
+    mockApi();
+    const base = apiMock.get.getMockImplementation()!;
+    apiMock.get.mockImplementation((url: string, config?: unknown) => {
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({ data: { family_id: 'F1', latest: versions[0], signouts: versions } });
+      }
+      if (url === '/families/F1/report/sign-out-check') return check();
+      const signed = url.match(/^\/families\/F1\/report\/sign-outs\/(\d+)$/);
+      if (signed) {
+        const version = Number(signed[1]);
+        if (detail) return detail(version);
+        const entry = versions.find((candidate) => candidate.version === version);
+        return entry
+          ? Promise.resolve({
+              data: { ...entry, verified: true, snapshot: { ...snapshot, version }, not_captured: [] },
+            })
+          : Promise.reject({ response: { status: 404, data: { detail: 'Sign-out version not found' } } });
+      }
+      return base(url, config);
+    });
+  }
+
+  const LIVE_ONLY_REQUESTS = [
+    '/families/F1/small-variants',
+    '/families/F1/structural-variants',
+    '/genes/profile',
+    '/families/F1/hpo',
+    '/families/F1/annotation-manifest',
+    '/families/F1/classification-drift',
+    '/families/F1/clinical-audit',
+  ];
+
+  const signedRecordCard = async (version = 2) =>
+    (await screen.findByText(new RegExp(`^Signed version ${version} — signed out by`))).closest(
+      'section',
+    ) as HTMLElement;
+
+  describe('a signed case', () => {
+    it('opens on its latest signed version, rendered from the frozen record alone', async () => {
+      mockSignedCase();
+      const { container } = renderPage();
+
+      const card = await signedRecordCard();
+      expect(card).toHaveTextContent('Signed version 2 — signed out by bjorn on 2026-06-25 10:00 UTC');
+      expect(card).toHaveTextContent('Content hash abc123def456');
+      expect(card).toHaveTextContent('The stored record matches its content hash.');
+      expect(card).toHaveTextContent('Signed with CoGA 0.1.0 (abc1234)');
+      expect(card).toHaveTextContent('This is the latest signed version.');
+      expect(screen.getByText('Clinical report — signed version 2')).toBeInTheDocument();
+      expect(screen.getByText('Reference assembly as signed: GRCh38')).toBeInTheDocument();
+
+      // The reported small variant as signed: classification, the accepted criteria, the
+      // evidence frozen when it was classified, and the note.
+      const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
+      expect(variant).toHaveTextContent('Likely Pathogenic - class 4 · 7 pts');
+      expect(variant).toHaveTextContent('based on PS3, PM2 and PP3');
+      expect(within(variant).queryByText('BP4')).not.toBeInTheDocument();
+      expect(variant).toHaveTextContent('Evidence: Functional assay shows loss of function.');
+      expect(variant).toHaveTextContent('ClinVar reported Likely pathogenic, with annotation version v1');
+      expect(variant).toHaveTextContent('Interpretation as signed.');
+      expect(variant).toHaveTextContent('Tags: acmg_class_4, report');
+
+      const sv = screen.getByRole('heading', { name: 'Structural variant 2-1000-50000-DEL---' }).closest('article')!;
+      expect(sv).toHaveTextContent('Pathogenic - class 5 · 1 pts');
+      expect(sv).toHaveTextContent('2A1 pts');
+      expect(sv).toHaveTextContent('Evidence: Covers the HI region.');
+
+      // The checks frozen at sign-out.
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent('Overall: Pass (Trio WGS).');
+      expect(checks).toHaveTextContent('Sex of PROBAND: Pass — Recorded and inferred sex agree.');
+      expect(checks).toHaveTextContent('PROBAND: Warning — Mean coverage 18 × (Warning; warning 20, fail 10)');
+      expect(checks).toHaveTextContent('The family’s data had imported completely.');
+      expect(screen.getByText(/No reported classification had changed evidence/)).toHaveTextContent(
+        'No reported classification had changed evidence when this version was signed (1 checked).',
+      );
+
+      // The footer: the versions and the build as signed, and the build that rendered it.
+      const footer = container.querySelector('footer')!;
+      expect(footer).toHaveTextContent(
+        'Modules & versions as signed: Reference assembly GRCh38 (2013-12-01) · ClinVar 2026-04',
+      );
+      expect(footer).toHaveTextContent('Signed with: CoGA 0.1.0 (abc1234)');
+      expect(await within(footer).findByText('CoGA 0.2.0 (0123456)')).toBeInTheDocument();
+      expect(footer).toHaveTextContent('Rendered by: CoGA 0.2.0 (0123456)');
+      expect(footer).toHaveTextContent('In-house IVD per IVDR Article 5(5)');
+
+      // Nothing on it comes from the family's current data: none of it is asked for.
+      expect(screen.queryByText(/BRCA1/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/tumour suppressor/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Strong candidate/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/2026-05/)).not.toBeInTheDocument();
+      const requested = apiMock.get.mock.calls.map(([url]) => String(url));
+      LIVE_ONLY_REQUESTS.forEach((live) =>
+        expect(requested.filter((url) => url.startsWith(live))).toEqual([]),
+      );
+      // The latest intact signed version prints without a notice.
+      expect(container.querySelector('.report-print-notice')).toBeNull();
+    });
+
+    it('says what the signed record does not hold, for the report and for each variant', async () => {
+      mockSignedCase();
+      renderPage();
+
+      const note = (await screen.findByRole('heading', { name: 'Not in the signed record' })).closest(
+        'section',
+      )!;
+      expect(note).toHaveTextContent(
+        'the variant description: gene, HGVS, consequence, genotypes, population frequency and in silico predictions',
+      );
+      expect(note).toHaveTextContent('the segregation in the family, and the family’s members');
+      expect(note).toHaveTextContent('the gene description, its associated conditions and its gene panels');
+      expect(note).toHaveTextContent('the phenotype (HPO) terms and their overlap with the gene');
+      expect(note).toHaveTextContent('the classification audit trail and the analysis pipeline settings');
+      // Said on each variant card, which prints on its own.
+      expect(
+        screen.getAllByText('Not in the signed record: the variant description, segregation, gene and phenotype.'),
+      ).toHaveLength(2);
+    });
+
+    it('prints the signed version: the page Print prints is the record', async () => {
+      mockSignedCase();
+      const print = vi.spyOn(window, 'print').mockImplementation(() => undefined);
+      const { container } = renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Print signed version 2' }));
+      expect(print).toHaveBeenCalledTimes(1);
+      // What prints is the record: its variant, not the live report's.
+      expect(screen.getByRole('heading', { name: '17-43000000-A-G' })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /BRCA1/ })).not.toBeInTheDocument();
+      // The actions and the comparison with today's data stay off the printout.
+      expect(screen.getByRole('button', { name: 'Print signed version 2' }).closest('.no-print')).not.toBeNull();
+      expect(
+        (await screen.findByText('The family’s current data still matches this signed version.')).closest('.no-print'),
+      ).not.toBeNull();
+      expect(container.querySelector('.report-print-notice')).toBeNull();
+      print.mockRestore();
+    });
+
+    it('says what a version signed before a section was frozen does not hold', async () => {
+      const older = {
+        family_id: 'F1',
+        assembly: 'GRCh38',
+        modules: [{ key: 'clinvar', label: 'ClinVar', version: '2025-01' }],
+        reported_variants: SIGNED_SNAPSHOT.reported_variants,
+      };
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, software_version: null, git_sha: null, qc_status: null }],
+        snapshot: older,
+      });
+      const { container } = renderPage();
+
+      const card = await signedRecordCard();
+      expect(card).toHaveTextContent('Signed with not in the signed record');
+      expect(screen.getByText(/signed before CoGA froze reported structural variants/)).toHaveTextContent(
+        'Signed version 2 records 1 reported small variant and no reported structural variants in family F1: it was signed before CoGA froze reported structural variants, so its record holds none, even if the report showed some.',
+      );
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(within(checks).getAllByText('Not in the signed record.')).toHaveLength(3);
+      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      expect(drift).toHaveTextContent('Not in the signed record.');
+      expect(container.querySelector('footer')).toHaveTextContent('Signed with: not in the signed record');
+    });
+
+    it('names what the signed record could not capture (#514)', async () => {
+      mockSignedCase({
+        detail: (version) =>
+          Promise.resolve({
+            data: {
+              ...SIGNED_ENTRY,
+              verified: true,
+              snapshot: { ...SIGNED_SNAPSHOT, version },
+              not_captured: [
+                { section: 'sequencing_qc', item: 'Sequencing-QC cut-offs', reason: 'QC thresholds could not be resolved' },
+                { section: 'modules', item: 'Monarch', reason: 'lookup failed' },
+              ],
+            },
+          }),
+      });
+      renderPage();
+
+      const note = await screen.findByText(/Not captured in signed version 2:/);
+      expect(note.closest('p')?.textContent).toMatch(
+        /Sequencing-QC cut-offs \(QC thresholds could not be resolved\); Monarch \(lookup failed\)\./,
+      );
+    });
+
+    it('shows no capture note for a complete signed record', async () => {
+      mockSignedCase();
+      renderPage();
+
+      await signedRecordCard();
+      expect(screen.queryByText(/Not captured in signed version/)).not.toBeInTheDocument();
+    });
+
+    it('shows the overrides frozen into the signed version', async () => {
+      const entry = {
+        ...SIGNED_ENTRY,
+        qc_status: 'fail',
+        qc_acknowledged: true,
+        qc_acknowledgement_reason: 'Repeat genotyping confirms identity',
+        drift_acknowledged: true,
+        drift_acknowledgement_reason: 'reviewed',
+      };
+      mockSignedCase({
+        versions: [entry],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          sample_qc: { ...SIGNED_SNAPSHOT.sample_qc, overall_status: 'fail' },
+          acknowledged_qc: true,
+          qc_acknowledgement_reason: 'Repeat genotyping confirms identity',
+          drift: {
+            checked: 1,
+            drifted_count: 1,
+            drifted: [{ variant_id: '17-43000000-A-G', status: 'drifted', clinvar_from: 'Uncertain_significance', clinvar_to: 'Likely_pathogenic', classified_by: 'alice' }],
           },
-          { section: 'modules', item: 'Monarch', reason: 'lookup failed' },
-        ],
-      }),
-    );
-    renderPage();
+          acknowledged_drift: true,
+          drift_acknowledgement_reason: 'reviewed',
+        },
+      });
+      renderPage();
 
-    const note = await screen.findByText(/Not captured in signed version 2:/);
-    expect(note.closest('p')?.textContent).toMatch(
-      /Sequencing-QC cut-offs \(QC thresholds could not be resolved\); Monarch \(lookup failed\)\./,
-    );
+      const card = await signedRecordCard();
+      expect(within(card).getByText('Sample QC').closest('p')).toHaveTextContent(
+        'Sample QC Fail — override acknowledged: Repeat genotyping confirms identity',
+      );
+      expect(within(card).getByText('Evidence drift').closest('p')).toHaveTextContent(
+        'Evidence drift override acknowledged: reviewed',
+      );
+      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      expect(drift).toHaveTextContent(
+        '1 classification had evidence that changed, or could not be verified, when this version was signed',
+      );
+      expect(drift).toHaveTextContent('17-43000000-A-G — ClinVar Uncertain_significance → Likely_pathogenic (classified by alice)');
+      expect(drift).toHaveTextContent('Signed out over it, with the reason: reviewed.');
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent('Overall: Fail (Trio WGS).');
+      expect(checks).toHaveTextContent('Signed out over it, with the reason: Repeat genotyping confirms identity.');
+    });
+
+    it('says a pre-binding or unstamped build as the record holds it', async () => {
+      mockSignedCase({ versions: [{ ...SIGNED_ENTRY, software_version: '0.0.0+unknown', git_sha: 'unknown' }] });
+      renderPage();
+
+      // An unstamped build shows the version but suppresses the "(unknown)" parens.
+      const card = await signedRecordCard();
+      expect(card).toHaveTextContent('Signed with CoGA 0.0.0+unknown');
+      expect(screen.queryByText(/unknown\)/)).not.toBeInTheDocument();
+    });
+
+    it('marks a record that fails its content hash, on screen and in print', async () => {
+      mockSignedCase({
+        detail: (version) =>
+          Promise.resolve({
+            data: { ...SIGNED_ENTRY, verified: false, snapshot: { ...SIGNED_SNAPSHOT, version }, not_captured: [] },
+          }),
+      });
+      const { container } = renderPage();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        '⚠ The stored record does not match its content hash. It may have been changed after it was signed. Do not use it as the signed report, and report it.',
+      );
+      expect(container.querySelector('.report-print-notice')?.textContent).toMatch(
+        /^Do not use — the stored record of signed version 2 does not match its content hash\./,
+      );
+    });
+
+    it('says a superseded version is superseded, and opens the others', async () => {
+      mockSignedCase({ versions: [SIGNED_ENTRY, V1_ENTRY] });
+      const { container } = renderPage(undefined, '/families/F1/report?version=1');
+
+      const card = await signedRecordCard(1);
+      expect(card).toHaveTextContent('Signed version 1 — signed out by alice on 2026-06-20 09:00 UTC');
+      expect(within(card).getByText('Superseded.').closest('p')).toHaveTextContent(
+        'Superseded. Signed version 2, signed out by bjorn on 2026-06-25 10:00 UTC, is the latest.',
+      );
+      expect(container.querySelector('.report-print-notice')?.textContent).toBe(
+        'Superseded — signed version 2 replaces signed version 1.',
+      );
+      // Only the latest version is compared with the family's current data.
+      expect(apiMock.get).not.toHaveBeenCalledWith('/families/F1/report/sign-out-check');
+
+      const nav = screen.getByRole('navigation', { name: 'Signed versions' });
+      expect(nav).toHaveTextContent('Signed versions version 2 (latest) · version 1');
+      fireEvent.click(within(nav).getByRole('link', { name: 'version 2' }));
+      expect(await signedRecordCard(2)).toHaveTextContent('This is the latest signed version.');
+    });
+
+    it('says when the family’s data changed since the latest signed version, off the printout', async () => {
+      mockSignedCase({
+        check: () => checkResult({ matches: false, changed_sections: ['reported_variants', 'import_incomplete'] }),
+      });
+      const { container } = renderPage();
+
+      const line = (await screen.findByText(/Changed since this version was signed:/)).closest('p')!;
+      expect(line).toHaveTextContent(
+        '⚠ Changed since this version was signed: reported small variants and import completeness. This page still shows version 2 as it was signed.',
+      );
+      expect(line).toHaveClass('no-print');
+      // The version is still what was signed: its printout carries no notice.
+      expect(container.querySelector('.report-print-notice')).toBeNull();
+    });
+
+    it('says when that comparison could not be made', async () => {
+      mockSignedCase({ check: () => Promise.reject({ response: { status: 500, data: {} } }) });
+      renderPage();
+
+      expect(
+        await screen.findByText('Whether the family’s current data still matches this version could not be checked.'),
+      ).toBeInTheDocument();
+    });
+
+    it('downloads the signed version it shows', async () => {
+      mockSignedCase();
+      const createObjectURL = vi.fn(() => 'blob:signed');
+      const revokeObjectURL = vi.fn();
+      Object.assign(URL, { createObjectURL, revokeObjectURL });
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Download signed version 2 (JSON)' }));
+      await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+      expect(apiMock.get).toHaveBeenCalledWith('/families/F1/report/sign-outs/2');
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:signed');
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+      clickSpy.mockRestore();
+    });
+
+    it('shows nothing in place of a signed version that cannot be loaded', async () => {
+      let failing = true;
+      mockSignedCase({
+        detail: (version) =>
+          failing
+            ? Promise.reject({ response: { status: 500, data: {} } })
+            : Promise.resolve({
+                data: { ...SIGNED_ENTRY, verified: true, snapshot: { ...SIGNED_SNAPSHOT, version }, not_captured: [] },
+              }),
+      });
+      renderPage();
+
+      expect(await screen.findByText('Signed version 2 could not be loaded')).toBeInTheDocument();
+      expect(
+        screen.getByText('The signed record could not be retrieved or read, so it is not shown. Nothing is shown in its place.'),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/BRCA1/)).not.toBeInTheDocument();
+      failing = false;
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      expect(await signedRecordCard()).toBeInTheDocument();
+    });
+
+    it('says there is no such signed version', async () => {
+      mockSignedCase();
+      renderPage(undefined, '/families/F1/report?version=7');
+
+      expect(await screen.findByText('There is no signed version 7')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'View signed version 2' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    });
+
+    it('does not take an unreadable version number for a signed version', async () => {
+      mockSignedCase();
+      renderPage(undefined, '/families/F1/report?version=abc');
+
+      expect(await screen.findByText('Not a signed version')).toBeInTheDocument();
+      expect(screen.getByText('“abc” is not the number of a signed version.')).toBeInTheDocument();
+    });
   });
 
-  it('shows no capture note for a complete signed record', async () => {
-    mockSignedFamily(() => checkResult({ matches: true }));
-    renderPage();
+  describe('the live report of a signed case', () => {
+    it('is labelled as not the signed version, even when its content matches', async () => {
+      mockSignedCase();
+      const { container } = renderPage(undefined, '/families/F1/report?view=live');
 
-    await screen.findByText(/This page matches signed version 2/);
-    expect(screen.queryByText(/Not captured in signed version/)).not.toBeInTheDocument();
+      // Live data: the variant description and gene context the signed record does not hold.
+      expect(await screen.findByRole('heading', { name: /BRCA1 c\.123A>G/ })).toBeInTheDocument();
+      expect(await screen.findByText('This is the live report, not signed version 2.')).toBeInTheDocument();
+      expect(await screen.findByText(/This page still matches signed version 2\./)).toBeInTheDocument();
+      expect(screen.getByText('Clinical report — live, not the signed version')).toBeInTheDocument();
+      expect(screen.queryByText(/✓/)).not.toBeInTheDocument();
+      expect(container.querySelector('.report-print-notice')?.textContent).toBe(
+        'Not the signed report — this is the live report. Print signed version 2 from its record.',
+      );
+      // Signing out again is done from here.
+      expect(screen.getByRole('button', { name: /Amend sign-out/ })).toBeEnabled();
+
+      // The signed version is one click away.
+      fireEvent.click(screen.getByRole('link', { name: 'View signed version 2' }));
+      expect(await signedRecordCard()).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /BRCA1/ })).not.toBeInTheDocument();
+    });
+
+    it('is opened from the signed version', async () => {
+      mockSignedCase();
+      renderPage();
+
+      await signedRecordCard();
+      fireEvent.click(screen.getAllByRole('link', { name: 'Open the live report' })[0]);
+      expect(await screen.findByRole('heading', { name: /BRCA1 c\.123A>G/ })).toBeInTheDocument();
+      expect(await screen.findByText('This is the live report, not signed version 2.')).toBeInTheDocument();
+    });
+
+    it('warns — on screen and in print — when the content changed after sign-out', async () => {
+      mockSignedCase({
+        check: () => checkResult({ matches: false, changed_sections: ['reported_variants', 'sequencing_qc'] }),
+      });
+      const { container } = renderPage(undefined, '/families/F1/report?view=live');
+
+      expect(
+        await screen.findByText(/reported small variants and sequencing QC cut-offs/),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Changed since sign-out/)).toBeInTheDocument();
+      expect(container.querySelector('.report-print-notice')?.textContent).toMatch(
+        /Not the signed report — the content differs from signed version 2/,
+      );
+    });
+
+    it('treats the page as unsigned when the check cannot be made', async () => {
+      mockSignedCase({ check: () => Promise.reject({ response: { status: 500, data: {} } }) });
+      const { container } = renderPage(undefined, '/families/F1/report?view=live');
+
+      expect(
+        await screen.findByText(/could not be checked against signed version 2 — treat it as unsigned/),
+      ).toBeInTheDocument();
+      expect(container.querySelector('.report-print-notice')?.textContent).toMatch(/Not verified/);
+    });
+
+    it('downloads the frozen signed version', async () => {
+      mockSignedCase();
+      const createObjectURL = vi.fn(() => 'blob:signed');
+      const revokeObjectURL = vi.fn();
+      Object.assign(URL, { createObjectURL, revokeObjectURL });
+      // jsdom cannot navigate to a blob: URL; the click itself is what we need.
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      renderPage(undefined, '/families/F1/report?view=live');
+
+      fireEvent.click(await screen.findByRole('button', { name: /Download signed version 2/ }));
+      await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+      expect(apiMock.get).toHaveBeenCalledWith('/families/F1/report/sign-outs/2');
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:signed');
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+      clickSpy.mockRestore();
+    });
+
+    it('is neither a draft nor signable while the sign-out record loads', async () => {
+      mockApi();
+      const base = apiMock.get.getMockImplementation()!;
+      apiMock.get.mockImplementation((url: string, config?: unknown) =>
+        url === '/families/F1/report/sign-outs' ? new Promise(() => undefined) : base(url, config),
+      );
+      const { container } = renderPage(undefined, '/families/F1/report?view=live');
+
+      expect(await screen.findByRole('heading', { name: /BRCA1 c\.123A>G/ })).toBeInTheDocument();
+      expect(screen.getByText('Clinical report — live')).toBeInTheDocument();
+      expect(container.querySelector('.report-print-notice')?.textContent).toMatch(
+        /The sign-out record is still loading — do not use as the signed report\./,
+      );
+      expect(screen.queryByText(/Draft — this report has not been signed/)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Sign out report/ })).toBeDisabled();
+    });
   });
 
-  it('treats the page as unsigned when the check cannot be made', async () => {
-    mockSignedFamily(() => Promise.reject({ response: { status: 500, data: {} } }));
-    const { container } = renderPage();
+  it('shows the signer the version just signed, from its record', async () => {
+    let signed = false;
+    const V1_SIGNED = { ...SIGNED_ENTRY, version: 1 };
+    mockApi();
+    const base = apiMock.get.getMockImplementation()!;
+    apiMock.get.mockImplementation((url: string, config?: unknown) => {
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({
+          data: { family_id: 'F1', latest: signed ? V1_SIGNED : null, signouts: signed ? [V1_SIGNED] : [] },
+        });
+      }
+      if (url === '/families/F1/report/sign-outs/1') {
+        return Promise.resolve({
+          data: { ...V1_SIGNED, verified: true, snapshot: { ...SIGNED_SNAPSHOT, version: 1 }, not_captured: [] },
+        });
+      }
+      if (url === '/families/F1/report/sign-out-check') return checkResult({ version: 1, matches: true });
+      return base(url, config);
+    });
+    apiMock.post.mockImplementation(() => {
+      signed = true;
+      return Promise.resolve({ data: { ...V1_SIGNED, snapshot: SIGNED_SNAPSHOT, not_captured: [] } });
+    });
+    renderPage();
 
-    expect(
-      await screen.findByText(/could not be checked against signed version 2 — treat it as unsigned/),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/✓ Signed out/)).not.toBeInTheDocument();
-    expect(container.querySelector('.report-print-notice')?.textContent).toMatch(/Not verified/);
+    // A case never signed out opens on the live report, a draft.
+    expect(await screen.findByText('Clinical report — draft, not signed')).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+
+    expect(await signedRecordCard(1)).toHaveTextContent('Signed version 1 — signed out by bjorn on 2026-06-25 10:00 UTC');
+    expect(await screen.findByText('The family’s current data still matches this signed version.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /BRCA1/ })).not.toBeInTheDocument();
   });
 
   it('marks an unsigned report as a draft in print', async () => {
@@ -779,23 +1174,6 @@ describe('FamilyReportPage', () => {
     expect(container.querySelector('.report-print-notice')?.textContent).toMatch(
       /Draft — this report has not been signed/,
     );
-  });
-
-  it('downloads the frozen signed version', async () => {
-    mockSignedFamily(() => checkResult({ matches: true }));
-    const createObjectURL = vi.fn(() => 'blob:signed');
-    const revokeObjectURL = vi.fn();
-    Object.assign(URL, { createObjectURL, revokeObjectURL });
-    // jsdom cannot navigate to a blob: URL; the click itself is what we need.
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    renderPage();
-
-    fireEvent.click(await screen.findByRole('button', { name: /Download signed version 2/ }));
-    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
-    expect(apiMock.get).toHaveBeenCalledWith('/families/F1/report/sign-outs/2');
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:signed');
-    expect(clickSpy).toHaveBeenCalledTimes(1);
-    clickSpy.mockRestore();
   });
 
   const DRIFT_409 = {
@@ -880,21 +1258,6 @@ describe('FamilyReportPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/Not signed out\. database unavailable/);
-  });
-
-  it('shows the frozen drift-override reason on the signed record', async () => {
-    mockSignedFamily(() => checkResult({ matches: true }));
-    const signed = { ...SIGNED_LATEST, drift_acknowledged: true, drift_acknowledgement_reason: 'reviewed' };
-    const base = apiMock.get.getMockImplementation();
-    apiMock.get.mockImplementation((url: string) =>
-      url === '/families/F1/report/sign-outs'
-        ? Promise.resolve({ data: { family_id: 'F1', latest: signed, signouts: [] } })
-        : base!(url),
-    );
-    renderPage();
-
-    expect(await screen.findByText(/override acknowledged:\s*reviewed/)).toBeInTheDocument();
-    expect(screen.getByText('Evidence drift')).toBeInTheDocument();
   });
 
   // A family-package import that partly failed leaves the family flagged import_incomplete.
@@ -1050,38 +1413,44 @@ describe('FamilyReportPage', () => {
       expect(posts).toHaveLength(1);
     });
 
+
     it('shows the frozen incomplete-import override on the signed record', async () => {
-      mockSignedFamily(() => checkResult({ matches: true }));
-      const signed = {
-        ...SIGNED_LATEST,
+      const entry = {
+        ...SIGNED_ENTRY,
         import_incomplete_failed_datasets: ['snv', 'sv'],
         import_incomplete_job_id: IMPORT_JOB_ID,
         import_incomplete_acknowledged: true,
         import_incomplete_acknowledgement_reason: REASON,
       };
-      const base = apiMock.get.getMockImplementation();
-      apiMock.get.mockImplementation((url: string) =>
-        url === '/families/F1/report/sign-outs'
-          ? Promise.resolve({ data: { family_id: 'F1', latest: signed, signouts: [] } })
-          : base!(url),
-      );
+      mockSignedCase({
+        versions: [entry],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_incomplete: IMPORT_FLAG,
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
       renderPage();
 
-      const label = await screen.findByText('Incomplete import');
-      expect(label.closest('p')).toHaveTextContent(
+      const card = await signedRecordCard();
+      expect(within(card).getByText('Incomplete import').closest('p')).toHaveTextContent(
         `Incomplete import snv and sv not imported (import job ${IMPORT_JOB_ID}) — override acknowledged: ${REASON}`,
+      );
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        `The family’s data was incomplete: snv and sv failed to import; coverage did import (import of 2026-09-12 10:14 UTC). Import job ${IMPORT_JOB_ID}. Signed out over it, with the reason: ${REASON}`,
       );
     });
 
     it('names a change in import completeness since sign-out', async () => {
-      mockSignedFamily(() =>
-        checkResult({ matches: false, changed_sections: ['import_incomplete'] }),
-      );
-      renderPage();
+      mockSignedCase({ check: () => checkResult({ matches: false, changed_sections: ['import_incomplete'] }) });
+      renderPage(undefined, '/families/F1/report?view=live');
 
       expect(await screen.findByText(/Changed since sign-out/)).toBeInTheDocument();
       expect(screen.getByText(/import completeness\. This page shows the current state/)).toBeInTheDocument();
     });
+
   });
 
   // #605 — a failed request is never printed as an empty or complete report.

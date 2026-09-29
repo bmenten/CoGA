@@ -4,11 +4,14 @@ import { expect, test } from './fixtures';
 
 import { GOLDEN_FAMILY, login } from './helpers';
 
-/** Parse the current signed-out version from the report footer (0 if none yet). */
+/**
+ * The signed version the report names (0 if none yet): the one the live report compares
+ * itself with, or the one the page renders from its record.
+ */
 async function currentVersion(page: Page): Promise<number> {
-  const banner = page.getByText(/Signed out/i).first();
-  if (!(await banner.isVisible().catch(() => false))) return 0;
-  const text = await banner.innerText();
+  const line = page.locator('.report-signout-line').first();
+  if (!(await line.isVisible().catch(() => false))) return 0;
+  const text = await line.innerText();
   const match = text.match(/version\s+(\d+)/i);
   return match ? Number.parseInt(match[1], 10) : 0;
 }
@@ -31,12 +34,14 @@ async function nextStep(page: Page, before: number): Promise<'drift' | 'qc' | 'd
 
 test('signs out the family report from the browser (with gate handling)', async ({ page }) => {
   await login(page);
-  await page.goto(`/families/${GOLDEN_FAMILY}/report`);
+  // A case is signed out from the live report; a signed case opens on its signed version.
+  await page.goto(`/families/${GOLDEN_FAMILY}/report?view=live`);
 
   // The seed tagged a variant for reporting, so the report is non-empty...
   await expect(page.getByText(/No variants are currently tagged for reporting/i)).toHaveCount(0);
   const signOutButton = page.getByRole('button', { name: /sign out report|amend sign-out/i });
-  await expect(signOutButton).toBeVisible();
+  // ...and sign-out is offered once the page knows whether the case is signed.
+  await expect(signOutButton).toBeEnabled({ timeout: 20_000 });
 
   const before = await currentVersion(page);
   await signOutButton.click();
@@ -61,9 +66,13 @@ test('signs out the family report from the browser (with gate handling)', async 
     await overrideButton.click();
   }
 
-  // A freshly signed-out version is shown, the version advanced, and the page — straight
-  // after signing — verifies as matching the signed content.
-  await expect(page.getByText(/Signed out/i).first()).toBeVisible({ timeout: 20_000 });
+  // The page then shows the version just signed, rendered from its record, and — straight
+  // after signing, through the real JSONB round-trip — the family's data still matches it.
+  await expect(page.getByText(/^Signed version \d+ — signed out by/)).toBeVisible({ timeout: 20_000 });
   await expect.poll(() => currentVersion(page), { timeout: 20_000 }).toBeGreaterThan(before);
-  await expect(page.getByText(/This page matches signed version/i)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/The family’s current data still matches this signed version/)).toBeVisible({
+    timeout: 20_000,
+  });
+  // What it shows comes from the record, which holds no variant description.
+  await expect(page.getByRole('heading', { name: 'Not in the signed record' })).toBeVisible();
 });

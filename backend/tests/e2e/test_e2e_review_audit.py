@@ -191,6 +191,13 @@ async def _collect(root: Path) -> dict:
             )
         )
         r["check_after_edit"] = _cap(await ac.get(check_url))
+        # REQ-TRACE-007: the report page renders a signed version from this record alone, so
+        # after the edit it must still hold what was signed.
+        signed_version = (r["signout2"].get("json") or {}).get("version")
+        if signed_version is not None:
+            r["signed_after_edit"] = _cap(
+                await ac.get(f"/api/families/{FAMILY}/report/sign-outs/{signed_version}")
+            )
 
     out["tamper"] = await _tamper_checks()
     return out
@@ -323,3 +330,21 @@ def test_a_variant_list_serves_the_review_with_its_acmg_criteria(snap):
     ]
     assert review["acmg"] == saved["json"]["acmg"]
     assert review["acmg_unreadable"] is False
+
+
+def test_a_signed_version_still_holds_what_was_signed_after_an_edit(snap):
+    # REQ-TRACE-007: read back through the real JSONB round-trip, the latest signed version
+    # verifies and holds the reported review as signed, not as edited since.
+    signout2 = _resp(snap, "signout2")
+    resp = _resp(snap, "signed_after_edit")
+    assert resp["status"] == 200, resp["text"]
+    body = resp["json"]
+    assert body["version"] == signout2["json"]["version"]
+    assert body["content_hash"] == signout2["json"]["content_hash"]
+    assert body["verified"] is True, body
+    reported = {entry["variant_id"]: entry for entry in body["snapshot"]["reported_variants"]}
+    signed = {entry["variant_id"]: entry for entry in signout2["json"]["snapshot"]["reported_variants"]}
+    assert reported[PLP_VARIANT_ID]["note"] == "E2E: likely pathogenic", reported
+    assert reported[PLP_VARIANT_ID] == signed[PLP_VARIANT_ID]
+    # What the record could not capture is named with it (a list, empty when complete).
+    assert isinstance(body["not_captured"], list), body
