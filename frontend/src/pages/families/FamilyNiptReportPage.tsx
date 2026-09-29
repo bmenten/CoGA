@@ -6,7 +6,7 @@ import api from '../../lib/api';
 import AssemblyScopeBanner from '../../components/AssemblyScopeBanner';
 import PageState from '../../components/PageState';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
-import type { ApiNiptCoverageSummary, ApiNiptSummary } from '../../lib/apiTypes';
+import type { ApiNiptCoverageSummary, ApiNiptSummary, GenePanel } from '../../lib/apiTypes';
 import { useReportBuild } from '../../lib/appVersion';
 import NiptClassificationBlock from './NiptClassificationBlock';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
@@ -28,10 +28,116 @@ import {
 import { apiPath } from '../../lib/apiPath';
 
 const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
+// A report lists one page of candidates, the first ones in genomic order.
 const REPORT_PAGE_SIZE = 500;
+// The gene query splits into terms as the backend splits it.
+const GENE_TERM_SPLIT = /[\s,;]+/;
 
 const memberName = (member: FamilyMember): string =>
   member.role?.trim() ? `${member.role} (${member.sample_id})` : member.sample_id;
+
+const formatCount = (value: number): string => value.toLocaleString();
+
+// Where a list in genomic order stops: the chromosome and position of its last variant.
+const stopLocus = (variant: Pick<SmallVariant, 'chr' | 'start'>): string =>
+  `${variant.chr.startsWith('chr') ? variant.chr : `chr${variant.chr}`}:${formatCount(variant.start)}`;
+
+// How much of the scope the candidate list covers. It lists the first REPORT_PAGE_SIZE
+// candidates of the scope, and the list behind it classifies only the first variants of
+// the scope (count_limit): past either, the list stops part-way through the genome.
+interface CandidateListExtent {
+  listed: number;
+  total: number;
+  pastReportLimit: boolean;
+  classificationCapped: boolean;
+  classificationLimit: number | null;
+  stopsAt: string | null;
+}
+
+const candidateListExtent = (
+  page: SmallVariantPage | undefined,
+  listed: number,
+): CandidateListExtent => {
+  const total = Math.max(page?.total ?? 0, listed);
+  const pastReportLimit = total > listed;
+  const classificationCapped = Boolean(page?.total_is_estimated);
+  const pageVariants = page?.variants ?? [];
+  // The page comes in genomic order; the groups below re-sort it by gene.
+  const last = pageVariants.length ? pageVariants[pageVariants.length - 1] : undefined;
+  return {
+    listed,
+    total,
+    pastReportLimit,
+    classificationCapped,
+    classificationLimit: typeof page?.count_limit === 'number' ? page.count_limit : null,
+    stopsAt: (pastReportLimit || classificationCapped) && last ? stopLocus(last) : null,
+  };
+};
+
+// Why the list is incomplete, where it stops, and what to do about it.
+const incompleteListStatement = (extent: CandidateListExtent): string => {
+  const { listed, total, pastReportLimit, classificationCapped, classificationLimit, stopsAt } = extent;
+  const sentences: string[] = [];
+  if (classificationCapped) {
+    const limit = classificationLimit != null ? formatCount(classificationLimit) : null;
+    const matched = limit
+      ? `More than ${limit} variants matched this scope, and CoGA classifies at most ${limit} at once`
+      : 'More variants matched this scope than CoGA classifies at once';
+    const atLeast = pastReportLimit
+      ? `, so this scope holds at least ${formatCount(total)} candidate variants`
+      : '';
+    sentences.push(`${matched}, in genomic order${atLeast}.`);
+  }
+  if (pastReportLimit) {
+    const reportLimit = `a report lists at most ${formatCount(REPORT_PAGE_SIZE)}`;
+    sentences.push(
+      classificationCapped
+        ? `It shows ${formatCount(listed)} of them: ${reportLimit}.`
+        : `It shows ${formatCount(listed)} of the ${formatCount(total)} candidate variants in this scope: ${reportLimit}, in genomic order.`,
+    );
+  }
+  if (stopsAt) sentences.push(`The list stops at ${stopsAt}.`);
+  sentences.push('Narrow the scope with a gene panel or a gene on the NIPT page, then open the report again.');
+  return sentences.join(' ');
+};
+
+// The same, in the few words that head a printout.
+const incompleteListNotice = (extent: CandidateListExtent): string =>
+  extent.pastReportLimit
+    ? `this report lists ${formatCount(extent.listed)} of ${
+        extent.classificationCapped ? 'at least' : 'the'
+      } ${formatCount(extent.total)} candidate variants in its scope`
+    : 'more variants matched the scope of this report than CoGA classifies at once';
+
+// The filters the report applies: the gene panel and the genes of the NIPT page's search.
+const scopeLine = ({
+  panelId,
+  panel,
+  panelFailed,
+  geneTerms,
+}: {
+  panelId?: string;
+  panel?: GenePanel;
+  panelFailed: boolean;
+  geneTerms: string[];
+}): string => {
+  const genes = geneTerms.length
+    ? `${geneTerms.length === 1 ? 'gene' : 'genes'} ${joinWithAnd(geneTerms)}`
+    : null;
+  if (!panelId) {
+    return genes
+      ? `${genes.charAt(0).toUpperCase()}${genes.slice(1)}.`
+      : 'No gene panel or gene was chosen: the report covers every variant of the family.';
+  }
+  const panelName = panelFailed
+    ? `${panelId} (its name could not be loaded)`
+    : `${panel?.name?.trim() || panelId}${
+        typeof panel?.version === 'number' ? ` (version ${panel.version})` : ''
+      }`;
+  return genes
+    ? `Gene panel ${panelName} and ${genes}: a variant is listed when it matches both.`
+    : `Gene panel ${panelName}.`;
+};
 
 const variantGeneSort = (a: SmallVariant, b: SmallVariant): number =>
   (a.gene || '').localeCompare(b.gene || '') ||
@@ -68,6 +174,7 @@ const FamilyNiptReportPage: React.FC = () => {
   const preferredProjectId = searchParams.get('project_id') || undefined;
   const panelId = searchParams.get('panel_id') || undefined;
   const gene = searchParams.get('gene') || undefined;
+  const geneTerms = useMemo(() => (gene ? gene.split(GENE_TERM_SPLIT).filter(Boolean) : []), [gene]);
 
   const {
     data: family,
@@ -156,10 +263,29 @@ const FamilyNiptReportPage: React.FC = () => {
     },
   });
 
+  // The report names the gene panel it applies; a name that cannot be loaded is said so.
+  const {
+    data: panel,
+    isLoading: panelLoading,
+    isError: panelFailed,
+    refetch: refetchPanel,
+  } = useQuery<GenePanel>({
+    queryKey: ['panel', panelId],
+    enabled: Boolean(queryReady && panelId),
+    queryFn: async () => {
+      const res = await api.get(apiPath`/panels/${panelId}`);
+      return res.data as GenePanel;
+    },
+  });
+
   const candidates = useMemo(
     () => (variantPage?.variants ?? []).filter((variant) => variant.nipt),
     [variantPage],
   );
+  const extent = candidateListExtent(variantPage, candidates.length);
+  // Fewer candidates listed than the scope holds: said on screen, in the list, and at the
+  // top of a printout. The report used to show the first page as the whole list.
+  const listIncomplete = extent.pastReportLimit || extent.classificationCapped;
 
   // The moment the report was produced, and the build that renders it (TF-15 §1).
   const generatedAt = useMemo(() => new Date(), []);
@@ -187,7 +313,7 @@ const FamilyNiptReportPage: React.FC = () => {
 
   if (
     familyLoading ||
-    (queryReady && (variantsLoading || summaryLoading || coverageLoading)) ||
+    (queryReady && (variantsLoading || summaryLoading || coverageLoading || panelLoading)) ||
     referenceLoading
   ) {
     return (
@@ -259,18 +385,32 @@ const FamilyNiptReportPage: React.FC = () => {
   const failedParts = [
     summaryFailed ? 'the fetal-fraction estimate' : null,
     coverageFailed ? 'the coverage QC' : null,
+    // The scope names the panel: a printout that cannot name it is not complete.
+    panelFailed ? 'the name of the gene panel' : null,
     // A printout that cannot name the build that produced it is not complete either.
     reportBuild.failed ? 'the software version' : null,
   ].filter((part): part is string => Boolean(part));
+  const printNoticeParts = [
+    failedParts.length ? `${joinWithAnd(failedParts)} could not be loaded` : null,
+    listIncomplete ? incompleteListNotice(extent) : null,
+  ].filter((part): part is string => Boolean(part));
+  const printNotice = printNoticeParts.length
+    ? `Incomplete — ${printNoticeParts.join(', and ')}, so this printout does not show ${
+        failedParts.length ? 'the whole report' : 'every candidate'
+      }.`
+    : null;
+  const variantsWord = (count: number) => `variant${count === 1 ? '' : 's'}`;
+  const candidateCountPhrase = extent.pastReportLimit
+    ? `${formatCount(extent.listed)} of ${extent.classificationCapped ? 'at least' : 'the'} ${formatCount(
+        extent.total,
+      )} classified candidate variants in its scope,`
+    : `the ${extent.classificationCapped ? 'first ' : ''}${formatCount(extent.listed)} classified candidate ${variantsWord(
+        extent.listed,
+      )} ${extent.classificationCapped ? 'of' : 'in'} its scope,`;
 
   return (
     <div className="page-shell report-page space-y-6">
-      {failedParts.length ? (
-        <p className="report-print-notice print-only">
-          Incomplete — {joinWithAnd(failedParts)} could not be loaded, so this printout does not
-          show the whole report.
-        </p>
-      ) : null}
+      {printNotice ? <p className="report-print-notice print-only">{printNotice}</p> : null}
       <header className="surface-card report-header">
         <div className="space-y-1">
           <p className="page-kicker">Monogenic NIPT report</p>
@@ -304,6 +444,7 @@ const FamilyNiptReportPage: React.FC = () => {
               onClick={() => {
                 if (summaryFailed) void refetchSummary();
                 if (coverageFailed) void refetchCoverage();
+                if (panelFailed) void refetchPanel();
                 if (reportBuild.failed) reportBuild.retry();
               }}
             >
@@ -313,18 +454,38 @@ const FamilyNiptReportPage: React.FC = () => {
         </section>
       ) : null}
 
+      {listIncomplete ? (
+        <section className="surface-card report-incomplete no-print" role="alert">
+          <p className="report-paragraph">
+            <strong>The candidate list is incomplete:</strong> {incompleteListNotice(extent)}.
+            The list says why, and a printout says the report is incomplete.
+          </p>
+        </section>
+      ) : null}
+
       <section className="surface-card report-intro">
         <p className="report-paragraph">
           This report summarises the monogenic NIPT analysis for family <strong>{familyId}</strong>
           {members.length ? `, comprising ${members.map(memberName).join(', ')}` : ''}. It reports
-          the estimated fetal fraction, the on-target coverage QC for the interrogated panel, and the{' '}
-          {candidates.length} classified candidate variant{candidates.length === 1 ? '' : 's'} grouped
-          by inferred inheritance.
+          the estimated fetal fraction, the on-target coverage QC for the interrogated panel, and{' '}
+          {candidateCountPhrase} grouped by inferred inheritance.
         </p>
         <p className="report-disclaimer">
           Monogenic NIPT classifications are decision support derived from cell-free DNA and must be
           confirmed by an invasive diagnostic test and a qualified clinical scientist before clinical
           use.
+        </p>
+      </section>
+
+      <section className="surface-card report-section">
+        <h2 className="section-title">Scope</h2>
+        <p className="report-paragraph">{scopeLine({ panelId, panel, panelFailed, geneTerms })}</p>
+        <p className="report-paragraph">
+          The candidate list holds every variant in this scope with a call in the cfDNA sample,
+          except the sites on the recurrent-artifact list of the assay. No other filter of the NIPT
+          page applies: not the categories, the inheritance preset, the confidence, the regions, or
+          the frequency and consequence filters. Sites that fail the quality filter are listed too:
+          a low-depth site carries the low_depth flag, a low-QUAL site no flag.
         </p>
       </section>
 
@@ -409,16 +570,26 @@ const FamilyNiptReportPage: React.FC = () => {
 
       <section className="surface-card report-section">
         <h2 className="section-title">Candidate variants by inheritance</h2>
-        {candidates.length === 0 ? (
-          <p className="report-paragraph">
-            No classified candidate variants were returned for the current panel / gene scope.
+        {/* Printed with the list: a list that stops part-way through the genome says so. */}
+        {listIncomplete ? (
+          <p className="report-paragraph report-incomplete-list">
+            <strong>This list is incomplete.</strong> {incompleteListStatement(extent)}
           </p>
+        ) : null}
+        {candidates.length === 0 ? (
+          listIncomplete ? null : (
+            <p className="report-paragraph">
+              No classified candidate variants were returned for this scope.
+            </p>
+          )
         ) : (
           <>
             {grouped.map((group) => (
               <div key={group.key} className="report-section report-nipt-group">
+                {/* A group counts what the report lists, not what the scope holds. */}
                 <h3 className="report-subheading">
-                  {group.label} ({group.variants.length})
+                  {group.label} ({group.variants.length}
+                  {listIncomplete ? ' listed' : ''})
                 </h3>
                 <p className="report-paragraph">{group.description}</p>
                 {group.variants.length ? (
@@ -426,13 +597,18 @@ const FamilyNiptReportPage: React.FC = () => {
                     <ReportVariant key={variant._id} variant={variant} />
                   ))
                 ) : (
-                  <p className="report-paragraph report-empty">No candidates in this group.</p>
+                  <p className="report-paragraph report-empty">
+                    {listIncomplete ? 'None among the listed variants.' : 'No candidates in this group.'}
+                  </p>
                 )}
               </div>
             ))}
             {other.length ? (
               <div className="report-section report-nipt-group">
-                <h3 className="report-subheading">Other categories ({other.length})</h3>
+                <h3 className="report-subheading">
+                  Other categories ({other.length}
+                  {listIncomplete ? ' listed' : ''})
+                </h3>
                 <p className="report-paragraph">
                   Variants in non-candidate categories (
                   {Array.from(
