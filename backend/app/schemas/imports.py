@@ -191,8 +191,11 @@ class RawImportFileOut(BaseModel):
     sha256: Optional[str] = None
     source: str = ""
     created_at: Optional[str] = None
-    exists: bool = False
+    # Whether the file is at its local storage path. None for a file kept in an object
+    # store (``in_object_store``): the list does not ask the store; Verify does.
+    exists: Optional[bool] = None
     download_available: bool = False
+    in_object_store: bool = False
 
 
 class FamilyRawFilesOut(BaseModel):

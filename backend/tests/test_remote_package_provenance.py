@@ -104,7 +104,11 @@ async def test_a_staged_file_is_hashed_from_its_staged_copy(
 ) -> None:
     # The URI is what the row names, but it is not a file: hashing it gave no checksum
     # and no size for every file of a remote package.
-    use_store(monkeypatch, scheme, {"imports/F1/bams/S1.cram": "cram"})
+    use_store(
+        monkeypatch,
+        scheme,
+        {"imports/F1/bams/S1.cram": "cram", "imports/F1/paraphase/S1/S1.paraphase.json": "{}"},
+    )
     source = f"{scheme}://{BUCKET}/imports/F1"
 
     rows = await _record(
@@ -114,7 +118,11 @@ async def test_a_staged_file_is_hashed_from_its_staged_copy(
     staged = rows[f"{source}/paraphase/S1/S1.paraphase.json"]
     assert staged["sha256"] == hashlib.sha256(b"{}").hexdigest()
     assert staged["file_size"] == 2
-    assert staged["metadata"] == {}
+    # The store's record of the object as well, so Verify can tell whether the object in
+    # the store is still the one that was hashed, without re-hashing it.
+    store_object = staged["metadata"]["store_object"]
+    assert (store_object["uri"], store_object["size"]) == (f"{source}/paraphase/S1/S1.paraphase.json", 2)
+    assert store_object["generation" if scheme == "gs" else "version_id"]
 
 
 @pytest.mark.asyncio

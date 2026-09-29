@@ -210,10 +210,11 @@ async def _record_package_raw_files(
 
     Each row identifies its file's content. A local file is hashed where it lies. For a
     package staged from a bucket the row names the object's URI -- the staging copy is
-    deleted after the import -- and a staged file is hashed from its staged copy, while
-    a file staging left in the store (an alignment) is identified by the store's own
-    record of the object (``remote_object_identity``) under ``metadata.store_object``:
-    its checksums are the store's, not a SHA-256, so ``sha256`` stays empty."""
+    deleted after the import -- and carries the store's own record of the object
+    (``remote_object_identity``) under ``metadata.store_object``, which Verify compares
+    with the object later. A staged file is also hashed from its staged copy; a file
+    staging left in the store (an alignment) is not: its checksums are the store's, not
+    a SHA-256, so ``sha256`` stays empty."""
     try:
         result = await session.execute(
             text(
@@ -257,12 +258,10 @@ async def _record_package_raw_files(
         ) -> None:
             storage_path = _provenance_path(resolved)
             content: dict[str, Any] = {}  # how the row identifies the file's content
-            if bundle.source_uri and held == "staged":
-                # Staged from the bucket: the URI is not a local file; hash the copy.
-                content = {"checksum_path": resolved}
-            elif bundle.source_uri:
-                # Left in the store: the store's record of the object, never a hash. A
-                # store error costs this row its identity, not the package its record.
+            if bundle.source_uri:
+                # The store's record of the object, for Verify to compare with later
+                # without re-hashing. A store error costs this row its identity, not
+                # the package its record.
                 try:
                     identity = await asyncio.to_thread(remote_object_identity, storage_path)
                 except Exception:
@@ -272,11 +271,14 @@ async def _record_package_raw_files(
                         exc_info=True,
                     )
                     identity = None
-                content = {
-                    "compute_checksum": False,
-                    "file_size": identity.get("size") if identity else None,
-                    "metadata": {"store_object": identity} if identity else None,
-                }
+                content["metadata"] = {"store_object": identity} if identity else None
+                if held == "staged":
+                    # The URI is not a local file: hash the staged copy.
+                    content["checksum_path"] = resolved
+                else:
+                    # Left in the store: its checksums are the store's, never a SHA-256.
+                    content["compute_checksum"] = False
+                    content["file_size"] = identity.get("size") if identity else None
             await record_raw_import_file(
                 session,
                 family_uuid=family_uuid,

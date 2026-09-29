@@ -624,8 +624,9 @@ def _raw_import_file_out(record: dict[str, Any]) -> RawImportFileOut:
         sha256=record.get("sha256"),
         source=record.get("source") or "",
         created_at=record.get("created_at"),
-        exists=bool(record.get("exists")),
+        exists=record.get("exists"),
         download_available=bool(record.get("download_available")),
+        in_object_store=bool(record.get("in_object_store")),
     )
 
 

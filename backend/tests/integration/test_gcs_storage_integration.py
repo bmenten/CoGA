@@ -22,10 +22,12 @@ import asyncio
 import base64
 import hashlib
 import os
+from collections.abc import Sequence
 from pathlib import Path
 import shutil
 import subprocess
 import time
+from typing import Any
 import urllib.request
 from uuid import uuid4
 
@@ -353,7 +355,7 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
                 )
                 await session.commit()
         async with sm() as session:
-            rows = (
+            rows: Sequence[Any] = (
                 await session.execute(
                     text(
                         "SELECT storage_path, sha256, file_size, metadata FROM raw_import_files "
@@ -376,5 +378,56 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
         store_object = cram_row["metadata"]["store_object"]
         assert store_object["uri"] == f"{source}/bams/S1.cram" and store_object["generation"]
         assert {checksum["algorithm"] for checksum in store_object["checksums"]} == {"md5", "crc32c"}
+        # The staged file carries the store's record too, for Verify.
+        assert by_path[f"{source}/qc/S1.NanoStats.txt"]["metadata"]["store_object"]["generation"]
+
+        # Verify reads the row back as the admin page does, and checks the object.
+        from app.services import raw_import_files_pg as rif
+
+        async with sm() as session:
+            ids: Sequence[str] = (
+                await session.execute(
+                    text("SELECT id::text FROM raw_import_files WHERE family_id = CAST(:f AS uuid)"),
+                    {"f": family.uuid},
+                )
+            ).scalars().all()
+            records = [await rif.get_raw_import_file(session, file_id) for file_id in ids]
+        for record in records:
+            assert record is not None and record["in_object_store"] and record["exists"] is None
+            assert (await rif.verify_raw_import_file(record))["status"] == "verified", record["storage_path"]
 
     _on_postgres_with_a_fresh_family(body)
+
+
+def test_verify_checks_a_bucket_file_against_the_stores_record(gcs_backend, gcs_endpoint):
+    """Verify on a file kept in the bucket compares the object with the store's record of
+    it taken at import (real generations): the same object verifies; a replaced one --
+    same size, new generation -- is a mismatch; a deleted one is missing."""
+    from app.services import raw_import_files_pg as rif
+
+    admin = storage.Client(
+        project="coga",
+        credentials=AnonymousCredentials(),
+        client_options={"api_endpoint": gcs_endpoint},
+    )
+    key = f"imports/verify-{uuid4().hex[:8]}/S1.cram"
+    blob = admin.bucket(_BUCKET).blob(key)
+    blob.upload_from_string(b"CRAMDATA")
+    uri = f"gs://{_BUCKET}/{key}"
+    identity = s.remote_object_identity(uri)
+    record = {
+        "id": "rec",
+        "storage_path": uri,
+        "sha256": None,
+        "file_size": identity["size"],
+        "metadata": {"store_object": identity},
+    }
+
+    assert asyncio.run(rif.verify_raw_import_file(record))["status"] == "verified"
+
+    blob.upload_from_string(b"CRAMDAT2")  # same size, a new generation
+    replaced = asyncio.run(rif.verify_raw_import_file(record))
+    assert replaced["status"] == "mismatch" and "generation" in replaced["message"]
+
+    blob.delete()
+    assert asyncio.run(rif.verify_raw_import_file(record))["status"] == "missing"
