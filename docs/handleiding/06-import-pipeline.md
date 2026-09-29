@@ -108,7 +108,8 @@ De foutafhandeling is zo gebouwd dat er nooit ongemerkt een half-geïmporteerde 
 
 - Elke dataset wordt apart geïmporteerd. Faalt er één, dan wordt die teruggedraaid en gaat de import door met de rest.
 - Is de familie **nieuw en is niets gelukt**, dan wordt de lege familie weer verwijderd, met haar ClickHouse-rijen.
-- Is een deel gelukt, of ging het om een **bestaande** familie, dan blijven de gelukte datasets staan en krijgt de familie de vlag `import_incomplete`. De gedeeltelijke toestand is dus zichtbaar, en niet stilzwijgend "compleet".
+- Mislukt een `overwrite` van een **bestaande** familie, dan wordt de familie teruggezet naar haar toestand van vóór de import.
+- In elk ander geval blijven de gelukte datasets staan en krijgt de familie de vlag `import_incomplete`: de mislukte en de gelukte datasets, het tijdstip en het id van de importjob. De fout per dataset staat in die job; de vlag neemt de fouttekst niet over. De gedeeltelijke toestand is dus zichtbaar, en niet stilzwijgend "compleet": elke familiepagina toont *Import incomplete*, en het rapport kan pas ondertekend worden na een erkenning met een reden (hoofdstuk 11). Een latere volledige import wist de vlag.
 - Bij elke fout eindigt de job op `failed`, nooit op een stille `completed`.
 - Een mislukte SNV-import ruimt alleen haar eigen rijen op, niet bv. een eerder geïmporteerde GLIMPSE2-callset.
 

@@ -49,8 +49,7 @@ Re-review a listed variant before sign-out.
 
 **Reported variants without frozen evidence.** A variant tagged **Report** that was never saved through
 **ACMG classify** has no frozen evidence, so its evidence cannot be checked. The banner does not list
-it, but sign-out does: it counts as drift and needs an acknowledgement (see *The three sign-out
-checks*).
+it, but sign-out does: it counts as drift and needs an acknowledgement (see *The sign-out checks*).
 
 ## 3. Classification audit trail — who did what, when
 
@@ -77,25 +76,38 @@ SHA-256 content hash):
 - the reported structural variants and CNVs, with their classification, CNV criteria, tags and note;
 - the drift state, the Sample QC verdict, and the sequencing-QC verdicts with the cut-offs they were
   judged against;
+- whether the family's data imported completely, and if not, which datasets failed;
 - the CoGA software version that produced it.
 
 A signed version can never change; any later tampering would show as a fingerprint mismatch.
 
-### The three sign-out checks
+### The sign-out checks
 
-Sign-out stops at each of these:
+Sign-out stops at each of these, in this order:
 
 | Check | Stops when | To go on |
 | --- | --- | --- |
 | **Assembly scope** | The family is on an assembly outside the validated scope (GRCh38 unless the laboratory set otherwise). The pages carry *Not validated for clinical use*. | No override: the report cannot be signed out. |
 | **Evidence drift** | A reported classification drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
 | **Sample QC** | Sample QC failed, or a check that confirms the pedigree could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
+| **Incomplete import** | A data import for the family partly failed, so some of its data is missing. The pages carry *Import incomplete* (below). | Re-run the import, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
 so "signed out over a known problem, and why" is part of the permanent record.
 
 If the family's project cannot be loaded, the assembly — and so the scope — is not known: the pages say
 *Validated scope not confirmed*, with **Retry**, and the report waits until it loads.
+
+### Import incomplete
+
+If a data import fails for some datasets and leaves the family partly loaded, CoGA keeps what did
+load and marks the family as incomplete. Every family page, the report included, then shows
+*Import incomplete*: the datasets that failed and those that did import, when, and the import job
+whose record holds each dataset's error. The warning prints with the report.
+
+Results on such a family can lack whole datasets, for example all its structural variants. Re-run
+the import to complete the family; a complete import removes the warning. Signing out before then
+needs an acknowledgement with a reason, and the signed version records which datasets were missing.
 
 ### Who may sign out
 

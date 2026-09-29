@@ -168,6 +168,9 @@ dropped silently.
   what, VEP cache, repeat catalogue, stages run) is recorded at import. It shows in a panel on the family
   page and in the same section of the clinical report. Tool versions are in the report's provenance
   footer.
+- **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
+  page shows *Import incomplete* until an import completes it, and its report can be signed out only
+  with an acknowledgement ([Report traceability & sign-out](/docs/reference/clinical-traceability)).
 
 ---
 

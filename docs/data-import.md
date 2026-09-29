@@ -205,7 +205,12 @@ that looks complete:
 - A new family where nothing imported is removed again.
 - A failed `overwrite` of an existing family is put back to its state before the import.
 - In any other case the datasets that did import are kept, and the family is flagged as
-  import-incomplete until a later import succeeds.
+  import-incomplete (`families.metadata.import_incomplete`) until a later import succeeds.
+  The flag holds the datasets that failed and those that imported, the time and the import
+  job's id; the job's record holds each dataset's error, which the flag does not copy.
+
+While the flag is set, every family page shows *Import incomplete*, and sign-out needs the
+signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).
 
 ## 4. Package layout and manifest
 

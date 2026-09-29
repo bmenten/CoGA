@@ -1306,7 +1306,8 @@ python docs/handleiding/build_site.py
 <ul>
 <li>Elke dataset wordt apart geïmporteerd. Faalt er één, dan wordt die teruggedraaid en gaat de import door met de rest.</li>
 <li>Is de familie <strong>nieuw en is niets gelukt</strong>, dan wordt de lege familie weer verwijderd, met haar ClickHouse-rijen.</li>
-<li>Is een deel gelukt, of ging het om een <strong>bestaande</strong> familie, dan blijven de gelukte datasets staan en krijgt de familie de vlag <code>import_incomplete</code>. De gedeeltelijke toestand is dus zichtbaar, en niet stilzwijgend "compleet".</li>
+<li>Mislukt een <code>overwrite</code> van een <strong>bestaande</strong> familie, dan wordt de familie teruggezet naar haar toestand van vóór de import.</li>
+<li>In elk ander geval blijven de gelukte datasets staan en krijgt de familie de vlag <code>import_incomplete</code>: de mislukte en de gelukte datasets, het tijdstip en het id van de importjob. De fout per dataset staat in die job; de vlag neemt de fouttekst niet over. De gedeeltelijke toestand is dus zichtbaar, en niet stilzwijgend "compleet": elke familiepagina toont <em>Import incomplete</em>, en het rapport kan pas ondertekend worden na een erkenning met een reden (hoofdstuk 11). Een latere volledige import wist de vlag.</li>
 <li>Bij elke fout eindigt de job op <code>failed</code>, nooit op een stille <code>completed</code>.</li>
 <li>Een mislukte SNV-import ruimt alleen haar eigen rijen op, niet bv. een eerder geïmporteerde GLIMPSE2-callset.</li>
 </ul>
@@ -2359,7 +2360,7 @@ python docs/handleiding/build_site.py
 </table></div>
 </section><section id="hs-11" class="chapter">
 <h1>11. Rapport &amp; volledige traceerbaarheid</h1>
-<p>In dit hoofdstuk komt alles samen. Het beschrijft hoe een casus wordt <em>ondertekend</em> (sign-out) tot een <strong>bevroren, geversioneerd en gehasht snapshot</strong> van het rapport, gebonden aan de software-, annotatie- en referentieversies die het maakten. Aan bod komen de <strong>poorten</strong> die eerst vervuld moeten zijn (de referentie binnen de gevalideerde scope, geen onverklaarde classificatiedrift, geen onverklaarde sample-QC-fout), het <strong>append-only, hash-geketende</strong> auditspoor en de externe <strong>integriteitsankers</strong>. De rode draad is de volledige keten: van het ruwe bestand met zijn hash, via het annotatiemanifest en de variant, tot het ondertekende rapport.</p>
+<p>In dit hoofdstuk komt alles samen. Het beschrijft hoe een casus wordt <em>ondertekend</em> (sign-out) tot een <strong>bevroren, geversioneerd en gehasht snapshot</strong> van het rapport, gebonden aan de software-, annotatie- en referentieversies die het maakten. Aan bod komen de <strong>poorten</strong> die eerst vervuld moeten zijn (de referentie binnen de gevalideerde scope, geen onverklaarde classificatiedrift, geen onverklaarde sample-QC-fout, geen onverklaarde onvolledige import), het <strong>append-only, hash-geketende</strong> auditspoor en de externe <strong>integriteitsankers</strong>. De rode draad is de volledige keten: van het ruwe bestand met zijn hash, via het annotatiemanifest en de variant, tot het ondertekende rapport.</p>
 <p>Wat de gebruiker op de rapportpagina ziet (de kleuren van het ondertekeningsrecord, de meldingen bij een mislukte vraag), staat in de app: <em>Docs → Report traceability &amp; sign-out</em> (<code>frontend/src/content/docs/clinical-traceability.md</code>). Het ontwerp staat in <code>docs/clinical-traceability.md</code>; de risico's en eisen in de technical file (<code>TF-06</code>, <code>TF-09b</code>).</p>
 <p>Enkele begrippen:</p>
 <ul>
@@ -2406,9 +2407,10 @@ python docs/handleiding/build_site.py
 <p>Ondertekenen gaat via <strong><code>POST /api/families/{id}/report/sign-out</code></strong>. De service <code>sign_out_report</code> doet, in volgorde:</p>
 <ol start="0">
 <li><strong>Poort 0 — de referentie is gevalideerd.</strong> Staat de assembly van de familie niet in <code>VALIDATED_ASSEMBLIES</code> (standaard alleen <code>GRCh38</code>), of is er geen, dan weigert de backend (<code>409</code>, <code>gate = "assembly_scope"</code>). Die weigering kan niet worden erkend of omzeild. De pagina's tonen zo'n familie als <em>Not validated for clinical use</em>, en het rapport biedt dan geen ondertekenknop aan (<code>TF-06</code>, gevaar H12).</li>
-<li><strong>Het snapshot samenstellen:</strong> de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags en notitie.</li>
+<li><strong>Het snapshot samenstellen:</strong> de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, de importstatus, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags en notitie.</li>
 <li><strong>Poort 1 — drift</strong> (hieronder).</li>
 <li><strong>Poort 2 — sample-QC</strong> (hieronder).</li>
+<li><strong>Poort 3 — onvolledige import</strong> (hieronder).</li>
 <li><strong>Versie en keten vastleggen</strong> onder een slot per familie, zodat twee gelijktijdige ondertekeningen elkaar niet kunnen storen.</li>
 <li><strong>De hashes berekenen</strong> en de nieuwe rij <strong>toevoegen</strong> aan <code>report_signouts</code> als volgende versie.</li>
 <li><strong>Een klinisch auditevent schrijven</strong> (<code>sign_out</code>), in dezelfde transactie.</li>
@@ -2428,6 +2430,10 @@ python docs/handleiding/build_site.py
 </ol>
 <p>Blokkeert de poort en is ze niet erkend, dan volgt <code>409</code> met de bevindingen. Erkennen vraagt een reden (anders <code>422</code>); de reden wordt, net als het QC-oordeel, in de hash bevroren en in het auditevent opgenomen. De rapportpagina opent daarvoor een aparte dialoog waarin de reden verplicht is.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>sign_out_report</code> en <code>_unverifiable_swap_checks</code> in <code>report_signout_service.py</code>.</p>
+<h3>Poort 3 — geen onverklaarde onvolledige import</h3>
+<p>Een pakketimport die voor een deel van de datasets faalt en de familie deels geladen achterlaat, zet de vlag <code>import_incomplete</code> in de familiemetadata (hoofdstuk 6). De vlag noemt de mislukte en de gelukte datasets, het tijdstip en de importjob waarin de fout per dataset staat. Zo'n familie kan hele datasets missen, bv. alle structurele varianten (<code>TF-06</code>, gevaar H16).</p>
+<p>Staat de vlag en heeft de ondertekenaar ze niet erkend, dan volgt <code>409</code> (<code>gate = "import_incomplete"</code>) met de mislukte datasets en de importjob. Erkennen vraagt een reden (anders <code>422</code>). De vlag en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen. Elke gezette vlag telt, ook een in een onverwachte vorm. Zolang de vlag staat, toont elke familiepagina <em>Import incomplete</em>; een latere volledige import wist ze. De rapportpagina opent een aparte dialoog waarin de reden verplicht is.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>sign_out_report</code> en <code>_import_incomplete_state</code> in <code>report_signout_service.py</code>; de vlag in <code>_flag_family_import_incomplete</code> (<code>family_package_registration.py</code>); de melding in <code>frontend/src/components/ImportIncompleteBanner.tsx</code>.</p>
 <h2>Het bevroren snapshot</h2>
 <div class="scroll"><table>
 <thead>
@@ -2462,6 +2468,10 @@ python docs/handleiding/build_site.py
 <td>De sequencing-QC per sample en de grenzen waartegen ze beoordeeld werd</td>
 </tr>
 <tr>
+<td><code>import_incomplete</code></td>
+<td>Leeg (<code>null</code>) als de data volledig geïmporteerd is; anders de mislukte en de gelukte datasets, het tijdstip en de importjob</td>
+</tr>
+<tr>
 <td><code>reported_variants</code></td>
 <td>Elke gerapporteerde small variant met klasse, criteria, tags, notitie en bevroren bewijs</td>
 </tr>
@@ -2477,7 +2487,7 @@ python docs/handleiding/build_site.py
 <li><strong>Annotatie en pipeline:</strong> het bevroren manifest en, per classificatie, de hash van de annotatieset.</li>
 <li><strong>Referentie:</strong> de assembly, de bron van de genloci die CoGA zelf laadde (GENCODE, of de UCSC-tabel als GENCODE niet lukte) en de Monarch-release.</li>
 </ul>
-<p><strong>De hash.</strong> De inhoudshash is een SHA-256 over een vaste, op sleutel gesorteerde JSON-codering; lijsten worden vooraf op een stabiele sleutel gesorteerd. De klinische secties zijn deterministisch: dezelfde inhoud geeft dezelfde vingerafdruk, en daarop steunt de controle hieronder. De inhoudshash zelf omvat ook de versie, het tijdstip en de ondertekenaar, en is dus per ondertekening uniek.</p>
+<p><strong>De hash.</strong> De inhoudshash is een SHA-256 over een vaste, op sleutel gesorteerde JSON-codering; lijsten worden vooraf op een stabiele sleutel gesorteerd. De klinische secties zijn deterministisch: dezelfde inhoud geeft dezelfde vingerafdruk, en daarop steunt de controle hieronder. De inhoudshash zelf omvat ook de versie, het tijdstip en de ondertekenaar, en is dus per ondertekening uniek. Een opgeslagen hash wordt altijd herberekend over het snapshot zoals het opgeslagen werd; een versie van vóór een nieuw veld blijft dus geverifieerd.</p>
 <p><strong>Los van ClickHouse.</strong> Het snapshot bevat zelf de waarden die het nodig heeft. Een latere herbouw van ClickHouse of een nieuwe annotatieversie verandert het ondertekende record niet.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>build_report_snapshot</code>; de codering in <code>backend/app/services/hash_chain.py</code>; de tabel <code>report_signouts</code> in <code>04_traceability.sql</code>.</p>
 <h3>Toont de rapportpagina het ondertekende rapport?</h3>
