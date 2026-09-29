@@ -25,15 +25,17 @@ disease allele, and calls each embryo from it.
 ### The embryo calls
 
 Each embryo's call is a badge in the **Family members** table on the family page: *Affected / at risk*,
-*Carrier*, *Unaffected* or *Uninformative*. Next to it may be:
+*Carrier*, *Unaffected* or *Uninformative*. A call that the embryo does not carry a disease haplotype
+needs the embryo's own haplotype, seen across the ROI; without it the embryo reads *Uninformative*.
+Next to the badge may be:
 
 - **⚠ recombination** — a haplotype change inside the ROI or within 250 kb of it; the call may not hold
   across the locus.
-- **⚠ uninformative** — no disease haplotype could be resolved.
-
-> **Check an "Unaffected" call.** An embryo with no phased data at the ROI is shown as *Unaffected*, not
-> *Uninformative*, when the disease haplotype is resolved. Open **Review ROI markers →** and check that
-> the embryo has informative markers at the ROI before you accept the call.
+- **⚠ uninformative** — no call is made: no disease haplotype could be resolved, or the embryo's
+  haplotype does not cover the ROI.
+- **⚠ sex unknown** — an X-linked recessive call depends on the embryo's sex, which is not recorded. The
+  embryo then reads *Affected / at risk* or *Uninformative*, and the warning gives the call for a son and
+  for a daughter. Record the sex to resolve it.
 
 **Review ROI markers →** shows the phased genotypes of every member across the ROI, with each child's
 Mendelian-error rate. Use it to re-check a surprising call: a single marker that disagrees with its

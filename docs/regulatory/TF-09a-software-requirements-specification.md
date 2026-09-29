@@ -67,7 +67,7 @@
 | REQ-PGT-002 | Segment haplotype blocks recombination-aware, committing a lane switch only past length/width thresholds (suppress isolated phasing noise). | C | H5 |
 | REQ-PGT-003 | Provide a raw phased-marker overlay (no binning/smoothing) for the index couple's children. | C | H5 |
 | REQ-PGT-004 | Report per-child **Mendel-error rate** and **informative-site count** as QC. | C | H4 |
-| REQ-PGT-005 | Derive each embryo's ROI classification (affected/at-risk · carrier · unaffected · uninformative) per inheritance model, defaulting to **uninformative** when the model is unresolved. | C | H5 |
+| REQ-PGT-005 | Derive each embryo's ROI classification (affected/at-risk · carrier · unaffected · uninformative) per inheritance model, defaulting to **uninformative** when the model is unresolved or when the embryo's own haplotype does not cover the ROI on a parental side the call needs. Where an X-linked recessive call depends on an embryo sex that is not recorded, assume neither sex (**affected/at-risk** if either call is, else **uninformative**) and show both calls. | C | H5 |
 | REQ-PGT-006 | Support single-parent/donor pedigrees: colour the known-parent lane, grey the donor lane; return **uninformative** for recessive donor cases. | C | H5 |
 | REQ-PGT-007 | Detect and present structural variants, filterable by length/type, supporting the large (>10 Mb) SV claim. | C | H7 |
 | REQ-PGT-008 | Detect embryo aneuploidy from segment/copy-number data. | C | H7 |
