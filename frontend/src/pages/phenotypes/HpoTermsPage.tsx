@@ -14,10 +14,18 @@ const normalizeTerms = (values: string[]) =>
 const hpoBrowserHref = (term: string) =>
   `https://hpo.jax.org/browse/term/${encodeURIComponent(term)}`;
 
+// The SV page to return to, as the link sent it: only a path inside the app's family
+// pages, never another site. Without one, the family's SV page (id encoded, #526).
+const backToSvsHref = (from: string, familyId: string): string | null => {
+  if (from.startsWith('/families/') && !from.includes('\\')) return from;
+  return familyId ? `/families/${encodeURIComponent(familyId)}/structural-variants` : null;
+};
+
 const HpoTermsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const terms = normalizeTerms(searchParams.getAll('term'));
   const familyId = searchParams.get('family_id') || '';
+  const backHref = backToSvsHref(searchParams.get('from') || '', familyId);
 
   return (
     <div className="page-shell analysis-shell">
@@ -32,8 +40,8 @@ const HpoTermsPage: React.FC = () => {
                 : 'No HPO terms were provided.'}
             </p>
           </div>
-          {familyId ? (
-            <Link to={`/families/${familyId}/structural-variants`} className="button-secondary hover:no-underline">
+          {backHref ? (
+            <Link to={backHref} className="button-secondary hover:no-underline">
               Back to SVs
             </Link>
           ) : null}

@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { formatGt, genotypeZygosity } from '../../lib/genotypes';
 import {
   buildGnomadSvRegionHref,
@@ -50,10 +50,13 @@ const parseHpoTerms = (value?: string | number | boolean | string[]) => {
   return rawTerms.map((term) => term.trim()).filter(Boolean);
 };
 
-const buildHpoHref = (terms: string[], familyId?: string) => {
+// `from` is this SV page with its query (project and filters), so "Back to SVs" returns
+// to it: the link used to drop the project, which scopes review saves and tags (#526).
+const buildHpoHref = (terms: string[], familyId?: string, from?: string) => {
   const params = new URLSearchParams();
   terms.forEach((term) => params.append('term', term));
   if (familyId) params.set('family_id', familyId);
+  if (from) params.set('from', from);
   return `/hpo?${params.toString()}`;
 };
 
@@ -73,6 +76,8 @@ export default function StructuralVariantCards({
   onClassifyCnv,
   onToggleReviewTag,
 }: StructuralVariantCardsProps) {
+  const location = useLocation();
+  const svPage = `${location.pathname}${location.search}`;
   const tagMap = getTagDefinitionMap(tags);
   if (!variants.length) {
     return (
@@ -338,7 +343,7 @@ export default function StructuralVariantCards({
                     <dd>
                       {hpoTerms.length ? (
                         <Link
-                          to={buildHpoHref(hpoTerms, familyId)}
+                          to={buildHpoHref(hpoTerms, familyId, svPage)}
                           className="variant-card-resource variant-card-resource--clinical"
                           title={hpoTerms.join(', ')}
                         >

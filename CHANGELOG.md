@@ -355,6 +355,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Sign-up and user list messages** — after signing up, the page says the account awaits an
   administrator instead of opening a login that then fails; Sign Up cannot be sent twice. The user
   list says when a (de)activation failed and why (#582).
+- **HPO sync and HPO term list** — "Apply sync" imports only the file and overrides that were
+  just previewed; it could apply without a preview, or another file than the one on screen. The
+  release date no longer shows a day early west of UTC, and "Back to SVs" keeps the project and
+  filters (#583).
 
 ### Security
 
