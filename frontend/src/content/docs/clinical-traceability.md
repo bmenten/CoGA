@@ -1,155 +1,136 @@
 # Clinical report traceability & sign-out — reference
 
-The **clinical report** (per family, *Report* link in the family workspace) is also
-the **provenance and sign-out surface** for the case. It locks a reported result to
-exactly what produced it — the annotation/reference versions, the variant list, each
-classification and its evidence — and lets you freeze that into an immutable,
-content-hashed sign-out record.
+The **clinical report** (the **Report** button on the family page) is also where a case is traced and
+signed out. It ties the reported result to what produced it — the annotation and reference versions,
+the reported variants, each classification and its evidence — and freezes that into a signed record
+that can never change.
 
-This is the in-depth reference. For the workflow-level overview see the
-[in-app user guide](/docs) section *Clinical report, traceability & sign-out*.
+How to prepare and sign out a report is in the [user guide](/docs), section *Clinical report and
+sign-out*. This page holds the rules.
 
 ---
 
 ## Why traceability matters
 
-A reported result is only defensible if you can answer, later and exactly: *which
-data, which versions, and whose decisions produced this?* Annotation sources move —
-a new ClinVar release, a new gnomAD version — and a classification made last month
-may rest on evidence that has since changed. CoGA makes all of that explicit and
-permanent, so a signed-out report can be reproduced and audited.
+A reported result is only defensible if you can answer later, exactly: *which data, which versions and
+whose decisions produced this?* Annotation sources move — a new ClinVar or gnomAD release — so a
+classification made last month may rest on evidence that has since changed. CoGA makes the versions,
+the changes and the decisions explicit and permanent.
 
-The report carries four things, top to bottom.
+The report carries four things.
 
-## 1. Provenance footer — *which versions*
+## 1. Provenance footer — which versions
 
-A footer at the end of the report states the **generation timestamp** and the full
-list of annotation/reference **modules and versions** that backed the data:
+A footer at the end of the report states when it was generated and which versions backed the data:
 
-- the **pipeline** layer — the upstream tools that produced the family's annotated
-  input: VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, GenCC, PanelApp;
-- the **reference** layer — what CoGA itself loaded: the genome assembly (with its
-  release date) and the Monarch release.
+- the **pipeline** layer: the tools that produced the family's annotated input (for example VEP,
+  ClinVar, gnomAD, dbNSFP, SpliceAI, GenCC, PanelApp);
+- the **reference** layer: what CoGA itself loaded — the genome assembly (with its release date), the
+  gene loci (their source and import date) and the Monarch release.
 
-The pipeline versions are captured automatically when the family's data is imported
-(declared in the import manifest), and can be recorded or overridden by an admin.
-Where a version is unknown it is simply omitted, never guessed.
+The pipeline versions are taken from the family's import manifest; there is no screen to edit them. A
+version that is not known is left out, never guessed. The footer prints with the report and is part of
+the signed record.
 
-> **Reading it.** The footer prints with the report — it is part of the signed
-> artifact. `Reference assembly GRCh38 (2013-12-01) · VEP 110 · ClinVar 2026-05 · …`
+## 2. Evidence-drift banner — has anything changed
 
-## 2. Evidence-drift banner — *has anything changed since I classified*
+When you save a classification with **ACMG classify**, CoGA freezes the evidence it rests on: a
+fingerprint of the variant's annotation and its ClinVar significance at that moment.
 
-Every time you save an ACMG classification, CoGA **freezes the evidence it was based
-on**: the annotation-set identity (a hash that changes whenever any annotation
-changes) plus the ClinVar significance at that moment.
+When you open the report, each frozen classification is compared with the current annotation. An amber
+banner lists every classification whose evidence changed:
 
-When you open the report, each classification is compared against the **current**
-annotation. If the backing evidence has changed, an amber banner lists the affected
-variants:
+- the ClinVar significance changed (for example *ClinVar Uncertain significance → Pathogenic*);
+- the annotation changed in another way, or cannot be compared because a fingerprint is missing
+  (*annotation set changed*);
+- the variant is no longer in the data.
 
-> ⚠ **1 classification has evidence changes since being made.** `1-100-A-G` — ClinVar
-> Uncertain significance → Pathogenic *(classified by alice)*
+Re-review a listed variant before sign-out.
 
-This is the guardrail against stale interpretations silently persisting. Re-review a
-flagged variant before sign-out. A classification made *before* this feature existed
-has no frozen evidence and is simply not checked (it can't drift retroactively).
+**Reported variants without frozen evidence.** A variant tagged **Report** that was never saved through
+**ACMG classify** has no frozen evidence, so its evidence cannot be checked. The banner does not list
+it, but sign-out does: it counts as drift and needs an acknowledgement (see *The three sign-out
+checks*).
 
-> **No false alarms.** Drift is only declared when both the old and new annotation
-> hashes are known and differ — a missing hash on either side reads as "unknown",
-> not "changed".
+## 3. Classification audit trail — who did what, when
 
-## 3. Classification audit trail — *who did what, when*
-
-An immutable **"Classification audit trail"** section lists, most-recent first, every
-clinical action on the family's variants: who **classified**, **tagged** or
-**annotated** which variant, when, and what changed (before → after).
+The **Classification audit trail** lists, most recent first, every clinical action on the family's
+variants: who classified, tagged or annotated which variant, when, and what changed (before → after),
+including each sign-out.
 
 - *Classification VUS (class 3) → Likely pathogenic (class 4)*
 - *Tags added report*
-- *Note added*
 - *Report signed out (v2) — 3 reported variant(s)*
 
-These events are written in the **same transaction** as the change itself, so the
-trail can never drift from the data, and the underlying table is **append-only at the
-database level** — `UPDATE` and `DELETE` are rejected outright. (This is the clinical
-*action* log; the admin *access* log under **Admin → Audit logs** is separate.)
+Each entry is written together with the change itself, and entries can never be changed or deleted.
+This is the record of clinical actions; the record of who opened what (**Admin → Audit Logs**) is
+separate.
 
-## 4. Case sign-out — *freeze the result*
+## 4. Case sign-out — freeze the result
 
-**Sign out report** freezes the reported result into a **versioned, content-hashed
-snapshot**:
+**Sign out report** freezes the reported result into a numbered version with a unique fingerprint (a
+SHA-256 content hash):
 
-- the annotation/reference **manifest** (the footer versions),
-- the **reported variant list** (every variant tagged `report`) with each
-  classification, its ACMG criteria, tags, note, and its frozen **evidence snapshot**,
-- the **reported structural variants and CNVs** (tagged `report`) with their
-  classification, CNV-ACMG criteria, tags and note,
-- the **drift state** at the moment of sign-out, and the Sample-QC and sequencing-QC
-  verdicts with the cut-offs they were judged against.
+- the provenance footer (the versions);
+- the reported small variants, each with its classification, ACMG criteria, tags, note and frozen
+  evidence;
+- the reported structural variants and CNVs, with their classification, CNV criteria, tags and note;
+- the drift state, the Sample QC verdict, and the sequencing-QC verdicts with the cut-offs they were
+  judged against;
+- the CoGA software version that produced it.
 
-The snapshot is hashed with **SHA-256** over a canonical encoding, so any later
-tampering is detectable, and stored **append-only** — a signed record can never change.
+A signed version can never change; any later tampering would show as a fingerprint mismatch.
 
-**Is this page the signed report?** The report page always shows the *current* data and
-checks it against the latest signed version. Only while they match is the record green:
+### The three sign-out checks
 
-> ✓ **Signed out — version 2 by bjorn on 2026-06-25 10:00 UTC** · This page matches
-> signed version 2 · Content hash `a1b2c3…`
+Sign-out stops at each of these:
 
-If anything changed after sign-out — a review, a report tag, a re-import, a QC cut-off —
-the record turns **amber** and names the changed parts; the page is then *not* the
-signed report, and a printout carries a notice at the top saying so. If the check cannot
-be made, the record is grey and the page must be treated as unsigned. **Download signed
-version** on the record returns the frozen snapshot itself.
+| Check | Stops when | To go on |
+| --- | --- | --- |
+| **Assembly scope** | The family is on an assembly outside the validated scope (GRCh38 unless the laboratory set otherwise). The pages carry *Not validated for clinical use*. | No override: the report cannot be signed out. |
+| **Evidence drift** | A reported classification drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
+| **Sample QC** | Sample QC failed, or a check that confirms the pedigree could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 
-**When part of the report cannot be loaded.** The page never shows a part it could not load
-as empty. If the family or either list of reported variants cannot be loaded, no report is
-shown, only *Report could not be loaded* with a **Retry**. If the sign-out record cannot be
-loaded, the page says it is not known whether the case is signed, and does not offer
-sign-out. A gene description, the HPO terms, the evidence-drift check, the audit trail or
-the annotation provenance that could not be loaded is marked where it belongs, and the
-analysis-pipeline settings then say the tool versions could not be loaded, not *version not
-reported*. The printout then starts with *Incomplete — … could not be loaded*. The NIPT report does the same for the
-fetal-fraction estimate and the coverage QC.
+An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
+so "signed out over a known problem, and why" is part of the permanent record.
 
-**What the signed record could not capture.** If a lookup fails while the snapshot is
-frozen — the QC cut-offs, or the reference-assembly or Monarch version — sign-out still
-goes ahead, but the snapshot records that part as unavailable rather than as empty, and the
-record says so: *Not captured in signed version 2: Sequencing-QC cut-offs (QC thresholds
-could not be resolved)*. The sign-out entry in the audit trail lists the same parts.
+If the family's project cannot be loaded, the assembly — and so the scope — is not known: the pages say
+*Validated scope not confirmed*, with **Retry**, and the report waits until it loads.
 
-**The assembly scope.** CoGA is validated on **GRCh38**. A family on another reference
-assembly (such as T2T-CHM13) can be analysed, but every family page and the report carry a
-*Not validated for clinical use* label, and the report **cannot be signed out** — there is no
-override. The validated assemblies are set by the laboratory under change control. If the
-family's project cannot be loaded, the assembly, and so the scope, is not known: the pages
-then say *Validated scope not confirmed*, with a **Retry**, and the report is not prepared
-until the project loads.
+### Who may sign out
 
-**The drift gate.** If any reported classification has drifted, sign-out is **blocked**
-and you are asked to re-review or **acknowledge** the drift **with a reason**. The
-acknowledgement and its reason are recorded in both the snapshot and the audit trail, so
-"signed out over known drift, and why" is itself part of the permanent record.
+Only people the laboratory has authorised as signatories. CoGA lets any member of the project press
+**Sign out report** and does not check signing authority itself. It records who signed each version, in
+the signed record and in the audit trail.
 
-**Who may sign out.** Only people the laboratory has authorised as signatories. CoGA lets
-any member of the project press *Sign out* and does not check signing authority itself; it
-records who signed each version, in the signed record and the audit trail.
+### Amendments
 
-**Amendments.** Signing out again creates a **new version** (v2, v3, …) — the previous
-versions are never overwritten. The button reads *Amend sign-out* once a case has been
-signed out.
+Signing out again creates a new version (v2, v3, …); earlier versions are never overwritten. Once a
+case is signed out, the button reads **Amend sign-out**.
 
 ---
 
-## Where each piece lives
+## Is this page the signed report?
 
-| Surface | Endpoint |
-| --- | --- |
-| Provenance footer | `GET /families/{id}/annotation-manifest` |
-| Evidence drift | `GET /families/{id}/classification-drift` |
-| Audit trail | `GET /families/{id}/clinical-audit` |
-| Sign-out | `POST /families/{id}/report/sign-out` · `GET …/report/sign-outs[/{version}]` |
+The report page always shows the **current** data and checks it against the latest signed version.
 
-The design record (schema, immutability triggers, phasing) is in
-`docs/clinical-traceability.md`.
+- **Green** — *✓ Signed out — version 2 by … · This page matches signed version 2.*
+- **Amber** — something changed after sign-out (a review, a report tag, a re-import, a QC cut-off). The
+  record names what changed; the page is then *not* the signed report, and a printout says so at the
+  top. Sign out again to issue a new version.
+- **Grey** — *This page could not be checked against signed version N — treat it as unsigned.*
+
+**Download signed version N (JSON)** returns the frozen version itself.
+
+**What a signed version could not capture.** If a lookup fails while the version is frozen — the QC
+cut-offs, or the assembly or Monarch version — sign-out still goes ahead, but that part is recorded as
+unavailable, not as empty, and the record says so: *Not captured in signed version 2: …*. The audit
+trail lists the same parts.
+
+**When part of the report cannot be loaded.** The page never shows a part it could not load as empty.
+If the family or a list of reported variants cannot be loaded, the page shows only *Report could not be
+loaded*, with **Retry**. If the sign-out record cannot be loaded, the page says it is not known whether
+the case is signed and does not offer sign-out. Any other part that failed (a gene description, the HPO
+terms, the drift check, the audit trail, the versions) is marked where it belongs, and a printout starts
+with *Incomplete — … could not be loaded*. The NIPT report does the same for the fetal fraction and the
+coverage check.
