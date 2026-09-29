@@ -167,3 +167,32 @@ test.each([
 
   expect(screen.getByRole('img', { name: `DGV variants on chr1:0–300: ${summary}` })).toBeInTheDocument();
 });
+
+test('while a pan loads, a held variant left of the new window is not drawn at its edge (#586)', () => {
+  const region = (regionStart: number) => (
+    <DgvTrack assembly="GRCh38" chrom="1" width={100} height={48} regionStart={regionStart} regionEnd={regionStart + 300} />
+  );
+  const variant = (accession: string, start: number) => ({
+    chr: '1',
+    start,
+    end: start + 50,
+    accession,
+    variant_subtype: 'duplication',
+    variant_class: 'gain',
+    frequency: 0.05,
+  });
+  useQueryMock.mockReturnValue({
+    data: { total: 2, mode: 'lines', bin_size: 0, variants: [variant('left', 50), variant('right', 250)], bins: [] },
+  });
+  const { container, rerender } = render(region(0));
+  expect(container.querySelectorAll('rect[aria-label]')).toHaveLength(2);
+
+  // Same span, 200 bp right, still loading: "left" (50–100) now lies left of the window.
+  // It was drawn as a 1 px bar at x = 0 under its own name.
+  useQueryMock.mockReturnValue({ data: undefined, isLoading: true });
+  rerender(region(200));
+  const drawn = Array.from(container.querySelectorAll('rect[aria-label]')).map((rect) =>
+    rect.getAttribute('aria-label'),
+  );
+  expect(drawn).toEqual(['right']);
+});

@@ -218,9 +218,10 @@ const ApcadChart: React.FC<Props> = ({
   });
   // Keep the previous window painted across a pan (same span); dropped on zoom.
   const displayData = useSameSpanFallbackData(
-    isError ? null : trackData,
+    trackData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${apcadUrlKey}|${pcfUrlKey}|${chromKey}`,
+    isError,
   );
   const hasUrls = stableApcadUrls.length > 0 || stablePcfUrls.length > 0;
   const loading = isLoading && hasUrls && displayData === null;

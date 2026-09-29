@@ -196,9 +196,10 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   // Keep the previous window painted across a pan (same span) so the track glides
   // instead of blanking; on a zoom the stale data is dropped (see the hook).
   const displayData = useSameSpanFallbackData(
-    isError ? null : trackData,
+    trackData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${coverageUrlKey}|${segmentUrlKey}|${chromKey}`,
+    isError,
   );
   const loading = isLoading && stableCoverageUrls.length > 0 && displayData === null;
   // null while loading (don't blank the chart), false when there are no URLs or the

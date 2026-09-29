@@ -274,3 +274,38 @@ test('while a pan loads, names only the held genes in the new region, never "non
   rerender(region(1000, 2000));
   expect(screen.getByRole('img', { name: 'Genes on chr1:1,000–2,000: none' })).toBeInTheDocument();
 });
+
+test('while a pan loads, a held gene left of the new window is not drawn at its edge (#586)', async () => {
+  const region = (regionStart: number, regionEnd: number) => (
+    <GeneTrack assembly="GRCh38" chrom="1" width={1000} regionStart={regionStart} regionEnd={regionEnd} />
+  );
+  answer({
+    genes: [
+      gene({ hgnc_symbol: 'A', start: 100, end: 400 }),
+      gene({ hgnc_symbol: 'B', start: 600, end: 900 }),
+    ],
+  });
+  const { container, rerender } = render(region(0, 1000));
+  await waitFor(() => expect(geneGroups(container)).toHaveLength(2));
+
+  // Same span, 500 bp right, the new window still loading: A now lies wholly left of it.
+  // It was drawn as a 6 px block at x = 0, as if a gene started there.
+  answer({ genes: undefined });
+  rerender(region(500, 1500));
+  await waitFor(() => expect(geneGroups(container)).toHaveLength(1));
+  expect(geneGroups(container)[0].x).toBe(100); // B, 100 px into the new window
+});
+
+test('a failed pan draws nothing from the previous window (#586)', async () => {
+  const region = (regionStart: number, regionEnd: number) => (
+    <GeneTrack assembly="GRCh38" chrom="1" width={1000} regionStart={regionStart} regionEnd={regionEnd} />
+  );
+  answer({ genes: [gene({ hgnc_symbol: 'B', start: 600, end: 900 })] });
+  const { container, rerender } = render(region(0, 1000));
+  await waitFor(() => expect(geneGroups(container)).toHaveLength(1));
+
+  answer({ genes: undefined, isError: true });
+  rerender(region(500, 1500));
+  await waitFor(() => expect(geneGroups(container)).toHaveLength(0));
+  expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+});

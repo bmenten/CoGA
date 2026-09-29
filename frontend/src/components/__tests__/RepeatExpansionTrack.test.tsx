@@ -206,4 +206,20 @@ describe('RepeatExpansionTrack', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/no repeat loci in this region/i)).not.toBeInTheDocument();
   });
+
+  it('a failed pan draws nothing from the previous window (#586)', () => {
+    useQueryMock.mockReturnValue({ data: { items: [locus('FMR1', 250, 'pathogenic')] }, isLoading: false });
+    const { container, rerender } = render(regionTrack(200));
+    expect(container.querySelectorAll('[data-repeat-locus-id]')).toHaveLength(1);
+
+    // Same span, 100 bp left: while the new window loads, the held locus stays drawn…
+    useQueryMock.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: vi.fn() });
+    rerender(regionTrack(100));
+    expect(container.querySelectorAll('[data-repeat-locus-id]')).toHaveLength(1);
+
+    // …but not under the failure.
+    useQueryMock.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: vi.fn() });
+    rerender(regionTrack(100));
+    expect(container.querySelectorAll('[data-repeat-locus-id]')).toHaveLength(0);
+  });
 });
