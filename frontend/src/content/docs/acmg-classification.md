@@ -64,6 +64,11 @@ on it. A variant that leaves the VUS band loses its tier tag.
 
 Hover a criterion to see the evidence behind its state. You can change every state and every strength.
 
+**A classified variant opens as you saved it.** Opening **ACMG classify** again, from any list, shows
+each criterion you saved with its state, its strength and its evidence. The pre-evaluation only fills
+in evidence you left empty, and sets the criteria you never saved. Saving again without changes keeps
+your criteria.
+
 **When a lookup fails.** If the gene profile or the family's HPO terms cannot be loaded, the dialog
 says so and offers **Retry**. PVS1, BS2 and PP4 then say *not assessed* and are offered as Consider.
 They are never scored as negative evidence.

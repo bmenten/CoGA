@@ -38,6 +38,10 @@ The frontend and backend scorers must agree. Each side has its own tests (listed
   compares against later.
 - CNVs: `structural_variant_reviews.cnv_acmg` (JSONB), `cnv_point_total` and `cnv_class`. The server
   clamps each submitted point value to the criterion's allowed range before summing.
+- Every list of small variants serves each review with the columns of a single-review read
+  (`_fetch_review_rows_for_variants` in `small_variant_review_repository.py`), the ACMG record
+  included. The dialog opened from a list is seeded from that record: without it, a classified variant
+  would reopen with the pre-evaluation alone, and saving would replace the stored criteria with it.
 - The class and VUS-tier tags (`acmg_class_*`, `acmg_vus_*`) are built-in tags defined in
   `DEFAULT_SMALL_VARIANT_TAGS` (`backend/app/services/small_variant_review_tags.py`). The dialog manages
   them from the selected criteria; the analyst cannot toggle them by hand.

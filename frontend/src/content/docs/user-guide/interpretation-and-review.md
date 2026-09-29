@@ -26,6 +26,7 @@ the family genotypes, and scores them on the ClinGen points scale.
 - **Save classification** stores the class as the variant's classification and review tag, together
   with every criterion and your note; the server recomputes the class. It also freezes the evidence, so
   the report can later tell whether it changed.
+- Opening a classified variant again shows the criteria as you saved them.
 
 > **Decision support, not an autoclassifier.** The dialog pre-positions the criteria; you confirm them,
 > adjust the strengths and add a note.

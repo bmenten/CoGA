@@ -65,6 +65,8 @@ Vanuit een variant opent **ACMG classify** een dialoog die:
 
 Alle vier zijn aan te passen: een klik op een criterium zet het altijd aan of uit.
 
+**Een geclassificeerde variant opnieuw openen.** De dialoog toont dan elk opgeslagen criterium met zijn toestand, sterkte en bewijs; de evaluator vult alleen ontbrekend bewijs aan en zet de criteria die nooit werden opgeslagen in hun eigen toestand. Opnieuw opslaan zonder wijziging houdt de criteria dus zoals ze waren. Elke lijst van small variants (de tabel en de kaarten, het rapport, de NIPT-kandidaten, de mtDNA-analyse) levert de review met hetzelfde ACMG-record als het lezen van die ene review (`_fetch_review_rows_for_variants` in `small_variant_review_repository.py`).
+
 ### Wat de evaluator vooraf beoordeelt
 
 De evaluator leest de variant, en waar beschikbaar het genprofiel (ClinGen-dosage, overervingswijze uit GenCC, fenotypes van het gen), de HPO-termen van de proband en de genotypes in de familie. Hij verandert niets; hij stelt alleen voor. De belangrijkste regels:
