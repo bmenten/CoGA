@@ -30,7 +30,7 @@ from .genotypes import (
     genotype_has_alt,
 )
 from .sex_chromosomes import (
-    SEX_CHROMOSOME_NAMES,
+    XY_CHROMOSOME_NAMES,
     SexChromosome,
     hemizygous_chromosome,
     pseudoautosomal_regions,
@@ -1905,7 +1905,7 @@ def _small_hemizygous_position_condition(
         return None
     chrom_expr = _clickhouse_chromosome_match_expr("e.chrom")
     branches: list[str] = []
-    for chrom, names in SEX_CHROMOSOME_NAMES.items():
+    for chrom, names in XY_CHROMOSOME_NAMES.items():
         key = f"{prefix}_{chrom.lower()}"
         params[f"{key}_chromosomes"] = names
         outside: list[str] = []

@@ -40,7 +40,7 @@ _ASSEMBLY_ALIASES = {
 }
 
 # Some pipelines number the sex chromosomes 23 and 24.
-SEX_CHROMOSOME_NAMES: dict[SexChromosome, tuple[str, ...]] = {
+XY_CHROMOSOME_NAMES: dict[SexChromosome, tuple[str, ...]] = {
     "X": ("X", "23"),
     "Y": ("Y", "24"),
 }
@@ -58,7 +58,7 @@ def pseudoautosomal_regions(assembly_name: str | None) -> dict[SexChromosome, tu
 def sex_chromosome(chromosome: str | None) -> SexChromosome | None:
     """``"X"`` or ``"Y"`` for a sex chromosome under any of its names, else None."""
     name = normalize_chromosome(str(chromosome or "")).upper()
-    for chrom, names in SEX_CHROMOSOME_NAMES.items():
+    for chrom, names in XY_CHROMOSOME_NAMES.items():
         if name in names:
             return chrom
     return None
