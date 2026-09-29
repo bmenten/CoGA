@@ -197,15 +197,15 @@ describe('haplotype risk inference', () => {
     const samples: HaplotypeSampleLike[] = [
       {
         sample: 'AFFECTED_SON',
-        segments: [{ chr: 'X', start: 0, end: 100, hap1: '0', hap2: '1' }],
+        segments: [{ chr: 'X', start: 0, end: 100, hap1: '0', hap2: '1', hemizygous_in_males: true }],
       },
       {
         sample: 'CARRIER_DAUGHTER',
-        segments: [{ chr: 'X', start: 0, end: 100, hap1: '0', hap2: '1' }],
+        segments: [{ chr: 'X', start: 0, end: 100, hap1: '0', hap2: '1', hemizygous_in_males: true }],
       },
       {
         sample: 'CLEAR_SON',
-        segments: [{ chr: 'X', start: 0, end: 100, hap1: '0', hap2: '0' }],
+        segments: [{ chr: 'X', start: 0, end: 100, hap1: '0', hap2: '0', hemizygous_in_males: true }],
       },
     ];
 
@@ -547,8 +547,9 @@ describe('a negative call needs the member\'s own haplotype across the ROI', () 
 
   describe('X-linked: a son has one X, from his mother', () => {
     const xRoi = { chr: 'X', start: 40, end: 60 };
+    // A block outside the pseudo-autosomal regions, as the backend marks it.
     const xBlock = (start: number, end: number, hap1: string, hap2: string): Seg =>
-      block(start, end, hap1, hap2, { chr: 'X' });
+      block(start, end, hap1, hap2, { chr: 'X', hemizygous_in_males: true });
 
     describe('recessive, resolved from an affected son (maternal 1)', () => {
       const affectedSon: HaplotypeMemberLike = { sample_id: 'SON', role: 'proband', affected: true, sex: 'male' };
@@ -698,6 +699,85 @@ describe('a negative call needs the member\'s own haplotype across the ROI', () 
         expect(out.state).toBe('carrier');
         expect(out.sexDependent ?? null).toBeNull();
       });
+    });
+  });
+
+  // In the pseudo-autosomal regions a son has two copies: his mother's and his father's
+  // (on the father's X or Y). He used to be read on his maternal copy alone across all of X,
+  // so a paternal risk haplotype there was not seen (SHOX in PAR1, pseudo-autosomal dominant).
+  describe('pseudo-autosomal: a son has two copies there', () => {
+    const parRoi = { chr: 'X', start: 600_000, end: 650_000 };
+    // A PAR1 block (GRCh38), as the backend marks it: not one copy in males.
+    const parBlock = (hap1: string, hap2: string, lineage: [string, string]): Seg =>
+      block(10_001, 2_781_479, hap1, hap2, {
+        chr: 'X',
+        hap1_lineage: lineage[0],
+        hap2_lineage: lineage[1],
+        hemizygous_in_males: false,
+      });
+    const father: HaplotypeMemberLike = { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' };
+    const daughter: HaplotypeMemberLike = { sample_id: 'DAUGHTER', role: 'proband', affected: true, sex: 'female' };
+    const son: HaplotypeMemberLike = { sample_id: 'E_SON', role: 'embryo', affected: false, sex: 'male' };
+    const members = [father, daughter, son];
+    // The affected father's homolog 1 is the one his affected daughter carries.
+    const family: HaplotypeSampleLike[] = [
+      { sample: 'FATHER', segments: [parBlock('1', '0', ['paternal', 'paternal'])] },
+      { sample: 'DAUGHTER', segments: [parBlock('1', '0', ['paternal', 'maternal'])] },
+    ];
+    const sonRisk = (segments: Seg[], samples: HaplotypeSampleLike[] = family) =>
+      riskOf([...samples, { sample: 'E_SON', segments }], members, 'AD', son, parRoi);
+
+    it('resolves the paternal risk haplotype at a PAR1 locus', () => {
+      const model = inferDiseaseHaplotypes({ samples: family, members, inheritanceModel: 'AD', region: parRoi });
+      expect(model.signatures).toEqual([{ origin: 'paternal', value: '1', kind: 'dominant' }]);
+    });
+
+    it('calls a son with the paternal risk haplotype at risk', () => {
+      expect(sonRisk([parBlock('1', '0', ['paternal', 'maternal'])])).toBe('affected_or_at_risk');
+      expect(getRenderableHaplotypeLanes(son, parBlock('1', '0', ['paternal', 'maternal']), 'X')).toEqual([
+        'hap1',
+        'hap2',
+      ]);
+    });
+
+    it('calls a son with the other paternal homolog, both sides seen, unaffected', () => {
+      expect(sonRisk([parBlock('0', '1', ['paternal', 'maternal'])])).toBe('unaffected_non_carrier');
+    });
+
+    it('reads a son on both copies across an ROI that crosses the PAR1 boundary', () => {
+      // Past the boundary the backend marks his block one-copy, so his father's side is seen
+      // over only part of the ROI: no call, rather than one read from his maternal X alone.
+      const acrossBoundary = { chr: 'X', start: 2_700_000, end: 2_900_000 };
+      const pastPar = block(2_781_480, 5_000_000, '0', '1', {
+        chr: 'X',
+        hap1_lineage: 'paternal',
+        hap2_lineage: 'maternal',
+        hemizygous_in_males: true,
+      });
+      const sonBlocks = [parBlock('0', '1', ['paternal', 'maternal']), pastPar];
+      const samples = [...family, { sample: 'E_SON', segments: sonBlocks }];
+      expect(riskOf(samples, members, 'AD', son, acrossBoundary)).toBe('uninformative');
+    });
+
+    it('does not call a son unaffected where the assembly\'s PARs are not known', () => {
+      // The backend then marks no block as one copy, so a son is read on both lanes: an
+      // X-linked dominant call against his father's haplotype needs his paternal side, which
+      // the trio phasing leaves unconfirmed ('?') outside a PAR. Read on his maternal X alone
+      // he was called unaffected, which at a PAR locus can be wrong.
+      const xRoi = { chr: 'X', start: 40, end: 60 };
+      const unmarked = (hap1: string, hap2: string): Seg => block(0, 100, hap1, hap2, { chr: 'X' });
+      const risk = riskOf(
+        [
+          { sample: 'FATHER', segments: [unmarked('1', '1')] },
+          { sample: 'DAUGHTER', segments: [unmarked('1', '0')] },
+          { sample: 'E_SON', segments: [unmarked('?', '0')] },
+        ],
+        members,
+        'XLD',
+        son,
+        xRoi,
+      );
+      expect(risk).toBe('uninformative');
     });
   });
 });

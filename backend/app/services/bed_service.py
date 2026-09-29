@@ -28,6 +28,7 @@ from .clickhouse_interval_tracks import (
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .haplotype_lineage_service import annotate_lineage
+from .sex_chromosomes import hemizygous_interval
 
 logger = logging.getLogger(__name__)
 
@@ -618,6 +619,30 @@ async def _apply_haplotype_lineage(
     }
 
 
+def _mark_hemizygous_blocks(
+    segments_by_uuid: dict[str, list[dict[str, Any]]],
+    *,
+    assembly_name: str | None,
+    chrom: str | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Mark each block where a male carries one copy: chrX or chrY outside the PARs of the
+    family's assembly, from the PAR table the variant queries use. The PGT embryo call reads a
+    male as having one X only on such blocks; in a PAR, and where the assembly's PARs are not
+    known, it reads both of his lanes."""
+    for segments in segments_by_uuid.values():
+        for segment in segments:
+            segment["hemizygous_in_males"] = (
+                hemizygous_interval(
+                    assembly_name,
+                    segment.get("chr") or chrom,
+                    int(segment["start"]),
+                    int(segment["end"]),
+                )
+                is not None
+            )
+    return segments_by_uuid
+
+
 async def get_family_haplotypes_response(
     session: AsyncSession,
     *,
@@ -653,6 +678,7 @@ async def get_family_haplotypes_response(
     segments = await _apply_haplotype_lineage(
         context, segments_by_uuid=segments, chrom=chr, start=start, end=end
     )
+    segments = _mark_hemizygous_blocks(segments, assembly_name=context.assembly_name, chrom=chr)
     return HaplotypeResponse(
         chr=chr,
         start=start,
@@ -702,6 +728,7 @@ async def get_family_haplotypes_batch_response(
     segments = await _apply_haplotype_lineage_genomewide(
         context, segments_by_uuid=segments, chromosomes=chromosomes
     )
+    segments = _mark_hemizygous_blocks(segments, assembly_name=context.assembly_name)
     return HaplotypeResponse(
         chr="genome",
         samples=[

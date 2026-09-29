@@ -667,7 +667,8 @@ describe('FamilyDetailPage', () => {
       { sample_id: 'E1', role: 'embryo', affected: false, sex: 'unknown' },
       { sample_id: 'E2', role: 'embryo', affected: false, sex: 'unknown' },
     ];
-    // Blocks over an ROI on X; the trio builder never confirms a paternal X side ('?').
+    // Blocks over an ROI on X, outside the PARs; the trio builder never confirms a paternal
+    // X side ('?').
     const xBlock = (hap2: string) => ({
       chr: 'X',
       start: 150_000_000,
@@ -676,6 +677,7 @@ describe('FamilyDetailPage', () => {
       hap2,
       hap1_lineage: 'paternal',
       hap2_lineage: 'maternal',
+      hemizygous_in_males: true,
     });
     const get = api.get as unknown as Mock;
     const working = get.getMockImplementation()!;

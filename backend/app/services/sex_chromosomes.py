@@ -80,3 +80,22 @@ def hemizygous_chromosome(
     if any(start <= position <= end for start, end in regions[chrom]):
         return None
     return chrom
+
+
+def hemizygous_interval(
+    assembly_name: str | None, chromosome: str | None, start: int, end: int
+) -> SexChromosome | None:
+    """``"X"`` or ``"Y"`` where a male carries one copy at every position of ``[start, end]``.
+
+    None on an autosome, on an interval that reaches into a PAR, and on an assembly whose PARs
+    are not known: an interval that may hold a PAR is read as two copies, never as one.
+    """
+    chrom = sex_chromosome(chromosome)
+    if chrom is None:
+        return None
+    regions = pseudoautosomal_regions(assembly_name)
+    if regions is None:
+        return None
+    if any(start <= par_end and end >= par_start for par_start, par_end in regions[chrom]):
+        return None
+    return chrom

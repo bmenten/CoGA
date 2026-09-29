@@ -27,6 +27,9 @@ export interface HaplotypeSegmentLike {
   ps?: number | null;
   hap1_lineage?: HaplotypeLineage | string | null;
   hap2_lineage?: HaplotypeLineage | string | null;
+  /** A male carries one copy of this block: chrX or chrY outside the pseudo-autosomal regions
+   * of the family's assembly, as the backend marks each block. Absent or false: two copies. */
+  hemizygous_in_males?: boolean | null;
 }
 
 export interface HaplotypeSampleLike {
@@ -123,9 +126,14 @@ const normalizeSex = (sex?: string | null): 'male' | 'female' | 'unknown' => {
 
 const isXChrom = (chrom?: string | null): boolean => normalizeHaplotypeChrom(chrom) === 'X';
 
-// Assumed (owner to confirm): no pseudo-autosomal exception, so a male is hemizygous on all of X.
-export const isMaleOnX = (member: HaplotypeMemberLike, chrom?: string | null): boolean =>
-  normalizeSex(member.sex) === 'male' && isXChrom(chrom);
+/**
+ * A male has one X in this block: chrX outside the pseudo-autosomal regions, where the backend
+ * marks the block `hemizygous_in_males` from its PAR table for the family's assembly. In a PAR a
+ * son also carries his father's copy (on the father's X or Y), so a block in or reaching into a
+ * PAR, or one on an assembly whose PARs are not known, is read on both lanes.
+ */
+const isMaleWithOneX = (member: HaplotypeMemberLike, segment: HaplotypeSegmentLike, chrom?: string | null): boolean =>
+  normalizeSex(member.sex) === 'male' && isXChrom(chrom || segment.chr) && segment.hemizygous_in_males === true;
 
 const haplotypeValue = (segment: HaplotypeSegmentLike, lane: HaplotypeLane): string => String(segment[lane] ?? '');
 
@@ -143,7 +151,7 @@ export const getRenderableHaplotypeLanes = (
   segment: HaplotypeSegmentLike,
   chrom?: string | null,
 ): HaplotypeLane[] => {
-  if (isMaleOnX(member, chrom || segment.chr)) {
+  if (isMaleWithOneX(member, segment, chrom)) {
     return [selectMaleXVisibleLane(member, segment)];
   }
   return ['hap1', 'hap2'];
@@ -172,7 +180,7 @@ export const getHaplotypeLaneSignature = (
 
   const role = normalizeRole(member.role);
   let origin: HaplotypeOrigin;
-  if (isMaleOnX(member, chrom || segment.chr)) {
+  if (isMaleWithOneX(member, segment, chrom)) {
     origin = role === 'father' ? 'paternal' : 'maternal';
   } else if (role === 'father') {
     origin = 'paternal';
@@ -461,8 +469,9 @@ export interface HaplotypeRiskAssessment {
  * parental side seen at every position of the region. No block over the region, a block over
  * only part of it, a grey lane or an unconfirmed homolog is missing data (the member may
  * carry the risk haplotype there), so the call is uninformative. The sides a call needs are
- * those a risk haplotype was resolved on; a male on X is called on his one X, since a son
- * cannot inherit his father's.
+ * those a risk haplotype was resolved on; a male is called on his one X where all his blocks
+ * over the region are one-copy (outside the PARs), since a son cannot inherit his father's X.
+ * In a PAR he has both copies and is called like any other member.
  *
  * X-linked recessive with the sex not recorded, the member is called both as a son and as a
  * daughter. Where the two calls differ the call assumes neither: Affected / at risk when either
@@ -501,7 +510,8 @@ export const assessSampleHaplotypeRisk = ({
       sexDependent: { ifMale: ifMale.state, ifFemale: ifFemale.state },
     };
   }
-  const homologs = homologsInRegion(member, buildSegmentMap(samples), region);
+  const segmentsBySample = buildSegmentMap(samples);
+  const homologs = homologsInRegion(member, segmentsBySample, region);
   const carried = new Set(homologs.map(({ signature }) => signatureKey(signature)));
   const hasKind = (kind: DiseaseHaplotypeKind): boolean =>
     model.signatures.some((signature) => signature.kind === kind && carried.has(signatureKey(signature)));
@@ -510,7 +520,12 @@ export const assessSampleHaplotypeRisk = ({
     sides.every((side) => coversRegionOnSide(homologs, region, side))
       ? call(state)
       : { state: 'uninformative', roiNotCovered: true, sexDependent: null };
-  const riskSides: HaplotypeOrigin[] = isMaleOnX(member, region.chr)
+  const blocksAtRegion = (segmentsBySample.get(member.sample_id) || []).filter((segment) =>
+    segmentOverlapsRegion(segment, region),
+  );
+  const oneXAtRegion =
+    blocksAtRegion.length > 0 && blocksAtRegion.every((segment) => isMaleWithOneX(member, segment, region.chr));
+  const riskSides: HaplotypeOrigin[] = oneXAtRegion
     ? [maleXOrigin(member)]
     : Array.from(new Set(model.signatures.map((signature) => signature.origin)));
 

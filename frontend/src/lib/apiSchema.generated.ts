@@ -1170,6 +1170,7 @@ export interface HaplotypeSegment {
   ps: number | null;
   hap1_lineage: string | null;
   hap2_lineage: string | null;
+  hemizygous_in_males: boolean;
 }
 
 export interface HpoAdminSummaryOut {

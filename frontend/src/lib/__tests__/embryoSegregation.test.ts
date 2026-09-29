@@ -96,7 +96,8 @@ describe('classifyEmbryosAtRoi (dominant)', () => {
 
 describe("classifyEmbryosAtRoi (X-linked recessive, the embryos' sex not recorded)", () => {
   const xRegion = { chr: 'X', start: 1_000_000, end: 1_001_000 };
-  const xSeg = (hap1: string, hap2: string) => ({ ...seg(hap1, hap2), chr: 'X' });
+  // Outside the pseudo-autosomal regions, as the backend marks the block.
+  const xSeg = (hap1: string, hap2: string) => ({ ...seg(hap1, hap2), chr: 'X', hemizygous_in_males: true });
   // The affected son resolves the mother's risk X (maternal 1). The trio builder never
   // confirms a paternal X side, hence '?'.
   const members: HaplotypeMemberLike[] = [
@@ -118,6 +119,34 @@ describe("classifyEmbryosAtRoi (X-linked recessive, the embryos' sex not recorde
     // The other maternal X: unaffected whatever the sex.
     expect(out.E_CLEAR.state).toBe('unaffected_non_carrier');
     expect(out.E_CLEAR.sexDependent ?? null).toBeNull();
+  });
+});
+
+describe('classifyEmbryosAtRoi (dominant, an ROI in PAR1)', () => {
+  // In a pseudo-autosomal region a son carries his father's copy too.
+  const parRegion = { chr: 'X', start: 600_000, end: 650_000 };
+  const parSeg = (hap1: string, hap2: string, lineage: [string, string]) => ({
+    ...seg(hap1, hap2, lineage[0], lineage[1], 10_001, 2_781_479),
+    chr: 'X',
+    hemizygous_in_males: false,
+  });
+  const members: HaplotypeMemberLike[] = [
+    { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' },
+    { sample_id: 'DAUGHTER', role: 'proband', affected: true, sex: 'female' },
+    { sample_id: 'E_RISK', role: 'embryo', affected: false, sex: 'male' },
+    { sample_id: 'E_CLEAR', role: 'embryo', affected: false, sex: 'male' },
+  ];
+  const samples: HaplotypeSampleLike[] = [
+    { sample: 'FATHER', segments: [parSeg('1', '0', ['paternal', 'paternal'])] },
+    { sample: 'DAUGHTER', segments: [parSeg('1', '0', ['paternal', 'maternal'])] },
+    { sample: 'E_RISK', segments: [parSeg('1', '0', ['paternal', 'maternal'])] },
+    { sample: 'E_CLEAR', segments: [parSeg('0', '1', ['paternal', 'maternal'])] },
+  ];
+
+  it("calls a son on both copies: his father's risk haplotype is at risk", () => {
+    const out = byId(classifyEmbryosAtRoi({ members, samples, inheritanceModel: 'AD', region: parRegion }));
+    expect(out.E_RISK.state).toBe('affected_or_at_risk');
+    expect(out.E_CLEAR.state).toBe('unaffected_non_carrier');
   });
 });
 
