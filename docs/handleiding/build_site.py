@@ -1,12 +1,28 @@
-# Bouwt docs/handleiding/coga-handleiding.html uit de Markdown-hoofdstukken.
-# Vereist het Python-pakket "markdown": pip install markdown
-# Draai:  python docs/handleiding/build_site.py
 #!/usr/bin/env python
+# Bouwt docs/handleiding/coga-handleiding.html uit de Markdown-hoofdstukken.
+# Vereist het Python-pakket "markdown", in de versie die CI vastzet (.github/workflows/ci.yml).
+# Draai:  python docs/handleiding/build_site.py
+#
+# De uitvoer hangt alleen af van de Markdown en van VERSION (de chip in de zijbalk), niet
+# van de klok of de commit: scripts/check-handleiding-sync.sh bouwt opnieuw en vergelijkt.
 import os, re, html as htmlmod
 import markdown
 
 DOCS = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(DOCS))
 OUT = os.path.join(DOCS, "coga-handleiding.html")
+
+
+def read_product_version():
+    """De productversie uit VERSION, de enige bron van waarheid (RELEASING.md)."""
+    try:
+        with open(os.path.join(ROOT, "VERSION"), encoding="utf-8") as handle:
+            return handle.read().strip() or "onbekend"
+    except OSError:
+        return "onbekend"
+
+
+PRODUCT_VERSION = read_product_version()
 
 CHAPTERS = [
     (1,  "01-architectuur.md",                    "Algemene architectuur & structuur"),
@@ -48,7 +64,6 @@ def render_md(path):
     return out
 
 intro_html = render_md(os.path.join(DOCS, "README.md"))
-# in de intro de eigen "Inhoudstabel"-tabel weglaten (de zijbalk + kaarten dekken dat) -> laat staan, is nuttig.
 
 sections = [f'<section id="top" class="intro">\n{intro_html}\n</section>']
 navitems = ['<a class="nav-link" href="#top" data-target="top"><span class="n">·</span><span class="t">Introductie &amp; inhoudstabel</span></a>']
@@ -273,15 +288,15 @@ sidebar = f"""
   <div class="brand">
     <div class="logo"><span class="mark" aria-hidden="true">🧬</span>
       <h1>CoGA<br>Codebase-handleiding</h1></div>
-    <div class="sub">Volledige technische uitleg voor het review board — explainability, traceability &amp; veiligheid.</div>
-    <span class="chip">versie <b>0.1.0</b> · commit <b>6641228</b></span>
+    <div class="sub">Technische uitleg voor het review board: uitlegbaarheid, traceerbaarheid &amp; veiligheid.</div>
+    <span class="chip">versie <b>{htmlmod.escape(PRODUCT_VERSION)}</b></span>
   </div>
   <nav class="navwrap" aria-label="Hoofdstukken">
     <div class="nav-eyebrow">Inhoud</div>
     {''.join(navitems)}
   </nav>
   <div class="sidebar-foot">
-    <span class="ver">15 hoofdstukken</span>
+    <span class="ver">{len(CHAPTERS)} hoofdstukken</span>
     <button class="tbtn" data-theme-toggle aria-label="Wissel thema">☾ Donker</button>
   </div>
 </aside>

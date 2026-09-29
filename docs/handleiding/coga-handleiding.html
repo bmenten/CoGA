@@ -164,8 +164,8 @@ p.waar strong{color:var(--accent-ink)}
   <div class="brand">
     <div class="logo"><span class="mark" aria-hidden="true">🧬</span>
       <h1>CoGA<br>Codebase-handleiding</h1></div>
-    <div class="sub">Volledige technische uitleg voor het review board — explainability, traceability &amp; veiligheid.</div>
-    <span class="chip">versie <b>0.1.0</b> · commit <b>6641228</b></span>
+    <div class="sub">Technische uitleg voor het review board: uitlegbaarheid, traceerbaarheid &amp; veiligheid.</div>
+    <span class="chip">versie <b>0.1.0</b></span>
   </div>
   <nav class="navwrap" aria-label="Hoofdstukken">
     <div class="nav-eyebrow">Inhoud</div>
@@ -180,74 +180,29 @@ p.waar strong{color:var(--accent-ink)}
 <main>
   <article class="reading">
     <section id="top" class="intro">
-<h1>CoGA — Volledige codebase-handleiding</h1>
-<p>Deze handleiding legt de <strong>volledige codebase van CoGA</strong> (<em>Comprehensive Genomic Analysis</em>) uit,
-hoofdstuk per hoofdstuk, in het Nederlands. Ze is geschreven voor een <strong>review board / auditoren</strong>
-en is bewust toegankelijk gehouden voor lezers met <strong>beperkte Python- of TypeScript-ervaring</strong>:
-elk vakbegrip wordt kort uitgelegd, en bij elk onderwerp staat expliciet <strong>waar in de code</strong> het
-is geïmplementeerd.</p>
-<p>CoGA wordt geëxploiteerd als <strong>in-house IVD onder IVDR Artikel 5(5)</strong> bij CMGG (ISO 15189). De
-device-grens loopt van <em>geannoteerde VCF</em> tot <em>ondertekend klinisch rapport</em>. Daarom loopt door de
-hele handleiding één rode draad: <strong>explainability, traceability en veiligheid</strong> — telkens met
-verwijzing naar het bestand waar de betreffende controle, logging of toegangsbeperking is afgedwongen.</p>
+<h1>CoGA — Codebase-handleiding</h1>
+<p>Deze handleiding legt de codebase van CoGA (<em>Comprehensive Genomic Analysis</em>) uit, hoofdstuk per hoofdstuk, in het Nederlands. Ze is geschreven voor het <strong>review board en auditoren</strong> en bewust leesbaar gehouden voor wie weinig ervaring heeft met Python of TypeScript: elk vakbegrip wordt kort uitgelegd, en bij elk onderwerp staat <strong>waar in de code</strong> het zit.</p>
+<p>CoGA draait als <strong>in-house IVD onder IVDR Artikel 5(5)</strong> bij CMGG (ISO 15189). Het gereguleerde deel loopt van het <em>geannoteerde VCF-bestand</em> tot het <em>ondertekende klinische rapport</em>. Daarom loopt door de hele handleiding één rode draad: <strong>uitlegbaarheid, traceerbaarheid en veiligheid</strong>, telkens met de plaats in de code waar een controle, een logregel of een toegangsbeperking wordt afgedwongen.</p>
 <blockquote>
-<p>De data in het systeem is <strong>synthetisch</strong>; er is geen echte patiëntdata.</p>
+<p>De data in het systeem is <strong>synthetisch</strong>; er zijn geen echte patiëntgegevens.</p>
 </blockquote>
-<hr />
-<h2>Welke codeversie beschrijft deze handleiding?</h2>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Item</th>
-<th>Waarde</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Applicatieversie (<code>VERSION</code>)</td>
-<td><code>0.1.0</code></td>
-</tr>
-<tr>
-<td>Git-commit</td>
-<td><code>6641228</code> (<code>66412286a2124e83d9155e4624206074dacfd8f8</code>)</td>
-</tr>
-<tr>
-<td>Datum commit</td>
-<td>2026-07-08</td>
-</tr>
-<tr>
-<td>Branch</td>
-<td><code>docs/codebase-handleiding-nl</code> (lokaal)</td>
-</tr>
-</tbody>
-</table></div>
-<p>Alle bestands-, functie- en tabelverwijzingen in deze handleiding zijn geverifieerd tegen <strong>exact
-deze commit</strong>. Bij een latere codewijziging kunnen paden verschuiven; controleer dan of deze
-handleiding op de nieuwe commit moet worden bijgewerkt.</p>
-<hr />
+<h2>Welke code beschrijft deze handleiding?</h2>
+<p>Deze handleiding beschrijft de huidige <code>main</code>. Wijzigt een PR gedrag dat hier beschreven staat, dan werkt dezelfde PR het hoofdstuk bij en vermeldt dat in zijn CR-rij (TF-18). De CI-controle <code>scripts/check-handleiding-sync.sh</code> bewaakt dat de webpagina overeenkomt met de Markdown. Reviewt u een vaste versie, noteer dan de release-tag of de commit die u leest. Bij een verschil gaat de code voor, dan <code>docs/regulatory/</code>, dan <code>docs/</code>.</p>
 <h2>Leeswijzer</h2>
 <ul>
-<li><strong>Bestandsverwijzingen</strong> staan in <code>monospace</code> en zijn relatief t.o.v. de repository-root,
-  bv. <code>backend/app/routers/auth.py</code>. Waar mogelijk verwijzen we naar een <strong>functie of endpoint bij
-  naam</strong> in plaats van naar een regelnummer (regelnummers verschuiven bij codewijzigingen).</li>
-<li>Elk belangrijk concept heeft een <strong>“Waar in de code:”-aanwijzing</strong> zodat u meteen naar de bron kunt.</li>
-<li>Elk hoofdstuk sluit af met een tabel <strong>“Belangrijkste bestanden”</strong> als snelle index.</li>
-<li>De hoofdstukken zijn zelfstandig leesbaar, maar bouwen logisch op elkaar voort. Voor een eerste
-  lezing raden we de volgorde 1 → 15 aan; voor gericht auditwerk kunt u rechtstreeks naar een
-  hoofdstuk springen via de inhoudstabel hieronder.</li>
+<li><strong>Paden</strong> staan in <code>monospace</code>, relatief ten opzichte van de hoofdmap van de repository (bv. <code>backend/app/routers/auth.py</code>). Functies en endpoints worden bij naam genoemd, nooit met een regelnummer.</li>
+<li>Een <strong>"Waar in de code"</strong>-aanwijzing leidt telkens naar de bron.</li>
+<li>Elk hoofdstuk eindigt met een tabel <strong>"Belangrijkste bestanden"</strong>.</li>
+<li>Waar de handleiding de Engelse documentatie of de technical file samenvat, noemt ze de bron: een pad (bv. <code>docs/application-scheme.md</code>) of een pagina in de app (bv. <em>Docs → Sample-integrity QC</em>). In de webversie zijn zulke verwijzingen gewone tekst; alleen de verwijzingen tussen hoofdstukken zijn links.</li>
+<li>De hoofdstukken zijn apart leesbaar. Voor een eerste lezing raden we de volgorde 1 → 15 aan.</li>
 </ul>
-<hr />
-<h2>Webversie (voor het review board)</h2>
-<p>Naast deze Markdown-bestanden is er een <strong>self-contained webpagina</strong> met alle hoofdstukken op één
-navigeerbare pagina — zijbalk-inhoudstabel met scrollspy, licht/donker-thema en print-/PDF-export:
-<span class="deadref"><code>coga-handleiding.html</code></span>. Open dit bestand rechtstreeks in een browser; er
-zijn geen externe afhankelijkheden nodig.</p>
-<p>De webpagina wordt gegenereerd uit <strong>exact deze Markdown-bestanden</strong> met <span class="deadref"><code>build_site.py</code></span>:</p>
+<h2>Webversie</h2>
+<p>Naast deze Markdown-bestanden is er een webpagina met alle hoofdstukken op één pagina, met een inhoudstabel in de zijbalk, een licht en donker thema en een printweergave voor PDF: <span class="deadref"><code>coga-handleiding.html</code></span>. Open het bestand rechtstreeks in een browser; het heeft niets extern nodig. De zijbalk toont de productversie uit <code>VERSION</code>.</p>
+<p>De pagina wordt gebouwd uit precies deze Markdown-bestanden, met <span class="deadref"><code>build_site.py</code></span>:</p>
 <div class="scroll"><pre><code class="language-bash">pip install markdown
-python docs/handleiding/build_site.py   # (her)schrijft coga-handleiding.html
+python docs/handleiding/build_site.py
 </code></pre></div>
-<p>Werk je een hoofdstuk bij, draai dan dit script opnieuw zodat de Markdown en de webpagina overeenkomen.</p>
-<hr />
+<p>Werk je een hoofdstuk bij of verandert <code>VERSION</code>, bouw de pagina dan opnieuw en commit ze mee. Gebruik dezelfde versie van <code>markdown</code> als CI (de stap <em>catalogue</em> in <code>.github/workflows/ci.yml</code>), zodat de uitvoer overeenkomt.</p>
 <h2>Inhoudstabel</h2>
 <div class="scroll"><table>
 <thead>
@@ -261,90 +216,82 @@ python docs/handleiding/build_site.py   # (her)schrijft coga-handleiding.html
 <tr>
 <td>1</td>
 <td><a href="#hs-1">Algemene architectuur &amp; structuur</a></td>
-<td>De drie lagen (frontend, backend, databanken), de levensloop van een verzoek van klik tot data, de mappenstructuur en de tech stack. De “kaart” voor de rest.</td>
+<td>De drie lagen, de weg van één verzoek, de mappen, de configuratie en de technologie. De kaart voor de rest.</td>
 </tr>
 <tr>
 <td>2</td>
 <td><a href="#hs-2">Gebruikersrollen, machtigingen &amp; afscherming</a></td>
-<td>Rollen (gewone gebruiker / admin / superuser), project-scoped RBAC, backend-afdwinging vs. frontend-guards, de least-privilege database-rol, rate limiting, security headers, CORS, secret-weigering en upload-veiligheid.</td>
+<td>Rollen, projectgebonden toegang, afdwinging in de backend, de beperkte databankrol, security-headers, de weigering van zwakke geheimen en de bescherming van uploads.</td>
 </tr>
 <tr>
 <td>3</td>
 <td><a href="#hs-3">Databankstructuren (Postgres &amp; ClickHouse)</a></td>
-<td>Waarom twee databanken, welke tabellen er zijn (per groep), hoe ClickHouse-variantrijen aan Postgres-metadata worden gekoppeld, en hoe de schema’s worden toegepast.</td>
+<td>Waarom twee databanken, hoe de tabellen gegroepeerd zijn, hoe ClickHouse-rijen aan Postgres gekoppeld worden en welke garanties in de databank zitten.</td>
 </tr>
 <tr>
 <td>4</td>
 <td><a href="#hs-4">Initiële deployment &amp; seeding</a></td>
-<td>Van nul naar een draaiende stack: aanmaken van de databankstructuren, seeden van de eerste admin en de referentiedata (GRCh38, cytobands, genen, tracks), de opstartsequentie, en de GCP/Terraform-deployment.</td>
+<td>Van nul naar een draaiend platform: het schema, de eerste beheerder, de referentiedata, de opstartvolgorde en de uitrol op Google Cloud.</td>
 </tr>
 <tr>
 <td>5</td>
 <td><a href="#hs-5">Login &amp; authenticatie</a></td>
-<td>Hoe gebruikers inloggen, wachtwoord-hashing, JWT-uitgifte en -verificatie, sessiebeheer in de frontend, rate limiting/lockout, optionele Azure AD, en waartoe men na login gerechtigd is.</td>
+<td>Inloggen, wachtwoorden, tokens, de sessie in de browser, rate limiting, registratie en optioneel Azure AD.</td>
 </tr>
 <tr>
 <td>6</td>
 <td><a href="#hs-6">Package import — manifest, controles, traceerbaarheid</a></td>
-<td>Hoe een pakket veilig wordt geïmporteerd: manifest-opbouw vanuit S3 / Google Cloud / lokale map, de data-controles en dry-run, wat in welke tabel terechtkomt, en de provenance/logging.</td>
+<td>Hoe een familiepakket veilig wordt ingelezen: bronnen, manifest, dry-run, waar de data terechtkomt en de herkomstregisters.</td>
 </tr>
 <tr>
 <td>7</td>
 <td><a href="#hs-7">Backend: routers &amp; services in detail</a></td>
-<td>De API-laag: het patroon router → service → opslag, dependency-injection, de veiligheids-invarianten (geparametriseerde SQL, allowlisted <code>ORDER BY</code>), en een overzichtstabel van alle routers en services.</td>
+<td>Het patroon router → service → opslag, de veiligheidsregels voor databankvragen, alle routers en de request-logging.</td>
 </tr>
 <tr>
 <td>8</td>
 <td><a href="#hs-8">Filterpagina's ↔ API</a></td>
-<td>Hoe na een correcte import de <strong>juiste data wordt gefilterd en getoond</strong> — end-to-end — voor small variants, structural variants, mitochondriaal (mtDNA) + Sample QC, Paraphase, TRGT repeats, monogene NIPT en PGT haplotype-segregatie.</td>
+<td>De keten van filter tot weergave voor small en structurele varianten, en een samenvatting van mtDNA en sample-QC, Paraphase, repeat-expansies, monogene NIPT en PGT.</td>
 </tr>
 <tr>
 <td>9</td>
 <td><a href="#hs-9">Visualisaties (chromosome, genome, circos, IGV)</a></td>
-<td>Hoe elke visualisatie de juiste data ophaalt en tekent: genoomoverzicht, per-chromosoomweergave, Circos, de ingebedde IGV-browser en de onderliggende tracks.</td>
+<td>Het genoomoverzicht, de weergave per chromosoom, Circos, IGV en de tracks.</td>
 </tr>
 <tr>
 <td>10</td>
 <td><a href="#hs-10">Variant-tagging &amp; semi-automatische ACMG-classificatie</a></td>
-<td>Tagging van varianten en de semi-automatische ACMG-classificator: hoe criteria vooraf worden geëvalueerd op een puntenschaal, hoe elk criterium overrijdbaar is, en hoe evidence-snapshots en classification-drift worden vastgelegd.</td>
+<td>Tags en de semi-automatische ACMG-classificatie (small variants, mtDNA en CNV's), het bevroren bewijs en drift.</td>
 </tr>
 <tr>
 <td>11</td>
 <td><a href="#hs-11">Rapport &amp; volledige traceerbaarheid</a></td>
-<td>Hoe alles samenkomt in een ondertekend rapport: de sign-out flow, het bevroren versie-gebonden snapshot, de gating op drift en Sample-QC, en de append-only, hash-chained audit met integrity anchors.</td>
+<td>Het ondertekenen, de poorten, het bevroren snapshot, het hash-geketende auditspoor en de integriteitsankers.</td>
 </tr>
 <tr>
 <td>12</td>
 <td><a href="#hs-12">HPO, Monarch &amp; variant-prioritisatie</a></td>
-<td>De fenotype-gedreven laag: HPO-terminologie, Monarch-associaties en semantische gelijkenis, en hoe dit varianten prioriteert (met de ranking-cache).</td>
+<td>Fenotypes, Monarch, semantische gelijkenis, de variantprioritering en de ranking-cache.</td>
 </tr>
 <tr>
 <td>13</td>
 <td><a href="#hs-13">Gene Explorer &amp; versiecontrole</a></td>
-<td>Het gen-profiel: transcript-overzicht met MANE/RefSeq-badges, constraint-metrieken en associaties; uit welke externe bronnen de data komt, hoe die wordt gecachet, en hoe referentiedatasets <strong>versiebeheerd</strong> worden.</td>
+<td>Het genprofiel, de bronnen van de geninformatie en de versiecontrole van referentiedata.</td>
 </tr>
 <tr>
 <td>14</td>
 <td><a href="#hs-14">Variant Explorer</a></td>
-<td>De cross-cohort zoekfunctie: aggregatie van varianten over alle toegankelijke projecten, dragertellingen, filters en carrier drill-down — met bijzondere nadruk op de cross-project afscherming.</td>
+<td>Varianten over alle toegankelijke projecten heen, met nadruk op de afscherming tussen projecten.</td>
 </tr>
 <tr>
 <td>15</td>
 <td><a href="#hs-15">Overige modules &amp; adminfunctionaliteit</a></td>
-<td>De resterende modules (Clinical CNV Explorer, gene-panel-catalogus, adminfuncties, in-app docs, releases, UI-telemetrie) plus een <strong>dekkingschecklist</strong> die bevestigt dat de volledige codebase is behandeld.</td>
+<td>De CNV-kennisbank, genpanels, de beheerfuncties, de in-app documentatie, releases en UI-telemetrie.</td>
 </tr>
 </tbody>
 </table></div>
-<hr />
-<h2>Hoe deze handleiding is opgesteld (methodologie)</h2>
-<p>Elk hoofdstuk is opgesteld door de betrokken broncode en de bestaande projectdocumentatie
-(<code>docs/</code>) systematisch uit te lezen, en vervolgens is <strong>elke bestands-, functie- en tabelverwijzing
-opnieuw geverifieerd tegen de code</strong> op de hierboven vermelde commit. Verwijzingen die niet
-konden worden bevestigd, zijn verwijderd of gecorrigeerd. De handleiding is zo opgebouwd dat een
-reviewer elke bewering kan natrekken tot in het exacte bestand.</p>
-<p>Voor de dieperliggende onderbouwing verwijst deze handleiding waar relevant naar de bestaande
-projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar de IVDR technical file in
-<span class="deadref"><code>docs/regulatory/</code></span>.</p>
+<h2>Hoe deze handleiding is opgesteld</h2>
+<p>Elk hoofdstuk is geschreven uit de broncode en de projectdocumentatie, en elke verwijzing naar een bestand, functie of tabel is in de code nagegaan. Waar de handleiding de Engelse documentatie in <code>docs/</code> of de technical file in <code>docs/regulatory/</code> samenvat, noemt ze die bron.</p>
 </section><section id="hs-1" class="chapter">
 <h1>1. Algemene architectuur &amp; structuur</h1>
 <p>Dit hoofdstuk is de kaart voor de rest van de handleiding. Het beschrijft de drie lagen van CoGA (frontend, backend en twee databanken), volgt één verzoek van een klik in de browser tot de data en terug, en wijst aan waar de mappen, de configuratie en de belangrijkste veiligheidsmaatregelen zitten. De architectuur staat in het Engels in <code>docs/application-scheme.md</code> en in de technical file (<code>docs/regulatory/TF-02-device-description.md</code>); dit hoofdstuk vat ze samen.</p>
