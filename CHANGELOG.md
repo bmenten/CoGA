@@ -526,6 +526,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Review edits keep a CNV classification** — toggling a tag or saving the review dialog on an
   SV/CNV no longer erases its ClinGen classification, nor the classification label the ClinGen
   dialog set; sending `cnv_acmg` as null clears the scoring on purpose (CR-101, #639).
+- **Per-sample SV upload scoped to its own source** — a Sniffles, Spectre or manual upload now checks,
+  merges and replaces only that caller's calls. It refused a sample's first upload over its NeedlR
+  calls and, on overwrite, duplicated other sources' SVs so that a later merge dropped the sample's
+  calls. An unknown `source_format` is refused (CR-105, #643).
 
 ### Security
 
