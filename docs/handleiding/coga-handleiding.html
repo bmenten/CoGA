@@ -2048,7 +2048,7 @@ nooit een patroon in het manifest.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>staged_package_source_async</code> / <code>_stage_s3_package</code> in <code>family_package_source.py</code>.</p>
 <h2>Wat komt in welke tabel</h2>
 <p>De import registreert eerst de familie-metadata en de provenance, en importeert daarna dataset voor dataset. Grofweg: kleine, hoog-volume variantrijen gaan naar <strong>ClickHouse</strong>; metadata, herkomst en per-sample brongegevens naar <strong>Postgres</strong>.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_datasets.py</code> (<code>_import_dataset</code> en de per-dataset importfuncties), die de bestaande loaders <code>upload_family_small_variant_file</code>, <code>replace_family_structural_variants</code>, <code>ingest_family_trgt_text</code>, enz. aanroepen.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/family_package_datasets.py</code>. Elke per-dataset importfunctie registreert zich met <code>@_dataset_importer("&lt;type&gt;")</code> in <code>DATASET_IMPORTERS</code> en krijgt één <code>DatasetImportJob</code> mee: het pakket, de manifestregel van de dataset, de samenvatting, de familie- en samplecontext, de conflictmodus en de voortgangsterugmelding. <code>_import_dataset</code> zoekt de functie op in dat register (#528). De functies roepen de bestaande loaders aan: <code>upload_family_small_variant_file</code>, <code>replace_family_structural_variants</code>, <code>ingest_family_trgt_text</code>, enz. Een datasettype in <code>SUPPORTED_DATASETS</code> zonder registratie is een fout: een test bewaakt dat, en <code>_import_dataset</code> faalt er luid op.</p>
 <div class="scroll"><table>
 <thead>
 <tr>

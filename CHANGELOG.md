@@ -204,6 +204,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Generated API types (#528)** — the frontend's API types are generated from the backend's
   OpenAPI schema, CI fails when they are stale, and `tsc` checks the hand-written types against
   them; a family member's `sequencing_qc` may be null, and two stale NIPT types are gone (#597).
+- **Dataset importer registry (#528)** — the package import's 15 dataset importers register
+  themselves by type and take one import job, replacing a 160-line dispatcher; a test holds the
+  registry to the supported dataset types (#598).
 
 ### Removed
 
