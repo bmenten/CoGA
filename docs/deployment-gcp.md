@@ -285,7 +285,7 @@ terraform apply -target='google_secret_manager_secret.app' \
 
 # Now add a value to each. Use STRONG, DISTINCT values.
 openssl rand -base64 48 | tr -d '\n' | gcloud secrets versions add coga-secret-key            --data-file=-
-openssl rand -base64 48 | tr -d '\n' | gcloud secrets versions add coga-integrity-anchor-key  --data-file=-
+openssl rand -base64 32 | tr -d '\n' | gcloud secrets versions add coga-integrity-anchor-key  --data-file=-
 printf '%s' 'CHOOSE-A-STRONG-ADMIN-PASSWORD'   | gcloud secrets versions add coga-admin-password   --data-file=-
 openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-postgres-password      --data-file=-
 openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-clickhouse-password    --data-file=-
@@ -296,6 +296,9 @@ openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-postgres
 Notes:
 
 - `coga-secret-key` and `coga-integrity-anchor-key` **must be different** values.
+- `coga-integrity-anchor-key` must be the base64 of exactly 32 random bytes (an Ed25519
+  seed), which is what `openssl rand -base64 32` prints. Any other length and the backend
+  refuses to start.
 - You do **not** create `coga-clickhouse-tls-*` — Terraform generates the ClickHouse
   TLS cert/key itself.
 - The `coga-admin-password` is the first login password for user **`coga-admin`**.
