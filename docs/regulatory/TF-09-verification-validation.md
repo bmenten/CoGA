@@ -21,7 +21,11 @@
 > embedding the risk analysis ([TF-06](TF-06-risk-management-plan.md)). It is distinct from
 > the **clinical validation per analysis/method** (H11.1-OP1 §8), which is
 > [TF-10](TF-10-performance-evaluation-plan.md)/[TF-11](TF-11-performance-evaluation-report.md).
-> Acceptance testing uses **real data in an environment closely matching production**.
+>
+> H11.1-OP5 expects acceptance testing on real data in an environment close to production.
+> **🔲 Not yet done:** the verification so far runs on synthetic data
+> ([TF-09c §7](TF-09c-e2e-pipeline-verification.md)), and there is no production environment
+> yet ([TF-02 §10](TF-02-device-description.md)).
 
 ---
 
@@ -29,34 +33,21 @@
 
 | Level | Method | Where | Gate |
 | --- | --- | --- | --- |
-| Unit | pytest (backend), vitest (frontend) | `backend/tests`, `frontend/src/**/*.test.tsx` | CI `backend`, `frontend` jobs |
-| Static analysis | TypeScript `tsc`, ESLint with the React hooks and jsx-a11y accessibility rules and a warning budget (frontend); ruff over the backend and scripts, and mypy over the clinical-critical modules listed in `mypy.ini` (#526) | frontend, backend | CI `frontend` and `backend` jobs |
-| Integration | Real-startup smoke against Postgres 16 + ClickHouse 26.8 (schema init, admin seed, health probe) | `backend/tests/integration` | CI `smoke` job |
+| Unit | pytest (backend), vitest (frontend) | `backend/tests`, `frontend/src/**/*.test.ts(x)` | CI `backend`, `frontend` jobs |
+| Static analysis | TypeScript `tsc` and ESLint with the React hooks and accessibility rules (frontend); ruff, and mypy on the clinical-critical modules listed in `mypy.ini` (backend) | frontend, backend | CI `frontend` and `backend` jobs |
+| Integration | Tests against real Postgres and ClickHouse: app startup (schema, admin seed, health), database immutability and role privileges, hash chains and anchors, ClickHouse queries | `backend/tests/integration` | CI `smoke` job |
 | End-to-end (system) | Golden-dataset pipeline run (ingest → query/API → review/audit/sign-out) + realistic demo bundles, checked vs documented expected results — see **[TF-09c](TF-09c-e2e-pipeline-verification.md)** | `backend/tests/e2e` | CI `e2e` job |
-| Browser / GUI end-to-end | Real Chromium driving the UI (login → family workspace → genome render → in-browser sign-out) against a live backend + datastores. The UI is the **production build served by `server.mjs`**, with its enforcing CSP and `/api` proxy, so the journeys verify what is deployed; a journey fails on any CSP violation, and a spec checks the security headers are sent (#526; until then the Vite dev server was used, #517). The proxy and header code also has unit tests (`frontend/src/__tests__/serverProxy.test.ts`, `serverSecurityHeaders.test.ts`); incl. a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job (required status check) |
+| Browser / GUI end-to-end | Chromium drives the production build of the UI against a live backend and datastores (login → family workspace → genome view → sign-out), with a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job |
 | System / clinical | Concordance vs validated assays | [TF-10](TF-10-performance-evaluation-plan.md) | Performance report TF-11 |
-| Coverage | Unit coverage with per-module floors on the clinical-critical modules; the unit, smoke and e2e coverage combined, with floors for the modules real datastores exercise (#526) | `scripts/check-coverage-floor.py` | CI `backend` job (required); CI `coverage` job (not yet required) |
+| Coverage | Unit coverage with per-module floors on the clinical-critical modules; the unit, smoke and e2e coverage combined, with floors for the modules real datastores exercise | `scripts/check-coverage-floor.py` | CI `backend` job (required); CI `coverage` job (not a required check) |
 | Regression | Full suite re-run on every PR & push to main | CI | Required checks |
 
-**CI enforcement:** the gates run on every PR and on push to `main`, and **ten of them are
-required status checks** in branch protection, with **strict** (up-to-date-before-merge)
-enforcement — so a change cannot merge until they pass: `backend (pytest)`,
-`frontend (tsc + eslint + vitest)`, `smoke (real startup against Postgres + ClickHouse)`,
-`e2e (golden-trio pipeline against Postgres + ClickHouse)`, `e2e-playwright (browser journeys)`,
-`catalogue (test overview in sync)`, `deps (pip-audit + npm audit)`, `secret-scan (gitleaks)`,
-`codeql (python)` and `codeql (javascript-typescript)`. (Recorded as closed — control S-6 — in
-[security-posture.md §5](../security-posture.md).)
-
-Two limits of that enforcement are stated here so they are not overread:
-
-- **`enforce_admins` is disabled**, so a repository administrator can bypass the checks. Every
-  bypass is visible in the merge record.
-- **No approving review is mechanically required** (branch protection carries no
-  `required_pull_request_reviews`). The 4-eye rule of
-  [TF-18 §4](TF-18-change-configuration-management.md) is therefore a **process commitment, not
-  an enforced control**; enforcement is scheduled with the first beta release. The claim these
-  gates support is *"CI gates are blocking"*, **not** *"every merge was independently reviewed"*.
-- The `sbom (CycloneDX)` job runs on every build but is **not** among the required checks.
+**CI enforcement:** the gates run on every PR and on push to `main`. Which of them are required
+status checks, and the limits of that enforcement (an administrator can bypass them, and no
+approving review is required), are set out in
+[TF-18 §6](TF-18-change-configuration-management.md). The claim these gates support is *"CI
+gates are blocking"*, **not** *"every merge was independently reviewed"*. What each job runs:
+[docs/testing.md](../testing.md).
 
 **Test level ↔ version level (H11.1-OP5 §4.4.6).** The depth of testing required for a change
 is tied to its semantic-version level ([TF-18](TF-18-change-configuration-management.md)):
@@ -66,27 +57,30 @@ thorough testing across all levels plus clinical opvolgvalidatie.
 
 ## 2. Validation strategy
 
-- **Clinical/analytical validation:** concordance against validated comparator assays per application — 50 BeGECS couples, 100 PGT embryos, 30 WGS trios, 30 monogenic NIPT samples ([TF-10](TF-10-performance-evaluation-plan.md)); results in [TF-11](TF-11-performance-evaluation-report.md).
+- **Clinical/analytical validation:** concordance against validated comparator assays per application, on the validation sets of [TF-10 §2](TF-10-performance-evaluation-plan.md); results in [TF-11](TF-11-performance-evaluation-report.md).
 - **Usability validation:** summative evaluation that intended users can use CoGA without unacceptable use error ([TF-12](TF-12-usability.md)).
-- **Reproducibility validation:** same validated input → identical content-hashed signed report (a 62304 §16.1 repeatability requirement; mechanism exists via the frozen sign-out).
+- **Reproducibility validation:** same validated input → identical content-hashed signed record (IVDR Annex I §16.1 repeatability); the frozen sign-out's content hash is the mechanism.
 
 ## 3. Software Requirements Specification (SRS)
 
 The SRS is maintained as the controlled companion document
 **[TF-09a — Software Requirements Specification](TF-09a-software-requirements-specification.md)**:
-88 requirements with stable IDs across 13 areas (functional per application, performance,
-interface/input, risk-control, security, usability, reporting), each with a 62304 safety class
-and a link to its TF-06 hazard. It is derived from the per-feature design docs and the
-implementation/test inventory, and revised under change control (TF-18).
+every requirement with a stable ID, grouped by application and cross-cutting area (functional
+per application, performance, interface/input, risk-control, security, usability, reporting),
+with a criticality rating and, where one applies, a link to its TF-06 hazard. Requirements
+without a hazard link are marked "—"; **🔲** the RMF review is to assign a hazard to the
+criticality-C ones among them (REQ-DIAG-004, REQ-DIAG-005, REQ-DATA-003). The SRS is derived
+from the per-feature design docs and the implementation/test inventory, and revised under
+change control (TF-18).
 
 ## 4. Requirements traceability matrix (RTM)
 
 The RTM — the spine 62304/IVDR expect — is maintained as the controlled companion document
 **[TF-09b — Requirements Traceability Matrix](TF-09b-requirements-traceability-matrix.md)**:
 each SRS requirement traced forward to implementation (`file::function`), verifying test(s),
-and back to its hazard, with an honest status (✅ directly verified · ◐ partial / clinically
-validated in TF-10 · ⚠ verification gap). TF-09b §3 lists the verification gaps as a CAPA
-backlog that must be closed before the first clinical release (see §6 below).
+and back to its hazard, with a status (✅ directly verified · ◐ partial / clinically
+validated in TF-10 · ⚠ verification gap). TF-09b §3 lists the open items as a CAPA backlog
+that must be closed before the first clinical release (see §6 below).
 
 ## 5. Anomaly handling
 
@@ -99,19 +93,20 @@ audit trail aids reconstruction of any affected case.
 
 The mechanics of executing a release — tagging, building, capturing evidence and filing the record — are in [`RELEASING.md`](../../RELEASING.md). This checklist is the clinical gate that must pass before those mechanics are run for a clinical release.
 
-- [ ] All ten required CI gates green on the release commit (§1).
+- [ ] All required CI gates green on the release commit ([TF-18 §6](TF-18-change-configuration-management.md)).
 - [ ] RTM updated; no requirement without a passing verifying test.
 - [ ] Risk file (TF-06) reviewed for new/affected hazards; controls verified.
 - [ ] SOUP register / SBOM (TF-08/TF-13) reconciled; no unaddressed high-severity vuln.
 - [ ] Change-significance assessed (TF-18); re-validation run if triggered (TF-10).
-- [ ] Version/build identifier updated and visible in the report footer.
+- [ ] `VERSION` bumped and the tag matches it ([TF-18 §2](TF-18-change-configuration-management.md)); the version is shown where [TF-15 §1](TF-15-instructions-for-use.md) requires it (**🔲** today only in the sign-out block of a signed report).
 - [ ] Release record signed (TF-18); lab director authorization.
 
 ## 7. Mapping to the CMGG report form (H11.1-F12.2)
 
 The bio-IT ingangsvalidatie is reported on **template H11.1-F12.2** (in-house software, v5
-21-04-2026), filename `VAL-Sxx jaartal`, signed by the eindverantwoordelijke, the IT-team
-coördinator and the kwaliteitsbeheerder. Each form section is fed directly from this file:
+21-04-2026) as report `VAL-Sxxxx` (the form adds the year to the file name), signed by the
+eindverantwoordelijke, the IT-team coördinator and the kwaliteitsbeheerder. Each form section
+is fed directly from this file:
 
 | H11.1-F12.2 section | Filled from |
 | --- | --- |
@@ -127,8 +122,8 @@ coördinator and the kwaliteitsbeheerder. Each form section is fed directly from
 
 | H11.1-F12.2 axis | CoGA evidence |
 | --- | --- |
-| **Gebruiksvriendelijkheid** (usability) | Usability engineering + summative evaluation ([TF-12](TF-12-usability.md)); frontend component tests. |
-| **Accuraatheid / patiëntveiligheid** — (on)juistheid (e.g. measuring function, patient-material identification) | The clinical-output logic (NIPT/PGT/ACMG/CNV/mtDNA) and its tests (TF-09b RTM); patient-material identity via the **Sample QC module** (relatedness/sex/Mendelian) — sample-swap control (TF-06 H4). |
-| **Traceerbaarheid** | Version manifest, evidence snapshots, immutable clinical audit, content-hashed sign-out ([clinical-traceability.md](../clinical-traceability.md)); each sample linked to the software version (TF-16). |
-| **Continuïteit** (back-up of data) | Postgres/ClickHouse backups, reproducible-from-snapshot reports; **🔲 deployment item** ([security-posture.md](../security-posture.md)). |
-| **Data-integriteit** | Append-only audit/sign-out (DB immutability triggers), file checksum verification (REQ-DATA-004), RBAC; encryption-at-rest is a **🔲 deployment item** ([TF-13](TF-13-cybersecurity.md)). |
+| **Gebruiksvriendelijkheid** (usability) | Usability engineering + summative evaluation ([TF-12](TF-12-usability.md); not yet run); frontend component tests; the browser journeys exercise the intended-use workflows as rendered, which is behavioural verification, not the summative evaluation ([TF-09d](TF-09d-browser-e2e-verification.md)). |
+| **Accuraatheid / patiëntveiligheid** — (on)juistheid (e.g. measuring function, patient-material identification) | The clinical-output logic (NIPT/PGT/ACMG/CNV/mtDNA) and its tests (TF-09b RTM); per-stage expected-versus-actual results on the golden dataset ([TF-09c](TF-09c-e2e-pipeline-verification.md) §1–§3), and the same results reaching the screen (TF-09d); patient-material identity via the Sample QC and its sign-out gate (TF-01 §4 condition 7, TF-06 H4). |
+| **Traceerbaarheid** | Version manifest, evidence snapshots, immutable clinical audit, content-hashed sign-out ([clinical-traceability.md](../clinical-traceability.md)), asserted end to end over a review round-trip (TF-09c) and a sign-out in the browser (TF-09d); each signed-out case linked to the software version ([TF-18 §2](TF-18-change-configuration-management.md)). |
+| **Continuïteit** (back-up of data) | Postgres and ClickHouse backups are codified in `terraform/` but not yet applied, and a restore drill is due before go-live ([deployment-gcp.md §12.3](../deployment-gcp.md)) — **🔲 deployment item**; deterministic re-import and a reproducible golden run (TF-09c). |
+| **Data-integriteit** | Append-only audit/sign-out (DB immutability triggers) and tamper-evidence, asserted against the live database (TF-09c); file checksum verification (REQ-DATA-004); fail-clean import; RBAC; encryption at rest is codified but not yet applied ([TF-13](TF-13-cybersecurity.md) S-1) — **🔲 deployment item**. |

@@ -21,11 +21,11 @@
 
 ## 1. Conventions
 
-- **ID scheme:** `REQ-<AREA>-NNN`. Areas: NIPT, CARR, PGT, DIAG, CLASS, TRACE, SEC, DATA, QC, PRIOR, UI, RPT, PERF.
-- **Safety class** (per requirement, IEC 62304): **C** = a failure could contribute to a wrong clinical result; **B** = could mislead but is normally caught; **A** = no injury possible.
-- **Risk** column references the hazard IDs in the [Risk Management Plan (TF-06 §6)](TF-06-risk-management-plan.md).
+- **ID scheme:** `REQ-<AREA>-NNN`. Areas: NIPT, CARR, PGT, DIAG, CLASS, TRACE, SEC, DATA, QC, MITO, PERF, UI, RPT.
+- **Criticality** (per requirement): **C** = a failure could contribute to a wrong clinical result; **B** = could mislead but is normally caught; **A** = no injury possible. This is not an IEC 62304 software safety class: the software as a whole is Class C, with no lower-class decomposition ([TF-07 §1](TF-07-software-lifecycle-plan.md)).
+- **Risk** column references the hazard IDs in the [Risk Management Plan (TF-06 §6)](TF-06-risk-management-plan.md); "—" means no hazard is linked yet ([TF-09 §3](TF-09-verification-validation.md)).
 - Every requirement is **verifiable**; the verifying evidence is in the RTM. Requirements
-  with weak/absent verification are listed in [TF-09b §Gaps](TF-09b-requirements-traceability-matrix.md).
+  with weak/absent verification are listed in [TF-09b §3](TF-09b-requirements-traceability-matrix.md).
 
 ## 2. Scope & assumptions
 
@@ -39,7 +39,7 @@
 
 ### 3.1 Monogenic NIPT (REQ-NIPT)
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-NIPT-001 | Estimate fetal fraction (FF) from category-7 sites as a robust weighted median, reporting a confidence interval and supporting-site count. | C | H6 |
 | REQ-NIPT-002 | Classify each cfDNA variant into one of the 8 maternal/fetal zygosity categories by binomial likelihood against the FF-derived expected VAF, with a per-call confidence. | C | H6 |
@@ -52,7 +52,7 @@
 
 ### 3.2 Expanded carrier screening — BeGECS (REQ-CARR)
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-CARR-001 | Filter and present carrier variants scoped to a defined gene panel (BeGECS gene set). | C | H1, H12 |
 | REQ-CARR-002 | Support couple-level at-risk determination (both partners carrying a variant in the same recessive gene / relevant X-linked finding). | C | H2 |
@@ -61,7 +61,7 @@
 
 ### 3.3 Preimplantation genetic testing (REQ-PGT)
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-PGT-001 | Compute pedigree-IBD founder-haplotype lineage colouring; render unplaceable members/relatives as grey (never mis-coloured). | C | H5 |
 | REQ-PGT-002 | Segment haplotype blocks recombination-aware, committing a lane switch only past length/width thresholds (suppress isolated phasing noise). | C | H5 |
@@ -76,20 +76,20 @@
 
 ### 3.4 Rare-disorder diagnostics (REQ-DIAG)
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-DIAG-001 | Apply pedigree/trio inheritance filtering (de-novo, dominant, recessive, compound-het) over observed genotypes. | C | H2 |
-| REQ-DIAG-002 | Flag de-novo only when no parent who could have passed the allele on carries it: on autosomes, in the pseudo-autosomal regions and in a daughter, a full trio with both parents confidently hom-ref at the site; in a son on chrX/chrY outside the PARs (hemizygous), the parent who transmits that chromosome (the mother for X, the father for Y) confidently hom-ref and the other parent not carrying the ALT (#545). | C | H2 |
+| REQ-DIAG-002 | Flag de-novo only when no parent who could have passed the allele on carries it: on autosomes, in the pseudo-autosomal regions and in a daughter, a full trio with both parents confidently hom-ref at the site; in a son on chrX/chrY outside the PARs (hemizygous), the parent who transmits that chromosome (the mother for X, the father for Y) confidently hom-ref and the other parent not carrying the ALT (#545). | C | H1, H2 |
 | REQ-DIAG-003 | Detect compound-heterozygous and SV second-hit (SNV + SV in the same gene). | C | H2 |
 | REQ-DIAG-004 | Ingest repeat-expansion (TRGT) calls and classify normal/intermediate/pathogenic against a locus catalog. | C | — |
 | REQ-DIAG-005 | Analyse Paraphase medical regions (e.g. SMN) for copy-number/haplotype. | C | — |
-| REQ-DIAG-006 | Analyse mtDNA with maternal-transmission logic and heteroplasmy/homoplasmy inference. | C | — |
+| REQ-DIAG-006 | Analyse mtDNA with maternal-transmission logic and heteroplasmy/homoplasmy inference. | C | H13 |
 | REQ-DIAG-007 | Prioritize candidate variants by combined pathogenicity, rarity, segregation and phenotype evidence. | B | H1 |
 | REQ-DIAG-008 | Provide HPO-based and Monarch semantic-similarity phenotype matching. | B | — |
 
 ### 3.5 Variant classification (REQ-CLASS)
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-CLASS-001 | Compute ACMG/AMP point totals and the 5-class band per the ClinGen Bayesian thresholds. | C | H3 |
 | REQ-CLASS-002 | Apply BA1 (AF ≥ 5%) as a stand-alone benign override. | C | H3 |
@@ -100,23 +100,24 @@
 
 ### 3.6 Clinical traceability & integrity (REQ-TRACE)
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-TRACE-001 | Maintain a per-family annotation/version manifest, merging the pipeline layer over the platform layer in a canonical order. | C | H8 |
 | REQ-TRACE-002 | Freeze a per-classification evidence snapshot (annotation hash + key evidence) at classification time. | C | H8 |
 | REQ-TRACE-003 | Detect evidence drift (stored vs current annotation hash) and surface from→to changes. | C | H8 |
 | REQ-TRACE-004 | Record an append-only clinical audit trail with field-level before/after, one entry per change, in the same transaction as the review save. | C | H9, H8 |
 | REQ-TRACE-005 | Produce a frozen, versioned, SHA-256 content-hashed sign-out snapshot; the hash is stable and order-independent; signed snapshots are never mutated (amend = new version). | C | H9 |
-| REQ-TRACE-006 | Gate sign-out on unacknowledged evidence drift (reject unless explicitly acknowledged). | C | H8 |
-| REQ-TRACE-007 | Render a signed-out report **from the frozen snapshot**, not by re-querying live stores. | C | H9 |
+| REQ-TRACE-006 | Gate sign-out on unacknowledged evidence drift: reject unless the analyst acknowledges it with a reason, which is frozen into the signed record and the audit trail. | C | H8 |
+| REQ-TRACE-007 | Render a signed-out report **from the frozen snapshot**, not by re-querying live stores. **Not yet implemented** — see [TF-09b §3](TF-09b-requirements-traceability-matrix.md). | C | H9 |
 | REQ-TRACE-008 | Enforce audit/sign-out immutability at the database (append-only trigger; no UPDATE/DELETE). | C | H9 |
 | REQ-TRACE-009 | Refuse sign-out, without an override, for a family whose reference assembly is outside the configured validated set (default GRCh38) or unresolved; label such a family "not validated for clinical use" on the family and report pages. | C | H12 |
 | REQ-TRACE-010 | Refuse a variant-review save made against a review that has changed since the client loaded it (409 with the current review), rather than overwrite another reviewer's classification, criteria, tags or note; serialize concurrent saves of one variant. | C | H9, H3 |
 | REQ-TRACE-011 | Record, per family, the analysis pipeline and engine version and the version of every tool and reference database behind its callset, and present them with the run configuration. | C | H8 |
+| REQ-TRACE-012 | Refuse sign-out while a Sample QC check has failed, or while the Sample QC cannot confirm a declared family relationship or a sample's identity, unless the analyst acknowledges it with a reason; freeze the QC result and the reason into the signed record and the audit trail. | C | H4 |
 
 ### 3.7 Access control & security (REQ-SEC)
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-SEC-001 | Enforce project-scoped access on every PHI endpoint at the SQL level; a viewer cannot reach a family/sample in a project they are not in. | C | H11 |
 | REQ-SEC-002 | Gate all destructive/structure-changing mutations behind admin role. | C | H11 |
@@ -128,7 +129,7 @@
 
 ### 3.8 Ingestion & storage (REQ-DATA)
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-DATA-001 | Parse multi-sample VCF into per-call GT/DP/AF/AD and site-level QUAL. | C | H1 |
 | REQ-DATA-002 | Preserve genotype phasing (PS phase blocks) through ingestion. | C | H5 |
@@ -145,9 +146,9 @@
 
 ### 3.9 Sample QC (REQ-QC)
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
-| REQ-QC-001 | Provide a sample-integrity QC suite (sex check, relatedness, Mendelian consistency, heterozygosity ratio, per-mode variant counts). | C | H4 |
+| REQ-QC-001 | Provide a sample-integrity QC suite matched to the application: sex check, relatedness against the pedigree and Mendelian consistency; for NIPT, paternity, fetal and parent sex and the cfDNA category check. | C | H4 |
 | REQ-QC-002 | Surface sample-integrity QC at the family level for review before sign-out. | C | H4 |
 | REQ-QC-003 | Maintain admin-managed sequencing-QC acceptance limits: per metric a warning limit and an error limit, grouped into named per-assay profiles, with the last-changing user recorded. The set of gateable metrics and the failing side of each are fixed by the software, not configurable. | C | H14 |
 | REQ-QC-004 | Evaluate each sample's recorded sequencing QC against the limits of its resolved profile **server-side**, returning a per-metric state (pass / warn / fail / not assessed) and the sample's worst state. A metric that was not measured, or for which no limit is configured, yields *not assessed* and never *pass*. | C | H14 |
@@ -161,37 +162,37 @@ Application 3.5: ONT long-read adaptive sampling produces the complete mtDNA and
 mito-gene panel in one run; CoGA interprets both together. Reuses mtDNA (REQ-DIAG-006), nuclear
 small-variant/SV (REQ-DIAG-001/003), classification (REQ-CLASS-*) and Sample QC (REQ-QC-*).
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-MITO-001 | Interpret the complete mtDNA and the nuclear mito-gene panel from a single adaptive-sampling run together in one family workspace. | C | H1 |
-| REQ-MITO-002 | Quantify mtDNA heteroplasmy and apply maternal-transmission logic (incl. a maternal haplogroup summary). | C | H13 |
-| REQ-MITO-003 | Require **Sample QC** review (relatedness/sex/Mendelian + maternal-lineage consistency) for data integrity and sample-swap detection before sign-out. | C | H4 |
+| REQ-MITO-002 | Quantify mtDNA heteroplasmy and apply maternal-transmission logic, and show each sample's haplogroup. | C | H13 |
+| REQ-MITO-003 | Require **Sample QC** review (relatedness, sex, Mendelian consistency) for data integrity and sample-swap detection before sign-out, and show each sample's mtDNA haplogroup so the analyst can check maternal-lineage consistency. | C | H4 |
 
 ## 4. Non-functional requirements
 
 ### 4.1 Performance (REQ-PERF) — defined in TF-10, evidenced in TF-11
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
-| REQ-PERF-001 | Meet the per-application analytical/clinical concordance acceptance criteria vs the validated comparator assays (50 BeGECS couples, 100 PGT embryos, 30 WGS trios, 30 NIPT). | C | H1–H7 |
+| REQ-PERF-001 | Meet the per-application analytical/clinical concordance acceptance criteria vs the validated comparator assays, on the validation sets of [TF-10 §2](TF-10-performance-evaluation-plan.md). | C | H1–H7 |
 | REQ-PERF-002 | Reproducibility: identical validated input yields an identical content-hashed signed report. | C | H9 |
 | REQ-PERF-003 | Robustness: degraded/incomplete inputs fail safe (warn/abstain), never silently mis-call. | C | H1, H6 |
 
 ### 4.2 Safety-critical user interface (REQ-UI) — usability detail in TF-12
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-UI-001 | The NIPT dashboard surfaces FF + CI, category counts, the filter funnel with drop counts, and coverage QC, without extra navigation. | C | H6, H1, H10 |
 | REQ-UI-002 | The haplotype track shows lineage colours, the raw-marker overlay, informative-marker count, Mendel-error, and recombination/uninformative warnings. | C | H5, H10 |
 | REQ-UI-003 | The ACMG modal presents overridable criteria and the points scale, distinguishes suggested vs accepted, and recomputes server-side on save. | C | H3, H10 |
-| REQ-UI-004 | The report page shows the provenance footer, the evidence-drift badge, the sign-out/amend action with the 409 acknowledge flow, and the audit timeline. | C | H8, H9, H10 |
+| REQ-UI-004 | The report page shows the provenance footer, the evidence-drift badge, the sign-out/amend action with its acknowledge-with-reason dialogs, and the audit timeline. | C | H8, H9, H10 |
 | REQ-UI-005 | Route guards enforce authentication (`RequireAuth`) and admin-only areas (`RequireAdmin`). | C | H11 |
 | REQ-UI-006 | Login redirect (`next`) is validated against unsafe targets. | B | H11 |
 | REQ-UI-007 | The pedigree renders affected/carrier status and a per-sample QC ring. | B | H4 |
 
 ### 4.3 Reporting (REQ-RPT)
 
-| ID | Requirement | Class | Risk |
+| ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-RPT-001 | Assemble the family clinical report from report-tagged variants with gene/HPO context and the reference label/version. | C | H9 |
 | REQ-RPT-002 | The NIPT report presents FF, coverage QC, candidates grouped by inheritance, and a confirmatory-testing disclaimer. | C | H6 |

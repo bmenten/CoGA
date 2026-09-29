@@ -25,10 +25,12 @@
 4. Feed findings into the risk file (TF-06), performance evaluation (TF-10/11), usability (TF-12), and design.
 
 This is the **operationele fase** of H11.1-OP5 §6: incidents and feature requests are managed
-via **CMGGMC** (probleemmeldingen / suggestions), monitoring/logging with alerting tracks
-execution and errors, and — a hard requirement — **every analysed sample is unambiguously
-linked to the software version (`Sxxxx` `x.y.z`) used for it**, so any signal can be scoped to
-the exact version (this is delivered by the per-case version manifest, [clinical-traceability.md](../clinical-traceability.md)).
+via **CMGGMC** (probleemmeldingen / suggestions), and monitoring and logging track execution and
+errors (on Google Cloud through Cloud Logging, [deployment-gcp.md §12.6](../deployment-gcp.md)).
+**🔲 Alerting is not yet configured** and must be set up before go-live. A hard requirement:
+**every analysed sample is linked to the software version (`Sxxxx` `x.y.z`) used for it**, so
+any signal can be scoped to the exact version. CoGA meets it through the signed report
+([TF-18 §2](TF-18-change-configuration-management.md)).
 
 ## 2. Data sources (proactive & reactive)
 | Source | What it tells us | Mechanism |
@@ -36,7 +38,7 @@ the exact version (this is delivered by the per-case version manifest, [clinical
 | Incidents / near-misses | Safety signals | TF-17 incident log; **CMGGMC probleemmeldingen** |
 | User feedback / complaints | Usability, defects, gaps | **CMGGMC** suggestions/intake |
 | **Concordance monitoring (PMPF)** | Ongoing agreement with validated comparator on routine cases | Periodic sampling/audit; the validation design (TF-10) continued in-life |
-| **Evidence-drift events** | Reference-data changes affecting prior interpretations | Built-in drift detection / stale-classification lists ([clinical-traceability.md](../clinical-traceability.md)) |
+| **Evidence-drift events** | Reference-data changes affecting prior interpretations | Built-in per-family drift check on the report page ([clinical-traceability.md](../clinical-traceability.md)); there is no cross-case drift list yet, so a drift-rate indicator (§4) needs a database query |
 | Audit logs | Misuse, access anomalies, usage patterns | Append-only audit |
 | Defect/anomaly tracker | Software-quality trend | TF-09 / issue tracker |
 | Literature / database updates | New variant–disease knowledge, guideline changes | Reference-data monitoring (TF-08) |
