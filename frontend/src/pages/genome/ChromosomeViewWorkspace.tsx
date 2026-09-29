@@ -20,6 +20,7 @@ import SmallVariantTrack from '../../components/visualizations/SmallVariantTrack
 import SmallVariantLegend from '../../components/visualizations/SmallVariantLegend';
 import RepeatExpansionTrack from '../../components/visualizations/RepeatExpansionTrack';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
+import QueryFailure from '../../components/QueryFailure';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
@@ -109,6 +110,9 @@ interface ChromosomeViewWorkspaceProps {
   apcadPointLimit: number;
   segmentLimit: number;
   showViewerLoading: boolean;
+  /** Which tracks each sample has could not be loaded: the tracks are not mounted, and
+   * that is not "no data" (#607). */
+  availabilityFailure?: { error: unknown; retry: () => void } | null;
 }
 
 interface GeneSuggestion {
@@ -211,6 +215,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   apcadPointLimit,
   segmentLimit,
   showViewerLoading,
+  availabilityFailure = null,
 }) => {
   const roiTitle = visibleRoi ? `ROI: ${visibleRoi.label}` : undefined;
   const regionStartParam = Math.max(0, Math.floor(region.start));
@@ -721,7 +726,18 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
           {membersWithData.length === 0 && !showViewerLoading && visibleMembers.length === 0 && (
             <p className="analysis-count">No samples selected.</p>
           )}
-          {membersWithData.length === 0 && !showViewerLoading && visibleMembers.length > 0 && (
+          {availabilityFailure ? (
+            <QueryFailure
+              what="which tracks each sample has"
+              error={availabilityFailure.error}
+              onRetry={availabilityFailure.retry}
+              consequence="The samples' tracks are not shown until it loads."
+            />
+          ) : null}
+          {membersWithData.length === 0 &&
+            !showViewerLoading &&
+            visibleMembers.length > 0 &&
+            !availabilityFailure && (
             <p className="analysis-count">No BED data for selected samples.</p>
           )}
         </section>

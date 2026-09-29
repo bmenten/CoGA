@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, it, vi, type Mock } from 'vitest';
 
 import FamilyDetailPage from '../FamilyDetailPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
@@ -551,6 +551,108 @@ describe('FamilyDetailPage', () => {
       'href',
       '/families/F1/roi-markers?project_id=p1',
     );
+  });
+
+  // #607 — the embryos' recombination and uninformative warnings come from the haplotypes
+  // at the ROI: a failed request is not an embryo without warnings.
+  it('says the segregation could not be derived when the haplotypes at the ROI fail', async () => {
+    localStorage.setItem('role', 'viewer');
+    mockApiState.members = [
+      { sample_id: 'S1', role: 'mother', affected: false, sex: 'female' },
+      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'unknown' },
+    ];
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation((url: string, config?: unknown) =>
+      url === '/families/F1/haplotypes'
+        ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+        : working(url, config),
+    );
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1']}>
+            <Routes>
+              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      expect(await screen.findByText(/Could not load the haplotypes at the ROI — this is not an empty result/)).toHaveTextContent(
+        /segregation, and any recombination or uninformative warning, are not shown/,
+      );
+      expect(screen.getByText('⚠ segregation not derived')).toBeInTheDocument();
+    } finally {
+      get.mockImplementation(working);
+    }
+  });
+
+  // #607 — a failed request on the family page is said as such, never as missing data.
+  describe('when a request fails', () => {
+    const renderWithFailing = (matches: (url: string) => boolean) => {
+      const get = api.get as unknown as Mock;
+      const working = get.getMockImplementation()!;
+      get.mockImplementation((url: string, config?: unknown) =>
+        matches(url)
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : working(url, config),
+      );
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1']}>
+            <Routes>
+              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      return () => get.mockImplementation(working);
+    };
+
+    it('shows a workspace whose presence check failed, and says the check failed', async () => {
+      mockApiState.structuralVariantTotal = 0;
+      const restore = renderWithFailing((url) => url.startsWith('/families/F1/structural-variants?count_only'));
+      try {
+        expect(
+          await screen.findByText(/Could not load whether this family has structural variants — this is not an empty result/),
+        ).toHaveTextContent(/Their links are shown, so you can open them/);
+        // Unknown, not absent: the link is offered, and the check does not "run" for good.
+        expect(screen.getByRole('link', { name: 'Structural variants' })).toBeInTheDocument();
+        expect(screen.queryByText('Checking available family data…')).not.toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
+
+    it('reads failed curation counts and HPO terms as unknown, not as none', async () => {
+      const restore = renderWithFailing(
+        (url) => url === '/families/F1/small-variant-review-summary' || url === '/families/F1/hpo',
+      );
+      try {
+        const curation = await screen.findByLabelText('Small variant curation');
+        await waitFor(() => expect(curation).toHaveTextContent('Reviewed —'));
+        expect(curation).toHaveTextContent('Notes —');
+        expect(await screen.findByText('could not be loaded')).toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
+
+    it('keeps the current status shown, and unchangeable, when the status list failed', async () => {
+      const restore = renderWithFailing((url) => url === '/family-statuses');
+      try {
+        expect(await screen.findByText(/Could not load the status list — this is not an empty result/)).toHaveTextContent(
+          /The current values are shown, and cannot be changed until it loads/,
+        );
+        const status = screen.getByRole('combobox', { name: 'Family status' });
+        expect(status).toHaveValue('analysis_in_progress');
+        expect(status).toHaveDisplayValue('Analysis in progress');
+        expect(status).toBeDisabled();
+      } finally {
+        restore();
+      }
+    });
   });
 
   it('shows HPO phenotype annotations in the family members overview', async () => {

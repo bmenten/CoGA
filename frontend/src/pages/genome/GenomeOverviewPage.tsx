@@ -324,6 +324,9 @@ const GenomeOverviewPage: React.FC = () => {
     data: availabilityData,
     isLoading: availabilityLoading,
     isFetching: availabilityFetching,
+    isError: availabilityFailed,
+    error: availabilityError,
+    refetch: refetchAvailability,
   } = useQuery<ApiTrackAvailabilityResponse<ApiGenomeTrackAvailability>>({
     queryKey: ['family', familyId, 'track-availability', availabilitySearch],
     queryFn: async () => {
@@ -543,6 +546,11 @@ const GenomeOverviewPage: React.FC = () => {
         trackHeight={trackHeight}
         svTrackHeight={svTrackHeight}
         showViewerLoading={showViewerLoading}
+        availabilityFailure={
+          availabilityFailed
+            ? { error: availabilityError, retry: () => void refetchAvailability() }
+            : null
+        }
       />
     </div>
   );

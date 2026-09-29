@@ -19,6 +19,7 @@ import type {
 } from '../../lib/apiTypes';
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
+import QueryFailure from '../../components/QueryFailure';
 import { formatUserRef } from '../../lib/users';
 import { isAdmin } from '../../lib/auth';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
@@ -144,7 +145,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   // Active status catalogue + assignable users power the status / assignment
   // pickers below. Both are small, app-wide lookups so they are cached by a
   // stable key and shared across family pages.
-  const { data: familyStatusOptions = [] } = useQuery<ApiFamilyStatusDefinition[]>({
+  const {
+    data: familyStatusOptions = [],
+    isError: statusesFailed,
+    refetch: refetchStatuses,
+  } = useQuery<ApiFamilyStatusDefinition[]>({
     queryKey: ['family-statuses'],
     queryFn: async () => {
       const res = await api.get('/family-statuses');
@@ -152,7 +157,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const { data: assignableUsers = [] } = useQuery<ApiUserRef[]>({
+  const {
+    data: assignableUsers = [],
+    isError: usersFailed,
+    refetch: refetchUsers,
+  } = useQuery<ApiUserRef[]>({
     queryKey: ['assignable-users'],
     queryFn: async () => {
       const res = await api.get('/users');
@@ -185,7 +194,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     return `?${params.toString()}`;
   };
 
-  const { data: variantPage } = useQuery<ApiPaginatedTotalResponse>({
+  const {
+    data: variantPage,
+    isError: structuralPresenceFailed,
+    refetch: refetchStructuralPresence,
+  } = useQuery<ApiPaginatedTotalResponse>({
     queryKey: ['family', familyId, 'structural-variants', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
@@ -194,7 +207,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const { data: familyVariantPage } = useQuery<ApiPaginatedTotalResponse>({
+  const {
+    data: familyVariantPage,
+    isError: smallPresenceFailed,
+    refetch: refetchSmallPresence,
+  } = useQuery<ApiPaginatedTotalResponse>({
     queryKey: ['family', familyId, 'small-variants', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
@@ -203,7 +220,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const { data: repeatTable } = useQuery<{ loci_count?: number }>({
+  const {
+    data: repeatTable,
+    isError: repeatPresenceFailed,
+    refetch: refetchRepeatPresence,
+  } = useQuery<{ loci_count?: number }>({
     queryKey: ['family', familyId, 'repeat-expansions', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
@@ -212,7 +233,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const { data: paraphaseTable } = useQuery<{ genes_count?: number }>({
+  const {
+    data: paraphaseTable,
+    isError: paraphasePresenceFailed,
+    refetch: refetchParaphasePresence,
+  } = useQuery<{ genes_count?: number }>({
     queryKey: ['family', familyId, 'paraphase', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
@@ -221,7 +246,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const { data: mitoTable } = useQuery<{ variant_count?: number; has_coverage?: boolean }>({
+  const {
+    data: mitoTable,
+    isError: mitoPresenceFailed,
+    refetch: refetchMitoPresence,
+  } = useQuery<{ variant_count?: number; has_coverage?: boolean }>({
     queryKey: ['family', familyId, 'mitochondrial-dna', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
@@ -230,23 +259,42 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const hasVariants = (variantPage?.total ?? 0) > 0;
-  const hasSmallVariants = (familyVariantPage?.total ?? 0) > 0;
-  const hasRepeatExpansions = (repeatTable?.loci_count ?? 0) > 0;
-  const hasParaphase = (paraphaseTable?.genes_count ?? 0) > 0;
+  // A presence check that failed leaves it unknown whether the family has that data: its
+  // workspace link is shown, so the page can say for itself, rather than hidden as if
+  // there were none (#607).
+  const hasVariants = (variantPage?.total ?? 0) > 0 || structuralPresenceFailed;
+  const hasSmallVariants = (familyVariantPage?.total ?? 0) > 0 || smallPresenceFailed;
+  const hasRepeatExpansions = (repeatTable?.loci_count ?? 0) > 0 || repeatPresenceFailed;
+  const hasParaphase = (paraphaseTable?.genes_count ?? 0) > 0 || paraphasePresenceFailed;
   // mtDNA data is present when there are chrM variants or any sample carries
   // mtDNA coverage (coverage-only families still have something to show).
-  const hasMitoDna = (mitoTable?.variant_count ?? 0) > 0 || (mitoTable?.has_coverage ?? false);
+  const hasMitoDna =
+    (mitoTable?.variant_count ?? 0) > 0 || (mitoTable?.has_coverage ?? false) || mitoPresenceFailed;
+  const failedPresenceChecks = [
+    smallPresenceFailed ? 'small variants' : null,
+    structuralPresenceFailed ? 'structural variants' : null,
+    repeatPresenceFailed ? 'repeat expansions' : null,
+    paraphasePresenceFailed ? 'Paraphase results' : null,
+    mitoPresenceFailed ? 'mtDNA data' : null,
+  ].filter((name): name is string => Boolean(name));
+  const retryPresenceChecks = () => {
+    if (smallPresenceFailed) void refetchSmallPresence();
+    if (structuralPresenceFailed) void refetchStructuralPresence();
+    if (repeatPresenceFailed) void refetchRepeatPresence();
+    if (paraphasePresenceFailed) void refetchParaphasePresence();
+    if (mitoPresenceFailed) void refetchMitoPresence();
+  };
   const hasVariantSummary = hasVariants || hasSmallVariants;
   const hasAnyVariantData =
     hasVariants || hasSmallVariants || hasRepeatExpansions || hasParaphase || hasMitoDna;
+  // A failed check is settled too: "Checking…" used to stay up for good (#607).
   const variantCountsLoaded =
     variantCountsReady &&
-    variantPage !== undefined &&
-    familyVariantPage !== undefined &&
-    repeatTable !== undefined &&
-    paraphaseTable !== undefined &&
-    mitoTable !== undefined;
+    (variantPage !== undefined || structuralPresenceFailed) &&
+    (familyVariantPage !== undefined || smallPresenceFailed) &&
+    (repeatTable !== undefined || repeatPresenceFailed) &&
+    (paraphaseTable !== undefined || paraphasePresenceFailed) &&
+    (mitoTable !== undefined || mitoPresenceFailed);
   // Monogenic NIPT families surface a dedicated analysis tab (see docs/monogenic-nipt.md).
   const isMonogenicNipt = data?.metadata?.analysis_type === 'monogenic_nipt';
   const { data: projects = [] } = useProjectCatalog();
@@ -254,7 +302,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     { assemblyName, assemblyVersion, isError: referenceFailed },
     data?.projects?.length && referenceLoading ? 'Loading linked reference...' : 'Not linked',
   );
-  const { data: reviewSummary } = useQuery<ApiSmallVariantReviewSummary>({
+  const { data: reviewSummary, isError: reviewSummaryFailed } = useQuery<ApiSmallVariantReviewSummary>({
     queryKey: ['family', familyId, 'small-variant-review-summary'],
     enabled: Boolean(familyId && hasSmallVariants),
     queryFn: async () => {
@@ -272,7 +320,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       return res.data as SmallVariantTagDefinition[];
     },
   });
-  const { data: structuralReviewSummary } = useQuery<ApiSmallVariantReviewSummary>({
+  const { data: structuralReviewSummary, isError: structuralReviewSummaryFailed } =
+    useQuery<ApiSmallVariantReviewSummary>({
     queryKey: ['family', familyId, 'structural-variant-review-summary'],
     enabled: Boolean(familyId && hasVariants),
     queryFn: async () => {
@@ -292,7 +341,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       return res.data as SmallVariantTagDefinition[];
     },
   });
-  const { data: hpoAnnotations = [] } = useQuery<ApiHpoAnnotation[]>({
+  const { data: hpoAnnotations = [], isError: hpoFailed } = useQuery<ApiHpoAnnotation[]>({
     queryKey: ['family', familyId, 'hpo'],
     enabled: Boolean(familyId),
     queryFn: async () => {
@@ -345,7 +394,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   );
   // Derived embryo segregation at the ROI (carrier/affected/unaffected), shown per
   // embryo in the Family members table below. Derived from the haplotype analysis.
-  const { byEmbryo: embryoSegregation } = useEmbryoSegregation({
+  const {
+    byEmbryo: embryoSegregation,
+    isError: segregationFailed,
+    retry: retrySegregation,
+  } = useEmbryoSegregation({
     familyId: data?.family_id ?? '',
     roi: data?.roi ?? null,
     members: data?.members ?? [],
@@ -886,7 +939,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setStatusDraft(value);
                     saveMetadata({ status_key: value || null });
                   }}
-                  disabled={metadataBusy}
+                  disabled={metadataBusy || statusesFailed}
                 >
                   <option value="">No status</option>
                   {familyStatusOptions.map((option) => (
@@ -894,6 +947,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       {option.label}
                     </option>
                   ))}
+                  {/* The current status stays shown when its list failed: it read "No
+                      status" on a reviewed case (#607). */}
+                  {statusDraft && !familyStatusOptions.some((option) => option.key === statusDraft) ? (
+                    <option value={statusDraft}>
+                      {data.status?.key === statusDraft ? data.status.label : statusDraft}
+                    </option>
+                  ) : null}
                 </select>
               </div>
               <div className="family-workspace-meta-field">
@@ -907,7 +967,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setAssignedToDraft(value);
                     saveMetadata({ assigned_to: value || null });
                   }}
-                  disabled={metadataBusy}
+                  disabled={metadataBusy || usersFailed}
                 >
                   <option value="">Unassigned</option>
                   {assignableUsers.map((candidate) => (
@@ -915,6 +975,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       {formatUserRef(candidate)}
                     </option>
                   ))}
+                  {assignedToDraft && !assignableUsers.some((candidate) => candidate.id === assignedToDraft) ? (
+                    <option value={assignedToDraft}>
+                      {data.assigned_to?.id === assignedToDraft ? formatUserRef(data.assigned_to) : assignedToDraft}
+                    </option>
+                  ) : null}
                 </select>
               </div>
               <div className="family-workspace-meta-field">
@@ -928,7 +993,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setReviewedByDraft(value);
                     saveMetadata({ reviewed_by: value || null });
                   }}
-                  disabled={metadataBusy}
+                  disabled={metadataBusy || usersFailed}
                 >
                   <option value="">Not reviewed</option>
                   {assignableUsers.map((candidate) => (
@@ -936,6 +1001,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       {formatUserRef(candidate)}
                     </option>
                   ))}
+                  {reviewedByDraft && !assignableUsers.some((candidate) => candidate.id === reviewedByDraft) ? (
+                    <option value={reviewedByDraft}>
+                      {data.reviewed_by?.id === reviewedByDraft ? formatUserRef(data.reviewed_by) : reviewedByDraft}
+                    </option>
+                  ) : null}
                 </select>
               </div>
               {(metadataBusy || metadataStatus) && (
@@ -949,6 +1019,16 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 </span>
               )}
             </div>
+            {statusesFailed || usersFailed ? (
+              <QueryFailure
+                what={statusesFailed && usersFailed ? 'the status and user lists' : statusesFailed ? 'the status list' : 'the user list'}
+                onRetry={() => {
+                  if (statusesFailed) void refetchStatuses();
+                  if (usersFailed) void refetchUsers();
+                }}
+                consequence="The current values are shown, and cannot be changed until it loads."
+              />
+            ) : null}
       </FamilyPageHeader>
 
       <section className="family-workspace-grid">
@@ -976,10 +1056,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 <div className="family-variant-curation" aria-label="Small variant curation">
                   <span className="family-review-summary-label">Curation</span>
                   <span className="table-chip family-review-summary-chip">
-                    Reviewed <strong>{reviewSummary?.reviewed_variant_count ?? 0}</strong>
+                    Reviewed <strong>{reviewSummaryFailed ? '—' : (reviewSummary?.reviewed_variant_count ?? 0)}</strong>
                   </span>
                   <span className="table-chip family-review-summary-chip family-review-summary-chip--notes">
-                    Notes <strong>{reviewSummary?.note_count ?? 0}</strong>
+                    Notes <strong>{reviewSummaryFailed ? '—' : (reviewSummary?.note_count ?? 0)}</strong>
                   </span>
                   {reviewSummaryTags.map((tag) => (
                     <span
@@ -1005,10 +1085,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 <div className="family-variant-curation" aria-label="Structural variant curation">
                   <span className="family-review-summary-label">Curation</span>
                   <span className="table-chip family-review-summary-chip">
-                    Reviewed <strong>{structuralReviewSummary?.reviewed_variant_count ?? 0}</strong>
+                    Reviewed <strong>{structuralReviewSummaryFailed ? '—' : (structuralReviewSummary?.reviewed_variant_count ?? 0)}</strong>
                   </span>
                   <span className="table-chip family-review-summary-chip family-review-summary-chip--notes">
-                    Notes <strong>{structuralReviewSummary?.note_count ?? 0}</strong>
+                    Notes <strong>{structuralReviewSummaryFailed ? '—' : (structuralReviewSummary?.note_count ?? 0)}</strong>
                   </span>
                   {structuralReviewSummaryTags.map((tag) => (
                     <span
@@ -1088,6 +1168,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           {!variantCountsLoaded && (
             <p className="dashboard-link-note">Checking available family data…</p>
           )}
+          {failedPresenceChecks.length ? (
+            <QueryFailure
+              what={`whether this family has ${failedPresenceChecks.join(', ')}`}
+              onRetry={retryPresenceChecks}
+              consequence="Their links are shown, so you can open them."
+            />
+          ) : null}
           {variantCountsLoaded && !hasAnyVariantData && !isMonogenicNipt && (
             <p className="dashboard-link-note">
               No variant data is loaded for this family yet — each type activates
@@ -1262,6 +1349,15 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             {pendingMembersStatus.message}
           </div>
         )}
+        {/* No derived segregation is not "no warnings": the embryos' recombination and
+            uninformative flags come from the same haplotypes (#607, TF-12 U2). */}
+        {segregationFailed ? (
+          <QueryFailure
+            what="the haplotypes at the ROI"
+            onRetry={retrySegregation}
+            consequence="The embryos' segregation, and any recombination or uninformative warning, are not shown."
+          />
+        ) : null}
         <div className="data-table-shell overflow-x-auto">
           <table className="analysis-table family-members-table">
             {/* Sequencing QC is a compact pill like Status, so it takes the narrowest
@@ -1506,6 +1602,14 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                               {displayMember.carrier_type || 'carrier'}
                             </span>
                           )}
+                          {segregationFailed && String(displayMember.role || '').toLowerCase() === 'embryo' && (
+                            <InfoTip
+                              className="segregation-warning"
+                              label="The haplotypes at the ROI could not be loaded: this embryo's segregation, and any recombination or uninformative warning, are unknown."
+                            >
+                              ⚠ segregation not derived
+                            </InfoTip>
+                          )}
                           {embryoClass && (
                             <InfoTip
                               className={`segregation-badge segregation-badge--${embryoClass.state}`}
@@ -1552,6 +1656,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                             </span>
                           )}
                         </div>
+                      ) : hpoFailed ? (
+                        // Not "-": the member's terms are unknown (#607).
+                        <span className="dashboard-link-note">could not be loaded</span>
                       ) : (
                         <span className="dashboard-link-note">-</span>
                       )}

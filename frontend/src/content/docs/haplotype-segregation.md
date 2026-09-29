@@ -220,6 +220,12 @@ the parent-of-origin transmission logic on a relative would be biologically back
 coincidental, wildly-switching noise, so relatives appear on the track — their lineage block is the
 meaningful view — but carry no marker dots.
 
+**When a request fails.** A failure is never shown as an uninformative region. If the phased markers
+cannot be loaded, the overview says so, with a **Retry**, instead of "0 markers in view". On the
+family page, an embryo whose haplotypes at the ROI could not be loaded shows *⚠ segregation not
+derived*: its call, and any *⚠ recombination* or *⚠ uninformative* warning, are unknown until they
+load.
+
 ---
 
 ## Per-child quality-control signals
