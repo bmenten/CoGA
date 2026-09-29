@@ -69,7 +69,10 @@ def _require_file(
     errors: list[FamilyImportValidationIssue],
     files: list[str],
     sample_id: str | None = None,
+    remote_only_files: frozenset[str] = frozenset(),
 ) -> Path | None:
+    """Resolve a manifest path and require the file. ``remote_only_files`` are package
+    files staging left in the object store; they count as present."""
     path = _resolve_package_path(root, value)
     if path is None:
         errors.append(
@@ -82,7 +85,7 @@ def _require_file(
         )
         return None
     files.append(_display_path(root, path))
-    if not path.is_file():
+    if not path.is_file() and _display_path(root, path) not in remote_only_files:
         errors.append(
             _issue(
                 "dataset_file_missing",
@@ -712,13 +715,15 @@ def _validate_per_sample_file_dataset(
     dataset: ManifestDataset,
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
+    remote_only_files: frozenset[str] = frozenset(),
 ) -> FamilyImportDatasetSummary:
     """Validate a dataset declared as ``per_sample: {<sample_id>: {<role>: <path>}}``.
 
     Shared by the long-read datasets (cnv, mito, alignments, qc), which the pipeline
     all writes per sample. Required roles must resolve to an existing file; optional
     roles are only checked when declared, so a package that ran without (say) mosdepth
-    still validates.
+    still validates. A file in ``remote_only_files`` exists in the object store without
+    having been staged.
     """
     required_roles, optional_roles = _PER_SAMPLE_DATASET_ROLES[dataset_type]
     files: list[str] = []
@@ -755,6 +760,7 @@ def _validate_per_sample_file_dataset(
                 errors=errors,
                 files=files,
                 sample_id=sample_id,
+                remote_only_files=remote_only_files,
             )
         for role in optional_roles:
             if entry.get(role):
@@ -766,6 +772,7 @@ def _validate_per_sample_file_dataset(
                     errors=errors,
                     files=files,
                     sample_id=sample_id,
+                    remote_only_files=remote_only_files,
                 )
         if dataset_type == "qc" and not any(entry.get(role) for role in optional_roles):
             errors.append(
@@ -836,6 +843,7 @@ def _validate_dataset(
     dataset: ManifestDataset,
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
+    remote_only_files: frozenset[str] = frozenset(),
 ) -> FamilyImportDatasetSummary:
     if not dataset.enabled:
         return FamilyImportDatasetSummary(
@@ -868,6 +876,9 @@ def _validate_dataset(
             dataset=dataset,
             ped_sample_ids=ped_sample_ids,
             errors=errors,
+            # Only the alignments importer never reads its files, so only its files may
+            # stay in the object store; every other dataset needs a staged copy.
+            remote_only_files=remote_only_files if dataset_type == "alignments" else frozenset(),
         )
     if dataset_type == "pipeline_info":
         return _validate_pipeline_info_dataset(root=root, dataset=dataset, errors=errors)
@@ -1089,7 +1100,13 @@ def load_validated_family_package(
     folder_path: str | Path,
     *,
     fallback_ped_text: str | None = None,
+    remote_only_files: frozenset[str] = frozenset(),
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
+    """Validate the package at ``folder_path`` and load it for import.
+
+    ``remote_only_files`` names the package files staging left in the object store
+    (``StagedPackage.remote_only_files``); an alignments dataset may reference them.
+    """
     try:
         root = _ensure_authorized_package_path(Path(folder_path))
     except HTTPException as exc:
@@ -1251,6 +1268,7 @@ def load_validated_family_package(
                     dataset=dataset,
                     ped_sample_ids=ped_sample_ids,
                     errors=errors,
+                    remote_only_files=remote_only_files,
                 )
             )
         phenotype_summary = _validate_manifest_hpo_annotations(
@@ -1284,6 +1302,7 @@ def load_validated_family_package(
         manifest=manifest,
         ped_path=ped_path,
         ped=ped,
+        remote_only_files=remote_only_files,
     )
 
 
@@ -1292,9 +1311,10 @@ def validate_family_package(
     *,
     fallback_ped_text: str | None = None,
 ) -> FamilyPackageValidationOut:
-    with staged_package_source(folder_path) as (local_root, _source_uri):
+    with staged_package_source(folder_path) as staged:
         validation, _bundle = load_validated_family_package(
-            local_root,
+            staged.root,
             fallback_ped_text=fallback_ped_text,
+            remote_only_files=staged.remote_only_files,
         )
     return validation

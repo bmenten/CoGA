@@ -228,12 +228,20 @@ async def _record_package_raw_files(
                 return join_remote_uri(bundle.source_uri, str(relative))
             return str(resolved)
 
+        def _in_package(resolved: Path) -> bool:
+            # Staged, or one of the files staging left in the object store (a remote
+            # package's alignments), which the traceability record must still name.
+            return (
+                resolved.is_file()
+                or _display_path(bundle.root, resolved) in bundle.remote_only_files
+            )
+
         for dataset_type, dataset in bundle.manifest.datasets.items():
             if not dataset.enabled:
                 continue
             for value in _dataset_top_level_files(dataset).values():
                 resolved = _resolve_package_path(bundle.root, value)
-                if resolved is None or not resolved.exists() or not resolved.is_file():
+                if resolved is None or not _in_package(resolved):
                     continue
                 await record_raw_import_file(
                     session,
@@ -258,7 +266,7 @@ async def _record_package_raw_files(
                     ):
                         continue
                     resolved = _resolve_package_path(bundle.root, value)
-                    if resolved is None or not resolved.exists() or not resolved.is_file():
+                    if resolved is None or not _in_package(resolved):
                         continue
                     await record_raw_import_file(
                         session,

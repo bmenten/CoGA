@@ -141,6 +141,9 @@ class FamilyPackageBundle:
     # When the package was staged from S3, the original s3:// source so provenance
     # records the durable S3 URI rather than the ephemeral staging path.
     source_uri: str | None = None
+    # Package-relative paths of files staging left in the object store (a remote
+    # package's alignments): they exist although ``root`` does not hold them.
+    remote_only_files: frozenset[str] = frozenset()
 
 
 @dataclass(slots=True)

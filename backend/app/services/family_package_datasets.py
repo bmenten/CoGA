@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.object_storage import join_remote_uri, remote_object_exists
 from ..schemas import (
     FamilyImportDatasetSummary,
 )
@@ -1406,14 +1407,53 @@ async def _import_qc_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummar
     )
 
 
+def _local_alignment_entry(
+    root: Path, alignment_path: Path, index_path: Path | None
+) -> dict[str, str] | None:
+    if not alignment_path.is_file():
+        return None
+    entry = {
+        "path": _display_path(root, alignment_path),
+        "format": "cram" if alignment_path.name.endswith(".cram") else "bam",
+    }
+    if index_path is not None and index_path.is_file():
+        entry["index_path"] = _display_path(root, index_path)
+    return entry
+
+
+def _remote_alignment_entry(
+    root: Path, source_uri: str, alignment_path: Path, index_path: Path | None
+) -> dict[str, str] | None:
+    """The entry for a package staged from a bucket. Staging left the alignment in the
+    store, so the store is asked whether it exists, and its URI is recorded: the staged
+    copy of the package is deleted after the import. Blocking (store requests)."""
+    relative = _display_path(root, alignment_path)
+    uri = join_remote_uri(source_uri, relative)
+    if not remote_object_exists(uri):
+        return None
+    entry = {
+        "path": relative,
+        "format": "cram" if alignment_path.name.endswith(".cram") else "bam",
+        "uri": uri,
+    }
+    if index_path is not None:
+        index_relative = _display_path(root, index_path)
+        index_uri = join_remote_uri(source_uri, index_relative)
+        if remote_object_exists(index_uri):
+            entry.update(index_path=index_relative, index_uri=index_uri)
+    return entry
+
+
 @_dataset_importer("alignments")
 async def _import_alignments_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Record each sample's aligned-reads file so the CRAM/IGV endpoint can find it.
 
-    The alignment itself is never copied or re-read: the package layout puts it under
-    ``bams/<sample>.cram``, while the alignment endpoint's convention is
-    ``<family>/<sample>.cram``. Recording the package-relative path on the sample lets
-    the endpoint resolve either layout.
+    The alignment itself is never copied or re-read. The package-relative path is
+    recorded on the sample; for a package imported from a bucket, so is the object's
+    URI, which is where the endpoint looks first in gcs/s3 mode (routers/cram.py) --
+    the package keeps its reads under ``bams/<sample>.cram`` below the import root,
+    not where the endpoint's layout probes look. A local package's file is found by
+    the endpoint's data-directory layouts, as before.
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts = job.sample_contexts
@@ -1425,15 +1465,17 @@ async def _import_alignments_dataset(job: DatasetImportJob) -> FamilyImportDatas
         if sample_context is None or not isinstance(raw_entry, dict):
             continue
         alignment_path = _resolve_package_path(bundle.root, raw_entry.get("file"))
-        if alignment_path is None or not alignment_path.is_file():
+        if alignment_path is None:
             continue
         index_path = _resolve_package_path(bundle.root, raw_entry.get("index"))
-        entry = {
-            "path": _display_path(bundle.root, alignment_path),
-            "format": "cram" if alignment_path.name.endswith(".cram") else "bam",
-        }
-        if index_path is not None and index_path.is_file():
-            entry["index_path"] = _display_path(bundle.root, index_path)
+        if bundle.source_uri:
+            entry = await asyncio.to_thread(
+                _remote_alignment_entry, bundle.root, bundle.source_uri, alignment_path, index_path
+            )
+        else:
+            entry = _local_alignment_entry(bundle.root, alignment_path, index_path)
+        if entry is None:
+            continue
         await _record_sample_alignment_metadata(
             session,
             sample_context=sample_context,

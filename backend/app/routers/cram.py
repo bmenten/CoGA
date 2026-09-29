@@ -1,17 +1,29 @@
 import asyncio
+from dataclasses import dataclass
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse, RedirectResponse
 import pysam
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.object_storage import object_exists, object_key, presigned_get_url, storage_is_remote
+from ..core.object_storage import (
+    configured_object_key,
+    object_exists,
+    object_key,
+    presigned_get_url,
+    storage_is_remote,
+)
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import AlignmentManifestEntryOut
+from ..services.family_package_source import within_remote_import_roots
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cram", tags=["cram"])
 
@@ -70,6 +82,102 @@ def _alignment_path(
     return candidates[0] if candidates else DATA_DIR / family_id / f"{sample_id}.{ext}{suffix}"
 
 
+def _alignment_exists(family_id: str, sample_id: str, ext: str, suffix: str = "") -> bool:
+    """Whether one of the data-directory layouts holds the file (local mode)."""
+    return any(
+        candidate.exists()
+        for candidate in _alignment_candidate_paths(family_id, sample_id, ext, suffix)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Remote mode (STORAGE_BACKEND=gcs/s3)
+# ---------------------------------------------------------------------------
+
+# The index each alignment format is served with.
+_INDEX_SUFFIXES = {"cram": ".crai", "bam": ".bai"}
+
+
+@dataclass(frozen=True, slots=True)
+class _RecordedAlignment:
+    """A sample's alignment as the import recorded it in the object store: keys in the
+    configured bucket that passed ``_recorded_key``."""
+
+    format: str
+    key: str
+    index_key: str | None = None
+
+
+def _recorded_key(uri: object, suffix: str) -> str | None:
+    """The key a recorded location names, when it may be served; ``None`` otherwise.
+
+    The location comes back from ``samples.metadata``, which the import writes but which
+    is read here as data. It is served only when it names an object in the configured
+    bucket (``configured_object_key``: that bucket and scheme, nothing but scheme,
+    bucket and key, no empty/``.``/``..`` segment), below one of the remote
+    FAMILY_IMPORT_ROOTS -- the folders every package is imported from -- and with the
+    extension of the file it stands for. A tampered row can therefore point at most at
+    another object of the import area, never at other objects of the bucket or at
+    another bucket. The endpoints check family membership before they read the row.
+    """
+    key = configured_object_key(uri)
+    if key is None or not key.lower().endswith(suffix) or not within_remote_import_roots(str(uri)):
+        return None
+    return key
+
+
+def _recorded_alignment(value: object) -> _RecordedAlignment | None:
+    """Parse ``samples.metadata['alignment']``; ``None`` unless it is usable."""
+    if not isinstance(value, dict):
+        return None
+    fmt = value.get("format")
+    if not isinstance(fmt, str) or fmt not in _INDEX_SUFFIXES:
+        return None
+    key = _recorded_key(value.get("uri"), f".{fmt}")
+    if key is None:
+        return None
+    return _RecordedAlignment(
+        format=fmt,
+        key=key,
+        index_key=_recorded_key(value.get("index_uri"), _INDEX_SUFFIXES[fmt]),
+    )
+
+
+async def _recorded_alignments(
+    session: AsyncSession, sample_ids: list[str]
+) -> dict[str, _RecordedAlignment]:
+    """Where the import recorded each sample's alignment in the object store.
+
+    Remote mode only: a local deployment serves the data-directory layouts. Callers
+    check first that the samples belong to the family and the user may read it.
+    """
+    if not sample_ids or not storage_is_remote():
+        return {}
+    result = await session.execute(
+        text(
+            """
+            SELECT sample_id, metadata -> 'alignment' AS alignment
+            FROM samples
+            WHERE sample_id = ANY(:sample_ids)
+              AND metadata ? 'alignment'
+            """
+        ),
+        {"sample_ids": list(sample_ids)},
+    )
+    recorded: dict[str, _RecordedAlignment] = {}
+    for sample_id, value in result.all():
+        alignment = _recorded_alignment(value)
+        if alignment is not None:
+            recorded[str(sample_id)] = alignment
+        elif isinstance(value, dict) and value.get("uri"):
+            logger.warning(
+                "Ignoring the recorded alignment location of sample %s: it is not an "
+                "object in the configured bucket below FAMILY_IMPORT_ROOTS",
+                sample_id,
+            )
+    return recorded
+
+
 def _alignment_candidate_keys(
     family_id: str, sample_id: str, ext: str, suffix: str = ""
 ) -> list[str]:
@@ -81,34 +189,62 @@ def _alignment_candidate_keys(
     ]
 
 
-def _alignment_key(family_id: str, sample_id: str, ext: str, suffix: str = "") -> str:
-    candidates = _alignment_candidate_keys(family_id, sample_id, ext, suffix)
-    for candidate in candidates:
-        if object_exists(candidate):
-            return candidate
-    return candidates[0]
-
-
-def _alignment_exists(family_id: str, sample_id: str, ext: str, suffix: str = "") -> bool:
-    if storage_is_remote():
-        return any(
-            object_exists(candidate)
+def _probed_alignment_key(family_id: str, sample_id: str, ext: str, suffix: str = "") -> str | None:
+    """The first layout probe that holds the file, if any."""
+    return next(
+        (
+            candidate
             for candidate in _alignment_candidate_keys(family_id, sample_id, ext, suffix)
-        )
-    return any(
-        candidate.exists()
-        for candidate in _alignment_candidate_paths(family_id, sample_id, ext, suffix)
+            if object_exists(candidate)
+        ),
+        None,
     )
 
 
+def _recorded_index_key(recorded: _RecordedAlignment) -> str | None:
+    """The recorded alignment's index: the one the import recorded, else the one stored
+    next to the alignment."""
+    beside = f"{recorded.key}{_INDEX_SUFFIXES[recorded.format]}"
+    candidates = dict.fromkeys(key for key in (recorded.index_key, beside) if key)
+    return next((key for key in candidates if object_exists(key)), None)
+
+
+def _remote_alignment_key(
+    family_id: str,
+    sample_id: str,
+    ext: str,
+    suffix: str = "",
+    recorded: _RecordedAlignment | None = None,
+) -> str | None:
+    """The object to serve as ``<sample>.<ext><suffix>``, or ``None``.
+
+    The recorded location comes first, and when its alignment is in the store it alone
+    answers for the sample: the alignment and its index both come from it, so a
+    recorded CRAM is never paired with an index a layout probe found elsewhere (IGV
+    would read the reads at the wrong offsets), and the other format is not probed for.
+    The layout probes are the fallback when nothing usable was recorded or the recorded
+    object is gone.
+    """
+    if recorded is not None and object_exists(recorded.key):
+        if ext != recorded.format:
+            return None
+        return _recorded_index_key(recorded) if suffix else recorded.key
+    return _probed_alignment_key(family_id, sample_id, ext, suffix)
+
+
 def _serve_alignment(
-    family_id: str, sample_id: str, ext: str, suffix: str, not_found_detail: str
+    family_id: str,
+    sample_id: str,
+    ext: str,
+    suffix: str,
+    not_found_detail: str,
+    recorded: _RecordedAlignment | None = None,
 ) -> Response:
     """Stream a local file, or redirect to a presigned/signed object URL in remote mode."""
     file_name = f"{sample_id}.{ext}{suffix}"
     if storage_is_remote():
-        key = _alignment_key(family_id, sample_id, ext, suffix)
-        if not object_exists(key):
+        key = _remote_alignment_key(family_id, sample_id, ext, suffix, recorded)
+        if key is None:
             raise HTTPException(status_code=404, detail=not_found_detail)
         # IGV follows the 302 and reads bytes (with HTTP range) straight from the store.
         return RedirectResponse(presigned_get_url(key, filename=file_name), status_code=302)
@@ -118,8 +254,19 @@ def _serve_alignment(
     return FileResponse(path)
 
 
-def _head_alignment(family_id: str, sample_id: str, ext: str, suffix: str, not_found_detail: str) -> Response:
-    if not _alignment_exists(family_id, sample_id, ext, suffix):
+def _head_alignment(
+    family_id: str,
+    sample_id: str,
+    ext: str,
+    suffix: str,
+    not_found_detail: str,
+    recorded: _RecordedAlignment | None = None,
+) -> Response:
+    if storage_is_remote():
+        found = _remote_alignment_key(family_id, sample_id, ext, suffix, recorded) is not None
+    else:
+        found = _alignment_exists(family_id, sample_id, ext, suffix)
+    if not found:
         raise HTTPException(status_code=404, detail=not_found_detail)
     return Response(status_code=200)
 
@@ -127,23 +274,28 @@ def _head_alignment(family_id: str, sample_id: str, ext: str, suffix: str, not_f
 def _resolve_alignment_manifest_entry(
     family_id: str,
     sample_id: str,
+    recorded: _RecordedAlignment | None = None,
 ) -> AlignmentManifestEntryOut | None:
-    """In s3 mode the URLs are short-lived presigned S3 URLs (absolute); otherwise
-    they are backend-relative paths the frontend prefixes with the API base."""
+    """In remote mode the URLs are short-lived presigned/signed URLs (absolute);
+    otherwise they are backend-relative paths the frontend prefixes with the API base."""
     for fmt, ext, index_suffix in (("cram", "cram", ".crai"), ("bam", "bam", ".bai")):
-        if not (_alignment_exists(family_id, sample_id, ext) and _alignment_exists(family_id, sample_id, ext, index_suffix)):
-            continue
         if storage_is_remote():
-            data_name = f"{sample_id}.{ext}"
-            index_name = f"{sample_id}.{ext}{index_suffix}"
+            data_key = _remote_alignment_key(family_id, sample_id, ext, "", recorded)
+            index_key = (
+                _remote_alignment_key(family_id, sample_id, ext, index_suffix, recorded)
+                if data_key is not None
+                else None
+            )
+            if data_key is None or index_key is None:
+                continue
             return AlignmentManifestEntryOut(
                 sample_id=sample_id,
                 format=fmt,
-                url=presigned_get_url(_alignment_key(family_id, sample_id, ext), filename=data_name),
-                index_url=presigned_get_url(
-                    _alignment_key(family_id, sample_id, ext, index_suffix), filename=index_name
-                ),
+                url=presigned_get_url(data_key, filename=f"{sample_id}.{ext}"),
+                index_url=presigned_get_url(index_key, filename=f"{sample_id}.{ext}{index_suffix}"),
             )
+        if not (_alignment_exists(family_id, sample_id, ext) and _alignment_exists(family_id, sample_id, ext, index_suffix)):
+            continue
         return AlignmentManifestEntryOut(
             sample_id=sample_id,
             format=fmt,
@@ -173,6 +325,19 @@ async def _ensure_accessible_alignment_sample(
         raise HTTPException(status_code=404, detail="Sample not found in family")
 
 
+async def _accessible_recorded_alignment(
+    session: AsyncSession,
+    family_id: str,
+    sample_id: str,
+    user: CurrentUser,
+) -> _RecordedAlignment | None:
+    """Check the user may read the sample's reads, then look up where the import
+    recorded them (remote mode). The check runs first, so nothing about a sample the
+    user may not see is read, and a failure answers before any URL is issued."""
+    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    return (await _recorded_alignments(session, [sample_id])).get(sample_id)
+
+
 @router.get("/{family_id}/manifest", response_model=list[AlignmentManifestEntryOut])
 async def get_alignment_manifest(
     family_id: str,
@@ -188,12 +353,16 @@ async def get_alignment_manifest(
             continue
         seen.add(sample_id)
         ordered_samples.append(sample_id)
+    # One query for where the import recorded every requested sample's reads.
+    recorded = await _recorded_alignments(session, ordered_samples)
     # Resolving each sample does several blocking S3 HEAD + presign calls; run them
     # in worker threads concurrently instead of serially stalling the event loop.
     # asyncio.gather preserves input order, so the manifest order is unchanged.
     entries = await asyncio.gather(
         *(
-            asyncio.to_thread(_resolve_alignment_manifest_entry, family_id, sample_id)
+            asyncio.to_thread(
+                _resolve_alignment_manifest_entry, family_id, sample_id, recorded.get(sample_id)
+            )
             for sample_id in ordered_samples
         )
     )
@@ -207,9 +376,9 @@ async def get_cram(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
     return await asyncio.to_thread(
-        _serve_alignment, family_id, sample_id, "cram", "", "CRAM file not found"
+        _serve_alignment, family_id, sample_id, "cram", "", "CRAM file not found", recorded
     )
 
 
@@ -220,9 +389,9 @@ async def head_cram(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
     return await asyncio.to_thread(
-        _head_alignment, family_id, sample_id, "cram", "", "CRAM file not found"
+        _head_alignment, family_id, sample_id, "cram", "", "CRAM file not found", recorded
     )
 
 
@@ -233,9 +402,9 @@ async def get_crai(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
     return await asyncio.to_thread(
-        _serve_alignment, family_id, sample_id, "cram", ".crai", "CRAI file not found"
+        _serve_alignment, family_id, sample_id, "cram", ".crai", "CRAI file not found", recorded
     )
 
 
@@ -246,9 +415,9 @@ async def head_crai(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
     return await asyncio.to_thread(
-        _head_alignment, family_id, sample_id, "cram", ".crai", "CRAI file not found"
+        _head_alignment, family_id, sample_id, "cram", ".crai", "CRAI file not found", recorded
     )
 
 
@@ -259,9 +428,9 @@ async def get_bam(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
     return await asyncio.to_thread(
-        _serve_alignment, family_id, sample_id, "bam", "", "BAM file not found"
+        _serve_alignment, family_id, sample_id, "bam", "", "BAM file not found", recorded
     )
 
 
@@ -272,9 +441,9 @@ async def head_bam(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
     return await asyncio.to_thread(
-        _head_alignment, family_id, sample_id, "bam", "", "BAM file not found"
+        _head_alignment, family_id, sample_id, "bam", "", "BAM file not found", recorded
     )
 
 
@@ -285,9 +454,9 @@ async def get_bai(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
     return await asyncio.to_thread(
-        _serve_alignment, family_id, sample_id, "bam", ".bai", "BAI file not found"
+        _serve_alignment, family_id, sample_id, "bam", ".bai", "BAI file not found", recorded
     )
 
 
@@ -298,13 +467,15 @@ async def head_bai(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ):
-    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
     return await asyncio.to_thread(
-        _head_alignment, family_id, sample_id, "bam", ".bai", "BAI file not found"
+        _head_alignment, family_id, sample_id, "bam", ".bai", "BAI file not found", recorded
     )
 
 
-def _read_alignment_header(family_id: str, sample_id: str) -> dict:
+def _read_alignment_header(
+    family_id: str, sample_id: str, recorded: _RecordedAlignment | None = None
+) -> dict:
     """Open the sample's CRAM/BAM and return its header dict.
 
     Blocking work (pysam open + S3/htslib byte-range I/O), so callers must run
@@ -312,8 +483,8 @@ def _read_alignment_header(family_id: str, sample_id: str) -> dict:
     """
     if storage_is_remote():
         for ext, mode in (("cram", "rc"), ("bam", "rb")):
-            key = _alignment_key(family_id, sample_id, ext)
-            if object_exists(key):
+            key = _remote_alignment_key(family_id, sample_id, ext, "", recorded)
+            if key is not None:
                 # htslib reads the presigned https URL directly (with range requests).
                 with pysam.AlignmentFile(presigned_get_url(key, filename=f"{sample_id}.{ext}"), mode) as af:
                     return af.header.to_dict()
@@ -337,7 +508,7 @@ async def get_cram_header(
     user: CurrentUser = Depends(get_current_user),
 ):
     """Return alignment header for quick M5/SN/LN inspection."""
-    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    recorded = await _accessible_recorded_alignment(session, family_id, sample_id, user)
     # Offload the blocking pysam open + header parse so a slow S3/htslib read
     # cannot stall the event loop (matches the manifest handler's pattern).
-    return await asyncio.to_thread(_read_alignment_header, family_id, sample_id)
+    return await asyncio.to_thread(_read_alignment_header, family_id, sample_id, recorded)

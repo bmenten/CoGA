@@ -25,7 +25,7 @@ async def test_get_alignment_manifest_dedups_preserves_order_and_filters(monkeyp
     resolved: list[str] = []
     resolved_lock = threading.Lock()
 
-    def fake_resolve(family_id, sample_id):
+    def fake_resolve(family_id, sample_id, recorded=None):
         with resolved_lock:
             resolved.append(sample_id)
         if sample_id == "S2":
@@ -58,7 +58,7 @@ async def test_get_cram_header_offloads_blocking_read(monkeypatch):
 
     read_args: dict[str, tuple[str, str]] = {}
 
-    def fake_read(family_id, sample_id):
+    def fake_read(family_id, sample_id, recorded=None):
         read_args["args"] = (family_id, sample_id)
         return {"SQ": [{"SN": "chr1", "LN": 1000}]}
 

@@ -6,17 +6,26 @@ Exercises the operations that hit the live client — object_exists, download_pr
 and remote package discovery — over the JSON API. Signed-URL generation is not
 covered here (it needs real IAM SignBlob; see the unit test).
 
+It also imports a package's alignments from the bucket the way Terraform lays it out
+(FAMILY_IMPORT_ROOTS=gs://<bucket>/imports): staging leaves the CRAM in the store, the
+importer records the object's URI on the sample (real Postgres), and the CRAM endpoint
+resolves that recorded object. The mocked unit tests are in
+test_remote_package_alignments.py.
+
 Gated by RUN_INTEGRATION=1 (integration conftest). The fake-gcs-server endpoint is
 taken from GCS_ENDPOINT_URL if set, otherwise a container is started via docker.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import time
 import urllib.request
+from uuid import uuid4
 
 import pytest
 
@@ -31,6 +40,16 @@ pytestmark = pytest.mark.integration
 
 _BUCKET = "coga-it-bucket"
 _PORT = 4443
+_ALIGNMENTS_MANIFEST = b"""schema_version: 1
+family_id: F1
+ped: family.ped
+datasets:
+  alignments:
+    per_sample:
+      S1:
+        file: bams/S1.cram
+        index: bams/S1.cram.crai
+"""
 
 
 def _wait_ready(endpoint: str, timeout: float = 30.0) -> bool:
@@ -114,6 +133,12 @@ def gcs_backend(gcs_endpoint):
         "fam/F1/sub/x.vcf.gz": b"\x1f\x8b\x08vcf",
         "fam/F2/trio.ped": b"#ped\n",
         "fam/empty/readme.txt": b"nothing importable here\n",
+        # A family package where Terraform's FAMILY_IMPORT_ROOTS points.
+        "imports/F1/manifest.yaml": _ALIGNMENTS_MANIFEST,
+        "imports/F1/family.ped": b"F1 S1 0 0 1 2\n",
+        "imports/F1/bams/S1.cram": b"CRAMDATA",
+        "imports/F1/bams/S1.cram.crai": b"CRAIDATA",
+        "imports/F1/snv/F1.vcf.gz.csi": b"CSI",
     }.items():
         bucket.blob(key).upload_from_string(body)
 
@@ -141,3 +166,135 @@ def test_list_remote_package_candidates_against_fake_gcs(gcs_backend):
     assert candidates["F1"]["has_manifest"] and not candidates["F1"]["has_ped"]
     assert candidates["F2"]["has_ped"] and not candidates["F2"]["has_manifest"]
     assert candidates["F1"]["uri"] == f"gs://{_BUCKET}/fam/F1"
+
+
+def test_remote_object_exists_against_fake_gcs(gcs_backend):
+    assert s.remote_object_exists(f"gs://{_BUCKET}/imports/F1/bams/S1.cram") is True
+    assert s.remote_object_exists(f"gs://{_BUCKET}/imports/F1/bams/S9.cram") is False
+
+
+def _import_from_the_bucket(monkeypatch, tmp_path):
+    from app.services import family_package_source
+
+    monkeypatch.setattr(s.settings, "family_import_roots", [f"gs://{_BUCKET}/imports"])
+    monkeypatch.setattr(family_package_source, "_staging_root", lambda: tmp_path.resolve())
+    return family_package_source.staged_package_source(f"gs://{_BUCKET}/imports/F1")
+
+
+def test_staging_leaves_alignments_in_fake_gcs(gcs_backend, monkeypatch, tmp_path):
+    from app.services.family_package_validation import load_validated_family_package
+
+    with _import_from_the_bucket(monkeypatch, tmp_path) as staged:
+        root = Path(staged.root)
+        staged_files = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
+        assert staged_files == ["family.ped", "manifest.yaml", "snv/F1.vcf.gz.csi"]
+        assert staged.remote_only_files == {"bams/S1.cram", "bams/S1.cram.crai"}
+
+        validation, bundle = load_validated_family_package(
+            staged.root, remote_only_files=staged.remote_only_files
+        )
+    assert validation.valid, validation.errors
+    assert bundle is not None and bundle.remote_only_files == staged.remote_only_files
+
+
+def test_an_alignment_imported_from_fake_gcs_is_served_from_where_it_lies(
+    gcs_backend, monkeypatch, tmp_path
+):
+    """Stage -> validate -> alignments importer (real GCS existence checks, real Postgres
+    write) -> the CRAM endpoint's lookup of the recorded location (real Postgres read,
+    real GCS existence checks). Only the URL signing is faked: it needs IAM SignBlob."""
+    from sqlalchemy import text
+
+    from app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
+    from app.routers import cram
+    from app.schemas import FamilyImportDatasetSummary
+    from app.services import family_package_datasets
+    from app.services.family_metadata_context import SampleMetadataContext
+    from app.services.family_package_validation import load_validated_family_package
+
+    monkeypatch.setattr(
+        cram, "presigned_get_url", lambda key, filename=None, expires=None: f"https://signed.example/{key}"
+    )
+    family_label = f"gcs-it-{uuid4().hex[:8]}"
+    sample_label = f"{family_label}-S1"
+
+    async def _fresh_sample(sm) -> tuple[str, str]:
+        async with sm() as session:
+            family_uuid = (
+                await session.execute(
+                    text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
+                    {"f": family_label},
+                )
+            ).scalar_one()
+            sample_uuid = (
+                await session.execute(
+                    text(
+                        "INSERT INTO samples (sample_id, family_id, sex) "
+                        "VALUES (:s, CAST(:f AS uuid), 'und') RETURNING id::text"
+                    ),
+                    {"s": sample_label, "f": family_uuid},
+                )
+            ).scalar_one()
+            await session.commit()
+        return family_uuid, sample_uuid
+
+    async def _run() -> None:
+        try:
+            await init_postgres_schema()
+            sm = get_postgres_sessionmaker()
+            family_uuid, sample_uuid = await _fresh_sample(sm)
+            try:
+                await _import_and_resolve(sm, family_uuid, sample_uuid)
+            finally:
+                async with sm() as session:
+                    await session.execute(
+                        text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid}
+                    )
+                    await session.commit()
+        finally:
+            await close_postgres_engine()
+
+    async def _import_and_resolve(sm, family_uuid: str, sample_uuid: str) -> None:
+        sample_context = SampleMetadataContext(
+            sample_uuid=sample_uuid,
+            sample_id="S1",
+            family_uuid=family_uuid,
+            family_id=family_label,
+            sex="und",
+            project_ids=[],
+            assembly_id=None,
+            assembly_name=None,
+        )
+        with _import_from_the_bucket(monkeypatch, tmp_path) as staged:
+            validation, bundle = load_validated_family_package(
+                staged.root, remote_only_files=staged.remote_only_files
+            )
+            assert validation.valid, validation.errors
+            assert bundle is not None
+            bundle.source_uri = staged.source_uri
+            async with sm() as session:
+                result = await family_package_datasets._import_alignments_dataset(
+                    family_package_datasets.DatasetImportJob(
+                        session=session,
+                        bundle=bundle,
+                        dataset=bundle.manifest.datasets["alignments"],
+                        summary=FamilyImportDatasetSummary(
+                            dataset_type="alignments", enabled=True, status="valid"
+                        ),
+                        family_context=None,  # not read by this importer
+                        sample_contexts={"S1": sample_context},
+                    )
+                )
+        assert result.status == "imported", result.message
+
+        async with sm() as session:
+            recorded = await cram._recorded_alignments(session, [sample_label])
+        assert set(recorded) == {sample_label}
+        entry = await asyncio.to_thread(
+            cram._resolve_alignment_manifest_entry, "F1", sample_label, recorded[sample_label]
+        )
+        assert entry is not None
+        assert entry.url == "https://signed.example/imports/F1/bams/S1.cram"
+        assert entry.index_url == "https://signed.example/imports/F1/bams/S1.cram.crai"
+
+    asyncio.run(_run())

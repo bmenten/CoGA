@@ -8,11 +8,14 @@ remote mode the raw family data lives in a bucket and is read two ways:
   URLs** so the browser fetches bytes directly from the store (native HTTP range
   support).
 - Family-package sources are **staged** to a temp directory for an import job, so
-  the existing path-based import logic runs unchanged, then cleaned up.
+  the existing path-based import logic runs unchanged, then cleaned up. Staging can
+  leave objects in the store (``download_prefix``'s ``skip``); package import leaves
+  the aligned reads there, since it only records where they lie.
 
 Object keys mirror the local layout (``<family_id>/<file>``) under the optional
 ``STORAGE_PREFIX`` (``S3_PREFIX`` / ``GCS_PREFIX``). Remote URIs use the store's
-native scheme: ``s3://`` or ``gs://``.
+native scheme: ``s3://`` or ``gs://``. An imported package's alignments are instead
+addressed by the URI the import recorded (``configured_object_key``).
 
 Credentials:
 
@@ -27,6 +30,7 @@ deployment need not install whichever backend it does not use.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
@@ -106,6 +110,20 @@ def join_remote_uri(base: str, *parts: str) -> str:
     return RemoteLocation(location.scheme, location.bucket, key).uri
 
 
+def remote_uri_within(uri: str, root: str) -> bool:
+    """Whether ``uri`` names an object below the remote folder ``root``: same scheme and
+    bucket, and a key under the root's key on a segment boundary (``imports/`` does not
+    contain ``imports-old/``)."""
+    try:
+        location, base = parse_remote_uri(uri), parse_remote_uri(root)
+    except ValueError:
+        return False
+    if (location.scheme, location.bucket) != (base.scheme, base.bucket) or not location.key:
+        return False
+    prefix = base.key.strip("/")
+    return not prefix or location.key.startswith(f"{prefix}/")
+
+
 # ---------------------------------------------------------------------------
 # Bucket / key resolution for the configured backend
 # ---------------------------------------------------------------------------
@@ -129,6 +147,31 @@ def object_key(*parts: str) -> str:
     prefix = _configured_prefix().strip("/")
     segments = [prefix, *[str(part).strip("/") for part in parts if str(part).strip("/")]]
     return "/".join(segment for segment in segments if segment)
+
+
+def configured_object_key(uri: object) -> str | None:
+    """The key of ``uri`` when it names an object in the configured bucket, else ``None``.
+
+    For locations read back from the database, which are data rather than trusted input.
+    The URI must use the configured backend's scheme (``gs`` for gcs, ``s3`` for s3) and
+    bucket, rebuild to exactly the same string -- so no query, fragment, port or user
+    info rides along to be dropped or misread -- and have a key with no empty, ``.`` or
+    ``..`` segment. The optional storage prefix does not apply: the URI is absolute.
+    """
+    if not storage_is_remote() or not isinstance(uri, str):
+        return None
+    try:
+        location = parse_remote_uri(uri)
+    except ValueError:
+        return None
+    expected_scheme = "gs" if storage_is_gcs() else "s3"
+    if location.scheme != expected_scheme or location.bucket != _configured_bucket():
+        return None
+    if location.uri != uri:
+        return None
+    if not location.key or any(segment in {"", ".", ".."} for segment in location.key.split("/")):
+        return None
+    return location.key
 
 
 # ---------------------------------------------------------------------------
@@ -177,13 +220,27 @@ def _gcs_client():
 # ---------------------------------------------------------------------------
 
 def object_exists(key: str) -> bool:
-    if storage_is_gcs():
-        return _gcs_client().bucket(_configured_bucket()).blob(key).exists()
+    """Whether ``key`` exists in the configured bucket."""
+    return _exists("gs" if storage_is_gcs() else "s3", _configured_bucket(), key)
+
+
+def remote_object_exists(uri: str) -> bool:
+    """Whether the object a ``gs://``/``s3://`` URI names exists, in the bucket the URI
+    names -- which, as for package staging, need not be the configured one: a package
+    may come from any bucket FAMILY_IMPORT_ROOTS allows. Blocking -- call from a worker
+    thread in async contexts."""
+    location = parse_remote_uri(uri)
+    return _exists(location.scheme, location.bucket, location.key)
+
+
+def _exists(scheme: str, bucket: str, key: str) -> bool:
+    if scheme == "gs":
+        return _gcs_client().bucket(bucket).blob(key).exists()
 
     from botocore.exceptions import ClientError
 
     try:
-        _s3_client().head_object(Bucket=_configured_bucket(), Key=key)
+        _s3_client().head_object(Bucket=bucket, Key=key)
         return True
     except ClientError:
         return False
@@ -253,17 +310,28 @@ def _gcs_signed_get_url(key: str, *, filename: str | None, expires: int) -> str:
 # Prefix download (package staging)
 # ---------------------------------------------------------------------------
 
-def download_prefix(uri: str, dest_dir: Path) -> int:
-    """Download every object under a remote prefix into ``dest_dir`` preserving the
+def download_prefix(
+    uri: str, dest_dir: Path, *, skip: Callable[[str], bool] | None = None
+) -> int:
+    """Download the objects under a remote prefix into ``dest_dir`` preserving the
     relative key layout. Returns the number of files written. Blocking — call from a
-    worker thread in async contexts."""
+    worker thread in async contexts.
+
+    ``skip`` is asked about each object's path relative to the prefix (normalised,
+    ``/``-separated) and leaves the object in the store when it answers True. It is
+    called once per object, single-threaded, before any transfer starts."""
     location = parse_remote_uri(uri)
     if location.scheme == "gs":
-        return _gcs_download_prefix(location, dest_dir)
-    return _s3_download_prefix(location, dest_dir)
+        return _gcs_download_prefix(location, dest_dir, skip)
+    return _s3_download_prefix(location, dest_dir, skip)
 
 
-def _plan_downloads(base_key: str, names: list[str], dest_dir: Path) -> list[tuple[str, str]]:
+def _plan_downloads(
+    base_key: str,
+    names: list[str],
+    dest_dir: Path,
+    skip: Callable[[str], bool] | None = None,
+) -> list[tuple[str, str]]:
     """Map remote object names under ``base_key`` to local targets, creating parent
     dirs single-threaded (avoids mkdir races) before the concurrent transfer.
 
@@ -273,7 +341,8 @@ def _plan_downloads(base_key: str, names: list[str], dest_dir: Path) -> list[tup
     join, so the containment check rejects a crafted key like
     ``pkg/../../../etc/cron.d/evil`` (or an absolute key) before any directory is
     created or byte is written, instead of escaping the staging root and writing an
-    arbitrary host file.
+    arbitrary host file. The check runs before ``skip`` is consulted, so a crafted key
+    aborts staging whether or not it would have been downloaded.
     """
     base = base_key.rstrip("/")
     base_prefix = f"{base}/" if base else ""
@@ -287,17 +356,21 @@ def _plan_downloads(base_key: str, names: list[str], dest_dir: Path) -> list[tup
             continue
         target = (dest_root / relative).resolve()
         try:
-            target.relative_to(dest_root)
+            staged_path = target.relative_to(dest_root)
         except ValueError as exc:
             raise ValueError(
                 f"Refusing to stage object key outside the staging directory: {name!r}"
             ) from exc
+        if skip is not None and skip(staged_path.as_posix()):
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
         downloads.append((name, str(target)))
     return downloads
 
 
-def _s3_download_prefix(location: RemoteLocation, dest_dir: Path) -> int:
+def _s3_download_prefix(
+    location: RemoteLocation, dest_dir: Path, skip: Callable[[str], bool] | None = None
+) -> int:
     client = _s3_client()
     base = location.key.rstrip("/")
     base_prefix = f"{base}/" if base else ""
@@ -308,7 +381,7 @@ def _s3_download_prefix(location: RemoteLocation, dest_dir: Path) -> int:
         for obj in page.get("Contents", []):
             names.append(obj["Key"])
 
-    downloads = _plan_downloads(location.key, names, dest_dir)
+    downloads = _plan_downloads(location.key, names, dest_dir, skip)
     if not downloads:
         return 0
 
@@ -324,14 +397,16 @@ def _s3_download_prefix(location: RemoteLocation, dest_dir: Path) -> int:
     return len(downloads)
 
 
-def _gcs_download_prefix(location: RemoteLocation, dest_dir: Path) -> int:
+def _gcs_download_prefix(
+    location: RemoteLocation, dest_dir: Path, skip: Callable[[str], bool] | None = None
+) -> int:
     client = _gcs_client()
     base = location.key.rstrip("/")
     base_prefix = f"{base}/" if base else ""
     blobs = list(client.list_blobs(location.bucket, prefix=base_prefix))
     by_name = {blob.name: blob for blob in blobs}
 
-    downloads = _plan_downloads(location.key, list(by_name), dest_dir)
+    downloads = _plan_downloads(location.key, list(by_name), dest_dir, skip)
     if not downloads:
         return 0
 

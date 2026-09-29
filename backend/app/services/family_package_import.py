@@ -83,14 +83,15 @@ async def execute_family_package_import(
     progress: ProgressCallback | None = None,
     job_id: str | None = None,
 ) -> PackageExecutionResult:
-    """Run an import, staging the package from S3 to a temp dir first when the
-    source is an s3:// URI (cleaned up afterwards). ``job_id`` is the import job
-    running it, if any: an incomplete-import flag names it."""
-    async with staged_package_source_async(folder_path) as (local_root, source_uri):
+    """Run an import, staging the package to a temp dir first when the source is a
+    gs:// or s3:// URI (cleaned up afterwards; its alignments stay in the store).
+    ``job_id`` is the import job running it, if any: an incomplete-import flag names it."""
+    async with staged_package_source_async(folder_path) as staged:
         return await _execute_family_package_import_local(
             session,
-            folder_path=local_root,
-            source_uri=source_uri,
+            folder_path=staged.root,
+            source_uri=staged.source_uri,
+            remote_only_files=staged.remote_only_files,
             project_id=project_id,
             dry_run=dry_run,
             user=user,
@@ -113,11 +114,13 @@ async def _execute_family_package_import_local(
     conflict_mode: str = "cancel",
     progress: ProgressCallback | None = None,
     job_id: str | None = None,
+    remote_only_files: frozenset[str] = frozenset(),
 ) -> PackageExecutionResult:
     fallback_ped_text = await db_pedigree_fallback(session, requested_family_id)
     validation, bundle = load_validated_family_package(
         folder_path,
         fallback_ped_text=fallback_ped_text,
+        remote_only_files=remote_only_files,
     )
     if bundle is not None:
         bundle.source_uri = source_uri

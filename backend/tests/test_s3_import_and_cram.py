@@ -57,9 +57,10 @@ def test_local_package_path_traversal_rejected(monkeypatch, tmp_path):
 
 
 def test_staged_package_source_local_is_passthrough(tmp_path):
-    with family_package_source.staged_package_source(str(tmp_path)) as (root, source_uri):
-        assert root == str(tmp_path)
-        assert source_uri is None
+    with family_package_source.staged_package_source(str(tmp_path)) as staged:
+        assert staged.root == str(tmp_path)
+        assert staged.source_uri is None
+        assert staged.remote_only_files == frozenset()
 
 
 def test_cram_manifest_uses_presigned_urls_in_s3_mode(monkeypatch):
