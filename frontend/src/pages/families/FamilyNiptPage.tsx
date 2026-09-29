@@ -177,6 +177,7 @@ const FamilyNiptPage: React.FC = () => {
     applyPreset,
     applySavedPreset,
     draftFilters,
+    draftLocationProblems,
     filters,
     goToPage,
     handleApply,
@@ -498,6 +499,7 @@ const FamilyNiptPage: React.FC = () => {
             applySavedPreset={applySavedPreset}
             draftFilters={draftFilters}
             handleApply={handleApply}
+            draftLocationProblems={draftLocationProblems}
             handleGtToggle={handleGtToggle}
             handleReset={handleReset}
             handleSampleFieldChange={handleSampleFieldChange}

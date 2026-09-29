@@ -14,6 +14,8 @@ import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 import {
   buildPresetPayload,
+  hasLocationProblems,
+  smallVariantLocationProblems,
   useSmallVariantSearchState,
   type GenePanel,
   type SmallVariant,
@@ -104,6 +106,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     applyPreset,
     applySavedPreset,
     draftFilters,
+    draftLocationProblems,
     filters,
     goToPage,
     handleApply,
@@ -157,6 +160,12 @@ const FamilySmallVariantsPage: React.FC = () => {
     queryKey: ['family', familyId, 'small-variants', requestQueryString],
     enabled: variantQueryReady,
     queryFn: async () => {
+      // A location from the URL that cannot be read fails the search with its reason:
+      // sent on, a malformed locus was searched as a gene name (#604).
+      const locationProblems = smallVariantLocationProblems(filters);
+      if (hasLocationProblems(locationProblems)) {
+        throw new Error([...locationProblems.include, ...locationProblems.exclude].join(' '));
+      }
       const res = await api.get(apiPath`/families/${familyId}/small-variants?${raw(requestQueryString)}`);
       return res.data as SmallVariantPage;
     },
@@ -347,6 +356,7 @@ const FamilySmallVariantsPage: React.FC = () => {
           draftFilters={draftFilters}
           feedback={workspaceFeedback}
           handleApply={handleApply}
+          draftLocationProblems={draftLocationProblems}
           handleGtToggle={handleGtToggle}
           handleReset={handleReset}
           handleSampleFieldChange={handleSampleFieldChange}

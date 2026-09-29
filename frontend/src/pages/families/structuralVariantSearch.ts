@@ -377,6 +377,16 @@ const resolveStructuralSampleFiltersFromPreset = (
   return base;
 };
 
+/**
+ * Why the location filter cannot be searched as written, or null. A location with a
+ * colon that does not parse was searched as a gene name, matched nothing, and read as a
+ * family without SVs (#604).
+ */
+export const structuralLocationProblem = (filters: Pick<StructuralFilterState, 'locus'>): string | null => {
+  const parsed = parseGeneOrRegionInput(filters.locus);
+  return parsed?.kind === 'invalid' ? parsed.problem : null;
+};
+
 export const buildStructuralVariantQueryParams = (
   currentFilters: StructuralFilterState,
   currentSampleFilters: Record<string, StructuralSampleFilter>,
@@ -539,6 +549,8 @@ export const useStructuralVariantSearchState = ({
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState(emptyFilters);
   const [draftFilters, setDraftFilters] = useState(emptyFilters);
+  // A draft location that cannot be read, named under its field instead of searched (#604).
+  const [draftLocationProblem, setDraftLocationProblem] = useState<string | null>(null);
   const [sampleFilters, setSampleFilters] = useState<Record<string, StructuralSampleFilter>>({});
   const [sampleDraftFilters, setSampleDraftFilters] = useState<Record<
     string,
@@ -725,12 +737,16 @@ export const useStructuralVariantSearchState = ({
 
   const handleSearch = (event: FormEvent) => {
     event.preventDefault();
+    const locationProblem = structuralLocationProblem(draftFilters);
+    setDraftLocationProblem(locationProblem);
+    if (locationProblem) return;
     const nextSampleFilters = cloneSampleFilters(sampleDraftFilters);
     applySearchState(draftFilters, nextSampleFilters, 1);
   };
 
   const handleReset = () => {
     if (!family) return;
+    setDraftLocationProblem(null);
     const resetSampleFilters = buildDefaultSampleFilters(family.members);
     setDraftFilters(emptyFilters);
     setFilters(emptyFilters);
@@ -806,6 +822,7 @@ export const useStructuralVariantSearchState = ({
     handleReset,
     handleSampleFieldChange,
     handleSearch,
+    draftLocationProblem,
     linkSearch,
     orderedMembers,
     page,

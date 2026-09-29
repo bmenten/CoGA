@@ -87,8 +87,11 @@ logger = logging.getLogger(__name__)
 IMPUTED_SMALL_VARIANT_SOURCES: tuple[str, ...] = ("glimpse2", "shapeit")
 
 
+# One entry of an interval list: chr:start-end, with a hyphen or an en dash, or chr:position
+# for one base; thousands separators are allowed. A BED line ("chr start end") is not read:
+# BED is 0-based, and taken as 1-based its interval would shift by a base (#604).
 _INTERVAL_PATTERN = re.compile(
-    r"^\s*(?P<chr>[^:\s]+)\s*:\s*(?P<start>\d[\d,]*)\s*-\s*(?P<end>\d[\d,]*)\s*$"
+    r"^\s*(?P<chr>[^:\s]+)\s*:\s*(?P<start>\d[\d,]*)\s*(?:[-\u2013]\s*(?P<end>\d[\d,]*)\s*)?$"
 )
 
 
@@ -436,19 +439,32 @@ def _split_gene_terms(raw_value: str | None) -> list[str]:
     return [term for term in _GENE_QUERY_SPLIT.split(str(raw_value or "").strip()) if term]
 
 
-def _parse_interval_regions(raw_value: str | None) -> list[Region]:
+def _parse_interval_regions(raw_value: str | None, *, label: str = "Interval") -> list[Region]:
+    """The regions of an interval list, one per line or ``;``-separated entry.
+
+    An entry that cannot be read as written is refused (422) and named. It used to be
+    skipped: the search then covered less than the list asked, and a list with no entry
+    left was answered as a family without variants (#604). Blank entries are ignored.
+    """
     regions: list[Region] = []
-    for entry in re.split(r"[\n;]+", str(raw_value or "")):
-        match = _INTERVAL_PATTERN.match(entry.strip())
-        if not match:
+    for raw_entry in re.split(r"[\n;]+", str(raw_value or "")):
+        entry = raw_entry.strip()
+        if not entry:
             continue
-        regions.append(
-            Region(
-                chr=normalize_chromosome(match.group("chr")),
-                start=int(match.group("start").replace(",", "")),
-                end=int(match.group("end").replace(",", "")),
+        match = _INTERVAL_PATTERN.match(entry)
+        if not match:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{label} {entry!r} is not chr:start-end.",
             )
-        )
+        start = int(match.group("start").replace(",", ""))
+        end = int((match.group("end") or match.group("start")).replace(",", ""))
+        if end < start:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{label} {entry!r} ends before it starts.",
+            )
+        regions.append(Region(chr=normalize_chromosome(match.group("chr")), start=start, end=end))
     return regions
 
 

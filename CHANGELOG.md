@@ -457,6 +457,15 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   Each is now said as a failure, with a retry. An embryo reads *⚠ segregation not derived*. A
   workspace whose check failed keeps its link. The current status stays shown, and cannot be
   changed until its list loads (#614).
+- **Location filters dropped without notice** — an interval-list entry that did not parse was
+  skipped: a BED line, a single position, an en-dash range or an end before its start. The search
+  then covered less than the list asked, and a list with no readable entry came back as a family
+  without variants. A malformed region in the SV search's "Gene or region" box, such as
+  `chr1:100-`, was searched as a gene name and read as no SVs. The monogenic NIPT search sent,
+  and chipped, the interval list, excluded intervals and excluded genes, but never applied them.
+  An unreadable entry is now named under its field before the search, and refused by the server
+  (422) if it arrives in a URL. An en-dash range and a single position are read. The NIPT search
+  applies all three filters (#615).
 
 ### Security
 

@@ -396,6 +396,60 @@ describe('FamilySmallVariantsPage', () => {
     expect(within(panelSelect).getByRole('option', { name: 'Panel P1 (not in the panel list)' })).toBeInTheDocument();
   });
 
+  // #604 — an interval list entry that cannot be read is named, not skipped: skipped, the
+  // search covered less than the list asked, or read as a family without variants.
+  describe('an unreadable interval', () => {
+    const serveFamily = () =>
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === '/families/F1') {
+          return Promise.resolve({ data: { members: [], projects: [] } });
+        }
+        if (url.startsWith('/families/F1/small-variants?')) {
+          return Promise.resolve({ data: { variants: [], total: 3 } });
+        }
+        return Promise.resolve({ data: [] });
+      });
+    const renderAt = (path: string) =>
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    const searches = () =>
+      apiMock.get.mock.calls.filter(([url]) => String(url).startsWith('/families/F1/small-variants?'));
+
+    it('is named under the field, and the search is not run', async () => {
+      serveFamily();
+      renderAt('/families/F1/small-variants?page=1&gene=BRCA1');
+      expect(await screen.findByText('Showing 3')).toBeInTheDocument();
+      const before = searches().length;
+
+      fireEvent.change(screen.getByPlaceholderText(/^Intervals:/), {
+        target: { value: 'chr17\t43044295\t43125482' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
+
+      expect(
+        await screen.findByText(/Interval 'chr17\s43044295\s43125482' is not chr:start-end\. Nothing was searched\./),
+      ).toBeInTheDocument();
+      expect(searches().length).toBe(before);
+    });
+
+    it('fails a search whose URL carries one, with its reason', async () => {
+      serveFamily();
+      renderAt('/families/F1/small-variants?page=1&intervals=chr1%3A200-100');
+
+      expect(await screen.findByText('Unable to load small variants')).toBeInTheDocument();
+      expect(screen.getByText("Interval 'chr1:200-100' ends before it starts.")).toBeInTheDocument();
+      // The page may search once before it reads the URL, but never with the interval.
+      expect(searches().filter(([url]) => String(url).includes('intervals='))).toHaveLength(0);
+    });
+  });
+
   it('formats bounded variant totals as 1000+', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {

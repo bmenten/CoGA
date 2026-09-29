@@ -8,6 +8,7 @@ import {
   type ActiveSmallFilterChip,
   type FamilyMember,
   type GenePanel,
+  type LocationProblems,
   type SmallFilterState,
   type SmallVariantFilterPreset,
   type SmallPreset,
@@ -85,6 +86,8 @@ type SmallVariantFilterFormProps = Pick<
   /** NIPT: per-category variant counts, shown next to each category option; null when
    * they could not be loaded, so they read as unknown rather than 0 (#606). */
   categoryCounts?: Record<string, number> | null;
+  /** Draft location filters that cannot be read, named under their fields (#604). */
+  draftLocationProblems?: LocationProblems | null;
   /** NIPT: labels for the eight maternal/fetal categories. */
   categoryLabels?: Record<number, string>;
   /**
@@ -135,6 +138,7 @@ const SmallVariantFilterForm = ({
   unsupportedFilters,
   mode = 'small-variant',
   categoryCounts = {},
+  draftLocationProblems = null,
   categoryLabels,
   niptInheritancePresets,
   builtInPresets = BUILT_IN_SMALL_PRESETS,
@@ -287,6 +291,7 @@ const SmallVariantFilterForm = ({
     clinvarOptions,
     customTagOptions,
     draftFilters,
+    draftLocationProblems,
     handleDraftFieldChange,
     handleGtToggle,
     handleSampleFieldChange,
