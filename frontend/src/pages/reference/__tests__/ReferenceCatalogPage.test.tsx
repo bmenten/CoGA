@@ -1,7 +1,7 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import ReferenceCatalogPage from '../ReferenceCatalogPage';
 import api from '../../../lib/api';
@@ -130,6 +130,49 @@ describe('ReferenceCatalogPage', () => {
     expect(screen.getByText('132')).toBeInTheDocument();
     expect(screen.getByText('48')).toBeInTheDocument();
     expect(screen.getByText('64')).toBeInTheDocument();
+  });
+
+  // #610 — a failed list read "No species are configured yet", with counts of 0.
+  describe('when a catalogue list fails', () => {
+    const failing = (...urls: string[]) => {
+      const get = api.get as unknown as Mock;
+      const working = get.getMockImplementation()!;
+      get.mockImplementation((url: string, config?: unknown) =>
+        urls.includes(url)
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : working(url, config),
+      );
+    };
+    const summaryValue = (label: string) =>
+      screen.getByText(label).closest('.reference-summary-card')?.querySelector('.reference-summary-value');
+
+    it('says the species could not be loaded, not that none are configured', async () => {
+      failing('/species');
+      renderPage();
+
+      expect(
+        await screen.findByText(/Could not load the species — this is not an empty result/),
+      ).toHaveTextContent('The counts and lists below are incomplete until it loads.');
+      expect(screen.queryByText(/No species are configured yet/)).not.toBeInTheDocument();
+      expect(summaryValue('Species in catalog')).toHaveTextContent('—');
+      expect(summaryValue('Species with assembly support')).toHaveTextContent('—');
+      expect(summaryValue('Assemblies available')).toHaveTextContent('1');
+    });
+
+    it('reads the reference data counts as unknown, not 0, when they failed', async () => {
+      failing('/assemblies/reference-status');
+      renderPage();
+
+      expect(
+        await screen.findByText(/Could not load the reference data counts — this is not an empty result/),
+      ).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Homo sapiens' })).toBeInTheDocument();
+      expect(screen.getByText('— with genes')).toBeInTheDocument();
+      expect(screen.getByText('— with cytobands')).toBeInTheDocument();
+      expect(screen.queryByText('19,876')).not.toBeInTheDocument();
+      const assemblyRow = screen.getByText('GRCh38', { selector: '.reference-assembly-title' }).closest('tr')!;
+      expect(assemblyRow.querySelectorAll('.reference-count-with-action')[0]).toHaveTextContent(/^—/);
+    });
   });
 
   it('imports an organism and assembly from the automatic UCSC flow', async () => {

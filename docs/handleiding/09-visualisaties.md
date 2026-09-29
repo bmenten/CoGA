@@ -24,7 +24,7 @@ De viewer bestaat uit twee samengestelde pagina's die de losse track-componenten
 
 ### Welke tracks tonen we eigenlijk? — de availability-poort
 
-Voordat een track wordt gerenderd, vraagt de frontend aan de backend welke datasoorten voor deze familie/dit bereik überhaupt bestaan. Dat gebeurt via het endpoint `GET /families/{family_id}/track-availability` (functie `get_family_track_availability` in `backend/app/routers/families_tracks.py`). Zo verschijnt er geen lege APCAD-strook als de familie geen APCAD-data heeft. Het antwoord bevat een `samples`-map; de frontend zet die om in `availability[sample_id]` en gebruikt dat in de `&&`-condities die elke track omhullen in beide workspaces.
+Voordat een track wordt gerenderd, vraagt de frontend aan de backend welke datasoorten voor deze familie/dit bereik überhaupt bestaan. Dat gebeurt via het endpoint `GET /families/{family_id}/track-availability` (functie `get_family_track_availability` in `backend/app/routers/families_tracks.py`). Zo verschijnt er geen lege APCAD-strook als de familie geen APCAD-data heeft. Het antwoord bevat een `samples`-map; de frontend zet die om in `availability[sample_id]` en gebruikt dat in de `&&`-condities die elke track omhullen in beide workspaces. Mislukt die aanvraag, of die voor de chromosoomlengtes, dan meldt de workspace dat op de plaats van de tracks ("Could not load … — this is not an empty result", met Retry; de prop `tracksFailure`), en niet "No BED data for selected samples" of een laadbalk die niet verdwijnt (#614, #617).
 
 ## Het ideogram: cytobanden tekenen (Ideogram / ZoomedIdeogram)
 

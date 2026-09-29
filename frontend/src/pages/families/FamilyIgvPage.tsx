@@ -11,6 +11,7 @@ import {
   useFamilyReference,
 } from '../../lib/reference';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { apiPath } from '../../lib/apiPath';
 
 const FamilyIgvPage: React.FC = () => {
@@ -21,7 +22,9 @@ const FamilyIgvPage: React.FC = () => {
   const backSearch = searchParams.get('back') || undefined;
   const backPathParam = searchParams.get('back_path') || undefined;
 
-  const { data, isLoading } = useQuery<Pick<ApiFamilyRecord, 'members' | 'projects'>>({
+  const { data, isLoading, isError, error, refetch } = useQuery<
+    Pick<ApiFamilyRecord, 'members' | 'projects'>
+  >({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
@@ -57,6 +60,18 @@ const FamilyIgvPage: React.FC = () => {
         kicker="Viewer"
         title="Loading IGV workspace"
         message="Resolving family context and genome reference before opening the viewer."
+      />
+    );
+  }
+
+  if (isError) {
+    return (
+      <FamilyLoadFailure
+        kicker="Viewer"
+        what="Family"
+        error={error}
+        notFoundMessage="The IGV view could not resolve the requested family."
+        onRetry={() => void refetch()}
       />
     );
   }

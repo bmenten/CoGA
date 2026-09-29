@@ -19,6 +19,7 @@ import type {
 } from '../../lib/apiTypes';
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
 import { formatUserRef } from '../../lib/users';
 import { isAdmin } from '../../lib/auth';
@@ -134,7 +135,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     message: string;
   } | null>(null);
 
-  const { data, isLoading } = useQuery<ApiFamilyRecord>({
+  const {
+    data,
+    isLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
@@ -481,6 +488,18 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
         kicker="Family"
         title="Loading family workspace"
         message="Preparing family metadata, pedigree and navigation links."
+      />
+    );
+  }
+
+  if (familyFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Family"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This workspace could not resolve the requested family."
+        onRetry={() => void refetchFamily()}
       />
     );
   }

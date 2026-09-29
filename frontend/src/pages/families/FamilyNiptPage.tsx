@@ -38,6 +38,7 @@ import {
 } from './smallVariantReview';
 import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
@@ -154,7 +155,13 @@ const FamilyNiptPage: React.FC = () => {
     { tone: 'error' | 'success'; message: string } | null
   >(null);
 
-  const { data: family, isLoading: familyLoading, isError: familyError } = useQuery<SmallVariantFamily>({
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<SmallVariantFamily>({
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
@@ -366,12 +373,24 @@ const FamilyNiptPage: React.FC = () => {
   if (familyLoading) {
     return <PageState kicker="Monogenic NIPT" title="Loading family…" />;
   }
-  if (familyError || !family) {
+  if (familyFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Monogenic NIPT"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This family could not be found."
+        onRetry={() => void refetchFamily()}
+        action={<Link className="button-secondary" to="/families">Back to families</Link>}
+      />
+    );
+  }
+  if (!family) {
     return (
       <PageState
         kicker="Monogenic NIPT"
         title="Family not found"
-        message="This family could not be loaded."
+        message="This family could not be found."
         action={<Link className="button-secondary" to="/families">Back to families</Link>}
       />
     );

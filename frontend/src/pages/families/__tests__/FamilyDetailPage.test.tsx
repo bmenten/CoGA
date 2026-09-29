@@ -653,6 +653,35 @@ describe('FamilyDetailPage', () => {
         restore();
       }
     });
+
+    // #610 — a server error is not a family that does not exist.
+    it('says the family could not be loaded, not that it was not found, and retries', async () => {
+      const restore = renderWithFailing((url) => url === '/families/F1');
+      try {
+        expect(await screen.findByRole('heading', { name: 'Family could not be loaded' })).toBeInTheDocument();
+        expect(screen.getByText('HTTP 500 This is a failed request, not a missing family.')).toBeInTheDocument();
+        expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
+      } finally {
+        restore();
+      }
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText(/Family F1/i)).toBeInTheDocument();
+    });
+
+    it('says the member details could not be loaded, instead of loading for good', async () => {
+      const restore = renderWithFailing((url) => url === '/families/F1/members/S1');
+      try {
+        await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+        fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+        const dialog = await screen.findByRole('dialog', { name: /family member details/i });
+        expect(
+          await within(dialog).findByText(/Could not load the member's details — this is not an empty result/),
+        ).toBeInTheDocument();
+        expect(within(dialog).queryByText('Loading member details.')).not.toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
   });
 
   it('shows HPO phenotype annotations in the family members overview', async () => {

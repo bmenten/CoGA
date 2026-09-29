@@ -152,4 +152,44 @@ describe('GenePanelDetailPage', () => {
       ),
     );
   });
+
+  // #610 — a failed panel request stayed at "Loading gene panel" for good, and a failed
+  // version history was hidden.
+  describe('when a request fails', () => {
+    const failWith = (matches: (url: string) => boolean) => {
+      let failing = true;
+      const working = vi.mocked(api.get).getMockImplementation()!;
+      vi.mocked(api.get).mockImplementation((url, config) =>
+        failing && matches(url)
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500, data: { detail: 'Panel store unavailable' } } }))
+          : working(url, config),
+      );
+      return () => {
+        failing = false;
+      };
+    };
+
+    it('says the gene panel could not be loaded, and retries', async () => {
+      const recover = failWith((url) => !url.endsWith('/versions'));
+      renderPage();
+
+      expect(await screen.findByRole('heading', { name: 'Gene panel could not be loaded' })).toBeInTheDocument();
+      expect(screen.getByText('Panel store unavailable')).toBeInTheDocument();
+      expect(screen.queryByText(/Loading gene panel/)).not.toBeInTheDocument();
+
+      recover();
+      await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByRole('heading', { name: /PanelA/ })).toBeInTheDocument();
+    });
+
+    it('says the version history could not be loaded, instead of hiding it', async () => {
+      failWith((url) => url.endsWith('/versions'));
+      renderPage();
+
+      expect(
+        await screen.findByText(/Could not load the panel's version history — this is not an empty result/),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /PanelA/ })).toBeInTheDocument();
+    });
+  });
 });

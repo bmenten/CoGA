@@ -174,7 +174,11 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
 }) => {
   // Tool versions live in the family's annotation manifest, separately from the run
   // parameters — a run is only traceable with both, so show them together.
-  const { data: manifest } = useQuery<ApiAnnotationManifest>({
+  const {
+    data: manifest,
+    isError: manifestFailed,
+    refetch: refetchManifest,
+  } = useQuery<ApiAnnotationManifest>({
     queryKey: ['family', familyId, 'annotation-manifest'],
     enabled: Boolean(familyId),
     queryFn: async () =>
@@ -182,7 +186,9 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
   });
 
   const versioned = (manifest?.modules ?? []).filter((module) => module.version);
-  if (!settings && !versioned.length) return null;
+  // A failed manifest is not a run without tool versions: the panel says so rather than
+  // vanishing, and it is printed on the report (#610).
+  if (!settings && !versioned.length && !manifestFailed) return null;
 
   const resolved = settings ?? {};
   const moduleByKey = new Map<string, ApiAnnotationModule>(
@@ -238,7 +244,13 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
       claimedParams.add(key);
       const named = scalarText(resolved[key]);
       if (!named || claimedTools.has(normalizeToolKey(named))) continue;
-      rows.push({ label: named, value: 'version not reported', note: role });
+      // The manifest that holds the versions may have failed to load: then the version is
+      // unknown, not unreported, and the panel is printed on the report (#610).
+      rows.push({
+        label: named,
+        value: manifestFailed ? 'version could not be loaded' : 'version not reported',
+        note: role,
+      });
       claimedTools.add(normalizeToolKey(named));
     }
     if (rows.length) groups.push({ title: group.title, rows });
@@ -267,10 +279,18 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
     .sort((left, right) => left.label.localeCompare(right.label));
   if (otherParams.length) groups.push({ title: 'Other settings', rows: otherParams });
 
-  if (!groups.length && !stages.length) return null;
+  if (!groups.length && !stages.length && !manifestFailed) return null;
 
   const body = (
     <>
+      {manifestFailed ? (
+        <p className="pipeline-settings-stages" role="alert" data-testid="pipeline-versions-failed">
+          The tool versions could not be loaded, so only the run parameters are shown.{' '}
+          <button type="button" className="button-link no-print" onClick={() => void refetchManifest()}>
+            Retry
+          </button>
+        </p>
+      ) : null}
       <div className="pipeline-settings-grid" data-testid="pipeline-tools">
         {groups.map((group) => (
           <div key={group.title} className="pipeline-settings-group">

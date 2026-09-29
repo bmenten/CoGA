@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Browser as IgvBrowser, CreateOpt as IgvCreateOpt } from 'igv';
 import api, { isAbsoluteUrl, resolveApiUrl } from '../lib/api';
 import PageState from './PageState';
+import QueryFailure from './QueryFailure';
 import { getErrorMessage } from '../lib/errorMessage';
 import { loadIgv } from '../lib/igvLoader';
 import { storage } from '../lib/storage';
@@ -43,6 +44,9 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
   const createSeqRef = useRef(0);
   const controllersRef = useRef<AbortController[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // The signal-track manifest failed: the alignments load without the depth and MAF
+  // tracks, and that is said rather than looking like a family without them (#610).
+  const [signalTracksFailed, setSignalTracksFailed] = useState(false);
   const [retrySeq, setRetrySeq] = useState(0);
 
   const logCleanupError = (action: string, error: unknown) => {
@@ -115,6 +119,7 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
     const seq = ++createSeqRef.current;
     let disposed = false;
     setErrorMessage(null);
+    setSignalTracksFailed(false);
 
     const createBrowser = async () => {
       if (!containerRef.current) return;
@@ -143,12 +148,17 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
           ? `/signal-tracks/${familyId}/manifest?${manifestParams.toString()}`
           : `/signal-tracks/${familyId}/manifest`;
         // Signal tracks are optional: a family imported without a depth caller has
-        // none, and that must not stop the alignments from loading.
+        // none (an empty manifest), and a failed manifest must not stop the alignments
+        // from loading either — but it is said, not taken for "none".
         const [manifestResponse, signalResponse] = await Promise.all([
           api.get(manifestUrl, { signal: controller.signal }),
-          api
-            .get(signalUrl, { signal: controller.signal })
-            .catch(() => ({ data: [] as SignalTrackManifestEntry[] })),
+          api.get(signalUrl, { signal: controller.signal }).catch((error: unknown) => {
+            // An aborted request belongs to a view that is gone, not to this one.
+            if (!disposed && seq === createSeqRef.current && !isAbortLikeError(error)) {
+              setSignalTracksFailed(true);
+            }
+            return { data: [] as SignalTrackManifestEntry[] };
+          }),
         ]);
         // In S3 mode the manifest returns absolute presigned URLs (auth is baked
         // into the URL); IGV must fetch those directly without our bearer header.
@@ -289,6 +299,13 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
             </button>
           }
           narrow
+        />
+      ) : null}
+      {signalTracksFailed && !errorMessage ? (
+        <QueryFailure
+          what="the depth and MAF tracks"
+          onRetry={() => setRetrySeq((current) => current + 1)}
+          consequence="The alignments are shown without them."
         />
       ) : null}
       <div

@@ -671,4 +671,56 @@ describe('SmallVariantCards', () => {
     expect(screen.getByText(/Inheritance: homozygous recessive/i)).toBeInTheDocument();
     expect(screen.getByText(/Congenital hypothyroidism/)).toBeInTheDocument();
   });
+
+  // #610 — a failed gene profile is not a gene without diseases, nor transcripts without
+  // CCDS or RefSeq; the lookup failure lasts until recover() is called.
+  const failGeneProfile = () => {
+    let failing = true;
+    (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url !== '/genes/profile') return Promise.resolve({ data: {} });
+      if (failing) {
+        return Promise.reject(Object.assign(new Error('HTTP 503'), { response: { status: 503 } }));
+      }
+      return Promise.resolve({
+        data: {
+          transcripts: [],
+          monarch_associations: [{ mondo_id: 'MONDO:0700269', disease_label: 'BRCA2-related cancer predisposition' }],
+        },
+      });
+    });
+    return () => {
+      failing = false;
+    };
+  };
+
+  it('says the gene–disease associations could not be loaded, instead of loading for good', async () => {
+    const recover = failGeneProfile();
+    renderBrca2WithTranscript('ENST00000380152.8');
+
+    await userEvent.click(screen.getByText('More annotations & detail'));
+
+    expect(
+      await screen.findByText(/The gene–disease associations of BRCA2 could not be loaded\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Loading gene–disease associations…')).not.toBeInTheDocument();
+
+    recover();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('BRCA2-related cancer predisposition')).toBeInTheDocument();
+    expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
+  });
+
+  it('says in the transcript popup that CCDS and RefSeq are unknown when the profile failed', async () => {
+    failGeneProfile();
+    renderBrca2WithTranscript('ENST00000380152.8');
+
+    await userEvent.click(screen.getByRole('button', { name: /ENST00000380152\.8/i }));
+    const dialog = await screen.findByRole('dialog', { name: /BRCA2/i });
+
+    expect(
+      await within(dialog).findByText(
+        'The gene’s transcript annotation could not be loaded, so CCDS membership and RefSeq accessions are not shown.',
+      ),
+    ).toBeInTheDocument();
+  });
 });

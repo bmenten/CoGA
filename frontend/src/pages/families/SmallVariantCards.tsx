@@ -233,16 +233,14 @@ interface GeneProfileSlice {
  * opening the modal or the disclosure — never as part of the variant list, which is the
  * hot path behind the filter.
  */
-const useGeneProfileSlice = (symbol?: string | null) => {
-  const { data } = useQuery<GeneProfileSlice>({
+const useGeneProfileSlice = (symbol?: string | null) =>
+  useQuery<GeneProfileSlice>({
     queryKey: ['gene-profile-slice', symbol],
     enabled: Boolean(symbol),
     staleTime: 5 * 60 * 1000,
     queryFn: async () =>
       (await api.get('/genes/profile', { params: { symbol } })).data as GeneProfileSlice,
   });
-  return data;
-};
 
 // VEP may write ENST00000357654 while the annotation stores ENST00000357654.9, so the
 // lookup is on the accession stem; the version then decides whether the cross-reference
@@ -287,9 +285,9 @@ const matchTranscriptDetail = (
 };
 
 const useGeneTranscriptDetails = (symbol?: string | null) => {
-  const data = useGeneProfileSlice(symbol);
+  const { data, isError } = useGeneProfileSlice(symbol);
 
-  return useMemo(() => {
+  const byKey = useMemo(() => {
     const byKey = new Map<string, TranscriptDetailEntry[]>();
     const add = (id: string | null | undefined, detail: GeneTranscriptDetail) => {
       const key = transcriptKey(id);
@@ -306,6 +304,8 @@ const useGeneTranscriptDetails = (symbol?: string | null) => {
     }
     return byKey;
   }, [data]);
+  // A failed profile leaves the transcripts' CCDS and RefSeq unknown, not absent (#610).
+  return { byKey, failed: isError };
 };
 
 
@@ -317,7 +317,7 @@ const useGeneTranscriptDetails = (symbol?: string | null) => {
  * transcript modal already cached for the same gene.
  */
 const VariantGeneDiseases = ({ symbol }: { symbol?: string | null }) => {
-  const profile = useGeneProfileSlice(symbol);
+  const { data: profile, isError, refetch } = useGeneProfileSlice(symbol);
   const monarch = (profile?.monarch_associations ?? []).filter((entry) => entry.disease_label);
   const omim = (profile?.extra?.omim_diseases ?? [])
     .map((entry) => (typeof entry === 'string' ? { label: entry } : entry))
@@ -325,6 +325,17 @@ const VariantGeneDiseases = ({ symbol }: { symbol?: string | null }) => {
 
   if (!symbol) {
     return <p className="variant-card-empty-note">No gene assigned to this variant.</p>;
+  }
+  if (isError) {
+    // It stayed at "Loading gene–disease associations…" for good (#610).
+    return (
+      <p className="variant-card-empty-note" role="alert">
+        The gene–disease associations of {symbol} could not be loaded.{' '}
+        <button type="button" className="button-link" onClick={() => void refetch()}>
+          Retry
+        </button>
+      </p>
+    );
   }
   if (!profile) {
     return <p className="variant-card-empty-note">Loading gene–disease associations…</p>;
@@ -437,6 +448,12 @@ const TranscriptPopup = ({
         </div>
       </div>
 
+      {transcriptDetails.failed ? (
+        <p className="variant-card-empty-note" role="alert">
+          The gene&rsquo;s transcript annotation could not be loaded, so CCDS membership and RefSeq
+          accessions are not shown.
+        </p>
+      ) : null}
       <div className="data-table-shell variant-transcript-table-shell">
         <table className="analysis-table variant-transcript-table">
           <thead>
@@ -451,7 +468,7 @@ const TranscriptPopup = ({
           </thead>
           <tbody>
             {transcripts.map((transcript, index) => {
-              const match = matchTranscriptDetail(transcriptDetails, transcript.transcript_id);
+              const match = matchTranscriptDetail(transcriptDetails.byKey, transcript.transcript_id);
               const detail = match && match.kind !== 'different_version' ? match.detail : undefined;
               const badges = transcriptBadges(transcript, detail);
               // The VCF names one transcript; the annotation knows which RefSeq

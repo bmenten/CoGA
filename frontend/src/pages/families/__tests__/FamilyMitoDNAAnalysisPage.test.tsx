@@ -386,3 +386,59 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     });
   });
 });
+
+// #610 — any failure read "Family not found", a server error included.
+describe('FamilyMitoDNAAnalysisPage — failed requests (#610)', () => {
+  const serverError = () =>
+    Promise.reject(
+      Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }),
+    );
+  const renderPage = () =>
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/mitochondrial-dna']}>
+          <Routes>
+            <Route path="/families/:familyId/mitochondrial-dna" element={<FamilyMitoDNAAnalysisPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+  it('says the mtDNA analysis could not be loaded, not that the family was not found', async () => {
+    let failedRequests = 0;
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1/mitochondrial-dna') {
+        failedRequests += 1;
+        return serverError();
+      }
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'mtDNA analysis could not be loaded' })).toBeInTheDocument();
+    expect(
+      screen.getByText('Request failed with status code 500 This is a failed request, not a missing family.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
+    const before = failedRequests;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(failedRequests).toBeGreaterThan(before));
+  });
+
+  it('keeps "Family not found" for a family the API does not know', async () => {
+    apiMock.get.mockImplementation(() =>
+      Promise.reject(
+        Object.assign(new Error('Request failed with status code 404'), {
+          response: { status: 404, data: { detail: 'Family not found' } },
+        }),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByRole('heading', { name: 'Family not found' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+});

@@ -116,12 +116,26 @@ describe('GenomeOverviewWorkspace', () => {
   // request is not a sample without data.
   it('says the track availability failed, not that the samples have no data', () => {
     const retry = vi.fn();
-    renderWithoutTracks({ availabilityFailure: { error: new Error('Network Error'), retry } });
+    renderWithoutTracks({
+      tracksFailure: { what: 'which tracks each sample has', error: new Error('Network Error'), retry },
+    });
 
     expect(screen.getByText(/Could not load which tracks each sample has — this is not an empty result/)).toBeInTheDocument();
     expect(screen.queryByText('No data for selected samples')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  // #610 — the chromosome lengths the view is laid out on failed: said by name, in place
+  // of the tracks, instead of loading for good.
+  it('names the request the tracks are waiting on when it is not the availability', () => {
+    renderWithoutTracks({
+      tracksFailure: { what: 'the chromosome lengths', error: new Error('HTTP 500'), retry: vi.fn() },
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "Could not load the chromosome lengths — this is not an empty result. HTTP 500 The samples' tracks are not shown until it loads.",
+    );
   });
 
   it('says a sample without tracks has no data once availability is known', () => {

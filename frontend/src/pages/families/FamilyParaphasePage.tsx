@@ -10,6 +10,7 @@ import type {
 } from '../../lib/apiTypes';
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
@@ -438,7 +439,13 @@ const FamilyParaphasePage: React.FC = () => {
     [location.search],
   );
 
-  const { data: family, isLoading: familyLoading } = useQuery<ApiFamilyRecord>({
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const response = await api.get(apiPath`/families/${familyId}`);
@@ -456,8 +463,13 @@ const FamilyParaphasePage: React.FC = () => {
     retry: retryReference,
   } = useFamilyReference(family?.projects, projectIdParam);
 
-  const { data: paraphaseTable, isLoading: paraphaseLoading } =
-    useQuery<ApiFamilyParaphaseTable>({
+  const {
+    data: paraphaseTable,
+    isLoading: paraphaseLoading,
+    isError: paraphaseFailed,
+    error: paraphaseError,
+    refetch: refetchParaphase,
+  } = useQuery<ApiFamilyParaphaseTable>({
       queryKey: ['family', familyId, 'paraphase', resolvedProjectId],
       queryFn: async () => {
         const response = await api.get(apiPath`/families/${familyId}/paraphase`, {
@@ -517,6 +529,21 @@ const FamilyParaphasePage: React.FC = () => {
         kicker="Paraphase"
         title="Loading Paraphase results"
         message="Preparing duplicated-region results and pedigree context."
+      />
+    );
+  }
+
+  if (familyFailed || paraphaseFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Paraphase"
+        what={familyFailed ? 'Family' : 'Paraphase results'}
+        error={familyFailed ? familyError : paraphaseError}
+        notFoundMessage="This Paraphase workspace could not resolve the requested family."
+        onRetry={() => {
+          if (familyFailed) void refetchFamily();
+          if (paraphaseFailed) void refetchParaphase();
+        }}
       />
     );
   }

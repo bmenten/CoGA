@@ -32,6 +32,7 @@ import {
   sameMemberDetailDraft,
 } from './familyDetailHelpers';
 import { apiPath } from '../../lib/apiPath';
+import QueryFailure from '../../components/QueryFailure';
 
 interface FamilyMemberDetailDialogProps {
   familyId?: string;
@@ -86,7 +87,12 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
       return res.data as ApiHpoTerm[];
     },
   });
-  const { data: selectedMemberDetail } = useQuery<ApiFamilyMemberDetail>({
+  const {
+    data: selectedMemberDetail,
+    isError: memberDetailFailed,
+    error: memberDetailError,
+    refetch: refetchMemberDetail,
+  } = useQuery<ApiFamilyMemberDetail>({
     queryKey: ['family', familyId, 'member', memberId],
     enabled: Boolean(familyId && memberId),
     queryFn: async () => {
@@ -279,7 +285,14 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
             </button>
           </div>
 
-          {!selectedMemberDetail || !memberDraft ? (
+          {memberDetailFailed ? (
+            // It stayed at "Loading member details." for good (#610).
+            <QueryFailure
+              what="the member's details"
+              error={memberDetailError}
+              onRetry={() => void refetchMemberDetail()}
+            />
+          ) : !selectedMemberDetail || !memberDraft ? (
             <p className="dashboard-link-note">Loading member details.</p>
           ) : (
             <>

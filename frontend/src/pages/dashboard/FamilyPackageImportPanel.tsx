@@ -7,6 +7,7 @@ import type { ApiFamilySummary } from '../../lib/apiTypes';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useProjectCatalog } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
+import QueryFailure from '../../components/QueryFailure';
 
 type ImportStatus = 'queued' | 'validating' | 'running' | 'completed' | 'failed';
 type PackageTargetMode = 'new' | 'existing';
@@ -342,11 +343,14 @@ const FamilyPackageImportPanel: React.FC = () => {
                 }}
               >
                 <option value="">
+                  {/* A failed scan is not an empty folder (#610). */}
                   {packagesQuery.isLoading
                     ? 'Scanning import folder…'
-                    : packages.length === 0
-                      ? 'No families found in the import folder'
-                      : 'Select a discovered family…'}
+                    : packagesQuery.isError
+                      ? 'The import folder could not be scanned'
+                      : packages.length === 0
+                        ? 'No families found in the import folder'
+                        : 'Select a discovered family…'}
                 </option>
                 {packages.map((pkg) => (
                   <option key={pkg.folder_path} value={pkg.folder_path}>
@@ -365,6 +369,9 @@ const FamilyPackageImportPanel: React.FC = () => {
                 {packagesQuery.isFetching ? 'Scanning…' : 'Rescan'}
               </button>
             </div>
+            {packagesQuery.isError ? (
+              <QueryFailure what="the import folder's families" error={packagesQuery.error} />
+            ) : null}
           </div>
           <label className="field-label" htmlFor="family-package-folder">
             Family folder path

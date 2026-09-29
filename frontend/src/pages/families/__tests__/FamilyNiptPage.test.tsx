@@ -283,5 +283,16 @@ describe('FamilyNiptPage', () => {
       expect(await screen.findByText(/Could not load the coverage QC — this is not an empty result/)).toBeInTheDocument();
       expect(screen.queryByText('Loading coverage…')).not.toBeInTheDocument();
     });
+
+    // #610 — a server error is not a family that does not exist.
+    it('says the family could not be loaded, not that it was not found', async () => {
+      failing('/families/NIPT001');
+      renderPage('NIPT001');
+
+      expect(await screen.findByRole('heading', { name: 'Family could not be loaded' })).toBeInTheDocument();
+      expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Back to families' })).toBeInTheDocument();
+    });
   });
 });

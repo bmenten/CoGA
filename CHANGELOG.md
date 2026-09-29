@@ -471,6 +471,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   if the gene had been checked, and PP4 was not offered when the HPO terms failed. The dialog
   now names the failed lookup, with a retry. PVS1, BS2 and PP4 say they are not assessed and are
   offered for review. No point total changes (#616).
+- **Secondary pages that showed a failed request as none** — a failed request on a variant card,
+  the member dialog, a gene panel, the chromosome and genome viewers, the pipeline settings and
+  annotation provenance, the gene page, the panel, project and reference catalogues, the
+  package-import folder scan and IGV's depth and MAF tracks read as empty, or loaded for good. The
+  family-scoped pages titled any failure "Family not found". Each now says it could not load, with
+  the server's reason and a retry; "Family not found" is kept for a family the server does not know
+  (#617).
 
 ### Security
 
