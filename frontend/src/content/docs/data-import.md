@@ -177,6 +177,19 @@ Outside the package flow, an administrator can upload one layer at a time on the
 sample data** page: family small variants (including GLIMPSE2 haplotype VCFs), structural variants,
 repeat expansions, and interval tracks (coverage, APCAD, APCAD PCF segments, segments).
 
+A structural-variant file holds one sample's calls from one caller: **Sniffles VCF**, **Spectre VCF** or
+**Manual TSV**, or **Auto detect**, which works the caller out from the file. CoGA keeps each caller's
+calls apart:
+
+- The upload stops only when the sample already has calls from the same caller, and the page asks
+  before it replaces them.
+- Replacing them changes only that sample's calls from that caller. The other samples' calls, and the
+  calls of every other source (a package's NeedlR or HiFiCNV calls, another caller's upload), stay as
+  they are.
+
+Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
+source.
+
 ---
 
 ## Recommended order for a new setup

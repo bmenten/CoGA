@@ -81,6 +81,15 @@ _PROVENANCE_HEADER_CAP = 200
 SmallVariantFormat = Literal["auto", "clair3", "glimpse2", "mito"]
 ResolvedSmallVariantFormat = Literal["clair3", "glimpse2", "mito"]
 StructuralVariantFormat = Literal["auto", "manual", "sniffles", "spectre"]
+# The ClickHouse ``source`` label each per-sample SV upload format is stored under. The
+# upload's "already exists" check, its merge and its delete all match this label exactly,
+# so one upload reads and rewrites only its own callset's rows and never the package
+# imports' ("needlr", "hificnv") or another upload format's.
+STRUCTURAL_VARIANT_SOURCE_LABELS: dict[str, str] = {
+    "manual": "manual_upload",
+    "sniffles": "sniffles",
+    "spectre": "spectre",
+}
 SMALL_VARIANT_UPLOAD_BATCH_SIZE = 1_000
 SMALL_VARIANT_PROGRESS_INTERVAL = 10_000
 # Upper bound on a single streamed upload line. Real VCF lines are KB-scale even with
@@ -291,6 +300,13 @@ def _detect_structural_variant_format(
     format_hint: StructuralVariantFormat,
 ) -> StructuralVariantRecordFormat:
     if format_hint != "auto":
+        # The router passes the query value through unchecked, and the label it maps to
+        # scopes this upload's read and delete: accept the upload's own formats only.
+        if format_hint not in STRUCTURAL_VARIANT_SOURCE_LABELS:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported structural-variant source_format; use auto, manual, sniffles or spectre",
+            )
         return format_hint
     file_name = (filename or "").lower()
     if file_name.endswith(".tsv") or file_name.endswith(".txt"):
@@ -853,10 +869,15 @@ async def upload_structural_variant_file(
 
     text_value = await _decode_upload_text(file, kind="Structural variant")
     resolved_format = _detect_structural_variant_format(text_value, file.filename, format_hint)
-    source_label = "manual_upload" if resolved_format == "manual" else resolved_format
+    source_label = STRUCTURAL_VARIANT_SOURCE_LABELS[resolved_format]
+    # Only this source's rows: the conflict check is about them, and they are exactly what
+    # the source-scoped replace below deletes. (``filters.source`` is a display filter that
+    # never reaches the SQL. Reading every source let another caller's calls block the
+    # upload, and an overwrite re-inserted those SVs beside their originals.)
     existing_records = await _fetch_structural_variant_rows(
         family_context,
-        StructuralVariantQueryFilters(page=1, page_size=1, source=source_label),
+        StructuralVariantQueryFilters(page=1, page_size=1),
+        exact_source=source_label,
     )
     sample_has_existing = any(
         any(call.sample == sample_context.sample_id for call in record.calls)

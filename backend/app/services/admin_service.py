@@ -370,6 +370,14 @@ async def _structural_variant_records_without_sample(
     contexts: list[FamilyMetadataContext],
     sample_name: str,
 ) -> list[tuple[FamilyMetadataContext, list[Any]]]:
+    """Every source's SV records of each family context, minus ``sample_name``'s calls.
+
+    Deliberately not scoped to a source: the callers hand the result to
+    ``replace_family_structural_variants`` without a ``source``, which deletes all of the
+    family's SV rows, so the records read here must cover every source that delete
+    removes. Scoping one side only would lose (or duplicate) the other sources' SVs, the
+    mismatch the per-sample SV upload had.
+    """
     replacements: list[tuple[FamilyMetadataContext, list[Any]]] = []
     for context in contexts:
         if not context.assembly_name:
