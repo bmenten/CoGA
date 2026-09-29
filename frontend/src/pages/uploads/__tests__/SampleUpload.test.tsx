@@ -4,8 +4,37 @@ import { beforeEach, describe, it, vi } from 'vitest';
 
 import SampleUpload from '../SampleUpload';
 import api from '../../../lib/api';
+import type { SmallVariantUploadResult } from '../../../lib/apiSchema.generated';
 
 vi.mock('../../../lib/api');
+
+const mockedPost = vi.mocked(api.post);
+
+// The whole body the backend serves for a clair3 family VCF, typed with the generated
+// schema so a change to the response model fails the type check here.
+const servedFamilyUpload: SmallVariantUploadResult = {
+  inserted: 3,
+  skipped_malformed: 0,
+  skipped_filtered: 0,
+  excluded_filters: [],
+  haplotypes_inserted: 0,
+  source_format: 'clair3',
+  annotation_rows: 0,
+  annotation_source: null,
+  annotation_version: 'vcf_info',
+  annotation_provenance: { deepvariant: { version: '1.10.0' } },
+  insert_batch_size: 1000,
+};
+
+const submitFamilyUpload = () => {
+  fireEvent.change(screen.getByLabelText(/family id/i), { target: { value: 'FAM1' } });
+  fireEvent.change(screen.getAllByLabelText(/variant file/i)[0], {
+    target: {
+      files: [new File(['##fileformat=VCFv4.2\n'], 'family.vcf', { type: 'text/plain' })],
+    },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /upload family variants/i }));
+};
 
 describe('SampleUpload', () => {
   beforeEach(() => {
@@ -68,6 +97,42 @@ describe('SampleUpload', () => {
     expect(
       await screen.findByText(/imported 12 small variants via glimpse2 and created 4 haplotype blocks/i),
     ).toBeInTheDocument();
+  });
+
+  it('reports the served result of a family small-variant upload', async () => {
+    mockedPost.mockResolvedValue({ data: servedFamilyUpload });
+
+    render(
+      <MemoryRouter>
+        <SampleUpload />
+      </MemoryRouter>,
+    );
+    submitFamilyUpload();
+
+    expect(await screen.findByText('Imported 3 small variants via clair3.')).toBeInTheDocument();
+    expect(screen.queryByText(/upload failed/i)).not.toBeInTheDocument();
+  });
+
+  it('replaces the family small variants on confirm after a 409', async () => {
+    mockedPost
+      .mockRejectedValueOnce({ response: { status: 409, data: { detail: 'exists' } } })
+      .mockResolvedValueOnce({ data: servedFamilyUpload });
+
+    render(
+      <MemoryRouter>
+        <SampleUpload />
+      </MemoryRouter>,
+    );
+    submitFamilyUpload();
+
+    expect(
+      await screen.findByText('Replaced family small variants with 3 records via clair3.'),
+    ).toBeInTheDocument();
+    expect(mockedPost).toHaveBeenLastCalledWith(
+      '/families/FAM1/small-variants/upload',
+      expect.any(FormData),
+      expect.objectContaining({ params: { overwrite: true, source_format: 'auto' } }),
+    );
   });
 
   it('uploads structural variants with explicit parser selection', async () => {

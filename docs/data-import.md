@@ -431,6 +431,18 @@ page asks before it sends that.
 uploaded as a BED; they come from a GLIMPSE2 small-variant upload (`source_format=glimpse2`)
 or package.
 
+A family small-variant upload is one family VCF from one callset:
+
+- `source_format` is `clair3` (a directly called callset), `glimpse2` (imputed genotypes, which
+  also make the haplotype blocks), `mito` (chrM calls) or `auto`, the default, which tells
+  `clair3` and `glimpse2` apart from the first record. Any other value is refused (422) before
+  anything is stored.
+- The upload is refused (409) when the family already has calls from that callset.
+  `overwrite=true` replaces them; every other callset stays as it is.
+- The answer says what was stored: the records loaded and skipped, the callset, the haplotype
+  blocks made, and the tool versions the VCF header names, which also go into the family's
+  annotation manifest.
+
 A structural-variant upload loads one sample's calls from one caller, and only that caller's
 calls are checked and replaced:
 

@@ -227,6 +227,27 @@ class VariantPage(BaseModel):
     small_variant_summary: Optional[SmallVariantSummaryOut] = None
 
 
+class SmallVariantUploadResult(BaseModel):
+    """What a family small-variant VCF upload stored."""
+
+    inserted: int
+    # Records skipped because their POS or sample columns could not be read.
+    skipped_malformed: int
+    # Records dropped because every FILTER value was in ``excluded_filters``.
+    skipped_filtered: int
+    excluded_filters: List[str] = Field(default_factory=list)
+    haplotypes_inserted: int
+    # The callset the rows are stored under (``auto`` resolves to clair3 or glimpse2).
+    source_format: Literal["clair3", "glimpse2", "mito"]
+    annotation_rows: int
+    annotation_source: Optional[str] = None
+    annotation_version: str
+    # The tool and database versions the VCF header names, {module: {version, detail}}, as
+    # merged into the family's annotation manifest.
+    annotation_provenance: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    insert_batch_size: int
+
+
 # --- Global Small Variant Explorer (variant-centric, cross-project aggregation) ---
 
 

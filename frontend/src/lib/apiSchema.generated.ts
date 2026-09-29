@@ -2647,6 +2647,21 @@ export interface SmallVariantTranscriptOut {
   primary: boolean;
 }
 
+/** What a family small-variant VCF upload stored. */
+export interface SmallVariantUploadResult {
+  inserted: number;
+  skipped_malformed: number;
+  skipped_filtered: number;
+  excluded_filters: string[];
+  haplotypes_inserted: number;
+  source_format: "clair3" | "glimpse2" | "mito";
+  annotation_rows: number;
+  annotation_source: string | null;
+  annotation_version: string;
+  annotation_provenance: Record<string, Record<string, unknown>>;
+  insert_batch_size: number;
+}
+
 export interface SpeciesCreate {
   name: string;
   common_name: string;
