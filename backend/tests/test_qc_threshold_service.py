@@ -348,3 +348,159 @@ async def test_a_cut_off_change_without_a_reason_is_refused(reason: str) -> None
         )
     assert excinfo.value.status_code == 400
     assert "reason" in excinfo.value.detail.lower()
+
+
+# ---------------------------------------------------------------------------
+# A cut-off change is recorded with the value it replaced
+# ---------------------------------------------------------------------------
+
+
+class _RecordingThresholdSession:
+    """Answers the profile and previous-bounds lookups and records every statement.
+
+    ``set_qc_threshold`` asks two questions before it writes: the profile's id
+    (``scalar_one_or_none``) and the bounds currently in force (``mappings().first()``).
+    ``previous`` is the answer to the second; None means the metric had no cut-off.
+    """
+
+    def __init__(self, previous: dict | None = None) -> None:
+        self.previous = previous
+        self.statements: list[tuple[str, dict]] = []
+        self.commits = 0
+
+    async def execute(self, statement, params=None):  # noqa: ANN001
+        self.statements.append((" ".join(str(statement).split()), dict(params or {})))
+        previous = self.previous
+
+        class _Result:
+            def scalar_one_or_none(self_inner):
+                return "00000000-0000-0000-0000-000000000009"
+
+            def mappings(self_inner):
+                class _M:
+                    def first(self_m):
+                        return previous
+
+                return _M()
+
+        return _Result()
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+    def written(self, verb_and_table: str) -> list[dict]:
+        return [params for sql, params in self.statements if sql.startswith(verb_and_table + " ")]
+
+
+_ACTOR = {"user_id": "11111111-1111-1111-1111-111111111111", "user_email": "qa@example.org"}
+
+
+@pytest.mark.asyncio
+async def test_a_cut_off_edit_records_the_replaced_value_and_its_reason() -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    session = _RecordingThresholdSession(previous={"warn_value": 20.0, "error_value": 10.0})
+    await set_qc_threshold(
+        session,
+        profile_key="default",
+        metric_key="depth.mean_depth",
+        warn_value=25,
+        error_value=12,
+        reason="  Raised per the WGS validation report  ",
+        **_ACTOR,
+    )
+
+    # One history row carries both sides of the edit, who made it and why — the part
+    # the request log cannot reconstruct, having no prior value.
+    [change] = session.written("INSERT INTO qc_threshold_changes")
+    assert change == {
+        "profile_key": "default",
+        "metric_key": "depth.mean_depth",
+        "previous_warn_value": 20.0,
+        "previous_error_value": 10.0,
+        "warn_value": 25,
+        "error_value": 12,
+        "user_id": _ACTOR["user_id"],
+        "user_email": _ACTOR["user_email"],
+        "reason": "Raised per the WGS validation report",
+    }
+    # The new limit and its history row land in one transaction.
+    [upsert] = session.written("INSERT INTO qc_thresholds")
+    assert (upsert["warn_value"], upsert["error_value"]) == (25, 12)
+    # The comparison direction comes from the metric catalogue, never from the request.
+    assert upsert["direction"] == QC_METRICS_BY_KEY["depth.mean_depth"].direction
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_a_first_cut_off_records_that_there_was_none_before() -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    session = _RecordingThresholdSession(previous=None)
+    await set_qc_threshold(
+        session,
+        profile_key="pgt",
+        metric_key="depth.mean_depth",
+        warn_value=30,
+        error_value=None,
+        reason="First limit, per the PGT validation report",
+        **_ACTOR,
+    )
+
+    [change] = session.written("INSERT INTO qc_threshold_changes")
+    assert (change["previous_warn_value"], change["previous_error_value"]) == (None, None)
+    assert (change["warn_value"], change["error_value"]) == (30, None)
+
+
+@pytest.mark.asyncio
+async def test_clearing_a_cut_off_is_recorded_like_any_other_edit() -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    session = _RecordingThresholdSession(previous={"warn_value": 20.0, "error_value": 10.0})
+    await set_qc_threshold(
+        session,
+        profile_key="default",
+        metric_key="depth.mean_depth",
+        warn_value=None,
+        error_value=None,
+        reason="Limit withdrawn pending revalidation",
+        **_ACTOR,
+    )
+
+    # Removing a limit changes what the interface reports as a failed run just as
+    # much as moving it, so it leaves the same trace.
+    assert len(session.written("DELETE FROM qc_thresholds")) == 1
+    [change] = session.written("INSERT INTO qc_threshold_changes")
+    assert (change["previous_warn_value"], change["previous_error_value"]) == (20.0, 10.0)
+    assert (change["warn_value"], change["error_value"]) == (None, None)
+    assert change["reason"] == "Limit withdrawn pending revalidation"
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("warn_value", "error_value", "reason"),
+    [
+        (25, 12, "   "),  # no reason
+        (10, 20, "Tightened"),  # a warning below the error bound for a lower-is-worse metric
+    ],
+)
+async def test_a_refused_cut_off_change_writes_nothing(warn_value, error_value, reason) -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    session = _RecordingThresholdSession(previous={"warn_value": 20.0, "error_value": 10.0})
+    with pytest.raises(HTTPException) as excinfo:
+        await set_qc_threshold(
+            session,
+            profile_key="default",
+            metric_key="depth.mean_depth",
+            warn_value=warn_value,
+            error_value=error_value,
+            reason=reason,
+            **_ACTOR,
+        )
+
+    assert excinfo.value.status_code == 400
+    assert session.written("INSERT INTO qc_thresholds") == []
+    assert session.written("INSERT INTO qc_threshold_changes") == []
+    assert session.commits == 0
