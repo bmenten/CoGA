@@ -588,6 +588,8 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Overview deck removed** — the seven-slide overview deck in `docs/overview-deck/`, with its
+  PDF and slide images, is removed at the owner's request; nothing linked to it (CR-097, #635).
 - **Schema references repointed** — the handleiding, the runtime-role runbook and three other
   docs named Postgres schema files that #373 replaced. Each reference now names the baseline
   (`01_access.sql` to `05_grants.sql`) that holds the object, and the runbook and handleiding
