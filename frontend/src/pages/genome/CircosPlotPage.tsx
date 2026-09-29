@@ -5,6 +5,8 @@ import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import CircosPlot, { Chromosome, Variant, CHROMS } from '../../components/visualizations/CircosPlot';
 import PageState from '../../components/PageState';
+import VizErrorOverlay from '../../components/visualizations/VizErrorOverlay';
+import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
 import { apiPath, raw } from '../../lib/apiPath';
 
@@ -58,7 +60,11 @@ const CircosPlotPage: FC = () => {
     )
   );
 
-  const { data: chromData } = useQuery<Chromosome[]>({
+  const {
+    data: chromData,
+    error: chromError,
+    refetch: refetchChroms,
+  } = useQuery<Chromosome[]>({
     queryKey: ['circos-chromosomes', ASSEMBLY],
     queryFn: async () => {
       const response = await api.get(apiPath`/chromosomes/${ASSEMBLY}/details`);
@@ -71,17 +77,30 @@ const CircosPlotPage: FC = () => {
     },
   });
 
-  const { data: variants } = useQuery<Variant[]>({
+  const {
+    data: svPage,
+    isError: variantsFailed,
+    refetch: refetchVariants,
+  } = useQuery<{ variants: Variant[]; capped: boolean; limit: number | null }>({
     queryKey: ['family-circos', familyId, queryParams.toString()],
     queryFn: async () => {
       const res = await api.get(
         apiPath`/families/${familyId}/structural-variants?${raw(queryParams.toString())}`
       );
       const all = res.data.variants as Variant[];
-      return all.filter((v) => v.type);
+      return {
+        variants: all.filter((v) => v.type),
+        // Past the backend's candidate cap the list stops part-way through the genome, so
+        // the last chromosomes would be drawn without their links (#589).
+        capped: Boolean(res.data.total_is_estimated),
+        limit: typeof res.data.count_limit === 'number' ? res.data.count_limit : null,
+      };
     },
     enabled: !!familyId,
   });
+  const tooManyVariants = Boolean(svPage?.capped);
+  // Undefined until loaded, and while failed or capped: none is drawn, never as "none".
+  const variants = tooManyVariants ? undefined : svPage?.variants;
 
   const toggleChrom = (chr: string) => {
     setSelected((prev) => ({ ...prev, [chr]: !prev[chr] }));
@@ -94,6 +113,22 @@ const CircosPlotPage: FC = () => {
         {} as Record<string, boolean>
       )
     );
+
+  // A failed request must not read as a plot still loading, forever (#589, #510).
+  if (!chromData && chromError) {
+    return (
+      <PageState
+        kicker="Visualization"
+        title="Could not load the chromosomes"
+        message={`${getErrorMessage(chromError, 'The request failed').replace(/\.+$/, '')}. The circos plot needs them.`}
+        action={
+          <button type="button" className="button-secondary" onClick={() => void refetchChroms()}>
+            Retry
+          </button>
+        }
+      />
+    );
+  }
 
   if (!chromData) {
     return (
@@ -182,13 +217,27 @@ const CircosPlotPage: FC = () => {
           </div>
         </section>
         <section className="viz-panel">
-          <CircosPlot
-            chromData={chromData}
-            variants={variants}
-            selected={selected}
-            onChromosomeClick={handleChromClick}
-            onVariantClick={handleVariantClick}
-          />
+          {tooManyVariants && (
+            <p className="analysis-count mb-4" role="status">
+              {`Too many structural variants to draw${
+                svPage?.limit ? ` (more than ${svPage.limit.toLocaleString()})` : ''
+              }. Narrow them with the filters on the variant list, then open the plot again.`}
+            </p>
+          )}
+          <div className="relative">
+            <CircosPlot
+              chromData={chromData}
+              variants={variants}
+              tooManyVariants={tooManyVariants}
+              selected={selected}
+              onChromosomeClick={handleChromClick}
+              onVariantClick={handleVariantClick}
+            />
+            {/* The plot without its links must not read as a family without SVs (#510). */}
+            {variantsFailed && (
+              <VizErrorOverlay what="structural variants" onRetry={() => void refetchVariants()} />
+            )}
+          </div>
           {variants && variants.length === 0 && (
             <p className="analysis-count mt-4">No variants for this family.</p>
           )}

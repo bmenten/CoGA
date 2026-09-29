@@ -127,5 +127,11 @@ describe('CircosPlot', () => {
 
     rerender(<CircosPlot chromData={twoChroms} selected={{ '1': false, '2': false }} variants={[]} />);
     expect(screen.getByRole('img', { name: 'Circos plot: no chromosomes selected' })).toBeInTheDocument();
+
+    // Past the backend's cap none is drawn, and the name says why (#589).
+    rerender(<CircosPlot chromData={twoChroms} selected={{ '1': true, '2': true }} tooManyVariants />);
+    expect(
+      screen.getByRole('img', { name: 'Circos plot of 2 chromosomes; too many structural variants to draw' }),
+    ).toBeInTheDocument();
   });
 });

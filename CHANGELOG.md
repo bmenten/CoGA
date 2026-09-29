@@ -375,6 +375,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   window's marks, misplaced, under the error overlay; they now draw nothing there. While a pan
   loads, the gene and DGV tracks no longer draw a held feature left of the new window at its
   edge (#591).
+- **Circos page states** — a failed chromosome request no longer leaves the page loading for good,
+  a failed SV request no longer reads as a family without SVs, and past 50,000 SVs the plot says
+  there are too many to draw instead of leaving the last chromosomes without links (#593).
 
 ### Security
 

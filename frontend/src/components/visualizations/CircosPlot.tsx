@@ -40,6 +40,8 @@ export const CHROMS = [
 interface CircosPlotProps {
   chromData: Chromosome[];
   variants?: Variant[];
+  /** More SVs than the backend returns at once: none are drawn, and the name says why. */
+  tooManyVariants?: boolean;
   selected: Record<string, boolean>;
   onChromosomeClick?: (chr: string) => void;
   onVariantClick?: (v: Variant) => void;
@@ -67,10 +69,12 @@ const describeCircos = (
   chroms: Chromosome[],
   selected: Record<string, boolean>,
   variants: Variant[] | undefined,
+  tooManyVariants = false,
 ): string => {
   const shown = new Set(chroms.filter((chrom) => selected[chrom.chr]).map((chrom) => chrom.chr));
   if (shown.size === 0) return 'Circos plot: no chromosomes selected';
   const across = countOf(shown.size, 'chromosome');
+  if (tooManyVariants) return `Circos plot of ${across}; too many structural variants to draw`;
   if (variants === undefined) return `Circos plot of ${across}; structural variants not loaded`;
 
   const isShown = (chr?: string) => !!chr && (shown.has(chr) || shown.has(chr.replace(/^chr/i, '')));
@@ -321,6 +325,7 @@ interface VariantRender {
 const CircosPlot: FC<CircosPlotProps> = ({
   chromData,
   variants,
+  tooManyVariants = false,
   selected,
   onChromosomeClick,
   onVariantClick,
@@ -354,8 +359,8 @@ const CircosPlot: FC<CircosPlotProps> = ({
   );
 
   const chartLabel = useMemo(
-    () => describeCircos(chromData, selected, variants),
-    [chromData, selected, variants],
+    () => describeCircos(chromData, selected, variants, tooManyVariants),
+    [chromData, selected, variants, tooManyVariants],
   );
 
   useEffect(() => {
