@@ -560,6 +560,8 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Password policy confirmed** — the device owner confirmed the 15-character minimum for a new
+  local account (CR-059), recorded in TF-18 and `docs/security-posture.md` (#626).
 - **Docs and repo hygiene (#530)** — AGENTS.md, the README, `.env.example` (now every backend
   setting with its default), `docs/database.md` (eight undocumented tables, plus the HPO and
   Monarch tables), TF-08 §A.2 (locked frontend versions and where each runs), RELEASING.md
