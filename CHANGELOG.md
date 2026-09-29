@@ -530,6 +530,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   merges and replaces only that caller's calls. It refused a sample's first upload over its NeedlR
   calls and, on overwrite, duplicated other sources' SVs so that a later merge dropped the sample's
   calls. An unknown `source_format` is refused (CR-105, #643).
+- **ACMG suggestions: conflicting ClinVar and the right parents** — the ACMG dialog and the mtDNA
+  table no longer read a ClinVar "Conflicting classifications of pathogenicity" record as
+  pathogenic. PM6/PS2 and the mtDNA maternal transmission use the parents the pedigree links, not a
+  grandparent who shares the role. PM6 is offered for review instead of applied when a reference
+  parent has under 8 reads or the proband is homozygous (CR-106, #644).
 
 ### Security
 
