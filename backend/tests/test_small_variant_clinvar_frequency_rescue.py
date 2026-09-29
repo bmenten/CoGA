@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.services.clickhouse_family_variants import _annotation_matches_normal
+from backend.app.services.clickhouse_variant_records import _annotation_matches_normal
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
 

@@ -17,7 +17,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from .clickhouse_variant_storage import build_small_variant_id
+from .clickhouse_variant_ids import build_small_variant_id
 from .data_scope import normalize_chromosome
 from .family_package_common import _normalize_header_key
 from .variant_annotation_parser import normalize_small_variant_annotation_entry

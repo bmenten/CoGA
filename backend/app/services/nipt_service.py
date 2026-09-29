@@ -21,14 +21,15 @@ from sqlalchemy import bindparam, text
 from typing import TYPE_CHECKING, Any
 
 from .clickhouse_family_variants import (
-    PanelFilterConstraints,
-    SmallVariantCall,
-    SmallVariantRecord,
     _fetch_panel_constraints,
     _fetch_small_variant_rows,
     _hydrate_small_variant_outs,
-    _small_variant_out,
-    _split_gene_terms,
+)
+from .clickhouse_variant_queries import _small_variant_out, _split_gene_terms
+from .clickhouse_variant_records import (
+    PanelFilterConstraints,
+    SmallVariantCall,
+    SmallVariantRecord,
 )
 
 if TYPE_CHECKING:

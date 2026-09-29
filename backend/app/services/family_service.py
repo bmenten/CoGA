@@ -29,8 +29,8 @@ from .clickhouse_family_variants import (
     _fetch_structural_variant_rows,
     _small_variant_present_sample_names,
     _structural_present_sample_names,
-    _structural_record_matches,
 )
+from .clickhouse_variant_queries import _structural_record_matches
 from .data_scope import normalize_chromosome
 from .family_metadata_context import build_family_metadata_context
 from .phased_marker_service import get_family_phased_markers_response

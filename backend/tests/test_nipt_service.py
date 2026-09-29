@@ -7,7 +7,7 @@ import pytest
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import nipt_service
-from backend.app.services.clickhouse_family_variants import SmallVariantCall, SmallVariantRecord
+from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 from backend.app.services.nipt_service import (
     build_nipt_observations,
     derive_father_state,

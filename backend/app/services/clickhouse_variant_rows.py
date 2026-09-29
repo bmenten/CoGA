@@ -12,7 +12,7 @@ from .clickhouse_variant_ids import (
     _stable_uint64,
     _xpos,
 )
-from .clickhouse_family_variants import (
+from .clickhouse_variant_records import (
     SmallVariantCall,
     SmallVariantRecord,
     StructuralVariantCall,

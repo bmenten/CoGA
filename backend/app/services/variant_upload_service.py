@@ -17,16 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .annotation_table_parser import VepAnnotationLookup, _coerce_int, _parse_vep_tsv_annotation_lines
 from .bed_service import get_track_presence_by_sample
 from .upload_safety import decode_upload_text
-from .clickhouse_family_variants import (
+from .clickhouse_family_variants import _fetch_structural_variant_rows
+from .clickhouse_variant_records import (
     SmallVariantCall,
     SmallVariantRecord,
     StructuralVariantCall,
     StructuralVariantRecord,
-    _fetch_structural_variant_rows,
 )
+from .clickhouse_variant_ids import build_small_variant_id, build_structural_variant_id
 from .clickhouse_variant_storage import (
-    build_small_variant_id,
-    build_structural_variant_id,
     count_family_small_variants,
     delete_family_small_variants,
     insert_small_variant_records,

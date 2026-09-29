@@ -4,12 +4,11 @@ the per-sample genotype). The SV table (track_mode=False) must keep the full ann
 enrichment. These guard the slimming that took the f_18.16172 track from 182 MB -> ~8 MB
 per member."""
 
-from app.services.clickhouse_family_variants import (
-    StructuralVariantCall,
-    StructuralVariantRecord,
+from app.services.clickhouse_variant_queries import (
     _structural_annotation_extra,
     _structural_variant_out,
 )
+from app.services.clickhouse_variant_records import StructuralVariantCall, StructuralVariantRecord
 
 
 def _record() -> StructuralVariantRecord:
