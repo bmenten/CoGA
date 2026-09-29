@@ -636,6 +636,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Reference-data bucket read-only to the app** — the backend's service account held a role
   that could write the reference-data bucket, which is mounted read-only and never written by the
   app. It now holds the read-only `roles/storage.objectViewer`, as on the PHI bucket (CR-096, #634).
+- **Audit log and manifest controls enforced** — outside development the backend refuses
+  `AUDIT_LOG_MODE=off` and an `INTEGRITY_ANCHOR_SIGNING_KEY` equal to `SECRET_KEY`; only an admin can
+  replace a family's annotation manifest, which is always recorded as manual, with the manifest it
+  replaced, on the family's audit trail, and an import can no longer overwrite a replacement
+  (CR-113, #651).
 
 ### Documentation
 
