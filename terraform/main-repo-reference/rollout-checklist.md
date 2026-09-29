@@ -25,18 +25,10 @@ DEPLOY_SA   = coga-<env>-<region_short>-gh-actions@${PROJECT_ID}.iam.gserviceacc
 > pipeline holds no project-IAM-admin or service-account-admin rights, so it cannot grant
 > itself privileges. Lifted from CoGA `terraform/main-repo-reference/coga-prerequisites.tf.example`.
 >
-> Creates on the CoGA runtime project (`PROJECT_ID`):
-> - the **APIs** CoGA needs (the list in the file);
-> - **4 runtime service accounts**: `coga-backend-run`, `coga-frontend-run`,
->   `coga-clickhouse-vm`, and `coga-db-migrate` (the schema-migration job, used once the API
->   runs as the restricted database role);
-> - **least-privilege project IAM**: backend → `cloudsql.client`, `logging.logWriter`,
->   `monitoring.metricWriter`, self `iam.serviceAccountTokenCreator`; frontend →
->   `logging.logWriter`; clickhouse-vm → `logging.logWriter`, `monitoring.metricWriter`;
->   db-migrate → `cloudsql.client`;
-> - **CMEK grants**: `cloudkms.cryptoKeyEncrypterDecrypter` on `KMS_KEY` for the Cloud
->   SQL, Compute and GCS service agents;
-> - **PHI audit (S-4)**: project-wide GCS `DATA_READ`/`DATA_WRITE` data-access logging.
+> Creates on the CoGA runtime project (`PROJECT_ID`): the APIs CoGA needs; four runtime
+> service accounts (`coga-backend-run`, `coga-frontend-run`, `coga-clickhouse-vm`,
+> `coga-db-migrate`) with least-privilege project roles; the CMEK grants on `KMS_KEY` for the
+> Cloud SQL, Compute and GCS service agents; and project-wide GCS data-access logging (S-4).
 >
 > **Hand-off contract:** after this applies, the CoGA apply references the accounts by
 > email and creates only its own resources and their resource-level IAM. Apply this first.
@@ -46,12 +38,8 @@ convention, and drop the `.example` suffix when you copy the file in.
 
 ## Part B — apply the central repo
 
-```bash
-terraform apply
-```
-
-The objects are additive and stay idle until CoGA refers to them, so a failed apply is safe
-to retry.
+Run `terraform apply` in the central repo. The objects are additive and stay idle until
+CoGA refers to them, so a failed apply is safe to retry.
 
 ## Part C — verify, and add the grants the template does not make
 
