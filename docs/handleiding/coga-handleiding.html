@@ -2375,6 +2375,8 @@ python docs/handleiding/build_site.py
 <li><strong><code>FamilyNiptReportPage.tsx</code></strong> — het rapport voor monogene NIPT, met de foetale fractie, de dekking en de kandidaatvarianten (hoofdstuk 8).</li>
 </ul>
 <p>Wat elke variantsectie bevat, beschrijft <code>docs/report-template.md</code>. Exporteren gebeurt via de printfunctie van de browser. <strong>Beide pagina's dragen een disclaimer</strong> dat het rapport beslissingsondersteuning is die een gekwalificeerd klinisch wetenschapper moet bevestigen; het NIPT-rapport vraagt ook bevestiging met een invasieve diagnostische test.</p>
+<p><strong>Beide pagina's eindigen met een voettekst</strong> die noemt wanneer het rapport gemaakt werd en met welke build (<em>Software: CoGA x.y.z (commit)</em>, uit <code>GET /api/version</code>), gevolgd door het label: in-house IVD volgens IVDR Artikel 5(5), niet CE-gemarkeerd, alleen voor intern gebruik bij CMGG, en de fabrikant. Het rapport vraagt de build bij elke opening opnieuw op en toont tot dan geen eerder bewaarde waarde, zodat de voettekst na een update nooit de vorige build noemt. Lukt het opvragen niet, dan zegt de voettekst dat en begint een afdruk met de melding dat ze onvolledig is. De build die een versie ondertekende, staat in het ondertekeningsrecord. Dezelfde versie en hetzelfde label staan in de voettekst van elke pagina van de app.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>useReportBuild</code> in <code>frontend/src/lib/appVersion.ts</code>, <code>frontend/src/pages/families/ReportSoftwareIdentity.tsx</code>, en de tekst van het label in <code>frontend/src/lib/deviceLabel.ts</code>.</p>
 <p>Naast de varianten toont het familierapport drie herkomstelementen, elk met een eigen endpoint in <code>backend/app/routers/families_reports.py</code>:</p>
 <div class="scroll"><table>
 <thead>
@@ -2596,6 +2598,10 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>frontend/src/pages/families/FamilyReportPage.tsx</code> · <code>FamilyNiptReportPage.tsx</code></td>
 <td>De rapportpagina's</td>
+</tr>
+<tr>
+<td><code>frontend/src/lib/appVersion.ts</code> · <code>frontend/src/lib/deviceLabel.ts</code></td>
+<td>De draaiende build en het label in de voetteksten</td>
 </tr>
 </tbody>
 </table></div>

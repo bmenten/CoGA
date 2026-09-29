@@ -20,7 +20,7 @@
 | Type | Software as a Medical Device (in-house IVD), standalone (MDSW per MDCG 2019-11) |
 | Manufacturer | Center for Medical Genetics Ghent (CMGG), Ghent University Hospital |
 | Device identifier | CMGGMC **software number `Sxxxx`** (assigned in the CMGGMC ICT module per H11.1-OP5) — the UDI-DI-equivalent for this in-house device. **🔲 INPUT NEEDED:** the assigned `Sxxxx`. |
-| Version identifier | Semantic version `x.y.z` + git commit hash ([TF-18 §2](TF-18-change-configuration-management.md)). Frozen into every signed report and shown in its sign-out block; served at `/api/version`. **🔲 Not yet shown in the app or on unsigned and NIPT reports** ([TF-15 §1](TF-15-instructions-for-use.md)). |
+| Version identifier | Semantic version `x.y.z` + git commit hash ([TF-18 §2](TF-18-change-configuration-management.md)). Served at `/api/version` and shown in the footer of every page and every report ([TF-15 §1](TF-15-instructions-for-use.md)); frozen into every signed report and shown in its sign-out block. |
 | Form of delivery | Server-deployed web application, used internally at CMGG; no physical media, no transfer to third parties. |
 
 ## 2. Intended purpose

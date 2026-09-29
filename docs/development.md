@@ -46,7 +46,9 @@ The development stack mounts `backend/`, `frontend/`, `scripts/` and `data/` int
 containers, so code changes apply without a rebuild, and it sets `APP_ENV=development` for
 the backend container. Without the second file, `docker compose up --build -d` runs the
 production images instead: no reload, and the built frontend served by
-`frontend/server.mjs`.
+`frontend/server.mjs`. That frontend takes the `VITE_…` settings in `.env` when it is built,
+and its footer links **Report a problem** only when `VITE_PROBLEM_REPORT_URL` is set; the
+Vite dev server links the GitHub issue form when it is not.
 
 The first start downloads the GRCh38 cytobands (UCSC) and GENCODE gene annotations, so it
 needs internet access. Everything the backend does at startup is listed in

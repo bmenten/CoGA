@@ -110,6 +110,7 @@ services:
         VITE_GITHUB_REPOSITORY_URL: ${VITE_GITHUB_REPOSITORY_URL:-}
         VITE_GITHUB_RELEASES_URL: ${VITE_GITHUB_RELEASES_URL:-}
         VITE_GITHUB_ISSUES_URL: ${VITE_GITHUB_ISSUES_URL:-}
+        VITE_PROBLEM_REPORT_URL: ${VITE_PROBLEM_REPORT_URL:-}
     # Only what the frontend server reads (#520): passing the whole .env handed the
     # backend's database passwords and signing keys to a container that needs none.
     environment:

@@ -32,6 +32,11 @@ The pipeline versions are taken from the family's import manifest; there is no s
 version that is not known is left out, never guessed. The footer prints with the report and is part of
 the signed record.
 
+The footer also names the software: *Software: CoGA X.Y.Z (commit)*, the build that produced the page,
+followed by the in-house IVD statement and the manufacturer. The report asks for the build each time it
+opens. The build that signed a version is named in its sign-out record; after a CoGA update the two can
+differ.
+
 ## 2. Evidence-drift banner — has anything changed
 
 When you save a classification with **ACMG classify**, CoGA freezes the evidence it rests on: a
@@ -147,6 +152,6 @@ A version signed before CoGA recorded the HPO release does not name it. The reco
 If the family or a list of reported variants cannot be loaded, the page shows only *Report could not be
 loaded*, with **Retry**. If the sign-out record cannot be loaded, the page says it is not known whether
 the case is signed and does not offer sign-out. Any other part that failed (a gene description, the HPO
-terms, the drift check, the audit trail, the versions) is marked where it belongs, and a printout starts
-with *Incomplete — … could not be loaded*. The NIPT report does the same for the fetal fraction and the
-coverage check.
+terms, the drift check, the audit trail, the annotation versions, the CoGA version) is marked where it
+belongs, and a printout starts with *Incomplete — … could not be loaded*. The NIPT report does the same
+for the fetal fraction, the coverage check and the CoGA version.

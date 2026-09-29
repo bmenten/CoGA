@@ -5,8 +5,11 @@ import Breadcrumbs from './Breadcrumbs';
 import ErrorBoundary from './ErrorBoundary';
 import ModalDialog from './ModalDialog';
 import PageState from './PageState';
+import { formatBuild, useAppVersion } from '../lib/appVersion';
 import { clearSession, getStoredUsername } from '../lib/auth';
-import { githubIssuesUrl, githubRepositoryUrl } from '../lib/githubLinks';
+import { DEVICE_MANUFACTURER, DEVICE_NAME, DEVICE_STATUS } from '../lib/deviceLabel';
+import { githubRepositoryUrl } from '../lib/githubLinks';
+import { currentProblemReportLink } from '../lib/problemReport';
 import { useUiTelemetry } from '../lib/useUiTelemetry';
 import { flushUiEventsNow } from '../lib/telemetry';
 
@@ -18,6 +21,9 @@ const Layout: React.FC = () => {
   const username = getStoredUsername();
   const [showSettings, setShowSettings] = useState(false);
   const queryClient = useQueryClient();
+  // The device label (TF-15 §1): the running build, and where to report a problem.
+  const appVersion = useAppVersion();
+  const problemReport = currentProblemReportLink();
 
   useUiTelemetry();
 
@@ -114,21 +120,39 @@ const Layout: React.FC = () => {
       </main>
       <footer className="app-footer">
         <div className="app-footer-inner">
-          CoGA, Comprehensive Genomic Analysis
-          {' · '}
-          Center for Medical Genetics, Ghent University
-          {' · '}
-          <Link to="/new-features">New features</Link>
-          {' · '}
-          <a href={githubIssuesUrl} target="_blank" rel="noopener noreferrer">
-            Submit issue / request
-          </a>
-          {' · '}
-          <a href={githubRepositoryUrl} target="_blank" rel="noopener noreferrer">
-            GitHub
-          </a>
-          {' · '}
-          <a href="mailto:bjorn.menten@ugent.be">Contact</a>
+          <p className="app-footer-line">
+            {DEVICE_NAME}
+            {' · '}
+            <span className="app-footer-version">
+              {appVersion.isError
+                ? 'Version unavailable'
+                : appVersion.data
+                  ? `Version ${formatBuild(appVersion.data.version, appVersion.data.git_sha)}`
+                  : 'Version loading…'}
+            </span>
+          </p>
+          <p className="app-footer-line">{DEVICE_STATUS}</p>
+          <p className="app-footer-line">Manufacturer: {DEVICE_MANUFACTURER}</p>
+          <p className="app-footer-line">
+            <Link to="/new-features">New features</Link>
+            {problemReport ? (
+              <>
+                {' · '}
+                <a
+                  href={problemReport.href}
+                  {...(problemReport.newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                >
+                  {problemReport.label}
+                </a>
+              </>
+            ) : null}
+            {' · '}
+            <a href={githubRepositoryUrl} target="_blank" rel="noopener noreferrer">
+              GitHub
+            </a>
+            {' · '}
+            <a href="mailto:bjorn.menten@ugent.be">Contact</a>
+          </p>
         </div>
       </footer>
       {showSettings && (

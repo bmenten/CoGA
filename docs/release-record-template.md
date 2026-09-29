@@ -58,7 +58,8 @@ Leave blank for a pre-release; every box is required for a clinical release
 - [ ] Risk file (TF-06) reviewed for new/affected hazards; controls verified
 - [ ] SOUP register / SBOM (TF-08 / TF-13) reconciled; no unaddressed high-severity vulnerability
 - [ ] Change significance assessed (TF-18); re-validation run if triggered (TF-10)
-- [ ] Version/build identifier visible in the report footer
+- [ ] The version and commit of §3 shown in the app footer and on a family and a NIPT report footer
+- [ ] **Report a problem** opens the CMGGMC route (`COGA_PROBLEM_REPORT_URL` set)
 - [ ] Reference-data versions frozen and recorded (§5)
 
 ## 5. Reference-data baseline

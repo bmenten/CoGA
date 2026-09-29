@@ -218,6 +218,7 @@ from .nipt import (
 from .product import (
     GithubReleaseOut,
     GithubReleaseCatalogOut,
+    VersionOut,
 )
 from .projects import (
     ProjectCreate,
@@ -506,6 +507,7 @@ __all__ = [
     "NiptVariantOut",
     "GithubReleaseOut",
     "GithubReleaseCatalogOut",
+    "VersionOut",
     "ProjectCreate",
     "ProjectUpdate",
     "ProjectOut",

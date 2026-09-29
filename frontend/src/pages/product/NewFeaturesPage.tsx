@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import PageState from '../../components/PageState';
 import api from '../../lib/api';
 import type { ApiGithubReleaseCatalog } from '../../lib/apiTypes';
-import { githubIssuesUrl, githubReleasesUrl } from '../../lib/githubLinks';
+import { githubReleasesUrl } from '../../lib/githubLinks';
+import { currentProblemReportLink } from '../../lib/problemReport';
 
 const releaseDateFormatter = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
@@ -43,6 +44,21 @@ const visibilityLabel = (value: ApiGithubReleaseCatalog['repo_visibility']) => {
   return 'Repository visibility unknown';
 };
 
+// Where a problem is reported: the CMGG route in the clinical build, never the GitHub issue
+// form there (lib/problemReport). Absent when the build has no route.
+const ProblemReportButton: React.FC = () => {
+  const link = currentProblemReportLink();
+  return link ? (
+    <a
+      href={link.href}
+      {...(link.newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      className="button-grey hover:no-underline"
+    >
+      {link.label}
+    </a>
+  ) : null;
+};
+
 const NewFeaturesPage: React.FC = () => {
   const { data, isLoading, error } = useQuery<ApiGithubReleaseCatalog>({
     queryKey: ['product', 'releases'],
@@ -79,14 +95,7 @@ const NewFeaturesPage: React.FC = () => {
             >
               Open GitHub releases
             </a>
-            <a
-              href={githubIssuesUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="button-grey hover:no-underline"
-            >
-              Submit issue / request
-            </a>
+            <ProblemReportButton />
           </>
         }
       />
@@ -103,8 +112,7 @@ const NewFeaturesPage: React.FC = () => {
             <p className="page-kicker">Product updates</p>
             <h1 className="catalog-card-title">New features and release history</h1>
             <p className="catalog-card-copy">
-              Browse version history synced from GitHub releases, see when features landed, and jump
-              directly to the issue tracker when you want to report a problem or request a feature.
+              Browse version history synced from GitHub releases and see when features landed.
             </p>
           </div>
 
@@ -128,14 +136,7 @@ const NewFeaturesPage: React.FC = () => {
             >
               Open GitHub releases
             </a>
-            <a
-              href={data.issues_url || githubIssuesUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="button-grey hover:no-underline"
-            >
-              Submit issue / request
-            </a>
+            <ProblemReportButton />
           </div>
         </div>
       </section>

@@ -69,7 +69,7 @@ jobs:
         # tag and VERSION disagree fails loudly instead of shipping a mislabelled image.
         # On a tag the tag must be exactly `v<VERSION>`; otherwise VERSION is only checked
         # for well-formedness. See TF-18 section 2 — the stamped version is what appears in
-        # /api/version and in the signed clinical report footer.
+        # /api/version, in the app and report footers, and in every signed report.
         env:
           REF_NAME: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
@@ -164,12 +164,25 @@ jobs:
           project_id: ${{ env.REGISTRY_PROJECT_ID }}
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
       - name: Build & push frontend (VITE_API_BASE_URL=/api baked)
+        # Where users report a problem: the repository variable COGA_PROBLEM_REPORT_URL, the
+        # CMGGMC probleemmelding route (TF-16, TF-17), passed via env and quoted. Unset, the
+        # clinical build shows no problem-report link, never the public GitHub issue form.
+        env:
+          PROBLEM_REPORT_URL: ${{ vars.COGA_PROBLEM_REPORT_URL }}
         run: |
+          SUBSTITUTIONS="_IMAGE=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/${{ env.AR_REPO }}/${{ needs.prepare.outputs.repo_name }}-frontend:${{ needs.prepare.outputs.tag }}"
+          if [ -n "${PROBLEM_REPORT_URL}" ]; then
+            # gcloud splits --substitutions on commas.
+            case "${PROBLEM_REPORT_URL}" in
+              *,*) echo "::error::COGA_PROBLEM_REPORT_URL must not contain a comma."; exit 1 ;;
+            esac
+            SUBSTITUTIONS="${SUBSTITUTIONS},_PROBLEM_REPORT_URL=${PROBLEM_REPORT_URL}"
+          fi
           gcloud builds submit \
             --project=${{ env.REGISTRY_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
             --config=ci/cloudbuild.frontend.yaml \
-            --substitutions=_IMAGE=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/${{ env.AR_REPO }}/${{ needs.prepare.outputs.repo_name }}-frontend:${{ needs.prepare.outputs.tag }} \
+            --substitutions="${SUBSTITUTIONS}" \
             --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
             --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
             .

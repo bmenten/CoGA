@@ -1,18 +1,29 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import FamilyNiptReportPage from '../FamilyNiptReportPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
+  // GET /version, the build the report footer names (TF-15 §1). Answered here for every
+  // test, so each test's fake backend serves only the family.
+  version: vi.fn(),
 }));
 
 vi.mock('../../../lib/api', () => ({
-  default: apiMock,
+  default: {
+    get: (...args: unknown[]) => (args[0] === '/version' ? apiMock.version() : apiMock.get(...args)),
+  },
 }));
+
+const RUNNING_BUILD = { version: '0.2.0', git_sha: '0123456789abcdef' };
+
+beforeEach(() => {
+  apiMock.version.mockResolvedValue({ data: RUNNING_BUILD });
+});
 
 vi.mock('../../../lib/reference', () => ({
   useFamilyReference: () => ({
@@ -208,5 +219,60 @@ describe('FamilyNiptReportPage', () => {
       // The candidates that did load are still reported.
       expect(screen.getByText(/De novo in fetus \(1\)/)).toBeInTheDocument();
     });
+
+    it('says the software version could not be loaded, on screen and in print, and retries it', async () => {
+      failing();
+      let versionFails = true;
+      apiMock.version.mockImplementation(() =>
+        versionFails
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : Promise.resolve({ data: RUNNING_BUILD }),
+      );
+      renderPage();
+
+      const footer = (await screen.findByText(/Report generated .* UTC/)).closest('footer') as HTMLElement;
+      expect(
+        await within(footer).findByText('CoGA — the version could not be loaded'),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/^Incomplete — the software version could not be loaded/),
+      ).toBeInTheDocument();
+
+      versionFails = false;
+      fireEvent.click(
+        within(screen.getByText(/Parts of this report could not be loaded/).closest('section')!).getByRole(
+          'button',
+          { name: 'Retry' },
+        ),
+      );
+
+      expect(await within(footer).findByText('CoGA 0.2.0 (0123456)')).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.queryByText(/Parts of this report could not be loaded/)).not.toBeInTheDocument(),
+      );
+    });
+  });
+
+  // TF-15 §1: the version is "in every report footer" — the NIPT report had no footer.
+  it('names the generation time, the running build and the device label in the report footer', async () => {
+    apiMock.get.mockImplementation((url: string) =>
+      url === '/families/NIPT001'
+        ? Promise.resolve({
+            data: { family_id: 'NIPT001', members: [], metadata: { analysis_type: 'monogenic_nipt' } },
+          })
+        : Promise.resolve({ data: { family_id: 'NIPT001', total: 0, variants: [] } }),
+    );
+    renderPage();
+
+    const footer = (await screen.findByText(/Report generated .* UTC/)).closest('footer') as HTMLElement;
+    expect(await within(footer).findByText('CoGA 0.2.0 (0123456)')).toBeInTheDocument();
+    expect(footer).toHaveTextContent('Software: CoGA 0.2.0 (0123456)');
+    expect(footer).toHaveTextContent(
+      'In-house IVD per IVDR Article 5(5) · Not CE-marked · For internal CMGG use only',
+    );
+    expect(footer).toHaveTextContent(
+      'Manufacturer: Center for Medical Genetics, Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent',
+    );
+    expect(screen.queryByText(/so this printout does not show the whole report/)).not.toBeInTheDocument();
   });
 });

@@ -2938,3 +2938,13 @@ export interface VariantPriorityOut {
   phenotype_matches: MonarchPhenotypeMatchOut[];
   rank: number | null;
 }
+
+/**
+ * The running build: its semantic version and git commit (TF-18 §2).
+ *
+ * Shown in the app footer and on every report footer (TF-15 §1).
+ */
+export interface VersionOut {
+  version: string;
+  git_sha: string;
+}

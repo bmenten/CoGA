@@ -52,10 +52,10 @@ Legend — **Status:** ✅ met (evidence exists) · ◐ in progress · ⬜ not s
 | 17 | Devices connected to / equipped with energy sources | N/A | N/A | — |
 | 18 | Protection against mechanical/thermal risks | N/A | N/A | — |
 | 19 | Devices for self-testing / near-patient testing | N/A | N/A | Professional use only, accredited lab (TF-01) |
-| 20.1–20.2 | **Information supplied with the device** — label & IFU, comprehensible to intended user | Yes | ◐ | [TF-15](TF-15-instructions-for-use.md) IFU & labelling (draft); in-app user guide (`/docs`) and reference docs |
+| 20.1–20.2 | **Information supplied with the device** — label & IFU, comprehensible to intended user | Yes | ◐ | [TF-15](TF-15-instructions-for-use.md) IFU & labelling (draft); the label in the footer of every page and report; in-app user guide (`/docs`) and reference docs |
 | 20.4.1 | Intended-purpose elements stated | Yes | ✅ | [TF-01](TF-01-intended-purpose.md) §2 |
 | 20.4.1 | Limitations, warnings, residual-risk information, required upstream conditions | Yes | ◐ | TF-01 §4; TF-15; provenance footer |
-| 20.4.1 | Version / build identification accessible to user | Yes | ◐ | Frozen into each signed report and shown in its sign-out block; served at `/api/version`. **🔲** Not yet shown in the app or on unsigned and NIPT reports ([TF-15 §1](TF-15-instructions-for-use.md)). Scheme: [TF-18 §2](TF-18-change-configuration-management.md); **🔲** `Sxxxx` not yet assigned |
+| 20.4.1 | Version / build identification accessible to user | Yes | ◐ | Shown in the footer of every page and every report, and frozen into each signed report ([TF-15 §1](TF-15-instructions-for-use.md)). Scheme: [TF-18 §2](TF-18-change-configuration-management.md); **🔲** `Sxxxx` not yet assigned |
 
 \* Items marked N/A* are formally non-applicable but have an analogous control noted, because
 the device's interpretive nature changes how the classical IVD wording maps.
@@ -71,8 +71,7 @@ Current open items (to be closed before declaration, or carried with justificati
 | 9.1 | Performance evaluation not yet executed | TF-10 plan defined (concordance against the validated assays, validation sets in TF-10 §2); TF-11 report pending execution. |
 | 13/16.4 | Deployment-level controls: encryption at rest, TLS to the datastores, secrets management, network restriction, PHI download audit | Codified for Google Cloud in `terraform/` but never applied; the download audit (S-4) is still open ([TF-13 §3](TF-13-cybersecurity.md)). Close before clinical go-live. |
 | 16.2 | Lifecycle documentation per the governing SOP H11.1-OP5 to be completed | Codebase practices exist (CI gates, tests, audit) and the SOP defines the process; the bio-IT ingangsvalidatie (H11.1-F12.2) + TF-07/TF-09 formalize it. |
-| 20.1 | IFU not yet issued as a controlled document; the in-app label lacks the version and the in-house-IVD statement | TF-15; in-app docs exist as basis ([TF-15 §1](TF-15-instructions-for-use.md)). |
-| 20.4.1 | Device version not shown in the app or on unsigned and NIPT reports | Show it in the app and on every report ([TF-15 §1](TF-15-instructions-for-use.md)). |
+| 20.1 | IFU not yet issued as a controlled document | [TF-15](TF-15-instructions-for-use.md) and the in-app docs exist as its basis. |
 
 > No GSPR is proposed to be *permanently* unmet; all open items have a remediation path.
 > The declaration should be signed only once these are closed or carry an accepted,

@@ -1,9 +1,19 @@
-"""Product metadata: releases."""
+"""Product metadata: the running build and the releases."""
 
 from datetime import datetime
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+
+class VersionOut(BaseModel):
+    """The running build: its semantic version and git commit (TF-18 §2).
+
+    Shown in the app footer and on every report footer (TF-15 §1).
+    """
+
+    version: str
+    git_sha: str
 
 
 class GithubReleaseOut(BaseModel):

@@ -19,6 +19,10 @@ Er zijn twee rapportpagina's:
 
 Wat elke variantsectie bevat, beschrijft `docs/report-template.md`. Exporteren gebeurt via de printfunctie van de browser. **Beide pagina's dragen een disclaimer** dat het rapport beslissingsondersteuning is die een gekwalificeerd klinisch wetenschapper moet bevestigen; het NIPT-rapport vraagt ook bevestiging met een invasieve diagnostische test.
 
+**Beide pagina's eindigen met een voettekst** die noemt wanneer het rapport gemaakt werd en met welke build (*Software: CoGA x.y.z (commit)*, uit `GET /api/version`), gevolgd door het label: in-house IVD volgens IVDR Artikel 5(5), niet CE-gemarkeerd, alleen voor intern gebruik bij CMGG, en de fabrikant. Het rapport vraagt de build bij elke opening opnieuw op en toont tot dan geen eerder bewaarde waarde, zodat de voettekst na een update nooit de vorige build noemt. Lukt het opvragen niet, dan zegt de voettekst dat en begint een afdruk met de melding dat ze onvolledig is. De build die een versie ondertekende, staat in het ondertekeningsrecord. Dezelfde versie en hetzelfde label staan in de voettekst van elke pagina van de app.
+
+**Waar in de code:** `useReportBuild` in `frontend/src/lib/appVersion.ts`, `frontend/src/pages/families/ReportSoftwareIdentity.tsx`, en de tekst van het label in `frontend/src/lib/deviceLabel.ts`.
+
 Naast de varianten toont het familierapport drie herkomstelementen, elk met een eigen endpoint in `backend/app/routers/families_reports.py`:
 
 | Element | Toont | Endpoint |
@@ -188,3 +192,4 @@ Deze keten is de technische invulling van de eis tot traceerbaarheid onder de IV
 | `backend/app/services/clickhouse_integrity_monitor.py` | Bewaking van de variantopslag |
 | `backend/db/schema/postgres/04_traceability.sql` · `05_grants.sql` | De tabellen, triggers en rechten |
 | `frontend/src/pages/families/FamilyReportPage.tsx` · `FamilyNiptReportPage.tsx` | De rapportpagina's |
+| `frontend/src/lib/appVersion.ts` · `frontend/src/lib/deviceLabel.ts` | De draaiende build en het label in de voetteksten |
