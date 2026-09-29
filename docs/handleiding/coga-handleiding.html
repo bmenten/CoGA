@@ -347,11 +347,10 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 <span class="deadref"><code>docs/regulatory/</code></span>.</p>
 </section><section id="hs-1" class="chapter">
 <h1>1. Algemene architectuur &amp; structuur</h1>
-<p>Dit hoofdstuk beschrijft de "kaart" van het hele CoGA-platform: uit welke drie lagen het systeem bestaat (frontend, backend en twee databanken), waarom die scheiding er is, en hoe een enkel verzoek van een muisklik in de browser tot aan de data en weer terug loopt. Verder komt de mappenstructuur aan bod, wordt getoond hoe frontend en backend tegelijk <em>gescheiden</em> én <em>verbonden</em> zijn (via de axios-client en JWT), waar de centrale configuratie leeft en hoe de applicatie opstart. Tot slot worden de gebruikte technologieën met hun versies opgesomd. Deze basis vormt de context voor de rest van de handleiding.</p>
-<h2>Wat is CoGA in één alinea</h2>
-<p>CoGA (<em>Comprehensive Genomic Analysis</em>) is een klinisch-genomicaplatform voor variant-interpretatie, genoomvisualisatie en klinische review op familieniveau. Het draait als <strong>in-house IVD onder IVDR Artikel 5(5)</strong> bij CMGG (ISO 15189-geaccrediteerd laboratorium). "IVD" staat voor <em>in-vitro diagnostiek</em>; "IVDR" is de Europese verordening die zulke diagnostiek reguleert. De grens van het gereguleerde apparaat ("device boundary") loopt van <em>geannoteerde VCF-bestand</em> tot <em>ondertekend klinisch rapport</em>. De data in dit systeem is synthetisch: er is geen echte patiëntdata. Dat staat beschreven in <code>README.md</code> en <code>AGENTS.md</code>.</p>
-<h2>De drie-lagen-architectuur</h2>
-<p>CoGA is opgebouwd uit drie duidelijk gescheiden lagen. Elke laag heeft één verantwoordelijkheid, wat de veiligheid en de traceerbaarheid ten goede komt: fouten en toegangscontrole zijn zo gemakkelijker te lokaliseren en te auditen.</p>
+<p>Dit hoofdstuk is de kaart voor de rest van de handleiding. Het beschrijft de drie lagen van CoGA (frontend, backend en twee databanken), volgt één verzoek van een klik in de browser tot de data en terug, en wijst aan waar de mappen, de configuratie en de belangrijkste veiligheidsmaatregelen zitten. De architectuur staat in het Engels in <code>docs/application-scheme.md</code> en in de technical file (<code>docs/regulatory/TF-02-device-description.md</code>); dit hoofdstuk vat ze samen.</p>
+<h2>CoGA in het kort</h2>
+<p>CoGA (<em>Comprehensive Genomic Analysis</em>) is een platform voor variantinterpretatie, genoomvisualisatie en klinische review op familieniveau. Het draait als <strong>in-house IVD onder IVDR Artikel 5(5)</strong> bij CMGG, een ISO 15189-geaccrediteerd labo. <em>IVD</em> staat voor in-vitrodiagnostiek; de <em>IVDR</em> is de Europese verordening daarvoor. Het gereguleerde deel (de "device boundary") loopt van het <strong>geannoteerde VCF-bestand</strong> tot het <strong>ondertekende klinische rapport</strong>. De data in het systeem is synthetisch.</p>
+<h2>De drie lagen</h2>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -363,327 +362,138 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </thead>
 <tbody>
 <tr>
-<td>Frontend (presentatie)</td>
-<td>React + TypeScript + Vite + Tailwind</td>
-<td>De gebruikersinterface in de browser: login, dashboards, familiewerkruimte, filterpagina's en visualisaties</td>
+<td>Frontend</td>
+<td>React en TypeScript (gebouwd met Vite, opgemaakt met Tailwind)</td>
+<td>De gebruikersinterface: login, dashboard, familiewerkruimte, filterpagina's, visualisaties</td>
 <td><code>frontend/src/</code></td>
 </tr>
 <tr>
-<td>Backend (logica &amp; API)</td>
+<td>Backend</td>
 <td>FastAPI (Python)</td>
-<td>De API-server: authenticatie, toegangscontrole, klinische logica, databankquery's</td>
+<td>De API-server: authenticatie, toegangscontrole, klinische logica, databankvragen</td>
 <td><code>backend/app/</code></td>
 </tr>
 <tr>
-<td>Databanken (opslag)</td>
-<td>Postgres + ClickHouse</td>
-<td>Twee gescheiden databanken: metadata/review-toestand vs. grootschalige variantopslag</td>
-<td><code>backend/db/schema/postgres/</code> en <code>backend/db/schema/clickhouse/</code></td>
+<td>Databanken</td>
+<td>Postgres en ClickHouse</td>
+<td>Metadata en reviewtoestand (Postgres) naast de grote variantopslag (ClickHouse)</td>
+<td><code>backend/db/schema/</code> en de ClickHouse-diensten in <code>backend/app/services/</code></td>
 </tr>
 </tbody>
 </table></div>
+<p>Elke laag heeft één taak. Zo is duidelijk waar toegangscontrole, validatie en opslag gebeuren, wat audit en foutopsporing eenvoudiger maakt.</p>
 <h3>Waarom twee databanken?</h3>
-<p>Een centraal ontwerpprincipe van CoGA is de <strong>gesplitste opslag</strong> ("split storage model"). Er zijn twee soorten data met heel andere eigenschappen:</p>
 <ul>
-<li><strong>Postgres</strong> is een klassieke relationele databank. Ze is <em>gezaghebbend</em> (de bron van waarheid) voor metadata en toestand: gebruikers, projecttoegang, families, samples, pedigree-structuur, review-toestand, panels, gene-cache, de repeat-catalogus, interval-track-metadata en het auditspoor. Dit zijn relatief kleine, sterk gestructureerde en vaak-gewijzigde gegevens.</li>
-<li><strong>ClickHouse</strong> is een kolomgeoriënteerde databank die gebouwd is voor enorme hoeveelheden data en snelle analytische query's. Ze bewaart de eigenlijke variant-payloads: Small Variants (SNV's/indels), structurele varianten, familie/sample-genotypes, cross-project-aggregaten en high-volume interval-tracks (dekking, WisecondorX-segmenten, APCAD, haplotypes). Een enkele familie kan miljoenen variantrijen bevatten.</li>
+<li><strong>Postgres</strong> is een relationele databank en de <em>bron van waarheid</em> voor metadata en toestand: gebruikers en projecttoegang, families, samples en stamboom, reviews en classificaties, panels, referentiedata en het auditspoor. Die gegevens zijn relatief klein, sterk gestructureerd en worden vaak gewijzigd.</li>
+<li><strong>ClickHouse</strong> is een kolomgeoriënteerde databank voor zeer grote datasets. Ze bewaart de variantrijen (small variants en structurele varianten), de genotypes per sample en de grote interval-tracks (dekking, CNV-segmenten, APCAD, haplotypes). Eén familie kan miljoenen rijen hebben.</li>
 </ul>
-<p>De verantwoordelijkheden van elke databank staan opgesomd in <code>docs/storage-architecture.md</code> (sectie "Split storage model"). De gezaghebbendheids-regel is expliciet vastgelegd in <code>docs/application-scheme.md</code>, sectie "Storage Boundary": <em>"Postgres is authoritative for metadata and state. ClickHouse is authoritative for variant payloads."</em> Bij het beantwoorden van een verzoek worden ClickHouse-variantrijen op verzoek "teruggekoppeld" (gejoind) aan de Postgres-metadata — bijvoorbeeld om een tag of ACMG-classificatie op een variant te tonen.</p>
-<p class="waar"><strong>Waar in de code:</strong> de opslagverantwoordelijkheden staan in <code>docs/storage-architecture.md</code>; de gezaghebbendheids-grens en de runtime-flow in <code>docs/application-scheme.md</code>. De verbindingshulpmiddelen leven in <code>backend/app/core/postgres.py</code> en <code>backend/app/core/clickhouse.py</code>.</p>
-<h2>De levensloop van een verzoek: van klik tot data en terug</h2>
-<p>Het beste mentale model is een "estafette" waarbij elke laag het stokje doorgeeft. Neem als voorbeeld een gebruiker die de Small Variants van een familie opvraagt.</p>
+<p>Bij elk verzoek beslist Postgres eerst wie wat mag zien. Daarna haalt de backend de varianten uit ClickHouse en koppelt er de reviewtoestand uit Postgres aan, bijvoorbeeld een tag of een ACMG-klasse. Hoofdstuk 3 beschrijft de tabellen.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/postgres.py</code> en <code>backend/app/core/clickhouse.py</code> (de verbindingen); de taakverdeling tussen beide databanken staat in <code>docs/application-scheme.md</code>.</p>
+<h2>Van klik tot data: de weg van één verzoek</h2>
+<p>Voorbeeld: een analist opent de small variants van een familie.</p>
 <ol>
-<li>
-<p><strong>De klik in de browser.</strong> De gebruiker navigeert in de React-frontend naar een familiepagina. React-componenten roepen de gedeelde API-client aan.
-   <strong>Waar in de code:</strong> de pagina's in <code>frontend/src/pages/</code> (bv. <code>FamilySmallVariantsPage</code> in <code>frontend/src/pages/families/FamilySmallVariantsPage.tsx</code>), die data ophalen via de client in <code>frontend/src/lib/api.ts</code>.</p>
-</li>
-<li>
-<p><strong>De axios-client verstuurt het HTTP-verzoek.</strong> CoGA gebruikt <em>axios</em> (een populaire JavaScript-bibliotheek om HTTP-verzoeken te doen). Alle verzoeken vertrekken via één gedeelde instantie met basis-URL <code>/api</code>. Een <em>interceptor</em> (een stukje code dat elk uitgaand verzoek onderschept) plakt automatisch het JWT-token in de <code>Authorization</code>-header.
-   <strong>Waar in de code:</strong> <code>frontend/src/lib/api.ts</code> — de <code>axios.create({ baseURL: apiBaseUrl })</code> en de <code>api.interceptors.request.use(...)</code>.</p>
-</li>
-<li>
-<p><strong>Het verzoek komt binnen op de FastAPI-backend, onder <code>/api</code>.</strong> Alle routers zitten achter het prefix <code>/api</code>. Voordat de eigenlijke logica draait, passeert het verzoek een keten van <em>middleware</em> (tussenlagen die elk verzoek en antwoord bewerken): request-logging/audit, trailing-slash-normalisatie en security-headers.
-   <strong>Waar in de code:</strong> <code>backend/app/main.py</code>, waar <code>api_router = APIRouter(prefix=API_PATH_PREFIX)</code> gemaakt wordt en alle routers uit <code>all_routers</code> erin worden opgenomen.</p>
-</li>
-<li>
-<p><strong>De router handelt het endpoint af en controleert de toegang.</strong> Elk beschermd router-eindpunt vereist een geauthenticeerde gebruiker via de <em>dependency</em> <code>get_current_user</code> (een FastAPI-mechanisme dat vóór de eigenlijke functie draait). Deze functie valideert het JWT-token en laadt de gebruiker uit Postgres. Toegang is bovendien <strong>project-gebonden</strong> (project-scoped RBAC — <em>Role-Based Access Control</em>).
-   <strong>Waar in de code:</strong> <code>backend/app/dependencies.py</code>, functie <code>get_current_user</code> (en <code>get_current_admin_user</code> voor admin-endpoints); de routers in <code>backend/app/routers/</code>.</p>
-</li>
-<li>
-<p><strong>De router roept een service aan (de eigenlijke klinische/bedrijfslogica).</strong> Routers blijven dun; de echte logica leeft in <code>backend/app/services/</code>. Voor familie-varianten is dat bijvoorbeeld <code>clickhouse_family_variants.py</code>.
-   <strong>Waar in de code:</strong> <code>backend/app/services/</code> (zie <code>docs/application-scheme.md</code>, "Main Code Areas").</p>
-</li>
-<li>
-<p><strong>De service bevraagt de juiste databank.</strong> Metadata-query's gaan naar Postgres (via SQLAlchemy async sessies); variant-query's gaan naar ClickHouse (via een directe ClickHouse-client). Vaak worden beide gecombineerd: de variantrijen uit ClickHouse worden verrijkt met review-annotaties uit Postgres.
-   <strong>Waar in de code:</strong> de query-services in <code>backend/app/services/</code>, met verbindingshulp uit <code>backend/app/core/postgres.py</code> en <code>backend/app/core/clickhouse.py</code>.</p>
-</li>
-<li>
-<p><strong>Het antwoord reist terug.</strong> De service geeft data terug aan de router, FastAPI serialiseert het naar JSON, de middleware stempelt de veiligheids-headers erop, en axios levert het antwoord af bij het React-component, dat het rendert.
-   <strong>Waar in de code:</strong> de response-interceptor in <code>frontend/src/lib/api.ts</code> (die o.a. bij een <code>401</code>-fout de sessie wist via <code>clearSession()</code> en terugstuurt naar <code>/login</code>).</p>
-</li>
+<li><strong>Klik in de browser.</strong> De pagina (bv. <code>frontend/src/pages/families/FamilySmallVariantsPage.tsx</code>) vraagt data op via de gedeelde API-client.</li>
+<li><strong>De API-client verstuurt het verzoek.</strong> Alle verzoeken gaan via één <em>axios</em>-instantie (axios is een JavaScript-bibliotheek voor HTTP-verzoeken) met het basisadres <code>/api</code>. Een <em>interceptor</em> (code die elk uitgaand verzoek onderschept) voegt het JWT-token toe als <code>Authorization: Bearer &lt;token&gt;</code>, behalve bij inloggen en registreren. Een JWT (<em>JSON Web Token</em>) is een ondertekend toegangsbewijs; <a href="#hs-5">hoofdstuk 5</a> legt het uit.</li>
+<li><strong>Het verzoek bereikt de backend.</strong> In ontwikkeling stuurt de Vite-ontwikkelserver <code>/api</code> door naar de backend; in de Docker-opstelling doet de frontendcontainer dat (<code>frontend/server.mjs</code>). Alle routers hangen onder <code>/api</code>. Eerst passeert het verzoek een reeks <em>middleware</em> (tussenlagen die elk verzoek en antwoord bewerken): client-IP-bepaling achter proxies (<code>TRUSTED_PROXY_HOPS</code>), security-headers, trailing-slash-normalisatie en request-logging/audit. <a href="#hs-7">Hoofdstuk 7</a> beschrijft de volgorde.</li>
+<li><strong>De router controleert de toegang.</strong> Elk beschermd endpoint vraagt de <em>dependency</em> <code>get_current_user</code> (een functie die FastAPI vóór het endpoint uitvoert). Die controleert het token en laadt de gebruiker vers uit Postgres. De toegang is <strong>projectgebonden</strong> (project-scoped RBAC, <em>Role-Based Access Control</em>); <a href="#hs-2">hoofdstuk 2</a> legt uit hoe.</li>
+<li><strong>Een service doet het eigenlijke werk.</strong> Routers blijven dun; de klinische logica zit in <code>backend/app/services/</code>, voor familievarianten bijvoorbeeld in <code>clickhouse_family_variants.py</code>.</li>
+<li><strong>De service bevraagt de juiste databank.</strong> Metadata komt uit Postgres (via SQLAlchemy, asynchroon), varianten uit ClickHouse (via een directe client). Alle waarden gaan als parameter mee, nooit als tekst in de query (hoofdstuk 7).</li>
+<li><strong>Het antwoord gaat terug.</strong> FastAPI zet het resultaat om naar JSON, de middleware voegt de security-headers toe en de browser toont het. Krijgt de client een <code>401</code> (niet aangemeld), dan wist hij de sessie en keert hij terug naar <code>/login</code>.</li>
 </ol>
-<p>Dit hele patroon is samengevat in <code>docs/application-scheme.md</code> onder "Flow Summary" en in <code>docs/storage-architecture.md</code> onder "Runtime Flow".</p>
-<h2>De mappenstructuur op hoog niveau</h2>
-<p>De repository-root bevat de twee applicatiemappen (<code>backend/</code>, <code>frontend/</code>), de documentatie (<code>docs/</code>), infrastructuur-as-code (<code>terraform/</code>) en de Docker-orchestratie.</p>
-<h3>Backend — <code>backend/app/</code></h3>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/lib/api.ts</code> (API-client en interceptors), <code>frontend/vite.config.mts</code> (ontwikkelproxy), <code>backend/app/main.py</code> (app, middleware en routers), <code>backend/app/dependencies.py</code> (<code>get_current_user</code>).</p>
+<p>Frontend en backend zijn aparte processen die alleen via HTTP en JSON met elkaar praten. Die scheiding is bewust: álle toegangscontrole gebeurt op de server, niet in de browser.</p>
+<p><strong>CORS</strong> (<em>Cross-Origin Resource Sharing</em>: welke websites de API mogen aanroepen) staat streng ingesteld. Een origin-patroon moet volledig verankerd zijn (beginnen met <code>^</code> en eindigen met <code>$</code>); anders weigert de configuratie het, omdat een te breed patroon samen met meegestuurde credentials een omweg zou openen.</p>
+<p class="waar"><strong>Waar in de code:</strong> de <code>CORSMiddleware</code> in <code>backend/app/main.py</code> en <code>validate_cors_origin_regex</code> in <code>backend/app/core/config.py</code>.</p>
+<h2>De mappen op hoofdlijnen</h2>
+<p>De repository bevat twee applicatiemappen (<code>backend/</code>, <code>frontend/</code>), de documentatie (<code>docs/</code>), de infrastructuur-als-code voor Google Cloud (<code>terraform/</code>) en de Docker Compose-bestanden.</p>
 <div class="scroll"><table>
 <thead>
 <tr>
-<th>Map/bestand</th>
+<th>Map of bestand (backend)</th>
 <th>Rol</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>core/</code></td>
-<td>Verbindings- en runtime-hulpmiddelen: <code>config.py</code> (instellingen), <code>postgres.py</code>, <code>clickhouse.py</code>, <code>azure.py</code>, <code>coga_logging.py</code>, <code>object_storage.py</code>, e.a.</td>
+<td><code>backend/app/core/</code></td>
+<td>Verbindingen en runtime: instellingen (<code>config.py</code>), Postgres, ClickHouse, Azure, logging, objectopslag</td>
 </tr>
 <tr>
-<td><code>routers/</code></td>
-<td>De API-oppervlakte: één bestand per domein (<code>auth</code>, <code>families</code>, <code>structural_variants</code>, <code>genes</code>, <code>admin</code>, …), gebundeld in <code>routers/__init__.py</code> tot de lijst <code>all_routers</code></td>
+<td><code>backend/app/routers/</code></td>
+<td>De API: één bestand per domein, gebundeld in <code>routers/__init__.py</code></td>
 </tr>
 <tr>
-<td><code>services/</code></td>
-<td>De klinische en bedrijfslogica: variant-query's, ACMG-scoring, NIPT, haplotypes, HPO/Monarch, en de traceerbaarheidsstack (audit, hash-chain, integrity anchors)</td>
+<td><code>backend/app/services/</code></td>
+<td>De klinische en bedrijfslogica, inclusief de traceerbaarheidsstack</td>
 </tr>
 <tr>
-<td><code>middleware/</code></td>
-<td>Tussenlagen die op elk verzoek draaien: <code>request_logging.py</code>, <code>security_headers.py</code></td>
+<td><code>backend/app/middleware/</code></td>
+<td>Tussenlagen voor client-IP, security-headers en request-logging</td>
 </tr>
 <tr>
-<td><code>db_migrate.py</code></td>
-<td>Out-of-band schema-migratie en de admin-seed (<code>init_postgres_admin_user</code>), bruikbaar als los CLI-commando of vanuit de opstartroutine</td>
+<td><code>backend/app/main.py</code></td>
+<td>Bouwt de app: routers, CORS, middleware en de opstartroutine</td>
 </tr>
 <tr>
-<td><code>main.py</code></td>
-<td>Het startpunt: bouwt de FastAPI-app, mount de routers, configureert CORS/middleware en de <code>lifespan</code>-opstartroutine</td>
+<td><code>backend/app/db_migrate.py</code></td>
+<td>Schema-migratie en eerste beheerder, ook als losse stap uit te voeren</td>
 </tr>
 <tr>
-<td><code>dependencies.py</code></td>
-<td>Authenticatie- en autorisatiehulp (<code>create_access_token</code>, <code>get_current_user</code>, <code>get_current_admin_user</code>)</td>
+<td><code>backend/db/schema/</code></td>
+<td>De vijf Postgres-baselines (<code>01_access</code> t/m <code>05_grants</code>) en de ClickHouse-bootstrap</td>
 </tr>
 </tbody>
 </table></div>
-<p>Het databank-schema staat naast <code>app/</code> in <code>backend/db/schema/</code>: <code>postgres/</code> (vijf baseline-bestanden per domein, <code>01_access.sql</code> t/m <code>05_grants.sql</code>) en <code>clickhouse/</code> (<code>001_coga_variant_storage.sql</code>).</p>
-<h3>Frontend — <code>frontend/src/</code></h3>
 <div class="scroll"><table>
 <thead>
 <tr>
-<th>Map</th>
+<th>Map (frontend)</th>
 <th>Rol</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>pages/</code></td>
-<td>De schermen, per domein gegroepeerd (<code>auth/</code>, <code>families/</code>, <code>genome/</code>, <code>admin/</code>, …); lazy-geladen in <code>index.tsx</code></td>
+<td><code>frontend/src/pages/</code></td>
+<td>De schermen, per domein gegroepeerd</td>
 </tr>
 <tr>
-<td><code>components/</code></td>
-<td>Herbruikbare UI-bouwstenen, waaronder <code>Layout.tsx</code>, <code>RequireAuth</code> en <code>RequireAdmin</code>, en de <code>visualizations/</code>-map (canvas/SVG/D3)</td>
+<td><code>frontend/src/components/</code></td>
+<td>Herbruikbare bouwstenen, waaronder de routebewakers en <code>visualizations/</code></td>
 </tr>
 <tr>
-<td><code>lib/</code></td>
-<td>Niet-visuele hulpcode: de axios-client (<code>api.ts</code>), authenticatie (<code>auth.ts</code>), foutmeldingen (<code>errorMessage.ts</code>) en meer</td>
+<td><code>frontend/src/lib/</code></td>
+<td>Niet-visuele hulpcode: API-client, sessie, genotypes, ACMG-logica</td>
 </tr>
 <tr>
-<td><code>content/docs/</code></td>
-<td>In-app referentiedocumentatie, die op <code>/docs</code> gerenderd wordt</td>
+<td><code>frontend/src/content/docs/</code></td>
+<td>De in-app documentatie (gebruikersgids en referentiedocs), getoond op <code>/docs</code></td>
 </tr>
 </tbody>
 </table></div>
-<p class="waar"><strong>Waar in de code:</strong> deze indeling is beschreven in <code>AGENTS.md</code> (secties "Backend Guidelines", "Frontend &amp; Integration") en zichtbaar via de mappen zelf.</p>
-<h2>Hoe frontend en backend gescheiden én verbonden zijn</h2>
-<p>De frontend en backend zijn twee aparte processen (en aparte Docker-containers). Ze delen geen code en geen geheugen — ze praten uitsluitend via HTTP-JSON over de <code>/api</code>-interface. Die scheiding is bewust: ze bewaakt de <em>device boundary</em> en maakt duidelijk dat álle toegangscontrole aan de serverzijde gebeurt, niet in de browser.</p>
-<p>De verbinding zelf loopt via drie mechanismen:</p>
+<p>De routering gebruikt <code>react-router</code>. Alleen <code>/login</code> en <code>/signup</code> zijn publiek. Alle andere schermen zitten achter de bewaker <code>RequireAuth</code>, en de beheerschermen (o.a. <code>/admin/...</code>, <code>/package-import</code> en <code>/projects</code>) daarbovenop achter <code>RequireAdmin</code>. Die bewakers zijn gebruiksgemak, geen beveiliging (hoofdstuk 2).</p>
+<p class="waar"><strong>Waar in de code:</strong> de routeboom in <code>frontend/src/index.tsx</code>.</p>
+<h2>Configuratie</h2>
+<p>Alle instellingen komen binnen als omgevingsvariabelen en worden gebundeld in één <code>Settings</code>-object; de rest van de code leest dat object. <code>.env.example</code> somt elke instelling op met haar standaardwaarde. De configuratie is ook een veiligheidsmaatregel: buiten ontwikkeling weigert de backend te starten met zwakke of ontbrekende geheimen. De volledige regel staat in <a href="#hs-2">hoofdstuk 2</a>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/config.py</code> (<code>Settings</code> en <code>validate_security_defaults</code>). Het API-voorvoegsel <code>/api</code> staat daar ook, als <code>API_PATH_PREFIX</code>.</p>
+<h2>Containers en opstarten</h2>
+<p>De stack draait via Docker Compose als vier diensten: <code>postgres</code>, <code>clickhouse</code>, <code>backend</code> en <code>frontend</code>. De databank-images zijn op een exacte digest vastgezet, voor reproduceerbaarheid. De backend start pas als beide databanken gezond zijn, de frontend pas als de backend gezond is. ClickHouse krijgt een ruime afsluittermijn, omdat een te vroeg afgebroken schrijfactie dataonderdelen kan beschadigen. De ontwikkelvariant <code>docker-compose.dev.yml</code> zet <code>APP_ENV=development</code>, herlaadt gewijzigde code meteen en gebruikt de Vite-ontwikkelserver.</p>
+<p>Wat de backend bij het opstarten doet (schema, eerste beheerder, referentiedata, achtergrondtaken), staat in <a href="#hs-4">hoofdstuk 4</a>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>docker-compose.yml</code>, <code>docker-compose.dev.yml</code> en de <code>lifespan</code>-functie in <code>backend/app/main.py</code>.</p>
+<h2>Veiligheid en traceerbaarheid in de architectuur</h2>
 <ul>
-<li>
-<p><strong>De gedeelde axios-client.</strong> Eén axios-instantie met <code>baseURL = '/api'</code> (of de waarde van <code>VITE_API_BASE_URL</code>) verzorgt alle verkeer. Zo is er één plek waar tokens worden toegevoegd en fouten centraal worden afgehandeld.
-  <strong>Waar in de code:</strong> <code>frontend/src/lib/api.ts</code> (<code>DEFAULT_API_BASE_URL = '/api'</code> en <code>apiBaseUrl</code>).</p>
-</li>
-<li>
-<p><strong>JWT in de header.</strong> Na login bewaart de frontend een JWT (<em>JSON Web Token</em> — een ondertekend token dat de identiteit draagt). Bij elk verzoek voegt de request-interceptor de header <code>Authorization: Bearer &lt;token&gt;</code> toe, behalve op de login/signup-paden (<code>/auth/login</code>, <code>/auth/signup</code>). De backend valideert dit token in <code>get_current_user</code>. De details van login en tokens staan in <a href="#hs-5">hoofdstuk 5</a> en het rollen/rechten-model in <a href="#hs-2">hoofdstuk 2</a>.
-  <strong>Waar in de code:</strong> <code>frontend/src/lib/api.ts</code> (<code>shouldAttachStoredToken</code>) en <code>backend/app/dependencies.py</code> (<code>get_current_user</code>).</p>
-</li>
-<li>
-<p><strong>De <code>/api</code>-basis en de proxy.</strong> In de browser is <code>/api</code> een <em>relatief</em> pad. In de productie-opstelling serveert de frontend-container de statische React-bundel en wordt <code>/api</code> naar de backend geleid. In ontwikkeling draait de Vite-dev-server een <em>proxy</em>: alle <code>/api</code>-verzoeken worden doorgestuurd naar de backend (standaard <code>http://localhost:8000</code>, in de dev-stack naar <code>http://backend:8000</code>).
-  <strong>Waar in de code:</strong> <code>frontend/vite.config.mts</code> (de <code>proxy: { '/api': … }</code>-regel, met doel <code>apiProxyTarget</code> uit <code>VITE_DEV_API_PROXY_TARGET</code> of <code>BACKEND_URL</code>); dat doel wordt in de dev-stack gezet in <code>docker-compose.dev.yml</code> (<code>VITE_DEV_API_PROXY_TARGET: http://backend:8000</code>).</p>
-</li>
+<li><strong>Toegangscontrole op de server.</strong> Alle autorisatie gebeurt in de backend (<code>get_current_user</code>, <code>get_current_admin_user</code> en de projectscoping). De browser beslist niets.</li>
+<li><strong>Elk verzoek laat een spoor na.</strong> De request-logging-middleware schrijft elk HTTP-verzoek naar de append-only tabel <code>audit_log_events</code>. Het klinische auditspoor en de rapportondertekeningen zijn daarnaast append-only én hash-geketend: elke rij verwijst cryptografisch naar de vorige, zodat wijzigen of wissen zichtbaar wordt (<a href="#hs-11">hoofdstuk 11</a>).</li>
+<li><strong>Geen schema-onthulling.</strong> Buiten ontwikkeling staan <code>/docs</code>, <code>/redoc</code> en <code>/openapi.json</code> uit.</li>
+<li><strong>Fail-closed configuratie.</strong> De app start niet met zwakke geheimen of onveilige productie-instellingen (hoofdstuk 2).</li>
+<li><strong>Een duidelijke bron van waarheid.</strong> Metadata staat in Postgres, varianten in ClickHouse. Bij audit en foutopsporing is dus duidelijk welke databank voor welk gegeven gezaghebbend is.</li>
 </ul>
-<p>Aan de backendzijde regelt <strong>CORS</strong> (<em>Cross-Origin Resource Sharing</em> — de browserbeveiliging die bepaalt welke websites de API mogen aanroepen) welke oorsprongen toegelaten zijn. Dit is streng geconfigureerd: een breed origin-patroon dat niet volledig verankerd is (<code>^…$</code>) wordt door een validator geweigerd, juist omdat het samen met credentials een CORS-bypass zou vormen.
-<strong>Waar in de code:</strong> <code>app.add_middleware(CORSMiddleware, …)</code> in <code>backend/app/main.py</code>, met de instellingen <code>cors_origins</code>/<code>cors_origin_regex</code> en de validator <code>validate_cors_origin_regex</code> in <code>backend/app/core/config.py</code>.</p>
-<h2>Centrale configuratie en het opstarten van de app</h2>
-<h3>Waar de configuratie leeft</h3>
-<p>Alle instellingen komen binnen als <em>omgevingsvariabelen</em> (environment variables) en worden gebundeld in één <code>Settings</code>-object. Dat object is de enige plek waar configuratie wordt gelezen; de rest van de code importeert <code>settings</code>. De variabelen worden geladen uit een <code>.env</code>-bestand in de repo-root (of <code>.env.example</code> als sjabloon).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/core/config.py</code> — de klasse <code>Settings</code> en het singleton <code>settings = Settings()</code>. Het prefix <code>/api</code> is hier als enige bron van waarheid gedefinieerd (<code>API_PATH_PREFIX = "/api"</code>).</p>
-<p>Deze configuratie doet meteen ook aan <strong>veiligheidsafdwinging</strong>. In de <code>model_validator</code> <code>validate_security_defaults</code> weigert de applicatie op te starten buiten ontwikkeling wanneer onveilige standaardgeheimen worden gebruikt: <code>SECRET_KEY</code> mag niet <code>secret</code>/<code>change-me</code> zijn en <code>POSTGRES_PASSWORD</code>/<code>ADMIN_PASSWORD</code> niet <code>admin</code>/<code>change-me</code>. Dat is een expliciete <em>fail-closed</em>-maatregel: liever niet starten dan onveilig starten. Ook wordt bijvoorbeeld het stilzwijgend laten vallen van audit-events in productie geweigerd (<code>AUDIT_LOG_DROP_ALLOWED=true</code> is alleen in development/test toegestaan).</p>
-<h3>De containers — <code>docker-compose.yml</code></h3>
-<p>De volledige stack draait via Docker Compose als vier services: <code>postgres</code>, <code>clickhouse</code>, <code>backend</code> en <code>frontend</code>. Belangrijke details:</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/dependencies.py</code>, <code>backend/app/middleware/</code>, <code>_docs_kwargs</code> in <code>backend/app/main.py</code>, en de traceerbaarheidsservices in <code>backend/app/services/</code> (o.a. <code>clinical_audit_service.py</code>, <code>hash_chain.py</code> en <code>integrity_anchor_service.py</code>).</p>
+<h2>Technologie</h2>
 <ul>
-<li>De databank-images zijn <em>digest-pinned</em> (vastgezet op een exacte hash met <code>@sha256:…</code>, bv. <code>postgres:16</code> en <code>clickhouse/clickhouse-server:26.8</code>) voor reproduceerbaarheid — belangrijk voor IVDR.</li>
-<li>De <code>backend</code> start pas als <code>postgres</code> én <code>clickhouse</code> "healthy" zijn (<code>depends_on … condition: service_healthy</code>); de <code>frontend</code> start pas als de <code>backend</code> healthy is. Zo krijgt de gebruiker nooit een half-opgestarte API te zien.</li>
-<li>ClickHouse heeft een <code>stop_grace_period: 5m</code>, omdat een te vroege <code>SIGKILL</code> variant-parts kan beschadigen (een gedocumenteerd incident van 2026-06-11).</li>
+<li><strong>Frontend:</strong> React, TypeScript, Vite, Tailwind CSS, react-router, TanStack Query (servertoestand en caching), axios, D3 (visualisaties) en igv (de ingebedde IGV-genoombrowser); tests met Vitest en Playwright.</li>
+<li><strong>Backend:</strong> FastAPI met Uvicorn, SQLAlchemy (asynchroon) met asyncpg voor Postgres, clickhouse-connect voor ClickHouse, Pydantic (validatie en instellingen), PyJWT (tokens), bcrypt (wachtwoorden) en cryptography (o.a. de handtekening van de integriteitsankers).</li>
 </ul>
-<p>De <strong>ontwikkelvariant</strong> <code>docker-compose.dev.yml</code> overschrijft dit met <code>APP_ENV: development</code>, live herladen van de backend (<code>uvicorn … --reload</code>), de Vite-dev-server met proxy, en gemounte broncode-mappen.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>docker-compose.yml</code> (productiestijl) en <code>docker-compose.dev.yml</code> (ontwikkeling).</p>
-<h3>De opstartroutine — <code>main.py</code> lifespan</h3>
-<p>FastAPI kent een <em>lifespan</em> (een functie die code draait bij het opstarten en afsluiten van de server). In CoGA doet die op hoofdlijnen het volgende, in volgorde:</p>
-<ol>
-<li>Wachten tot Postgres bereikbaar is (<code>wait_for_postgres</code>).</li>
-<li>Optioneel het Postgres-schema aanmaken en de admingebruiker seeden (<code>init_postgres_schema</code>, <code>init_postgres_admin_user</code>) — enkel wanneer de app als tabel-<em>owner</em> draait; gestuurd door de instelling <code>POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP</code>. Draait de app als de beperkte rol <code>coga_app</code>, dan worden de migraties out-of-band uitgevoerd en slaat de app deze stap over.</li>
-<li>De achtergrond-workers voor audit-log en UI-events starten (<code>start_audit_log_worker</code>, <code>start_ui_event_worker</code>).</li>
-<li>In één Postgres-sessie: de repeat-catalogus seeden, de referentie voor <em>Homo sapiens</em> GRCh38 verzekeren, de HPO-ontologie laden, ingebouwde tracks seeden en eventueel de gene-reference-refresh in de wachtrij zetten.</li>
-<li>Wachten tot ClickHouse bereikbaar is (<code>wait_for_clickhouse</code>), het ClickHouse-schema initialiseren (<code>init_clickhouse_schema</code>) en de integrity-monitor starten.</li>
-<li>De achtergrond-workers voor gene-reference-refresh en family-package-import starten.</li>
-</ol>
-<p>Bij het afsluiten worden al deze workers netjes gestopt en de databankverbindingen gesloten.</p>
-<p class="waar"><strong>Waar in de code:</strong> de <code>lifespan</code>-functie bovenaan <code>backend/app/main.py</code>. De bootstrap-functies leven in <code>backend/app/services/</code>, <code>backend/app/core/</code> en <code>backend/app/db_migrate.py</code> (<code>init_postgres_admin_user</code>).</p>
-<h2>Veiligheid &amp; traceerbaarheid op architectuurniveau</h2>
-<p>Omdat CoGA een gereguleerd IVD is, zijn veiligheid en traceerbaarheid geen bijzaak maar structureel in de architectuur verweven. De belangrijkste architectuur-brede waarborgen:</p>
-<ul>
-<li><strong>Serverzijdige toegangscontrole.</strong> Alle autorisatie gebeurt in de backend via <code>get_current_user</code>/<code>get_current_admin_user</code> en project-gebonden RBAC. De browser bepaalt niets zelf.
-  <strong>Waar in de code:</strong> <code>backend/app/dependencies.py</code>.</li>
-<li><strong>Auditing van elke actie.</strong> Volgens <code>AGENTS.md</code> stromen alle betekenisvolle acties door een duurzame audit/telemetrie-pijplijn; het klinische auditspoor en de rapport-ondertekeningen zijn <em>append-only</em> en <em>hash-chained</em> (elke record verwijst cryptografisch naar de vorige, zodat manipulatie detecteerbaar is). Aan de ingangskant wordt elk verzoek gelogd.
-  <strong>Waar in de code:</strong> de request-logging-middleware <code>log_request_response</code> in <code>backend/app/middleware/request_logging.py</code>, en de traceerbaarheidsservices in <code>backend/app/services/</code> (o.a. <code>clinical_audit_service.py</code>, <code>hash_chain.py</code>, <code>integrity_anchor_service.py</code>). Details volgen in <a href="#hs-11">hoofdstuk 11</a>.</li>
-<li><strong>Security-headers en schema-afscherming.</strong> De buitenste middleware stempelt hardening-headers op elk antwoord; buiten ontwikkeling worden <code>/docs</code>, <code>/redoc</code> en <code>/openapi.json</code> uitgeschakeld om schema-onthulling te voorkomen.
-  <strong>Waar in de code:</strong> <code>security_headers_middleware</code> en <code>_docs_kwargs()</code> in <code>backend/app/main.py</code>.</li>
-<li><strong>Fail-closed configuratie.</strong> De app weigert te starten met zwakke geheimen of onveilige productie-instellingen (zie hierboven).
-  <strong>Waar in de code:</strong> <code>validate_security_defaults</code> in <code>backend/app/core/config.py</code>.</li>
-<li><strong>Provenance van de opslag.</strong> De strikte scheiding "metadata in Postgres, varianten in ClickHouse" maakt duidelijk welke databank gezaghebbend is voor welk gegeven — cruciaal bij audit en foutopsporing.
-  <strong>Waar in de code:</strong> vastgelegd in <code>docs/storage-architecture.md</code> en <code>docs/application-scheme.md</code>.</li>
-</ul>
-<p>De diepere uitwerking van rollen, rechten en afscherming volgt in <a href="#hs-2">hoofdstuk 2</a>; de databankstructuren in <a href="#hs-3">hoofdstuk 3</a>.</p>
-<h2>Tech stack en versies</h2>
-<p>De platformversie staat in <code>VERSION</code>: <strong><code>0.1.0</code></strong>. (Let op: dit is de productversie. Het interne <code>app_version</code>-veld in <code>config.py</code> is een aparte build-identiteit met de permissieve standaardwaarde <code>0.0.0+unknown</code>, die bij het bouwen van de image via de <code>APP_VERSION</code>-build-arg wordt ingespoten.)</p>
-<p><strong>Frontend</strong> (uit <code>frontend/package.json</code>):</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Technologie</th>
-<th>Versie</th>
-<th>Rol</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>React + React-DOM</td>
-<td>^19.3</td>
-<td>UI-framework</td>
-</tr>
-<tr>
-<td>TypeScript</td>
-<td>^6.0</td>
-<td>Getypeerde JavaScript (enkel bij het bouwen)</td>
-</tr>
-<tr>
-<td>Vite</td>
-<td>^8.3</td>
-<td>Build-tool en dev-server (enkel bij het bouwen)</td>
-</tr>
-<tr>
-<td>Tailwind CSS</td>
-<td>^4.3</td>
-<td>Styling</td>
-</tr>
-<tr>
-<td>react-router</td>
-<td>^8.4</td>
-<td>Client-side routing (<code>BrowserRouter</code>/<code>Routes</code>/<code>Route</code> in <code>index.tsx</code>)</td>
-</tr>
-<tr>
-<td>@tanstack/react-query</td>
-<td>^5.103</td>
-<td>Server-state en caching</td>
-</tr>
-<tr>
-<td>axios</td>
-<td>^1.20</td>
-<td>HTTP-client naar <code>/api</code></td>
-</tr>
-<tr>
-<td>d3</td>
-<td>^7.9</td>
-<td>Datavisualisaties</td>
-</tr>
-<tr>
-<td>igv</td>
-<td>^3.8</td>
-<td>Ingebedde genoombrowser</td>
-</tr>
-<tr>
-<td>vitest / @playwright/test</td>
-<td>^4.1 / ^1.63</td>
-<td>Unit-tests / end-to-end tests</td>
-</tr>
-</tbody>
-</table></div>
-<p><strong>Backend</strong> (uit <code>backend/requirements.txt</code>):</p>
-<div class="scroll"><table>
-<thead>
-<tr>
-<th>Technologie</th>
-<th>Versie</th>
-<th>Rol</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>FastAPI</td>
-<td>0.141.1</td>
-<td>Web-/API-framework</td>
-</tr>
-<tr>
-<td>Uvicorn</td>
-<td>0.53.0</td>
-<td>ASGI-server die de app draait</td>
-</tr>
-<tr>
-<td>SQLAlchemy</td>
-<td>2.0.54</td>
-<td>ORM/async databanktoegang tot Postgres</td>
-</tr>
-<tr>
-<td>asyncpg</td>
-<td>0.31.0</td>
-<td>Async Postgres-driver</td>
-</tr>
-<tr>
-<td>clickhouse-connect</td>
-<td>1.8.0</td>
-<td>ClickHouse-client</td>
-</tr>
-<tr>
-<td>Pydantic / pydantic-settings</td>
-<td>2.13.5 / 2.15.0</td>
-<td>Datavalidatie en instellingen</td>
-</tr>
-<tr>
-<td>PyJWT</td>
-<td>2.14.0</td>
-<td>JWT-tokens</td>
-</tr>
-<tr>
-<td>bcrypt</td>
-<td>5.0.0</td>
-<td>Wachtwoord-hashing, rechtstreeks aangeroepen (passlib is sinds #525 weg)</td>
-</tr>
-<tr>
-<td>cryptography</td>
-<td>50.0.0</td>
-<td>Onderliggende crypto (o.a. integrity anchors)</td>
-</tr>
-</tbody>
-</table></div>
-<p class="waar"><strong>Waar in de code:</strong> <code>VERSION</code>, <code>frontend/package.json</code> en <code>backend/requirements.txt</code>.</p>
-<h2>De frontend-router in het kort</h2>
-<p>De client-side routing gebruikt <code>react-router</code> met <code>BrowserRouter</code> en geneste <code>Routes</code>/<code>Route</code>-declaraties (geen <code>createBrowserRouter</code>). Alle pagina's zijn <em>lazy-geladen</em> (pas ingeladen wanneer nodig, wat de eerste laadtijd verkort). De boom is opgebouwd rond bewakers:</p>
-<ul>
-<li>Alles zit binnen <code>Layout</code> (de gedeelde schil).</li>
-<li>Publieke routes: <code>/login</code>, <code>/signup</code>.</li>
-<li>Onder <code>RequireAuth</code>: het dashboard, de familiewerkruimte (<code>/families/:familyId</code> en alle subviews zoals Small Variants, structurele varianten, rapport en QC), de familybuilder, de explorers (<code>/genes</code>, de Global Small Variant Explorer, de Clinical CNV Explorer), panels, HPO en docs.</li>
-<li>Onder <code>RequireAdmin</code> (geneste bewaker): alle <code>/admin/...</code>-routes, <code>/package-import</code> en <code>/projects</code>.</li>
-</ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/index.tsx</code> (de <code>&lt;Routes&gt;</code>-boom met <code>&lt;RequireAuth /&gt;</code> en <code>&lt;RequireAdmin /&gt;</code>), en <code>frontend/src/components/Layout.tsx</code> (de schil met <code>&lt;Outlet /&gt;</code>). De bewakers zelf worden behandeld in <a href="#hs-2">hoofdstuk 2</a>.</p>
+<p>De exacte versies staan in <code>frontend/package.json</code> en <code>backend/requirements.txt</code>; het SOUP-register (<code>docs/regulatory/TF-08-soup-register.md</code>) houdt ze bij voor het technisch dossier. De productversie staat in <code>VERSION</code>. Het veld <code>app_version</code> in de backend is de build-identiteit: die wordt bij het bouwen van de image ingevuld en in elk ondertekend rapport bevroren (hoofdstuk 11).</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
 <thead>
@@ -694,81 +504,45 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 </thead>
 <tbody>
 <tr>
-<td><code>README.md</code></td>
-<td>Overzicht, capaciteiten, stack, quick-start en omgevingsvariabelen</td>
-</tr>
-<tr>
-<td><code>AGENTS.md</code></td>
-<td>Repository-overzicht met backend/frontend-richtlijnen en veiligheidsprincipes</td>
-</tr>
-<tr>
-<td><code>VERSION</code></td>
-<td>De platformversie (<code>0.1.0</code>)</td>
-</tr>
-<tr>
 <td><code>docs/application-scheme.md</code></td>
-<td>Flow Summary, Main Code Areas en de Storage Boundary (gezaghebbendheid)</td>
-</tr>
-<tr>
-<td><code>docs/storage-architecture.md</code></td>
-<td>Verantwoordelijkheden van Postgres vs. ClickHouse en de runtime-flow</td>
+<td>Architectuur en opslaggrenzen (Engels)</td>
 </tr>
 <tr>
 <td><code>backend/app/main.py</code></td>
-<td>Bouwt de FastAPI-app: routers, CORS, middleware en de <code>lifespan</code>-opstartroutine</td>
+<td>Bouwt de app: routers, CORS, middleware, opstartroutine</td>
 </tr>
 <tr>
 <td><code>backend/app/routers/__init__.py</code></td>
-<td>Bundelt alle routers in <code>all_routers</code> (de volledige API-oppervlakte)</td>
+<td>Bundelt alle routers</td>
 </tr>
 <tr>
 <td><code>backend/app/dependencies.py</code></td>
-<td>Authenticatie/autorisatie: <code>create_access_token</code>, <code>get_current_user</code>, <code>get_current_admin_user</code></td>
+<td><code>get_current_user</code>, <code>get_current_admin_user</code> en tokenuitgifte</td>
 </tr>
 <tr>
 <td><code>backend/app/core/config.py</code></td>
-<td>Centrale instellingen (<code>Settings</code>), <code>/api</code>-prefix en fail-closed veiligheidsvalidatie</td>
+<td>Alle instellingen en de fail-closed controles</td>
 </tr>
 <tr>
 <td><code>frontend/src/index.tsx</code></td>
-<td>Frontend-startpunt en de volledige route-boom met auth/admin-bewakers</td>
+<td>Frontend-startpunt en routeboom met bewakers</td>
 </tr>
 <tr>
 <td><code>frontend/src/lib/api.ts</code></td>
-<td>De gedeelde axios-client: <code>/api</code>-basis, JWT-injectie en 401-afhandeling</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/apiSchema.generated.ts</code></td>
-<td>De API-typen, gegenereerd uit het OpenAPI-schema van de backend (<code>scripts/generate-api-types.py</code>); CI faalt als het bestand verouderd is (#528). Genereer in de backend-omgeving (<code>backend/requirements-dev.txt</code>): het schema hangt af van de FastAPI- en Pydantic-versie, en het script waarschuwt bij een andere versie</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/apiContract.ts</code></td>
-<td>Toetst de handgeschreven typen in <code>apiTypes.ts</code> aan de gegenereerde: <code>tsc</code> faalt als een respons niet meer past bij het type dat hem leest (#528)</td>
-</tr>
-<tr>
-<td><code>frontend/src/components/Layout.tsx</code></td>
-<td>De visuele schil rond alle pagina's</td>
-</tr>
-<tr>
-<td><code>frontend/vite.config.mts</code></td>
-<td>De dev-proxy die <code>/api</code> naar de backend doorstuurt</td>
+<td>De gedeelde API-client: <code>/api</code>-basis, token en 401-afhandeling</td>
 </tr>
 <tr>
 <td><code>docker-compose.yml</code> / <code>docker-compose.dev.yml</code></td>
-<td>Orchestratie van de vier services (productie- en ontwikkelvariant)</td>
-</tr>
-<tr>
-<td><code>frontend/package.json</code> / <code>backend/requirements.txt</code></td>
-<td>De tech stack met exacte versies</td>
+<td>De vier diensten (Docker-opstelling en ontwikkeling)</td>
 </tr>
 </tbody>
 </table></div>
 </section><section id="hs-2" class="chapter">
 <h1>2. Gebruikersrollen, machtigingen &amp; afscherming</h1>
-<p>Dit hoofdstuk behandelt hoe CoGA bepaalt <em>wie</em> iets mag zien of doen. Het beschrijft het volledige rechtenmodel: welke rollen bestaan en waar ze in de databank en in de tokens vastliggen, hoe toegang tot data per <em>project</em> wordt afgeschermd (project-scoped RBAC), hoe de backend dit onverbiddelijk afdwingt met FastAPI-<em>dependencies</em> (herbruikbare stukjes code die vóór elk endpoint draaien), en waarom de frontend-bewaking uitdrukkelijk <em>geen</em> echte poort is maar enkel gebruikersgemak. Daarna komt de defensieve onderbouw aan bod: een least-privilege databankrol, rate limiting tegen brute-force, security-headers en CORS, de weigering om met zwakke geheimen te starten, upload-bescherming en HTML-sanitatie. Telkens wordt exact aangewezen in welk bestand het is afgedwongen.</p>
-<p>Een paar begrippen vooraf: <strong>RBAC</strong> = Role-Based Access Control, toegang op basis van rollen. Een <strong>JWT</strong> (JSON Web Token) is een ondertekend "toegangsbewijs" dat de browser bij elk verzoek meestuurt. Een <strong>dependency</strong> in FastAPI (het Python-webframework waarmee de backend is gebouwd) is een functie die automatisch vóór een endpoint draait en het verzoek kan blokkeren. <strong>Endpoint</strong> = één API-adres (bijv. <code>GET /api/families/{family_id}</code>).</p>
+<p>Dit hoofdstuk beschrijft hoe CoGA bepaalt <em>wie</em> iets mag zien of doen: welke rollen er zijn, hoe toegang tot data per <em>project</em> wordt afgeschermd, hoe de backend dat afdwingt en waarom de bewaking in de browser geen echte poort is. Daarna volgt de verdediging in de diepte: een beperkte databankrol, security-headers en CORS, de weigering om met zwakke geheimen te starten, en de bescherming van uploads. De Engelse bron is <code>docs/security-posture.md</code>; de cybersecurity-analyse voor het dossier staat in <code>docs/regulatory/TF-13-cybersecurity.md</code>.</p>
+<p>Een paar begrippen vooraf. <strong>RBAC</strong> (<em>Role-Based Access Control</em>) is toegang op basis van rollen. Een <strong>JWT</strong> (<em>JSON Web Token</em>) is een ondertekend toegangsbewijs dat de browser bij elk verzoek meestuurt. Een <strong>dependency</strong> is in FastAPI (het Python-framework van de backend) een functie die vóór een endpoint draait en het verzoek kan weigeren. Een <strong>endpoint</strong> is één API-adres, bijvoorbeeld <code>GET /api/families/{family_id}</code>.</p>
 <h2>Welke rollen bestaan er</h2>
-<p>CoGA kent exact drie rollen. Ze liggen als <em>databank-constraint</em> vast (een regel die de databank zelf afdwingt), zodat een ongeldige rol simpelweg niet kan bestaan:</p>
+<p>CoGA kent precies drie rollen. De databank zelf laat geen andere waarde toe.</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -781,104 +555,90 @@ projectdocumentatie in <span class="deadref"><code>docs/</code></span> en naar d
 <tr>
 <td><code>viewer</code></td>
 <td>Gewone (klinische) gebruiker</td>
-<td>Enkel de families/samples/varianten van de <strong>projecten waartoe hij/zij behoort</strong>; kan taggen/reviewen binnen die scope</td>
+<td>Alleen de families, samples en varianten van de <strong>projecten waarvan hij lid is</strong>; kan binnen die projecten taggen en reviewen. Kan ook een rapport ondertekenen: de software beperkt dat niet. Alleen door het labo gemachtigde ondertekenaars mogen dat doen; dat is een procedurele maatregel (<code>docs/regulatory/TF-06-risk-management-plan.md</code>, gevaar H15).</td>
 </tr>
 <tr>
 <td><code>admin</code></td>
 <td>Beheerder</td>
-<td>Alles wat een viewer mag, plus alle scoping-<em>bypass</em> en alle beheeracties (projecttoewijzing, verwijderen, referentiedata, audit-logs)</td>
+<td>Alles wat een viewer mag, over alle projecten heen, plus alle beheeracties (projecttoewijzing, verwijderen, referentiedata, auditlogs)</td>
 </tr>
 <tr>
 <td><code>superuser</code></td>
-<td>Beheerder (gelijkgesteld)</td>
-<td>Idem als <code>admin</code> in de generieke admin-poort <code>get_current_admin_user</code></td>
+<td>Beheerder</td>
+<td>Wordt overal als <code>admin</code> behandeld</td>
 </tr>
 </tbody>
 </table></div>
-<p class="waar"><strong>Waar in de code:</strong> de toegestane rollen staan als CHECK-constraint in <code>backend/db/schema/postgres/01_access.sql</code> (<code>role TEXT NOT NULL CHECK (role IN ('admin', 'superuser', 'viewer'))</code>, in de <code>users</code>-tabel). In de backend zijn <code>admin</code> en <code>superuser</code> samengevoegd tot één begrip "beheerder" via de constante <code>ADMIN_ROLES = {"admin", "superuser"}</code> in <code>backend/app/services/access_control.py</code> (helper <code>is_admin_user</code>), die ook <code>backend/app/dependencies.py</code> gebruikt.</p>
-<p>Er is geen aparte rechten-tabel per gebruiker: het onderscheid "mag deze data zien" volgt volledig uit <strong>projectlidmaatschap</strong>. Dat lidmaatschap is de koppeltabel <code>project_users</code> (kolommen <code>project_id</code>, <code>user_id</code>) in <code>01_access.sql</code>. Een family hangt via <code>family_projects</code> aan een of meer projecten, een sample via <code>sample_projects</code>. Een <code>viewer</code> ziet dus precies de families waarvan minstens één project ook in zijn <code>project_users</code>-rijen staat.</p>
-<p class="waar"><strong>Waar in de code:</strong> de rol staat óók in het JWT-token — bij het inloggen zet <code>_authenticate_and_issue_token</code> in <code>backend/app/routers/auth.py</code> de rol in het <code>Token</code>-antwoord (<code>Token(access_token=..., role=user["role"])</code>), en <code>create_access_token</code> (in <code>dependencies.py</code>) codeert de gebruiker — het e-mailadres, als veld <code>sub</code> — in het ondertekende token. Belangrijk: de <strong>projectenlijst zit niet in het token</strong>. Bij elk verzoek wordt de actuele gebruiker vers uit Postgres geladen door <code>get_current_user_by_email</code> (in <code>metadata_service.py</code>), inclusief zijn <code>metadata_project_ids</code> (de projecten waartoe hij behoort). Zo werkt intrekken onmiddellijk: een gedeactiveerde of uit een project verwijderde gebruiker verliest toegang bij het eerstvolgende verzoek, zonder op tokenverval te wachten.</p>
-<h2>Project-scoped RBAC: hoe elk data-verzoek wordt ingeperkt</h2>
-<p>De kern van het model is dat <em>elk</em> verzoek naar een family, sample of variant door één afschermings-checkpoint gaat. Er zijn twee complementaire mechanismen, afhankelijk van of het om een lijst of om één specifiek object gaat.</p>
-<p><strong>Lijst-endpoints filteren in SQL, niet achteraf.</strong> Wanneer een viewer de families opvraagt, wordt de projectfilter direct in de databank-query gelegd. <code>list_family_records</code> (in <code>metadata_service.py</code>) roept <code>_fetch_family_rows</code> aan met <code>metadata_project_ids = None</code> voor een admin (geen filter) of met de projectlijst van de viewer. In dat laatste geval krijgt de query een <code>EXISTS</code>-clausule op <code>family_projects</code>:</p>
+<p class="waar"><strong>Waar in de code:</strong> de toegestane rollen staan als <code>CHECK</code>-regel op de tabel <code>users</code> in <code>backend/db/schema/postgres/01_access.sql</code>. In de backend vormen <code>admin</code> en <code>superuser</code> samen de beheerders, via <code>ADMIN_ROLES</code> en <code>is_admin_user</code> in <code>backend/app/services/access_control.py</code>.</p>
+<p>Er is geen aparte rechtentabel per gebruiker. Wat iemand mag zien, volgt volledig uit <strong>projectlidmaatschap</strong>: de koppeltabel <code>project_users</code>. Een familie hangt via <code>family_projects</code> aan een of meer projecten, een sample via <code>sample_projects</code>. Een viewer ziet dus precies de families waarvan minstens één project ook een van zijn projecten is.</p>
+<p>Het token draagt alleen de identiteit (het e-mailadres). De projectenlijst zit er <strong>niet</strong> in: bij elk verzoek laadt de backend de gebruiker en zijn projecten vers uit Postgres. Intrekken werkt daardoor meteen. Een gedeactiveerde gebruiker, of iemand die uit een project wordt gehaald, verliest de toegang bij het volgende verzoek, zonder te wachten tot het token verloopt.</p>
+<h2>Projectgebonden toegang: hoe elk dataverzoek wordt ingeperkt</h2>
+<p>Elk verzoek naar een familie, sample of variant gaat door hetzelfde checkpoint. Er zijn twee mechanismen, voor lijsten en voor losse objecten.</p>
+<p><strong>Lijsten filteren in de databank, niet achteraf.</strong> Vraagt een viewer de families op, dan zit de projectfilter in de SQL-query zelf:</p>
 <div class="scroll"><pre><code class="language-sql">EXISTS (
     SELECT 1 FROM family_projects afp
     WHERE afp.family_id = f.id
       AND afp.project_id IN :metadata_project_ids
 )
 </code></pre></div>
-<p>Families buiten de scope worden dus nooit uit de databank gehaald — ze kunnen niet "per ongeluk" lekken door een vergeten filter in de applicatiecode. Merk ook op: als de projectlijst leeg is, geeft <code>_fetch_family_rows</code> meteen een lege lijst terug (een viewer zonder projecten ziet niets).</p>
-<p><strong>Object-endpoints controleren bij het ophalen.</strong> Vraagt iemand één specifieke family op via id, dan draait <code>get_accessible_family_mapping</code> (in <code>metadata_service.py</code>). Die haalt de family op en roept meteen <code>ensure_user_can_access_metadata_projects(project_ids, user)</code> aan (sinds #528 in <code>access_control.py</code>, samen met <code>CurrentUser</code> en de andere toegangsregels). Die helper laat admins door en gooit voor een viewer een <code>HTTP 403</code> als er géén overlap is tussen de projecten van de family en de projecten van de gebruiker:</p>
-<div class="scroll"><pre><code class="language-python">def ensure_user_can_access_metadata_projects(project_ids, user):
-    if is_admin_user(user):
-        return
-    if not set(project_ids).intersection(user_metadata_project_ids(user)):
-        raise HTTPException(status_code=403, detail=&quot;Not authorized&quot;)
-</code></pre></div>
-<p>Deze twee lagen komen samen in <code>build_family_metadata_context</code> (in <code>backend/app/services/family_metadata_context.py</code>), het gedeelde "toegangspoortje" dat vrijwel elke family-gebonden view (varianten, tracks, rapport) eerst passeert: het roept <code>get_accessible_family_mapping</code> aan en reduceert vervolgens de zichtbare projecten met <code>_visible_project_ids</code> tot enkel wat de gebruiker mag zien. De sample-tegenhanger hiervan is <code>build_sample_metadata_context</code> / <code>get_accessible_sample_mapping</code>.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/access_control.py</code> (<code>CurrentUser</code>, <code>ADMIN_ROLES</code>, <code>is_admin_user</code>, <code>ensure_user_can_access_metadata_projects</code>, <code>visible_metadata_project_ids</code>), <code>backend/app/services/metadata_service.py</code> (<code>get_accessible_family_mapping</code>, <code>list_family_records</code>, <code>_fetch_family_rows</code>) en <code>backend/app/services/family_metadata_context.py</code> (<code>build_family_metadata_context</code>, <code>build_sample_metadata_context</code>, <code>_visible_project_ids</code>).</p>
-<blockquote>
-<p>Let op: het bestand <code>backend/app/services/data_scope.py</code> gaat <em>niet</em> over toegangsscoping (ondanks de naam) maar over chromosoom-normalisatie (<code>normalize_chromosome</code>, <code>is_primary_chromosome</code>). De echte data-scoping zit in <code>metadata_service.py</code> en <code>family_metadata_context.py</code> zoals hierboven.</p>
-</blockquote>
-<h2>Backend-afdwinging: de echte poort</h2>
-<p>De backend is de enige plek waar autorisatie echt wordt afgedwongen. Dat gebeurt via twee FastAPI-dependencies in <code>backend/app/dependencies.py</code>:</p>
+<p>Families buiten zijn projecten komen dus nooit uit de databank; een vergeten filter in de applicatiecode kan ze niet laten lekken. Een viewer zonder projecten krijgt meteen een lege lijst. Voor een beheerder valt de filter weg.</p>
+<p><strong>Losse objecten worden gecontroleerd bij het ophalen.</strong> Vraagt iemand één familie op via haar id, dan controleert de backend of er overlap is tussen de projecten van die familie en die van de gebruiker. Zo niet, dan volgt <code>HTTP 403</code>. Beheerders passeren. Zo kan niemand een familie openen door haar id te raden (bescherming tegen <em>IDOR</em>, <em>Insecure Direct Object Reference</em>).</p>
+<p>Beide controles komen samen in <code>build_family_metadata_context</code>: het gedeelde checkpoint dat vrijwel elke familiegebonden view (varianten, tracks, rapport) eerst doorloopt. Het laadt de familie alleen als de gebruiker ze mag zien, en beperkt de zichtbare projecten tot die van de gebruiker. <code>build_sample_metadata_context</code> doet hetzelfde voor één sample.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/access_control.py</code> (de toegangsregels, o.a. <code>ensure_user_can_access_metadata_projects</code>), <code>backend/app/services/metadata_service.py</code> (de gefilterde queries en <code>get_accessible_family_mapping</code>) en <code>backend/app/services/family_metadata_context.py</code> (het checkpoint).</p>
+<h2>De backend is de echte poort</h2>
+<p>Autorisatie wordt alleen in de backend afgedwongen, met twee dependencies:</p>
 <ul>
-<li><strong><code>get_current_user</code></strong> — valideert het JWT (of, bij Azure-AD-configuratie, het Azure-token), laadt de gebruiker vers uit Postgres via <code>get_current_user_by_email</code>, en weigert (<code>HTTP 401</code>) als het token ongeldig is, de gebruiker niet bestaat, of <code>is_active</code> False is. Bij succes hangt het de gebruiker aan <code>request.state.current_user</code> (zodat de audit-middleware weet wie het verzoek deed). Omdat <code>is_active</code> bij elk verzoek opnieuw wordt gecontroleerd, werkt onmiddellijke deactivatie.</li>
-<li><strong><code>get_current_admin_user</code></strong> — bouwt voort op <code>get_current_user</code> en gooit <code>HTTP 403 "Admin access required"</code> als de rol niet in <code>ADMIN_ROLES</code> zit. Dit is de poort voor álle beheer- en destructieve acties.</li>
+<li><strong><code>get_current_user</code></strong> controleert het token, laadt de gebruiker vers uit Postgres en weigert (<code>HTTP 401</code>) als het token ongeldig is, de gebruiker niet bestaat of niet actief is. Hoe het token wordt gecontroleerd, staat in <a href="#hs-5">hoofdstuk 5</a>.</li>
+<li><strong><code>get_current_admin_user</code></strong> bouwt daarop voort en geeft <code>HTTP 403</code> als de rol niet in <code>ADMIN_ROLES</code> zit. Dit is de poort voor alle beheer- en destructieve acties.</li>
 </ul>
-<p>Een concreet, project-gescoped endpoint (leesbaar door een gewone viewer), letterlijk uit <code>backend/app/routers/families.py</code>:</p>
-<div class="scroll"><pre><code class="language-python">@router.get(&quot;/{family_id}&quot;, response_model=FamilyOut)
-async def get_family(
-    family_id: str,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),   # &lt;- authenticatie
-) -&gt; FamilyOut:
-    return await get_family_for_user(session, family_id, user)  # &lt;- scoping binnenin
-</code></pre></div>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/families.py</code> (<code>get_family</code>, <code>list_families</code>). De authenticatie zit in de <code>Depends(get_current_user)</code>; de <em>autorisatie</em> (scoping) zit onlosmakelijk in de service-laag: <code>get_family_for_user</code> (in <code>family_service.py</code>) roept <code>get_family_record</code> aan, en die roept op zijn beurt <code>get_accessible_family_mapping</code> aan. De viewer geeft dus wel een <code>family_id</code> mee, maar krijgt <code>403</code>/<code>404</code> als die family niet in zijn projecten zit — een klassieke IDOR-afscherming (Insecure Direct Object Reference: het raden van andermans id).</p>
-<p>Een admin-endpoint gebruikt in plaats daarvan <code>get_current_admin_user</code>. Zo vereist bijvoorbeeld het toewijzen van een family aan projecten (<code>PUT /api/admin/families/{family_id}/projects</code> → <code>update_family_projects</code>) en het verwijderen van een family (<code>delete_family</code>) beheerdersrechten. In <code>backend/app/routers/admin.py</code> draagt élk endpoint <code>Depends(get_current_admin_user)</code>; de destructieve endpoints (<code>delete_family</code>, <code>delete_sample</code>, <code>delete_family_data</code>, <code>delete_sample_data</code>, referentiedata- en integrity-endpoints) staan zo consequent achter de admin-poort.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/routers/admin.py</code> (alle endpoints), <code>backend/app/routers/projects.py</code> (<code>create_project</code>, <code>update_project</code>, <code>delete_project</code> zijn admin-only; enkel <code>list_projects</code> gebruikt <code>get_current_user</code> en scoopt binnenin via <code>list_project_dashboards</code>, dat voor een viewer alleen zijn eigen <code>metadata_project_ids</code> opvraagt).</p>
-<p>Twee nuances die een auditor moet kennen:</p>
+<p>Een gewoon endpoint zoals <code>GET /api/families/{family_id}</code> vraagt <code>get_current_user</code> (authenticatie) en laat de <em>autorisatie</em> over aan de servicelaag, die via het checkpoint hierboven loopt. Een viewer die een onbekend of vreemd <code>family_id</code> meegeeft, krijgt <code>403</code> of <code>404</code>. De hele beheerrouter (<code>/api/admin/...</code>) hangt achter <code>get_current_admin_user</code>, net als het aanmaken, wijzigen en verwijderen van projecten; de projectenlijst zelf toont een viewer alleen zijn eigen projecten.</p>
+<p>Twee nuances voor de auditor:</p>
 <ol>
-<li>Elke admin-controle gebruikt <code>ADMIN_ROLES</code>, via <code>get_current_admin_user</code> of <code>is_admin_user</code>, en behandelt een <code>superuser</code> dus als admin. Dat gold niet altijd: tot CR-053 vergeleken twaalf controles de rol met de letterlijke tekst <code>"admin"</code>. Ze zaten in het tag- en genpanelbeheer, de PED-upload en het handmatig aanmaken van een family, de importjobs, het genprofiel en de accountlijst (<code>list_users</code>, <code>GET /api/auth/users</code>). Een <code>superuser</code> kwam via <code>get_current_admin_user</code> door de route en werd daarna in de service alsnog geweigerd. <code>list_users</code> gebruikt nu <code>get_current_admin_user</code>, net als <code>update_user</code> ernaast. <code>backend/tests/test_admin_role_checks.py</code> weigert elke nieuwe vergelijking van een rol met <code>"admin"</code>.</li>
-<li>Een aparte, <em>minimale</em> gebruikerslijst (<code>GET /api/users</code>, enkel naam/e-mail, in <code>backend/app/routers/lookups.py</code> via <code>get_assignable_users</code>) is voor élke ingelogde gebruiker leesbaar — dit voedt de reviewer-kiezer op de family-pagina. Dit is in <code>docs/security-posture.md</code> §1 uitdrukkelijk als <strong>aanvaard restrisico</strong> gedocumenteerd ("Accepted residual — staff roster"): CoGA draait als lokale installatie in één lab waar alle gebruikers collega's zijn.</li>
+<li>Elke beheercontrole gebruikt <code>ADMIN_ROLES</code>, dus een <code>superuser</code> telt overal als beheerder. Een test weigert elke nieuwe vergelijking van een rol met de letterlijke tekst <code>"admin"</code> (<code>backend/tests/test_admin_role_checks.py</code>).</li>
+<li>Een beperkte gebruikerslijst (<code>GET /api/users</code>, alleen naam en e-mail) is leesbaar voor elke ingelogde gebruiker; ze voedt de keuzelijst voor een reviewer. <code>docs/security-posture.md</code> (§1) documenteert dat als <strong>aanvaard restrisico</strong>: CoGA draait in één labo waar alle gebruikers collega's zijn.</li>
 </ol>
-<h2>Frontend-guards: gemak, geen slot</h2>
-<p>De React-frontend heeft eigen "poortwachters", maar die zijn puur voor de gebruikerservaring en <em>defense-in-depth</em> (een extra laag). Ze zijn geen echte beveiliging: de browser houdt niets tegen wat de backend niet ook zelf weigert.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/dependencies.py</code> (beide dependencies), <code>backend/app/routers/admin.py</code> en <code>backend/app/routers/projects.py</code>.</p>
+<h2>Bewaking in de browser: gemak, geen slot</h2>
+<p>De frontend heeft eigen bewakers, maar die dienen alleen de gebruikerservaring:</p>
 <ul>
-<li><strong><code>RequireAuth</code></strong> — als er geen token in de opslag zit, stuurt het door naar <code>/login?next=...</code>. Anders toont het de onderliggende route (<code>&lt;Outlet/&gt;</code>).</li>
-<li><strong><code>RequireAdmin</code></strong> — stuurt niet-ingelogden naar <code>/login</code>, en ingelogde niet-admins naar <code>/dashboard</code>. Enkel admins zien de admin-routes.</li>
-<li><strong><code>SessionRedirect</code></strong> — kiest een bestemming afhankelijk van "ingelogd of niet" (via de props <code>authenticatedTo</code> / <code>unauthenticatedTo</code>, bijv. root → dashboard of login).</li>
+<li><strong><code>RequireAuth</code></strong> stuurt wie geen token heeft naar <code>/login?next=...</code>.</li>
+<li><strong><code>RequireAdmin</code></strong> stuurt niet-ingelogden naar <code>/login</code> en ingelogde niet-beheerders naar <code>/dashboard</code>.</li>
+<li><strong><code>SessionRedirect</code></strong> kiest een bestemming afhankelijk van "ingelogd of niet".</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/components/RequireAuth.tsx</code>, <code>RequireAdmin.tsx</code>, <code>SessionRedirect.tsx</code>. De onderliggende checks staan in <code>frontend/src/lib/auth.ts</code>: <code>isAuthenticated()</code> kijkt enkel of er een token bestaat (<code>Boolean(getAuthToken())</code>), en <code>isAdmin()</code> leest de <strong>in de browser opgeslagen rol</strong> (<code>admin</code> of <code>superuser</code>) uit <code>localStorage</code>.</p>
-<p>Waarom dit géén poort is: <code>isAdmin()</code> vertrouwt op een waarde in <code>localStorage</code> die een gebruiker technisch zelf kan aanpassen. Dat zou hem hooguit de admin-<em>schermen</em> tonen — maar élk data- of actieverzoek gaat alsnog naar de backend, die <code>get_current_admin_user</code>/scoping opnieuw en gezaghebbend uitvoert. De frontend-guard voorkomt dus enkel een lelijke of verwarrende UI, niet ongeoorloofde toegang.</p>
-<p>De frontend versterkt dit nog met twee gewoontes in <code>frontend/src/lib/api.ts</code>: een <em>request-interceptor</em> hangt automatisch de <code>Authorization: Bearer &lt;token&gt;</code>-header aan elk verzoek (behalve <code>/auth/login</code> en <code>/auth/signup</code>), en een <em>response-interceptor</em> wist bij een <code>HTTP 401</code> de sessie en stuurt terug naar <code>/login</code>. Zo leidt een verlopen of ingetrokken token meteen tot uitloggen.</p>
-<h2>Databank least-privilege: de runtime-rol <code>coga_app</code></h2>
-<p>Zelfs áls de applicatie ooit gecompromitteerd raakt, mag ze niet in staat zijn om de <em>append-only</em> bewijstabellen (audit-log, klinische audit, ondertekende rapporten, integriteitsankers, de geschiedenis van de QC-grenzen) te herschrijven. "Append-only" betekent: er mag enkel bijgeschreven worden, nooit gewijzigd of verwijderd. Daarom bestaat er een aparte, sterk beperkte databankrol.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/db/schema/postgres/05_grants.sql</code>, het laatste van de vijf baseline-bestanden. Het maakt de rol <code>coga_app</code> aan met alleen de nodige rechten: <code>SELECT, INSERT, UPDATE, DELETE</code> op de gewone tabellen, maar voor de vijf append-only tabellen <code>audit_log_events</code>, <code>clinical_audit_events</code>, <code>report_signouts</code>, <code>integrity_anchors</code> en <code>qc_threshold_changes</code> worden <code>UPDATE, DELETE, TRUNCATE</code> expliciet ingetrokken (<code>REVOKE</code>). Als niet-eigenaar kan <code>coga_app</code> bovendien geen <code>ALTER TABLE ... DISABLE TRIGGER</code> doen en geen <code>SET session_replication_role</code> (superuser-only). Gevolg: de runtime kan wél nieuwe auditregels toevoegen, maar geen bestaande audit-rij, ondertekend rapport, integriteitsanker of eerder vastgelegde QC-grens wijzigen, verwijderen of "her-ketenen".</p>
-<p>De rol wordt <em>in fallback-modus</em> geleverd: hij bestaat als <code>NOLOGIN</code> en de applicatie draait voorlopig nog als de tabel-eigenaar. De echte omschakeling (de "DSN-flip", waarbij DSN staat voor de databank-connectiestring) is een louter operationele configuratiewijziging, geen codewijziging: <code>POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false</code> zetten (zodat de app geen eigenaar-only DDL — tabellen aanmaken/wijzigen — meer probeert), de schema-migraties apart draaien als eigenaar (<code>python -m backend.app.db_migrate</code>), en de app laten inloggen als <code>coga_app</code>.</p>
-<p>Op Google Cloud is die omschakeling één Terraform-variabele: <code>db_runtime_role = "coga_app"</code>. Een aparte Cloud Run-job, <code>coga-db-migrate</code> (<code>terraform/migrate.tf</code>), draait dan vóór elke uitrol de schema-migratie als eigenaar en zet met <code>POSTGRES_APP_PASSWORD</code> ook de login van <code>coga_app</code> aan, zodat niemand met de hand SQL moet draaien op een databank die alleen een privé-adres heeft. De job draait onder een eigen serviceaccount, zodat de API het wachtwoord van de eigenaar niet meer kan lezen, ook niet via Secret Manager.</p>
-<p class="waar"><strong>Waar in de code:</strong> de stap-voor-stap-procedure, de verificatie en de rollback staan in <code>docs/db-runtime-role-runbook.md</code>; de bijhorende instelling in <code>backend/app/core/config.py</code> (<code>postgres_run_schema_migrations_on_startup</code>). Belangrijk voor toekomstige schema's: de brede <code>GRANT ... ON ALL TABLES</code> en de <code>ALTER DEFAULT PRIVILEGES</code> in <code>05_grants.sql</code> geven elke <em>nieuwe</em> tabel automatisch volledige CRUD aan <code>coga_app</code>; daarom moet elke nieuwe append-only tabel in dat bestand dezelfde <code>REVOKE UPDATE, DELETE, TRUNCATE ... FROM coga_app</code> krijgen, ná de brede <code>GRANT</code> (dit staat ook als expliciete waarschuwing in het bestand zelf). De integratietest <code>backend/tests/integration/test_app_role_privileges.py</code> bewaakt dat: hij leest de tabellen met een <code>*_block_mutation</code>-trigger uit de catalogus en faalt als er één niet in zijn lijst staat of voor <code>coga_app</code> nog <code>UPDATE</code>/<code>DELETE</code> toelaat. Die controle had <code>qc_threshold_changes</code> meteen betrapt: die tabel werd met zijn trigger maar zonder <code>REVOKE</code> uitgeleverd.</p>
-<h2>Overige hardening</h2>
-<h3>Rate limiting &amp; login-lockout</h3>
-<p>Brute-force op wachtwoorden en accountopsomming worden geremd met een oplopende (exponentiële) backoff, opgeslagen in Postgres.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/auth_rate_limit_pg.py</code>, met de tabel <code>auth_login_attempts</code> uit <code>backend/db/schema/postgres/01_access.sql</code>. Elke mislukte login wordt geteld per scope (<code>email</code> én <code>remote_ip</code>); vanaf een drempel (<code>login_rate_limit_threshold</code>, standaard 5) volgt een lockout die exponentieel oploopt tot een maximum (<code>_backoff_seconds</code>). Login zelf zit in <code>backend/app/routers/auth.py</code>: <code>_authenticate_and_issue_token</code> weigert bij een actieve throttle met <code>HTTP 429 + Retry-After</code>, en gebruikt een <em>dummy</em> bcrypt-verificatie (<code>_DUMMY_LOGIN_PASSWORD_HASH</code>) voor onbestaande accounts zodat de responstijd niet verraadt welke e-mails bestaan (bescherming tegen account-enumeratie via timing). Signup wordt apart per bron-IP gethrottled (<code>get_signup_throttle_state</code> / <code>record_signup_attempt</code>); ook de <code>signup</code>-flow geeft bewust een identieke bevestiging voor nieuwe én bestaande e-mails, zodat het endpoint geen accounts kan opsommen.</p>
-<h3>Security-headers, CORS en geheimen</h3>
-<p><strong>Security-headers.</strong> Elk API-antwoord krijgt strikte hardening-headers, waaronder een maximaal-strikte Content-Security-Policy (<code>default-src 'none'; frame-ancestors 'none'</code>), <code>X-Frame-Options: DENY</code>, <code>X-Content-Type-Options: nosniff</code>, <code>Referrer-Policy: no-referrer</code> en Cross-Origin-Opener/Resource-Policy. HSTS is opt-in (enkel waar TLS ervoor staat).
-<strong>Waar in de code:</strong> <code>backend/app/middleware/security_headers.py</code> (<code>security_headers_middleware</code>, <code>_STATIC_HEADERS</code>).</p>
-<p><strong>CORS</strong> (Cross-Origin Resource Sharing — welke andere webdomeinen de API mogen aanroepen). De toegestane origins en de origin-regex staan in <code>backend/app/core/config.py</code>. Een <code>field_validator</code> (<code>validate_cors_origin_regex</code>) weigert een niet-verankerde regex: omdat CoGA credentials meestuurt, zou een te breed patroon een CORS-bypass zijn, dus de regex moet met <code>^</code> beginnen en op <code>$</code> eindigen.</p>
-<p><strong>Weigering te starten met zwakke geheimen.</strong> De <code>model_validator</code> <code>validate_security_defaults</code> in <code>config.py</code> weigert buiten dev/test op te starten als <code>SECRET_KEY</code>, <code>POSTGRES_PASSWORD</code> of <code>ADMIN_PASSWORD</code> nog placeholder-waarden bevatten (<code>change-me</code>/<code>secret</code> voor het secret; <code>change-me</code>/<code>admin</code> voor de wachtwoorden), en verbiedt daar ook <code>AUDIT_LOG_DROP_ALLOWED=true</code>. Dit voorkomt een productiestart met fabrieksgeheimen of met stilzwijgend weggegooide audit-events.
-<strong>Waar in de code:</strong> <code>backend/app/core/config.py</code> (<code>validate_security_defaults</code>, constanten <code>_INSECURE_SECRET_VALUES</code> / <code>_INSECURE_PASSWORD_VALUES</code>).</p>
-<h3>Upload-veiligheid</h3>
-<p>Admin-uploads (SV, referentie, BED, repeat-expansion, PED) worden begrensd gelezen én begrensd gedecomprimeerd, zodat een kleine maar sterk samendrukbare <code>.gz</code> ("decompressie-bom") het werkgeheugen niet kan uitputten (DoS — Denial of Service). Overschrijding levert <code>HTTP 413</code>.
-<strong>Waar in de code:</strong> <code>backend/app/services/upload_safety.py</code> (<code>decode_upload_text</code>, <code>_read_upload_bounded</code>, <code>_gunzip_bounded</code>, <code>read_path_text_bounded</code>); de caps <code>MAX_UPLOAD_BYTES</code> / <code>MAX_DECOMPRESSED_UPLOAD_BYTES</code> in <code>config.py</code>. De functie behandelt bovendien correct de meervoudige gzip-blokken van BGZF-<code>.vcf.gz</code>-bestanden.</p>
-<h3>HTML-sanitatie (stored-XSS)</h3>
-<p>De klinische-CNV-knowledgebase importeert kleine <code>details_html</code>-fragmenten die de UI met <code>dangerouslySetInnerHTML</code> toont — dat is een opgeslagen-XSS-risico (Cross-Site Scripting: kwaadaardige HTML/JavaScript die in de databank staat en later bij een andere gebruiker uitvoert). Een strikte allowlist-sanitizer reduceert de HTML tot een veilige set opmaaktags en weigert elk element/attribuut/URL-schema dat niet expliciet is toegelaten (<code>script</code>, <code>img</code>, <code>onerror</code>, <code>javascript:</code>, <code>data:</code> …). De sanitatie draait zowel bij het inlezen (schoon op schijf) als bij het uitlezen (schoon voor oude rijen).
-<strong>Waar in de code:</strong> <code>backend/app/core/html_sanitize.py</code> (<code>sanitize_reference_html</code>, <code>_AllowlistSanitizer</code>, <code>_href_is_safe</code>). De sanitizer is op de standaardbibliotheek <code>html.parser</code> gebouwd, dus geen externe afhankelijkheid — een bewuste keuze zodat een beveiligingscontrole niet van een optioneel pakket afhangt.</p>
-<h2>Auditing &amp; traceerbaarheid (kort)</h2>
-<p>Elke geauthenticeerde HTTP-actie laat een spoor na. Een middleware registreert wie-deed-wat-wanneer (actor-id/e-mail/rol, methode, pad, statuscode, tijd, client-IP) in de append-only tabel <code>audit_log_events</code>, met minimalisatie van gevoelige gegevens: query-strings worden standaard tot enkel hun <em>sleutels</em> herleid en geheim-achtige body-velden gemaskeerd.
-<strong>Waar in de code:</strong> <code>backend/app/middleware/request_logging.py</code> (<code>log_request_response</code>, <code>_sanitize_for_logging</code>, <code>_query_string_for_logging</code>); de query-modus (<code>audit_log_query_string_mode</code>, standaard <code>keys</code>) in <code>config.py</code>. De onveranderlijkheid van deze tabellen wordt op databankniveau afgedwongen (zie de <code>coga_app</code>-rol hierboven) en met hash-ketens/handtekeningen. Voor de volledige uitwerking van audit, hash-ketens en de rapport-provenance, zie <a href="#hs-11">hoofdstuk 11 — Rapport &amp; volledige traceerbaarheid</a>.</p>
-<p>Elke onderdrukking van een security-scan (dependency-audit, secret-scan, SAST) is bovendien gedocumenteerd en gedateerd in <code>SECURITY-AUDIT-ALLOWLIST.md</code>, zodat elke uitzondering code-gereviewd en verantwoord is — direct bewijsmateriaal voor het cybersecurity-technisch dossier (TF-13).</p>
+<p>Waarom dit geen poort is: de rol die de browser gebruikt, staat in de browseropslag, en een gebruiker kan die zelf aanpassen. Dat toont hem hooguit de beheer<em>schermen</em>. Elk data- of actieverzoek gaat alsnog naar de backend, die de rol en de projecten opnieuw en gezaghebbend controleert.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/components/RequireAuth.tsx</code>, <code>RequireAdmin.tsx</code> en <code>SessionRedirect.tsx</code>; de sessiehulpen in <code>frontend/src/lib/auth.ts</code>.</p>
+<h2>Least privilege in de databank: de runtime-rol <code>coga_app</code></h2>
+<p>Ook een gecompromitteerde applicatie mag de <em>append-only</em> bewijstabellen niet kunnen herschrijven. "Append-only" betekent: alleen bijschrijven, nooit wijzigen of wissen. Daarvoor bestaat een aparte, beperkte databankrol.</p>
+<p><code>05_grants.sql</code> maakt de rol <code>coga_app</code> aan met <code>SELECT</code>, <code>INSERT</code>, <code>UPDATE</code> en <code>DELETE</code> op de gewone tabellen. Voor de vijf append-only tabellen trekt het <code>UPDATE</code>, <code>DELETE</code> en <code>TRUNCATE</code> weer in: <code>audit_log_events</code>, <code>clinical_audit_events</code>, <code>report_signouts</code>, <code>integrity_anchors</code> en <code>qc_threshold_changes</code>. Als niet-eigenaar kan <code>coga_app</code> bovendien geen trigger uitschakelen. De runtime kan dus wel nieuwe regels toevoegen, maar geen bestaande auditregel, ondertekend rapport, integriteitsanker of eerder vastgelegde QC-grens wijzigen of wissen.</p>
+<p>De rol wordt uitgeleverd <strong>zonder login</strong>: standaard draait de applicatie nog als eigenaar van de tabellen. Overschakelen is een operationele stap, geen codewijziging. Het schema wordt dan apart toegepast als eigenaar (<code>backend/app/db_migrate.py</code>, met <code>POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false</code> voor de app), en de app logt in als <code>coga_app</code>. Op Google Cloud is dat één Terraform-variabele, <code>db_runtime_role = "coga_app"</code> (standaard <code>"owner"</code>): een aparte Cloud Run-job (<code>terraform/migrate.tf</code>) past dan vóór elke uitrol het schema toe als eigenaar en zet de login van <code>coga_app</code> aan met <code>POSTGRES_APP_PASSWORD</code>. Die job heeft een eigen serviceaccount, zodat de API het wachtwoord van de eigenaar niet meer kan lezen.</p>
+<p>Elke nieuwe append-only tabel moet in <code>05_grants.sql</code> dezelfde <code>REVOKE</code> krijgen, want de brede <code>GRANT</code> geeft nieuwe tabellen automatisch alle rechten. De integratietest <code>backend/tests/integration/test_app_role_privileges.py</code> bewaakt dat: hij zoekt in de databank elke tabel met een blokkeertrigger (<code>*_block_mutation</code>) en faalt als <code>coga_app</code> er nog <code>UPDATE</code> of <code>DELETE</code> op heeft.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/db/schema/postgres/05_grants.sql</code>; de procedure, verificatie en rollback staan in <code>docs/db-runtime-role-runbook.md</code>.</p>
+<h2>Overige verdediging</h2>
+<h3>Rate limiting tegen brute force</h3>
+<p>Mislukte logins worden per e-mailadres én per bron-IP geteld; na een drempel volgt een oplopende wachttijd (<code>HTTP 429</code>). Registreren wordt apart per bron-IP afgeremd. Achter een proxy haalt CoGA het client-IP uit de <code>X-Forwarded-For</code>-header, zoveel stappen van rechts als <code>TRUSTED_PROXY_HOPS</code> aangeeft; zo kan een client zijn eigen IP niet kiezen. Dat IP gebruiken ook de auditregels. De werking staat in <a href="#hs-5">hoofdstuk 5</a>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/auth_rate_limit_pg.py</code> en <code>backend/app/middleware/client_ip.py</code>.</p>
+<h3>Security-headers en CORS</h3>
+<p>Elk API-antwoord krijgt strikte headers: een Content-Security-Policy die niets toelaat (<code>default-src 'none'; frame-ancestors 'none'</code>), <code>X-Frame-Options: DENY</code>, <code>X-Content-Type-Options: nosniff</code>, <code>Referrer-Policy: no-referrer</code> en cross-origin-isolatie. HSTS staat alleen aan waar TLS vóór de app eindigt (<code>ENABLE_HSTS</code>). CORS laat alleen de ingestelde origins toe, en een origin-patroon moet volledig verankerd zijn (hoofdstuk 1).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/middleware/security_headers.py</code>; CORS in <code>backend/app/core/config.py</code>.</p>
+<h3>Weigering te starten met zwakke geheimen</h3>
+<p>Buiten ontwikkeling en test (dus als <code>APP_ENV</code> niet <code>dev</code>, <code>development</code>, <code>local</code> of <code>test</code> is) weigert de backend te starten als:</p>
+<ul>
+<li><code>SECRET_KEY</code> korter is dan 32 tekens of <code>secret</code>/<code>change-me</code> is;</li>
+<li><code>CLICKHOUSE_PASSWORD</code> leeg is of <code>admin</code>/<code>change-me</code> is;</li>
+<li><code>INTEGRITY_ANCHOR_SIGNING_KEY</code> niet de base64 van een 32-byte Ed25519-sleutel is;</li>
+<li><code>POSTGRES_PASSWORD</code>, <code>ADMIN_PASSWORD</code> of een ingesteld <code>POSTGRES_APP_PASSWORD</code> <code>admin</code>/<code>change-me</code> is.</li>
+</ul>
+<p>Ook <code>AUDIT_LOG_DROP_ALLOWED=true</code> (auditregels laten vallen bij een volle wachtrij) wordt daar geweigerd. De foutmelding noemt de velden die niet voldoen. Dit is een bewuste <em>fail-closed</em>-keuze: liever niet starten dan onveilig starten. <code>.env.example</code> bevat alleen placeholders, precies om te dwingen dat ze vóór een echte uitrol worden vervangen.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>validate_security_defaults</code> in <code>backend/app/core/config.py</code>.</p>
+<h3>Uploads en externe HTML</h3>
+<ul>
+<li><strong>Begrensde uploads.</strong> Uploads (SV, referentie, BED, repeats, PED) worden begrensd gelezen én begrensd uitgepakt, zodat een klein maar sterk samengedrukt <code>.gz</code>-bestand (een "decompressiebom") het geheugen niet kan uitputten. Te groot geeft <code>HTTP 413</code>. Ook de vele gzip-blokken van een BGZF-<code>.vcf.gz</code> worden correct doorlopen. <strong>Waar in de code:</strong> <code>backend/app/services/upload_safety.py</code>; de grenzen <code>MAX_UPLOAD_BYTES</code> en <code>MAX_DECOMPRESSED_UPLOAD_BYTES</code> in <code>config.py</code>.</li>
+<li><strong>HTML-sanitatie.</strong> De klinische-CNV-kennisbank bevat kleine HTML-fragmenten die de UI als HTML toont. Een strikte allowlist beperkt ze tot veilige opmaak en weigert al de rest (<code>script</code>, <code>img</code>, event-attributen, <code>javascript:</code>- en <code>data:</code>-links). Dat gebeurt zowel bij het inlezen als bij het uitlezen, tegen opgeslagen <em>cross-site scripting</em>. <strong>Waar in de code:</strong> <code>backend/app/core/html_sanitize.py</code>.</li>
+<li><strong>Het QC-rapport van de pipeline.</strong> Dat HTML-rapport bevat eigen scripts en geldt als onbetrouwbaar. Het opent via een kortlevende link die pas na de toegangscontrole wordt uitgegeven, en wordt geserveerd met <code>Content-Security-Policy: sandbox</code>, zodat het de sessie van de gebruiker niet kan lezen. <strong>Waar in de code:</strong> <code>backend/app/routers/family_qc_reports.py</code>.</li>
+</ul>
+<h2>Auditing (kort)</h2>
+<p>Elke HTTP-actie laat een spoor na in de append-only tabel <code>audit_log_events</code>: wie (gebruiker en rol), wat (methode, pad, status), wanneer en vanaf welk IP. Gevoelige gegevens worden beperkt: van een querystring worden standaard alleen de sleutels bewaard, en wachtwoord- of tokenvelden worden gemaskeerd. Deze tabel is append-only via een databanktrigger; de hash-keten en de ondertekende ankers gelden voor het klinische auditspoor en de ondertekende rapporten (hoofdstuk 11). De middleware zelf staat in <a href="#hs-7">hoofdstuk 7</a>.</p>
+<p>Elke onderdrukking van een beveiligingsscan (afhankelijkheden, geheimen, SAST) is gedocumenteerd en gedateerd in <code>SECURITY-AUDIT-ALLOWLIST.md</code>.</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
 <thead>
@@ -890,103 +650,43 @@ async def get_family(
 <tbody>
 <tr>
 <td><code>backend/app/dependencies.py</code></td>
-<td>Authenticatie-dependencies <code>get_current_user</code> / <code>get_current_admin_user</code>, JWT-uitgifte, <code>ADMIN_ROLES</code></td>
+<td><code>get_current_user</code> en <code>get_current_admin_user</code></td>
 </tr>
 <tr>
 <td><code>backend/app/services/access_control.py</code></td>
-<td><code>CurrentUser</code>, <code>ADMIN_ROLES</code> en de toegangsregels (<code>ensure_user_can_access_metadata_projects</code>, <code>visible_metadata_project_ids</code>)</td>
+<td>Rollen (<code>ADMIN_ROLES</code>) en de toegangsregels</td>
 </tr>
 <tr>
 <td><code>backend/app/services/metadata_service.py</code></td>
-<td>Project-scoped RBAC in de queries: <code>get_accessible_family_mapping</code>, SQL-filter in <code>list_family_records</code>/<code>_fetch_family_rows</code></td>
+<td>Projectfilter in de queries</td>
 </tr>
 <tr>
 <td><code>backend/app/services/family_metadata_context.py</code></td>
-<td>Gedeeld toegangs-checkpoint <code>build_family_metadata_context</code> / <code>build_sample_metadata_context</code>, <code>_visible_project_ids</code></td>
-</tr>
-<tr>
-<td><code>backend/app/services/family_service.py</code></td>
-<td><code>get_family_for_user</code> / <code>list_families_for_user</code> — dunne laag die de scoping in <code>metadata_service</code> aanroept</td>
-</tr>
-<tr>
-<td><code>backend/app/routers/families.py</code></td>
-<td>Family-endpoints (<code>get_family</code>, <code>list_families</code>) achter <code>get_current_user</code>, scoping in de service-laag</td>
-</tr>
-<tr>
-<td><code>backend/app/routers/auth.py</code></td>
-<td>Login/signup/token, throttling-integratie, timing-hardening, gebruikersbeheer (<code>list_users</code>, <code>update_user</code>)</td>
-</tr>
-<tr>
-<td><code>backend/app/routers/admin.py</code></td>
-<td>Alle beheer- en destructieve endpoints achter <code>get_current_admin_user</code></td>
-</tr>
-<tr>
-<td><code>backend/app/routers/projects.py</code></td>
-<td>Projectbeheer (admin) + gescoopte project-dashboardlijst (<code>list_projects</code>)</td>
-</tr>
-<tr>
-<td><code>backend/app/routers/lookups.py</code></td>
-<td>Minimale gebruikers-/statuslijsten voor pickers (<code>GET /api/users</code>), leesbaar voor elke ingelogde gebruiker</td>
-</tr>
-<tr>
-<td><code>backend/app/services/auth_rate_limit_pg.py</code></td>
-<td>Login-/signup-throttling met exponentiële backoff</td>
+<td>Het gedeelde toegangscheckpoint voor familie- en sampledata</td>
 </tr>
 <tr>
 <td><code>backend/app/core/config.py</code></td>
-<td>Instellingen, <code>validate_security_defaults</code> (weigert zwakke geheimen), CORS-regexvalidatie, upload-caps, token-levensduur</td>
+<td>Weigering van zwakke geheimen, CORS-controle, uploadgrenzen</td>
 </tr>
 <tr>
-<td><code>backend/app/middleware/security_headers.py</code></td>
-<td>Strikte security-response-headers (CSP, X-Frame-Options, …)</td>
-</tr>
-<tr>
-<td><code>backend/app/middleware/request_logging.py</code></td>
-<td>Audit-trail naar <code>audit_log_events</code> met PII-minimalisatie</td>
-</tr>
-<tr>
-<td><code>backend/app/services/upload_safety.py</code></td>
-<td>Begrensd lezen/decomprimeren van uploads (anti-DoS)</td>
-</tr>
-<tr>
-<td><code>backend/app/core/html_sanitize.py</code></td>
-<td>Allowlist-HTML-sanitizer tegen opgeslagen XSS</td>
+<td><code>backend/app/middleware/</code></td>
+<td>Client-IP, security-headers en request-logging</td>
 </tr>
 <tr>
 <td><code>backend/db/schema/postgres/01_access.sql</code></td>
-<td><code>users</code>-tabel + rol-constraint (<code>admin</code>/<code>superuser</code>/<code>viewer</code>), koppeltabel <code>project_users</code>, en <code>auth_login_attempts</code> (de tabel achter de login-/signup-throttling)</td>
-</tr>
-<tr>
-<td><code>backend/db/schema/postgres/03_assay.sql</code></td>
-<td>Koppeltabellen <code>family_projects</code> / <code>sample_projects</code></td>
+<td><code>users</code> met de rolregel, <code>project_users</code>, <code>auth_login_attempts</code></td>
 </tr>
 <tr>
 <td><code>backend/db/schema/postgres/05_grants.sql</code></td>
-<td>Least-privilege runtime-rol <code>coga_app</code> + revoke op append-only tabellen</td>
+<td>De runtime-rol <code>coga_app</code> en de <code>REVOKE</code> op de append-only tabellen</td>
 </tr>
 <tr>
-<td><code>frontend/src/components/RequireAuth.tsx</code> · <code>RequireAdmin.tsx</code> · <code>SessionRedirect.tsx</code></td>
-<td>Frontend-guards (UX/defense-in-depth, geen echte poort)</td>
+<td><code>frontend/src/components/RequireAuth.tsx</code> · <code>RequireAdmin.tsx</code></td>
+<td>Bewakers in de browser (gemak, geen poort)</td>
 </tr>
 <tr>
-<td><code>frontend/src/lib/auth.ts</code></td>
-<td><code>isAuthenticated()</code> / <code>isAdmin()</code> en sessie-opslag in de browser</td>
-</tr>
-<tr>
-<td><code>frontend/src/lib/api.ts</code></td>
-<td>Bearer-token-interceptor + auto-logout bij <code>HTTP 401</code></td>
-</tr>
-<tr>
-<td><code>docs/db-runtime-role-runbook.md</code></td>
-<td>Runbook voor de DSN-flip naar <code>coga_app</code></td>
-</tr>
-<tr>
-<td><code>docs/security-posture.md</code></td>
-<td>Point-in-time beveiligingsreview (AuthN/RBAC, audit, encryptie)</td>
-</tr>
-<tr>
-<td><code>SECURITY-AUDIT-ALLOWLIST.md</code></td>
-<td>Gedateerd register van security-scan-onderdrukkingen (TF-13)</td>
+<td><code>docs/security-posture.md</code> · <code>docs/db-runtime-role-runbook.md</code></td>
+<td>Beveiligingsoverzicht en het draaiboek voor <code>coga_app</code></td>
 </tr>
 </tbody>
 </table></div>
