@@ -1,128 +1,115 @@
 # Development
 
-## Node version
+How to run CoGA on your own machine, reset it, and find out what went wrong. The data you
+work with locally is synthetic. The checks to run before a pull request are in
+[CONTRIBUTING.md](../CONTRIBUTING.md#before-you-open-a-pr); the architecture is in
+[application-scheme.md](application-scheme.md).
 
-Use **Node 22** — the same major CI pins (`node-version: "22"` in `ci.yml` and
-`security.yml`, `node:22-alpine` in `frontend/Dockerfile`). With `nvm`:
+## What you need
 
-```bash
-nvm use          # reads .nvmrc
-nvm install 22   # if you don't have a 22.x yet
-```
+- Docker with Docker Compose.
+- Python 3.12, the version CI and the backend image use.
+- Node.js 22, at least the version in `engines` in `frontend/package.json`. `.nvmrc` pins
+  only the major version, so `nvm use` can pick an older 22.x that you have installed; if npm
+  warns about the engine, run `nvm install 22`.
 
-The hard floor is **22.22.0**, declared as `engines.node` in `frontend/package.json`:
-`react-router` 8 requires it, and `npm` warns below it. Note that `.nvmrc` alone will not
-catch this — it pins the major, so `nvm use` happily selects an older 22.x (e.g. 22.17.0)
-if that is the newest 22 you have installed. If npm warns about the engine, run
-`nvm install 22` to pick up the current 22.x.
-
-## Services
-
-Local Docker services:
-
-- `postgres`
-- `clickhouse`
-- `backend`
-- `frontend`
-
-Start the production-style local stack:
+## First-time setup
 
 ```bash
-docker compose up --build -d
+cp .env.example .env
 ```
 
-Start the development stack with backend reload and the Vite dev server:
+`.env.example` lists every setting with its default. For local work, set
+`APP_ENV=development` in `.env`. The backend then accepts the placeholder passwords and keys,
+and serves the interactive API docs at <http://localhost:8000/docs>. With any other value it
+refuses to start until `SECRET_KEY`, `INTEGRITY_ANCHOR_SIGNING_KEY`, `POSTGRES_PASSWORD`,
+`CLICKHOUSE_PASSWORD` and `ADMIN_PASSWORD` hold real values; `.env.example` shows how to
+generate the first two. The same check applies to anything that loads the backend settings
+on your machine, such as the demo loader.
+
+## Run everything in Docker
+
+The development stack runs the backend with auto-reload and the frontend on the Vite dev
+server:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 ```
 
-Stop everything:
+- Web app: <http://localhost:3000>. Sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from
+  `.env`.
+- API: <http://localhost:8000/api/health>, with the API docs at <http://localhost:8000/docs>.
+- Postgres on `localhost:5432`; ClickHouse on `localhost:8123` (HTTP) and `localhost:9000`
+  (native). Only the web app is reachable from other machines.
+
+The development stack mounts `backend/`, `frontend/`, `scripts/` and `data/` into the
+containers, so code changes apply without a rebuild, and it sets `APP_ENV=development` for
+the backend container. Without the second file, `docker compose up --build -d` runs the
+production images instead: no reload, and the built frontend served by
+`frontend/server.mjs`.
+
+The first start downloads the GRCh38 cytobands (UCSC) and GENCODE gene annotations, so it
+needs internet access. Everything the backend does at startup is listed in
+[application-scheme.md](application-scheme.md#startup-and-background-work).
+
+## Run the backend or frontend on your machine
+
+Start only the databases in Docker:
 
 ```bash
-docker compose down
+docker compose up -d postgres clickhouse
 ```
 
-Full reset:
-
-```bash
-docker compose down -v
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
-```
-
-## Backend
+Backend, from `backend/` (it reads the `.env` at the repository root, which points it at the
+databases on `localhost`):
 
 ```bash
 cd backend
-python -m venv .venv
+python3.12 -m venv .venv
 . .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+pip install -r requirements-dev.txt
+uvicorn app.main:app --reload --port 8000
 ```
 
-Run tests:
+`requirements-dev.txt` is the runtime lock plus the test, lint and type-check tools.
 
-```bash
-backend/.venv/bin/python -m pytest
-```
-
-## Frontend
+Frontend, from `frontend/`:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Run checks:
+The Vite dev server listens on <http://localhost:5173> and forwards `/api` to the backend on
+`localhost:8000` (set `VITE_DEV_API_PROXY_TARGET` to use another backend). Run npm commands
+from `frontend/`; it is the only Node package in the repository.
+
+## Load demo data
+
+Two synthetic families come with the repository; [demo/README.md](../demo/README.md) says
+what they contain and how to load them.
+
+## Stop and reset
 
 ```bash
-cd frontend
-npm run tsc
-npm run lint
-npm test
-npm run build
+docker compose down      # stop; the data stays
+docker compose down -v   # stop and delete the local Postgres and ClickHouse data
 ```
 
-The frontend is the only Node package in the repository. Run npm commands from `frontend/`.
+After `down -v`, the next start creates an empty database again and re-runs the reference
+bootstrap.
 
-## Key Environment Variables
+### Upgrading the ClickHouse image
 
-| Variable | Purpose |
-| --- | --- |
-| `POSTGRES_HOST` | Postgres hostname |
-| `POSTGRES_PORT` | Postgres port |
-| `POSTGRES_DB` | Postgres database |
-| `POSTGRES_USER` | Postgres user |
-| `POSTGRES_PASSWORD` | Postgres password |
-| `CLICKHOUSE_HOST` | ClickHouse hostname |
-| `CLICKHOUSE_HTTP_PORT` | ClickHouse HTTP port used by the backend |
-| `CLICKHOUSE_DATABASE` | ClickHouse database |
-| `CLICKHOUSE_USER` | ClickHouse user |
-| `CLICKHOUSE_PASSWORD` | ClickHouse password |
-| `SECRET_KEY` | JWT signing secret |
-| `CORS_ORIGINS` | Allowed frontend origins |
-| `CORS_ORIGIN_REGEX` | Optional regex for local/dev frontend origins |
-| `READS_PATH` | BAM/CRAM directory |
-| `REFERENCE_FASTA_PATH` | Reference FASTA for sequence/CRAM lookups |
-| `GENE_REFERENCE_DBNSFP_GENE_PATH` | Local dbNSFP gene file for gene reference sync; defaults to `/data/ref-data/dbNSFP5.4_gene.gz` and online sources are used as fallback |
-| `GENE_REFERENCE_HGNC_COMPLETE_SET_URL` | HGNC complete set; defines which human genes the reference sync caches and resolves renamed symbols onto their current name |
-| `REFERENCE_GENCODE_GTF_URL` | GENCODE GTF supplying human GRCh38 gene loci, biotypes, Ensembl/HGNC ids and MANE tags; pinned by release, falls back to the UCSC track when unset or unreachable |
-| `REFERENCE_GENCODE_REFSEQ_METADATA_URL` | GENCODE transcript → RefSeq accession map, so lookups naming an `NM_`/`NR_` accession keep resolving |
-| `HPO_ONTOLOGY_SHA256` | Optional SHA-256 (hex) the HPO bootstrap download must match; unset, the digest of the downloaded file is logged. `HPO_ONTOLOGY_URL` must be HTTPS |
-| `REFERENCE_BOOTSTRAP_T2T` | Import T2T-CHM13v2.0 as a second human assembly on startup; off by default, since a second assembly roughly doubles the reference footprint |
-| `VALIDATED_ASSEMBLIES` | Comma-separated reference assemblies inside the validated scope (default `GRCh38`). A family on any other assembly is labelled "not validated for clinical use" and cannot be signed out; extend it only through change control (TF-18), after validation |
-| `REFERENCE_T2T_GTF_URL` | T2T gene loci (UCSC `hs1.ncbiRefSeq.gtf.gz`); RefSeq-derived, so coordinates but no biotypes, Ensembl ids or MANE tags |
-| `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP` | Queue the first dbNSFP-backed human gene reference sync on startup when GRCh38 genes exist and `gene_info` is still empty; defaults to `true` |
-| `TRUSTED_PROXY_HOPS` (backend) | Proxies in front of the backend that each append to `X-Forwarded-For`; the client address is taken that many entries from the right (#520). 0 (default) leaves it to uvicorn. docker compose sets it to 1 (`BACKEND_TRUSTED_PROXY_HOPS`) because the backend sits behind the frontend's `/api` proxy; Terraform sets 2 for the load balancer |
-| `VITE_API_BASE_URL` | Frontend API base URL; defaults to same-origin `/api`, proxied to the backend |
-| `API_PROXY_TIMEOUT_MS` | Frontend server: how long the backend has to start answering a proxied `/api` request before a 504; default 600000 (10 min) |
-| `TRUSTED_PROXY_HOPS` (frontend) | Frontend server: reverse proxies in front of it that append to `X-Forwarded-For`; 0 (default) when the frontend is the edge, so client-sent values are ignored. In docker compose set it as `FRONTEND_TRUSTED_PROXY_HOPS` in `.env`, so it is not confused with the backend's |
-| `CSP_CONNECT_SRC` | Frontend server: narrows the CSP `connect-src` source list (default `'self' https:`), e.g. `'self' https://storage.googleapis.com https://*.igv.org`; a value containing `;` is refused |
+When the ClickHouse image changes, the next start upgrades the `clickhouse_data` volume in
+place, and the older image may not read it afterwards. Stop the stack cleanly first
+(`docker compose stop`; ClickHouse gets five minutes to finish its merges). The local data is
+synthetic and can be imported again; to keep it anyway, copy the volume before upgrading.
 
 ## Troubleshooting
 
-Check containers:
+Check the containers and their logs:
 
 ```bash
 docker compose ps
@@ -131,26 +118,22 @@ docker compose logs postgres --tail=100
 docker compose logs clickhouse --tail=100
 ```
 
-Check backend env inside the container:
+Check the backend's connection settings without printing any secret:
 
 ```bash
-docker exec coga-backend-1 printenv | egrep '^(POSTGRES_|CLICKHOUSE_|SECRET_KEY|READS_PATH|REFERENCE_)'
+docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT|DB|USER)|CLICKHOUSE_(HOST|HTTP_PORT|DATABASE|USER))='
 ```
 
-## Upgrading a local ClickHouse volume
-
-When the ClickHouse image changes (25.3 → 26.8 LTS in #524), the next `docker compose up`
-upgrades the `clickhouse_data` volume in place, and the previous image is not guaranteed to
-read it afterwards. Stop the stack cleanly first (`docker compose stop`; the ClickHouse
-service has a five-minute stop grace period so it can finish merging). The local data is
-synthetic and can be re-imported; to keep it anyway, copy the volume before upgrading.
-
-## Storage Notes
-
-- Metadata issues usually come from Postgres schema or bad UUID references.
-- Variant ingestion/listing issues usually come from ClickHouse schema or assembly table creation.
-- The Administration data-management page now includes a ClickHouse variant operations section for inspecting per-assembly table status and running ensure/optimize actions.
-- The same maintenance API is available through:
-  - `GET /admin/clickhouse/variants`
-  - `POST /admin/clickhouse/variants/{assembly_name}/ensure`
-  - `POST /admin/clickhouse/variants/{assembly_name}/optimize`
+- **"Refusing to start … with missing or weak secrets"** — `APP_ENV` is not `development`
+  and a secret still holds a placeholder; see [First-time setup](#first-time-setup).
+- **The web app cannot reach the API** — the backend is still starting or keeps restarting;
+  read its log.
+- **Families, samples or users look wrong** — that data is in Postgres; look for schema
+  errors near the start of the backend log.
+- **Variants do not list or import** — this usually sits in an assembly's ClickHouse tables.
+  An admin can check them under Administration → ClickHouse Tables & Operations
+  (`/admin/operations/clickhouse`): table status, an integrity check, and buttons to create
+  missing tables, rebuild the small-variant gene index and optimize the tables. The API
+  offers the same: `GET /api/admin/clickhouse/variants` lists the assemblies, and under
+  `/api/admin/clickhouse/variants/{assembly_name}/` are `ensure`, `optimize` and
+  `rebuild-small-variant-gene-index` (POST) and `integrity` (GET).
