@@ -410,6 +410,20 @@ page asks before it sends that.
 uploaded as a BED; they come from a GLIMPSE2 small-variant upload (`source_format=glimpse2`)
 or package.
 
+A structural-variant upload loads one sample's calls from one caller, and only that caller's
+calls are checked and replaced:
+
+- `source_format` is `sniffles`, `spectre`, `manual` (a TSV, stored as source `manual_upload`)
+  or `auto`, the default, which works the caller out from the file. Any other value is
+  refused (400).
+- The upload is refused (409) only when the sample already has calls from the same source.
+- `overwrite=true` replaces that sample's calls from that source. The other samples' calls
+  from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another
+  caller's upload), stay as they are.
+
+Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls
+from every source.
+
 ## 7. Troubleshooting
 
 | Message or symptom | Cause |
