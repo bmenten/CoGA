@@ -2,12 +2,17 @@
 
 The client sends the criteria it applied; the server validates them and recomputes the
 points and the class, so a stored classification cannot drift from its criteria.
+
+Every save that changes the classification, the CNV scoring, the tags or the note is
+recorded in the hash-chained clinical audit trail, in the same transaction, like a
+small-variant review save.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import math
 import types
 from datetime import datetime, timezone
 
@@ -15,11 +20,13 @@ import pytest
 from fastapi import HTTPException
 
 from backend.app.schemas import CnvAcmgClassificationPayload, CnvAcmgCriterion, SmallVariantReviewUpdate
+from backend.app.services import clinical_audit_service as cas
 from backend.app.services import structural_variant_review_pg as svr
 from backend.app.services.access_control import CurrentUser
+from backend.app.services.hash_chain import verify_chain
 
 FAMILY = "00000000-0000-0000-0000-00000000f001"
-CONTEXT = types.SimpleNamespace(family_uuid=FAMILY, project_ids=["p1"])
+CONTEXT = types.SimpleNamespace(family_uuid=FAMILY, family_id="FAM1", project_ids=["p1"])
 USER = CurrentUser(
     id="u1",
     username="reviewer",
@@ -120,11 +127,13 @@ class _Result:
 
 
 class _ReviewTable:
-    """An in-memory structural_variant_reviews table behind the queries the service runs."""
+    """An in-memory structural_variant_reviews table behind the queries the service runs,
+    with the clinical_audit_events rows the save appends (and their chain head)."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict] = {}
         self.statements: list[str] = []
+        self.audit: list[dict] = []
 
     async def execute(self, statement, params=None):
         sql = " ".join(str(statement).split())
@@ -132,7 +141,11 @@ class _ReviewTable:
         self.statements.append(sql.split(" ")[0] + (" LOCK" if "pg_advisory_xact_lock" in sql else ""))
         if sql.startswith("SELECT id::text AS id"):
             return _Result(self.rows.get(params["variant_id"]))
-        if sql.startswith("INSERT INTO structural_variant_reviews"):
+        if sql.startswith("SELECT created_at, row_hash FROM clinical_audit_events"):
+            return _Result(self.audit[-1] if self.audit else None)
+        if sql.startswith("INSERT INTO clinical_audit_events"):
+            self.audit.append(dict(params))
+        elif sql.startswith("INSERT INTO structural_variant_reviews"):
             self.rows[params["variant_id"]] = self._row(params, review_id=f"r-{len(self.rows) + 1}")
         elif sql.startswith("UPDATE structural_variant_reviews"):
             existing = next(r for r in self.rows.values() if r["id"] == params["review_id"])
@@ -299,6 +312,8 @@ def test_a_save_against_a_changed_review_is_refused_and_writes_nothing() -> None
         _save(table, stale)
     assert refused.value.status_code == 409
     assert table.rows["sv1"]["note"] == "another reviewer's note"
+    # The refused save leaves no trace in the clinical audit trail either.
+    assert [event["action"] for event in table.audit] == ["note"]
 
 
 def test_an_unknown_tag_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -316,3 +331,145 @@ def test_a_blank_variant_id_is_refused() -> None:
     with pytest.raises(HTTPException) as refused:
         _save(_ReviewTable(), SmallVariantReviewUpdate(note="x"), variant_id="  ")
     assert refused.value.status_code == 400
+
+
+# --- every change is recorded in the clinical audit trail -------------------------------------
+
+
+def _audit_rows(table: _ReviewTable) -> list[dict]:
+    """The recorded events as the chain verifier reads them back (JSON columns decoded)."""
+    return [
+        {
+            **event,
+            "before": json.loads(event["before"]) if event["before"] else None,
+            "after": json.loads(event["after"]) if event["after"] else None,
+            "metadata": json.loads(event["metadata"]),
+        }
+        for event in table.audit
+    ]
+
+
+def test_a_cnv_classification_is_recorded_in_the_audit_trail() -> None:
+    table = _ReviewTable()
+    _save(
+        table,
+        SmallVariantReviewUpdate(
+            classification="Pathogenic - class 5",
+            cnv_acmg=_payload("loss", ("2A", 1.0, True), ("3A", 0.0, False)),
+        ),
+    )
+
+    [event] = _audit_rows(table)
+    assert (event["action"], event["variant_id"], event["family_identifier"]) == ("classification", "sv1", "FAM1")
+    assert (event["actor"], event["actor_id"]) == ("reviewer", "u1")
+    assert event["summary"] == (
+        "Classification unclassified → Pathogenic - class 5; "
+        "CNV classification unclassified → Pathogenic - class 5"
+    )
+    # The criteria the class rests on, with their points; an unaccepted one is not listed.
+    assert event["after"] == {
+        "classification": "Pathogenic - class 5",
+        "cnv_class": "cnv_class_5",
+        "cnv_kind": "loss",
+        "cnv_point_total": 1.0,
+        "cnv_criteria": [{"code": "2A", "points": 1.0}],
+    }
+    assert event["before"]["cnv_class"] is None and event["before"]["cnv_criteria"] == []
+    # Marked as a structural variant, so its id is never read as a small variant's.
+    assert event["metadata"] == {"modality": "sv"}
+
+
+def test_tag_and_note_changes_are_recorded_as_separate_events() -> None:
+    table = _ReviewTable()
+    _save(table, SmallVariantReviewUpdate(note="first look"))
+    _save(table, SmallVariantReviewUpdate(note="second look", tags=[]))
+    table.audit.clear()
+
+    async def definitions(session, *, family_uuid, project_ids):
+        return [types.SimpleNamespace(key="report")]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(svr, "list_small_variant_tag_definitions", definitions)
+        _save(table, SmallVariantReviewUpdate(note="second look", tags=["report"]))
+
+    [event] = _audit_rows(table)
+    assert (event["action"], event["summary"]) == ("tags", "Tags added report")
+    assert (event["before"], event["after"]) == ({"tags": []}, {"tags": ["report"]})
+
+
+def test_an_unchanged_save_records_nothing() -> None:
+    table = _ReviewTable()
+    payload = SmallVariantReviewUpdate(note="same", cnv_acmg=_payload("gain", ("2C", -1.0, True)))
+    _save(table, payload)
+    recorded = len(table.audit)
+    _save(table, payload)
+    assert len(table.audit) == recorded == 2  # classification + note, once
+
+
+def test_cleared_cnv_scoring_is_recorded() -> None:
+    table = _ReviewTable()
+    _save(table, SmallVariantReviewUpdate(note="scored", cnv_acmg=_payload("loss", ("2A", 1.0, True))))
+    _save(table, SmallVariantReviewUpdate(note="scored", cnv_acmg=_payload("loss")))
+
+    event = _audit_rows(table)[-1]
+    assert event["action"] == "classification"
+    assert event["summary"] == "CNV classification Pathogenic - class 5 → unclassified"
+    assert event["after"]["cnv_criteria"] == [] and event["after"]["cnv_point_total"] is None
+
+
+def test_a_points_only_change_is_recorded_as_a_criteria_update() -> None:
+    table = _ReviewTable()
+    _save(table, SmallVariantReviewUpdate(cnv_acmg=_payload("loss", ("2B", 0.15, True))))
+    _save(table, SmallVariantReviewUpdate(cnv_acmg=_payload("loss", ("2B", 0.30, True))))
+
+    event = _audit_rows(table)[-1]
+    assert event["summary"] == "CNV criteria updated (VUS - class 3)"
+    assert (event["before"]["cnv_point_total"], event["after"]["cnv_point_total"]) == (0.15, 0.3)
+
+
+def test_deleting_a_review_records_what_was_removed() -> None:
+    async def definitions(session, *, family_uuid, project_ids):
+        return [types.SimpleNamespace(key="report")]
+
+    table = _ReviewTable()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(svr, "list_small_variant_tag_definitions", definitions)
+        _save(
+            table,
+            SmallVariantReviewUpdate(
+                classification="Likely pathogenic", tags=["report"], note="to report"
+            ),
+        )
+    table.audit.clear()
+    _save(table, SmallVariantReviewUpdate())  # an empty save deletes the review
+
+    assert table.rows == {}
+    events = _audit_rows(table)
+    assert [event["action"] for event in events] == ["classification", "tags", "note"]
+    assert [event["summary"] for event in events] == [
+        "Classification Likely pathogenic → unclassified",
+        "Tags removed report",
+        "Note removed",
+    ]
+
+
+def test_the_recorded_events_form_a_verifiable_chain() -> None:
+    table = _ReviewTable()
+    _save(table, SmallVariantReviewUpdate(note="n1", cnv_acmg=_payload("loss", ("2A", 1.0, True))))
+    # 0.30 + 0.15 - 0.45 is a hair below zero and rounds to a -0.0 point total.
+    _save(
+        table,
+        SmallVariantReviewUpdate(
+            note="n2",
+            cnv_acmg=_payload("loss", ("4C", 0.30, True), ("2H", 0.15, True), ("5D", -0.45, True)),
+        ),
+    )
+    _save(table, SmallVariantReviewUpdate())
+
+    rows = _audit_rows(table)
+    assert len(rows) == 6
+    assert rows[0]["prev_hash"] is None
+    assert all(later["prev_hash"] == earlier["row_hash"] for earlier, later in zip(rows, rows[1:]))
+    assert verify_chain(rows, cas._clinical_chain_payload).verified
+    # The stored total is -0.0; the audit records 0.0, the value Postgres reads back.
+    assert table.audit and math.copysign(1.0, rows[2]["after"]["cnv_point_total"]) == 1.0

@@ -3,6 +3,8 @@
 Records who classified / tagged / annotated which variant, when, and what changed
 (before -> after), in the same transaction as the change itself, into the
 append-only ``clinical_audit_events`` table (see docs/clinical-traceability.md).
+Small-variant and structural-variant (SV / CNV) review saves and report sign-out
+write here, all on the one per-family hash chain.
 
 This is the clinical *action* log; ``audit_log_pg`` remains the HTTP *access* log.
 """
@@ -10,6 +12,7 @@ This is the clinical *action* log; ``audit_log_pg`` remains the HTTP *access* lo
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -17,6 +20,7 @@ from uuid import uuid4
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import cnv_acmg_points
 from .family_metadata_context import build_family_metadata_context
 from .hash_chain import ChainVerification, chain_row_hash, verify_chain
 from .access_control import CurrentUser
@@ -93,6 +97,13 @@ def diff_review_changes(
             }
         )
 
+    events.extend(_tags_and_note_events(prior, new_state))
+    return events
+
+
+def _tags_and_note_events(prior: dict[str, Any], new_state: dict[str, Any]) -> list[dict[str, Any]]:
+    """The ``tags`` and ``note`` events of a review save; shared by every variant type."""
+    events: list[dict[str, Any]] = []
     old_tags = sorted(prior.get("tags") or [])
     new_tags = sorted(new_state.get("tags") or [])
     if old_tags != new_tags:
@@ -130,6 +141,126 @@ def diff_review_changes(
             }
         )
 
+    return events
+
+
+# What a structural-variant review's ``classification`` event records: the reviewer's
+# classification and, for a CNV, the ClinGen 2019 scoring behind it. Both are frozen
+# into the signed report (``reported_structural_variants``), so both are audited.
+_STRUCTURAL_CLASSIFICATION_FIELDS = (
+    "classification",
+    "cnv_class",
+    "cnv_kind",
+    "cnv_point_total",
+    "cnv_criteria",
+)
+
+
+def _cnv_label(value: Any) -> str:
+    return cnv_acmg_points.CLASS_LABELS.get(value, value) if value else "unclassified"
+
+
+def _audit_points(value: Any) -> float | None:
+    """A CNV point value as the chained payload records it: finite, and never -0.0.
+
+    The payload is hashed when it is written and again after the JSONB round-trip when
+    the chain is verified. Postgres numerics have no negative zero, so a -0.0 would read
+    back as 0 and break the chain — and one is easy to reach: 0.30 + 0.15 - 0.45 sums to
+    a hair below zero, which rounds to -0.0. Adding 0.0 turns -0.0 into 0.0 and leaves
+    every other value exactly as it is.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        points = float(value)
+    except (TypeError, ValueError):
+        return None
+    return points + 0.0 if math.isfinite(points) else None
+
+
+def _cnv_record(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, dict) else None
+
+
+def _accepted_cnv_criteria(cnv: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """The accepted CNV criteria with the points given (evidence text is not recorded,
+    as for small variants), in a fixed order."""
+    raw = (cnv or {}).get("criteria")
+    accepted = [
+        {"code": str(criterion["code"]), "points": _audit_points(criterion.get("points"))}
+        for criterion in (raw if isinstance(raw, list) else [])
+        if isinstance(criterion, dict) and criterion.get("accepted") and criterion.get("code")
+    ]
+    return sorted(
+        accepted,
+        key=lambda item: (item["code"], -math.inf if item["points"] is None else item["points"]),
+    )
+
+
+def structural_review_state(review: dict[str, Any] | None) -> dict[str, Any]:
+    """The audited content of a structural-variant (SV / CNV) review.
+
+    ``review`` is a stored ``structural_variant_reviews`` row or the values a save writes
+    (``classification``, ``cnv_acmg``, ``cnv_point_total``, ``cnv_class``, ``tags``,
+    ``note``); ``None`` is no review.
+    """
+    prior = review or {}
+    cnv = _cnv_record(prior.get("cnv_acmg"))
+    return {
+        "classification": str(prior.get("classification") or "").strip() or None,
+        "cnv_class": prior.get("cnv_class") or None,
+        "cnv_kind": (cnv or {}).get("kind") or None,
+        "cnv_point_total": _audit_points(prior.get("cnv_point_total")),
+        "cnv_criteria": _accepted_cnv_criteria(cnv),
+        "tags": sorted(prior.get("tags") or []),
+        "note": str(prior.get("note") or "").strip() or None,
+    }
+
+
+def _structural_classification_summary(before: dict[str, Any], after: dict[str, Any]) -> str:
+    parts: list[str] = []
+    if before["classification"] != after["classification"]:
+        parts.append(
+            f"Classification {before['classification'] or 'unclassified'} → "
+            f"{after['classification'] or 'unclassified'}"
+        )
+    if before["cnv_class"] != after["cnv_class"]:
+        parts.append(
+            f"CNV classification {_cnv_label(before['cnv_class'])} → "
+            f"{_cnv_label(after['cnv_class'])}"
+        )
+    elif any(before[key] != after[key] for key in ("cnv_kind", "cnv_point_total", "cnv_criteria")):
+        parts.append(f"CNV criteria updated ({_cnv_label(after['cnv_class'])})")
+    return "; ".join(parts)
+
+
+def diff_structural_review_changes(
+    existing: dict[str, Any] | None, new_state: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """The clinical audit events a structural-variant (SV / CNV) review save implies.
+
+    As for small variants: one ``classification`` event when the reviewer's
+    classification or the CNV (ClinGen) scoring changes, one ``tags`` and one ``note``
+    event, each before -> after. ``new_state`` None is a review that was deleted.
+    """
+    before = structural_review_state(existing)
+    after = structural_review_state(new_state)
+    events: list[dict[str, Any]] = []
+    if any(before[key] != after[key] for key in _STRUCTURAL_CLASSIFICATION_FIELDS):
+        events.append(
+            {
+                "action": "classification",
+                "summary": _structural_classification_summary(before, after),
+                "before": {key: before[key] for key in _STRUCTURAL_CLASSIFICATION_FIELDS},
+                "after": {key: after[key] for key in _STRUCTURAL_CLASSIFICATION_FIELDS},
+            }
+        )
+    events.extend(_tags_and_note_events(before, after))
     return events
 
 
@@ -268,7 +399,54 @@ async def record_review_changes(
     new_state: dict[str, Any],
 ) -> None:
     """Record the clinical audit events for a small-variant review save."""
-    for event in diff_review_changes(existing, new_state):
+    await _record_review_events(
+        session,
+        diff_review_changes(existing, new_state),
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        variant_id=variant_id,
+        user=user,
+    )
+
+
+async def record_structural_review_changes(
+    session: AsyncSession,
+    *,
+    family_uuid: str | None,
+    family_identifier: str | None,
+    variant_id: str,
+    user: CurrentUser,
+    existing: dict[str, Any] | None,
+    new_state: dict[str, Any] | None,
+) -> None:
+    """Record the clinical audit events for a structural-variant (SV / CNV) review save.
+
+    On the family's one chain, like the small-variant events; each is marked
+    ``metadata.modality = "sv"`` so an SV id is never read as a small-variant id.
+    ``new_state`` None records the deletion of the review.
+    """
+    await _record_review_events(
+        session,
+        diff_structural_review_changes(existing, new_state),
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        variant_id=variant_id,
+        user=user,
+        metadata={"modality": "sv"},
+    )
+
+
+async def _record_review_events(
+    session: AsyncSession,
+    events: list[dict[str, Any]],
+    *,
+    family_uuid: str | None,
+    family_identifier: str | None,
+    variant_id: str,
+    user: CurrentUser,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    for event in events:
         await record_clinical_event(
             session,
             family_uuid=family_uuid,
@@ -280,6 +458,7 @@ async def record_review_changes(
             summary=event["summary"],
             before=event["before"],
             after=event["after"],
+            metadata=dict(metadata) if metadata else None,
         )
 
 

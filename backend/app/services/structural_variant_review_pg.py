@@ -17,6 +17,7 @@ from ..schemas import (
     SmallVariantReviewUpdate,
 )
 from . import cnv_acmg_points
+from .clinical_audit_service import record_structural_review_changes
 from .family_metadata_context import FamilyMetadataContext
 from .access_control import CurrentUser
 from .review_pg_utils import (
@@ -342,6 +343,19 @@ async def upsert_structural_variant_review(
         cnv_class = existing.get("cnv_class")
     now = datetime.now(timezone.utc)
 
+    async def _audit(new_state: dict[str, Any] | None) -> None:
+        # The before -> after of this save in the immutable clinical audit trail, on the
+        # family's hash chain and in this save's transaction, as for small variants.
+        await record_structural_review_changes(
+            session,
+            family_uuid=context.family_uuid,
+            family_identifier=context.family_id,
+            variant_id=normalized_variant_id,
+            user=user,
+            existing=existing,
+            new_state=new_state,
+        )
+
     if (
         normalized_note is None
         and normalized_classification is None
@@ -353,6 +367,7 @@ async def upsert_structural_variant_review(
                 text("DELETE FROM structural_variant_reviews WHERE id = CAST(:review_id AS uuid)"),
                 {"review_id": existing["id"]},
             )
+            await _audit(None)
             await session.commit()
         return SmallVariantReviewOut(variant_id=normalized_variant_id, tags=[])
 
@@ -432,6 +447,16 @@ async def upsert_structural_variant_review(
             ),
             {**fields, "family_id": context.family_uuid, "created_at": now},
         )
+    await _audit(
+        {
+            "classification": normalized_classification,
+            "tags": normalized_tags,
+            "note": normalized_note,
+            "cnv_acmg": cnv_blob,
+            "cnv_point_total": cnv_point_total,
+            "cnv_class": cnv_class,
+        }
+    )
     await session.commit()
     refreshed = await _fetch_review_row(
         session,
