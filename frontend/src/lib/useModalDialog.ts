@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -93,7 +92,10 @@ export function useModalDialog({
     requestCloseRef.current = requestClose;
   });
 
-  useEffect(() => {
+  // A layout effect, so the dialog answers Escape from the commit that draws it: in a
+  // passive effect, which runs in a later task, an Escape pressed in between reached the
+  // dialog underneath (#529).
+  useLayoutEffect(() => {
     const token = {};
     openDialogs.push(token);
     const dialog = dialogRef.current;
