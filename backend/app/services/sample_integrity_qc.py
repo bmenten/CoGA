@@ -518,12 +518,18 @@ _PROFILES: dict[ApplicationKind, QcProfile] = {
         run_sex=True, run_relatedness=True, run_mendelian=True,
         run_paternity=False, highlight_embryos=True,
     ),
+    # The per-member sex check is off here; the service sexes the father and the cfDNA
+    # sample itself (extra_sex_checks), which is why the summary still names it.
     "nipt": QcProfile(
         "nipt", "Monogenic NIPT (cfDNA)",
-        "cfDNA integrity: paternity is confirmed from paternal-transmitted sites "
-        "(categories 7/8), which excludes a sample mixup. Genotype relatedness and "
-        "chrX-heterozygosity sex do not apply to a maternal/fetal mixture; fetal "
-        "sex (chrY) is a separate check not yet wired here.",
+        "cfDNA integrity from the NIPT classification: paternity is confirmed from "
+        "paternal-transmitted sites (categories 7/8), which excludes a sample mixup; "
+        "fetal sex is read from paternal-X transmission (no chrY needed); and the "
+        "category distribution is checked (de-novo excess, ~50% maternal transmission). "
+        "Parent sex is checked from chrX zygosity for the father and for the cfDNA "
+        "sample, which reads as the mother because maternal DNA dominates the plasma. "
+        "Genotype relatedness and Mendelian errors do not apply to a maternal/fetal "
+        "mixture.",
         run_sex=False, run_relatedness=False, run_mendelian=False,
         run_paternity=True, highlight_embryos=False,
     ),

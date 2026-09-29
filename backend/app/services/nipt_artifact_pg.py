@@ -2,8 +2,9 @@
 
 Artifacts are scoped per ``(assembly_id, assay_key)`` -- recurrent artifacts are
 capture/chemistry-specific, so a new panel starts with a clean list. The list is
-manually curated through the admin endpoints; ``load_nipt_artifact_ids`` provides
-the fast membership set the analysis uses to exclude (and count) artifacts.
+curated through the admin API (no UI), where ``auto-seed`` proposes candidates from
+recurrence in the assay's own cfDNA samples; ``load_nipt_artifact_ids`` provides the
+fast membership set the analysis uses to exclude (and count) artifacts.
 
 See docs/monogenic-nipt.md.
 """
@@ -17,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .clickhouse_family_variants import fetch_recurrent_small_variant_ids
+from .nipt import NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_PANEL_KEY, assay_key_for_sample_metadata
 
 _ARTIFACT_COLUMNS = """
     id::text AS id,
@@ -189,6 +191,36 @@ async def _resolve_assembly_name(session: AsyncSession, assembly_id: str) -> str
     return str(row[0]) if row else None
 
 
+async def _assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) -> dict[str, str]:
+    """The cfDNA samples whose artifact scope is ``assay_key``, keyed by each identifier
+    ClickHouse may store for them (name and UUID) -> the sample name.
+
+    A cfDNA sample is one tagged ``assay: nipt_cfdna``; its scope is its
+    ``assay_panel``, resolved as ``nipt_assay_key`` resolves it for the analysis.
+    """
+    result = await session.execute(
+        text(
+            """
+            SELECT id::text AS sample_uuid,
+                   sample_id,
+                   CASE WHEN jsonb_typeof(metadata -> 'assay_panel') = 'string'
+                        THEN metadata ->> 'assay_panel' END AS assay_panel
+            FROM samples
+            WHERE metadata ->> 'assay' = :assay
+            ORDER BY sample_id
+            """
+        ),
+        {"assay": NIPT_CFDNA_ASSAY},
+    )
+    carriers: dict[str, str] = {}
+    for sample_uuid, sample_name, assay_panel in result.all():
+        if assay_key_for_sample_metadata({SAMPLE_ASSAY_PANEL_KEY: assay_panel}) != assay_key:
+            continue
+        carriers[str(sample_name)] = str(sample_name)
+        carriers[str(sample_uuid)] = str(sample_name)
+    return carriers
+
+
 async def auto_seed_nipt_artifacts(
     session: AsyncSession,
     *,
@@ -197,16 +229,30 @@ async def auto_seed_nipt_artifacts(
     min_carrier_samples: int = 5,
     created_by: str | None = None,
 ) -> dict[str, int]:
-    """Seed the artifact list from internal cohort recurrence.
+    """Seed the artifact list from recurrence among the assay's own cfDNA samples.
 
-    Variants carried by at least ``min_carrier_samples`` distinct samples across
-    the assembly are upserted as ``source='auto'`` artifacts for the scope.
+    A variant is upserted as a ``source='auto'`` artifact for the scope when at least
+    ``min_carrier_samples`` distinct cfDNA samples of this assay carry it and it is
+    not common in the population. Both limits protect the fetal fraction. FF is read
+    off paternal sites that are mostly common SNPs, and every common variant is
+    carried by many samples, so counting recurrence across the whole assembly -- as
+    this did, every assay and application pooled -- listed the very sites FF relies
+    on (and other assays' artifacts), and the analysis then excluded them.
+
+    Known limits; review the auto entries before relying on them. "Not common" is
+    the import-time gnomAD/TopMed > 5% flag, so a site with no population annotation,
+    or a real variant that recurs below 5% (a founder pathogenic allele, say), can
+    still be seeded, and is then excluded from this assay's NIPT analyses. A cfDNA
+    sample counts only when tagged ``assay: nipt_cfdna``.
     """
     assembly_name = await _resolve_assembly_name(session, assembly_id)
     if assembly_name is None:
         raise HTTPException(status_code=404, detail="Assembly not found")
     recurrent = await fetch_recurrent_small_variant_ids(
-        assembly_name, min_carrier_samples=min_carrier_samples
+        assembly_name,
+        min_carrier_samples=min_carrier_samples,
+        carrier_samples=await _assay_cfdna_carrier_samples(session, assay_key=assay_key),
+        exclude_common=True,
     )
     seeded = await bulk_upsert_nipt_artifacts(
         session,

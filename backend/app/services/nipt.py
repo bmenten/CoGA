@@ -109,6 +109,14 @@ def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:
     )
 
 
+def assay_key_for_sample_metadata(metadata: dict | None) -> str:
+    """The artifact-list scope of a cfDNA sample: its ``assay_panel``, else the default."""
+    panel = (metadata or {}).get(SAMPLE_ASSAY_PANEL_KEY)
+    if isinstance(panel, str) and panel.strip():
+        return panel.strip()
+    return DEFAULT_NIPT_ASSAY_KEY
+
+
 def nipt_assay_key(family: FamilyOut, trio: NiptTrio) -> str:
     """The artifact-list scope key for the family's cfDNA assay/panel.
 
@@ -118,8 +126,5 @@ def nipt_assay_key(family: FamilyOut, trio: NiptTrio) -> str:
     """
     for member in family.members:
         if member.sample_id == trio.cfdna_sample_id:
-            panel = (member.sample_metadata or {}).get(SAMPLE_ASSAY_PANEL_KEY)
-            if isinstance(panel, str) and panel.strip():
-                return panel.strip()
-            break
+            return assay_key_for_sample_metadata(member.sample_metadata)
     return DEFAULT_NIPT_ASSAY_KEY

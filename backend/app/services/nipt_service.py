@@ -39,6 +39,7 @@ from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_variant_filters import SmallVariantQueryFilters
+from .genotypes import classify_genotype
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
 from .nipt import NiptTrio, nipt_assay_key, resolve_nipt_trio
@@ -57,7 +58,7 @@ from .nipt_analysis import (
     NiptQualityThresholds,
     NiptSiteObservation,
     classify_site,
-    estimate_fetal_fraction,
+    filter_sites_and_estimate_ff,
     run_nipt_analysis,
 )
 
@@ -89,16 +90,17 @@ def _gt_alleles(gt: str | None) -> list[str]:
 
 
 def derive_father_state(call: SmallVariantCall | None) -> str:
-    """Map a germline genotype to hom_ref / het / hom_alt / missing."""
-    alleles = _gt_alleles(call.gt) if call is not None else []
-    if not alleles:
-        return "missing"
-    alt_count = sum(1 for allele in alleles if allele != "0")
-    if alt_count == 0:
-        return "hom_ref"
-    if len(alleles) >= 2 and alt_count >= len(alleles):
-        return "hom_alt"
-    return "het"
+    """Map a germline genotype to hom_ref / het / hom_alt / missing.
+
+    The state is the shared genotype class (#511), with no-call read as missing. So a
+    haploid call -- a male's non-PAR chrX from callers that emit ploidy 1 -- is
+    hemizygous: ``1`` is hom_alt, which the paternal-X fetal-sex check needs (it used
+    to read as het and was skipped), and ``0`` is hom_ref. A half call ``./1`` carries
+    an alt but is only het; a half reference call ``./0`` is no call rather than a
+    confident hom-ref.
+    """
+    genotype_class = classify_genotype(call.gt) if call is not None else "no_call"
+    return "missing" if genotype_class == "no_call" else genotype_class
 
 
 def _cfdna_alt_reads(call: SmallVariantCall) -> int | None:
@@ -267,9 +269,18 @@ def _estimate_cohort_fetal_fraction(
     records: list[SmallVariantRecord],
     trio: NiptTrio,
     qc: NiptQualityThresholds,
+    artifact_ids: set[str],
     external_ff: float | None,
 ) -> FetalFractionEstimate:
-    return estimate_fetal_fraction(_family_sites(records, trio), qc, external_ff=external_ff)
+    # The summary's computation, over the same filtered sites, so the variant list
+    # reports -- and classifies against -- the fetal fraction the summary shows. It used
+    # to estimate over every family site, listed artifacts included.
+    return filter_sites_and_estimate_ff(
+        _family_sites(records, trio),
+        qc,
+        artifact_lookup=artifact_ids.__contains__,
+        external_ff=external_ff,
+    ).fetal_fraction
 
 
 def _classify_candidates(
@@ -453,12 +464,12 @@ async def get_family_nipt_variants(
     )
 
     # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are
-    # rarely inside the clinical filter), then the filtered subset is classified
-    # against that FF. Both steps are CPU work over many sites, so they run in a
-    # worker thread (#527).
+    # rarely inside the clinical filter), exactly as the summary estimates it, then
+    # the filtered subset is classified against that FF. Both steps are CPU work over
+    # many sites, so they run in a worker thread (#527).
     cohort_records = await _load_family_records(context)
     ff_estimate = await asyncio.to_thread(
-        _estimate_cohort_fetal_fraction, cohort_records, trio, qc, external_ff
+        _estimate_cohort_fetal_fraction, cohort_records, trio, qc, artifact_ids, external_ff
     )
 
     panel_constraints = PanelFilterConstraints()

@@ -243,6 +243,19 @@ def test_nipt_profile_runs_no_genotype_checks() -> None:
     assert report.mendelian_checks == []
 
 
+def test_nipt_profile_summary_names_the_checks_it_runs() -> None:
+    # The NIPT page runs fetal sex (from paternal-X transmission, no chrY) and chrX-zygosity
+    # sex for the father and the cfDNA sample; its summary said the first was "not yet
+    # wired" and that chrX-heterozygosity sex did not apply.
+    summary = profile_for("nipt").summary.lower()
+    assert "not yet wired" not in summary
+    assert "heterozygosity sex do not apply" not in summary
+    assert "fetal sex" in summary and "paternal-x" in summary
+    assert "chrx" in summary and "father" in summary and "cfdna sample" in summary
+    # What genuinely does not run on a maternal/fetal mixture is still said.
+    assert "relatedness" in summary and "mendelian" in summary
+
+
 def test_evaluate_paternity_supported_vs_mixup() -> None:
     # Plenty of cat-7 (paternal transmitted), little cat-8 absence -> paternity ok.
     ok = evaluate_paternity("FATHER", {7: 40, 8: 2})

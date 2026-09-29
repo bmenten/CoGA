@@ -9,6 +9,8 @@ from fastapi import HTTPException
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import nipt_service
 from backend.app.services.clickhouse_variant_records import Region, SmallVariantCall, SmallVariantRecord
+from backend.app.services.genotypes import GENOTYPE_CLASSES, classify_genotype, genotype_vocabulary
+from backend.app.services.nipt_analysis import NiptQualityThresholds, run_nipt_analysis
 from backend.app.services.nipt_service import (
     build_nipt_observations,
     derive_father_state,
@@ -64,6 +66,16 @@ def _record(
         ("1|1", "hom_alt"),
         ("./.", "missing"),
         ("", "missing"),
+        # Haploid calls (a male's non-PAR chrX from callers that emit ploidy 1): the one
+        # allele he has is the call, so "1" is hom-alt, not het.
+        ("1", "hom_alt"),
+        ("0", "hom_ref"),
+        (".", "missing"),
+        # A half call carries an alt but is not homozygous; a half reference call is no
+        # call at all, not a confident hom-ref (#511).
+        ("./1", "het"),
+        ("./0", "missing"),
+        ("0/.", "missing"),
     ],
 )
 def test_derive_father_state(gt: str, expected: str) -> None:
@@ -72,6 +84,46 @@ def test_derive_father_state(gt: str, expected: str) -> None:
 
 def test_derive_father_state_missing_when_no_call() -> None:
     assert derive_father_state(None) == "missing"
+
+
+def test_derive_father_state_follows_the_shared_genotype_classes() -> None:
+    # One classification of a VCF genotype everywhere (#511): the father's state is the
+    # genotype class, with no-call read as missing.
+    for gt in genotype_vocabulary(*GENOTYPE_CLASSES):
+        expected = classify_genotype(gt)
+        assert derive_father_state(_call("father-1", gt)) == (
+            "missing" if expected == "no_call" else expected
+        ), gt
+
+
+def _x_records(*, father_gt: str, cf_alt: int, n: int = 10) -> list[SmallVariantRecord]:
+    """Non-PAR chrX sites where the father carries the alt; the cfDNA shows it or not."""
+    return [
+        _record(
+            f"X-{3_000_000 + i * 1000}-A-G",
+            chrom="X",
+            start=3_000_000 + i * 1000,
+            calls=[
+                _call("father-1", father_gt, dp=30, ad=[0, 30]),
+                _call("cfdna-1", "0/1" if cf_alt else "0/0", dp=400, ad=[400 - cf_alt, cf_alt]),
+            ],
+        )
+        for i in range(n)
+    ]
+
+
+@pytest.mark.parametrize(("cf_alt", "expected"), [(20, "female"), (0, "male")])
+@pytest.mark.parametrize("father_gt", ["1", "1/1"])
+def test_a_haploid_paternal_x_call_sexes_the_fetus(cf_alt: int, expected: str, father_gt: str) -> None:
+    # The paternal-X alleles show at FF/2 for a daughter and are absent for a son. A haploid
+    # "1" used to read as het and was skipped, leaving the fetal sex indeterminate.
+    records = _cohort_cat7_records() + _x_records(father_gt=father_gt, cf_alt=cf_alt)
+    sites = build_nipt_observations(records, father_sample_id="father-1", cfdna_sample_id="cfdna-1")
+
+    result = run_nipt_analysis(sites, NiptQualityThresholds())
+
+    assert result.fetal_sex.informative_sites == 10
+    assert result.fetal_sex.inferred == expected
 
 
 # --------------------------------------------------------------------------- #
@@ -530,6 +582,56 @@ async def test_get_family_nipt_variants_excludes_artifacts(
 
     assert result.total == 1
     assert {item.classification.category for item in result.variants} == {3}
+
+
+def _artifact_ff_shaped_records() -> list[SmallVariantRecord]:
+    """Listed artifacts that look like paternal FF sites (father carries, low cfDNA VAF)
+    but sit at VAF 0.15, not FF/2: counted, they pull the estimate up."""
+    return [
+        _record(
+            f"1-{5000 + i}-A-G",
+            start=5000 + i,
+            calls=[
+                _call("father-1", "0/1", dp=50, ad=[25, 25]),
+                _call("cfdna-1", "0/1", dp=400, af=[0.15], ad=[340, 60]),
+            ],
+        )
+        for i in range(10)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_the_variant_list_reports_the_summary_fetal_fraction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The summary estimated FF after the quality and artifact filters, the variant list
+    # over every family site, so the two views could show different fetal fractions, and
+    # the list classified against the one the summary did not report.
+    artifacts = _artifact_ff_shaped_records()
+    _wire_variants_mocks(
+        monkeypatch,
+        cohort=_cohort_cat7_records() + artifacts,
+        filtered=_de_novo_and_cat3_records(),
+        artifacts={record.variant_id for record in artifacts},
+    )
+
+    summary = await run_family_nipt_analysis(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+    )
+    listed = await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "BRCA1"},
+    )
+
+    assert summary.fetal_fraction.n_sites == 40  # the listed artifacts are not FF sites
+    assert summary.fetal_fraction.ff_computed == pytest.approx(0.10, abs=0.01)
+    assert listed.fetal_fraction == summary.fetal_fraction
+    de_novo = next(item for item in listed.variants if item.classification.category == 1)
+    assert de_novo.classification.expected_vaf == pytest.approx(summary.fetal_fraction.ff / 2)
 
 
 @pytest.mark.asyncio
