@@ -15,8 +15,9 @@ Format: **CycloneDX 1.6 (JSON)**.
 - **On demand:** `./scripts/generate-sbom.sh` (runs the pinned generators in
   `python:3.12` / `node:22` containers and writes both files here).
 - **In CI:** the `sbom` job in `.github/workflows/ci.yml` regenerates both on
-  every build and uploads them as **retained build artifacts**, so a verifiable
-  SBOM exists for each commit/release.
+  every pull request and every push to `main`, and uploads them as the artifact
+  `sbom-cyclonedx`. GitHub **deletes it after 90 days**, so for a release it
+  must be archived before then ([RELEASING.md §4](../RELEASING.md#4-capture-the-evidence)).
 
 The `*.cdx.json` outputs are **git-ignored on purpose**: each generation embeds a
 fresh `serialNumber` and timestamp, so committing them would create noisy,
