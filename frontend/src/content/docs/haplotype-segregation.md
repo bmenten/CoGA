@@ -97,6 +97,12 @@ The line is set off from the homolog colour by a light gap. In the chromosome vi
 runs just below the thin haplotype band, so the band keeps its whole colour; on the
 genome overview it runs along the band's bottom edge.
 
+On the genome overview the overlay is drawn **only on the ROI's chromosome**. A homolog's
+label (which of a parent's two homologs was passed on) is defined per chromosome, so the
+haplotype found at the ROI says nothing about another chromosome. **Without an ROI** the
+genome overview draws no risk overlay and shows no risk state ("not assessed"); set the
+ROI to the disorder's locus first.
+
 The risk overlay is derived (see *Disease-haplotype inference* below), not entered.
 
 ---

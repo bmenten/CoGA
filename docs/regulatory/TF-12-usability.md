@@ -41,7 +41,7 @@ cause harm and that the summative evaluation must cover:
 | ID | Hazard-related use scenario | Linked hazard | UI risk control |
 | --- | --- | --- | --- |
 | U1 | Analyst overlooks a low fetal-fraction / wide-CI warning and trusts a NIPT category call | H6 | FF gauge + CI + disagreement flag prominently surfaced |
-| U2 | Analyst trusts a PGT embryo call despite recombination near the ROI or sparse informative markers | H5 | Raw-marker overlay, informative-marker count, recombination warning, "uninformative" state; the risk-haplotype line is solid (affected) or dashed (carrier) and set off from the band by a light gap, not told apart by hue alone (CR-054) |
+| U2 | Analyst trusts a PGT embryo call despite recombination near the ROI or sparse informative markers | H5 | Raw-marker overlay, informative-marker count, recombination warning, "uninformative" state; the risk-haplotype line is solid (affected) or dashed (carrier) and set off from the band by a light gap, not told apart by hue alone (CR-054); on the genome overview the risk haplotype is drawn only on the ROI's chromosome, and without an ROI no risk state is shown (CR-065) |
 | U3 | Analyst signs out while evidence has drifted, without realizing it | H8 | Drift badge + sign-out **409 gate** requiring explicit acknowledgment |
 | U4 | Analyst misreads the filter funnel and believes nothing was dropped when variants were filtered out | H1 | Explicit drop counts at each funnel stage; a variant track holding more than it can draw says "too many to display" instead of drawing part of the view as the whole (small variants; SVs since CR-063) |
 | U5 | Analyst signs out the wrong variant / wrong candidate set | H10 | Clear "report"-tagged set, frozen snapshot preview, audit trail |

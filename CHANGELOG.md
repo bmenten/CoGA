@@ -378,6 +378,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Circos page states** — a failed chromosome request no longer leaves the page loading for good,
   a failed SV request no longer reads as a family without SVs, and past 50,000 SVs the plot says
   there are too many to draw instead of leaving the last chromosomes without links (#593).
+- **Risk haplotype on the genome overview** — the risk haplotype found at the ROI was also
+  drawn on every other chromosome carrying the same homolog label, where it means nothing, and
+  without an ROI the overview showed chr1's risk state. It is now drawn on the ROI's chromosome
+  only, and without an ROI the risk state reads "not assessed" (#592).
 
 ### Security
 

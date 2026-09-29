@@ -117,13 +117,15 @@ describe('GenomeHaplotypeTrack', () => {
     ).toBeInTheDocument();
     unmount();
 
-    // Without an ROI the state is assessed over the first chromosome shown (analysisRegion).
-    renderWithClient(<GenomeHaplotypeTrack {...props} />);
+    // Without an ROI no risk state is assessed: it used to be chr1's, whatever the
+    // disorder's locus (#588).
+    const { container } = renderWithClient(<GenomeHaplotypeTrack {...props} />);
     expect(
       await screen.findByRole('img', {
-        name: 'Haplotypes of E1 across 2 chromosomes; risk state on chr1: uninformative',
+        name: 'Haplotypes of E1 across 2 chromosomes; risk state: not assessed, no region of interest',
       }),
     ).toBeInTheDocument();
+    expect(container.querySelector('[data-risk-state]')?.getAttribute('data-risk-state')).toBe('not_assessed');
   });
 
   it('never names a failed or empty track by a risk state it does not have (#529, #510)', async () => {
@@ -145,7 +147,9 @@ describe('GenomeHaplotypeTrack', () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(
-      await screen.findByRole('img', { name: 'Haplotypes of E1 on chr1: no data; risk state: uninformative' }),
+      await screen.findByRole('img', {
+        name: 'Haplotypes of E1 on chr1: no data; risk state: not assessed, no region of interest',
+      }),
     ).toBeInTheDocument();
   });
 });
