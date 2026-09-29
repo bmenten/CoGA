@@ -28,7 +28,7 @@ Naast de varianten toont het familierapport drie herkomstelementen, elk met een 
 | Element | Toont | Endpoint |
 | --- | --- | --- |
 | Herkomstvoettekst | De versies van annotatie en referentie (assembly, VEP, ClinVar, gnomAD, GENCODE, Monarch, HPO, …), met afwijkingen per modaliteit | `GET /families/{id}/annotation-manifest` |
-| Driftmelding | Classificaties waarvan de annotatie veranderde sinds ze gemaakt werden | `GET /families/{id}/classification-drift` |
+| Driftmelding | Classificaties (van small variants, SV's en CNV's) waarvan het bewijs veranderde sinds ze gemaakt werden | `GET /families/{id}/classification-drift` |
 | Klinisch auditspoor | Wie wat classificeerde of tagde of het annotatiemanifest verving, wanneer, met de waarde ervoor en erna | `GET /families/{id}/clinical-audit` |
 
 De versies en de driftstatus worden bij het ondertekenen bevroren. Het auditspoor zit niet in het snapshot: het is zelf append-only.
@@ -38,7 +38,7 @@ De versies en de driftstatus worden bij het ondertekenen bevroren. Het auditspoo
 Ondertekenen gaat via **`POST /api/families/{id}/report/sign-out`**. De service `sign_out_report` doet, in volgorde:
 
 0. **Poort 0 — de referentie is gevalideerd.** Staat de assembly van de familie niet in `VALIDATED_ASSEMBLIES` (standaard alleen `GRCh38`), of is er geen, dan weigert de backend (`409`, `gate = "assembly_scope"`). Die weigering kan niet worden erkend of omzeild. De pagina's tonen zo'n familie als *Not validated for clinical use*, en het rapport biedt dan geen ondertekenknop aan (`TF-06`, gevaar H12).
-1. **Het snapshot samenstellen:** de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, de importstatus, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags en notitie.
+1. **Het snapshot samenstellen:** de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, de importstatus, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags, notitie en bevroren bewijs.
 2. **Poort 1 — drift** (hieronder).
 3. **Poort 2 — sample-QC** (hieronder).
 4. **Poort 3 — onvolledige import** (hieronder).
@@ -54,9 +54,7 @@ Ondertekenen gaat via **`POST /api/families/{id}/report/sign-out`**. De service 
 
 ### Poort 1 — geen onverklaarde drift
 
-Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd (hoofdstuk 10). Voor elke ACMG-classificatie van een small variant in de familie met bevroren bewijs (gerapporteerd of niet) vergelijkt de controle de bevroren hash van de annotatieset met de huidige. Een ontbrekende hash telt als `unknown`, en een gerapporteerde classificatie zonder bevroren bewijs als `no_snapshot`; beide tellen als drift. Is er drift en heeft de ondertekenaar die niet erkend, dan volgt `409`. Erkennen vraagt een reden (anders `422`); de erkenning en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen.
-
-**Beperking:** de driftcontrole dekt alleen small variants. Gerapporteerde CNV's en SV's worden wel bevroren, maar nooit op drift gecontroleerd.
+Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd (hoofdstuk 10). Voor elke ACMG-classificatie van een small variant in de familie met bevroren bewijs (gerapporteerd of niet) vergelijkt de controle de bevroren hash van de annotatieset met de huidige. Voor elke CNV-classificatie van een SV of CNV vergelijkt ze het bevroren bewijs (de genen, de pLI, de overerving, het type en de positie) met de SV zoals die nu in de data staat (hoofdstuk 10). Een ontbrekende hash of een onleesbaar bewijs telt als `unknown`, en een gerapporteerde classificatie zonder bevroren bewijs, van een small variant of van een SV, als `no_snapshot`; beide tellen als drift. Is er drift en heeft de ondertekenaar die niet erkend, dan volgt `409`; de melding zegt hoeveel ervan SV's of CNV's zijn. Erkennen vraagt een reden (anders `422`) en geldt voor beide; de erkenning en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen.
 
 **Waar in de code:** `sign_out_report` en `backend/app/services/classification_drift_service.py`.
 
@@ -87,17 +85,18 @@ Staat de vlag en heeft de ondertekenaar ze niet erkend, dan volgt `409` (`gate =
 | `modules` | Het volledige annotatie- en referentiemanifest, per modaliteit |
 | `reference_modules` | De referentiemodules die bij het bevriezen werden opgezocht: ontbreekt er een in `modules`, dan was die toen niet geladen |
 | `software` | De build die het snapshot maakte (`app_version` en `git_sha`) |
-| `drift` | Het aantal gecontroleerde classificaties en de lijst met drift (ook `no_snapshot`) |
+| `drift` | Het aantal gecontroleerde classificaties van small variants en de lijst met drift (ook `no_snapshot`) |
+| `structural_drift` | Hetzelfde voor de classificaties van SV's en CNV's, met per drift wat verschoof |
 | `sample_qc` | De volledige sample-QC |
 | `sequencing_qc` | De sequencing-QC per sample en de grenzen waartegen ze beoordeeld werd |
 | `import_incomplete` | Leeg (`null`) als de data volledig geïmporteerd is; anders de mislukte en de gelukte datasets, het tijdstip en de importjob |
 | `reported_variants` | Elke gerapporteerde small variant met klasse, criteria, tags, notitie en bevroren bewijs |
-| `reported_structural_variants` | Elke gerapporteerde SV of CNV met classificatie, CNV-criteria, tags en notitie |
+| `reported_structural_variants` | Elke gerapporteerde SV of CNV met classificatie, CNV-criteria, tags, notitie en bevroren bewijs |
 
 Bij het ondertekenen komen er de versie, het tijdstip, de ondertekenaar en de erkenningen met hun redenen bij. Het snapshot is zo aan **drie versie-assen** gebonden:
 
 - **Software:** `app_version` en `git_sha`, bij het bouwen van de image vastgelegd.
-- **Annotatie en pipeline:** het bevroren manifest en, per classificatie, de hash van de annotatieset.
+- **Annotatie en pipeline:** het bevroren manifest en, per classificatie, de hash van de annotatieset; bij een SV of CNV de hash van het bevroren bewijs, met de versies van de SV-callset erachter.
 - **Referentie:** de assembly, de bron van de genloci die CoGA zelf laadde (GENCODE, of de UCSC-tabel als GENCODE niet lukte), de Monarch-release en de HPO-release (de release van de laatste import van de ontologie).
 
 **De hash.** De inhoudshash is een SHA-256 over een vaste, op sleutel gesorteerde JSON-codering; lijsten worden vooraf op een stabiele sleutel gesorteerd. De klinische secties zijn deterministisch: dezelfde inhoud geeft dezelfde vingerafdruk, en daarop steunt de controle hieronder. De inhoudshash zelf omvat ook de versie, het tijdstip en de ondertekenaar, en is dus per ondertekening uniek. Een opgeslagen hash wordt altijd herberekend over het snapshot zoals het opgeslagen werd; een versie van vóór een nieuw veld blijft dus geverifieerd.
@@ -110,7 +109,7 @@ Bij het ondertekenen komen er de versie, het tijdstip, de ondertekenaar en de er
 
 Alleen de ondertekende versie is het ondertekende rapport. De rapportpagina heeft twee weergaven:
 
-- **Een ondertekende versie** (`?version=N`). Een ondertekende casus opent op de laatste. `SignedFamilyReport.tsx` tekent ze uitsluitend uit het bevroren snapshot dat `GET /families/{id}/report/sign-outs/{versie}` teruggeeft; `signedReportRecord.ts` leest het sectie per sectie. De pagina toont de versie, de ondertekenaar, het tijdstip, de inhoudshash en of die nog klopt (`verified`), de build die ondertekende, per gerapporteerde variant de klasse, de aanvaarde criteria, het bevroren bewijs, de tags en de notitie, de SV's met hun ClinGen-CNV-criteria, de drift, de sample-QC, de sequencing-QC en de importstatus met de erkenningen, en de bevroren versies.
+- **Een ondertekende versie** (`?version=N`). Een ondertekende casus opent op de laatste. `SignedFamilyReport.tsx` tekent ze uitsluitend uit het bevroren snapshot dat `GET /families/{id}/report/sign-outs/{versie}` teruggeeft; `signedReportRecord.ts` leest het sectie per sectie. De pagina toont de versie, de ondertekenaar, het tijdstip, de inhoudshash en of die nog klopt (`verified`), de build die ondertekende, per gerapporteerde variant de klasse, de aanvaarde criteria, het bevroren bewijs, de tags en de notitie, de SV's met hun ClinGen-CNV-criteria, de drift (ook die van de SV- en CNV-classificaties), de sample-QC, de sequencing-QC en de importstatus met de erkenningen, en de bevroren versies.
 - Wat geen snapshot bevat — de variantbeschrijving (gen, HGVS, consequentie, genotypes, frequenties, voorspellingen), de segregatie, de gen- en fenotypecontext, het auditspoor en de pipelinesettings — zegt die pagina, voor het rapport en per variant. Ze vult het nooit aan met huidige data; elke variant heet er bij zijn ID. Een sectie die een oudere versie nog niet bevroor, staat er als *Not in the signed record*, nooit als leeg; een versie van vóór het bevriezen van SV's bevat er geen.
 - De printknop drukt die weergave af. Een record dat niet meer bij zijn inhoudshash past, een versie die een latere vervangt, of een versie waarvan niet vaststaat dat ze de laatste is, krijgt bovenaan de afdruk een melding.
 - **Het live rapport** (`?view=live`) toont de **huidige** data. Hier wordt de casus ondertekend; daarna toont de pagina de nieuwe versie. Het is nooit het ondertekende rapport, ook niet als de inhoud overeenkomt ("This is the live report, not signed version N"), en elke afdruk ervan krijgt bovenaan een melding. Zolang het ondertekeningsrecord laadt of niet geladen kon worden, biedt het geen ondertekening aan.
@@ -118,6 +117,7 @@ Alleen de ondertekende versie is het ondertekende rapport. De rapportpagina heef
 - Het bevroren record zelf is in beide weergaven als JSON te downloaden.
 - Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly, de genloci, Monarch of HPO), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als *niet beschikbaar*, met de reden. Een HPO-ontologie uit een bestand zonder release krijgt dezelfde markering. Het auditevent en de ondertekende versie noemen die delen (`not_captured`, ook in het antwoord van `GET …/sign-outs/{versie}`).
 - Een versie die ondertekend werd voordat CoGA de HPO-release vastlegde, bevat die release niet. De controle vergelijkt daar niet op (`not_compared` bevat `modules.hpo`) en meldt het rapport dus niet als gewijzigd; de ondertekende versie noemt de release als niet vastgelegd.
+- Een versie die ondertekend werd voordat CoGA het bewijs van SV- en CNV-classificaties bevroor, heeft geen `structural_drift` en geen bewijs bij haar gerapporteerde SV's. De controle vergelijkt die twee niet (`not_compared` bevat `structural_drift` en `reported_structural_variants.evidence_snapshot`), wel de rest van elke gerapporteerde SV; de ondertekende versie zegt dat ze die drift niet bevat.
 - Of het snapshot ook de variantbeschrijving en de gen- en fenotypecontext moet bevriezen, is een open beslissing (`TF-09b` §3). Dat zou veranderen wat gehasht en wat vergeleken wordt.
 
 ## Append-only, hash-geketend auditspoor
@@ -170,7 +170,7 @@ De ankers dekken de Postgres-ketens. De variantopslag in ClickHouse bewaakt een 
 1. **Ruw bestand → hash.** Elk bronbestand staat in `raw_import_files`, met zijn SHA-256 of, voor een alignment in een bucket, het record van de opslag (hoofdstuk 6).
 2. **Annotatiemanifest.** De tool- en databankversies uit de VCF-headers staan per familie in `family_annotation_manifest` (hoofdstuk 6); een vervanging door een beheerder komt in het klinische auditspoor.
 3. **Variant in ClickHouse.** Elke variant draagt de hash van de annotatieset waarmee hij werd geannoteerd (hoofdstuk 3).
-4. **Classificatie en bewijs.** Bij elke ACMG-classificatie van een small variant worden de annotatieversie, de hash van de annotatieset, de ClinVar-waarde en het tijdstip bevroren (hoofdstuk 10).
+4. **Classificatie en bewijs.** Bij elke ACMG-classificatie van een small variant worden de annotatieversie, de hash van de annotatieset, de ClinVar-waarde en het tijdstip bevroren; bij elke CNV-classificatie de genen, de pLI, de overerving, het type en de positie van de SV, een hash van zijn annotatie en de versies erachter (hoofdstuk 10).
 5. **Poorten.** Vóór het ondertekenen worden de assembly, de drift en de sample-QC gecontroleerd; wat niet in orde is, moet worden erkend, met een reden.
 6. **Bevroren rapport.** Het snapshot met manifest, softwareversie, drift, QC en gerapporteerde varianten wordt gehasht en append-only opgeslagen als nieuwe versie.
 7. **Keten en anker.** De ondertekening komt in de hash-keten van de familie, er komt een `sign_out`-regel in het klinische auditspoor, en een ondertekend anker kan de ketenkoppen extern vastleggen.
@@ -191,6 +191,7 @@ Deze keten is de technische invulling van de eis tot traceerbaarheid onder de IV
 | `backend/app/services/clinical_audit_service.py` | Het klinische auditspoor |
 | `backend/app/services/integrity_anchor_service.py` | Ondertekende ankers en hun controle |
 | `backend/app/services/classification_drift_service.py` | Drift |
+| `backend/app/services/structural_variant_evidence.py` | Het bewijs van een CNV-classificatie en zijn drift |
 | `backend/app/services/annotation_manifest_service.py` | Het annotatie- en referentiemanifest |
 | `backend/app/services/clickhouse_integrity_monitor.py` | Bewaking van de variantopslag |
 | `backend/db/schema/postgres/04_traceability.sql` · `05_grants.sql` | De tabellen, triggers en rechten |

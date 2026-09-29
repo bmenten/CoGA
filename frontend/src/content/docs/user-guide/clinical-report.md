@@ -8,8 +8,9 @@ gene context and phenotype overlap — and is where the case is signed out. Once
 - A **provenance footer** with the CoGA version that produced the page, the in-house IVD statement and
   the manufacturer, and the versions behind the data: the pipeline tools, the assembly, the gene loci,
   the Monarch release and the HPO release. It prints with the report.
-- An **evidence-drift** banner when a classification's evidence changed after it was made (for example
-  a new ClinVar significance). Re-review those variants.
+- An **evidence-drift** banner when a classification's evidence changed after it was made: for example
+  a new ClinVar significance, or a structural variant that now overlaps other genes. Re-review those
+  variants.
 - The **Classification audit trail**: who classified, tagged or annotated what, and when. Entries can
   never be changed or deleted.
 - The **Analysis pipeline settings** recorded at import.
@@ -24,8 +25,9 @@ stops for four things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
-2. **Evidence drift**, including a reported variant that was never saved through **ACMG classify** (its
-   evidence cannot be checked): re-review, or acknowledge with a reason.
+2. **Evidence drift**, of a small variant, a structural variant or a CNV, including a reported variant
+   that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked):
+   re-review, or acknowledge with a reason.
 3. **Sample QC** that failed, or could not confirm the pedigree: acknowledge with a reason.
 4. **An incomplete import** (the page says *Import incomplete*): re-run the import, or acknowledge with
    a reason.

@@ -40,22 +40,34 @@ by*, the build that drew the page from its record. After a CoGA update the two c
 
 ## 2. Evidence-drift banner — has anything changed
 
-When you save a classification with **ACMG classify**, CoGA freezes the evidence it rests on: a
-fingerprint of the variant's annotation and its ClinVar significance at that moment.
+When you save a classification, CoGA freezes the evidence it rests on:
 
-When you open the report, each frozen classification is compared with the current annotation. An amber
+- **ACMG classify** (a small variant): a fingerprint of the variant's annotation and its ClinVar
+  significance at that moment;
+- **ACMG (CNV)** (a structural variant or CNV): what the CNV classifier reads — the type, the genes the
+  event overlaps and their number, the pLI and the annotated inheritance — with the event's caller and
+  position, a fingerprint of its annotation, and the annotation versions its genes came from. The
+  classifier reads no clinical CNVs, dosage scores or DGV; you score those criteria yourself.
+
+When you open the report, each frozen classification is compared with the current data. An amber
 banner lists every classification whose evidence changed:
 
 - the ClinVar significance changed (for example *ClinVar Uncertain significance → Pathogenic*);
 - the annotation changed in another way, or cannot be compared because a fingerprint is missing
   (*annotation set changed*);
+- for a structural variant, what moved: for example *genes TCF4, TXNL1 → TCF4* or
+  *pLI 0.990 → 0.410*, and likewise its inheritance, type, position or caller. It says *annotation
+  changed* when only its other annotation changed, and *its frozen evidence cannot be compared* when
+  the frozen evidence cannot be read;
 - the variant is no longer in the data.
 
-Re-review a listed variant before sign-out.
+Re-review a listed variant before sign-out. Saving its classification again freezes the evidence as it
+is now.
 
 **Reported variants without frozen evidence.** A variant tagged **Report** that was never saved through
-**ACMG classify** has no frozen evidence, so its evidence cannot be checked. The banner does not list
-it, but sign-out does: it counts as drift and needs an acknowledgement (see *The sign-out checks*).
+**ACMG classify**, or a structural variant never saved through **ACMG (CNV)**, has no frozen evidence,
+so its evidence cannot be checked. The banner does not list it, but sign-out does: it counts as drift
+and needs an acknowledgement (see *The sign-out checks*).
 
 ## 3. Classification audit trail — who did what, when
 
@@ -83,7 +95,8 @@ SHA-256 content hash):
 - the provenance footer (the versions);
 - the reported small variants, each with its classification, ACMG criteria, tags, note and frozen
   evidence;
-- the reported structural variants and CNVs, with their classification, CNV criteria, tags and note;
+- the reported structural variants and CNVs, with their classification, CNV criteria, tags, note and
+  frozen evidence;
 - the drift state, the Sample QC verdict, and the sequencing-QC verdicts with the cut-offs they were
   judged against;
 - whether the family's data imported completely, and if not, which datasets failed;
@@ -98,7 +111,7 @@ Sign-out stops at each of these, in this order:
 | Check | Stops when | To go on |
 | --- | --- | --- |
 | **Assembly scope** | The family is on an assembly outside the validated scope (GRCh38 unless the laboratory set otherwise). The pages carry *Not validated for clinical use*. | No override: the report cannot be signed out. |
-| **Evidence drift** | A reported classification drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
+| **Evidence drift** | A reported classification, of a small variant, a structural variant or a CNV, drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
 | **Sample QC** | Sample QC failed, or a check that confirms the pedigree could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 | **Incomplete import** | A data import for the family partly failed, so some of its data is missing. The pages carry *Import incomplete* (below). | Re-run the import, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
 
@@ -195,6 +208,10 @@ recorded no release is marked the same way (*release not recorded*).
 
 A version signed before CoGA recorded the HPO release does not name it. The signed version says so
 (*HPO (signed before CoGA recorded its version)*), and that alone does not count as a change.
+
+A version signed before CoGA froze the evidence of structural-variant and CNV classifications holds
+none for its reported structural variants. The record says so (*Evidence of the reported structural
+variants and CNVs (signed before CoGA froze it)*), and that alone does not turn the page amber either.
 
 **When part of the report cannot be loaded.** The page never shows a part it could not load as empty.
 If a signed version cannot be loaded, the page shows only *Signed version N could not be loaded*, with

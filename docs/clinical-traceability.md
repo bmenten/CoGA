@@ -15,7 +15,7 @@ Code comments refer to four parts by number: Phase 0 (the annotation manifest), 
 | Record | Where | What it holds |
 | --- | --- | --- |
 | Annotation manifest | `family_annotation_manifest` | per family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
-| Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot` | for each ACMG classification of a small variant, what the classifier saw |
+| Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot`, `structural_variant_reviews.cnv_evidence_snapshot` | for each ACMG classification of a small variant, and each CNV (ClinGen) classification of a structural variant or CNV, what the classifier saw |
 | Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, replaced the annotation manifest or signed out, when, with before and after |
 | Signed reports | `report_signouts` | each sign-out as a frozen, versioned, content-hashed snapshot |
 | HTTP audit log | `audit_log_events` | every API request, with the user and a masked body |
@@ -35,6 +35,19 @@ The report footer shows the merged list, and sign-out freezes it.
 **The evidence snapshot** is taken on every ACMG save. It holds the variant's annotation
 version, its annotation-set hash and its ClinVar significance, with the time. The hash
 changes whenever any annotation of the variant changes, so it is the drift key.
+
+A structural variant or CNV has no annotation-set hash in ClickHouse, so its snapshot
+(`services/structural_variant_evidence.py`, taken on every save of a CNV scoring) holds the
+values the CNV classifier reads instead: the SV's type, the genes it overlaps and their count,
+the pLI and the annotated inheritance. The classifier reads no clinical-CNV, dosage-score or
+DGV data; the analyst scores those criteria by hand. The snapshot also holds the event (its
+caller, chromosome, start, end, length and breakend partner), a hash of its whole annotation
+record, the time, and the versions the evidence comes from: those the family's manifest records
+for its SV callset (`by_modality.sv`, else `pipeline`) and the reference assembly and gene loci.
+The drift key is `evidence_hash`, SHA-256 over the evidence; the versions are recorded, not
+compared. It does not hold the genotype calls. A scoring for an SV that is not in the family's
+data is refused with 404; one saved for a family without an assembly (no SV storage to read) is
+stored without a snapshot.
 
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
@@ -61,8 +74,14 @@ the variant's current annotation:
 - `unknown`: a hash is missing, so the match cannot be verified;
 - `variant_missing`: the variant is no longer in the data.
 
+The structural variants and CNVs are under `structural`: each CNV scoring's snapshot compared
+with the SV as the SV page reads it now. `drifted` names what moved in `changed` (`gene_symbols`,
+`pli`, `inheritance`, `sv_type`, `locus`, `source`, or `annotations` for any other annotation),
+with the evidence from → to. Only the fields a snapshot froze are compared. Frozen evidence that
+cannot be read is `unknown`, never `current`.
+
 At sign-out, a reported classification that has no snapshot counts as drift too
-(`no_snapshot`).
+(`no_snapshot`), whether it is a small variant's or a structural variant's.
 
 ## Sign-out
 
@@ -71,8 +90,10 @@ At sign-out, a reported classification that has no snapshot counts as drift too
 - the merged manifest and the reference assembly;
 - the software version and git commit that produced the snapshot;
 - the small variants tagged `report`, each with its classification, ACMG criteria and
-  evidence snapshot, and the reported structural variants and CNVs with their classification;
-- the drift state, the sample-integrity QC result, and the sequencing QC with the cut-offs it
+  evidence snapshot, and the reported structural variants and CNVs with their classification,
+  CNV criteria and evidence snapshot;
+- the drift state (`drift` for the small variants, `structural_drift` for the structural
+  variants and CNVs), the sample-integrity QC result, and the sequencing QC with the cut-offs it
   was judged against;
 - the import state (`import_incomplete`): null when the family's data imported completely,
   otherwise the datasets that failed and those that imported, when, and the import job;
@@ -90,9 +111,10 @@ Four gates run first, in this order:
    GRCh38), or that has none, is refused with 409 (`gate: "assembly_scope"`). This cannot be
    acknowledged. The family and report pages say such a family is not validated for clinical
    use, and the report page offers no sign-out.
-2. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification gives 409,
-   unless the request sets `acknowledge_drift` with a `drift_acknowledgement_reason` (422
-   without a reason).
+2. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
+   variant or of a structural variant or CNV, gives 409, unless the request sets
+   `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason). One
+   acknowledgement covers both; the message says how many are structural variants or CNVs.
 3. **Sample-integrity QC.** A QC fail (a detected sample or pedigree swap), or a swap check that
    could not run for a relationship the pedigree asserts, gives 409 (`gate: "sample_qc"`),
    unless the request sets `acknowledge_qc` with a `qc_acknowledgement_reason` (422 without).
@@ -158,6 +180,14 @@ the check lists `modules.hpo` under `not_compared` instead of calling the record
 `not_captured` names the missing release. A snapshot with the list but no HPO module was signed
 with no ontology loaded, so an ontology imported since is a change.
 
+A snapshot without `structural_drift` was signed before structural-variant and CNV
+classifications froze their evidence, and its reported structural variants hold none. The check
+lists `structural_drift` and `reported_structural_variants.evidence_snapshot` under `not_compared`
+and compares the rest of each reported SV; `not_captured` says the record holds no evidence for
+them. A signed version lists the SV/CNV classifications whose evidence had moved at sign-out with
+the small variants', under *Evidence drift at sign-out*, and says when its record predates that
+check.
+
 Both views download the frozen record as JSON.
 
 ## Tamper evidence and its limits
@@ -191,11 +221,10 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   by its ID and says what its record lacks; only the live report shows the rest, from current
   data. There is no byte-stable PDF: a signed version is printed from the browser, laid out by
   the build that renders it (named in its footer).
-- Structural-variant and CNV classifications have no evidence snapshot, so they are not
-  drift-checked. The review of a compound-heterozygous pair (its classification, tags and note)
-  writes no clinical audit event. Nor do pedigree, member and HPO edits: they appear in the HTTP
-  audit log, and pedigree and member edits also as structure versions
-  (`family_structure_versions`, which is neither append-only nor chained).
+- The review of a compound-heterozygous pair (its classification, tags and note) writes no
+  clinical audit event. Nor do pedigree, member and HPO edits: they appear in the HTTP audit log,
+  and pedigree and member edits also as structure versions (`family_structure_versions`, which is
+  neither append-only nor chained).
 - Anchors are made by hand: nothing in the code, CI or Terraform calls
   `POST /admin/integrity/anchor` on a schedule.
 - The export of each anchor to a store outside the database is not implemented (the

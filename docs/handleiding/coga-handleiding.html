@@ -675,7 +675,7 @@ python docs/handleiding/build_site.py
 </tr>
 </tbody>
 </table></div>
-<p>Twee kenmerken vallen op. Bijna alle referentiedata per assembly verwijst naar <code>assemblies</code> met <code>ON DELETE CASCADE</code>; de Monarch-tabellen zijn bewust assembly-onafhankelijk (gekoppeld op HGNC- en MONDO-id's). En het bevroren ACMG-bewijs per classificatie staat in de kolom <code>small_variant_reviews.acmg_evidence_snapshot</code> (hoofdstuk 10).</p>
+<p>Twee kenmerken vallen op. Bijna alle referentiedata per assembly verwijst naar <code>assemblies</code> met <code>ON DELETE CASCADE</code>; de Monarch-tabellen zijn bewust assembly-onafhankelijk (gekoppeld op HGNC- en MONDO-id's). En het bevroren ACMG-bewijs per classificatie staat in de kolom <code>small_variant_reviews.acmg_evidence_snapshot</code>, dat van een CNV-classificatie in <code>structural_variant_reviews.cnv_evidence_snapshot</code> (hoofdstuk 10).</p>
 <p class="waar"><strong>Waar in de code:</strong> de bestanden in <code>backend/db/schema/postgres/</code>; de volledige kolomreferentie in <code>docs/database.md</code>.</p>
 <h2>ClickHouse: tabellen per assembly</h2>
 <p>Het ClickHouse-schemabestand <code>backend/db/schema/clickhouse/001_coga_variant_storage.sql</code> maakt alleen de databank aan. De eigenlijke tabellen maakt de backend tijdens het draaien aan, <strong>per assembly</strong>, omdat hun namen met de assembly beginnen (bv. <code>`GRCh38/SNV_INDEL/entries`</code>). Eerst wordt de assemblynaam omgezet naar een veilige sleutel: tekens buiten letters, cijfers, punt, underscore en koppelteken (bv. een spatie) worden <code>_</code>, dus <code>T2T CHM13v2.0</code> wordt <code>T2T_CHM13v2.0</code>. Import en lezen gebruiken dezelfde functie, zodat ze altijd dezelfde tabel vinden.</p>
@@ -2277,10 +2277,11 @@ python docs/handleiding/build_site.py
 <h2>Deel 4 — Opslag en het bevroren bewijs</h2>
 <p>De volledige beoordeling per criterium wordt als JSON bewaard, met het herberekende totaal en de klasse ernaast (voor filters en samenvattingen): <code>acmg</code>, <code>acmg_point_total</code> en <code>acmg_class</code> op <code>small_variant_reviews</code>, en <code>cnv_acmg</code>, <code>cnv_point_total</code> en <code>cnv_class</code> op <code>structural_variant_reviews</code>. Zo is achteraf te zien welke criteria met welke sterkte en welk bewijs werden toegepast.</p>
 <p><strong>Het bewijssnapshot.</strong> Bij het classificeren van een small variant bevriest CoGA het bewijs in <code>acmg_evidence_snapshot</code>: de annotatieversie en de <strong>hash van de annotatieset</strong> (die verandert zodra enige annotatie verandert), de ClinVar-waarde en het tijdstip. Elke wijziging van een review, van een small variant, een SV of een CNV, schrijft bovendien, in dezelfde transactie, een voor-en-na-regel in het append-only, hash-geketende <strong>klinische auditspoor</strong> (hoofdstuk 11): wie, wanneer en wat veranderde (klasse, criteria, tags, notitie). Bij een CNV hoort bij de klasse ook de ClinGen-score: de soort, het puntentotaal en elk aanvaard criterium met zijn punten. Ook het leegmaken of wissen van een review wordt vastgelegd.</p>
-<p><strong>Beperking.</strong> Alleen classificaties van small variants krijgen een bewijssnapshot en een driftcontrole. CNV- en SV-classificaties worden bij het ondertekenen wel bevroren, maar niet op drift gecontroleerd. De review van een compound-heterozygoot paar schrijft geen regel in het klinische auditspoor.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>build_evidence_snapshot</code> in <code>backend/app/services/small_variant_review_acmg.py</code>; het auditspoor in <code>backend/app/services/clinical_audit_service.py</code> (<code>record_review_changes</code> voor small variants, <code>record_structural_review_changes</code> voor SV's en CNV's).</p>
+<p><strong>Het bewijssnapshot van een CNV.</strong> Een SV heeft in ClickHouse geen hash van de annotatieset. Bij het opslaan van een CNV-classificatie bevriest CoGA daarom in <code>cnv_evidence_snapshot</code> (op <code>structural_variant_reviews</code>) de waarden die de CNV-evaluator leest: het type, de overlappende genen en hun aantal, de pLI en de geannoteerde overerving. De evaluator leest geen klinische CNV's, dosagescores of DGV; die criteria scoort de analist zelf. Het snapshot bevat ook de gebeurtenis zelf (de caller, het chromosoom, het begin, het einde, de lengte en de breukpuntpartner), een hash van de volledige annotatie van de SV, het tijdstip en de versies waar het bewijs vandaan komt: die van de SV-callset in het annotatiemanifest van de familie, en de referentie-assembly en de genloci. De driftsleutel is <code>evidence_hash</code>, een SHA-256 over het bewijs; de versies worden vastgelegd, niet vergeleken. De genotypes zitten er niet in. Een CNV-classificatie van een SV die niet in de data van de familie zit, weigert de server (<code>404</code>). Heeft de familie geen assembly, dan is er geen SV-opslag om te lezen en wordt de classificatie zonder snapshot bewaard.</p>
+<p><strong>Beperking.</strong> De review van een compound-heterozygoot paar schrijft geen regel in het klinische auditspoor.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>build_evidence_snapshot</code> in <code>backend/app/services/small_variant_review_acmg.py</code>; <code>build_structural_evidence_snapshot</code> in <code>backend/app/services/structural_variant_evidence.py</code>; het auditspoor in <code>backend/app/services/clinical_audit_service.py</code> (<code>record_review_changes</code> voor small variants, <code>record_structural_review_changes</code> voor SV's en CNV's).</p>
 <h2>Deel 5 — Classificatiedrift</h2>
-<p>Annotaties veranderen: een nieuwe ClinVar- of gnomAD-release kan het bewijs onder een bestaande classificatie verschuiven. CoGA vergelijkt daarom per geclassificeerde small variant het bevroren snapshot met de huidige annotatie, met dezelfde functie die het snapshot bouwde:</p>
+<p>Annotaties veranderen: een nieuwe ClinVar- of gnomAD-release kan het bewijs onder een bestaande classificatie verschuiven, en een herimport kan de genen onder een CNV veranderen. CoGA vergelijkt daarom per geclassificeerde small variant, en per SV of CNV met een CNV-classificatie, het bevroren snapshot met de huidige data, met dezelfde functie die het snapshot bouwde:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -2295,7 +2296,7 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td><code>drifted</code></td>
-<td>De annotatie veranderde sinds de classificatie</td>
+<td>Het bewijs veranderde sinds de classificatie</td>
 </tr>
 <tr>
 <td><code>variant_missing</code></td>
@@ -2303,12 +2304,13 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td><code>unknown</code></td>
-<td>Een van beide hashes ontbreekt; de koppeling is niet te controleren</td>
+<td>Een van beide hashes ontbreekt, of het bevroren bewijs is niet te lezen; de koppeling is niet te controleren</td>
 </tr>
 </tbody>
 </table></div>
-<p>Ontbreekt een hash, dan meldt de controle <strong>niet</strong> <code>current</code> maar <code>unknown</code>, en bij het ondertekenen telt <code>unknown</code> als drift. Een drift moet worden herbekeken of, met een reden, erkend voordat een rapport ondertekend kan worden (hoofdstuk 11).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/classification_drift_service.py</code> (de statuslogica in <code>_diff</code>).</p>
+<p>Ontbreekt een hash, dan meldt de controle <strong>niet</strong> <code>current</code> maar <code>unknown</code>, en bij het ondertekenen telt <code>unknown</code> als drift. Een drift moet worden herbekeken of, met een reden, erkend voordat een rapport ondertekend kan worden (hoofdstuk 11). Wie de classificatie opnieuw opslaat, bevriest het bewijs zoals het nu is.</p>
+<p>Bij een SV of CNV zegt <code>drifted</code> ook wat verschoof (<code>changed</code>): de genen, de pLI, de overerving, het type, de positie, de caller of de overige annotatie, met de waarde ervoor en erna. De controle vergelijkt alleen de velden die het snapshot bevroor. De SV wordt gelezen zoals de SV-pagina hem leest.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/classification_drift_service.py</code> (de statuslogica in <code>_diff</code>; voor SV's en CNV's <code>evaluate_structural_classification_drift</code>, met <code>diff_structural_evidence</code> uit <code>structural_variant_evidence.py</code>).</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
 <thead>
@@ -2345,6 +2347,10 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>backend/app/services/structural_variant_review_pg.py</code></td>
 <td>CNV/SV-reviews en CNV-ACMG</td>
+</tr>
+<tr>
+<td><code>backend/app/services/structural_variant_evidence.py</code></td>
+<td>Het bewijssnapshot van een CNV-classificatie en de vergelijking ervan</td>
 </tr>
 <tr>
 <td><code>backend/app/services/small_variant_review_tags.py</code></td>
@@ -2396,7 +2402,7 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td>Driftmelding</td>
-<td>Classificaties waarvan de annotatie veranderde sinds ze gemaakt werden</td>
+<td>Classificaties (van small variants, SV's en CNV's) waarvan het bewijs veranderde sinds ze gemaakt werden</td>
 <td><code>GET /families/{id}/classification-drift</code></td>
 </tr>
 <tr>
@@ -2411,7 +2417,7 @@ python docs/handleiding/build_site.py
 <p>Ondertekenen gaat via <strong><code>POST /api/families/{id}/report/sign-out</code></strong>. De service <code>sign_out_report</code> doet, in volgorde:</p>
 <ol start="0">
 <li><strong>Poort 0 — de referentie is gevalideerd.</strong> Staat de assembly van de familie niet in <code>VALIDATED_ASSEMBLIES</code> (standaard alleen <code>GRCh38</code>), of is er geen, dan weigert de backend (<code>409</code>, <code>gate = "assembly_scope"</code>). Die weigering kan niet worden erkend of omzeild. De pagina's tonen zo'n familie als <em>Not validated for clinical use</em>, en het rapport biedt dan geen ondertekenknop aan (<code>TF-06</code>, gevaar H12).</li>
-<li><strong>Het snapshot samenstellen:</strong> de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, de importstatus, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags en notitie.</li>
+<li><strong>Het snapshot samenstellen:</strong> de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, de importstatus, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags, notitie en bevroren bewijs.</li>
 <li><strong>Poort 1 — drift</strong> (hieronder).</li>
 <li><strong>Poort 2 — sample-QC</strong> (hieronder).</li>
 <li><strong>Poort 3 — onvolledige import</strong> (hieronder).</li>
@@ -2423,8 +2429,7 @@ python docs/handleiding/build_site.py
 <p><strong>Wijzigingen.</strong> Elke ondertekening is een nieuwe versie; een ondertekende versie wordt nooit gewijzigd. In het live rapport heet de knop dan <em>Amend sign-out</em>.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/report_signout_service.py</code> (<code>sign_out_report</code>, <code>build_report_snapshot</code>).</p>
 <h3>Poort 1 — geen onverklaarde drift</h3>
-<p>Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd (hoofdstuk 10). Voor elke ACMG-classificatie van een small variant in de familie met bevroren bewijs (gerapporteerd of niet) vergelijkt de controle de bevroren hash van de annotatieset met de huidige. Een ontbrekende hash telt als <code>unknown</code>, en een gerapporteerde classificatie zonder bevroren bewijs als <code>no_snapshot</code>; beide tellen als drift. Is er drift en heeft de ondertekenaar die niet erkend, dan volgt <code>409</code>. Erkennen vraagt een reden (anders <code>422</code>); de erkenning en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen.</p>
-<p><strong>Beperking:</strong> de driftcontrole dekt alleen small variants. Gerapporteerde CNV's en SV's worden wel bevroren, maar nooit op drift gecontroleerd.</p>
+<p>Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd (hoofdstuk 10). Voor elke ACMG-classificatie van een small variant in de familie met bevroren bewijs (gerapporteerd of niet) vergelijkt de controle de bevroren hash van de annotatieset met de huidige. Voor elke CNV-classificatie van een SV of CNV vergelijkt ze het bevroren bewijs (de genen, de pLI, de overerving, het type en de positie) met de SV zoals die nu in de data staat (hoofdstuk 10). Een ontbrekende hash of een onleesbaar bewijs telt als <code>unknown</code>, en een gerapporteerde classificatie zonder bevroren bewijs, van een small variant of van een SV, als <code>no_snapshot</code>; beide tellen als drift. Is er drift en heeft de ondertekenaar die niet erkend, dan volgt <code>409</code>; de melding zegt hoeveel ervan SV's of CNV's zijn. Erkennen vraagt een reden (anders <code>422</code>) en geldt voor beide; de erkenning en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>sign_out_report</code> en <code>backend/app/services/classification_drift_service.py</code>.</p>
 <h3>Poort 2 — geen onverklaarde sample-QC-fout</h3>
 <p>De sample-QC spoort verwisselde samples of een foute stamboom op (<code>TF-06</code>, gevaar H4, ernst S5). De poort blokkeert in twee gevallen:</p>
@@ -2465,7 +2470,11 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td><code>drift</code></td>
-<td>Het aantal gecontroleerde classificaties en de lijst met drift (ook <code>no_snapshot</code>)</td>
+<td>Het aantal gecontroleerde classificaties van small variants en de lijst met drift (ook <code>no_snapshot</code>)</td>
+</tr>
+<tr>
+<td><code>structural_drift</code></td>
+<td>Hetzelfde voor de classificaties van SV's en CNV's, met per drift wat verschoof</td>
 </tr>
 <tr>
 <td><code>sample_qc</code></td>
@@ -2485,14 +2494,14 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td><code>reported_structural_variants</code></td>
-<td>Elke gerapporteerde SV of CNV met classificatie, CNV-criteria, tags en notitie</td>
+<td>Elke gerapporteerde SV of CNV met classificatie, CNV-criteria, tags, notitie en bevroren bewijs</td>
 </tr>
 </tbody>
 </table></div>
 <p>Bij het ondertekenen komen er de versie, het tijdstip, de ondertekenaar en de erkenningen met hun redenen bij. Het snapshot is zo aan <strong>drie versie-assen</strong> gebonden:</p>
 <ul>
 <li><strong>Software:</strong> <code>app_version</code> en <code>git_sha</code>, bij het bouwen van de image vastgelegd.</li>
-<li><strong>Annotatie en pipeline:</strong> het bevroren manifest en, per classificatie, de hash van de annotatieset.</li>
+<li><strong>Annotatie en pipeline:</strong> het bevroren manifest en, per classificatie, de hash van de annotatieset; bij een SV of CNV de hash van het bevroren bewijs, met de versies van de SV-callset erachter.</li>
 <li><strong>Referentie:</strong> de assembly, de bron van de genloci die CoGA zelf laadde (GENCODE, of de UCSC-tabel als GENCODE niet lukte), de Monarch-release en de HPO-release (de release van de laatste import van de ontologie).</li>
 </ul>
 <p><strong>De hash.</strong> De inhoudshash is een SHA-256 over een vaste, op sleutel gesorteerde JSON-codering; lijsten worden vooraf op een stabiele sleutel gesorteerd. De klinische secties zijn deterministisch: dezelfde inhoud geeft dezelfde vingerafdruk, en daarop steunt de controle hieronder. De inhoudshash zelf omvat ook de versie, het tijdstip en de ondertekenaar, en is dus per ondertekening uniek. Een opgeslagen hash wordt altijd herberekend over het snapshot zoals het opgeslagen werd; een versie van vóór een nieuw veld blijft dus geverifieerd.</p>
@@ -2501,7 +2510,7 @@ python docs/handleiding/build_site.py
 <h3>Toont de rapportpagina het ondertekende rapport?</h3>
 <p>Alleen de ondertekende versie is het ondertekende rapport. De rapportpagina heeft twee weergaven:</p>
 <ul>
-<li><strong>Een ondertekende versie</strong> (<code>?version=N</code>). Een ondertekende casus opent op de laatste. <code>SignedFamilyReport.tsx</code> tekent ze uitsluitend uit het bevroren snapshot dat <code>GET /families/{id}/report/sign-outs/{versie}</code> teruggeeft; <code>signedReportRecord.ts</code> leest het sectie per sectie. De pagina toont de versie, de ondertekenaar, het tijdstip, de inhoudshash en of die nog klopt (<code>verified</code>), de build die ondertekende, per gerapporteerde variant de klasse, de aanvaarde criteria, het bevroren bewijs, de tags en de notitie, de SV's met hun ClinGen-CNV-criteria, de drift, de sample-QC, de sequencing-QC en de importstatus met de erkenningen, en de bevroren versies.</li>
+<li><strong>Een ondertekende versie</strong> (<code>?version=N</code>). Een ondertekende casus opent op de laatste. <code>SignedFamilyReport.tsx</code> tekent ze uitsluitend uit het bevroren snapshot dat <code>GET /families/{id}/report/sign-outs/{versie}</code> teruggeeft; <code>signedReportRecord.ts</code> leest het sectie per sectie. De pagina toont de versie, de ondertekenaar, het tijdstip, de inhoudshash en of die nog klopt (<code>verified</code>), de build die ondertekende, per gerapporteerde variant de klasse, de aanvaarde criteria, het bevroren bewijs, de tags en de notitie, de SV's met hun ClinGen-CNV-criteria, de drift (ook die van de SV- en CNV-classificaties), de sample-QC, de sequencing-QC en de importstatus met de erkenningen, en de bevroren versies.</li>
 <li>Wat geen snapshot bevat — de variantbeschrijving (gen, HGVS, consequentie, genotypes, frequenties, voorspellingen), de segregatie, de gen- en fenotypecontext, het auditspoor en de pipelinesettings — zegt die pagina, voor het rapport en per variant. Ze vult het nooit aan met huidige data; elke variant heet er bij zijn ID. Een sectie die een oudere versie nog niet bevroor, staat er als <em>Not in the signed record</em>, nooit als leeg; een versie van vóór het bevriezen van SV's bevat er geen.</li>
 <li>De printknop drukt die weergave af. Een record dat niet meer bij zijn inhoudshash past, een versie die een latere vervangt, of een versie waarvan niet vaststaat dat ze de laatste is, krijgt bovenaan de afdruk een melding.</li>
 <li><strong>Het live rapport</strong> (<code>?view=live</code>) toont de <strong>huidige</strong> data. Hier wordt de casus ondertekend; daarna toont de pagina de nieuwe versie. Het is nooit het ondertekende rapport, ook niet als de inhoud overeenkomt ("This is the live report, not signed version N"), en elke afdruk ervan krijgt bovenaan een melding. Zolang het ondertekeningsrecord laadt of niet geladen kon worden, biedt het geen ondertekening aan.</li>
@@ -2509,6 +2518,7 @@ python docs/handleiding/build_site.py
 <li>Het bevroren record zelf is in beide weergaven als JSON te downloaden.</li>
 <li>Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly, de genloci, Monarch of HPO), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als <em>niet beschikbaar</em>, met de reden. Een HPO-ontologie uit een bestand zonder release krijgt dezelfde markering. Het auditevent en de ondertekende versie noemen die delen (<code>not_captured</code>, ook in het antwoord van <code>GET …/sign-outs/{versie}</code>).</li>
 <li>Een versie die ondertekend werd voordat CoGA de HPO-release vastlegde, bevat die release niet. De controle vergelijkt daar niet op (<code>not_compared</code> bevat <code>modules.hpo</code>) en meldt het rapport dus niet als gewijzigd; de ondertekende versie noemt de release als niet vastgelegd.</li>
+<li>Een versie die ondertekend werd voordat CoGA het bewijs van SV- en CNV-classificaties bevroor, heeft geen <code>structural_drift</code> en geen bewijs bij haar gerapporteerde SV's. De controle vergelijkt die twee niet (<code>not_compared</code> bevat <code>structural_drift</code> en <code>reported_structural_variants.evidence_snapshot</code>), wel de rest van elke gerapporteerde SV; de ondertekende versie zegt dat ze die drift niet bevat.</li>
 <li>Of het snapshot ook de variantbeschrijving en de gen- en fenotypecontext moet bevriezen, is een open beslissing (<code>TF-09b</code> §3). Dat zou veranderen wat gehasht en wat vergeleken wordt.</li>
 </ul>
 <h2>Append-only, hash-geketend auditspoor</h2>
@@ -2547,7 +2557,7 @@ python docs/handleiding/build_site.py
 <li><strong>Ruw bestand → hash.</strong> Elk bronbestand staat in <code>raw_import_files</code>, met zijn SHA-256 of, voor een alignment in een bucket, het record van de opslag (hoofdstuk 6).</li>
 <li><strong>Annotatiemanifest.</strong> De tool- en databankversies uit de VCF-headers staan per familie in <code>family_annotation_manifest</code> (hoofdstuk 6); een vervanging door een beheerder komt in het klinische auditspoor.</li>
 <li><strong>Variant in ClickHouse.</strong> Elke variant draagt de hash van de annotatieset waarmee hij werd geannoteerd (hoofdstuk 3).</li>
-<li><strong>Classificatie en bewijs.</strong> Bij elke ACMG-classificatie van een small variant worden de annotatieversie, de hash van de annotatieset, de ClinVar-waarde en het tijdstip bevroren (hoofdstuk 10).</li>
+<li><strong>Classificatie en bewijs.</strong> Bij elke ACMG-classificatie van een small variant worden de annotatieversie, de hash van de annotatieset, de ClinVar-waarde en het tijdstip bevroren; bij elke CNV-classificatie de genen, de pLI, de overerving, het type en de positie van de SV, een hash van zijn annotatie en de versies erachter (hoofdstuk 10).</li>
 <li><strong>Poorten.</strong> Vóór het ondertekenen worden de assembly, de drift en de sample-QC gecontroleerd; wat niet in orde is, moet worden erkend, met een reden.</li>
 <li><strong>Bevroren rapport.</strong> Het snapshot met manifest, softwareversie, drift, QC en gerapporteerde varianten wordt gehasht en append-only opgeslagen als nieuwe versie.</li>
 <li><strong>Keten en anker.</strong> De ondertekening komt in de hash-keten van de familie, er komt een <code>sign_out</code>-regel in het klinische auditspoor, en een ondertekend anker kan de ketenkoppen extern vastleggen.</li>
@@ -2587,6 +2597,10 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>backend/app/services/classification_drift_service.py</code></td>
 <td>Drift</td>
+</tr>
+<tr>
+<td><code>backend/app/services/structural_variant_evidence.py</code></td>
+<td>Het bewijs van een CNV-classificatie en zijn drift</td>
 </tr>
 <tr>
 <td><code>backend/app/services/annotation_manifest_service.py</code></td>

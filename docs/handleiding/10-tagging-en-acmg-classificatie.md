@@ -127,24 +127,28 @@ De volledige beoordeling per criterium wordt als JSON bewaard, met het herbereke
 
 **Het bewijssnapshot.** Bij het classificeren van een small variant bevriest CoGA het bewijs in `acmg_evidence_snapshot`: de annotatieversie en de **hash van de annotatieset** (die verandert zodra enige annotatie verandert), de ClinVar-waarde en het tijdstip. Elke wijziging van een review, van een small variant, een SV of een CNV, schrijft bovendien, in dezelfde transactie, een voor-en-na-regel in het append-only, hash-geketende **klinische auditspoor** (hoofdstuk 11): wie, wanneer en wat veranderde (klasse, criteria, tags, notitie). Bij een CNV hoort bij de klasse ook de ClinGen-score: de soort, het puntentotaal en elk aanvaard criterium met zijn punten. Ook het leegmaken of wissen van een review wordt vastgelegd.
 
-**Beperking.** Alleen classificaties van small variants krijgen een bewijssnapshot en een driftcontrole. CNV- en SV-classificaties worden bij het ondertekenen wel bevroren, maar niet op drift gecontroleerd. De review van een compound-heterozygoot paar schrijft geen regel in het klinische auditspoor.
+**Het bewijssnapshot van een CNV.** Een SV heeft in ClickHouse geen hash van de annotatieset. Bij het opslaan van een CNV-classificatie bevriest CoGA daarom in `cnv_evidence_snapshot` (op `structural_variant_reviews`) de waarden die de CNV-evaluator leest: het type, de overlappende genen en hun aantal, de pLI en de geannoteerde overerving. De evaluator leest geen klinische CNV's, dosagescores of DGV; die criteria scoort de analist zelf. Het snapshot bevat ook de gebeurtenis zelf (de caller, het chromosoom, het begin, het einde, de lengte en de breukpuntpartner), een hash van de volledige annotatie van de SV, het tijdstip en de versies waar het bewijs vandaan komt: die van de SV-callset in het annotatiemanifest van de familie, en de referentie-assembly en de genloci. De driftsleutel is `evidence_hash`, een SHA-256 over het bewijs; de versies worden vastgelegd, niet vergeleken. De genotypes zitten er niet in. Een CNV-classificatie van een SV die niet in de data van de familie zit, weigert de server (`404`). Heeft de familie geen assembly, dan is er geen SV-opslag om te lezen en wordt de classificatie zonder snapshot bewaard.
 
-**Waar in de code:** `build_evidence_snapshot` in `backend/app/services/small_variant_review_acmg.py`; het auditspoor in `backend/app/services/clinical_audit_service.py` (`record_review_changes` voor small variants, `record_structural_review_changes` voor SV's en CNV's).
+**Beperking.** De review van een compound-heterozygoot paar schrijft geen regel in het klinische auditspoor.
+
+**Waar in de code:** `build_evidence_snapshot` in `backend/app/services/small_variant_review_acmg.py`; `build_structural_evidence_snapshot` in `backend/app/services/structural_variant_evidence.py`; het auditspoor in `backend/app/services/clinical_audit_service.py` (`record_review_changes` voor small variants, `record_structural_review_changes` voor SV's en CNV's).
 
 ## Deel 5 — Classificatiedrift
 
-Annotaties veranderen: een nieuwe ClinVar- of gnomAD-release kan het bewijs onder een bestaande classificatie verschuiven. CoGA vergelijkt daarom per geclassificeerde small variant het bevroren snapshot met de huidige annotatie, met dezelfde functie die het snapshot bouwde:
+Annotaties veranderen: een nieuwe ClinVar- of gnomAD-release kan het bewijs onder een bestaande classificatie verschuiven, en een herimport kan de genen onder een CNV veranderen. CoGA vergelijkt daarom per geclassificeerde small variant, en per SV of CNV met een CNV-classificatie, het bevroren snapshot met de huidige data, met dezelfde functie die het snapshot bouwde:
 
 | Status | Betekenis |
 | --- | --- |
 | `current` | Ongewijzigd (de hashes zijn gelijk) |
-| `drifted` | De annotatie veranderde sinds de classificatie |
+| `drifted` | Het bewijs veranderde sinds de classificatie |
 | `variant_missing` | De variant zit niet meer in de data |
-| `unknown` | Een van beide hashes ontbreekt; de koppeling is niet te controleren |
+| `unknown` | Een van beide hashes ontbreekt, of het bevroren bewijs is niet te lezen; de koppeling is niet te controleren |
 
-Ontbreekt een hash, dan meldt de controle **niet** `current` maar `unknown`, en bij het ondertekenen telt `unknown` als drift. Een drift moet worden herbekeken of, met een reden, erkend voordat een rapport ondertekend kan worden (hoofdstuk 11).
+Ontbreekt een hash, dan meldt de controle **niet** `current` maar `unknown`, en bij het ondertekenen telt `unknown` als drift. Een drift moet worden herbekeken of, met een reden, erkend voordat een rapport ondertekend kan worden (hoofdstuk 11). Wie de classificatie opnieuw opslaat, bevriest het bewijs zoals het nu is.
 
-**Waar in de code:** `backend/app/services/classification_drift_service.py` (de statuslogica in `_diff`).
+Bij een SV of CNV zegt `drifted` ook wat verschoof (`changed`): de genen, de pLI, de overerving, het type, de positie, de caller of de overige annotatie, met de waarde ervoor en erna. De controle vergelijkt alleen de velden die het snapshot bevroor. De SV wordt gelezen zoals de SV-pagina hem leest.
+
+**Waar in de code:** `backend/app/services/classification_drift_service.py` (de statuslogica in `_diff`; voor SV's en CNV's `evaluate_structural_classification_drift`, met `diff_structural_evidence` uit `structural_variant_evidence.py`).
 
 ## Belangrijkste bestanden
 
@@ -157,6 +161,7 @@ Ontbreekt een hash, dan meldt de controle **niet** `current` maar `unknown`, en 
 | `backend/app/services/acmg_points.py` · `cnv_acmg_points.py` | Herberekening op de server |
 | `backend/app/services/small_variant_review_pg.py` · `small_variant_review_acmg.py` | Reviews opslaan, ACMG controleren, het bewijssnapshot |
 | `backend/app/services/structural_variant_review_pg.py` | CNV/SV-reviews en CNV-ACMG |
+| `backend/app/services/structural_variant_evidence.py` | Het bewijssnapshot van een CNV-classificatie en de vergelijking ervan |
 | `backend/app/services/small_variant_review_tags.py` | Systeemtags, eigen tags, rechten |
 | `backend/app/services/classification_drift_service.py` | Drift |
 | `backend/app/services/clinical_audit_service.py` | Het klinische auditspoor |
