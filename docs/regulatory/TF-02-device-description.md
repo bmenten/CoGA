@@ -132,20 +132,25 @@ governed by **TF-18**.
 
 ## 10. Operating environment & deployment
 
-- Containerized, with two deployment targets:
-  - **On premises** — Docker Compose within the CMGG/UZ Gent managed environment (current). The
-    databases and the API are bound to the host's loopback; only the web UI is published.
-  - **Google Cloud** — codified in `terraform/` but **not yet applied**: Cloud Run services behind
+- Containerized. **Production target: Google Cloud**, deployed with Terraform (owner decision,
+  recorded 2026-09-29, CR-089). There is **no production deployment yet**; only local
+  development runs.
+  - **Google Cloud** — codified in `terraform/`, **not yet applied**: Cloud Run services behind
     an external HTTPS load balancer (TLS 1.2+, Cloud Armor), Cloud SQL, a ClickHouse VM and
-    CMEK-encrypted buckets in the configured region. The load balancer is **internet-facing by
-    default**; restricting it to institutional networks is tracked in #364.
+    CMEK-encrypted buckets in the configured region (default `europe-west1`). The load
+    balancer is **internet-facing by default**. The go-live switches, each off by default and
+    each its own change-controlled deployment, restrict it to institutional networks, run the
+    API as the restricted database role and lock down the ClickHouse VM's egress (#364;
+    `docs/deployment-gcp.md` §12.7–12.10).
+  - **Docker Compose** — local development and verification, on synthetic data only. The
+    databases and the API are bound to the host's loopback; only the web UI is published.
 - Authentication via JWT (HS256), optional Azure AD; project-scoped RBAC; admin-gated mutations.
 - The **device** is not transferred to any other legal entity (Art. 5(5)(a)). **PHI:** in the
-  on-premises deployment it stays within the institution; in the Google Cloud deployment it is
-  stored and processed by Google Cloud as a **processor** on the institution's behalf. **🔲 OWNER
-  DECISION (#518):** confirm the production target, the data-processing agreement and region
-  for Google Cloud, and whether the load balancer is restricted to institutional networks
-  (#364). Until then the technical file describes both.
+  Google Cloud deployment it is stored and processed by Google Cloud as a **processor** on the
+  institution's behalf. As stated by the owner on 2026-09-29, the DPIA is signed and the
+  data-processing agreement with Google is being signed. **🔲 OWNER (#518):** file the signed
+  DPIA and the executed agreement with the technical file, confirm the region, and confirm
+  the load balancer is restricted to institutional networks before go-live (#364).
 
 ## 11. Standards & common specifications applied
 

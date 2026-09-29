@@ -51,6 +51,7 @@ resource "google_project_service" "coga" {
     "monitoring.googleapis.com",
     "certificatemanager.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "dns.googleapis.com", # private Google API zones for the ClickHouse egress lockdown
   ])
   project                    = var.project_id
   service                    = each.value
@@ -76,6 +77,15 @@ resource "google_service_account" "clickhouse_vm" {
   project      = var.project_id
   account_id   = "${local.name_prefix}-clickhouse-vm"
   display_name = "CoGA ClickHouse VM"
+}
+
+# Runs the db-migrate Cloud Run job as the Postgres owner (CoGA terraform/migrate.tf,
+# db_runtime_role = "coga_app"). Separate from the backend account so the API never holds
+# the owner's password. The CoGA config grants it the secrets it reads.
+resource "google_service_account" "db_migrate" {
+  project      = var.project_id
+  account_id   = "${local.name_prefix}-db-migrate"
+  display_name = "CoGA schema migration (Cloud Run job)"
 }
 
 # ---- Project-level IAM grants (least privilege) -----------------------------
@@ -106,6 +116,18 @@ resource "google_service_account_iam_member" "backend_token_creator" {
   member             = "serviceAccount:${google_service_account.backend.email}"
 }
 
+# Schema migration job: Cloud SQL client only (logs from a Cloud Run job need no role).
+resource "google_project_iam_member" "db_migrate_sql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.db_migrate.email}"
+}
+
+# The CoGA deploy pipeline's service account must be able to deploy the job as this
+# account and run it: roles/iam.serviceAccountUser on google_service_account.db_migrate,
+# like the actAs grants on the other runtime accounts (rollout-checklist.md, Part C), and a
+# Cloud Run role that includes run.jobs.run (roles/run.developer or roles/run.admin).
+
 # Frontend: logs only.
 resource "google_project_iam_member" "frontend_log_writer" {
   project = var.project_id
@@ -125,6 +147,18 @@ resource "google_project_iam_member" "clickhouse_metric_writer" {
   role    = "roles/monitoring.metricWriter"
   member  = "serviceAccount:${google_service_account.clickhouse_vm.email}"
 }
+
+# ClickHouse VM: pull its image from Artifact Registry, required once the egress lockdown
+# (clickhouse_restrict_egress) cuts Docker Hub off. Grant it on the repository holding the
+# mirrored image, which may live in the shared registry project, e.g.:
+#
+# resource "google_artifact_registry_repository_iam_member" "clickhouse_image_reader" {
+#   project    = "<registry project>"
+#   location   = "europe-west1"
+#   repository = "<repository>"
+#   role       = "roles/artifactregistry.reader"
+#   member     = "serviceAccount:${google_service_account.clickhouse_vm.email}"
+# }
 
 # ---- CMEK key grants to the Google service agents --------------------------
 

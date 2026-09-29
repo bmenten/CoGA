@@ -138,18 +138,17 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "POSTGRES_DB"
         value = google_sql_database.coga.name
       }
+      # DB privilege separation (P1-3/P1-4), var.db_runtime_role. "owner" (default): the
+      # app connects as the table owner and applies the schema on startup. "coga_app": it
+      # connects as the restricted role, never runs DDL, and the db-migrate job applies the
+      # schema first (migrate.tf). See docs/db-runtime-role-runbook.md (change-controlled).
       env {
         name  = "POSTGRES_USER"
-        value = google_sql_user.coga.name
+        value = local.app_db_user
       }
-      # DB privilege separation (P1-3/P1-4). Default (true) = the app self-migrates as the
-      # owner above. To flip to the restricted runtime role, set
-      # var.run_db_schema_migrations_on_startup = false, run `python -m backend.app.db_migrate`
-      # as the owner in the same deploy, and repoint POSTGRES_USER at coga_app. See
-      # docs/db-runtime-role-runbook.md (change-controlled).
       env {
         name  = "POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP"
-        value = tostring(var.run_db_schema_migrations_on_startup)
+        value = tostring(local.app_runs_migrations)
       }
       env {
         name  = "POSTGRES_SSLMODE"
@@ -175,7 +174,7 @@ resource "google_cloud_run_v2_service" "backend" {
         name = "POSTGRES_PASSWORD"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.app["postgres_password"].secret_id
+            secret  = google_secret_manager_secret.app[local.app_db_password_secret].secret_id
             version = "latest"
           }
         }
@@ -294,6 +293,8 @@ resource "google_cloud_run_v2_service" "backend" {
 
   depends_on = [
     google_secret_manager_secret_iam_member.backend,
+    # With the restricted DB role, a new image serves only after its schema is applied.
+    terraform_data.db_migrate,
   ]
 }
 

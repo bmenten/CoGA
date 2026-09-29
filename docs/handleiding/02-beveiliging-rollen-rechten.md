@@ -104,6 +104,8 @@ Zelfs áls de applicatie ooit gecompromitteerd raakt, mag ze niet in staat zijn 
 
 De rol wordt *in fallback-modus* geleverd: hij bestaat als `NOLOGIN` en de applicatie draait voorlopig nog als de tabel-eigenaar. De echte omschakeling (de "DSN-flip", waarbij DSN staat voor de databank-connectiestring) is een louter operationele configuratiewijziging, geen codewijziging: `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` zetten (zodat de app geen eigenaar-only DDL — tabellen aanmaken/wijzigen — meer probeert), de schema-migraties apart draaien als eigenaar (`python -m backend.app.db_migrate`), en de app laten inloggen als `coga_app`.
 
+Op Google Cloud is die omschakeling één Terraform-variabele: `db_runtime_role = "coga_app"`. Een aparte Cloud Run-job, `coga-db-migrate` (`terraform/migrate.tf`), draait dan vóór elke uitrol de schema-migratie als eigenaar en zet met `POSTGRES_APP_PASSWORD` ook de login van `coga_app` aan, zodat niemand met de hand SQL moet draaien op een databank die alleen een privé-adres heeft. De job draait onder een eigen serviceaccount, zodat de API het wachtwoord van de eigenaar niet meer kan lezen, ook niet via Secret Manager.
+
 **Waar in de code:** de stap-voor-stap-procedure, de verificatie en de rollback staan in `docs/db-runtime-role-runbook.md`; de bijhorende instelling in `backend/app/core/config.py` (`postgres_run_schema_migrations_on_startup`). Belangrijk voor toekomstige schema's: de `ALTER DEFAULT PRIVILEGES` uit 040 geeft elke *nieuwe* tabel automatisch volledige CRUD aan `coga_app`; daarom moet elke nieuwe append-only tabel de `REVOKE UPDATE, DELETE, TRUNCATE ... FROM coga_app` herhalen (dit staat ook als expliciete waarschuwing in het bestand zelf).
 
 ## Overige hardening
