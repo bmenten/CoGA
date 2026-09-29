@@ -41,10 +41,10 @@
 
 | ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
-| REQ-NIPT-001 | Estimate fetal fraction (FF) from category-7 sites as a robust weighted median, reporting a confidence interval and supporting-site count. | C | H6 |
-| REQ-NIPT-002 | Classify each cfDNA variant into one of the 8 maternal/fetal zygosity categories by binomial likelihood against the FF-derived expected VAF, with a per-call confidence. | C | H6 |
+| REQ-NIPT-001 | Estimate fetal fraction (FF) from the category-7 sites that pass the quality and artifact filters, as a depth-weighted pooled estimate with a confidence interval and supporting-site count; the Summary, the variant list and the report use this one estimate. | C | H6 |
+| REQ-NIPT-002 | Classify each cfDNA variant into one of the 8 maternal/fetal zygosity categories by beta-binomial likelihood against the FF-derived expected VAF, with a per-call confidence, among only the categories the father's genotype allows; a father call below the minimum depth counts as no call. | C | H6 |
 | REQ-NIPT-003 | At low FF or low depth, attach low confidence and **must not force** a fetal-inheritance call. | C | H6 |
-| REQ-NIPT-004 | Exclude recurrent-artifact variants (per assay/panel) and report the filter funnel counts (total → quality → artifact → analysed). | C | H1 |
+| REQ-NIPT-004 | Exclude recurrent-artifact variants (per assay/panel) and report the filter funnel counts (total → quality → artifact → analysed). Artifact seeding counts recurrence in the assay's own cfDNA samples only, and never lists a common variant or one with a ClinVar pathogenic, likely pathogenic or conflicting record. | C | H1 |
 | REQ-NIPT-005 | When an external FF is supplied, record it alongside the computed estimate and **flag disagreement** (computed estimate remains default). | B | H6 |
 | REQ-NIPT-006 | Compute per-region and overall **median on-target coverage** and flag low-coverage regions against a threshold. | C | H1 |
 | REQ-NIPT-007 | Provide inheritance presets: de-novo, paternal-dominant, maternal-dominant, recessive-at-risk (cross-variant gene pairing). | B | — |
@@ -149,7 +149,7 @@
 
 | ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
-| REQ-QC-001 | Provide a sample-integrity QC suite matched to the application: sex check, relatedness against the pedigree and Mendelian consistency; for NIPT, paternity, fetal and parent sex and the cfDNA category check. | C | H4 |
+| REQ-QC-001 | Provide a sample-integrity QC suite matched to the application: sex check, relatedness against the pedigree and Mendelian consistency; for NIPT, paternity (from sites with a usable father call), fetal and parent sex and the cfDNA category check. | C | H4 |
 | REQ-QC-002 | Surface sample-integrity QC at the family level for review before sign-out. | C | H4 |
 | REQ-QC-003 | Maintain admin-managed sequencing-QC acceptance limits: per metric a warning limit and an error limit, grouped into named per-assay profiles, with the last-changing user recorded. The set of gateable metrics and the failing side of each are fixed by the software, not configurable. | C | H14 |
 | REQ-QC-004 | Evaluate each sample's recorded sequencing QC against the limits of its resolved profile **server-side**, returning a per-metric state (pass / warn / fail / not assessed) and the sample's worst state. A metric that was not measured, or for which no limit is configured, yields *not assessed* and never *pass*. | C | H14 |

@@ -42,6 +42,8 @@ heterozygotes, a woman many.
 
 - 5% or less → **male**; 15% or more → **female**; in between → indeterminate (**warn**).
 - At least **200** X sites are needed; with fewer the result is indeterminate (**warn**).
+- A haploid call (`0` or `1`, how some callers write a man's X) counts as a homozygous site. A
+  no-call or a half call (`./1`) is left out.
 - A recorded sex that differs from the genetic sex is a **fail** — most often a sample swap or a
   mislabelled tube. No recorded sex is a **warn**.
 
@@ -96,8 +98,10 @@ explained in the [Monogenic NIPT reference](/docs/reference/monogenic-nipt).
 ### Paternity (categories 7 and 8)
 
 Category 7 is a paternal allele that reached the fetus; category 8 is an allele the father is
-homozygous for but that is absent from the cfDNA. The share of absent paternal alleles,
-`cat 8 ÷ (cat 7 + cat 8)`:
+homozygous for but that is absent from the cfDNA. Only sites with a usable father call count: a
+genotype at a depth of 10 or more. Where the father has no usable call, a site at `FF / 2` is still
+placed in category 7, but it says nothing about paternity and is left out. The share of absent paternal
+alleles, `cat 8 ÷ (cat 7 + cat 8)`:
 
 - no category-7 site, or 70% or more absent → **fail** (non-paternity or a sample mix-up);
 - 40% or more absent → **warn** (can also reflect a low fetal fraction);
@@ -111,8 +115,8 @@ allele at a maternal level (VAF 30% or more) belongs to the mother and is ignore
 
 - At least **8** informative sites are needed; otherwise indeterminate (**warn**).
 - 3 or more transmitted paternal-X alleles → **female**; none → **male**; otherwise indeterminate.
-- Only father sites called homozygous alt (`1/1`) count. A father's X written as a single haploid
-  allele (`1`) is not used, so such a callset gives an indeterminate fetal sex.
+- Only sites where the father carries the allele count: `1/1`, or a haploid `1` as some callers write
+  a man's X, at a depth of 10 or more.
 
 ### Parent sex
 

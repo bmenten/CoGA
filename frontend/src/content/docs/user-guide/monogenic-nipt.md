@@ -38,7 +38,7 @@ panel genes, and the classified variants grouped as *De novo in fetus*, *Dominan
 other filters, and lists up to 500 variants. **Print report** prints it. A NIPT report has no sign-out.
 
 > **Screening, not diagnosis.** A NIPT call must be confirmed by an invasive diagnostic test. Check the
-> fetal fraction and its interval before you read any category, and the father's depth before you act on
-> a de novo call.
+> fetal fraction and its interval before you read any category, and a de novo call's VAF against
+> `FF / 2` before you act on it: CoGA does not test it.
 
 [Monogenic NIPT reference (the model, the categories, the flags, the presets)](/docs/reference/monogenic-nipt "further-reading")
