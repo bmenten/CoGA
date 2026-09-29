@@ -2,7 +2,7 @@
 
 Status: Phases 1–4 implemented
 Owner: TBD
-Related: [storage-architecture.md](storage-architecture.md), [data-import.md](data-import.md), [database.md](database.md), [ROADMAP.md](ROADMAP.md)
+Related: [application-scheme.md](application-scheme.md), [data-import.md](data-import.md), [database.md](database.md), [ROADMAP.md](ROADMAP.md)
 
 > **Implementation note (Phase 1).** Built against the Monarch KG `2026-06-08`
 > release. A few details below were refined once the real data was inspected; the
