@@ -291,7 +291,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     if (paraphasePresenceFailed) void refetchParaphasePresence();
     if (mitoPresenceFailed) void refetchMitoPresence();
   };
-  const hasVariantSummary = hasVariants || hasSmallVariants;
+  // The variant summary summarises the structural variants, from every SV caller (HiFiCNV
+  // copy-number calls included), and nothing else: it is offered when the family has them,
+  // or when that check failed, never for small variants alone.
+  const hasVariantSummary = hasVariants;
   const hasAnyVariantData =
     hasVariants || hasSmallVariants || hasRepeatExpansions || hasParaphase || hasMitoDna;
   // A failed check is settled too: "Checking…" used to stay up for good (#607).

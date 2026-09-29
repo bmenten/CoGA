@@ -115,6 +115,8 @@ describe('FamilyVariantSummaryPage', () => {
 
     expect(await screen.findByRole('link', { name: 'Family F1' })).toHaveAttribute('href', '/families/F1');
     expect(screen.getByText('Variant summary')).toBeInTheDocument();
+    // The page says what it summarises: the structural variants, not the small variants.
+    expect(screen.getByText(/of this family's structural variants, from every caller/)).toBeInTheDocument();
     expect(await screen.findByText('Pedigree')).toBeInTheDocument();
   });
 

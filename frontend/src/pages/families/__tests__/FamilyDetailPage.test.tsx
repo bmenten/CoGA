@@ -425,22 +425,48 @@ describe('FamilyDetailPage', () => {
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
-    // Small variants present -> small-variants + variant-summary links are shown.
+    // Small variants present -> the small-variants link is shown.
     expect(screen.getByRole('link', { name: /small variants/i })).toHaveAttribute(
       'href',
       '/families/F1/small-variants?project_id=p1',
     );
-    expect(screen.getByRole('link', { name: /variant summary/i })).toBeInTheDocument();
     // No structural / repeat / paraphase / mtDNA data -> omitted entirely (no link, no button).
+    // The variant summary summarises the structural variants, so it has nothing to show
+    // for small variants only.
     for (const name of [
       /structural variants/i,
       /repeat expansions/i,
       /paraphase/i,
       /mtDNA analysis/i,
+      /variant summary/i,
     ]) {
       expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
+  });
+
+  it('offers the variant summary for a family with structural variants only', async () => {
+    mockApiState.smallVariantTotal = 0;
+    mockApiState.structuralVariantTotal = 2;
+    localStorage.setItem('role', 'viewer');
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    await waitForVariantWorkspaceReady();
+    expect(screen.getByRole('link', { name: 'Variant summary' })).toHaveAttribute(
+      'href',
+      '/families/F1/variant-summary',
+    );
+    expect(screen.queryByRole('link', { name: /small variants/i })).not.toBeInTheDocument();
   });
 
   it('groups the variant workspaces into four rows in order', async () => {
@@ -776,6 +802,18 @@ describe('FamilyDetailPage', () => {
         // Unknown, not absent: the link is offered, and the check does not "run" for good.
         expect(screen.getByRole('link', { name: 'Structural variants' })).toBeInTheDocument();
         expect(screen.queryByText('Checking available family data…')).not.toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
+
+    it('offers the variant summary when the structural-variant check failed, even without small variants', async () => {
+      mockApiState.smallVariantTotal = 0;
+      const restore = renderWithFailing((url) => url.startsWith('/families/F1/structural-variants?count_only'));
+      try {
+        await screen.findByText(/Could not load whether this family has structural variants/);
+        // Whether there is anything to summarise is unknown, so the page is offered to say so.
+        expect(screen.getByRole('link', { name: 'Variant summary' })).toBeInTheDocument();
       } finally {
         restore();
       }
