@@ -47,8 +47,10 @@ type HpoSyncResult = {
 const formatNumber = (value?: number | null) =>
   typeof value === 'number' ? value.toLocaleString() : '0';
 
-const formatDate = (value?: string | null) => {
-  if (!value) return 'Not installed';
+// `missing` is what an absent date means: nothing installed, or an ontology imported from a
+// file that recorded no release.
+const formatDate = (value?: string | null, missing = 'Not installed') => {
+  if (!value) return missing;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   // A date-only value is parsed as UTC midnight: shown in local time it fell a day early
@@ -262,7 +264,9 @@ const HpoTerminologyAdminPage: React.FC = () => {
         </div>
         <div className="admin-data-summary-item">
           <span className="admin-data-summary-label">Release date</span>
-          <strong className="admin-data-summary-value">{formatDate(summary?.release_date)}</strong>
+          <strong className="admin-data-summary-value">
+            {formatDate(summary?.release_date, ontologyLoaded ? 'Unknown' : 'Not installed')}
+          </strong>
         </div>
         <div className="admin-data-summary-item">
           <span className="admin-data-summary-label">Last sync</span>

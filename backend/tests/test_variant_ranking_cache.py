@@ -36,7 +36,11 @@ def _patch_db(monkeypatch):
     monkeypatch.setattr(vrc, "_reference_versions", _refs)
 
 
-REFERENCE_VERSIONS = {"hpo_release": "2026-04-01", "gene_info_updated_at": "2026-06-08T10:00:00"}
+REFERENCE_VERSIONS = {
+    "hpo_release": "2026-04-01",
+    "hpo_imported_at": "2026-04-02T08:00:00+00:00",
+    "gene_info_updated_at": "2026-06-08T10:00:00",
+}
 
 
 def _default_filters(**overrides):
@@ -109,6 +113,67 @@ def test_hash_changes_when_scoring_reference_data_changes(monkeypatch) -> None:
     monkeypatch.setitem(REFERENCE_VERSIONS, "gene_info_updated_at", "2026-09-28T09:00:00")
     after_gene_info = _hash(monkeypatch)
     assert len({before, after_hpo, after_gene_info}) == 3
+
+
+def test_hash_changes_when_an_ontology_without_a_release_is_imported_again(monkeypatch) -> None:
+    # Two imports from files without a release both leave the release unknown. The
+    # rankings computed on the first must not be served on the second.
+    monkeypatch.setitem(REFERENCE_VERSIONS, "hpo_release", None)
+    first = _hash(monkeypatch)
+    monkeypatch.setitem(REFERENCE_VERSIONS, "hpo_imported_at", "2026-10-01T08:00:00+00:00")
+    assert _hash(monkeypatch) != first
+
+
+def test_a_ranking_cached_under_the_earlier_key_is_not_a_hit(monkeypatch) -> None:
+    # The key gained the ontology's import time. A ranking cached under the earlier payload,
+    # even with the same HPO release string, may have been computed on another ontology, so
+    # it must miss. The payload change retires those rows; _ALGORITHM_VERSION is left for
+    # scoring changes, and a bump of it combines with this (either change alone moves the key).
+    current = _hash(monkeypatch)
+    monkeypatch.delitem(REFERENCE_VERSIONS, "hpo_imported_at")
+    assert _hash(monkeypatch) != current
+
+
+class _GeneInfoSession:
+    """Answers the gene-constraint freshness lookup."""
+
+    def __init__(self) -> None:
+        self.params: list = []
+
+    async def execute(self, statement, params=None):
+        assert "FROM gene_info" in str(statement), str(statement)
+        self.params.append(params)
+        return types.SimpleNamespace(scalar=lambda: "2026-06-08T10:00:00")
+
+
+def test_the_reference_versions_name_the_loaded_hpo_ontology(monkeypatch) -> None:
+    # The same reader as the signed record and the admin summary: the release of the
+    # latest import, and when it was imported. `max(release_version)` named a release no
+    # longer loaded after a downgrade, and could not tell apart two imports without one.
+    imported_at = "2026-09-01T08:00:00+00:00"
+
+    async def _loaded(session):
+        return {"release_version": "hp/releases/2026-06-06", "release_date": None, "imported_at": imported_at}
+
+    monkeypatch.setattr(vrc, "get_loaded_hpo_release", _loaded)
+    session = _GeneInfoSession()
+    context = types.SimpleNamespace(assembly_id="a1")
+    assert asyncio.run(vrc._reference_versions(session, context)) == {
+        "hpo_release": "hp/releases/2026-06-06",
+        "hpo_imported_at": imported_at,
+        "gene_info_updated_at": "2026-06-08T10:00:00",
+    }
+    assert session.params == [{"assembly_id": "a1"}]
+
+    async def _none_loaded(session):
+        return None
+
+    monkeypatch.setattr(vrc, "get_loaded_hpo_release", _none_loaded)
+    assert asyncio.run(vrc._reference_versions(_GeneInfoSession(), context)) == {
+        "hpo_release": None,
+        "hpo_imported_at": None,
+        "gene_info_updated_at": "2026-06-08T10:00:00",
+    }
 
 
 def _hashes(monkeypatch, *, filters, data="1:1"):

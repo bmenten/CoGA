@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .family_metadata_context import build_family_metadata_context
+from .hpo_service import get_loaded_hpo_release
 from .metadata_service import get_family_record
 from .access_control import CurrentUser
 
@@ -231,21 +232,11 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
         logger.warning("Monarch-release provenance lookup failed", exc_info=True)
         modules["monarch"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
     # The HPO release phenotype matching, HPO-driven ranking and the phenotype features ran
-    # on. No table holds it: an import writes its release onto every term in the file, and
-    # a term the new release no longer lists keeps the one it came with. So the loaded
-    # release is the one on the most recently written term, not the highest release string
-    # (an older release re-imported is what is loaded) and not the latest one that has a
-    # release (an import from a file without a data-version header left it unknown).
+    # on: the release of the latest ontology import (see get_loaded_hpo_release, which the
+    # admin summary and the ranking-cache key read too).
     try:
         async with session.begin_nested():
-            hpo_release = (
-                await session.execute(
-                    text(
-                        "SELECT release_version, release_date FROM hpo_term "
-                        "ORDER BY updated_at DESC LIMIT 1"
-                    )
-                )
-            ).mappings().first()
+            hpo_release = await get_loaded_hpo_release(session)
         if hpo_release:
             version = str(hpo_release["release_version"] or "").strip()
             if version:

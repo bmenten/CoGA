@@ -9,8 +9,9 @@ inputs that change the ranking:
   from ClickHouse (``get_family_small_variant_data_version``) — every insert, delete or
   re-import of the family's variants changes it, whatever code path made the change;
 - affected HPO terms, pedigree/affected status and the gene-panel version;
-- the reference data the scores read: Monarch release, HPO ontology release and the
-  gene-constraint table (gene_info) for the family's assembly;
+- the reference data the scores read: Monarch release, the HPO ontology loaded (its
+  release and import time, as the signed record reads it) and the gene-constraint table
+  (gene_info) for the family's assembly;
 - the scoring-algorithm version.
 
 Any change flips the hash, so a stale ranking is never served. Before the data version
@@ -31,7 +32,11 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Bump when the scoring/ranking logic changes so old cached rankings are ignored.
+from .hpo_service import get_loaded_hpo_release
+
+# Bump when the scoring/ranking logic changes so old cached rankings are ignored. A change
+# to what the hash covers needs no bump: the hashed payload itself changes, so no row
+# cached before can match (adding `hpo_imported_at` retired every earlier key this way).
 # 2: a compound-het pair whose two hits trace to one parent is no longer a candidate,
 #    which moves the segregation weight of both variants (compound_het_phase).
 _ALGORITHM_VERSION = "2"
@@ -117,28 +122,26 @@ async def _reference_versions(session: AsyncSession, context: Any) -> dict[str, 
     Phenotype similarity uses the HPO ontology (information content, ancestors), and the
     variant score uses gene constraint (pLI / missense-Z) from ``gene_info``. A refresh of
     either can reorder the ranking without any family input changing.
+
+    The ontology is the one loaded, read as the signed record reads it
+    (``get_loaded_hpo_release``): its release, and when it was imported, which tells two
+    imports apart when neither recorded a release. ``max(release_version)`` kept naming a
+    later release after an older one was re-imported, or after an import without one,
+    so rankings computed on another ontology stayed hits.
     """
-    row = (
+    loaded = await get_loaded_hpo_release(session) or {}
+    gene_info_updated_at = (
         await session.execute(
             text(
-                """
-                SELECT
-                    (SELECT max(release_version) FROM hpo_term) AS hpo_release,
-                    (
-                        SELECT max(updated_at)
-                        FROM gene_info
-                        WHERE assembly_id = CAST(:assembly_id AS uuid)
-                    ) AS gene_info_updated_at
-                """
+                "SELECT max(updated_at) FROM gene_info WHERE assembly_id = CAST(:assembly_id AS uuid)"
             ),
             {"assembly_id": getattr(context, "assembly_id", None)},
         )
-    ).mappings().first()
-    if not row:
-        return {"hpo_release": None, "gene_info_updated_at": None}
+    ).scalar()
     return {
-        "hpo_release": row["hpo_release"],
-        "gene_info_updated_at": row["gene_info_updated_at"],
+        "hpo_release": loaded.get("release_version"),
+        "hpo_imported_at": loaded.get("imported_at"),
+        "gene_info_updated_at": gene_info_updated_at,
     }
 
 

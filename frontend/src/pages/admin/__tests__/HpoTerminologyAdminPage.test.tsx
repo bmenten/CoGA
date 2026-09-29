@@ -193,6 +193,18 @@ describe('HpoTerminologyAdminPage', () => {
       expect(screen.getByText('Automatic updates available')).toBeInTheDocument();
     });
 
+    it('says a loaded ontology without a recorded release is unknown, not "Not installed"', async () => {
+      // The summary describes the latest import; one from a file without a release has none.
+      summaryReply = () => ({ ...SUMMARY, release_version: null, release_date: null });
+      renderPage();
+
+      await screen.findByText('Total terms');
+      expect(statValue('Total terms')).toBe('18,954');
+      expect(statValue('Release')).toBe('Unknown');
+      expect(statValue('Release date')).toBe('Unknown');
+      expect(screen.queryByText(/No HPO terminology is installed/)).not.toBeInTheDocument();
+    });
+
     it('shows a date it cannot parse as recorded, never as "Invalid Date"', async () => {
       summaryReply = () => ({ ...SUMMARY, release_date: '2026-13-45', last_sync_date: 'n/a' });
       renderPage();
