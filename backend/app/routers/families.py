@@ -134,16 +134,24 @@ async def update_family_roi(
 async def update_family_structure(
     family_id: str,
     update: FamilyStructureUpdate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyStructureUpdateOut:
     try:
-        return await update_family_structure_for_admin(
+        result = await update_family_structure_for_admin(
             session,
             family_id=family_id,
             update=update,
             user=user,
         )
+        # The structure editor's save changes members, roles, affected status and
+        # relationships: the same pedigree edit as the member routes below, so it
+        # refreshes the genome-overview lineage (grey until then, by the hash guard) and
+        # warms the prioritised ranking whose key it changed.
+        background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
+        return result
     except DBAPIError as exc:
         await _raise_metadata_schema_error_if_needed(session, exc)
         raise

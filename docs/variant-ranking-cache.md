@@ -63,15 +63,14 @@ After an edit that changes the ranking, a background task
 the new inputs, so the next open is fast too. It only replays a query the family has already
 run; before that there is nothing to warm. Errors are logged and ignored.
 
-It runs after an HPO term is added, changed or removed, after a member edit (single, batch
-or removal), and after a PED upload or manual family creation.
+It runs after an HPO term is added, changed or removed, after a structure save or a member
+edit (single, batch or removal), and after a PED upload or manual family creation.
 
 ## When the cache misses
 
 | Event | Effect |
 | --- | --- |
-| HPO or member edit | the key changes; the background task computes the new ranking |
-| Structure change through `PUT /families/{family_id}/structure` | the key changes; computed on the next open |
+| HPO, member or structure edit | the key changes; the background task computes the new ranking |
 | Variants added, deleted or re-imported, by any route | the data version changes, so the key changes |
 | Gene panel regenerated | the panel version changes |
 | Monarch, HPO or gene reference refreshed | every ranking that reads it misses |

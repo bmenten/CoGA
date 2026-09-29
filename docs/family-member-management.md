@@ -63,10 +63,10 @@ imported data was kept (`raw_datasets_preserved`) and the scopes that are affect
 - a changed clinical or carrier status: the variant interpretation views.
 
 The response lists these warnings and scopes. Stale views are not recomputed by the edit.
-Two background jobs do follow a member edit (single, batch or removal) and a PED upload:
-the genome overview's haplotype lineage is recomputed, and the prioritised variant ranking
-is warmed again. An HPO edit re-warms the ranking only. A `PUT …/structure` request starts
-neither.
+Two background jobs do follow every edit on this page (a structure save, and a member edit:
+single, batch or removal) and a PED upload: the genome overview's haplotype lineage is
+recomputed, and the prioritised variant ranking is warmed again. An HPO edit re-warms the
+ranking only.
 
 Changing an HPO term marks the phenotype-dependent views stale in
 `derived_data_status.hpo_annotations`.

@@ -283,6 +283,7 @@ taken.
 | [backend/tests/test_family_pedigree_generation.py](../backend/tests/test_family_pedigree_generation.py) | Pedigree file generation / LINKAGE output. |
 | [backend/tests/test_family_structure_update_dirty.py](../backend/tests/test_family_structure_update_dirty.py) | Family-structure update with member dirty-tracking. |
 | [backend/tests/test_family_structure_cleared_data.py](../backend/tests/test_family_structure_cleared_data.py) | A structure update records whether it kept the imported data: `raw_datasets_preserved` is false after `clear_existing_genomic_data` deleted data and true when it kept it or there was none; a clear with no other change still records the sample-data scope and warns, and the version row keeps the cleared counts. |
+| [backend/tests/test_pedigree_edit_rewarm.py](../backend/tests/test_pedigree_edit_rewarm.py) | A structure save (`PUT …/structure`) schedules the genome-overview lineage precompute and the ranking warm, as a member batch edit does; a save that is refused schedules nothing. |
 | [backend/tests/test_manual_family_metadata.py](../backend/tests/test_manual_family_metadata.py) | Manual family creation and pedigree threading. |
 | [backend/tests/test_families_export.py](../backend/tests/test_families_export.py) | Family export cell formatting (reviews/genotypes). |
 | [backend/tests/test_family_metadata_context_queries.py](../backend/tests/test_family_metadata_context_queries.py) | Family-metadata context queries: distinct-sample ordering by the selected column; UUID project filter for visible samples. |
