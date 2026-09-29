@@ -228,9 +228,8 @@ of a member removed from the family.
 - **Only administrators load data.** Other users build new families by hand.
 - **Missing index.** A compressed small-variant, structural-variant or repeat VCF without its index
   fails validation.
-- **Restructuring a family that has data.** Once data is loaded, changes to members or relationships are
-  blocked unless you confirm that the imported data may be cleared; the family is then reloaded with the
-  new structure. Changes to affected or carrier status apply at once, but re-review the saved
-  interpretations.
+- **Restructuring a family that has data.** Changes to members, relationships, affected or carrier status
+  save even when data is loaded. The imported data is kept, and what depends on the changed facts is marked
+  for re-checking. Re-review the saved interpretations.
 - **A missing phenotype.** Phenotype rows with unknown samples or HPO terms are skipped with a warning:
   check the job summary if an expected term is missing.

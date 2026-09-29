@@ -1249,24 +1249,29 @@ async def mark_family_hpo_annotations_stale(
     sample_id: str | None,
     reason: str,
 ) -> None:
+    # `derived_data_status` is built whole rather than with a nested jsonb_set: that returns
+    # its input unchanged when the parent key is missing, as it is until the first marker.
     await session.execute(
         text(
             """
             UPDATE families
             SET metadata = jsonb_set(
-                jsonb_set(
-                    COALESCE(metadata, '{}'::jsonb),
-                    '{derived_data_status,hpo_annotations}',
-                    jsonb_build_object(
+                COALESCE(metadata, '{}'::jsonb),
+                '{derived_data_status}',
+                CASE
+                    WHEN jsonb_typeof(metadata -> 'derived_data_status') = 'object'
+                        THEN metadata -> 'derived_data_status'
+                    ELSE '{}'::jsonb
+                END
+                || jsonb_build_object(
+                    'hpo_annotations', jsonb_build_object(
                         'state', 'stale',
                         'reason', CAST(:reason AS text),
                         'sample_id', CAST(:sample_id AS text),
                         'updated_at', timezone('utc', now())
                     ),
-                    TRUE
+                    'updated_at', timezone('utc', now())
                 ),
-                '{derived_data_status,updated_at}',
-                to_jsonb(timezone('utc', now())),
                 TRUE
             )
             WHERE id = CAST(:family_uuid AS uuid)

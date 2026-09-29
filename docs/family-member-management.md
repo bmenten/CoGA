@@ -54,7 +54,8 @@ unknown.
 Edits save even when the family already has imported data. The imported data is kept: small
 and structural variants, interval tracks (coverage, segments, APCAD, haplotypes), repeat
 expansions and Paraphase results. What depends on the edited facts is marked stale in
-`families.metadata.derived_data_status`, with the scopes that are affected:
+`families.metadata.derived_data_status.family_metadata`, with the reason, whether the
+imported data was kept (`raw_datasets_preserved`) and the scopes that are affected:
 
 - a new, reactivated or removed member: sample data;
 - changed relationships: segregation, haplotypes and phasing;
@@ -80,6 +81,12 @@ family's imported data, so it can be reloaded under the new structure: small and
 variants, interval tracks, repeat expansions, Paraphase results, and the small- and
 structural-variant reviews. It is the only edit that deletes data. The web interface never
 sends it.
+
+When it deleted data, the stale marker records `raw_datasets_preserved: false` and the
+sample-data scope, and the response warns that the data was cleared, also when the request
+changed nothing else. The new `family_structure_versions` row records how much of each kind
+it deleted (`cleared_data_counts`). A family without imported data has nothing to delete, so
+its marker keeps `raw_datasets_preserved: true`.
 
 ```yaml
 expected_structure_version: 3

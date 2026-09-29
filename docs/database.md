@@ -103,7 +103,8 @@ JSON keys that package import writes into the `metadata` columns:
 | `families.metadata` | `package_import` | the import provenance: folder (a bucket folder's URI), manifest, datasets and the manifest's own `metadata` |
 | `families.metadata` | `pgt`, `analysis_type` | the manifest's PGT context and analysis type |
 
-A family's `metadata` also holds `derived_data_status` (which analyses an edit made stale; see
+A family's `metadata` also holds `derived_data_status` (which analyses an edit made stale, and
+whether a structure update kept the imported data; see
 [family-member-management.md](family-member-management.md)) and `qc_profile` (below).
 
 **Sequencing-QC limits.** A family uses the profile named in `families.metadata->>'qc_profile'`,
