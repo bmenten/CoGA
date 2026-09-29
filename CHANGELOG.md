@@ -210,6 +210,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Family member dialog (#528)** — the member dialog (metadata draft, HPO phenotypes, removal)
   moved out of the 2,350-line family page into a component of its own; tests of its flows,
   recorded before the move, pass after it (#599).
+- **Filter form sections (#528)** — the small-variant filter form, one ~1,800-line component, is
+  split into a shared section shell and 11 section components; a markup snapshot recorded before the
+  split shows the form renders exactly as it did (#600).
 
 ### Removed
 
