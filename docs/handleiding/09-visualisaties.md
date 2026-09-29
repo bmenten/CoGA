@@ -44,7 +44,7 @@ Het **ideogram** is de klassieke gestreepte chromosoomtekening. De banden (*cyto
 
 ## De sample-tracks
 
-Deze tracks tonen data die per **sample** (individu) verschilt. Ze delen enkele patronen: coördinaten worden lineair naar pixels geschaald, en veel tracks houden bij een *pan* (verschuiven met gelijke breedte) tijdelijk het vorige beeld vast via de hook `useSameSpanFallbackData`, zodat het beeld glijdt in plaats van te knipperen.
+Deze tracks tonen data die per **sample** (individu) verschilt. Ze delen enkele patronen: coördinaten worden lineair naar pixels geschaald, en veel tracks houden bij een *pan* (verschuiven met gelijke breedte) tijdelijk het vorige beeld vast via de hook `useSameSpanFallbackData`, zodat het beeld glijdt in plaats van te knipperen. Dat vorige beeld blijft alleen staan zolang het nieuwe venster laadt, en alleen wat in het nieuwe venster ligt wordt getekend. Mislukt de aanvraag, dan valt de hook nooit terug op het vorige beeld: de track toont de fout boven een leeg venster (#586).
 
 ### Coverage & segments (CoverageSegmentsChart)
 

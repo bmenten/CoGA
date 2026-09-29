@@ -273,14 +273,16 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   // back to stale data (#510).
   const fallbackScope = `${familyId}|${chrom}`;
   const haplotypeData = useSameSpanFallbackData(
-    haplotypeError ? null : rawHaplotypeData,
+    rawHaplotypeData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     fallbackScope,
+    haplotypeError,
   );
   const phasedData = useSameSpanFallbackData(
-    markersError ? null : rawPhasedData,
+    rawPhasedData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     fallbackScope,
+    markersError,
   );
   const isLoading = haplotypeLoading && haplotypeData === null;
 

@@ -234,9 +234,10 @@ const SmallVariantTrack: React.FC<Props> = ({
     enabled: canRequestSmallVariants,
   });
   const data = useSameSpanFallbackData(
-    isError ? null : rawData,
+    rawData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${familyId}|${sampleId}|${chrom}`,
+    isError,
   );
   const { data: tagDefinitions = [] } = useQuery<TagDefinition[]>({
     queryKey: ['small-variant-track-tags', familyId],

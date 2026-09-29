@@ -42,9 +42,10 @@ const BlacklistTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
   const data = useSameSpanFallbackData(
-    isError ? null : rawData,
+    rawData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${assembly}|${chrom}`,
+    isError,
   );
 
   // The surface's name for a screen reader (#529): how many regions are in view.

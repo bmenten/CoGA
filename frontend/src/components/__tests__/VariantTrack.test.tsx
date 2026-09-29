@@ -193,3 +193,19 @@ test('a complete page is drawn', () => {
   expect(container.querySelectorAll('[data-variant-type]')).toHaveLength(2);
   expect(screen.queryByText(/Too many SVs/)).not.toBeInTheDocument();
 });
+
+test('a failed pan draws nothing from the previous window (#586)', () => {
+  useQueryMock.mockReturnValue({ data: { variants: [sv('DEL', 32_360_000)] }, isLoading: false });
+  const { container, rerender } = render(brca2Track());
+  expect(container.querySelectorAll('[data-variant-type]')).toHaveLength(1);
+
+  // Same span, 50 kb right: while the new window loads, the held SV glides along…
+  useQueryMock.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: vi.fn() });
+  rerender(brca2Track(32_350_000));
+  expect(container.querySelectorAll('[data-variant-type]')).toHaveLength(1);
+
+  // …but once the request fails, the track draws nothing from the previous window.
+  useQueryMock.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: vi.fn() });
+  rerender(brca2Track(32_350_000));
+  expect(container.querySelectorAll('[data-variant-type]')).toHaveLength(0);
+});

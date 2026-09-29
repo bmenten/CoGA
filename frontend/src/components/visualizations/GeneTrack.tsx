@@ -69,9 +69,10 @@ const GeneTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
   const genes = useSameSpanFallbackData(
-    isError ? null : rawGenes,
+    rawGenes,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${assembly}|${chrom}`,
+    isError,
   );
 
   const { data: panels } = useQuery<GenePanel[]>({
@@ -99,7 +100,12 @@ const GeneTrack: React.FC<Props> = ({
   const { genesWithLines, svgHeight } = useMemo(() => {
     if (!genes) return { genesWithLines: [], svgHeight: 0 };
     const lines: number[] = [];
-    const sortedGenes = genes.slice().sort((a, b) => a.start - b.start);
+    // Only what overlaps the region: while a pan loads, the previous window's genes are
+    // held, and one left of the new window was drawn at its left edge under its own name,
+    // as if that gene lay there (#586; the other interval tracks since #526).
+    const sortedGenes = genes
+      .filter((g) => g.end > regionStart && g.start < regionEnd)
+      .sort((a, b) => a.start - b.start);
     const withLines = sortedGenes.map((g) => {
       const start = Math.max(g.start, regionStart);
       const end = Math.min(g.end, regionEnd);
@@ -115,10 +121,8 @@ const GeneTrack: React.FC<Props> = ({
 
   // The track's name for a screen reader (#529): the genes in the region. A failure is
   // never "none" (#510), and neither is a pan whose window has not arrived yet: the
-  // held genes are named only where they lie in the new region.
-  const genesInView = genesWithLines
-    .map(({ g }) => g)
-    .filter((g) => g.end > regionStart && g.start < regionEnd);
+  // held genes are named, like they are drawn, only where they lie in the new region.
+  const genesInView = genesWithLines.map(({ g }) => g);
   const geneSummary = isError
     ? "failed to load"
     : genesInView.length > 0

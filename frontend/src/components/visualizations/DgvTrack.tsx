@@ -132,9 +132,10 @@ const DgvTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
   const data = useSameSpanFallbackData(
-    isError ? null : rawData,
+    rawData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${assembly}|${chrom}`,
+    isError,
   );
 
   // The surface's name for a screen reader (#529): the variants in view, by class.
@@ -210,8 +211,10 @@ const DgvTrack: React.FC<Props> = ({
     const half = height / 2;
     const maxLanes = Math.max(1, Math.floor(half / LANE_MIN_HEIGHT));
     // Gains (and minor mixed/other) above the baseline, losses below it.
-    const up = packLanes(variants.filter((v) => v.variant_class !== 'loss'), maxLanes);
-    const down = packLanes(variants.filter((v) => v.variant_class === 'loss'), maxLanes);
+    // Only what overlaps the region: while a pan loads, a held variant left of the new
+    // window was drawn as a bar at its left edge (#586).
+    const up = packLanes(variantsInView.filter((v) => v.variant_class !== 'loss'), maxLanes);
+    const down = packLanes(variantsInView.filter((v) => v.variant_class === 'loss'), maxLanes);
     const upLaneH = half / up.laneCount;
     const downLaneH = half / down.laneCount;
     const upBarH = Math.max(upLaneH - LANE_GAP_PX, 1);
@@ -275,7 +278,9 @@ const DgvTrack: React.FC<Props> = ({
     const half = height / 2;
     const sumOf = (b: DgvDensityBin, keys: DgvClass[]) => keys.reduce((s, k) => s + b[k], 0);
     // Scale up and down sides by the same factor so magnitudes stay comparable.
-    const maxAmp = bins.reduce(
+    // Held bins outside the new window are neither drawn nor allowed to set the scale.
+    const binsInView = bins.filter((b) => b.end > regionStart && b.start < regionEnd);
+    const maxAmp = binsInView.reduce(
       (m, b) => Math.max(m, sumOf(b, UP_CLASSES), sumOf(b, DOWN_CLASSES)),
       0,
     );
@@ -290,7 +295,7 @@ const DgvTrack: React.FC<Props> = ({
           stroke={cssVar('--color-grid')}
           strokeWidth={1}
         />
-        {bins.map((b, idx) => {
+        {binsInView.map((b, idx) => {
           const total = b.gain + b.loss + b.mixed + b.other;
           if (total === 0) return null;
           const x = ((b.start - regionStart) / regionLength) * width;

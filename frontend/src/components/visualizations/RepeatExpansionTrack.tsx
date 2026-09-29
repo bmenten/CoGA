@@ -69,9 +69,10 @@ const RepeatExpansionTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
   const data = useSameSpanFallbackData(
-    isError ? null : rawData,
+    rawData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${familyId}|${sampleId}|${chrom}`,
+    isError,
   );
 
   const regionLength = Math.max(regionEnd - regionStart, 1);

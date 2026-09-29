@@ -128,9 +128,10 @@ const VariantTrack: React.FC<Props> = ({
     enabled: regionEnd > regionStart,
   });
   const data = useSameSpanFallbackData(
-    isError ? null : rawData,
+    rawData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${familyId}|${sampleId}|${chrom}`,
+    isError,
   );
 
   // The view holds more SVs than one track page (or than the backend's candidate cap):

@@ -67,9 +67,10 @@ const CnvTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
   const data = useSameSpanFallbackData(
-    isError ? null : rawData,
+    rawData,
     (regionEnd ?? 0) - (regionStart ?? 0),
     `${assembly}|${chrom}`,
+    isError,
   );
 
   const cnvsOn =

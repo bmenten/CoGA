@@ -371,6 +371,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   SV track drew only the left-most SVs, and for a large family the genome overview stopped at
   50,000 SVs, so the rest looked free of SVs. Both tracks now say that there are too many SVs to
   display; the genome track's limit counts the sample's own SVs (#590).
+- **Stale marks under a track failure** — after a failed pan, the tracks drew the previous
+  window's marks, misplaced, under the error overlay; they now draw nothing there. While a pan
+  loads, the gene and DGV tracks no longer draw a held feature left of the new window at its
+  edge (#591).
 
 ### Security
 
