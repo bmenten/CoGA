@@ -267,7 +267,9 @@ export interface SmallVariantGroup {
 }
 
 export type SmallVariantReviewSavePayload = {
-  classification?: string;
+  // null clears the stored classification; left out, the save clears it too, so a client
+  // that means to keep it sends it back.
+  classification?: string | null;
   tags: string[];
   note?: string;
   compound_het?: {

@@ -523,6 +523,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **IGV reads in Google Cloud** — with Google Cloud Storage as the store, IGV reads aligned reads
   from the PHI bucket in the browser, which needs a CORS policy the bucket lacked. The bucket now
   lets the app's own origin read it, and nothing else (CR-095, #633).
+- **Review edits keep a CNV classification** — toggling a tag or saving the review dialog on an
+  SV/CNV no longer erases its ClinGen classification, nor the classification label the ClinGen
+  dialog set; sending `cnv_acmg` as null clears the scoring on purpose (CR-101, #639).
 
 ### Security
 

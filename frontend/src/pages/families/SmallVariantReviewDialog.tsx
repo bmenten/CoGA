@@ -137,6 +137,9 @@ export default function SmallVariantReviewDialog({
   errorMessage = null,
 }: SmallVariantReviewDialogProps) {
   const [classificationTagKey, setClassificationTagKey] = useState('');
+  // The class shown when the dialog opened, to tell a classification left alone from one
+  // the user changed.
+  const [shownClassificationTagKey, setShownClassificationTagKey] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [note, setNote] = useState('');
 
@@ -145,6 +148,7 @@ export default function SmallVariantReviewDialog({
       getClassificationTagKeyFromTags(variant.review?.tags || []) ||
       getClassificationTagKeyFromClassification(variant.review?.classification);
     setClassificationTagKey(variantClassificationTagKey);
+    setShownClassificationTagKey(variantClassificationTagKey);
     setSelectedTags(
       normalizeTagKeys((variant.review?.tags || []).filter((tag) => tag !== variantClassificationTagKey)),
     );
@@ -190,8 +194,17 @@ export default function SmallVariantReviewDialog({
       const combinedTags = normalizeTagKeys(
         [...selectedTags, classificationTagKey].filter(Boolean),
       );
+      const chosenLabel = getClassificationLabelFromTagKey(classificationTagKey);
       const payload: SmallVariantReviewSavePayload = {
-        classification: getClassificationLabelFromTagKey(classificationTagKey) || undefined,
+        classification:
+          chosenLabel ||
+          (classificationTagKey === shownClassificationTagKey
+            ? // Left alone: a stored label the class boxes cannot show (the ClinGen CNV
+              // dialog writes one without a class tag) goes back unchanged. Left out, the
+              // save would erase it.
+              variant.review?.classification || undefined
+            : // The user unticked the class shown: clear it, explicitly.
+              null),
         tags: combinedTags,
         note: note.trim() || undefined,
       };

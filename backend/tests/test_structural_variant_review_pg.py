@@ -200,6 +200,95 @@ def test_an_empty_save_deletes_the_review() -> None:
     assert (review.variant_id, review.tags, review.note) == ("sv1", [], None)
 
 
+# --- a save keeps the CNV scoring unless it sends one ---------------------------------------
+# As a small-variant save keeps ``acmg``: left out, the stored scoring stays; sent, it
+# replaces it; sent as null or with no criteria, it clears it.
+
+
+def _scored(table: _ReviewTable) -> dict:
+    _save(
+        table,
+        SmallVariantReviewUpdate(
+            classification="Pathogenic - class 5",
+            note="scored",
+            cnv_acmg=_payload("loss", ("2A", 1.0, True)),
+        ),
+    )
+    return dict(table.rows["sv1"])
+
+
+def _scoring(row: dict) -> tuple:
+    return row["cnv_acmg"], row["cnv_point_total"], row["cnv_class"]
+
+
+def test_a_save_without_cnv_acmg_keeps_the_stored_scoring() -> None:
+    table = _ReviewTable()
+    scored = _scored(table)
+    # What the tag toggle and the review dialog send: no cnv_acmg.
+    review = _save(table, SmallVariantReviewUpdate(classification="Pathogenic - class 5", note="and noted"))
+
+    assert _scoring(table.rows["sv1"]) == _scoring(scored)
+    assert table.rows["sv1"]["cnv_class"] == "cnv_class_5"
+    assert review.cnv_acmg is not None and review.cnv_acmg.classification == "Pathogenic - class 5"
+    assert review.note == "and noted"
+
+
+def test_emptying_the_review_fields_keeps_a_stored_scoring() -> None:
+    table = _ReviewTable()
+    scored = _scored(table)
+    review = _save(table, SmallVariantReviewUpdate())  # the review dialog, everything cleared
+
+    assert "sv1" in table.rows  # not deleted: the scoring is still a classification
+    assert _scoring(table.rows["sv1"]) == _scoring(scored)
+    assert (table.rows["sv1"]["classification"], table.rows["sv1"]["note"]) == (None, None)
+    assert review.cnv_acmg is not None
+
+
+def test_an_explicit_null_clears_the_scoring() -> None:
+    table = _ReviewTable()
+    _scored(table)
+    _save(table, SmallVariantReviewUpdate(note="scored", cnv_acmg=None))
+
+    assert _scoring(table.rows["sv1"]) == (None, None, None)
+    assert table.rows["sv1"]["note"] == "scored"
+
+
+def test_a_scoring_without_criteria_clears_it() -> None:
+    table = _ReviewTable()
+    _scored(table)
+    _save(table, SmallVariantReviewUpdate(note="scored", cnv_acmg=_payload("loss")))
+
+    assert _scoring(table.rows["sv1"]) == (None, None, None)
+
+
+def test_clearing_the_scoring_and_the_rest_deletes_the_review() -> None:
+    table = _ReviewTable()
+    _scored(table)
+    _save(table, SmallVariantReviewUpdate(cnv_acmg=None))
+
+    assert table.rows == {}
+
+
+def test_a_sent_scoring_replaces_the_stored_one() -> None:
+    table = _ReviewTable()
+    _scored(table)
+    _save(table, SmallVariantReviewUpdate(note="scored", cnv_acmg=_payload("gain", ("2C", -1.0, True))))
+
+    stored = table.rows["sv1"]
+    assert (stored["cnv_point_total"], stored["cnv_class"]) == (-1.0, "cnv_class_1")
+    assert stored["cnv_acmg"]["kind"] == "gain"
+
+
+def test_an_unreadable_stored_scoring_survives_a_save_that_leaves_it_out() -> None:
+    table = _ReviewTable()
+    _scored(table)
+    table.rows["sv1"]["cnv_acmg"] = "{not json"  # stored, but no longer readable (#514)
+    review = _save(table, SmallVariantReviewUpdate(classification="Pathogenic - class 5", note="noted"))
+
+    assert table.rows["sv1"]["cnv_acmg"] == "{not json"
+    assert review.acmg_unreadable is True
+
+
 def test_a_save_against_a_changed_review_is_refused_and_writes_nothing() -> None:
     table = _ReviewTable()
     _save(table, SmallVariantReviewUpdate(note="another reviewer's note"))
