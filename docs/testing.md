@@ -64,9 +64,12 @@ security gates (`deps`, `secret-scan`, `codeql`) are in `.github/workflows/secur
 | **sbom** | CycloneDX SBOMs for the backend and the frontend, uploaded as artifacts | Supply-chain evidence (see [sbom/README.md](../sbom/README.md)). Not a required check. |
 | **catalogue** | `scripts/check-test-catalogue.sh`, then `scripts/check-handleiding-sync.sh` | Fails when a test file has no row here or a row names a file that no longer exists, and when the handleiding HTML no longer matches its Markdown chapters. |
 
-Ten of these checks are required on `main`, with strict (up-to-date-before-merge)
-enforcement; [CONTRIBUTING.md](../CONTRIBUTING.md) lists them, and
-[TF-18 §6](regulatory/TF-18-change-configuration-management.md) holds the policy.
+Ten checks are required status checks on `main`, with strict (up-to-date-before-merge)
+enforcement: `backend`, `frontend`, `smoke`, `e2e`, `e2e-playwright` and `catalogue` from
+`ci.yml`, and `deps`, `secret-scan` and the two `codeql` checks (Python,
+JavaScript/TypeScript) from `security.yml`. `coverage` and `sbom` run but are not required.
+How the protection is enforced, and where it falls short, is in
+[TF-18 §6](regulatory/TF-18-change-configuration-management.md).
 
 ### Browser end-to-end (Playwright)
 

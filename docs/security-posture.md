@@ -181,8 +181,8 @@ e2e, e2e-playwright, catalogue, plus coverage and the SBOM) and `security.yml` (
 blocking `pip-audit --require-hashes` and production `npm audit`; `secret-scan`: gitleaks over
 the full history; `codeql` for Python and JavaScript/TypeScript). Ten of these are required
 status checks on `main` with strict, up-to-date-before-merge enforcement (S-6); coverage and
-the SBOM are not. The list is in [CONTRIBUTING.md](../CONTRIBUTING.md); the policy and its
-open gaps are in [TF-18 §6](regulatory/TF-18-change-configuration-management.md).
+the SBOM are not. The list is in [docs/testing.md](testing.md); the policy and its open gaps
+are in [TF-18 §6](regulatory/TF-18-change-configuration-management.md).
 `build.yml` checks the Terraform (`fmt`, `validate`) on pull requests and deploys from `main`.
 Every suppressed advisory is recorded in
 [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md).
