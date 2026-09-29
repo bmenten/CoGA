@@ -56,12 +56,23 @@ safety-critical signals are **visible without extra navigation**, destructive/ir
 actions (sign-out) require confirmation and are gated, derived calls always display their
 QC basis, and **a clinical state is not conveyed by colour alone** (WCAG 1.4.1): a shape,
 line style, glyph or text carries it too. CR-054 applies this to the pedigree QC ring, the
-risk-haplotype line and the small-variant marks. Two colour codes remain, each named in a
+risk-haplotype line and the small-variant marks; CR-067 to the Review, Exclude and Report
+toggles, whose pressed state carries a check mark and `aria-pressed`. Two colour codes remain, each named in a
 tooltip: the pedigree's carrier-type half-fill, and the MODERATE versus LOW small-variant
 dots. Every chart, track, ideogram and the pedigree is an image with a **text name that
 states what it shows now** (WCAG 1.1.1): the counts and the salient items, or that it is
-loading or failed to load, never a failure as "none" (CR-062). In-app guidance lives at
-`/docs` (the user guide) and is part of "information for safety" (TF-15).
+loading or failed to load, never a failure as "none" (CR-062). The charts' pointer-only
+interactions have **keyboard or text equivalents** (WCAG 2.1.1):
+
+| Pointer interaction | Equivalent |
+| --- | --- |
+| Dragging to zoom, or selecting on the ideogram | The chromosome view's start/end fields, gene or locus jump, and pan/zoom buttons |
+| Clicking a chromosome on the genome overview, the APCAD chart or the Circos plot | The overview's chromosome buttons (CR-052) |
+| Track tooltips, and clicks through to a variant or CNV | The small-variant and SV tables, with their IGV and View links, and the clinical CNV explorer |
+
+The point values of the coverage and APCAD charts have no text equivalent beyond the charts'
+names, and are read from the chart. In-app guidance lives at `/docs` (the user guide) and is part
+of "information for safety" (TF-15).
 
 ## 5. Evaluation plan
 

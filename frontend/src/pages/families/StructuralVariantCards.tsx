@@ -370,6 +370,7 @@ export default function StructuralVariantCards({
                 <button
                   type="button"
                   className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
+                  aria-pressed={hasReviewTag}
                   disabled={reviewIsPending || !onToggleReviewTag}
                   onClick={() => {
                     void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.review);
@@ -380,6 +381,7 @@ export default function StructuralVariantCards({
                 <button
                   type="button"
                   className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
+                  aria-pressed={isExcluded}
                   disabled={reviewIsPending || !onToggleReviewTag}
                   onClick={() => {
                     void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.excluded);
@@ -390,6 +392,7 @@ export default function StructuralVariantCards({
                 <button
                   type="button"
                   className={`variant-quick-toggle${isReported ? ' variant-quick-toggle--active' : ''}`}
+                  aria-pressed={isReported}
                   disabled={reviewIsPending || !onToggleReviewTag}
                   onClick={() => {
                     void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.report);

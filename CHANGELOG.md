@@ -192,6 +192,9 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   from the modules that define them, not through `clickhouse_family_variants.py`, which passed
   120 names on. That ends a dependency cycle between the family-variant layer and variant storage
   that two function-level imports had hidden (#584).
+- **Frontend coverage (#526)** — the SV results table, its column picker and the locus parser
+  have tests; no frontend file is below 30 % of lines, and the coverage floors rise to lines 80 %
+  (visualisations 88 %) (#594).
 
 ### Removed
 
@@ -382,6 +385,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   drawn on every other chromosome carrying the same homolog label, where it means nothing, and
   without an ROI the overview showed chr1's risk state. It is now drawn on the ROI's chromosome
   only, and without an ROI the risk state reads "not assessed" (#592).
+- **SV lengths and quick-tag state** — the SV table and cards wrote 101 bp–1 kb in kb with one
+  decimal (150 bp read "0.1 kb"); they now write bp up to 1 kb, as the report does. The Review,
+  Exclude and Report toggles show their pressed state with a check mark and `aria-pressed`, not by
+  a tint alone (#594).
 
 ### Security
 
