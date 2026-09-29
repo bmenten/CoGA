@@ -43,6 +43,13 @@ def test_join_remote_uri_preserves_scheme_and_collapses_slashes():
     )
 
 
+def test_remote_folder_name_is_the_last_segment_or_the_bucket():
+    # What a package without a manifest family_id is named after, as a local folder is.
+    assert s.remote_folder_name("gs://bucket/imports/F1") == "F1"
+    assert s.remote_folder_name("s3://bucket/imports/F1/") == "F1"
+    assert s.remote_folder_name("gs://bucket") == "bucket"
+
+
 def test_object_key_honours_prefix_per_backend(monkeypatch):
     monkeypatch.setattr(s.settings, "storage_backend", "s3")
     monkeypatch.setattr(s.settings, "s3_prefix", "families")

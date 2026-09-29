@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 import yaml
 
-from ..core.object_storage import join_remote_uri
+from ..core.object_storage import join_remote_uri, remote_folder_name
 from ..schemas import (
     FamilyImportDatasetSummary,
     FamilyImportValidationIssue,
@@ -1114,7 +1114,12 @@ def load_validated_family_package(
     ``source_uri`` for the records the import writes.
     """
     validation, bundle = _validate_and_load_package(
-        folder_path, fallback_ped_text=fallback_ped_text, remote_only_files=remote_only_files
+        folder_path,
+        fallback_ped_text=fallback_ped_text,
+        remote_only_files=remote_only_files,
+        # A manifest without family_id names the family after its folder: for a bucket,
+        # the source folder, never the staging directory the copy sits in (pkg-...).
+        folder_name=remote_folder_name(source_uri) if source_uri else None,
     )
     if source_uri is None:
         return validation, bundle
@@ -1159,6 +1164,7 @@ def _validate_and_load_package(
     *,
     fallback_ped_text: str | None,
     remote_only_files: frozenset[str],
+    folder_name: str | None,
 ) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     try:
         root = _ensure_authorized_package_path(Path(folder_path))
@@ -1236,7 +1242,7 @@ def _validate_and_load_package(
             )
         )
 
-    family_id = (manifest.family_id or root.name).strip()
+    family_id = (manifest.family_id or folder_name or root.name).strip()
     ped_path = _resolve_package_path(root, manifest.ped)
     ped: ParsedPed | None = None
     ped_text: str | None = None

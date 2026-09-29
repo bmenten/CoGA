@@ -9,7 +9,9 @@ so nothing it records may point at, or be derived from, that directory:
   size, generation or version, and the store's checksums, each labelled with its
   algorithm, because none of them is the SHA-256 the ``sha256`` column holds;
 * the family's package record, the import log and the validation report (which the
-  import job stores and the import panel shows) name the source folder and its objects.
+  import job stores and the import panel shows) name the source folder and its objects;
+* a manifest without ``family_id`` names the family after the source folder, as a local
+  import does after its folder -- never after the staging directory (``pkg-...``).
 """
 
 from __future__ import annotations
@@ -367,3 +369,77 @@ async def test_the_import_log_names_the_source_folder(
     assert result.completed, result.validation.errors
     assert result.logs[0] == f"Validated package path {source}."
     assert not any(str(staging) in line for line in result.logs)
+
+
+# ---------------------------------------------------------------------------
+# A manifest without family_id: the family is named after the source folder
+# ---------------------------------------------------------------------------
+
+
+NO_FAMILY_ID_MANIFEST = "schema_version: 1\nped: family.ped\n"
+
+
+@pytest.mark.parametrize("scheme", ["gs", "s3"])
+@pytest.mark.parametrize("folder", ["imports/F1", "imports/F1/"])
+def test_a_remote_manifest_without_family_id_takes_the_source_folder_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, scheme: str, folder: str
+) -> None:
+    # As a local import takes its folder's name -- not the staging directory's (pkg-...).
+    from app.services import family_package_validation
+
+    use_store(monkeypatch, scheme, package_objects({"manifest.yaml": NO_FAMILY_ID_MANIFEST, "family.ped": PED}))
+    stage_under(monkeypatch, tmp_path)
+
+    result = family_package_validation.validate_family_package(f"{scheme}://{BUCKET}/{folder}")
+
+    assert result.family_id == "F1"
+    assert result.valid, result.errors
+
+
+def test_the_source_folder_name_must_match_the_ped_as_a_local_folder_name_must(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.services import family_package_validation
+
+    use_store(
+        monkeypatch,
+        "gs",
+        package_objects({"manifest.yaml": NO_FAMILY_ID_MANIFEST, "family.ped": PED}, family="F2"),
+    )
+    stage_under(monkeypatch, tmp_path)
+
+    result = family_package_validation.validate_family_package(f"gs://{BUCKET}/imports/F2")
+
+    assert result.family_id == "F2"
+    assert [error.code for error in result.errors] == ["ped_family_mismatch"]
+
+
+@pytest.mark.asyncio
+async def test_the_staging_directory_name_never_reaches_the_import(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.services import family_package_import, family_package_source
+
+    use_store(monkeypatch, "gs", package_objects({"manifest.yaml": NO_FAMILY_ID_MANIFEST, "family.ped": PED}))
+    staging = stage_under(monkeypatch, tmp_path)
+    created: list[str] = []
+    real_mkdtemp = family_package_source.tempfile.mkdtemp
+
+    def recording_mkdtemp(*args: Any, **kwargs: Any) -> str:
+        created.append(Path(real_mkdtemp(*args, **kwargs)).name)
+        return str(staging / created[-1])
+
+    monkeypatch.setattr(family_package_source.tempfile, "mkdtemp", recording_mkdtemp)
+
+    result = await family_package_import.execute_family_package_import(
+        None, folder_path=f"gs://{BUCKET}/imports/F1", project_id=None, dry_run=True, user=None
+    )
+
+    assert result.completed, result.validation.errors
+    assert (result.family_id, result.validation.family_id) == ("F1", "F1")
+    assert created and created[0].startswith("pkg-")
+    reported = json.dumps(
+        {"validation": result.validation.model_dump(mode="json"), "logs": result.logs, "family": result.family_id}
+    )
+    assert created[0] not in reported
+    assert "pkg-" not in reported

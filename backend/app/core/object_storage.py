@@ -35,7 +35,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
 
@@ -109,6 +109,13 @@ def join_remote_uri(base: str, *parts: str) -> str:
     extra = [str(part).strip("/") for part in parts if str(part).strip("/")]
     key = "/".join(segment for segment in [location.key.strip("/"), *extra] if segment)
     return RemoteLocation(location.scheme, location.bucket, key).uri
+
+
+def remote_folder_name(uri: str) -> str:
+    """A remote folder's name, as a local folder's name: its last path segment
+    (``gs://b/imports/F1/`` -> ``F1``), or the bucket's name for a bucket root."""
+    location = parse_remote_uri(uri)
+    return PurePosixPath(location.key).name or location.bucket
 
 
 def remote_uri_within(uri: str, root: str) -> bool:
