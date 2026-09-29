@@ -103,6 +103,15 @@ signed report, and a printout carries a notice at the top saying so. If the chec
 be made, the record is grey and the page must be treated as unsigned. **Download signed
 version** on the record returns the frozen snapshot itself.
 
+**When part of the report cannot be loaded.** The page never shows a part it could not load
+as empty. If the family or either list of reported variants cannot be loaded, no report is
+shown, only *Report could not be loaded* with a **Retry**. If the sign-out record cannot be
+loaded, the page says it is not known whether the case is signed, and does not offer
+sign-out. A gene description, the HPO terms, the evidence-drift check, the audit trail or
+the annotation provenance that could not be loaded is marked where it belongs. The printout
+then starts with *Incomplete — … could not be loaded*. The NIPT report does the same for the
+fetal-fraction estimate and the coverage QC.
+
 **What the signed record could not capture.** If a lookup fails while the snapshot is
 frozen — the QC cut-offs, or the reference-assembly or Monarch version — sign-out still
 goes ahead, but the snapshot records that part as unavailable rather than as empty, and the

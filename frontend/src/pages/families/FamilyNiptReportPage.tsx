@@ -66,7 +66,12 @@ const FamilyNiptReportPage: React.FC = () => {
   const panelId = searchParams.get('panel_id') || undefined;
   const gene = searchParams.get('gene') || undefined;
 
-  const { data: family, isLoading: familyLoading } = useQuery<SmallVariantFamily>({
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    refetch: refetchFamily,
+  } = useQuery<SmallVariantFamily>({
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
@@ -100,7 +105,12 @@ const FamilyNiptReportPage: React.FC = () => {
 
   const queryReady = Boolean(familyId && family && isMonogenicNipt);
 
-  const { data: summary } = useQuery<ApiNiptSummary>({
+  const {
+    data: summary,
+    isLoading: summaryLoading,
+    isError: summaryFailed,
+    refetch: refetchSummary,
+  } = useQuery<ApiNiptSummary>({
     queryKey: ['family', familyId, 'nipt', 'summary'],
     enabled: queryReady,
     queryFn: async () => {
@@ -109,7 +119,12 @@ const FamilyNiptReportPage: React.FC = () => {
     },
   });
 
-  const { data: coverage } = useQuery<ApiNiptCoverageSummary>({
+  const {
+    data: coverage,
+    isLoading: coverageLoading,
+    isError: coverageFailed,
+    refetch: refetchCoverage,
+  } = useQuery<ApiNiptCoverageSummary>({
     queryKey: ['family', familyId, 'nipt', 'coverage', panelId ?? null, gene ?? null],
     enabled: queryReady,
     queryFn: async () => {
@@ -125,6 +140,7 @@ const FamilyNiptReportPage: React.FC = () => {
     data: variantPage,
     isLoading: variantsLoading,
     isError,
+    refetch: refetchVariants,
   } = useQuery<SmallVariantPage>({
     queryKey: ['family', familyId, 'nipt', 'report-variants', panelId ?? null, gene ?? null],
     enabled: queryReady,
@@ -162,12 +178,33 @@ const FamilyNiptReportPage: React.FC = () => {
     return <PageState kicker="NIPT report" title="Family not specified" />;
   }
 
-  if (familyLoading || (queryReady && variantsLoading) || referenceLoading) {
+  if (
+    familyLoading ||
+    (queryReady && (variantsLoading || summaryLoading || coverageLoading)) ||
+    referenceLoading
+  ) {
     return (
       <PageState
         kicker="NIPT report"
         title="Preparing the NIPT report"
         message="Gathering fetal fraction, coverage QC and classified candidates."
+      />
+    );
+  }
+
+  // Without the family nothing is requested: the report used to render with no fetal
+  // fraction, no coverage and no candidates (#605).
+  if (familyFailed) {
+    return (
+      <PageState
+        kicker="NIPT report"
+        title="Report could not be loaded"
+        message="The family could not be loaded, so the report cannot be prepared. This is not a report without candidates."
+        action={
+          <button type="button" className="button-secondary" onClick={() => void refetchFamily()}>
+            Retry
+          </button>
+        }
       />
     );
   }
@@ -192,11 +229,16 @@ const FamilyNiptReportPage: React.FC = () => {
       <PageState
         kicker="NIPT report"
         title="Report could not be loaded"
-        message="The NIPT analysis for this family could not be retrieved."
+        message="The classified candidates for this family could not be retrieved. This is not a report without candidates."
         action={
-          <Link to={`/families/${familyId}/nipt`} className="button-secondary">
-            Back to NIPT
-          </Link>
+          <div className="inline-actions">
+            <button type="button" className="button-secondary" onClick={() => void refetchVariants()}>
+              Retry
+            </button>
+            <Link to={`/families/${familyId}/nipt`} className="button-secondary">
+              Back to NIPT
+            </Link>
+          </div>
         }
       />
     );
@@ -204,9 +246,22 @@ const FamilyNiptReportPage: React.FC = () => {
 
   const ff = summary?.fetal_fraction;
   const lowCoverage = coverage?.low_coverage_regions ?? [];
+  // The fetal fraction and the coverage QC are part of what the report states: when either
+  // could not be loaded it is said in its place and heads every printed page, instead of
+  // "no estimate" or "no target regions" (#605).
+  const failedParts = [
+    summaryFailed ? 'the fetal-fraction estimate' : null,
+    coverageFailed ? 'the coverage QC' : null,
+  ].filter((part): part is string => Boolean(part));
 
   return (
     <div className="page-shell report-page space-y-6">
+      {failedParts.length ? (
+        <p className="report-print-notice print-only">
+          Incomplete — {failedParts.join(' and ')} could not be loaded, so this printout does not
+          show the whole report.
+        </p>
+      ) : null}
       <header className="surface-card report-header">
         <div className="space-y-1">
           <p className="page-kicker">Monogenic NIPT report</p>
@@ -228,6 +283,25 @@ const FamilyNiptReportPage: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {failedParts.length ? (
+        <section className="surface-card report-incomplete no-print" role="alert">
+          <p className="report-paragraph">
+            <strong>Parts of this report could not be loaded:</strong> {failedParts.join(' and ')}.
+            A printout says the report is incomplete.{' '}
+            <button
+              type="button"
+              className="button-link"
+              onClick={() => {
+                if (summaryFailed) void refetchSummary();
+                if (coverageFailed) void refetchCoverage();
+              }}
+            >
+              Retry
+            </button>
+          </p>
+        </section>
+      ) : null}
 
       <section className="surface-card report-intro">
         <p className="report-paragraph">
@@ -269,6 +343,11 @@ const FamilyNiptReportPage: React.FC = () => {
               </p>
             ) : null}
           </>
+        ) : summaryFailed ? (
+          <p className="report-paragraph" role="alert">
+            The fetal-fraction estimate could not be loaded, and with it any low-confidence or
+            disagreement warning. Do not interpret the category calls without it.
+          </p>
         ) : (
           <p className="report-paragraph">No fetal-fraction estimate is available for this family.</p>
         )}
@@ -306,6 +385,11 @@ const FamilyNiptReportPage: React.FC = () => {
               </p>
             )}
           </>
+        ) : coverageFailed ? (
+          <p className="report-paragraph" role="alert">
+            The coverage QC could not be loaded, so it is not known which panel genes were
+            adequately interrogated.
+          </p>
         ) : (
           <p className="report-paragraph">
             No target regions were available for coverage QC — set a family ROI or gene panel.

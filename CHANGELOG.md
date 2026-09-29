@@ -426,6 +426,14 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   page waited for good, and the report rendered without variants. The pages now say that the
   reference could not be loaded and that the validated scope is unconfirmed, with a retry, and
   the report is not prepared until it loads (#611).
+- **Report pages that printed a failure as complete** — when a request failed, the family report
+  could render as "0 small variants and 0 structural variants", drop its reported SVs, call a
+  signed case a draft, and print missing gene descriptions, HPO terms, drift check, audit trail
+  or provenance as "none". The NIPT report printed "No fetal-fraction estimate is available"
+  when the estimate could not be loaded. Both pages now show no report without the family or
+  its reported variants. They mark each part that could not be loaded where it belongs, and a
+  printout then starts with "Incomplete — … could not be loaded". While the sign-out record is
+  unknown, sign-out is not offered (#612).
 
 ### Security
 

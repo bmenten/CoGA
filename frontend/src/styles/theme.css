@@ -12508,6 +12508,20 @@ a.button-danger:hover {
 .report-signout-changed .report-signout-status {
   color: #92400e;
 }
+/* The sign-out record itself could not be loaded: neither signed nor a draft (#605). */
+.report-signout-unknown {
+  border-left-color: #d97706;
+  background: #fffbeb;
+}
+.report-signout-unknown .report-signout-line {
+  color: #92400e;
+}
+/* Parts of the report that could not be loaded (#605). */
+.report-incomplete {
+  border-left: 4px solid #d97706;
+  background: #fffbeb;
+  color: #92400e;
+}
 .report-signout-gaps {
   margin: 0;
   font-size: 0.86rem;
