@@ -1,224 +1,115 @@
 # 1. Algemene architectuur & structuur
 
-Dit hoofdstuk beschrijft de "kaart" van het hele CoGA-platform: uit welke drie lagen het systeem bestaat (frontend, backend en twee databanken), waarom die scheiding er is, en hoe een enkel verzoek van een muisklik in de browser tot aan de data en weer terug loopt. Verder komt de mappenstructuur aan bod, wordt getoond hoe frontend en backend tegelijk *gescheiden* én *verbonden* zijn (via de axios-client en JWT), waar de centrale configuratie leeft en hoe de applicatie opstart. Tot slot worden de gebruikte technologieën met hun versies opgesomd. Deze basis vormt de context voor de rest van de handleiding.
+Dit hoofdstuk is de kaart voor de rest van de handleiding. Het beschrijft de drie lagen van CoGA (frontend, backend en twee databanken), volgt één verzoek van een klik in de browser tot de data en terug, en wijst aan waar de mappen, de configuratie en de belangrijkste veiligheidsmaatregelen zitten. De architectuur staat in het Engels in `docs/application-scheme.md` en in de technical file (`docs/regulatory/TF-02-device-description.md`); dit hoofdstuk vat ze samen.
 
-## Wat is CoGA in één alinea
+## CoGA in het kort
 
-CoGA (*Comprehensive Genomic Analysis*) is een klinisch-genomicaplatform voor variant-interpretatie, genoomvisualisatie en klinische review op familieniveau. Het draait als **in-house IVD onder IVDR Artikel 5(5)** bij CMGG (ISO 15189-geaccrediteerd laboratorium). "IVD" staat voor *in-vitro diagnostiek*; "IVDR" is de Europese verordening die zulke diagnostiek reguleert. De grens van het gereguleerde apparaat ("device boundary") loopt van *geannoteerde VCF-bestand* tot *ondertekend klinisch rapport*. De data in dit systeem is synthetisch: er is geen echte patiëntdata. Dat staat beschreven in `README.md` en `AGENTS.md`.
+CoGA (*Comprehensive Genomic Analysis*) is een platform voor variantinterpretatie, genoomvisualisatie en klinische review op familieniveau. Het draait als **in-house IVD onder IVDR Artikel 5(5)** bij CMGG, een ISO 15189-geaccrediteerd labo. *IVD* staat voor in-vitrodiagnostiek; de *IVDR* is de Europese verordening daarvoor. Het gereguleerde deel (de "device boundary") loopt van het **geannoteerde VCF-bestand** tot het **ondertekende klinische rapport**. De data in het systeem is synthetisch.
 
-## De drie-lagen-architectuur
-
-CoGA is opgebouwd uit drie duidelijk gescheiden lagen. Elke laag heeft één verantwoordelijkheid, wat de veiligheid en de traceerbaarheid ten goede komt: fouten en toegangscontrole zijn zo gemakkelijker te lokaliseren en te auditen.
+## De drie lagen
 
 | Laag | Technologie | Rol | Waar in de code |
 | --- | --- | --- | --- |
-| Frontend (presentatie) | React + TypeScript + Vite + Tailwind | De gebruikersinterface in de browser: login, dashboards, familiewerkruimte, filterpagina's en visualisaties | `frontend/src/` |
-| Backend (logica & API) | FastAPI (Python) | De API-server: authenticatie, toegangscontrole, klinische logica, databankquery's | `backend/app/` |
-| Databanken (opslag) | Postgres + ClickHouse | Twee gescheiden databanken: metadata/review-toestand vs. grootschalige variantopslag | `backend/db/schema/postgres/` en `backend/db/schema/clickhouse/` |
+| Frontend | React en TypeScript (gebouwd met Vite, opgemaakt met Tailwind) | De gebruikersinterface: login, dashboard, familiewerkruimte, filterpagina's, visualisaties | `frontend/src/` |
+| Backend | FastAPI (Python) | De API-server: authenticatie, toegangscontrole, klinische logica, databankvragen | `backend/app/` |
+| Databanken | Postgres en ClickHouse | Metadata en reviewtoestand (Postgres) naast de grote variantopslag (ClickHouse) | `backend/db/schema/` en de ClickHouse-diensten in `backend/app/services/` |
+
+Elke laag heeft één taak. Zo is duidelijk waar toegangscontrole, validatie en opslag gebeuren, wat audit en foutopsporing eenvoudiger maakt.
 
 ### Waarom twee databanken?
 
-Een centraal ontwerpprincipe van CoGA is de **gesplitste opslag** ("split storage model"). Er zijn twee soorten data met heel andere eigenschappen:
+- **Postgres** is een relationele databank en de *bron van waarheid* voor metadata en toestand: gebruikers en projecttoegang, families, samples en stamboom, reviews en classificaties, panels, referentiedata en het auditspoor. Die gegevens zijn relatief klein, sterk gestructureerd en worden vaak gewijzigd.
+- **ClickHouse** is een kolomgeoriënteerde databank voor zeer grote datasets. Ze bewaart de variantrijen (small variants en structurele varianten), de genotypes per sample en de grote interval-tracks (dekking, CNV-segmenten, APCAD, haplotypes). Eén familie kan miljoenen rijen hebben.
 
-- **Postgres** is een klassieke relationele databank. Ze is *gezaghebbend* (de bron van waarheid) voor metadata en toestand: gebruikers, projecttoegang, families, samples, pedigree-structuur, review-toestand, panels, gene-cache, de repeat-catalogus, interval-track-metadata en het auditspoor. Dit zijn relatief kleine, sterk gestructureerde en vaak-gewijzigde gegevens.
-- **ClickHouse** is een kolomgeoriënteerde databank die gebouwd is voor enorme hoeveelheden data en snelle analytische query's. Ze bewaart de eigenlijke variant-payloads: Small Variants (SNV's/indels), structurele varianten, familie/sample-genotypes, cross-project-aggregaten en high-volume interval-tracks (dekking, WisecondorX-segmenten, APCAD, haplotypes). Een enkele familie kan miljoenen variantrijen bevatten.
+Bij elk verzoek beslist Postgres eerst wie wat mag zien. Daarna haalt de backend de varianten uit ClickHouse en koppelt er de reviewtoestand uit Postgres aan, bijvoorbeeld een tag of een ACMG-klasse. Hoofdstuk 3 beschrijft de tabellen.
 
-De verantwoordelijkheden van elke databank staan opgesomd in `docs/storage-architecture.md` (sectie "Split storage model"). De gezaghebbendheids-regel is expliciet vastgelegd in `docs/application-scheme.md`, sectie "Storage Boundary": *"Postgres is authoritative for metadata and state. ClickHouse is authoritative for variant payloads."* Bij het beantwoorden van een verzoek worden ClickHouse-variantrijen op verzoek "teruggekoppeld" (gejoind) aan de Postgres-metadata — bijvoorbeeld om een tag of ACMG-classificatie op een variant te tonen.
+**Waar in de code:** `backend/app/core/postgres.py` en `backend/app/core/clickhouse.py` (de verbindingen). De taakverdeling staat in `docs/application-scheme.md`, sectie *Storage boundary*: "Postgres is authoritative for metadata and state. ClickHouse is authoritative for variant payloads."
 
-**Waar in de code:** de opslagverantwoordelijkheden staan in `docs/storage-architecture.md`; de gezaghebbendheids-grens en de runtime-flow in `docs/application-scheme.md`. De verbindingshulpmiddelen leven in `backend/app/core/postgres.py` en `backend/app/core/clickhouse.py`.
+## Van klik tot data: de weg van één verzoek
 
-## De levensloop van een verzoek: van klik tot data en terug
+Voorbeeld: een analist opent de small variants van een familie.
 
-Het beste mentale model is een "estafette" waarbij elke laag het stokje doorgeeft. Neem als voorbeeld een gebruiker die de Small Variants van een familie opvraagt.
+1. **Klik in de browser.** De pagina (bv. `frontend/src/pages/families/FamilySmallVariantsPage.tsx`) vraagt data op via de gedeelde API-client.
+2. **De API-client verstuurt het verzoek.** Alle verzoeken gaan via één *axios*-instantie (axios is een JavaScript-bibliotheek voor HTTP-verzoeken) met het basisadres `/api`. Een *interceptor* (code die elk uitgaand verzoek onderschept) voegt het JWT-token toe als `Authorization: Bearer <token>`, behalve bij inloggen en registreren. Een JWT (*JSON Web Token*) is een ondertekend toegangsbewijs; [hoofdstuk 5](05-login-authenticatie.md) legt het uit.
+3. **Het verzoek bereikt de backend.** In ontwikkeling stuurt de Vite-ontwikkelserver `/api` door naar de backend; in de Docker-opstelling doet de frontendcontainer dat (`frontend/server.mjs`). Alle routers hangen onder `/api`. Eerst passeert het verzoek een reeks *middleware* (tussenlagen die elk verzoek en antwoord bewerken): client-IP-bepaling achter proxies (`TRUSTED_PROXY_HOPS`), security-headers, trailing-slash-normalisatie en request-logging/audit. [Hoofdstuk 7](07-backend-routers-en-services.md) beschrijft de volgorde.
+4. **De router controleert de toegang.** Elk beschermd endpoint vraagt de *dependency* `get_current_user` (een functie die FastAPI vóór het endpoint uitvoert). Die controleert het token en laadt de gebruiker vers uit Postgres. De toegang is **projectgebonden** (project-scoped RBAC, *Role-Based Access Control*); [hoofdstuk 2](02-beveiliging-rollen-rechten.md) legt uit hoe.
+5. **Een service doet het eigenlijke werk.** Routers blijven dun; de klinische logica zit in `backend/app/services/`, voor familievarianten bijvoorbeeld in `clickhouse_family_variants.py`.
+6. **De service bevraagt de juiste databank.** Metadata komt uit Postgres (via SQLAlchemy, asynchroon), varianten uit ClickHouse (via een directe client). Alle waarden gaan als parameter mee, nooit als tekst in de query (hoofdstuk 7).
+7. **Het antwoord gaat terug.** FastAPI zet het resultaat om naar JSON, de middleware voegt de security-headers toe en de browser toont het. Krijgt de client een `401` (niet aangemeld), dan wist hij de sessie en keert hij terug naar `/login`.
 
-1. **De klik in de browser.** De gebruiker navigeert in de React-frontend naar een familiepagina. React-componenten roepen de gedeelde API-client aan.
-   **Waar in de code:** de pagina's in `frontend/src/pages/` (bv. `FamilySmallVariantsPage` in `frontend/src/pages/families/FamilySmallVariantsPage.tsx`), die data ophalen via de client in `frontend/src/lib/api.ts`.
+**Waar in de code:** `frontend/src/lib/api.ts` (API-client en interceptors), `frontend/vite.config.mts` (ontwikkelproxy), `backend/app/main.py` (app, middleware en routers), `backend/app/dependencies.py` (`get_current_user`). Dezelfde weg staat in het Engels in `docs/application-scheme.md`, sectie *Runtime flow*.
 
-2. **De axios-client verstuurt het HTTP-verzoek.** CoGA gebruikt *axios* (een populaire JavaScript-bibliotheek om HTTP-verzoeken te doen). Alle verzoeken vertrekken via één gedeelde instantie met basis-URL `/api`. Een *interceptor* (een stukje code dat elk uitgaand verzoek onderschept) plakt automatisch het JWT-token in de `Authorization`-header.
-   **Waar in de code:** `frontend/src/lib/api.ts` — de `axios.create({ baseURL: apiBaseUrl })` en de `api.interceptors.request.use(...)`.
+Frontend en backend zijn aparte processen die alleen via HTTP en JSON met elkaar praten. Die scheiding is bewust: álle toegangscontrole gebeurt op de server, niet in de browser.
 
-3. **Het verzoek komt binnen op de FastAPI-backend, onder `/api`.** Alle routers zitten achter het prefix `/api`. Voordat de eigenlijke logica draait, passeert het verzoek een keten van *middleware* (tussenlagen die elk verzoek en antwoord bewerken): request-logging/audit, trailing-slash-normalisatie en security-headers.
-   **Waar in de code:** `backend/app/main.py`, waar `api_router = APIRouter(prefix=API_PATH_PREFIX)` gemaakt wordt en alle routers uit `all_routers` erin worden opgenomen.
+**CORS** (*Cross-Origin Resource Sharing*: welke websites de API mogen aanroepen) staat streng ingesteld. Een origin-patroon moet volledig verankerd zijn (beginnen met `^` en eindigen met `$`); anders weigert de configuratie het, omdat een te breed patroon samen met meegestuurde credentials een omweg zou openen.
 
-4. **De router handelt het endpoint af en controleert de toegang.** Elk beschermd router-eindpunt vereist een geauthenticeerde gebruiker via de *dependency* `get_current_user` (een FastAPI-mechanisme dat vóór de eigenlijke functie draait). Deze functie valideert het JWT-token en laadt de gebruiker uit Postgres. Toegang is bovendien **project-gebonden** (project-scoped RBAC — *Role-Based Access Control*).
-   **Waar in de code:** `backend/app/dependencies.py`, functie `get_current_user` (en `get_current_admin_user` voor admin-endpoints); de routers in `backend/app/routers/`.
+**Waar in de code:** de `CORSMiddleware` in `backend/app/main.py` en `validate_cors_origin_regex` in `backend/app/core/config.py`.
 
-5. **De router roept een service aan (de eigenlijke klinische/bedrijfslogica).** Routers blijven dun; de echte logica leeft in `backend/app/services/`. Voor familie-varianten is dat bijvoorbeeld `clickhouse_family_variants.py`.
-   **Waar in de code:** `backend/app/services/` (zie `docs/application-scheme.md`, "Main Code Areas").
+## De mappen op hoofdlijnen
 
-6. **De service bevraagt de juiste databank.** Metadata-query's gaan naar Postgres (via SQLAlchemy async sessies); variant-query's gaan naar ClickHouse (via een directe ClickHouse-client). Vaak worden beide gecombineerd: de variantrijen uit ClickHouse worden verrijkt met review-annotaties uit Postgres.
-   **Waar in de code:** de query-services in `backend/app/services/`, met verbindingshulp uit `backend/app/core/postgres.py` en `backend/app/core/clickhouse.py`.
+De repository bevat twee applicatiemappen (`backend/`, `frontend/`), de documentatie (`docs/`), de infrastructuur-als-code voor Google Cloud (`terraform/`) en de Docker Compose-bestanden.
 
-7. **Het antwoord reist terug.** De service geeft data terug aan de router, FastAPI serialiseert het naar JSON, de middleware stempelt de veiligheids-headers erop, en axios levert het antwoord af bij het React-component, dat het rendert.
-   **Waar in de code:** de response-interceptor in `frontend/src/lib/api.ts` (die o.a. bij een `401`-fout de sessie wist via `clearSession()` en terugstuurt naar `/login`).
-
-Dit hele patroon is samengevat in `docs/application-scheme.md` onder "Flow Summary" en in `docs/storage-architecture.md` onder "Runtime Flow".
-
-## De mappenstructuur op hoog niveau
-
-De repository-root bevat de twee applicatiemappen (`backend/`, `frontend/`), de documentatie (`docs/`), infrastructuur-as-code (`terraform/`) en de Docker-orchestratie.
-
-### Backend — `backend/app/`
-
-| Map/bestand | Rol |
+| Map of bestand (backend) | Rol |
 | --- | --- |
-| `core/` | Verbindings- en runtime-hulpmiddelen: `config.py` (instellingen), `postgres.py`, `clickhouse.py`, `azure.py`, `coga_logging.py`, `object_storage.py`, e.a. |
-| `routers/` | De API-oppervlakte: één bestand per domein (`auth`, `families`, `structural_variants`, `genes`, `admin`, …), gebundeld in `routers/__init__.py` tot de lijst `all_routers` |
-| `services/` | De klinische en bedrijfslogica: variant-query's, ACMG-scoring, NIPT, haplotypes, HPO/Monarch, en de traceerbaarheidsstack (audit, hash-chain, integrity anchors) |
-| `middleware/` | Tussenlagen die op elk verzoek draaien: `request_logging.py`, `security_headers.py` |
-| `db_migrate.py` | Out-of-band schema-migratie en de admin-seed (`init_postgres_admin_user`), bruikbaar als los CLI-commando of vanuit de opstartroutine |
-| `main.py` | Het startpunt: bouwt de FastAPI-app, mount de routers, configureert CORS/middleware en de `lifespan`-opstartroutine |
-| `dependencies.py` | Authenticatie- en autorisatiehulp (`create_access_token`, `get_current_user`, `get_current_admin_user`) |
+| `backend/app/core/` | Verbindingen en runtime: instellingen (`config.py`), Postgres, ClickHouse, Azure, logging, objectopslag |
+| `backend/app/routers/` | De API: één bestand per domein, gebundeld in `routers/__init__.py` |
+| `backend/app/services/` | De klinische en bedrijfslogica, inclusief de traceerbaarheidsstack |
+| `backend/app/middleware/` | Tussenlagen voor client-IP, security-headers en request-logging |
+| `backend/app/main.py` | Bouwt de app: routers, CORS, middleware en de opstartroutine |
+| `backend/app/db_migrate.py` | Schema-migratie en eerste beheerder, ook als losse stap uit te voeren |
+| `backend/db/schema/` | De vijf Postgres-baselines (`01_access` t/m `05_grants`) en de ClickHouse-bootstrap |
 
-Het databank-schema staat naast `app/` in `backend/db/schema/`: `postgres/` (vijf baseline-bestanden per domein, `01_access.sql` t/m `05_grants.sql`) en `clickhouse/` (`001_coga_variant_storage.sql`).
-
-### Frontend — `frontend/src/`
-
-| Map | Rol |
+| Map (frontend) | Rol |
 | --- | --- |
-| `pages/` | De schermen, per domein gegroepeerd (`auth/`, `families/`, `genome/`, `admin/`, …); lazy-geladen in `index.tsx` |
-| `components/` | Herbruikbare UI-bouwstenen, waaronder `Layout.tsx`, `RequireAuth` en `RequireAdmin`, en de `visualizations/`-map (canvas/SVG/D3) |
-| `lib/` | Niet-visuele hulpcode: de axios-client (`api.ts`), authenticatie (`auth.ts`), foutmeldingen (`errorMessage.ts`) en meer |
-| `content/docs/` | In-app referentiedocumentatie, die op `/docs` gerenderd wordt |
+| `frontend/src/pages/` | De schermen, per domein gegroepeerd |
+| `frontend/src/components/` | Herbruikbare bouwstenen, waaronder de routebewakers en `visualizations/` |
+| `frontend/src/lib/` | Niet-visuele hulpcode: API-client, sessie, genotypes, ACMG-logica |
+| `frontend/src/content/docs/` | De in-app documentatie (gebruikersgids en referentiedocs), getoond op `/docs` |
 
-**Waar in de code:** deze indeling is beschreven in `AGENTS.md` (secties "Backend Guidelines", "Frontend & Integration") en zichtbaar via de mappen zelf.
+De routering gebruikt `react-router`. Alleen `/login` en `/signup` zijn publiek. Alle andere schermen zitten achter de bewaker `RequireAuth`, en de beheerschermen (o.a. `/admin/...`, `/package-import` en `/projects`) daarbovenop achter `RequireAdmin`. Die bewakers zijn gebruiksgemak, geen beveiliging (hoofdstuk 2).
 
-## Hoe frontend en backend gescheiden én verbonden zijn
+**Waar in de code:** de routeboom in `frontend/src/index.tsx`.
 
-De frontend en backend zijn twee aparte processen (en aparte Docker-containers). Ze delen geen code en geen geheugen — ze praten uitsluitend via HTTP-JSON over de `/api`-interface. Die scheiding is bewust: ze bewaakt de *device boundary* en maakt duidelijk dat álle toegangscontrole aan de serverzijde gebeurt, niet in de browser.
+## Configuratie
 
-De verbinding zelf loopt via drie mechanismen:
+Alle instellingen komen binnen als omgevingsvariabelen en worden gebundeld in één `Settings`-object; de rest van de code leest dat object. `.env.example` somt elke instelling op met haar standaardwaarde. De configuratie is ook een veiligheidsmaatregel: buiten ontwikkeling weigert de backend te starten met zwakke of ontbrekende geheimen. De volledige regel staat in [hoofdstuk 2](02-beveiliging-rollen-rechten.md#weigering-te-starten-met-zwakke-geheimen).
 
-- **De gedeelde axios-client.** Eén axios-instantie met `baseURL = '/api'` (of de waarde van `VITE_API_BASE_URL`) verzorgt alle verkeer. Zo is er één plek waar tokens worden toegevoegd en fouten centraal worden afgehandeld.
-  **Waar in de code:** `frontend/src/lib/api.ts` (`DEFAULT_API_BASE_URL = '/api'` en `apiBaseUrl`).
+**Waar in de code:** `backend/app/core/config.py` (`Settings` en `validate_security_defaults`). Het API-voorvoegsel `/api` staat daar ook, als `API_PATH_PREFIX`.
 
-- **JWT in de header.** Na login bewaart de frontend een JWT (*JSON Web Token* — een ondertekend token dat de identiteit draagt). Bij elk verzoek voegt de request-interceptor de header `Authorization: Bearer <token>` toe, behalve op de login/signup-paden (`/auth/login`, `/auth/signup`). De backend valideert dit token in `get_current_user`. De details van login en tokens staan in [hoofdstuk 5](05-login-authenticatie.md) en het rollen/rechten-model in [hoofdstuk 2](02-beveiliging-rollen-rechten.md).
-  **Waar in de code:** `frontend/src/lib/api.ts` (`shouldAttachStoredToken`) en `backend/app/dependencies.py` (`get_current_user`).
+## Containers en opstarten
 
-- **De `/api`-basis en de proxy.** In de browser is `/api` een *relatief* pad. In de productie-opstelling serveert de frontend-container de statische React-bundel en wordt `/api` naar de backend geleid. In ontwikkeling draait de Vite-dev-server een *proxy*: alle `/api`-verzoeken worden doorgestuurd naar de backend (standaard `http://localhost:8000`, in de dev-stack naar `http://backend:8000`).
-  **Waar in de code:** `frontend/vite.config.mts` (de `proxy: { '/api': … }`-regel, met doel `apiProxyTarget` uit `VITE_DEV_API_PROXY_TARGET` of `BACKEND_URL`); dat doel wordt in de dev-stack gezet in `docker-compose.dev.yml` (`VITE_DEV_API_PROXY_TARGET: http://backend:8000`).
+De stack draait via Docker Compose als vier diensten: `postgres`, `clickhouse`, `backend` en `frontend`. De databank-images zijn op een exacte digest vastgezet, voor reproduceerbaarheid. De backend start pas als beide databanken gezond zijn, de frontend pas als de backend gezond is. ClickHouse krijgt een ruime afsluittermijn, omdat een te vroeg afgebroken schrijfactie dataonderdelen kan beschadigen. De ontwikkelvariant `docker-compose.dev.yml` zet `APP_ENV=development`, herlaadt gewijzigde code meteen en gebruikt de Vite-ontwikkelserver.
 
-Aan de backendzijde regelt **CORS** (*Cross-Origin Resource Sharing* — de browserbeveiliging die bepaalt welke websites de API mogen aanroepen) welke oorsprongen toegelaten zijn. Dit is streng geconfigureerd: een breed origin-patroon dat niet volledig verankerd is (`^…$`) wordt door een validator geweigerd, juist omdat het samen met credentials een CORS-bypass zou vormen.
-**Waar in de code:** `app.add_middleware(CORSMiddleware, …)` in `backend/app/main.py`, met de instellingen `cors_origins`/`cors_origin_regex` en de validator `validate_cors_origin_regex` in `backend/app/core/config.py`.
+Wat de backend bij het opstarten doet (schema, eerste beheerder, referentiedata, achtergrondtaken), staat in [hoofdstuk 4](04-deployment-en-seeding.md).
 
-## Centrale configuratie en het opstarten van de app
+**Waar in de code:** `docker-compose.yml`, `docker-compose.dev.yml` en de `lifespan`-functie in `backend/app/main.py`.
 
-### Waar de configuratie leeft
+## Veiligheid en traceerbaarheid in de architectuur
 
-Alle instellingen komen binnen als *omgevingsvariabelen* (environment variables) en worden gebundeld in één `Settings`-object. Dat object is de enige plek waar configuratie wordt gelezen; de rest van de code importeert `settings`. De variabelen worden geladen uit een `.env`-bestand in de repo-root (of `.env.example` als sjabloon).
+- **Toegangscontrole op de server.** Alle autorisatie gebeurt in de backend (`get_current_user`, `get_current_admin_user` en de projectscoping). De browser beslist niets.
+- **Elk verzoek laat een spoor na.** De request-logging-middleware schrijft elk HTTP-verzoek naar de append-only tabel `audit_log_events`. Het klinische auditspoor en de rapportondertekeningen zijn daarnaast append-only én hash-geketend: elke rij verwijst cryptografisch naar de vorige, zodat wijzigen of wissen zichtbaar wordt ([hoofdstuk 11](11-rapport-en-traceerbaarheid.md)).
+- **Geen schema-onthulling.** Buiten ontwikkeling staan `/docs`, `/redoc` en `/openapi.json` uit.
+- **Fail-closed configuratie.** De app start niet met zwakke geheimen of onveilige productie-instellingen (hoofdstuk 2).
+- **Een duidelijke bron van waarheid.** Metadata staat in Postgres, varianten in ClickHouse. Bij audit en foutopsporing is dus duidelijk welke databank voor welk gegeven gezaghebbend is.
 
-**Waar in de code:** `backend/app/core/config.py` — de klasse `Settings` en het singleton `settings = Settings()`. Het prefix `/api` is hier als enige bron van waarheid gedefinieerd (`API_PATH_PREFIX = "/api"`).
+**Waar in de code:** `backend/app/dependencies.py`, `backend/app/middleware/`, `_docs_kwargs` in `backend/app/main.py`, en de traceerbaarheidsservices in `backend/app/services/` (o.a. `clinical_audit_service.py`, `hash_chain.py` en `integrity_anchor_service.py`).
 
-Deze configuratie doet meteen ook aan **veiligheidsafdwinging**. In de `model_validator` `validate_security_defaults` weigert de applicatie op te starten buiten ontwikkeling wanneer onveilige standaardgeheimen worden gebruikt: `SECRET_KEY` mag niet `secret`/`change-me` zijn en `POSTGRES_PASSWORD`/`ADMIN_PASSWORD` niet `admin`/`change-me`. Dat is een expliciete *fail-closed*-maatregel: liever niet starten dan onveilig starten. Ook wordt bijvoorbeeld het stilzwijgend laten vallen van audit-events in productie geweigerd (`AUDIT_LOG_DROP_ALLOWED=true` is alleen in development/test toegestaan).
+## Technologie
 
-### De containers — `docker-compose.yml`
+- **Frontend:** React, TypeScript, Vite, Tailwind CSS, react-router, TanStack Query (servertoestand en caching), axios, D3 (visualisaties) en igv (de ingebedde IGV-genoombrowser); tests met Vitest en Playwright.
+- **Backend:** FastAPI met Uvicorn, SQLAlchemy (asynchroon) met asyncpg voor Postgres, clickhouse-connect voor ClickHouse, Pydantic (validatie en instellingen), PyJWT (tokens), bcrypt (wachtwoorden) en cryptography (o.a. de handtekening van de integriteitsankers).
 
-De volledige stack draait via Docker Compose als vier services: `postgres`, `clickhouse`, `backend` en `frontend`. Belangrijke details:
-
-- De databank-images zijn *digest-pinned* (vastgezet op een exacte hash met `@sha256:…`, bv. `postgres:16` en `clickhouse/clickhouse-server:26.8`) voor reproduceerbaarheid — belangrijk voor IVDR.
-- De `backend` start pas als `postgres` én `clickhouse` "healthy" zijn (`depends_on … condition: service_healthy`); de `frontend` start pas als de `backend` healthy is. Zo krijgt de gebruiker nooit een half-opgestarte API te zien.
-- ClickHouse heeft een `stop_grace_period: 5m`, omdat een te vroege `SIGKILL` variant-parts kan beschadigen (een gedocumenteerd incident van 2026-06-11).
-
-De **ontwikkelvariant** `docker-compose.dev.yml` overschrijft dit met `APP_ENV: development`, live herladen van de backend (`uvicorn … --reload`), de Vite-dev-server met proxy, en gemounte broncode-mappen.
-
-**Waar in de code:** `docker-compose.yml` (productiestijl) en `docker-compose.dev.yml` (ontwikkeling).
-
-### De opstartroutine — `main.py` lifespan
-
-FastAPI kent een *lifespan* (een functie die code draait bij het opstarten en afsluiten van de server). In CoGA doet die op hoofdlijnen het volgende, in volgorde:
-
-1. Wachten tot Postgres bereikbaar is (`wait_for_postgres`).
-2. Optioneel het Postgres-schema aanmaken en de admingebruiker seeden (`init_postgres_schema`, `init_postgres_admin_user`) — enkel wanneer de app als tabel-*owner* draait; gestuurd door de instelling `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP`. Draait de app als de beperkte rol `coga_app`, dan worden de migraties out-of-band uitgevoerd en slaat de app deze stap over.
-3. De achtergrond-workers voor audit-log en UI-events starten (`start_audit_log_worker`, `start_ui_event_worker`).
-4. In één Postgres-sessie: de repeat-catalogus seeden, de referentie voor *Homo sapiens* GRCh38 verzekeren, de HPO-ontologie laden, ingebouwde tracks seeden en eventueel de gene-reference-refresh in de wachtrij zetten.
-5. Wachten tot ClickHouse bereikbaar is (`wait_for_clickhouse`), het ClickHouse-schema initialiseren (`init_clickhouse_schema`) en de integrity-monitor starten.
-6. De achtergrond-workers voor gene-reference-refresh en family-package-import starten.
-
-Bij het afsluiten worden al deze workers netjes gestopt en de databankverbindingen gesloten.
-
-**Waar in de code:** de `lifespan`-functie bovenaan `backend/app/main.py`. De bootstrap-functies leven in `backend/app/services/`, `backend/app/core/` en `backend/app/db_migrate.py` (`init_postgres_admin_user`).
-
-## Veiligheid & traceerbaarheid op architectuurniveau
-
-Omdat CoGA een gereguleerd IVD is, zijn veiligheid en traceerbaarheid geen bijzaak maar structureel in de architectuur verweven. De belangrijkste architectuur-brede waarborgen:
-
-- **Serverzijdige toegangscontrole.** Alle autorisatie gebeurt in de backend via `get_current_user`/`get_current_admin_user` en project-gebonden RBAC. De browser bepaalt niets zelf.
-  **Waar in de code:** `backend/app/dependencies.py`.
-- **Auditing van elke actie.** Volgens `AGENTS.md` stromen alle betekenisvolle acties door een duurzame audit/telemetrie-pijplijn; het klinische auditspoor en de rapport-ondertekeningen zijn *append-only* en *hash-chained* (elke record verwijst cryptografisch naar de vorige, zodat manipulatie detecteerbaar is). Aan de ingangskant wordt elk verzoek gelogd.
-  **Waar in de code:** de request-logging-middleware `log_request_response` in `backend/app/middleware/request_logging.py`, en de traceerbaarheidsservices in `backend/app/services/` (o.a. `clinical_audit_service.py`, `hash_chain.py`, `integrity_anchor_service.py`). Details volgen in [hoofdstuk 11](11-rapport-en-traceerbaarheid.md).
-- **Security-headers en schema-afscherming.** De buitenste middleware stempelt hardening-headers op elk antwoord; buiten ontwikkeling worden `/docs`, `/redoc` en `/openapi.json` uitgeschakeld om schema-onthulling te voorkomen.
-  **Waar in de code:** `security_headers_middleware` en `_docs_kwargs()` in `backend/app/main.py`.
-- **Fail-closed configuratie.** De app weigert te starten met zwakke geheimen of onveilige productie-instellingen (zie hierboven).
-  **Waar in de code:** `validate_security_defaults` in `backend/app/core/config.py`.
-- **Provenance van de opslag.** De strikte scheiding "metadata in Postgres, varianten in ClickHouse" maakt duidelijk welke databank gezaghebbend is voor welk gegeven — cruciaal bij audit en foutopsporing.
-  **Waar in de code:** vastgelegd in `docs/storage-architecture.md` en `docs/application-scheme.md`.
-
-De diepere uitwerking van rollen, rechten en afscherming volgt in [hoofdstuk 2](02-beveiliging-rollen-rechten.md); de databankstructuren in [hoofdstuk 3](03-databankstructuren.md).
-
-## Tech stack en versies
-
-De platformversie staat in `VERSION`: **`0.1.0`**. (Let op: dit is de productversie. Het interne `app_version`-veld in `config.py` is een aparte build-identiteit met de permissieve standaardwaarde `0.0.0+unknown`, die bij het bouwen van de image via de `APP_VERSION`-build-arg wordt ingespoten.)
-
-**Frontend** (uit `frontend/package.json`):
-
-| Technologie | Versie | Rol |
-| --- | --- | --- |
-| React + React-DOM | ^19.3 | UI-framework |
-| TypeScript | ^6.0 | Getypeerde JavaScript (enkel bij het bouwen) |
-| Vite | ^8.3 | Build-tool en dev-server (enkel bij het bouwen) |
-| Tailwind CSS | ^4.3 | Styling |
-| react-router | ^8.4 | Client-side routing (`BrowserRouter`/`Routes`/`Route` in `index.tsx`) |
-| @tanstack/react-query | ^5.103 | Server-state en caching |
-| axios | ^1.20 | HTTP-client naar `/api` |
-| d3 | ^7.9 | Datavisualisaties |
-| igv | ^3.8 | Ingebedde genoombrowser |
-| vitest / @playwright/test | ^4.1 / ^1.63 | Unit-tests / end-to-end tests |
-
-**Backend** (uit `backend/requirements.txt`):
-
-| Technologie | Versie | Rol |
-| --- | --- | --- |
-| FastAPI | 0.141.1 | Web-/API-framework |
-| Uvicorn | 0.53.0 | ASGI-server die de app draait |
-| SQLAlchemy | 2.0.54 | ORM/async databanktoegang tot Postgres |
-| asyncpg | 0.31.0 | Async Postgres-driver |
-| clickhouse-connect | 1.8.0 | ClickHouse-client |
-| Pydantic / pydantic-settings | 2.13.5 / 2.15.0 | Datavalidatie en instellingen |
-| PyJWT | 2.14.0 | JWT-tokens |
-| bcrypt | 5.0.0 | Wachtwoord-hashing, rechtstreeks aangeroepen (passlib is sinds #525 weg) |
-| cryptography | 50.0.0 | Onderliggende crypto (o.a. integrity anchors) |
-
-**Waar in de code:** `VERSION`, `frontend/package.json` en `backend/requirements.txt`.
-
-## De frontend-router in het kort
-
-De client-side routing gebruikt `react-router` met `BrowserRouter` en geneste `Routes`/`Route`-declaraties (geen `createBrowserRouter`). Alle pagina's zijn *lazy-geladen* (pas ingeladen wanneer nodig, wat de eerste laadtijd verkort). De boom is opgebouwd rond bewakers:
-
-- Alles zit binnen `Layout` (de gedeelde schil).
-- Publieke routes: `/login`, `/signup`.
-- Onder `RequireAuth`: het dashboard, de familiewerkruimte (`/families/:familyId` en alle subviews zoals Small Variants, structurele varianten, rapport en QC), de familybuilder, de explorers (`/genes`, de Global Small Variant Explorer, de Clinical CNV Explorer), panels, HPO en docs.
-- Onder `RequireAdmin` (geneste bewaker): alle `/admin/...`-routes, `/package-import` en `/projects`.
-
-**Waar in de code:** `frontend/src/index.tsx` (de `<Routes>`-boom met `<RequireAuth />` en `<RequireAdmin />`), en `frontend/src/components/Layout.tsx` (de schil met `<Outlet />`). De bewakers zelf worden behandeld in [hoofdstuk 2](02-beveiliging-rollen-rechten.md).
+De exacte versies staan in `frontend/package.json` en `backend/requirements.txt`; het SOUP-register (`docs/regulatory/TF-08-soup-register.md`) houdt ze bij voor het technisch dossier. De productversie staat in `VERSION`. Het veld `app_version` in de backend is de build-identiteit: die wordt bij het bouwen van de image ingevuld en in elk ondertekend rapport bevroren (hoofdstuk 11).
 
 ## Belangrijkste bestanden
 
 | Bestand | Rol |
 | --- | --- |
-| `README.md` | Overzicht, capaciteiten, stack, quick-start en omgevingsvariabelen |
-| `AGENTS.md` | Repository-overzicht met backend/frontend-richtlijnen en veiligheidsprincipes |
-| `VERSION` | De platformversie (`0.1.0`) |
-| `docs/application-scheme.md` | Flow Summary, Main Code Areas en de Storage Boundary (gezaghebbendheid) |
-| `docs/storage-architecture.md` | Verantwoordelijkheden van Postgres vs. ClickHouse en de runtime-flow |
-| `backend/app/main.py` | Bouwt de FastAPI-app: routers, CORS, middleware en de `lifespan`-opstartroutine |
-| `backend/app/routers/__init__.py` | Bundelt alle routers in `all_routers` (de volledige API-oppervlakte) |
-| `backend/app/dependencies.py` | Authenticatie/autorisatie: `create_access_token`, `get_current_user`, `get_current_admin_user` |
-| `backend/app/core/config.py` | Centrale instellingen (`Settings`), `/api`-prefix en fail-closed veiligheidsvalidatie |
-| `frontend/src/index.tsx` | Frontend-startpunt en de volledige route-boom met auth/admin-bewakers |
-| `frontend/src/lib/api.ts` | De gedeelde axios-client: `/api`-basis, JWT-injectie en 401-afhandeling |
-| `frontend/src/lib/apiSchema.generated.ts` | De API-typen, gegenereerd uit het OpenAPI-schema van de backend (`scripts/generate-api-types.py`); CI faalt als het bestand verouderd is (#528). Genereer in de backend-omgeving (`backend/requirements-dev.txt`): het schema hangt af van de FastAPI- en Pydantic-versie, en het script waarschuwt bij een andere versie |
-| `frontend/src/lib/apiContract.ts` | Toetst de handgeschreven typen in `apiTypes.ts` aan de gegenereerde: `tsc` faalt als een respons niet meer past bij het type dat hem leest (#528) |
-| `frontend/src/components/Layout.tsx` | De visuele schil rond alle pagina's |
-| `frontend/vite.config.mts` | De dev-proxy die `/api` naar de backend doorstuurt |
-| `docker-compose.yml` / `docker-compose.dev.yml` | Orchestratie van de vier services (productie- en ontwikkelvariant) |
-| `frontend/package.json` / `backend/requirements.txt` | De tech stack met exacte versies |
+| `docs/application-scheme.md` | Architectuur en opslaggrenzen (Engels) |
+| `backend/app/main.py` | Bouwt de app: routers, CORS, middleware, opstartroutine |
+| `backend/app/routers/__init__.py` | Bundelt alle routers |
+| `backend/app/dependencies.py` | `get_current_user`, `get_current_admin_user` en tokenuitgifte |
+| `backend/app/core/config.py` | Alle instellingen en de fail-closed controles |
+| `frontend/src/index.tsx` | Frontend-startpunt en routeboom met bewakers |
+| `frontend/src/lib/api.ts` | De gedeelde API-client: `/api`-basis, token en 401-afhandeling |
+| `docker-compose.yml` / `docker-compose.dev.yml` | De vier diensten (Docker-opstelling en ontwikkeling) |

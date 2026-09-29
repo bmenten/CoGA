@@ -1,195 +1,98 @@
 # 9. Visualisaties (chromosome, genome, circos, IGV)
 
-In dit hoofdstuk wordt beschreven hoe CoGA genomische data visueel toont. We volgen de vier grote weergaven — het **whole-genome-overzicht**, de **per-chromosoom-weergave**, de **Circos-plot** en de ingebedde **IGV-browser** — plus de onderliggende *tracks* (horizontale gegevensbalken: coverage, APCAD, varianten, CNV's, genen, DGV, blacklist, segdups, repeats, haplotypes), het *ideogram* (de gestreepte chromosoomtekening) en de *pedigree* (stamboom). Per visualisatie maken we telkens drie dingen expliciet: **welk API-endpoint** de data levert, **hoe** er getekend en gesampled wordt (canvas, SVG of D3), en **hoe de juiste regio** wordt getoond. We sluiten af met de toegangscontrole die ook op deze visualisatie-endpoints geldt.
+Dit hoofdstuk beschrijft hoe CoGA genomische data visueel toont: het **genoomoverzicht**, de **weergave per chromosoom**, de **Circos-plot** en de ingebedde **IGV-browser**, met de onderliggende *tracks*, het *ideogram* en de *stamboom*. Per weergave staat welk endpoint de data levert, hoe er getekend wordt en hoe de getoonde regio bepaald wordt. De uitleg voor gebruikers staat in de gebruikersgids in de app (`frontend/src/content/docs/user-guide/visualization.md`).
 
-Een paar begrippen vooraf, kort uitgelegd:
+Enkele begrippen:
 
-- **Endpoint** = een URL die de backend aanbiedt en die data teruggeeft (bv. `/chromosomes/GRCh38/1`).
-- **Track** = één horizontale strook in de viewer die één soort gegeven toont over een genomisch bereik.
-- **SVG** = vectortekenformaat in de browser (scherpe lijnen/vormen); **canvas** = een pixel-tekenvlak (sneller bij héél veel punten); **D3** = een JavaScript-bibliotheek om data op SVG/canvas te projecteren.
-- **Downsampling** = uit een enorme dataset een representatieve, kleinere selectie kiezen zodat de tekening snel blijft.
-- **Region** = het getoonde venster op een chromosoom: `chrom`, `regionStart`, `regionEnd`.
+- **Track:** één horizontale strook die één soort gegeven over een genomisch bereik toont.
+- **SVG** is een vectorformaat (scherpe vormen); **canvas** is een pixelvlak (sneller bij heel veel punten); **D3** is een JavaScript-bibliotheek die data op SVG of canvas tekent.
+- **Downsampling:** uit een grote dataset een representatieve kleinere selectie kiezen, zodat het tekenen snel blijft.
 
-## De twee dragende pagina's: genome-overzicht en per-chromosoom
+## De twee hoofdpagina's
 
-De viewer bestaat uit twee samengestelde pagina's die de losse track-componenten stapelen. Beide splitsen de logica in een *page* (haalt data + rekent lay-out uit) en een *workspace* (rendert de tracks).
+**Genoomoverzicht** (`GenomeOverviewPage.tsx` met `GenomeOverviewWorkspace.tsx`). Per geselecteerd familielid toont het een genoombrede track voor dekking, APCAD, structurele varianten, haplotypes en repeat-expansies, met onderaan een ideogram per chromosoom. De chromosomen liggen achter elkaar op één as. Een selectie door te slepen opent die regio in de weergave per chromosoom.
 
-**Whole-genome-overzicht.** De pagina `frontend/src/pages/genome/GenomeOverviewPage.tsx` bouwt eerst voor elk familielid de *URL-kaarten* (`urlMaps`) waar de tracks hun data vandaan halen, en geeft die door aan `GenomeOverviewWorkspace` (`frontend/src/pages/genome/GenomeOverviewWorkspace.tsx`), die alle geselecteerde leden onder elkaar rendert. De workspace toont per lid een genoombrede **Coverage**-, **APCAD**-, **SV**-, **Haplotype**- en **Repeat-expansion**-track, en onderaan een rij **ideogrammen** (één per chromosoom). Omdat het hier om het hele genoom gaat, worden de chromosomen achter elkaar gelegd via een `layout`-object (`offsets`, `lengths`, `total`, `chroms`): elk chromosoom krijgt een genoombrede X-offset, zodat een positie op chromosoom 5 verderop ligt dan op chromosoom 1.
+**Weergave per chromosoom** (`ChromosomeViewPage.tsx` met `ChromosomeViewWorkspace.tsx`). Bovenaan staat het volledige ideogram met het getoonde venster in het rood; daaronder per lid de sample-tracks (dekking, APCAD, SV's, small variants, haplotypes, repeats) en onderaan de referentietracks (genen, klinische CNV's, DGV, blacklist, segmentale duplicaties) en een uitvergroot ideogram van het venster. Er zijn knoppen om te zoomen en te schuiven, en een veld om naar een gen of locus te springen.
 
-- **Waar in de code:** URL-opbouw in `GenomeOverviewPage.tsx` (de `buildBatchBedUrl`-helper binnen de `urlMaps`-memo, en de `layout`-`useEffect` die de offsets berekent); stapeling en interactie in `GenomeOverviewWorkspace.tsx` (component `GenomeOverviewWorkspace`, met de helper `resolveGenomeRegionSelection` die een sleep-selectie op een track omzet naar een `{chrom, start, end}` en naar de chromosoomweergave springt).
+Welke tracks een sample heeft, vraagt de frontend eerst op (`GET /api/families/{family_id}/track-availability`), zodat er geen lege strook verschijnt voor data die de familie niet heeft.
 
-**Per-chromosoom-weergave.** De pagina `ChromosomeViewPage.tsx` en de workspace `ChromosomeViewWorkspace.tsx` (beide in `frontend/src/pages/genome/`) tonen één chromosoom in detail. Bovenaan staat een volledig `Ideogram` met een rode markering van het getoonde venster; daaronder per lid de sample-tracks (Coverage, APCAD, `VariantTrack` = SV's, `SmallVariantTrack`, `HaplotypePhasedTrack`, `RepeatExpansionTrack`) en onderaan de referentie-tracks die niet sample-specifiek zijn (`GeneTrack`, `CnvTrack`, `DgvTrack`, `BlacklistTrack`, `SegmentalDuplicationTrack`) plus een `ZoomedIdeogram` die het geselecteerde bereik uitvergroot toont. Er is ook een navigatiebalk met zoom/pan-knoppen en een "Jump to gene or locus"-veld (via de endpoints `/genes/search` en `/genes/profile`).
+**Waar in de code:** `frontend/src/pages/genome/`; de beschikbaarheid in `backend/app/routers/families_tracks.py`.
 
-- **Waar in de code:** de `ViewerTrackBlock`-secties in `ChromosomeViewWorkspace.tsx` (Ideogram, Coverage, APCAD, VariantTrack, SmallVariantTrack, Haplotypes, Repeat expansions, GeneTrack, CnvTrack, DgvTrack, Blacklist, SegDup/LCR, ZoomedIdeogram).
+## Het ideogram
 
-### Welke tracks tonen we eigenlijk? — de availability-poort
+Het ideogram is de gestreepte chromosoomtekening. De cytobanden komen uit Postgres (`GET /api/chromosomes/{assembly}/{chrom}`) en worden in SVG getekend, met een kleur per kleuringscode (bv. `gpos100`, `acen` voor het centromeer). Het volledige ideogram laat de gebruiker een bereik selecteren; het uitvergrote ideogram toont alleen het getoonde venster. Op het genoomoverzicht, waar een chromosoom maar enkele pixels breed is, worden de banden per pixelgroep samengevoegd tot de overheersende kleuring.
 
-Voordat een track wordt gerenderd, vraagt de frontend aan de backend welke datasoorten voor deze familie/dit bereik überhaupt bestaan. Dat gebeurt via het endpoint `GET /families/{family_id}/track-availability` (functie `get_family_track_availability` in `backend/app/routers/families_tracks.py`). Zo verschijnt er geen lege APCAD-strook als de familie geen APCAD-data heeft. Het antwoord bevat een `samples`-map; de frontend zet die om in `availability[sample_id]` en gebruikt dat in de `&&`-condities die elke track omhullen in beide workspaces. Mislukt die aanvraag, of die voor de chromosoomlengtes, dan meldt de workspace dat op de plaats van de tracks ("Could not load … — this is not an empty result", met Retry; de prop `tracksFailure`), en niet "No BED data for selected samples" of een laadbalk die niet verdwijnt (#614, #617).
-
-## Het ideogram: cytobanden tekenen (Ideogram / ZoomedIdeogram)
-
-Het **ideogram** is de klassieke gestreepte chromosoomtekening. De banden (*cytobands*) en hun kleuring komen uit Postgres.
-
-**Data.** Beide componenten halen hun chromosoom op via `GET /chromosomes/{assembly}/{chrom}`, dat `{chr, size, bands[]}` teruggeeft. Elke band heeft `name`, `start`, `end` en een `stain`-code (bv. `gpos100`, `gneg`, `acen`). De query wordt oneindig gecachet (`staleTime: Infinity`, `gcTime: Infinity`) want referentiedata verandert niet.
-
-- **Waar in de code:** `frontend/src/components/visualizations/Ideogram.tsx` en `ZoomedIdeogram.tsx` (de `useQuery` met key `["chromosome", assembly, chrom]`); backend-endpoint `get_chromosome` in `backend/app/routers/chromosomes.py`, dat delegeert naar `get_chromosome_data` in `backend/app/services/reference_metadata_service.py`.
-
-**Tekenen (SVG).** Beide tekenen in **SVG**. Elke band wordt een `<rect>` waarvan de X-positie evenredig is met `start/size`; de kleur komt uit `getStainColor(stain)` in `frontend/src/lib/stainColors.ts`, dat de stain-code naar een CSS-kleurvariabele vertaalt (bv. `gpos100 → --color-stain-gpos100`). Voor diepte krijgt elke band een subtiel kleurverloop via `getBandGradientStops` in `frontend/src/lib/ideogram.ts`. De **acen**-banden (het centromeer) worden als driehoekige `<polygon>`'s getekend; `getAcenDirection` (in `ideogram.ts`) bepaalt of het de p- of q-arm is. Een lokale helper `buildChromosomeOutlinePath` in `Ideogram.tsx` tekent daaromheen de karakteristieke "geknepen" chromosoomomtrek.
-
-- `Ideogram` toont het héle chromosoom en markeert het getoonde venster met een rood, half-transparant kader (`showHighlight`). De gebruiker kan met de muis een bereik selecteren (`onRegionSelect`), wat de detailweergave doet inzoomen.
-- `ZoomedIdeogram` doet het omgekeerde: het toont **alleen** het venster `regionStart..regionEnd`, uitvergroot, met een fijnere as (`niceTickInterval`) en rode randlijnen links/rechts.
-- **Waar in de code:** de `renderBands.map(...)`-lus en `handleMouseUp` (regio-selectie) in `Ideogram.tsx`; de venster-gebonden `bands.filter(...)` in `ZoomedIdeogram.tsx`.
-
-**Bandresolutie.** Op het genome-overzicht is een chromosoom maar enkele pixels breed. Om te voorkomen dat honderden banden op elkaar gepropt worden, wordt `collapseBandsForResolution` (in `ideogram.ts`) aangeroepen met `bandResolution="compact"`: het genoom wordt in "buckets" (emmertjes) van minimaal 4 px verdeeld en per bucket wint de band met de grootste overlap ("dominante stain"). Zo blijft het beeld getrouw maar goedkoop te tekenen.
+**Waar in de code:** `frontend/src/components/visualizations/Ideogram.tsx` en `ZoomedIdeogram.tsx`; de hulpfuncties in `frontend/src/lib/ideogram.ts` en `stainColors.ts`.
 
 ## De sample-tracks
 
-Deze tracks tonen data die per **sample** (individu) verschilt. Ze delen enkele patronen: coördinaten worden lineair naar pixels geschaald, en veel tracks houden bij een *pan* (verschuiven met gelijke breedte) tijdelijk het vorige beeld vast via de hook `useSameSpanFallbackData`, zodat het beeld glijdt in plaats van te knipperen. Dat vorige beeld blijft alleen staan zolang het nieuwe venster laadt, en alleen wat in het nieuwe venster ligt wordt getekend. Mislukt de aanvraag, dan valt de hook nooit terug op het vorige beeld: de track toont de fout boven een leeg venster (#586). Welke tracks een sample heeft, bepaalt `/families/{id}/track-availability`. Mislukt die aanvraag, dan zeggen de chromosoomweergave en het genoomoverzicht dat, met Retry (`availabilityFailure`), en niet "No BED data for selected samples" (#614).
+- **Dekking en segmenten.** De log-ratio van de dekking verschijnt als stippen per bin, met de CNV-segmenten als lijnen erover, op een canvas. De drempels voor de kleur (winst, verlies) zijn **per browser** instelbaar; de legende toont ze altijd en markeert afwijkende waarden, omdat een andere werkplek dezelfde data anders kan kleuren. Data: `GET /api/bed/{sample_id}/coverage/batch` en `…/segments/batch`, uit de interval-tabel in ClickHouse.
+- **APCAD.** Een spreidingsdiagram van de B-allelfrequentie, met twee homozygote banden en een heterozygote middenband: het signaal waarmee ouderlijke haplotypes te onderscheiden zijn. Omdat er miljoenen markers per sample zijn, kiest de server zelf een selectie: alleen informatieve markers die de kwaliteitsfilter doorstonden, de beste eerst, verdeeld zodat alle banden zichtbaar blijven. Data: `GET /api/bed/{sample_id}/apcad/batch` en `…/apcad_pcf/batch`.
+- **Small variants.** Eén teken per variant van het sample (`GET /api/families/{familyId}/small-variants` in track-modus, met een bovengrens). Elk teken draagt zijn klasse in vorm én kleur: een rode ruit voor ClinVar (waarschijnlijk) pathogeen, een oranje driehoek voor HIGH-impact, een holle blauwe vierkant voor ClinVar (waarschijnlijk) benigne, een groene stip voor MODERATE en een grijze stip voor de rest. Een reviewtag tekent een ring in de kleur van de tag rond het teken. Is het sample een kind met beschikbare ouders, dan splitst de track in rijen naar ouderlijke oorsprong (vaderlijk, onbepaald, moederlijk).
+- **Structurele varianten.** Het overzicht gebruikt `SvTrack` (canvas, met een berekende hover), de weergave per chromosoom `VariantTrack` (SVG-vormen met eigen muisafhandeling). Beide halen `GET /api/families/{familyId}/structural-variants` op. DEL en DUP zijn balken, INV een omlijnde balk, INS een verticale streep en BND een driehoek.
+- **Haplotypes.** Op het overzicht `GenomeHaplotypeTrack`, per chromosoom `HaplotypePhasedTrack`, met data uit `GET /api/families/{family_id}/haplotypes` en `…/phased-markers`. De ruwe gefaseerde markers worden per marker gekleurd, zonder groeperen; de haplotypetrack is de opgekuiste versie (`docs/haplotype-segregation-analysis.md`). De markeroverlay verschijnt alleen als beide ouders aanwezig zijn en de gebruiker ze aanzet. Het risicohaplotype wordt afgeleid in de regio van interesse; op het overzicht wordt het alleen op het chromosoom van die regio getekend, omdat de labels van de homologen per chromosoom gelden. Zonder regio van interesse tekent het overzicht geen risico en toont het de status "not assessed".
+- **Repeat-expansies.** Per locus een teken in de kleur van de status (normaal, intermediair, pathogeen), uit `GET /api/families/{familyId}/repeat-expansions/sample/{sampleId}`.
 
-Een venster zonder breedte (het begin op of voorbij het einde) vraagt niets op. De tracks noemen zich dan "no region in view", niet "loading", "none" of "too many": zo'n venster laadt niet en is ook niet leeg (`hasRegionInView` en `describeTrackRegion` in `frontend/src/components/visualizations/trackRegion.ts`). Chromosoomnamen komen overal uit `formatChromosomeLabel` in `frontend/src/lib/chromosomes.ts`: in de namen van de tracks, de chromosoomlijsten en de kop van de viewer heet het mitochondrion `chrM`, hoe de data het ook schrijft (#603).
+**Waar in de code:** `frontend/src/components/visualizations/` (`CoverageSegmentsChart.tsx`, `ApcadChart.tsx`, `SmallVariantTrack.tsx`, `SvTrack.tsx`, `VariantTrack.tsx`, de haplotype- en repeattracks); de tekens van de small variants in `frontend/src/lib/smallVariantMarks.ts`; de APCAD-selectie in `fetch_apcad_downsampled` (`backend/app/services/clickhouse_interval_tracks.py`).
 
-### Coverage & segments (CoverageSegmentsChart)
+## De referentietracks
 
-De coverage-track toont de dieptedekking (log-ratio) als een **scatter van stippen** (per bin één stip) met daaroverheen horizontale **segment**-lijnen (de CNV-calling-segmenten).
-
-**Data.** De component krijgt kant-en-klare URL's binnen (`coverageUrls`, `segmentsUrls`) die de pagina heeft opgebouwd naar het **BED-batch-endpoint**: `GET /bed/{sample_id}/coverage/batch` en `.../segments/batch` (met `format=json`). Zie `backend/app/routers/bed.py`, functie `fetch_bed_batch`. Die roept de bed-service aan, die de intervallen uit de ClickHouse interval-store haalt: `backend/app/services/clickhouse_interval_tracks.py` bewaart intervallen (coverage/apcad/segments/haplotype) in de tabel `.../INTERVAL/entries` en levert ze terug via `fetch_interval_track_rows`.
-
-**Tekenen (canvas).** Omdat een genoombrede coverage-track duizenden punten bevat, tekent `CoverageSegmentsChart` op een **`<canvas>`** (sneller dan SVG). Kleuren worden per waarde bepaald (winst/verlies/neutraal, drempels uit de gebruikersinstellingen). Bij één chromosoom (`stableChroms.length === 1` en een gezet `regionStart/regionEnd`) schakelt de chart over op de venster-modus (`isFocusedRegion`) en schaalt op `regionStart..regionEnd`; anders gebruikt hij de genoombrede `layout`.
-
-- **Waar in de code:** `frontend/src/components/visualizations/CoverageSegmentsChart.tsx` (de grote `useEffect` met de canvas-2D-tekencode; `TRACK_DOT_RADIUS` uit `trackSampling.ts` bepaalt de stipgrootte).
-
-### APCAD (ApcadChart)
-
-APCAD is een **BAF-scatter** (B-allele-frequentie): twee homozygote banden (rond 0 en 1) en een heterozygote middenband — het signaal waarmee ouderlijke haplotypes worden onderscheiden. Er komen ook PCF-segmenten (gladgestreken segmenten) overheen.
-
-**Data.** URL's wijzen naar `GET /bed/{sample_id}/apcad/batch` en `.../apcad_pcf/batch`. Hier is de **downsampling cruciaal**: APCAD staat op SNV-resolutie (miljoenen markers per sample). De functie `fetch_apcad_downsampled` in `clickhouse_interval_tracks.py` doet de selectie volledig **server-side** in ClickHouse: ze houdt alleen informatieve markers (`origin IN ('paternal','maternal')`), filtert op kwaliteit (VCF `filter = PASS`, of markers zonder geregistreerde filter uit oudere uploads), en verdeelt een puntenbudget band-bewust — een deel gereserveerd voor de homozygote banden zodat ze zichtbaar blijven, de rest voor de heterozygote markers (het fasesignaal). Binnen elke band worden de markers met de hóógste `qual` gekozen (geen ruwe ruimtelijke steekproef). Zo blijft de payload begrensd zonder het overzichtsbeeld te vertekenen.
-
-**Tekenen (canvas).** `ApcadChart` tekent de ruwe BAF-stippen vaag (`globalAlpha 0.45`) en de PCF-segmenten daaroverheen, gekleurd per ouderlijke oorsprong (`--color-apcad-paternal/maternal`). De Y-as is licht ingeklemd (`yPad`) zodat de banden op 0 en 1 niet tegen de rand geklemd raken.
-
-- **Waar in de code:** `frontend/src/components/visualizations/ApcadChart.tsx`; server-side selectie in `fetch_apcad_downsampled` (`clickhouse_interval_tracks.py`), aangeroepen via de bed-service. Het puntenbudget komt uit `getApcadPointLimit(width)` in `frontend/src/lib/trackSampling.ts`.
-
-### Small Variants (SmallVariantTrack)
-
-Deze track plaatst één gekleurde stip per Small Variant (SNV/indel) van het getoonde sample.
-
-**Data.** `GET /families/{familyId}/small-variants` met `track_mode=true` en `track_result_limit=10000`. Boven die grens toont de track "Too many variants to display. Zoom in or apply filters." De kleur wordt bepaald in deze volgorde: tag-kleur (indien getagd) → anders een ClinVar-override (benign/pathogeen) → anders een functionele-impact-kleur. Wanneer het getoonde sample een kind is met beschikbare ouders, splitst de track in drie rijen op **ouderlijke oorsprong** (paternaal boven / onbepaald midden / maternaal onder); de functie `variantOrigin` leidt die af uit Mendeliaanse overerving of, bij één ontbrekende ouder, uit de gefaseerde haplotypevolgorde.
-
-**Tekenen (D3 op SVG).** Eén data-join tekent alle stippen; een enkele transparante *hit-laag* met een D3-**quadtree** (een boomstructuur om snel het dichtstbijzijnde punt te vinden) vangt hover-events op, in plaats van duizenden losse hitboxen.
-
-- **Waar in de code:** `frontend/src/components/visualizations/SmallVariantTrack.tsx` (`variantOrigin`, `getVariantColor`, de `d3.quadtree`-hitlaag); grens `SMALL_VARIANT_TRACK_RESULT_LIMIT` en `TRACK_DOT_RADIUS` in `trackSampling.ts`.
-
-### Structurele varianten (SvTrack en VariantTrack)
-
-Het genome-overzicht gebruikt `SvTrack`, de per-chromosoom-weergave gebruikt `VariantTrack` (label "SVs"). Beide halen de structurele varianten op via `GET /families/{familyId}/structural-variants`.
-
-**SvTrack (genome-overzicht).** Krijgt één URL binnen (`page_size=0`, `track_mode=true`, `sample=<id>`) en haalt de SV's op via `fetchTrackJson`, de gedeelde client met token- en sessieafhandeling; een mislukte aanvraag toont een fout, nooit "geen SV's". De backend leest in track-modus alleen de SV's met een call voor dat sample, tot 50.000 kandidaten. Daarboven zet hij `total_is_estimated`, en dan toont de track "Too many SVs to display genome-wide. Open a chromosome to see them." in plaats van een deel van het genoom te tekenen, met de laatste chromosomen leeg (#585). Vijf typen worden in vaste rijen getekend: `DEL, DUP, INV, INS, BND`.
-
-**VariantTrack (per chromosoom).** Vraagt voor het getoonde venster één pagina van `getTrackVariantLimit(width)` SV's (400–4.000) in track-modus. De backend geeft ook het aantal SV's in beeld terug (`total`). Is dat groter dan de pagina, dan toont de track "Too many SVs to display. Zoom in or apply filters." in plaats van alleen de meest linkse SV's te tekenen, met de rest van het venster leeg (#585).
-
-**Tekenen (canvas).** DEL/DUP als balken, INV als een omkaderde (witte) balk, INS als verticale streep, BND als driehoek. Positionering gebeurt via het genoombrede `layout` (`offset + start`). Hover-detectie is puur wiskundig (rechthoek-hittest), geen extra DOM.
-
-- **Waar in de code:** `frontend/src/components/visualizations/SvTrack.tsx` en `VariantTrack.tsx`.
-
-### Haplotype- en repeat-tracks
-
-- **Haplotypes.** Op het overzicht `GenomeHaplotypeTrack`, op één chromosoom `HaplotypePhasedTrack`. Data uit `GET /families/{family_id}/haplotypes(/batch)` en `GET /families/{family_id}/phased-markers`. De gefaseerde marker-overlay wordt alleen getoond als beide ouders aanwezig zijn en de gebruiker de overlay aanzet. Het risicohaplotype wordt afgeleid in de ROI. Op het overzicht wordt het alleen op het chromosoom van de ROI getekend, want de homoloog-labels gelden per chromosoom. Zonder ROI tekent het overzicht geen risico-overlay en toont het geen risicostatus ("not assessed") (#588). Zoals in de projectgeheugens vastgelegd: **gefaseerde imputed markers worden ruw per marker gekleurd** (niet gebinned); de haplotype-track zelf is de opgekuiste versie.
-- **Repeat expansions.** Op het overzicht `GenomeRepeatExpansionTrack`, op één chromosoom `RepeatExpansionTrack`; beide halen `GET /families/{familyId}/repeat-expansions/sample/{sampleId}` op. In *overview-mode* (als `chromosomeSize` is meegegeven) vraagt de track chromosoombreed en cachet stabiel; elke locus krijgt een kleur naar status (normaal/intermediair/pathogeen).
-- **Waar in de code:** endpoints `get_family_haplotypes`, `get_family_haplotypes_batch`, `get_family_phased_markers`, `get_sample_repeat_expansions` in `backend/app/routers/families_tracks.py`; componenten in `frontend/src/components/visualizations/` (`GenomeHaplotypeTrack.tsx`, `HaplotypePhasedTrack.tsx`, `GenomeRepeatExpansionTrack.tsx`, `RepeatExpansionTrack.tsx`).
-
-## De referentie-tracks
-
-Deze tracks zijn niet sample-gebonden maar tonen referentie-annotatie (genen en bekende regio's). Ze delen een simpel patroon: SVG-`<rect>`'s over het venster `regionStart..regionEnd`, met een `useQuery` per (`assembly, chrom, regionStart, regionEnd`).
+Deze tracks hangen niet aan een sample en tonen referentieannotatie over het getoonde venster:
 
 | Track | Endpoint | Toont |
-|---|---|---|
-| `GeneTrack` | `GET /genes/{assembly}/{chrom}` (+ `GET /panels`) | Genen met exon/intron-structuur; getekend met **D3** op SVG (exon-rects, intron-lijnen, strand-pijl); tooltip vermeldt de genpanels waarin het gen zit |
-| `CnvTrack` | `GET /cnvs/{assembly}/{chrom}` | Klinische CNV's als oranje balken; klik navigeert naar de CNV-detailweergave (`/cnv-details/{id}`) |
-| `DgvTrack` | `GET /dgv/{assembly}/{chrom}` | DGV-varianten; server kiest `lines`-modus (individuele varianten in banen) of `density`-modus (per-bin-profiel) bij te veel overlap; gains boven, losses onder een middenlijn |
-| `BlacklistTrack` | `GET /blacklist/{assembly}/{chrom}` | Blacklist-regio's (onbetrouwbare zones) als balkjes |
-| `SegmentalDuplicationTrack` | `GET /segmental-duplications/{assembly}/{chrom}` | Segmentale duplicaties / LCR's als balkjes |
+| --- | --- | --- |
+| `GeneTrack` | `GET /api/genes/{assembly}/{chrom}` | Genen met exonen en intronen (D3); de tooltip noemt de panels waarin het gen zit |
+| `CnvTrack` | `GET /api/cnvs/{assembly}/{chrom}` | Klinische CNV's; een klik opent de detailpagina |
+| `DgvTrack` | `GET /api/dgv/{assembly}/{chrom}` | DGV-varianten; bij te veel overlap toont de server een dichtheidsprofiel in plaats van losse varianten |
+| `BlacklistTrack` · `SegmentalDuplicationTrack` | `GET /api/blacklist/…` · `GET /api/segmental-duplications/…` | Onbetrouwbare zones en segmentale duplicaties |
 
-- **Waar in de code:** componenten in `frontend/src/components/visualizations/` (`GeneTrack.tsx`, `CnvTrack.tsx`, `DgvTrack.tsx`, `BlacklistTrack.tsx`, `SegmentalDuplicationTrack.tsx`); backend-routers `genes.py`, `cnvs.py`, `dgv.py`, `blacklist.py`, `segmental_duplications.py`, telkens delegerend naar `reference_metadata_service`. `GeneTrack` is de enige die D3 gebruikt om exons/introns te tekenen; de rest is platte SVG met `<rect>`'s. Het genpanel-overzicht komt van het aparte endpoint `GET /panels`.
+**Waar in de code:** de componenten in `frontend/src/components/visualizations/`; de routers in `backend/app/routers/`.
 
-## TrackSampling: groot en toch snel — zonder overzicht te verliezen
+## Groot en toch juist: downsampling
 
-Het bestand `frontend/src/lib/trackSampling.ts` bevat de constanten en formules die bepalen **hoeveel** punten/segmenten een track maximaal toont, geschaald op de trackbreedte:
+Hoeveel punten of segmenten een track hoogstens toont, hangt af van haar breedte in pixels (`frontend/src/lib/trackSampling.ts`). Dat tast de juistheid niet aan: er wordt alleen samengevat op overzichtsniveau, waar meerdere posities toch op dezelfde pixel vallen. Wie inzoomt, krijgt alle records van het kleinere venster. Bij APCAD is de selectie bovendien op kwaliteit en signaal gestuurd, niet willekeurig. De exacte beoordeling gebeurt nooit op deze tracks, maar op de gefilterde variantlijsten (hoofdstuk 8) en in IGV.
 
-- `SMALL_VARIANT_TRACK_RESULT_LIMIT = 10000` — boven dit aantal toont de Small-Variant-track "te veel; zoom in".
-- `getTrackVariantLimit`, `getTrackBinLimit`, `getTrackSegmentLimit`, `getApcadPointLimit` — leveren een limiet die ≈ evenredig is met de breedte (met een onder- en bovengrens).
-- `getAdaptiveTrackWindow` — kiest een binbreedte zodat er ongeveer één bin per twee pixels is.
+## Circos
 
-Waarom tast dit de **juistheid** niet aan? Omdat het downsamplen alleen op **overzichtsniveau** gebeurt, waar meerdere basenparen tóch op dezelfde pixel vallen: twee stippen op dezelfde pixel voegen geen zichtbare informatie toe. Zodra de gebruiker inzoomt (kleiner venster), stijgt de effectieve resolutie en worden alle records in dat venster weer opgehaald. Bij APCAD is de selectie bovendien **kwaliteits- en signaalgestuurd** (hoogste `qual`, heterozygoot-behoudend) in plaats van willekeurig, zodat het diagnostisch relevante signaal — de autozygositeitsbreuken — behouden blijft. De kritieke, exacte beoordeling gebeurt nooit op deze overzichtstracks maar op de gefilterde variantlijsten (zie hoofdstuk [08-filterpaginas-en-api.md](08-filterpaginas-en-api.md)) en in IGV.
+De Circos-plot legt alle chromosomen in een cirkel en tekent structurele varianten als bogen ertussen, met D3 op SVG. De pagina haalt de chromosomen met hun banden op (altijd die van GRCh38) en alle SV's van de familie. Een klik op een chromosoom opent de weergave per chromosoom; een klik op een translocatie (BND) opent het genoomoverzicht met beide chromosomen.
 
-## Circos: genoombrede structurele varianten in een ring (CircosPlot)
+**Waar in de code:** `frontend/src/pages/genome/CircosPlotPage.tsx` en `frontend/src/components/visualizations/CircosPlot.tsx`.
 
-De Circos-plot legt alle chromosomen in een cirkel en tekent structurele varianten als bogen ertussen.
+## IGV: reads op basisniveau
 
-**Data.** De pagina `frontend/src/pages/genome/CircosPlotPage.tsx` haalt twee dingen op:
-1. de chromosoom-scaffolds via `GET /chromosomes/GRCh38/details` (alle chromosomen mét banden), en
-2. de structurele varianten via `GET /families/{familyId}/structural-variants` met `page_size=0` (= alle SV's, geen paginering). De backend leest hoogstens 50.000 kandidaten; daarboven zet hij `total_is_estimated`, en dan tekent de plot geen verbindingen maar meldt hij dat er te veel SV's zijn om te tekenen, in plaats van de laatste chromosomen zonder verbindingen te tonen (#589).
+Voor de fijnste controle, de afzonderlijke reads, bedt CoGA de **IGV**-browser in. `IgvViewer.tsx` vraagt een lijst op van de alignmentbestanden van de gekozen samples (`GET /api/cram/{familyId}/manifest`) en, apart, de signaalbestanden van de CNV-caller (diepte, allelfractie en kopieaantal: `GET /api/signal-tracks/{familyId}/manifest`). Mislukt die tweede vraag, dan laden de reads toch en meldt de pagina dat de signaaltracks ontbreken.
 
-Mislukt een van beide aanvragen, dan zegt de pagina dat, met een knop om het opnieuw te proberen. Een mislukte chromosoomaanvraag blijft dus niet eindeloos "laden", en een mislukte SV-aanvraag leest niet als een familie zonder SV's (#589).
+De backend serveert de bestanden met dezelfde toegangscontrole als de rest: elk endpoint van `cram.py` en `signal_tracks.py` controleert dat het sample tot een familie hoort die de gebruiker mag zien, en geeft anders `404`. IGV vraagt met *range requests* alleen de bytes die het nodig heeft. Staan de bestanden in objectopslag, dan stuurt de backend IGV door naar een kortlevende, ondertekende URL.
 
-**Tekenen (D3 op SVG).** `frontend/src/components/visualizations/CircosPlot.tsx` gebruikt **D3** intensief: het rekent per chromosoom een hoeksegment uit (evenredig met chromosoomlengte, met tussenruimte), tekent de cytobanden als ring-sectoren (met dezelfde `getStainColor`/`getBandGradientStops`-helpers als het ideogram), en tekent per variant een radiale verbinding: DEL/DUP als dikke bogen (`d3.linkRadial`), INV/BND als gebogen lijnen (kwadratische curves) tussen bron- en doelpositie, INS als klein radiaal streepje. Kleur per SV-type komt uit CSS-variabelen (`--color-variant-del/dup/ins/inv/bnd`). Belangrijk voor performance: de tekencode gebruikt **keyed joins** (per chromosoom/variant), zodat bij het aan/uitzetten van chromosomen alleen de gewijzigde knopen muteren in plaats van de hele SVG opnieuw op te bouwen.
+**Waar in de code:** `frontend/src/components/IgvViewer.tsx` en `frontend/src/pages/families/FamilyIgvPage.tsx`; `backend/app/routers/cram.py` en `signal_tracks.py`.
 
-**Regio/interactie.** Klikken op een chromosoom navigeert naar de per-chromosoom-weergave; klikken op een **BND** (translocatie) opent het genome-overzicht met beide betrokken chromosomen geselecteerd.
+## De stamboom
 
-- **Waar in de code:** component `CircosPlot` en de (lokale) helpers `buildChromosomeOutlinePath`, `buildBandSectorPath`, `buildAcenBandPath` in `CircosPlot.tsx`; datalaadlogica en de klik-navigatie (`handleChromClick`, `handleVariantClick`) in `CircosPlotPage.tsx`.
+De stamboom wordt niet apart opgehaald maar in de browser berekend uit de leden en relaties die met de familie meekomen. De tekening volgt de ouder-id's en de relaties, niet het platte rolveld (dat ook voor grootouders `mother`/`father` zegt). Mannen zijn vierkanten, vrouwen cirkels, onbekend geslacht een ruit; aangedane leden zijn gevuld en dragers half gevuld; bloedverwante partners krijgen een dubbele lijn. Het QC-oordeel per sample verschijnt als een ring die niet alleen door kleur verschilt: een dunne ring met ✓ voor *pass*, een gestreepte met ! voor *warn* en een dikke met ✕ voor *fail*.
 
-## IGV: reads inspecteren op basisniveau (IgvViewer + igvLoader + cram.py)
+**Waar in de code:** `frontend/src/components/visualizations/Pedigree.tsx`.
 
-Voor de fijnste inspectie — de individuele *reads* (sequencing-fragmenten) — bedt CoGA de officiële **IGV**-browser in.
+## Fouten en grenzen
 
-**Laden.** `frontend/src/lib/igvLoader.ts` laadt het IGV-bundelscript één keer lui (lazy) in en cachet de belofte (`igvLoadPromise`), zodat het niet bij elke navigatie opnieuw laadt.
+Een track, een pagina of IGV toont een mislukte vraag altijd als fout, nooit als lege data. Mislukt de vraag naar de beschikbare tracks of naar de chromosoomlengtes, dan meldt de werkruimte "Could not load … — this is not an empty result", met een knop om het opnieuw te proberen. Tijdens het schuiven blijft het vorige beeld alleen staan zolang het nieuwe venster laadt; mislukt de vraag, dan toont de track de fout boven een leeg venster, nooit de data van het vorige venster. Een venster zonder breedte vraagt niets op en heet "no region in view". Heeft een venster meer varianten of SV's dan een track kan tekenen, dan zegt de track dat ("Too many … Zoom in or apply filters.") in plaats van een deel te tekenen; op het overzicht en in Circos gebeurt dat ook boven de grens van de backend. In de viewer (tracknamen, chromosoomlijsten, kop) heet het mitochondrion altijd `chrM`, hoe de data het ook schrijft.
 
-**Opzet.** `frontend/src/components/IgvViewer.tsx` vraagt eerst een **manifest** op via `GET /cram/{familyId}/manifest?sample=...`, dat per sample een `{sample_id, format, url, index_url}` teruggeeft, en maakt daar IGV-alignment-tracks van (via `igv.createBrowser`). De pagina `frontend/src/pages/families/FamilyIgvPage.tsx` levert de juiste `sampleIds` (proband eerst, via `sortFamilyMembersProbandFirst`), het genoom (`mapAssemblyToIgvGenome`) en een optionele `locus`.
+## Veiligheid en traceerbaarheid
 
-**Hoe reads veilig geserveerd worden.** De router `backend/app/routers/cram.py` serveert de alignment-bestanden:
-- Lokaal draait dit via `FileResponse` (o.a. `GET /cram/{family_id}/{sample_id}.cram` plus de bijhorende `.crai`-index; ook een `.bam`/`.bai`-variant). IGV vraagt met **HTTP range-requests** enkel de bytes op die het voor het zichtbare venster nodig heeft — het hele CRAM-bestand wordt nooit in één keer verstuurd. Er zijn ook `HEAD`-varianten voor bestaanschecks.
-- In *remote*-modus (objectopslag/S3) geeft `_serve_alignment` een **302-redirect** naar een kortlevende *presigned URL*; IGV leest de bytes dan (met range-requests) rechtstreeks uit de opslag. Voor header-inspectie opent `_read_alignment_header` het bestand met `pysam`.
-
-- **Waar in de code:** `IgvViewer.tsx` (manifest ophalen + `createBrowser`), `igvLoader.ts` (`loadIgv`), `FamilyIgvPage.tsx`; serveerlogica in `backend/app/routers/cram.py` (`get_cram`, `get_crai`, `get_alignment_manifest`, `_serve_alignment`).
-
-## Pedigree: de stamboom uit de familieleden (Pedigree.tsx)
-
-De stamboom wordt niet apart opgehaald maar **client-side berekend** uit de familiegegevens (leden en relaties) die al met het familierecord geladen zijn — in Postgres o.a. de tabel `family_members`. Talrijke pagina's tonen de stamboom (o.a. `FamilyDetailPage`, `FamilySmallVariantsPage`, `FamilyStructuralVariantsPage`); ze geven `rows`, `members` en `relationships` als props door.
-
-**Opbouw.** `frontend/src/components/visualizations/Pedigree.tsx` krijgt `rows` (PED-achtige rijen: individu `iid`, vader-id `pid`, moeder-id `mid`, geslacht `sex`, fenotype `phen`), `members` en `relationships`. De functie `normalizePedigree` leidt hieruit ouder-kindrelaties, "family units" (ouderparen met kinderen) en partneredges af; `assignGenerations` bepaalt generatieniveaus (met bescherming tegen cykels via een `visiting`-set en een `isAncestor`-check); `layoutPedigree` plaatst iedereen op X/Y-coördinaten (blokken per generatie, ouders gecentreerd boven hun kinderen).
-
-**Tekenen (D3 op SVG).** Mannen worden vierkanten, vrouwen cirkels, onbekend geslacht ruiten; aangedane individuen zijn gevuld, dragers half-gevuld (met conventies per overervingsmodel, bv. XLR-draagster als centrale stip). Verbindingslijnen tekenen partner- en ouder-kindrelaties; consanguïene paren krijgen een dubbele lijn. Voor traceerbaarheid krijgt elk symbool bovendien een **QC-verdict**: het per-sample kwaliteitsoordeel kleurt de omtrek (en eventueel de vulling) van de knoop groen (pass) / amber (warn) / rood (fail), met een dikkere rand bij "fail"; het optionele label wordt een tooltip.
-
-> Let op de nuance uit het projectgeheugen: het vlakke `role`-veld overlaadt 'mother'/'father' ook voor grootouders; de pedigree steunt daarom op de expliciete ouder-id's (`pid`/`mid`) en relaties, niet op één rol-veld.
-
-- **Waar in de code:** `frontend/src/components/visualizations/Pedigree.tsx` (`normalizePedigree`, `assignGenerations`, `layoutPedigree`, de constante `QC_RING_COLORS`, en de D3-tekenlus in de `useEffect`).
-
-## Veiligheid & traceerbaarheid
-
-Visualisaties tonen patiëntgevoelige signalen, dus dezelfde afscherming als de rest van het platform geldt hier onverkort (zie ook [02-beveiliging-rollen-rechten.md](02-beveiliging-rollen-rechten.md)).
-
-- **Alles achter authenticatie.** De referentie-routers `chromosomes.py`, `cnvs.py`, `dgv.py`, `blacklist.py` en `segmental_duplications.py` hangen een router-brede `dependencies=[Depends(get_current_user)]` op — de code-commentaar zegt expliciet dat dit *elk* endpoint gate't, ook toekomstige. `genes.py` en de familie-endpoints (`families_tracks.py`, `small-variants`, `structural-variants`) vragen de `CurrentUser` per request op met `Depends(get_current_user)`.
-- **Project-scoping op familiedata.** Sample- en familie-tracks lopen via `build_family_metadata_context` / `build_sample_metadata_context` (en `get_family_record` in `cram.py`), die controleren dat de gebruiker toegang heeft tot die familie/dat project. Een gebruiker kan dus geen tracks van een familie buiten zijn scope ophalen, zelfs niet als hij het `family_id` kent.
-- **CRAM-toegang expliciet gecontroleerd.** In `backend/app/routers/cram.py` roept elk read/head-endpoint `_ensure_accessible_alignment_sample` aan: dat haalt via `get_family_record` de toegestane samples op en werpt **404** als het gevraagde `sample_id` niet tot de (voor de gebruiker toegankelijke) familie behoort. In remote-modus zijn de presigned URL's bovendien kortlevend.
-- **Uploads zijn admin-only.** Het vullen van BED-tracks (`POST /bed/upload/{sample_id}/{bed_type}` in `bed.py`) vereist `get_current_admin_user`, en registreert het bronbestand via `record_upload_file_obj` — provenance die traceerbaar maakt welk bestand welke track voedde.
-- **Provenance in de interval-store.** De ClickHouse-intervaltabel bewaart per rij `source`, `filename` en `metadata_json`; de bijbehorende Postgres-tabel `sample_interval_track_sources` houdt per (sample, track_type, source, filename) het rijaantal en uploadmoment bij (`upsert_interval_track_source`). Zo is voor elke coverage/APCAD-track herleidbaar uit welke upload hij komt.
+- **Alles achter een login.** De referentierouters (`chromosomes`, `cnvs`, `dgv`, `blacklist`, `segmental-duplications`) leggen de login op al hun endpoints; de andere routers vragen hem per endpoint.
+- **Projectgebonden toegang.** Familie- en sampletracks lopen via het toegangscheckpoint (hoofdstuk 2). Wie een `family_id` kent maar er geen toegang toe heeft, krijgt de tracks niet.
+- **Uploads alleen voor beheerders.** Een BED-track uploaden (`POST /api/bed/upload/…`) vraagt `get_current_admin_user`, en het bronbestand wordt geregistreerd.
+- **Herkomst van de tracks.** Elke rij in de interval-tabel draagt haar bron en bestandsnaam; `sample_interval_track_sources` houdt per sample, soort, bron en bestand het aantal rijen en het uploadmoment bij.
 
 ## Belangrijkste bestanden
 
 | Bestand | Rol |
-|---|---|
-| `frontend/src/pages/genome/GenomeOverviewPage.tsx` / `GenomeOverviewWorkspace.tsx` | Whole-genome-overzicht: bouwt track-URL's en stapelt de tracks per lid |
-| `frontend/src/pages/genome/ChromosomeViewPage.tsx` / `ChromosomeViewWorkspace.tsx` | Per-chromosoom-weergave met detail-tracks en ZoomedIdeogram |
-| `frontend/src/pages/genome/CircosPlotPage.tsx` | Laadt scaffolds + SV's voor de Circos-plot |
-| `frontend/src/components/visualizations/Ideogram.tsx` / `ZoomedIdeogram.tsx` | Cytoband-tekening (heel chromosoom / uitvergroot venster) |
-| `frontend/src/components/visualizations/CircosPlot.tsx` | D3-Circos: chromosoomring + radiale SV-verbindingen |
-| `frontend/src/components/visualizations/CoverageSegmentsChart.tsx` / `ApcadChart.tsx` | Canvas-scatter voor coverage en BAF/APCAD |
-| `frontend/src/components/visualizations/SvTrack.tsx` / `VariantTrack.tsx` / `SmallVariantTrack.tsx` | Structurele varianten (canvas) en Small Variants (D3 + quadtree) |
-| `frontend/src/components/visualizations/GeneTrack.tsx`, `CnvTrack.tsx`, `DgvTrack.tsx`, `BlacklistTrack.tsx`, `SegmentalDuplicationTrack.tsx`, `RepeatExpansionTrack.tsx`, `GenomeRepeatExpansionTrack.tsx` | Referentie- en repeat-tracks |
-| `frontend/src/components/visualizations/Pedigree.tsx` | Stamboomlayout en -tekening uit leden/relaties |
-| `frontend/src/components/IgvViewer.tsx` / `frontend/src/lib/igvLoader.ts` / `frontend/src/pages/families/FamilyIgvPage.tsx` | Ingebedde IGV-browser (lui geladen, manifest-gestuurd) |
-| `frontend/src/lib/ideogram.ts`, `stainColors.ts`, `chromosomes.ts`, `trackSampling.ts`, `colors.ts` | Teken-hulpfuncties: banden/gradients (`getBandGradientStops`, `getAcenDirection`, `collapseBandsForResolution`, `niceTickInterval`), stain-kleuren, chromosoomsortering, downsample-limieten, CSS-kleurvariabelen |
-| `backend/app/routers/chromosomes.py` | Chromosoomgroottes en cytobanden (ideogram/circos) |
-| `backend/app/routers/families_tracks.py` | Familie-tracks: haplotypes, phased-markers, repeats, track-availability, SV-lengtes |
-| `backend/app/routers/bed.py` | BED-tracks (coverage/apcad/segments) ophalen en uploaden |
-| `backend/app/routers/genes.py`, `cnvs.py`, `dgv.py`, `blacklist.py`, `segmental_duplications.py` | Referentie-annotatie-endpoints |
-| `backend/app/routers/cram.py` | CRAM/BAM veilig serveren (range-requests, toegangscontrole, presigned URLs) |
-| `backend/app/services/clickhouse_interval_tracks.py` | Interval-store + server-side APCAD-downsampling (`fetch_apcad_downsampled`) |
+| --- | --- |
+| `frontend/src/pages/genome/GenomeOverviewPage.tsx` · `GenomeOverviewWorkspace.tsx` | Genoomoverzicht |
+| `frontend/src/pages/genome/ChromosomeViewPage.tsx` · `ChromosomeViewWorkspace.tsx` | Weergave per chromosoom |
+| `frontend/src/pages/genome/CircosPlotPage.tsx` · `frontend/src/components/visualizations/CircosPlot.tsx` | Circos |
+| `frontend/src/components/visualizations/` | Alle tracks, het ideogram en de stamboom |
+| `frontend/src/lib/smallVariantMarks.ts` · `trackSampling.ts` | Tekens van small variants; grenzen per track |
+| `frontend/src/components/IgvViewer.tsx` | De ingebedde IGV-browser |
+| `backend/app/routers/families_tracks.py` · `bed.py` | Familietracks en interval-tracks |
+| `backend/app/routers/cram.py` · `signal_tracks.py` | Alignment- en signaalbestanden, met toegangscontrole |
+| `backend/app/services/clickhouse_interval_tracks.py` | De interval-opslag en de APCAD-selectie |

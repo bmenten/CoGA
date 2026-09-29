@@ -1,289 +1,149 @@
 # 5. Login & authenticatie
 
-Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA: hoe het inlogformulier zijn gegevens naar de backend stuurt, hoe wachtwoorden veilig worden bewaard, hoe een JWT-token (een ondertekend "toegangsbewijs", zie hieronder) wordt uitgegeven en bij elke volgende aanvraag gecontroleerd, hoe de sessie in de browser leeft, en hoe brute-force-aanvallen (het systematisch uitproberen van wachtwoorden) worden afgeremd. Ook de optionele Azure AD single-sign-on (SSO) komt aan bod, en het hoofdstuk sluit af met wat een ingelogde gebruiker mag doen. Voor het volledige rechtenmodel verwijzen we naar [hoofdstuk 2 — Gebruikersrollen, machtigingen & afscherming](02-beveiliging-rollen-rechten.md).
+Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA: hoe het inlogformulier zijn gegevens naar de backend stuurt, hoe wachtwoorden veilig worden bewaard, hoe een toegangstoken wordt uitgegeven en bij elk volgend verzoek gecontroleerd, hoe de sessie in de browser leeft en hoe het raden van wachtwoorden wordt afgeremd. Ook de optionele aanmelding via Azure AD en het registreren van een nieuw account komen aan bod. Wat een ingelogde gebruiker daarna mag zien, staat in [hoofdstuk 2](02-beveiliging-rollen-rechten.md).
 
-## Begrippen die in dit hoofdstuk terugkomen
+## Begrippen
 
-- **JWT (JSON Web Token):** een klein, digitaal ondertekend tekstbestandje dat de server aan de client meegeeft na een geslaagde login. Het bevat een paar gegevens ("claims", bv. wie je bent en tot wanneer het geldig is). Omdat het ondertekend is met een geheime sleutel, kan de client het niet vervalsen.
-- **Hashen:** een wachtwoord onomkeerbaar versleutelen tot een reeks tekens. De server bewaart nooit het echte wachtwoord, alleen de hash; bij het inloggen wordt de ingevoerde tekst opnieuw gehasht en vergeleken.
-- **Endpoint:** een concreet API-adres (bv. `POST /api/auth/login`) waar de frontend een aanvraag naartoe stuurt.
-- **Rate limiting / lockout:** het tijdelijk blokkeren van te veel pogingen achter elkaar.
+- **JWT** (*JSON Web Token*): een klein, digitaal ondertekend bewijs dat de server na een geslaagde login meegeeft. Het bevat enkele gegevens (*claims*), zoals wie je bent en tot wanneer het geldt. Omdat het ondertekend is met een geheime sleutel, kan de client het niet vervalsen.
+- **Hashen:** een wachtwoord onomkeerbaar omzetten in een reeks tekens. De server bewaart alleen die hash; bij het inloggen wordt de ingevoerde tekst opnieuw gehasht en vergeleken.
+- **Rate limiting / lockout:** het tijdelijk blokkeren na te veel mislukte pogingen.
 
-## De login-flow in vogelvlucht
+## De login in vogelvlucht
 
-1. De gebruiker vult e-mail en wachtwoord in op de inlogpagina in de browser.
+1. De gebruiker vult e-mailadres en wachtwoord in op de inlogpagina.
 2. De frontend stuurt die naar het login-endpoint van de backend.
-3. De backend controleert eerst of het adres/IP niet geblokkeerd is (rate limiting), verifieert het wachtwoord tegen de opgeslagen hash, en geeft bij succes een JWT-token terug.
-4. De browser bewaart het token en stuurt het bij elke volgende aanvraag mee in een `Authorization`-header.
-5. De backend valideert dat token bij elk beschermd endpoint en leidt daaruit af wie de gebruiker is en wat die mag.
+3. De backend controleert of het adres of het IP niet geblokkeerd is, vergelijkt het wachtwoord met de opgeslagen hash en geeft bij succes een JWT terug.
+4. De browser bewaart het token en stuurt het bij elk volgend verzoek mee in de `Authorization`-header.
+5. De backend controleert het token bij elk beschermd endpoint en leidt daaruit af wie de gebruiker is.
 
-## De login-endpoints in de backend
+## De login-endpoints
 
-De authenticatie-endpoints staan in `backend/app/routers/auth.py`, gemonteerd onder het pad `/auth` (dat samen met de globale API-prefix `/api` het volledige pad `/api/auth/...` oplevert).
-
-Er zijn twee ingangen die naar exact dezelfde logica leiden:
+De endpoints staan in `backend/app/routers/auth.py`, onder `/api/auth/...`. Twee ingangen leiden naar dezelfde logica:
 
 | Endpoint | Invoer | Bedoeld voor |
-|---|---|---|
-| `POST /auth/login` | JSON met `email` + `password` (schema `UserLogin`) | De echte frontend (inlogpagina) |
-| `POST /auth/token` | OAuth2-formulier met `username` + `password` | De Swagger-testinterface; het e-mailadres gaat in het veld `username` |
+| --- | --- | --- |
+| `POST /auth/login` | JSON met `email` en `password` | De inlogpagina |
+| `POST /auth/token` | Een OAuth2-formulier met `username` en `password` | De interactieve API-documentatie, die alleen in ontwikkeling bereikbaar is; het e-mailadres gaat in `username` |
 
-Beide roepen de gedeelde functie `_authenticate_and_issue_token` aan. Die functie doet, in volgorde:
+Beide roepen `_authenticate_and_issue_token` aan. Die doet, in volgorde:
 
-1. **Rate-limit-controle** via `get_login_throttle_state`. Is het adres of IP momenteel geblokkeerd, dan volgt onmiddellijk een `429`-fout ("Too many login attempts. Try again later.") met een `Retry-After`-header (hoeveel seconden wachten).
-2. **Gebruiker opzoeken** via `get_auth_user_mapping_by_email` (in `backend/app/services/metadata_service.py`).
-3. **Wachtwoord verifiëren** met `verify_password`.
-4. **Actief-controle:** een gevonden gebruiker die nog niet is geactiveerd (`is_active = false`) krijgt `403 User not active` (en die poging wordt, net als een verkeerd wachtwoord, meegeteld door de rate limiter via `record_failed_login`).
-5. Bij succes: de tellers van mislukte pogingen wissen (`clear_login_failures`) en een token uitgeven met `create_access_token`.
+1. **De blokkering controleren.** Is het e-mailadres of het IP geblokkeerd, dan volgt `429` ("Too many login attempts") met een `Retry-After`-header.
+2. **De gebruiker opzoeken en het wachtwoord controleren.** Een onbekend adres of een verkeerd wachtwoord geeft dezelfde melding: `400 Incorrect email or password`.
+3. **Controleren of het account actief is.** Een nog niet geactiveerd account krijgt `403 User not active`. Ook die poging telt als mislukt.
+4. **Bij succes:** de teller van mislukte pogingen wissen en een token uitgeven.
 
-Het antwoord is een `Token`-object met drie velden: `access_token`, `token_type` (`"bearer"`) en `role` (de rol van de gebruiker, zodat de frontend meteen weet wat te tonen).
+Het antwoord bevat het token, het type (`bearer`) en de rol van de gebruiker, zodat de frontend weet wat hij moet tonen.
 
-**Waar in de code:** functie `_authenticate_and_issue_token` en de endpoints `login` / `token` in `backend/app/routers/auth.py`.
+**Bescherming tegen accountopsomming.** Zou de server bij een onbekend adres meteen "nee" zeggen, dan kon een aanvaller aan de *responstijd* zien welke adressen bestaan: de bcrypt-controle is bewust traag. Daarom voert de code bij een onbekend adres toch een controle uit tegen een vaste dummy-hash. Beide gevallen duren dus ongeveer even lang en geven dezelfde melding. Het hashen draait in een aparte thread, zodat een trage controle de server niet ophoudt.
 
-### Bescherming tegen account-enumeratie (timing-side-channel)
+**Waar in de code:** `_authenticate_and_issue_token` in `backend/app/routers/auth.py`.
 
-Een subtiel maar belangrijk beveiligingsdetail: als de server bij een onbekend e-mailadres meteen "nee" zou zeggen zonder een wachtwoordcontrole uit te voeren, zou een aanvaller aan de *responstijd* kunnen aflezen welke adressen wél bestaan (bekende adressen zijn trager omdat ze de dure bcrypt-verificatie doorlopen). Om dat te voorkomen draait de code bij een onbekend adres tóch een "wegwerp"-verificatie tegen een vaste dummy-hash:
+## Wachtwoorden: bcrypt
 
-```python
-_DUMMY_LOGIN_PASSWORD_HASH = get_password_hash("coga-login-timing-equalizer")
-```
+Wachtwoorden worden nooit leesbaar bewaard. De backend hasht ze met **bcrypt**, dat hij rechtstreeks aanroept. Bcrypt is bewust traag, zodat een aanvaller die de databank buitmaakt niet snel miljoenen wachtwoorden kan uitproberen. De hash staat in de kolom `hashed_password` van `users`.
 
-Zo kost de "geen-zulke-account"-tak ongeveer evenveel tijd als de "verkeerd-wachtwoord"-tak. Bovendien is de foutmelding in beide gevallen identiek: `400 Incorrect email or password`. De client kan dus niet onderscheiden of het adres bestaat.
+Bcrypt leest alleen de eerste 72 bytes van een wachtwoord. De backend kapt een langer wachtwoord daarom zelf af op 72 bytes, bij het aanmaken van de hash én bij de controle, zodat beide altijd hetzelfde deel vergelijken. Een opgeslagen waarde die geen bcrypt-hash is (bv. een account zonder lokaal wachtwoord), geeft gewoon geen match.
 
-**Waar in de code:** de constante `_DUMMY_LOGIN_PASSWORD_HASH` en de `if user is None`-tak in `_authenticate_and_issue_token` (`backend/app/routers/auth.py`).
+**Waar in de code:** `get_password_hash` en `verify_password` in `backend/app/dependencies.py`; de tests in `backend/tests/test_password_hashing.py`.
 
-## Wachtwoord-hashing: bcrypt
+## Het token
 
-Wachtwoorden worden nooit in leesbare vorm bewaard. De hashing gebeurt centraal met de bibliotheek **bcrypt**, die de backend rechtstreeks aanroept:
+Een geslaagde login levert een JWT op:
 
-```python
-_BCRYPT_MAX_PASSWORD_BYTES = 72
+| Eigenschap | Waarde |
+| --- | --- |
+| Claim `sub` | Het e-mailadres van de gebruiker |
+| Claim `exp` | Het verloopmoment |
+| Levensduur | Kort: standaard twee uur (`ACCESS_TOKEN_EXPIRE_MINUTES`) |
+| Handtekening | HS256 (symmetrisch), met `SECRET_KEY` |
 
-def _bcrypt_secret(password: str) -> bytes:
-    return password.encode("utf-8")[:_BCRYPT_MAX_PASSWORD_BYTES]
+De korte levensduur is een bewuste keuze: het token staat in de browseropslag (niet in een afgeschermde HttpOnly-cookie), dus als het lekt, is de schade beperkt tot die periode. Wie `SECRET_KEY` kent, kan geldige tokens maken; daarom weigert de backend buiten ontwikkeling een zwakke sleutel ([hoofdstuk 2](02-beveiliging-rollen-rechten.md#weigering-te-starten-met-zwakke-geheimen)).
 
-def get_password_hash(password: str) -> str:
-    return bcrypt.hashpw(_bcrypt_secret(password), bcrypt.gensalt()).decode("ascii")
+**Waar in de code:** `create_access_token` in `backend/app/dependencies.py`; de instellingen in `backend/app/core/config.py`.
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    try:
-        return bcrypt.checkpw(_bcrypt_secret(plain_password), hashed_password.encode("ascii"))
-    except (AttributeError, UnicodeEncodeError, ValueError):
-        return False
-```
-
-Bcrypt is een bewust *trage* hash (met een "work factor") zodat een aanvaller die de databank buitmaakt niet snel miljoenen wachtwoorden kan raden. De hash wordt opgeslagen in de kolom `hashed_password` van de tabel `users` (zie `backend/db/schema/postgres/01_access.sql`); het echte wachtwoord verlaat het geheugen van de server nooit.
-
-Tot #525 liep dit via **passlib**, dat niet meer onderhouden wordt en bcrypt op versie 3.2.0 vasthield. Het formaat is ongewijzigd (`$2b$`, kost 12), dus bestaande hashes blijven werken. Bcrypt leest alleen de eerste 72 bytes van een wachtwoord. passlib liet de rest stilzwijgend vallen, bcrypt 5 weigert zo'n wachtwoord. Daarom kapt de backend zelf af op 72 bytes, zodat een lang wachtwoord dat vroeger werkte, blijft werken. Een opgeslagen waarde die geen bcrypt-hash is, geeft gewoon "geen match".
-
-**Waar in de code:** `get_password_hash`, `verify_password` in `backend/app/dependencies.py`; kolom `hashed_password` in `backend/db/schema/postgres/01_access.sql`; tests in `backend/tests/test_password_hashing.py`.
-
-## JWT: token maken en controleren
-
-### Token maken
-
-Een geslaagde login levert een JWT op via `create_access_token`:
-
-```python
-def create_access_token(data: dict, expires_delta=None) -> str:
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
-    )
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
-```
-
-De belangrijkste eigenschappen:
-
-| Aspect | Waarde | Herkomst |
-|---|---|---|
-| Claim `sub` | het e-mailadres van de gebruiker | `data={"sub": user["email"]}` in `_authenticate_and_issue_token` |
-| Claim `exp` | verloopmoment | berekend uit `access_token_expire_minutes` |
-| Levensduur | standaard **120 minuten (2 uur)** | `ACCESS_TOKEN_EXPIRE_MINUTES` in config |
-| Algoritme | **HS256** (symmetrisch ondertekend) | `settings.algorithm` |
-| Ondertekensleutel | `SECRET_KEY` | `settings.secret_key` |
-
-De korte levensduur van 2 uur is een bewuste keuze: het token leeft in de browser in `localStorage` (niet in een beveiligde HttpOnly-cookie), dus als het lekt, is de "straal van de explosie" beperkt tot maximaal twee uur.
-
-**Waar in de code:** `create_access_token` in `backend/app/dependencies.py`; instellingen `algorithm`, `secret_key` en `access_token_expire_minutes` in `backend/app/core/config.py`.
-
-### SECRET_KEY-beveiliging bij opstart
-
-De `SECRET_KEY` is het hart van de tokenbeveiliging: wie die kent, kan geldige tokens vervalsen. De standaardwaarde is `"change-me"`, puur voor lokaal werk. De config weigert echter te starten buiten een ontwikkel-/testomgeving als de sleutel nog op zo'n onveilige standaard staat. De `model_validator` `validate_security_defaults` gooit een fout wanneer, terwijl `APP_ENV` niet op een ontwikkel-/testomgeving staat:
-
-- `SECRET_KEY` een onveilige waarde is (`change-me` of `secret`, uit de set `_INSECURE_SECRET_VALUES`), of
-- `POSTGRES_PASSWORD` of `ADMIN_PASSWORD` een onveilige waarde is (`change-me` of `admin`, uit de set `_INSECURE_PASSWORD_VALUES`), of de standaard-`ADMIN_USERNAME` (`admin`) met zo'n zwak wachtwoord wordt gecombineerd.
-
-Dezelfde validator dwingt nog andere productie-eisen af (bv. dat `AUDIT_LOG_DROP_ALLOWED` niet aan mag staan in productie, zie de sectie over traceerbaarheid).
-
-**Waar in de code:** `validate_security_defaults` en de sets `_INSECURE_SECRET_VALUES` / `_INSECURE_PASSWORD_VALUES` in `backend/app/core/config.py`.
-
-### Token controleren: `get_current_user`
+### Het token controleren: `get_current_user`
 
 Elk beschermd endpoint hangt af van `get_current_user`. Die functie:
 
-1. Haalt het token uit de `Authorization: Bearer ...`-header (via `oauth2_scheme`).
-2. Decodeert en verifieert het met `jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])`. Een ongeldige of verlopen handtekening levert een `401 Could not validate credentials`.
-3. Leest het e-mailadres uit de `sub`-claim.
-4. Zoekt de gebruiker op met `get_current_user_by_email` en controleert dat die nog bestaat en `is_active` is; zo niet, opnieuw `401`.
-5. Slaat het gebruikersobject op in `request.state.current_user`, zodat de audit-middleware (zie verderop) weet wie de aanvraag deed.
+1. haalt het token uit de header `Authorization: Bearer …`;
+2. controleert de handtekening en de geldigheid; een ongeldig of verlopen token geeft `401 Could not validate credentials`;
+3. leest het e-mailadres uit de claim `sub`;
+4. laadt de gebruiker vers uit Postgres en controleert dat die bestaat en actief is; zo niet, opnieuw `401`;
+5. hangt de gebruiker aan het verzoek (`request.state.current_user`), zodat de auditlog weet wie het verzoek deed.
 
-De strengere variant `get_current_admin_user` bouwt hierop voort en eist dat de rol in `ADMIN_ROLES = {"admin", "superuser"}` zit; anders `403 Admin access required`.
+`get_current_admin_user` bouwt daarop voort en eist een beheerdersrol (`admin` of `superuser`); anders volgt `403 Admin access required`.
 
 **Waar in de code:** `get_current_user` en `get_current_admin_user` in `backend/app/dependencies.py`.
 
-## De frontend: van formulier tot bewaarde sessie
+## De frontend: van formulier tot sessie
 
-### Inlogpagina
+De inlogpagina (`frontend/src/pages/auth/LoginPage.tsx`) stuurt `POST /auth/login`, vraagt met het verse token het profiel op (`GET /auth/me`) en bewaart dan de sessie: het token, het e-mailadres en de rol. Daarna gaat ze naar de gevraagde pagina uit de parameter `next`. Die wordt eerst gefilterd: alleen een pad binnen de app mag (geen `//` of externe URL), zodat een aanvaller je na het inloggen niet naar een andere site kan sturen (*open redirect*).
 
-De inlogpagina is `frontend/src/pages/auth/LoginPage.tsx`. Bij verzenden (`handleSubmit`):
+De sessie staat in de browseropslag (`localStorage`); is die niet beschikbaar, dan valt de app terug op opslag in het geheugen. Hoe de API-client het token meestuurt en bij een `401` uitlogt, staat in [hoofdstuk 1](01-architectuur.md); de routebewakers in hoofdstuk 2.
 
-1. Stuurt `POST /auth/login` met e-mail en wachtwoord.
-2. Haalt daarna met het verse token het profiel op via `GET /auth/me` (het token wordt hier expliciet als `Authorization`-header meegegeven).
-3. Bewaart de sessie met `persistSession(accessToken, me.data.email ?? email, me.data.role)` — dus het token, het e-mailadres uit het profiel (met de ingetypte waarde als terugval) en de rol.
-4. Navigeert naar de doelpagina.
+**Waar in de code:** `frontend/src/pages/auth/LoginPage.tsx`, `frontend/src/lib/auth.ts` en `frontend/src/lib/storage.ts`.
 
-Die doelpagina komt uit de `next`-parameter in de URL, maar wordt eerst gefilterd door `resolveNextPath`: alleen paden die met één `/` beginnen zijn toegestaan (geen `//` en geen externe URL's), en `/login`/`/signup` worden teruggestuurd naar `/dashboard`. Dat voorkomt een **open-redirect** (een aanvaller die je na login naar een kwaadaardige site stuurt).
+## Rate limiting en lockout
 
-**Waar in de code:** `handleSubmit` en `resolveNextPath` in `frontend/src/pages/auth/LoginPage.tsx`.
-
-### Waar het token wordt bewaard
-
-De sessie leeft in drie sleutels in de browseropslag: `token`, `username` en `role` (gedefinieerd in `AUTH_STORAGE_KEYS`).
-
-```ts
-export function persistSession(token, username, role) {
-  storage.setItem('token', token);
-  storage.setItem('username', username);
-  storage.setItem('role', role);
-}
-```
-
-De opslaglaag `storage` (`frontend/src/lib/storage.ts`) gebruikt bij voorkeur de browser-`localStorage`, maar valt terug op een in-geheugen-implementatie (`createMemoryStorage`) wanneer `localStorage` niet beschikbaar is (bv. in bepaalde testomgevingen of privacymodi). Zo blijft de app werken zonder crash.
-
-Helperfuncties zoals `isAuthenticated()` (is er een token?), `getStoredRole()` en `isAdmin()` lezen deze sleutels uit. `isAdmin()` geeft `true` voor de rollen `admin` en `superuser`.
-
-**Waar in de code:** `persistSession`, `clearSession`, `isAuthenticated`, `isAdmin`, `getStoredRole` in `frontend/src/lib/auth.ts`; de opslaglaag in `frontend/src/lib/storage.ts`.
-
-### De axios-client: token meesturen en 401 afhandelen
-
-Alle API-aanvragen lopen via één gedeelde axios-client in `frontend/src/lib/api.ts`. Twee "interceptors" (tussenlagen) regelen de authenticatie:
-
-- **Request-interceptor:** hangt automatisch `Authorization: Bearer <token>` aan elke uitgaande aanvraag, behalve aan `/auth/login` en `/auth/signup` (die staan in `AUTH_EXCLUDED_PATHS`), en behalve wanneer de aanroeper al zelf een `Authorization`-header meegaf.
-- **Response-interceptor:** vangt elke `401`-respons op, wist de sessie met `clearSession()` en stuurt de browser hard naar `/login` (tenzij die zich al op `/login` bevindt). Zo wordt een verlopen of ongeldig token overal in de app consequent afgehandeld: de gebruiker belandt terug op de inlogpagina.
-
-**Waar in de code:** de twee `api.interceptors`-blokken in `frontend/src/lib/api.ts`; hulpfuncties `shouldAttachStoredToken` en `hasAuthorizationHeader` in hetzelfde bestand.
-
-### Routebescherming: RequireAuth en SessionRedirect
-
-- `frontend/src/components/RequireAuth.tsx` bewaakt beschermde routes. Is er geen sessie, dan stuurt het door naar `/login?next=<huidige pad>` (het opgeslagen `next` bevat pad + query + hash), zodat de gebruiker na inloggen terugkeert waar die wilde zijn.
-- `frontend/src/components/SessionRedirect.tsx` is een eenvoudige schakelaar die, afhankelijk van `isAuthenticated()`, naar een `authenticatedTo`- of `unauthenticatedTo`-bestemming leidt (bv. de root-route die naar dashboard of login gaat).
-
-**Waar in de code:** `RequireAuth` en `SessionRedirect` in `frontend/src/components/`.
-
-## Rate limiting & lockout tegen brute force
-
-Om te voorkomen dat iemand wachtwoorden blijft raden, houdt de backend mislukte pogingen bij in de Postgres-tabel `auth_login_attempts`. Elke rij is een "scope" (bereik) met een teller:
+Mislukte pogingen worden bijgehouden in de Postgres-tabel `auth_login_attempts`. Elke rij is een *bereik* met een teller:
 
 | Kolom | Betekenis |
-|---|---|
-| `scope_type` / `scope_value` | het bereik: `email`, `remote_ip`, of `signup_ip` |
-| `failure_count` | aantal opeenvolgende mislukte pogingen |
-| `last_failure_at` | tijdstip van de laatste mislukking |
-| `locked_until` | tot wanneer dit bereik geblokkeerd is |
+| --- | --- |
+| `scope_type` / `scope_value` | Het bereik: `email`, `remote_ip` of `signup_ip` |
+| `failure_count` | Het aantal opeenvolgende mislukte pogingen |
+| `last_failure_at` | Het tijdstip van de laatste mislukking |
+| `locked_until` | Tot wanneer dit bereik geblokkeerd is |
 
-**Waar in de code:** het schema in `backend/db/schema/postgres/01_access.sql`; de logica in `backend/app/services/auth_rate_limit_pg.py`.
+De werking:
 
-De werking (functies `record_failed_login`, `get_login_throttle_state`, `clear_login_failures`):
+- Elke mislukte login verhoogt de teller voor **twee** bereiken tegelijk: het ingevoerde e-mailadres en het bron-IP. Zo wordt zowel het bestoken van één account als het uitproberen over vele accounts afgeremd.
+- Vanaf een drempel volgt een wachttijd die per extra poging verdubbelt, tot een maximum. Is de laatste mislukking lang genoeg geleden, dan begint de telling opnieuw.
+- Een geslaagde login wist de tellers.
+- Drempel, venster en wachttijden zijn instelbaar (`LOGIN_RATE_LIMIT_*`, met hun standaardwaarde in `.env.example`).
 
-- Elke mislukte login verhoogt de teller voor **twee** bereiken tegelijk: het ingevoerde e-mailadres én het bron-IP (`_scope_rows`). Dat maakt zowel het bestoken van één account als het rondstrooien over vele accounts moeilijk.
-- Zodra de teller de drempel (`LOGIN_RATE_LIMIT_THRESHOLD`, standaard **5**) bereikt, treedt een **exponentiële back-off** in werking: de wachttijd verdubbelt per extra poging, vanaf `LOGIN_RATE_LIMIT_BASE_BACKOFF_SECONDS` (standaard 30 s) tot maximaal `LOGIN_RATE_LIMIT_MAX_BACKOFF_SECONDS` (standaard 900 s = 15 min). Dit staat in `_backoff_seconds`.
-- De teller "vergeet" oude mislukkingen: is de laatste poging langer dan `LOGIN_RATE_LIMIT_WINDOW_SECONDS` geleden (standaard 900 s), dan begint het tellen opnieuw bij 1 (`_next_failure_count`).
-- Een **geslaagde** login wist de tellers (`clear_login_failures`), zodat een legitieme gebruiker die zich een keer vergist geen last houdt.
+Het bron-IP is het IP dat de middleware achter de proxies vaststelt (`TRUSTED_PROXY_HOPS`, hoofdstuk 2), zodat een client het zelf niet kan kiezen. Registreren wordt apart en alleen per bron-IP afgeremd: bij het opsommen van accounts probeert een aanvaller juist telkens een ander adres.
 
-Een geblokkeerde poging levert `429` met een `Retry-After`-header op, zodat de client weet hoelang te wachten.
+**Waar in de code:** `backend/app/services/auth_rate_limit_pg.py`; de tabel in `backend/db/schema/postgres/01_access.sql`.
 
-**Signup-throttling** werkt apart en enkel per bron-IP (`_signup_scope_rows` gebruikt `signup_ip`). E-mail-scoping heeft daar geen zin, omdat een aanvaller bij enumeratie juist telkens een ander adres probeert. De relevante instellingen staan in `backend/app/core/config.py` (de `login_rate_limit_*`-velden).
+## Registreren en goedkeuren
 
-**Het wachtwoord bij registratie** moet minstens 15 tekens lang zijn (`SIGNUP_PASSWORD_MIN_LENGTH` in `backend/app/schemas/auth.py`, naar NIST SP 800-63B-4 voor een wachtwoord dat de enige factor is). Een korter wachtwoord krijgt `422` nog vóór de throttling, het hashen of het aanmaken van een account. Tot CR-059 werd elk wachtwoord aanvaard, ook een leeg. Na een geslaagde registratie toont `SignupPage` de bevestiging van de server: de account wacht op activatie door een beheerder. Vroeger ging de pagina meteen naar `/login`, waar aanmelden daarna mislukte met "User not active", zonder uitleg.
+Iedereen kan zich registreren via `POST /auth/signup` (pagina `frontend/src/pages/auth/SignupPage.tsx`), maar dat geeft **geen** toegang:
 
-## Optioneel: Azure AD (SSO) en de admin-override
+- Het wachtwoord moet minstens 15 tekens lang zijn (naar NIST SP 800-63B-4, voor een wachtwoord dat de enige factor is). Een korter wachtwoord krijgt `422`, nog vóór er iets wordt aangemaakt.
+- Registreren wordt per bron-IP afgeremd.
+- Een nieuw account krijgt de rol `viewer` en is **niet actief**.
+- Het antwoord is altijd hetzelfde ("Registration received …"), of het adres nu nieuw is of al bestaat. Ook dat voorkomt het opsommen van accounts. Alleen bij een echt nieuw adres krijgt de beheerder een e-mail, als `ADMIN_EMAIL` is ingesteld.
+- De pagina toont die bevestiging: het account wacht op activatie.
 
-CoGA kan optioneel inloggen via **Azure AD** (Microsofts identiteitsdienst). Dit wordt geactiveerd zodra zowel `AZURE_TENANT_ID` als `AZURE_CLIENT_ID` zijn ingesteld.
+Een gebruiker kan pas inloggen nadat een beheerder het account activeert (`PATCH /auth/users/{user_id}`, alleen voor beheerders). Rol en projecttoegang bepalen beheerders, niet de gebruiker. Projecttoegang loopt via de projectinstellingen, niet via dit endpoint.
 
-Wanneer dat het geval is, verandert het gedrag van `get_current_user`: het inkomende token wordt eerst gevalideerd als een Azure-token via `verify_azure_token`. Die functie:
+**Waar in de code:** `signup` en `update_user` in `backend/app/routers/auth.py`; het aanmaken van het account in `backend/app/services/metadata_service.py`; de minimale lengte in `backend/app/schemas/auth.py`.
 
-1. Leest het `kid` (key-id) uit de token-header.
-2. Haalt de publieke sleutels (JWKS) op bij Microsoft, met caching (`lru_cache`) en één automatische her-ophaling (`cache_clear`) als Azure zijn sleutels heeft geroteerd.
-3. Verifieert het token met **RS256** (asymmetrische handtekening) en controleert de `audience` (client-id) en `issuer`.
+## Optioneel: Azure AD
 
-Het e-mailadres komt dan uit de claim `preferred_username` of `email`.
+CoGA kan aanmelden via **Azure AD** (Microsofts identiteitsdienst) zodra `AZURE_TENANT_ID` en `AZURE_CLIENT_ID` zijn ingesteld. De backend controleert het token dan als een Azure-token: hij haalt Microsofts publieke sleutels op (met cache, en één keer opnieuw als Azure van sleutel wisselde), controleert de handtekening (RS256), de *audience* (de client-id) en de *issuer*, en leest het e-mailadres uit `preferred_username` of `email`. Is Azure ingesteld, dan aanvaardt de backend geen lokaal uitgegeven tokens meer, behalve via de noodoverride hieronder.
 
-**Waar in de code:** `verify_azure_token` in `backend/app/core/azure.py`; de Azure-tak in `get_current_user` in `backend/app/dependencies.py`; de `azure_*`-instellingen in `backend/app/core/config.py`.
+**Noodoverride.** Faalt de Azure-controle én staat `AZURE_ADMIN_OVERRIDE` aan (standaard uit), dan probeert de server het token als lokaal token te lezen. Dat werkt alleen voor beheerders, en elk gebruik schrijft een waarschuwing naar de log, zodat een per ongeluk ingeschakelde override opvalt. Het is bedoeld om binnen te raken als de koppeling met Azure stuk is.
 
-### De "break-glass" admin-override
+**Waar in de code:** `backend/app/core/azure.py` en de Azure-tak in `get_current_user` (`backend/app/dependencies.py`).
 
-Er is een noodmechanisme: als Azure-validatie faalt én `AZURE_ADMIN_OVERRIDE` aan staat (standaard **uit**), probeert de server het token alsnog als een lokaal uitgegeven HS256-token te lezen. Dit is streng afgeschermd:
+## Veiligheid en traceerbaarheid
 
-- Het werkt **alleen** voor gebruikers met een admin-rol (`user.role in ADMIN_ROLES`); anders `401`.
-- Elk gebruik schrijft een **waarschuwing** naar het log (`logger.warning("azure_admin_override: ...")`) met de tekst dat `AZURE_ADMIN_OVERRIDE` in productie uitgeschakeld hoort te zijn — zodat een per ongeluk ingeschakelde override opvalt in de logs.
-
-Dit is bedoeld als "glas breken bij nood": een manier om binnen te komen als de SSO-koppeling stuk is, zonder de deur voor gewone gebruikers open te zetten.
-
-**Waar in de code:** de `local_override`-tak en het `logger.warning(...)` in `get_current_user` (`backend/app/dependencies.py`); de instelling `azure_admin_override` in `backend/app/core/config.py`.
-
-## Registratie (signup) en het goedkeuringsbeleid
-
-Registreren kan iedereen via `POST /auth/signup` (endpoint `signup` in `backend/app/routers/auth.py`, frontend `frontend/src/pages/auth/SignupPage.tsx`), maar dat geeft **geen** directe toegang. Het beleid:
-
-- De signup is per bron-IP gethrottled (`record_signup_attempt` / `get_signup_throttle_state`), zodat het niet misbruikt kan worden om accounts te enumereren of de admin-mailbox te overspoelen. De endpoint antwoordt met `202 Accepted`.
-- Een nieuw account wordt aangemaakt met rol **`viewer`** en `is_active = false` — dus **niet actief**. Zie de `INSERT` in `create_user_account` (`backend/app/services/metadata_service.py`), die de rol hardcodeert op `'viewer'` en `is_active` op `false`.
-- De response is **altijd identiek** — "Registration received. An administrator will review the request..." — of het e-mailadres nu nieuw is of al bestaat. Bij een bestaand adres geeft `create_user_account` stilletjes `None` terug en wordt de insert overgeslagen. Ook dit voorkomt account-enumeratie.
-- Bij een écht nieuw adres wordt op de achtergrond een admin genotificeerd (`notify_admin`, via een `BackgroundTasks`-taak).
-
-Een gebruiker kan pas inloggen nadat een **admin** het account activeert via `PATCH /auth/users/{user_id}` (endpoint `update_user`, beschermd door `get_current_admin_user`), dat `is_active` op `true` zet. Rollen en projecttoegang worden dus niet door de gebruiker zelf, maar door beheerders bepaald; project-toegang wordt zelfs expliciet geweigerd via dit endpoint (dat verloopt via de projectinstellingen).
-
-**Waar in de code:** `signup`, `notify_admin`, `update_user` in `backend/app/routers/auth.py`; `create_user_account`, `update_user_account` in `backend/app/services/metadata_service.py`.
-
-## Wat mag een ingelogde gebruiker?
-
-Na een geslaagde login draagt de gebruiker een rol (`admin`, `superuser` of `viewer`) en een lijst van projecten waartoe die toegang heeft (`metadata_project_ids`), afgeleid uit de tabellen `users` en `project_users`. Kort samengevat:
-
-- **viewer:** kan de families/projecten bekijken en beoordelen waar die aan gekoppeld is; ziet niets buiten die projecten.
-- **admin / superuser:** beheerdersrechten (o.a. gebruikers activeren via `/auth/users`, projectbeheer) en toegang die niet tot specifieke projecten beperkt is.
-
-De feitelijke afscherming gebeurt niet in dit hoofdstuk maar in de service-laag, die queries filtert op de projecten van de gebruiker (zie o.a. de `metadata_project_ids`-logica en `visible_metadata_project_ids` in `backend/app/services/access_control.py`). Het volledige rollen- en rechtenmodel, inclusief hoe project-afscherming wordt afgedwongen, staat in [hoofdstuk 2 — Gebruikersrollen, machtigingen & afscherming](02-beveiliging-rollen-rechten.md).
-
-## Veiligheid & traceerbaarheid
-
-Voor een IVD-platform moet elke poging tot toegang navolgbaar zijn. De maatregelen rond authenticatie:
-
-- **Volledige audit van elke aanvraag.** De middleware in `backend/app/middleware/request_logging.py` schrijft voor élke HTTP-aanvraag een auditgebeurtenis naar de databank (`write_audit_log_event`), inclusief de HTTP-status. Een mislukte login is dus herkenbaar aan de statuscode (`400`, `403` of `429`), een geslaagde aan `200`, samen met bron-IP, tijdstip en user-agent. Bij aanvragen op beschermde endpoints wordt ook de actor (`user_id`, `user_email`, `role`) meegeschreven, afgeleid uit `request.state.current_user` dat `get_current_user` heeft gezet (functie `_get_request_user`).
-- **Wachtwoorden lekken niet in de logs.** De middleware maskeert gevoelige velden. Sleutels waarvan de naam met een van de `_SENSITIVE_PREFIXES` begint (o.a. `password`, `secret`, `token`, `authorization`, `api_key`, `access_key`) worden vervangen door `***` — ook voor het formulier-gecodeerde body van `/auth/token`, die in `_parse_request_body` expliciet wordt ontleed en gemaskeerd zodat `password=<plaintext>` nooit in de audit-DB belandt.
-- **Mislukte-loginteller als aparte, doorzoekbare bron.** Naast de audittrail houdt de tabel `auth_login_attempts` per e-mail/IP het aantal mislukkingen en het lockout-moment bij — direct bruikbaar om een aanval te detecteren.
-- **De noodoverride laat altijd een spoor na.** Elk gebruik van de Azure-admin-override schrijft een waarschuwing naar het log (zie hierboven).
-- **Accountability wordt niet stilletjes weggegooid.** In productie weigert de config om `AUDIT_LOG_DROP_ALLOWED=true` te accepteren (`validate_security_defaults` in `backend/app/core/config.py`), zodat auditgebeurtenissen bij een volle wachtrij niet zomaar verloren gaan.
-- **Korte tokenlevensduur + harde 401-afhandeling** beperken de gevolgen van een gelekt token: het verloopt na 2 uur en elke `401` wist automatisch de clientsessie.
-
-**Waar in de code:** `log_request_response`, `_get_request_user`, `_sanitize_for_logging`, `_parse_request_body` in `backend/app/middleware/request_logging.py`; `auth_login_attempts` in `backend/db/schema/postgres/01_access.sql`.
+- **Elk verzoek wordt gelogd,** ook elke loginpoging, met statuscode, tijdstip, bron-IP en user-agent (hoofdstuk 7). Een mislukte login is herkenbaar aan `400`, `403` of `429`.
+- **Wachtwoorden en tokens komen niet in de logs.** De auditlog maskeert gevoelige velden, ook in het formulier van `/auth/token`.
+- **De tabel `auth_login_attempts`** toont per e-mailadres en IP de mislukkingen en blokkeringen: bruikbaar om een aanval te herkennen.
+- **De noodoverride laat altijd een spoor na** in de log.
+- **Korte tokens en uitloggen bij `401`** beperken de gevolgen van een gelekt token.
 
 ## Belangrijkste bestanden
 
 | Bestand | Rol |
-|---|---|
-| `backend/app/routers/auth.py` | Login-, token-, signup-, `me`- en gebruikersbeheer-endpoints; enumeratie-beschermingen |
-| `backend/app/dependencies.py` | Wachtwoord-hashing (bcrypt), JWT maken/valideren, `get_current_user` / `get_current_admin_user`, Azure-tak |
-| `backend/app/core/config.py` | Instellingen: `SECRET_KEY`, tokenlevensduur, rate-limit-parameters, Azure-config; weigert onveilige defaults in productie |
-| `backend/app/core/azure.py` | Azure AD-tokenvalidatie (JWKS ophalen, RS256, issuer/audience-controle) |
-| `backend/app/services/auth_rate_limit_pg.py` | Rate limiting / lockout-logica (back-off, scopes email/IP/signup) |
-| `backend/db/schema/postgres/01_access.sql` | Tabel `users` (o.a. `hashed_password`, `role`, `is_active`) en tabel `auth_login_attempts` voor mislukte-pogingtellers en lockouts |
-| `backend/app/services/metadata_service.py` | Gebruiker opzoeken, aanmaken (viewer/inactief) en activeren; project-scoping |
-| `backend/app/middleware/request_logging.py` | Audittrail van elke aanvraag, met maskering van wachtwoorden/tokens |
-| `frontend/src/pages/auth/LoginPage.tsx` | Inlogformulier, tokenopslag, veilige `next`-redirect |
-| `frontend/src/pages/auth/SignupPage.tsx` | Registratieformulier |
-| `frontend/src/lib/auth.ts` | Sessiehelpers (`persistSession`, `isAuthenticated`, rollen) |
-| `frontend/src/lib/api.ts` | Axios-client: token meesturen + centrale 401-afhandeling |
-| `frontend/src/lib/storage.ts` | Opslaglaag met terugval van `localStorage` naar geheugen |
-| `frontend/src/components/RequireAuth.tsx` | Routebescherming met terugkeer naar bedoelde pagina |
-| `frontend/src/components/SessionRedirect.tsx` | Redirect op basis van sessiestatus |
+| --- | --- |
+| `backend/app/routers/auth.py` | Login, token, registratie, profiel en gebruikersbeheer |
+| `backend/app/dependencies.py` | Wachtwoorden (bcrypt), tokens maken en controleren, Azure-tak |
+| `backend/app/core/azure.py` | Controle van Azure-tokens |
+| `backend/app/services/auth_rate_limit_pg.py` | Rate limiting en lockout |
+| `backend/app/schemas/auth.py` | Invoer van login en registratie (minimale wachtwoordlengte) |
+| `backend/db/schema/postgres/01_access.sql` | De tabellen `users` en `auth_login_attempts` |
+| `frontend/src/pages/auth/LoginPage.tsx` · `SignupPage.tsx` | Inloggen en registreren |
+| `frontend/src/lib/auth.ts` · `frontend/src/lib/storage.ts` | De sessie in de browser |
