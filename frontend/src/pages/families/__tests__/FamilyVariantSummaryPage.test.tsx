@@ -192,33 +192,38 @@ describe('FamilyVariantSummaryPage', () => {
 
     await screen.findByText(/Total variants/);
     const rows = readTable(sectionTitled('Shared and unique variants'));
-    expect(rows[0]).toEqual(['Sample', 'S1', 'S2', 'S3', 'S4', 'Total']);
-    expect(rows.slice(1, 5).map((row) => row.slice(0, 5))).toEqual([
+    expect(rows).toEqual([
+      ['Sample', 'S1', 'S2', 'S3', 'S4'],
       ['S1', '5', '4', '3', '0'],
       ['S2', '4', '7', '0', '0'],
       ['S3', '3', '1', '6', '0'],
       ['S4', '0', '0', '0', '0'],
     ]);
-    expect(rows[4][5]).toBe('0');
-    expect(rows[5][0]).toBe('Total');
-    expect(rows[5][4]).toBe('0');
     expect(
       screen.getByText(/Diagonal counts denote variants unique to the individual; off-diagonal/),
     ).toBeInTheDocument();
   });
 
-  it("totals each sample's row as the SVs that sample carries, in a duo", async () => {
-    // Mother: 4 SVs of her own + 2 shared with the proband; proband: 3 + the same 2.
+  it('shows no totals for the sharing matrix, whose cells do not add up to one (#526)', async () => {
+    // One SV carried by all three of a trio is in every pair's cell: the row sums read
+    // 2 each and the grand sum 6, while the family has one SV.
     serve('F1', {
       lengths: [sv('1', 'DEL')],
-      shared: { M: { M: 4, P: 2 }, P: { M: 2, P: 3 } },
+      shared: {
+        M: { M: 0, F: 1, P: 1 },
+        F: { M: 1, F: 0, P: 1 },
+        P: { M: 1, F: 1, P: 0 },
+      },
     });
     renderPage();
 
-    await screen.findByText(/Total variants/);
+    await screen.findByText(/Total variants: 1/);
     const rows = readTable(sectionTitled('Shared and unique variants'));
-    expect(rows[1]).toEqual(['M', '4', '2', '6']);
-    expect(rows[2]).toEqual(['P', '2', '3', '5']);
+    expect(rows[0]).toEqual(['Sample', 'F', 'M', 'P']);
+    expect(rows.map((row) => row[0])).not.toContain('Total');
+    expect(
+      screen.getByText(/counted in every pair, so the cells do not add up to a total/),
+    ).toBeInTheDocument();
   });
 
   it('bins every SV by its absolute length — overall, per type and per caller', async () => {
@@ -291,5 +296,10 @@ describe('FamilyVariantSummaryPage', () => {
     );
     expect(screen.queryByText(/Total variants/)).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    // It says it failed, with the reason, rather than "not enough structural variant data".
+    expect(screen.getByText('Could not load the variant summary')).toBeInTheDocument();
+    expect(screen.getByText(/ClickHouse unavailable\. This is not an empty result\./)).toBeInTheDocument();
+    expect(screen.queryByText(/not enough structural variant data/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });

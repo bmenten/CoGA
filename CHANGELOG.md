@@ -348,6 +348,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   intervals and tags, saved notes) are no longer offered. The gene link opens the gene, a capped
   total reads 10,000+, a loading or failed assembly list is no longer shown as "no variants", and a
   sample id may contain ":" (#580).
+- **Failures shown as empty** — the family SV summary and the clinical CNV explorer showed a
+  failed load as "not enough data" and "no clinical CNVs match", so a failed lookup looked like a
+  syndrome missing from the catalogue. They now say the load failed and offer a retry. The SV
+  sharing matrix drops its totals, which counted a variant once per pair of carriers (#581).
 
 ### Security
 

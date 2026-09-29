@@ -7,6 +7,7 @@ import { compareChromosomes } from '../../lib/chromosomes';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import { apiPath } from '../../lib/apiPath';
+import { getErrorMessage } from '../../lib/errorMessage';
 
 const VARIANT_LIMIT = 100000;
 
@@ -53,7 +54,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
       return res.data;
     },
   });
-  const { data, isLoading } = useQuery<VariantLength[]>({
+  const { data, isLoading, error: lengthsError, refetch: refetchLengths } = useQuery<VariantLength[]>({
     queryKey: ['family', familyId, 'structural-variant-lengths'],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/structural-variant-lengths`, {
@@ -63,8 +64,12 @@ const FamilyVariantSummaryPage: React.FC = () => {
     },
   });
 
-  const { data: sharedCounts, isLoading: isLoadingShared } =
-    useQuery<SharedVariantCounts>({
+  const {
+    data: sharedCounts,
+    isLoading: isLoadingShared,
+    error: sharedError,
+    refetch: refetchShared,
+  } = useQuery<SharedVariantCounts>({
       queryKey: ['family', familyId, 'shared-structural-variant-counts'],
       queryFn: async () => {
         const res = await api.get(
@@ -108,23 +113,10 @@ const FamilyVariantSummaryPage: React.FC = () => {
     return { allLengths, byType, bySource, byChromType, chromosomes, variantTypes, totalsByChrom };
   }, [data]);
 
-  // Sharing matrix totals depend only on sharedCounts.
-  const sharing = React.useMemo(() => {
-    const counts = sharedCounts ?? {};
-    const sampleNames = Object.keys(counts).sort();
-    const rowTotals: Record<string, number> = {};
-    const columnTotals: Record<string, number> = {};
-    sampleNames.forEach((row) => {
-      rowTotals[row] = 0;
-      sampleNames.forEach((col) => {
-        const val = counts[row][col] ?? 0;
-        rowTotals[row] += val;
-        columnTotals[col] = (columnTotals[col] || 0) + val;
-      });
-    });
-    const grandTotal = Object.values(rowTotals).reduce((s, v) => s + v, 0);
-    return { sampleNames, rowTotals, columnTotals, grandTotal };
-  }, [sharedCounts]);
+  // The matrix has no totals. Each cell counts SVs per pair of carriers, so an SV
+  // shared by three samples is in three cells: a row sum is not what that sample
+  // carries, and the grand sum is not the number of SVs (#526).
+  const sampleNames = React.useMemo(() => Object.keys(sharedCounts ?? {}).sort(), [sharedCounts]);
 
   if (isLoading || isLoadingShared) {
     return (
@@ -133,6 +125,28 @@ const FamilyVariantSummaryPage: React.FC = () => {
         kicker="Summary"
         title="Loading variant summary"
         message="Calculating counts, sharing, and length distributions for this family."
+      />
+    );
+  }
+  const loadError = lengthsError ?? sharedError;
+  if (loadError) {
+    return (
+      <PageState
+        kicker="Summary"
+        title="Could not load the variant summary"
+        message={`${getErrorMessage(loadError, 'The request failed').replace(/\.+$/, '')}. This is not an empty result.`}
+        action={
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => {
+              if (lengthsError) void refetchLengths();
+              if (sharedError) void refetchShared();
+            }}
+          >
+            Retry
+          </button>
+        }
       />
     );
   }
@@ -148,7 +162,6 @@ const FamilyVariantSummaryPage: React.FC = () => {
 
   const { allLengths, byType, bySource, byChromType, chromosomes, variantTypes, totalsByChrom } =
     summary;
-  const { sampleNames, rowTotals, columnTotals, grandTotal } = sharing;
 
   return (
     <div className="page-shell analysis-shell">
@@ -235,7 +248,6 @@ const FamilyVariantSummaryPage: React.FC = () => {
                     {name}
                   </th>
                 ))}
-                <th className="text-center">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -247,26 +259,15 @@ const FamilyVariantSummaryPage: React.FC = () => {
                       {sharedCounts[row][col] ?? 0}
                     </td>
                   ))}
-                  <td className="text-center">
-                    {rowTotals[row]}
-                  </td>
                 </tr>
               ))}
-              <tr>
-                <td>Total</td>
-                {sampleNames.map((col) => (
-                  <td key={col} className="text-center">
-                    {columnTotals[col] || 0}
-                  </td>
-                ))}
-                <td className="text-center">{grandTotal}</td>
-              </tr>
             </tbody>
           </table>
         </div>
         <p className="analysis-count">
           Diagonal counts denote variants unique to the individual; off-diagonal
-          counts show shared variants.
+          counts show variants the two samples share. A variant shared by three or more
+          samples is counted in every pair, so the cells do not add up to a total.
         </p>
       </section>
 
