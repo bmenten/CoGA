@@ -319,6 +319,10 @@ async def upsert_structural_variant_review(
 
     normalized_note = (payload.note or "").strip() or None
     normalized_classification = (payload.classification or "").strip() or None
+    # The CNV (ClinGen) scoring, as a small-variant save treats ``acmg``: a save that
+    # leaves ``cnv_acmg`` out (the tag toggle, the review dialog) keeps the stored scoring;
+    # one that sends it replaces the scoring, and sending null or no criteria clears it.
+    cnv_requested = "cnv_acmg" in payload.model_fields_set
     cnv_blob, cnv_point_total, cnv_class = _normalize_cnv_acmg_payload(payload.cnv_acmg)
     # One save of this variant's review at a time, checked against the version the
     # client loaded (#513).
@@ -331,6 +335,11 @@ async def upsert_structural_variant_review(
         variant_id=normalized_variant_id,
     )
     _raise_on_stale_review(payload, existing, _serialize_review)
+    if not cnv_requested and existing is not None:
+        # Kept exactly as stored, an unreadable record included (#514).
+        cnv_blob = existing.get("cnv_acmg") or None
+        cnv_point_total = existing.get("cnv_point_total")
+        cnv_class = existing.get("cnv_class")
     now = datetime.now(timezone.utc)
 
     if (

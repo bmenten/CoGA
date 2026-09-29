@@ -169,6 +169,10 @@ describe('FamilyStructuralVariantsPage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /^review$/i })[0]);
 
     await waitFor(() => expect(screen.getByText(/Variant review saved/i)).toBeInTheDocument());
+    // A tag toggle leaves the CNV (ClinGen) scoring out of the request, so the server keeps
+    // the stored one: sent, even as null, it would replace or clear it.
+    const [, body] = (api.put as unknown as Mock).mock.calls.at(-1)!;
+    expect(JSON.parse(JSON.stringify(body))).not.toHaveProperty('cnv_acmg');
   });
 
   // #606 — a failed request is said as such: the search read as a family without SVs.

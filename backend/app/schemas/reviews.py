@@ -94,6 +94,8 @@ class SmallVariantReviewUpdate(BaseModel):
     tags: List[str] = Field(default_factory=list)
     note: Optional[str] = None
     compound_het: Optional[SmallVariantCompoundHetReviewUpdate] = None
+    # For ``acmg`` and ``cnv_acmg`` alike: left out, the stored classification is kept;
+    # sent, it replaces it; sent as null or with no criteria, it is cleared.
     acmg: Optional[AcmgClassificationPayload] = None
     # CNV (ClinGen) classification — only populated for structural-variant reviews.
     cnv_acmg: Optional[CnvAcmgClassificationPayload] = None
