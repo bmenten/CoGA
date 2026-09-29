@@ -119,7 +119,7 @@ De map `terraform/` bouwt één CoGA-omgeving op in een Google Cloud-project. Op
 - **Geheimen.** Terraform maakt alleen de *containers* in Secret Manager aan (`coga-secret-key`, `coga-integrity-anchor-key`, `coga-admin-password`, `coga-postgres-password`, `coga-clickhouse-password`, `coga-postgres-app-password`). De waarden voeg je apart toe (`docs/deployment-gcp.md` §5.5), zodat ze nooit in de Terraform-state belanden. Ze moeten de regel uit hoofdstuk 2 halen: `SECRET_KEY` telt minstens 32 tekens, en de ankersleutel is de base64 van precies 32 willekeurige bytes (`openssl rand -base64 32 | tr -d '\n'`). Het JWT-geheim en de ankersleutel moeten verschillende waarden zijn; dat is een eis uit de uitrolgids, de code controleert het niet.
 - **De weg van een verzoek.** Een gebruiker opent `https://coga.cmgg.be` → de load balancer (TLS en Cloud Armor) → Cloud Run → de backend bereikt Cloud SQL via de Cloud SQL-connector (versleuteld, over het privé-netwerk) en ClickHouse over HTTPS met een eigen certificaatautoriteit. De eerste login gebruikt `coga-admin` met het wachtwoord uit `coga-admin-password`.
 
-Enkele IVDR-verplichtingen blijven procesmatig en vallen buiten de code, zoals change control en een bijgewerkte DPIA nu Google als verwerker optreedt (`docs/deployment-gcp.md` §13).
+Enkele IVDR-verplichtingen blijven procesmatig en vallen buiten de code, zoals change control en een bijgewerkte DPIA nu Google de gegevens host (of Google verwerker of subverwerker is, beslist de eigenaar) (`docs/deployment-gcp.md` §13).
 
 **Waar in de code:** de `.tf`-bestanden in `terraform/`; de beknopte referentie in `terraform/README.md` en de volledige gids in `docs/deployment-gcp.md`.
 
