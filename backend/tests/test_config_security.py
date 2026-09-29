@@ -179,3 +179,33 @@ def test_production_accepts_an_audit_log_mode_that_writes(mode) -> None:
 def test_development_may_switch_the_audit_log_off(app_env) -> None:
     settings = Settings(_env_file=None, APP_ENV=app_env, AUDIT_LOG_MODE="off")
     assert settings.audit_log_mode == "off"
+
+
+# --- the session-token secret and the integrity-anchor signing key must differ ---
+# One value in both means whoever can mint a session token can also sign an integrity
+# anchor, which is the forgery the anchors are there to rule out.
+
+_ANCHOR_KEY = _VALID_PRODUCTION["INTEGRITY_ANCHOR_SIGNING_KEY"]
+
+
+@pytest.mark.parametrize(
+    "secret_key", [_ANCHOR_KEY, f" {_ANCHOR_KEY}\n"], ids=["same", "same-but-padded"]
+)
+def test_production_refuses_the_anchor_signing_key_as_the_secret_key(secret_key) -> None:
+    # The 44-character key passes the SECRET_KEY length check on its own, so only the
+    # separation rule can refuse it.
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{**_VALID_PRODUCTION, "SECRET_KEY": secret_key})
+    message = excinfo.value.errors()[0]["msg"]
+    assert "SECRET_KEY" in message and "INTEGRITY_ANCHOR_SIGNING_KEY" in message
+    assert _ANCHOR_KEY not in message  # the refusal must not print the key it refused
+
+
+def test_development_does_not_require_separate_keys() -> None:
+    settings = Settings(
+        _env_file=None,
+        APP_ENV="development",
+        SECRET_KEY=_ANCHOR_KEY,
+        INTEGRITY_ANCHOR_SIGNING_KEY=_ANCHOR_KEY,
+    )
+    assert settings.is_development is True
