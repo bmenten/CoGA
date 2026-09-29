@@ -2,12 +2,10 @@
 # OBJECT STORAGE (PHI family data + reference data)
 # ==========================================
 #
-# NOTE: the backend's object-storage layer is currently S3/boto3-only
-# (backend/app/core/object_storage.py). A native GCS backend is a separate code
-# change (tracked as a follow-up). These buckets are provisioned now so the
-# infrastructure, IAM, and audit posture are ready:
-#  - phi: raw family data (CRAM/BAM + family packages) — read-only to the app.
-#  - refdata: reference data (dbNSFP, HPO, clinical CNVs) — mounted read-only into the backend.
+# Both buckets are read-only to the app:
+#  - phi: raw family data (CRAM/BAM + family packages), read through the native GCS
+#    backend (backend/app/core/object_storage.py) once var.storage_backend = "gcs".
+#  - refdata: reference data (dbNSFP, HPO, clinical CNVs), mounted at /data/ref-data.
 
 resource "google_storage_bucket" "phi" {
   name                        = "${var.project_id}-${local.name_prefix}-phi"

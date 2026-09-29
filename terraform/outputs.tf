@@ -29,7 +29,7 @@ output "clickhouse_internal_ip" {
 }
 
 output "phi_bucket" {
-  description = "GCS bucket for PHI family data (for the future native-GCS storage backend)."
+  description = "GCS bucket for PHI family data, which the backend reads when storage_backend = \"gcs\"."
   value       = google_storage_bucket.phi.name
 }
 
