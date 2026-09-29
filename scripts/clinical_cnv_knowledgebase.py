@@ -341,8 +341,10 @@ def normalize_clingen_table(df: pd.DataFrame, source_url: str, assembly: str) ->
             "references": str(row.get(pmid_col, "")).strip() if pmid_col else "",
             "clingen_url": make_clingen_url(source_id),
             "source_url": source_url,
-            "clinvar_pathogenic_loss_count": 0,
-            "clinvar_pathogenic_gain_count": 0,
+            # Empty, not 0, until add_clinvar_overlap_support has counted: a knowledgebase
+            # built without ClinVar must not read as a region without ClinVar support (#624).
+            "clinvar_pathogenic_loss_count": "",
+            "clinvar_pathogenic_gain_count": "",
             "clinvar_pathogenic_accessions": "",
         })
 
@@ -940,8 +942,8 @@ def load_clingen_recurrent_regions(assembly: str) -> pd.DataFrame:
             "references": "",
             "clingen_url": "",
             "source_url": url,
-            "clinvar_pathogenic_loss_count": 0,
-            "clinvar_pathogenic_gain_count": 0,
+            "clinvar_pathogenic_loss_count": "",
+            "clinvar_pathogenic_gain_count": "",
             "clinvar_pathogenic_accessions": "",
         })
     if records:

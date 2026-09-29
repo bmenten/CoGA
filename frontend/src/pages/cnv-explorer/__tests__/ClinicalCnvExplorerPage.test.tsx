@@ -119,6 +119,7 @@ describe('ClinicalCnvExplorerPage', () => {
       '22q11.21',
       '22:18,912,231–21,465,672',
       '2.55 Mb',
+      '—',
     ]);
     expect(resultCount()).toHaveTextContent('3');
     // One assembly leaves nothing to choose.
@@ -137,7 +138,7 @@ describe('ClinicalCnvExplorerPage', () => {
     renderPage();
 
     await screen.findByRole('link', { name: 'bp-sized' });
-    expect(cellsOf('bp-sized')).toEqual(['bp-sized', '—', '1:100–1,099', '999 bp']);
+    expect(cellsOf('bp-sized')).toEqual(['bp-sized', '—', '1:100–1,099', '999 bp', '—']);
     expect(cellsOf('exactly 1 kb')[3]).toBe('1.0 kb');
     expect(cellsOf('kb-sized')[3]).toBe('12.3 kb');
     expect(cellsOf('exactly 1 Mb')[3]).toBe('1.00 Mb');
@@ -295,5 +296,25 @@ describe('ClinicalCnvExplorerPage', () => {
     renderPage();
     expect(await screen.findByText(/Showing the first 1,000 CNVs; narrow the search/)).toBeInTheDocument();
     expect(resultCount()).toHaveTextContent('1,000+');
+  });
+
+  // #624 — the knowledgebase's ClinVar support: counted, or not recorded, never read as 0.
+  it('shows the ClinVar loss/gain support, and "—" where the knowledgebase recorded none', async () => {
+    serve({
+      catalogue: [
+        { ...DEL_22Q11, clinvar_pathogenic_loss_count: 132, clinvar_pathogenic_gain_count: 70 },
+        { ...DUP_17P12, clinvar_pathogenic_loss_count: 0, clinvar_pathogenic_gain_count: 0 },
+        DEL_1Q21,
+      ],
+    });
+    renderPage();
+
+    await screen.findByRole('link', { name: DEL_22Q11.label });
+    expect(screen.getByRole('columnheader', { name: 'ClinVar P/LP' })).toBeInTheDocument();
+    expect(cellsOf(DEL_22Q11.label)[4]).toBe('132 loss · 70 gain');
+    expect(cellsOf(DUP_17P12.label)[4]).toBe('0 loss · 0 gain');
+    expect(cellsOf(DEL_1Q21.label)[4]).toBe('—');
+    const row = screen.getByRole('link', { name: DEL_1Q21.label }).closest('tr') as HTMLElement;
+    expect(within(row).getByTitle(/Not recorded: this knowledgebase was built without ClinVar support/)).toBeInTheDocument();
   });
 });

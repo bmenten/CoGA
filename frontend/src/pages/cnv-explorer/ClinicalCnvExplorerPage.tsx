@@ -6,6 +6,7 @@ import api from '../../lib/api';
 import type { ApiAssemblyRecord, ApiClinicalCnv } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { CLINVAR_SUPPORT_NOT_RECORDED, clinvarSupportSummary } from '../../lib/clinicalCnvSupport';
 
 // The catalogue request's page size; reaching it means there may be more (#526).
 const CATALOG_LIMIT = 1000;
@@ -168,6 +169,9 @@ const ClinicalCnvExplorerPage = () => {
                   <th>Cytoband</th>
                   <th>Location</th>
                   <th className="table-mono">Size</th>
+                  <th title="Pathogenic ClinVar CNVs overlapping the region by at least 30 % reciprocally">
+                    ClinVar P/LP
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -185,6 +189,13 @@ const ClinicalCnvExplorerPage = () => {
                       {cnv.chr}:{formatBp(cnv.start)}–{formatBp(cnv.end)}
                     </td>
                     <td className="table-mono">{formatSize(Math.max(cnv.end - cnv.start, 0))}</td>
+                    <td className="table-mono">
+                      {clinvarSupportSummary(cnv) ?? (
+                        <span className="table-empty" title={CLINVAR_SUPPORT_NOT_RECORDED}>
+                          —
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

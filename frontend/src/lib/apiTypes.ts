@@ -558,6 +558,11 @@ export interface ApiClinicalCnv {
   source_id?: string | null;
   orpha_id?: string | null;
   orpha_name?: string | null;
+  // Pathogenic ClinVar CNVs overlapping the region by >= 30 % reciprocally, per side, and
+  // their VariationIDs, from the knowledgebase build (#624). null: not recorded, not zero.
+  clinvar_pathogenic_loss_count?: number | null;
+  clinvar_pathogenic_gain_count?: number | null;
+  clinvar_pathogenic_accessions?: string[] | null;
 }
 
 export interface ApiChromosomeBand {
