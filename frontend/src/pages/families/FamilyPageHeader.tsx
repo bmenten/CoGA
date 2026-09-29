@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router';
 import AssemblyScopeBanner from '../../components/AssemblyScopeBanner';
+import ImportIncompleteBanner from '../../components/ImportIncompleteBanner';
 import Pedigree from '../../components/visualizations/Pedigree';
 
 /**
@@ -118,6 +119,9 @@ const FamilyPageHeader: React.FC<{
             unavailable={assemblyScope?.unavailable}
             onRetry={assemblyScope?.onRetry}
           />
+          {/* A family whose package import partly failed: on every family page, so the
+              data is never read as complete (sign-out gates on the same flag). */}
+          <ImportIncompleteBanner metadata={family?.metadata} />
         </div>
         {hasPedigree && (
           <div className="page-top-card-visual">

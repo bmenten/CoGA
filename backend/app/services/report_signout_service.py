@@ -9,7 +9,10 @@ into ``report_signouts`` as a new version; the sign-out is recorded in the immut
 clinical audit trail.
 
 Sign-out is gated on evidence drift: if any classification's backing annotation has
-changed since it was made, the caller must explicitly acknowledge the drift.
+changed since it was made, the caller must explicitly acknowledge the drift. It is also
+gated on the Sample-integrity QC and on an incomplete import (a family-package import
+that partly failed); each gate is acknowledged separately, with a reason that is frozen
+into the snapshot and recorded in the audit event.
 """
 
 from __future__ import annotations
@@ -62,6 +65,9 @@ _QC_BLOCKING_STATUSES = {"fail"}
 # Pedigree-declared first-degree relationships whose swap check, when it cannot run,
 # indicates missing data for an asserted edge (vs a non-asserted/"unrelated" pair).
 _ASSERTED_RELATIONSHIPS = frozenset({"parent-child", "sibling"})
+
+# The dataset lists an incomplete-import flag records; frozen sorted so the hash is stable.
+_IMPORT_FLAG_DATASET_LISTS = ("failed_datasets", "imported_datasets")
 
 
 def _canonical_hash(snapshot: dict[str, Any]) -> str:
@@ -227,6 +233,78 @@ def _qc_gate_message(qc_status: str, hard_fail: bool, unverifiable: list[str]) -
         "missing data rather than a mismatch. Resolve it, or acknowledge with a reason to "
         "sign out anyway."
     )
+
+
+async def _import_incomplete_state(
+    session: AsyncSession, family_uuid: str
+) -> dict[str, Any] | None:
+    """What the family's package import left incomplete, or None when nothing is.
+
+    A family-package import that partly fails keeps the family and the datasets that did
+    import, and stamps ``families.metadata.import_incomplete`` with when it ran, which
+    datasets failed and which imported
+    (``family_package_registration._flag_family_import_incomplete``); a later, fully
+    successful import removes it. Frozen into the snapshot and gating sign-out, so a
+    report on partly loaded data is never released as if it were complete.
+
+    Fails safe: a flag that is set but not in the shape the import writes still counts
+    as incomplete, with nothing to name.
+    """
+    raw = (
+        await session.execute(
+            text(
+                "SELECT metadata -> 'import_incomplete' FROM families "
+                "WHERE id = CAST(:family_uuid AS uuid)"
+            ),
+            {"family_uuid": family_uuid},
+        )
+    ).scalar_one_or_none()
+    if isinstance(raw, str):
+        # jsonb decodes through the asyncpg codec; a driver that hands back the JSON
+        # text instead must read the same.
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            pass  # set, but not JSON the import wrote: still incomplete
+    if raw is None or raw is False:
+        return None
+    flag: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}
+    at = flag.get("at")
+    state: dict[str, Any] = {"at": str(at) if at else None}
+    for key in _IMPORT_FLAG_DATASET_LISTS:
+        values = flag.get(key)
+        state[key] = (
+            sorted({str(value) for value in values if value}) if isinstance(values, list) else []
+        )
+    return state
+
+
+def _import_gate_message(state: Mapping[str, Any]) -> str:
+    failed = list(state.get("failed_datasets") or [])
+    imported = list(state.get("imported_datasets") or [])
+    when = f" ({state['at']})" if state.get("at") else ""
+    if failed:
+        what = f"the package import{when} failed for {', '.join(failed)}"
+        if imported:
+            what += f" ({', '.join(imported)} did import)"
+    else:
+        what = (
+            f"a package import{when} did not complete, and which datasets it left out "
+            "was not recorded"
+        )
+    return (
+        f"This family's data is incomplete: {what}. The report may lack data from what "
+        "failed. Re-run the import to complete it, or acknowledge with a reason to sign "
+        "out anyway."
+    )
+
+
+def _dataset_list(value: Any) -> list[str] | None:
+    """A dataset list extracted from the JSONB snapshot (None when it has none)."""
+    value = _as_snapshot(value)
+    if not isinstance(value, list):
+        return None
+    return [str(item) for item in value]
 
 
 async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
@@ -400,6 +478,7 @@ async def build_report_snapshot(
     reported = await _reported_reviews(session, context.family_uuid)
     reported_structural = await _reported_structural_reviews(session, context.family_uuid)
     sequencing_qc = await _canonical_sequencing_qc(session, context)
+    import_incomplete = await _import_incomplete_state(session, context.family_uuid)
     # A reported classification with no frozen evidence snapshot cannot be drift-verified
     # (evaluate_classification_drift only checks reviews that HAVE a snapshot), so it would
     # otherwise clear the sign-out drift gate unchallenged. Surface each as a "no_snapshot"
@@ -447,6 +526,10 @@ async def build_report_snapshot(
         # that can be changed afterwards*. Without freezing them, a signed report cannot
         # say what its own QC display meant at the time.
         "sequencing_qc": sequencing_qc,
+        # Whether the family's data loaded completely: None, or what a partly failed
+        # package import left out. A report on partly loaded data can lack whole datasets,
+        # so the signed record says which were missing when it was signed.
+        "import_incomplete": import_incomplete,
         "reported_variants": reported,
         "reported_structural_variants": reported_structural,
     }
@@ -476,6 +559,13 @@ def _serialize_signout(row: dict[str, Any]) -> dict[str, Any]:
         "qc_acknowledgement_reason": row.get("qc_acknowledgement_reason"),
         "drift_acknowledged": row.get("drift_acknowledged"),
         "drift_acknowledgement_reason": row.get("drift_acknowledgement_reason"),
+        "import_incomplete_failed_datasets": _dataset_list(
+            row.get("import_incomplete_failed_datasets")
+        ),
+        "import_incomplete_acknowledged": row.get("import_incomplete_acknowledged"),
+        "import_incomplete_acknowledgement_reason": row.get(
+            "import_incomplete_acknowledgement_reason"
+        ),
         "verified": row.get("verified"),
         "snapshot": row.get("snapshot"),
     }
@@ -490,6 +580,8 @@ async def sign_out_report(
     drift_acknowledgement_reason: str | None = None,
     acknowledge_qc: bool = False,
     qc_acknowledgement_reason: str | None = None,
+    acknowledge_import_incomplete: bool = False,
+    import_incomplete_acknowledgement_reason: str | None = None,
     project_id: str | None = None,
 ) -> dict[str, Any]:
     context = await build_family_metadata_context(
@@ -562,6 +654,29 @@ async def sign_out_report(
             detail="A reason is required to acknowledge a sample-integrity QC concern.",
         )
 
+    # Incomplete-import gate (after the QC gate, and like it acknowledged independently
+    # with a reason frozen into the content hash). A family-package import that partly
+    # failed keeps the family, and the datasets that did import, flagged import_incomplete.
+    # Nothing read that flag before, so a report that could lack whole datasets signed
+    # out with no warning at all.
+    import_incomplete: Mapping[str, Any] | None = snapshot_body.get("import_incomplete")
+    if import_incomplete is not None and not acknowledge_import_incomplete:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "gate": "import_incomplete",
+                "message": _import_gate_message(import_incomplete),
+                "import_incomplete": import_incomplete,
+            },
+        )
+    import_acknowledged = import_incomplete is not None and acknowledge_import_incomplete
+    import_reason = (import_incomplete_acknowledgement_reason or "").strip()
+    if import_acknowledged and not import_reason:
+        raise HTTPException(
+            status_code=422,
+            detail="A reason is required to acknowledge an incomplete import.",
+        )
+
     # Per-family advisory lock: makes version selection + chain-head read + insert
     # atomic for this family (also closes a latent version race). Transaction-scoped;
     # released on the commit/rollback below.
@@ -598,6 +713,10 @@ async def sign_out_report(
         ),
         "acknowledged_qc": qc_blocks and acknowledge_qc,
         "qc_acknowledgement_reason": qc_reason if (qc_blocks and acknowledge_qc) else None,
+        "acknowledged_import_incomplete": import_acknowledged,
+        "import_incomplete_acknowledgement_reason": (
+            import_reason if import_acknowledged else None
+        ),
     }
     content_hash = _canonical_hash(snapshot)
     row_hash = chain_row_hash(
@@ -653,6 +772,7 @@ async def sign_out_report(
             f"{len(snapshot_body['reported_structural_variants'])} reported structural "
             f"variant(s){', drift acknowledged' if snapshot['acknowledged_drift'] else ''}"
             f"{', QC override acknowledged' if snapshot['acknowledged_qc'] else ''}"
+            f"{', incomplete import acknowledged' if import_acknowledged else ''}"
             f"{f', {len(gaps)} part(s) not captured' if gaps else ''}"
         ),
         after={
@@ -668,6 +788,13 @@ async def sign_out_report(
             "acknowledged_qc": snapshot["acknowledged_qc"],
             "qc_acknowledgement_reason": snapshot["qc_acknowledgement_reason"],
             "qc_unverifiable": qc_unverifiable,
+            # What the family's import left out when it was signed (None: nothing), and
+            # the override of that gate.
+            "import_incomplete": import_incomplete,
+            "acknowledged_import_incomplete": import_acknowledged,
+            "import_incomplete_acknowledgement_reason": snapshot[
+                "import_incomplete_acknowledgement_reason"
+            ],
             # What the signed record could not capture (a failed lookup), so the trail
             # says the record is incomplete rather than leaving it to be noticed (#514).
             "not_captured": gaps,
@@ -685,6 +812,13 @@ async def sign_out_report(
         "git_sha": snapshot_body["software"]["git_sha"],
         "drift_acknowledged": snapshot["acknowledged_drift"],
         "drift_acknowledgement_reason": snapshot["drift_acknowledgement_reason"],
+        "import_incomplete_failed_datasets": (
+            import_incomplete.get("failed_datasets") if import_incomplete is not None else None
+        ),
+        "import_incomplete_acknowledged": import_acknowledged,
+        "import_incomplete_acknowledgement_reason": snapshot[
+            "import_incomplete_acknowledgement_reason"
+        ],
         "snapshot": snapshot,
     }
 
@@ -710,7 +844,13 @@ async def list_report_signouts(
                        (snapshot->>'acknowledged_qc')::boolean   AS qc_acknowledged,
                        snapshot->>'qc_acknowledgement_reason'    AS qc_acknowledgement_reason,
                        (snapshot->>'acknowledged_drift')::boolean AS drift_acknowledged,
-                       snapshot->>'drift_acknowledgement_reason' AS drift_acknowledgement_reason
+                       snapshot->>'drift_acknowledgement_reason' AS drift_acknowledgement_reason,
+                       snapshot->'import_incomplete'->'failed_datasets'
+                           AS import_incomplete_failed_datasets,
+                       (snapshot->>'acknowledged_import_incomplete')::boolean
+                           AS import_incomplete_acknowledged,
+                       snapshot->>'import_incomplete_acknowledgement_reason'
+                           AS import_incomplete_acknowledgement_reason
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid)
                 ORDER BY version DESC
@@ -749,7 +889,13 @@ async def get_report_signout(
                        (snapshot->>'acknowledged_qc')::boolean   AS qc_acknowledged,
                        snapshot->>'qc_acknowledgement_reason'    AS qc_acknowledgement_reason,
                        (snapshot->>'acknowledged_drift')::boolean AS drift_acknowledged,
-                       snapshot->>'drift_acknowledgement_reason' AS drift_acknowledgement_reason
+                       snapshot->>'drift_acknowledgement_reason' AS drift_acknowledgement_reason,
+                       snapshot->'import_incomplete'->'failed_datasets'
+                           AS import_incomplete_failed_datasets,
+                       (snapshot->>'acknowledged_import_incomplete')::boolean
+                           AS import_incomplete_acknowledged,
+                       snapshot->>'import_incomplete_acknowledgement_reason'
+                           AS import_incomplete_acknowledgement_reason
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid) AND version = :version
                 """
@@ -781,7 +927,9 @@ async def get_report_signout(
 # The snapshot sections that make up the report's clinical content. The build identity
 # ("software") is left out on purpose: a newer build over identical content has not
 # changed what was signed. The per-sign-out fields (version, signer, timestamp,
-# acknowledgements) are not report content either.
+# acknowledgements) are not report content either. The import state is: a family
+# re-imported since sign-out, completing it or leaving it incomplete, no longer holds the
+# data that was signed.
 REPORT_CONTENT_SECTIONS = (
     "assembly",
     "modules",
@@ -790,6 +938,7 @@ REPORT_CONTENT_SECTIONS = (
     "drift",
     "sample_qc",
     "sequencing_qc",
+    "import_incomplete",
 )
 # A sign-out made before a section was frozen has no value for it. For the reported
 # structural variants that means none were signed — the page could show them but the

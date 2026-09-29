@@ -12454,9 +12454,11 @@ a.button-danger:hover {
   color: var(--color-text-muted, #64748b);
 }
 
-/* A family on an assembly outside the validated scope (TF-06 H12, #515). Printed too:
-   a printout of such a report must carry the label. */
-.assembly-scope-banner {
+/* A family on an assembly outside the validated scope (TF-06 H12, #515), or whose
+   package import partly failed. Printed too: a printout of such a report must carry the
+   label. */
+.assembly-scope-banner,
+.import-incomplete-banner {
   margin-top: 0.75rem;
   padding: 0.6rem 0.85rem;
   border-left: 4px solid var(--color-warning-strong, #92580a);

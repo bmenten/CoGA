@@ -705,6 +705,10 @@ async def _flag_family_import_incomplete(
     if complete, record it in the family metadata so it is explicit and auditable.
     Best-effort and self-committing: a flag-write failure must not mask the original
     import failure.
+
+    Read back by report sign-out (``report_signout_service._import_incomplete_state``),
+    which refuses a flagged family unless the signer acknowledges it with a reason, and
+    by the family pages, which warn while it is set. Keep the payload's keys in step.
     """
     payload = {
         "at": datetime.now(timezone.utc).isoformat(),
