@@ -70,6 +70,21 @@ def test_terraform_mounts_reference_data_read_only_and_requires_modern_tls() -> 
     assert re.search(r"ssl_policy\s*=\s*google_compute_ssl_policy\.", lb)
 
 
+def test_the_browser_may_read_the_phi_bucket_only_from_the_app() -> None:
+    # In gcs mode IGV reads aligned reads straight from the PHI bucket through signed
+    # URLs, with range requests. Without a CORS policy naming the app's origin the
+    # browser withholds every response; the policy must not open the bucket wider.
+    phi = re.search(r'resource "google_storage_bucket" "phi" \{(.*?)\n\}', _terraform("storage.tf"), re.S)
+    assert phi, "no PHI bucket"
+    cors = re.search(r"\n  cors \{(.*?)\n  \}", phi.group(1), re.S)
+    assert cors, "the PHI bucket has no CORS policy, so IGV cannot read alignments in the browser"
+    policy = cors.group(1)
+    assert re.search(r'origin\s*=\s*\["https://\$\{var\.app_domain\}"\]', policy), "only the app's origin"
+    assert re.search(r'method\s*=\s*\["GET", "HEAD"\]', policy), "reads only"
+    exposed = re.search(r"response_header\s*=\s*\[([^\]]*)\]", policy)
+    assert exposed and {'"Range"', '"Content-Range"', '"Content-Length"'} <= {h.strip() for h in exposed.group(1).split(",")}
+
+
 def test_terraform_sets_the_client_ip_hops_and_import_roots() -> None:
     cloudrun = (REPO / "terraform" / "cloudrun.tf").read_text()
     assert 'name  = "TRUSTED_PROXY_HOPS"' in cloudrun
