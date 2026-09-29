@@ -514,6 +514,19 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   const lowerThreshold = getCoverageLowerThreshold();
   const customThresholds = hasCustomCoverageThresholds();
   const thresholdLegend = `gain > ${upperThreshold >= 0 ? '+' : ''}${upperThreshold} · loss < ${lowerThreshold} (log2)`;
+  // The name also says, as every other chart's does, when the chart failed to load, is
+  // loading or has nothing to show; it named only the thresholds, so a failed chart read
+  // as a drawn one (#510, #602).
+  const coverageState = isError
+    ? 'failed to load'
+    : loading
+      ? 'loading'
+      : hasData === false
+        ? 'no data'
+        : null;
+  const chartLabel =
+    `Coverage log2 ratio${coverageState ? `: ${coverageState}` : ''}; ${thresholdLegend}` +
+    `${customThresholds ? ', custom thresholds set in this browser' : ''}`;
 
   return (
     <div style={{ position: 'relative', width, height }}>
@@ -522,7 +535,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
         width={width}
         height={height}
         role="img"
-        aria-label={`Coverage log2 ratio; ${thresholdLegend}${customThresholds ? ', custom thresholds set in this browser' : ''}`}
+        aria-label={chartLabel}
         data-audit-id="coverage-segments-chart"
         data-audit-label="Coverage chart"
         onMouseDown={handleMouseDown}

@@ -31,3 +31,40 @@ test('an empty histogram says so in text, not as an unlabelled graphic (#529)', 
   expect(screen.getByText('No data available for this view.')).toBeInTheDocument();
   expect(screen.queryByRole('img')).not.toBeInTheDocument();
 });
+
+// #602 — each bin keeps its own bar and its own label.
+// The x axis is the one translated to the bottom of the plot; the y axis has ticks too.
+const xTicks = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll('g[transform^="translate(0,"] .tick text')).map(
+    (tick) => tick.textContent,
+  );
+
+test('equal-width bins narrower than 1 are labelled apart, one bar each', () => {
+  // 20 bins over a range of 2 are 0.1 wide: rounded to whole numbers every label repeated,
+  // and d3 folded the repeats into one band, drawing the bars on top of each other.
+  const { container } = render(<Histogram data={[0, 0.5, 1, 1.5, 2]} bins={20} logScale={false} />);
+
+  const bars = Array.from(container.querySelectorAll('rect')).map((rect) => rect.getAttribute('x'));
+  expect(bars).toHaveLength(20);
+  expect(new Set(bars).size).toBe(20);
+  const ticks = xTicks(container);
+  expect(ticks.slice(0, 4)).toEqual(['0.0', '0.1', '0.2', '0.3']);
+  expect(new Set(ticks).size).toBe(20);
+});
+
+test('whole-number bins keep their whole-number labels', () => {
+  const { container } = render(<Histogram data={[0, 100]} bins={4} logScale={false} />);
+
+  const ticks = xTicks(container);
+  expect(ticks).toEqual(['0', '25', '50', '75']);
+});
+
+test('bins given the same label are still drawn side by side', () => {
+  const { container } = render(
+    <Histogram data={[1, 5, 50]} binEdges={[0, 2, 10, 100]} binLabels={['small', 'small', 'large']} />,
+  );
+
+  const bars = Array.from(container.querySelectorAll('rect')).map((rect) => rect.getAttribute('x'));
+  expect(bars).toHaveLength(3);
+  expect(new Set(bars).size).toBe(3);
+});

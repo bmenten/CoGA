@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { select } from "d3-selection";
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
@@ -122,17 +123,18 @@ const GeneTrack: React.FC<Props> = ({
   // The track's name for a screen reader (#529): the genes in the region. A failure is
   // never "none" (#510), and neither is a pan whose window has not arrived yet: the
   // held genes are named, like they are drawn, only where they lie in the new region.
+  // A view with no width asks for nothing, so it is not "loading" either (#602).
   const genesInView = genesWithLines.map(({ g }) => g);
   const geneSummary = isError
     ? "failed to load"
-    : genesInView.length > 0
-      ? describeGenes(genesInView)
-      : rawGenes
-        ? "none"
-        : "loading";
-  const ariaLabel =
-    `Genes on chr${chrom.replace(/^chr/i, "")}:` +
-    `${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}: ${geneSummary}`;
+    : !hasRegionInView(regionStart, regionEnd)
+      ? NO_REGION_IN_VIEW
+      : genesInView.length > 0
+        ? describeGenes(genesInView)
+        : rawGenes
+          ? "none"
+          : "loading";
+  const ariaLabel = `Genes on ${describeTrackRegion(chrom, regionStart, regionEnd)}: ${geneSummary}`;
 
   useEffect(() => {
     const svg = select(svgRef.current);

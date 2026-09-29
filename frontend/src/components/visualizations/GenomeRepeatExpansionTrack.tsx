@@ -86,15 +86,20 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
   }, [data?.items, layout]);
 
   // The chart's accessible name (#529): what it shows now. A failure or a load is said
-  // as such, never as zero loci (#510).
+  // as such, never as zero loci (#510). Nor is a track that asked for nothing: without a
+  // layout no locus can be placed yet (the genome overview is still sizing it), and
+  // without a chromosome in view none is requested (#602).
+  const answered = Boolean(layout) && chroms.length > 0;
   const lociSummary = useMemo(() => describeRepeatLoci(items), [items]);
   const chartState = isError
     ? 'failed to load'
-    : isLoading
+    : isLoading || !layout
       ? 'loading'
-      : items.length === 0
-        ? 'none'
-        : lociSummary;
+      : chroms.length === 0
+        ? 'no chromosomes in view'
+        : items.length === 0
+          ? 'none'
+          : lociSummary;
   const chartLabel = `Repeat loci of ${sampleId} in view: ${chartState}`;
 
   const trackY = Math.max(2, Math.floor(height * 0.28));
@@ -141,8 +146,8 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
       </svg>
       {isLoading && <VizLoadingOverlay message="Loading repeat expansions" />}
       {isError && <VizErrorOverlay what="repeat expansions" onRetry={() => void refetch()} />}
-      {!isLoading && !isError && items.length === 0 && (
-        <div className="viz-empty-overlay">No repeat loci for this sample</div>
+      {answered && !isLoading && !isError && items.length === 0 && (
+        <div className="viz-empty-overlay">No repeat loci in view</div>
       )}
       {tooltip && (
         <RepeatLocusTooltip x={tooltip.x} y={tooltip.y} item={tooltip.item} />

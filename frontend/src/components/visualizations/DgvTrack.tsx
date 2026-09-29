@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
@@ -139,9 +140,7 @@ const DgvTrack: React.FC<Props> = ({
   );
 
   // The surface's name for a screen reader (#529): the variants in view, by class.
-  const variantsOn =
-    `DGV variants on chr${chrom.replace(/^chr/i, '')}:` +
-    `${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+  const variantsOn = `DGV variants on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
 
   // A failed request must never read as an empty region (#510).
   if (isError) {
@@ -151,6 +150,11 @@ const DgvTrack: React.FC<Props> = ({
         <VizErrorOverlay what="DGV variants" onRetry={() => void refetch()} />
       </div>
     );
+  }
+
+  // A view with no width asks for nothing: it is neither loading nor empty (#602).
+  if (!hasRegionInView(regionStart, regionEnd)) {
+    return <svg width={width} height={height} role="img" aria-label={`${variantsOn}: ${NO_REGION_IN_VIEW}`} />;
   }
 
   if (!data) {

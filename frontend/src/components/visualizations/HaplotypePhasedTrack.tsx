@@ -21,6 +21,8 @@ import {
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { apiPath } from '../../lib/apiPath';
 
 interface Segment {
@@ -85,10 +87,8 @@ interface PhasedMarkerResponse {
 
 const isDeletedHaplotype = (value: string): boolean => value === '.';
 
-const chromLabel = (chrom: string): string => (/^chr/i.test(chrom) ? chrom : `chr${chrom}`);
-
 const regionLabel = (chrom: string, start: number, end: number): string =>
-  `${chromLabel(chrom)}:${start.toLocaleString()}–${end.toLocaleString()}`;
+  `${formatChromosomeLabel(chrom)}:${start.toLocaleString()}–${end.toLocaleString()}`;
 
 const laneValue = (value: number | null): string => (value === null ? '.' : String(value));
 
@@ -232,7 +232,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     null,
   );
 
-  const hasRegion = regionEnd > regionStart;
+  const hasRegion = hasRegionInView(regionStart, regionEnd);
 
   const {
     data: rawHaplotypeData,
@@ -746,15 +746,17 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     });
   };
 
-  // A failed load has no risk state — not "uninformative", which is a real outcome.
-  const shownRiskState = haplotypeError ? 'unavailable' : riskState;
+  // A failed load has no risk state — not "uninformative", which is a real outcome — and
+  // a view with no width asks for nothing, so it assessed none (#602).
+  const shownRiskState = haplotypeError ? 'unavailable' : !hasRegion ? 'not_assessed' : riskState;
 
   // The accessible name: whose haplotypes, where, and the risk state the track's border
   // shows — assessed at the ROI when there is one. A load in flight claims no risk state
   // and a failed one says so (#510, #529).
   const trackLabel = (() => {
-    const subject = `Haplotypes of ${sampleId} on ${regionLabel(chrom, regionStart, regionEnd)}`;
+    const subject = `Haplotypes of ${sampleId} on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
     if (haplotypeError) return `${subject}: failed to load; risk state: unavailable`;
+    if (!hasRegion) return `${subject}: ${NO_REGION_IN_VIEW}; risk state: not assessed`;
     if (isLoading) return `${subject}: loading`;
     const riskScope = riskRegion
       ? ` at ${regionLabel(riskRegion.chr || chrom, riskRegion.start, riskRegion.end)}`
@@ -790,7 +792,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       {haplotypeError && (
         <VizErrorOverlay what="haplotypes" onRetry={() => void refetchHaplotypes()} />
       )}
-      {!isLoading && !haplotypeError && !hasSegments && (
+      {hasRegion && !isLoading && !haplotypeError && !hasSegments && (
         <div className="viz-empty-overlay">No haplotype data in this region</div>
       )}
       {showMarkers && markersError && !haplotypeError && (

@@ -1,4 +1,5 @@
 import type { ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
 
 export const CHROMS = [
   ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
@@ -14,18 +15,6 @@ export const formatBp = (bp: number): string => {
   if (bp >= 1_000_000) return `${(bp / 1_000_000).toFixed(2)} Mb`;
   if (bp >= 1_000) return `${(bp / 1_000).toFixed(2)} kb`;
   return `${bp} bp`;
-};
-
-export const normalizeChrom = (value: string): string => {
-  const stripped = value.trim().replace(/^chr/i, '');
-  if (/^m(t)?$/i.test(stripped)) return 'MT';
-  if (/^\d+$/.test(stripped)) return String(Number(stripped));
-  return stripped.toUpperCase();
-};
-
-export const formatChromosomeLabel = (value: string): string => {
-  const chrom = normalizeChrom(value);
-  return chrom === 'MT' ? 'chrM' : `chr${chrom}`;
 };
 
 export const formatRoiCoordinates = (roi: ApiFamilyRegionOfInterest): string => {

@@ -123,6 +123,29 @@ describe('SvTrack accessible name (#529)', () => {
     expect(screen.getByText(/Too many SVs to display genome-wide/)).toBeInTheDocument();
     expect(screen.queryByText(/no SVs for this region/)).not.toBeInTheDocument();
   });
+
+  // #602 — a track that asked for nothing found nothing: it is not "none".
+  it('before the genome layout is known it asks for nothing and is loading, not empty', () => {
+    serve({});
+    render(track({ layout: null }));
+
+    expect((useQueryMock.mock.calls.at(-1)?.[0] as { enabled: boolean }).enabled).toBe(false);
+    expect(
+      screen.getByRole('img', { name: 'Structural variants of S1 in view: loading' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/no SVs for this region/)).not.toBeInTheDocument();
+  });
+
+  it('without a source it asks for nothing and says there is no SV data, not no SVs', () => {
+    serve({});
+    render(track({ url: '' }));
+
+    expect((useQueryMock.mock.calls.at(-1)?.[0] as { enabled: boolean }).enabled).toBe(false);
+    expect(
+      screen.getByRole('img', { name: 'Structural variants of S1 in view: no SV data for this sample' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/no SVs for this region/)).not.toBeInTheDocument();
+  });
 });
 
 describe('SvTrack request (#585)', () => {

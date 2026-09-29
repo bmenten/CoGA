@@ -410,6 +410,15 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Escape in a dialog just opened** — a dialog answered Escape only after a later task, so an
   Escape pressed as it appeared closed the dialog underneath (the reference upload instead of its
   overwrite confirmation); a dialog now answers Escape from the moment it is drawn (#601).
+- **Track states that asked for nothing** — over a view with no width (start at or past the
+  end), the chromosome view's tracks named themselves "loading" for good, the small-variant track
+  said there were too many variants, and the SV and repeat tracks said there were none. They now
+  say there is no region in view, and ask the API for nothing. The genome overview's SV and
+  repeat tracks no longer say "none" before the genome layout is known, and the coverage chart's
+  name says when it failed to load, is loading or holds no data. The mitochondrion is chrM in
+  every track's name and chromosome list, as in the viewer header; it was chrMT in some. A
+  histogram of equal-width bins narrower than 1 no longer draws its bars on top of each other
+  (#603).
 
 ### Security
 

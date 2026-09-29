@@ -8,6 +8,7 @@ import { formatGt, hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import { getTrackVariantLimit } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import VizTooltip from './VizTooltip';
 import { apiPath } from '../../lib/apiPath';
 
@@ -100,6 +101,7 @@ const VariantTrack: React.FC<Props> = ({
     [],
   );
   const pageSize = React.useMemo(() => getTrackVariantLimit(width), [width]);
+  const regionInView = hasRegionInView(regionStart, regionEnd);
   const { data: rawData, isLoading, isError, refetch } = useQuery<ApiVariantPage<Variant>>({
     queryKey: [
       'variants',
@@ -125,7 +127,7 @@ const VariantTrack: React.FC<Props> = ({
       const res = await api.get(apiPath`/families/${familyId}/structural-variants`, { params });
       return res.data as ApiVariantPage<Variant>;
     },
-    enabled: regionEnd > regionStart,
+    enabled: regionInView,
   });
   const data = useSameSpanFallbackData(
     rawData,
@@ -170,16 +172,19 @@ const VariantTrack: React.FC<Props> = ({
   // The chart's accessible name (#529): what it shows now. A failure or a load is said
   // as such, never as zero SVs (#510).
   const typeSummary = React.useMemo(() => describeTypes(items), [items]);
-  const chartRegion = `chr${chrom.replace(/^chr/i, '')}:${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+  // A view with no width asks for nothing: it is not "none" (#602).
+  const chartRegion = describeTrackRegion(chrom, regionStart, regionEnd);
   const chartState = isError
     ? 'failed to load'
-    : isLoading
-      ? 'loading'
-      : tooManyVariants
-        ? 'too many to display; zoom in or apply filters'
-        : items.length === 0
-          ? 'none'
-          : typeSummary;
+    : !regionInView
+      ? NO_REGION_IN_VIEW
+      : isLoading
+        ? 'loading'
+        : tooManyVariants
+          ? 'too many to display; zoom in or apply filters'
+          : items.length === 0
+            ? 'none'
+            : typeSummary;
   const chartLabel = `Structural variants of ${sampleId} on ${chartRegion}: ${chartState}`;
 
   const [tooltip, setTooltip] = React.useState<{
@@ -234,9 +239,11 @@ const VariantTrack: React.FC<Props> = ({
             fontSize={12}
             fill={fallbackColors.default}
           >
-            {tooManyVariants
-              ? 'Too many SVs to display. Zoom in or apply filters.'
-              : 'no SVs for this region / sample'}
+            {!regionInView
+              ? 'No region in view'
+              : tooManyVariants
+                ? 'Too many SVs to display. Zoom in or apply filters.'
+                : 'no SVs for this region / sample'}
           </text>
         )}
         {items.map((v, index) => {

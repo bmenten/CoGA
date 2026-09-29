@@ -17,7 +17,8 @@ import { useFamilyReference } from '../../lib/reference';
 import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
 import GenomeOverviewSidebar, { type GenomeTrackKey, type GenomeTrackVisibility } from './GenomeOverviewSidebar';
 import GenomeOverviewWorkspace from './GenomeOverviewWorkspace';
-import { CHROMS, DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING, normalizeChrom } from './viewerShared';
+import { normalizeChrom } from '../../lib/chromosomes';
+import { CHROMS, DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING } from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
 
 interface Layout {

@@ -6,6 +6,7 @@ import { getStainColor } from "../../lib/stainColors";
 import { getAcenDirection, getBandGradientStops, niceTickInterval } from "../../lib/ideogram";
 import VizTooltip from "./VizTooltip";
 import VizErrorOverlay from "./VizErrorOverlay";
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from "./trackRegion";
 import { apiPath } from '../../lib/apiPath';
 
 interface IdeogramBand {
@@ -72,9 +73,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
   // The surface's name for a screen reader (#529): the cytobands in the region, in ISCN
   // form (13q13.1) like the band tooltip. A failure is never "none" (#510).
   const chromName = chrom.replace(/^chr/i, "");
-  const bandsOn =
-    `Cytobands on chr${chromName}:` +
-    `${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+  const bandsOn = `Cytobands on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
 
   if (isError) {
     return (
@@ -85,13 +84,13 @@ const ZoomedIdeogram: React.FC<Props> = ({
     );
   }
 
-  if (!data || regionEnd <= regionStart) {
+  if (!data || !hasRegionInView(regionStart, regionEnd)) {
     return (
       <svg
         width={width}
         height={height}
         role="img"
-        aria-label={data ? `Cytobands on chr${chromName}: no region in view` : `${bandsOn}: loading`}
+        aria-label={`${bandsOn}: ${hasRegionInView(regionStart, regionEnd) ? "loading" : NO_REGION_IN_VIEW}`}
       />
     );
   }

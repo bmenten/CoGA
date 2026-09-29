@@ -6,6 +6,7 @@ import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import CircosPlot, { Chromosome, Variant, CHROMS } from '../../components/visualizations/CircosPlot';
 import PageState from '../../components/PageState';
 import VizErrorOverlay from '../../components/visualizations/VizErrorOverlay';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
 import { apiPath, raw } from '../../lib/apiPath';
@@ -191,7 +192,7 @@ const CircosPlotPage: FC = () => {
                     checked={selected[c]}
                     onChange={() => toggleChrom(c)}
                   />
-                  {`chr${c}`}
+                  {formatChromosomeLabel(c)}
                 </label>
               </li>
             ))}

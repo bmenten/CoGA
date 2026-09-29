@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
 import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
@@ -51,8 +52,6 @@ interface BedRecordPayload<T> {
 
 const splitKey = (key: string): string[] => (key ? key.split('\n').filter(Boolean) : []);
 
-const chromLabel = (chrom: string): string => (/^chr/i.test(chrom) ? chrom : `chr${chrom}`);
-
 const countOf = (count: number, one: string, many = `${one}s`): string =>
   `${count.toLocaleString()} ${count === 1 ? one : many}`;
 
@@ -60,8 +59,8 @@ const countOf = (count: number, one: string, many = `${one}s`): string =>
 const describeView = (chroms: string[], regionStart?: number, regionEnd?: number): string => {
   if (chroms.length === 1) {
     return regionStart !== undefined && regionEnd !== undefined
-      ? `on ${chromLabel(chroms[0])}:${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`
-      : `on ${chromLabel(chroms[0])}`;
+      ? `on ${formatChromosomeLabel(chroms[0])}:${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`
+      : `on ${formatChromosomeLabel(chroms[0])}`;
   }
   return chroms.length > 1 ? `across ${chroms.length} chromosomes` : '';
 };

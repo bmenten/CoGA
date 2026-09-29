@@ -25,7 +25,8 @@ import ChromosomeViewSidebar, {
   type ChromosomeTrackVisibility,
 } from './ChromosomeViewSidebar';
 import ChromosomeViewWorkspace from './ChromosomeViewWorkspace';
-import { DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING, formatChromosomeLabel, normalizeChrom } from './viewerShared';
+import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
+import { DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING } from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
 
 interface ChromInfo {
