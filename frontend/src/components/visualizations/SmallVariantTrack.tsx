@@ -14,6 +14,7 @@ import {
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { apiPath } from '../../lib/apiPath';
 import {
   SMALL_VARIANT_MARKS,
@@ -195,8 +196,8 @@ const SmallVariantTrack: React.FC<Props> = ({
     () => shouldShowSmallVariantDetails(regionEnd - regionStart),
     [regionEnd, regionStart],
   );
-  const canRequestSmallVariants =
-    regionEnd > regionStart && (hasUserFilters || regionRestricted);
+  const regionInView = hasRegionInView(regionStart, regionEnd);
+  const canRequestSmallVariants = regionInView && (hasUserFilters || regionRestricted);
   const requestFilters = React.useMemo(() => {
     const nextFilters = { ...(filters || {}) };
     if (!nextFilters.sample_filter) {
@@ -248,8 +249,9 @@ const SmallVariantTrack: React.FC<Props> = ({
     enabled: canRequestSmallVariants,
   });
 
+  // A view with no width asks for nothing; that is not a view with too many (#602).
   const tooManyVariants =
-    !canRequestSmallVariants ||
+    (regionInView && !canRequestSmallVariants) ||
     Boolean(
       data &&
         (data.total_is_estimated ||
@@ -301,23 +303,27 @@ const SmallVariantTrack: React.FC<Props> = ({
       variant.review?.tags?.map((tagKey) => tagByKey.get(tagKey)?.color).find(Boolean) ?? undefined,
     [tagByKey],
   );
-  const emptyMessage = tooManyVariants
-    ? 'Too many variants to display. Zoom in or apply filters.'
-    : 'no small variants for this region / sample';
+  const emptyMessage = !regionInView
+    ? 'No region in view'
+    : tooManyVariants
+      ? 'Too many variants to display. Zoom in or apply filters.'
+      : 'no small variants for this region / sample';
 
   // The chart's accessible name (#529): what it shows now. A failure, a load or a view
   // over the cap is said as such, never as zero variants (#510).
   const markSummary = React.useMemo(() => describeMarks(variants), [variants]);
-  const chartRegion = `chr${chrom.replace(/^chr/i, '')}:${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+  const chartRegion = describeTrackRegion(chrom, regionStart, regionEnd);
   const chartState = isError
     ? 'failed to load'
-    : isLoading
-      ? 'loading'
-      : tooManyVariants
-        ? 'too many to display; zoom in or apply filters'
-        : variants.length === 0
-          ? 'none'
-          : markSummary;
+    : !regionInView
+      ? NO_REGION_IN_VIEW
+      : isLoading
+        ? 'loading'
+        : tooManyVariants
+          ? 'too many to display; zoom in or apply filters'
+          : variants.length === 0
+            ? 'none'
+            : markSummary;
   const chartLabel = `Small variants of ${sampleId} on ${chartRegion}: ${chartState}`;
 
   const svgRef = React.useRef<SVGSVGElement | null>(null);

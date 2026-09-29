@@ -67,6 +67,9 @@ const SvTrack: React.FC<Props> = ({
   height = 40,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Without a layout no SV can be placed yet (the genome overview is still sizing it),
+  // and without a URL none is asked for: neither is a finding of no SVs (#602).
+  const canRequest = Boolean(layout) && Boolean(url);
   const typeColors = useMemo<Record<string, string>>(
     () => ({
       DEL: cssVar('--color-variant-del'),
@@ -83,7 +86,7 @@ const SvTrack: React.FC<Props> = ({
   // on the URL now; the per-sample filtering is a cheap memo below.
   const { data, isLoading, isError, refetch } = useQuery<{ variants: Variant[]; capped: boolean }>({
     queryKey: ['genome-sv', url],
-    enabled: !!layout && !!url,
+    enabled: canRequest,
     staleTime: Infinity,
     gcTime: Infinity,
     queryFn: async ({ signal }) => {
@@ -110,7 +113,7 @@ const SvTrack: React.FC<Props> = ({
         .filter((v) => v.genotypes && v.genotypes.length > 0 && hasAltAllele(v.genotypes[0].gt)),
     [data?.variants, tooManyVariants, typeColors, sampleId],
   );
-  const loading = isLoading && !!layout && !!url;
+  const loading = isLoading && canRequest;
 
   const rowHeight = useMemo(() => height / TYPE_ORDER.length, [height]);
 
@@ -139,13 +142,15 @@ const SvTrack: React.FC<Props> = ({
   const typeSummary = useMemo(() => describeTypes(items), [items]);
   const chartState = isError
     ? 'failed to load'
-    : loading
+    : loading || !layout
       ? 'loading'
-      : tooManyVariants
-        ? 'too many to display; open a chromosome'
-        : items.length === 0
-          ? 'none'
-          : typeSummary;
+      : !url
+        ? 'no SV data for this sample'
+        : tooManyVariants
+          ? 'too many to display; open a chromosome'
+          : items.length === 0
+            ? 'none'
+            : typeSummary;
   const chartLabel = `Structural variants of ${sampleId} in view: ${chartState}`;
 
   useEffect(() => {
@@ -247,7 +252,7 @@ const SvTrack: React.FC<Props> = ({
       />
       {loading && <VizLoadingOverlay message="Loading SVs" />}
       {isError && <VizErrorOverlay what="structural variants" onRetry={() => void refetch()} />}
-      {!loading && !isError && items.length === 0 && (
+      {canRequest && !loading && !isError && items.length === 0 && (
         <div className="viz-empty-overlay">
           {tooManyVariants
             ? 'Too many SVs to display genome-wide. Open a chromosome to see them.'

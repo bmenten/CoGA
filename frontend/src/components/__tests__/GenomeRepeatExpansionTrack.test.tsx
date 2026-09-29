@@ -328,7 +328,7 @@ describe('GenomeRepeatExpansionTrack', () => {
 
     expect(screen.getByText('Loading repeat expansions')).toBeInTheDocument();
     expect(
-      screen.queryByText('No repeat loci for this sample')
+      screen.queryByText('No repeat loci in view')
     ).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
@@ -342,7 +342,7 @@ describe('GenomeRepeatExpansionTrack', () => {
       'Could not load repeat expansions — this is not an empty result.'
     );
     expect(
-      screen.queryByText('No repeat loci for this sample')
+      screen.queryByText('No repeat loci in view')
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(refetch).toHaveBeenCalledTimes(1);
@@ -353,7 +353,7 @@ describe('GenomeRepeatExpansionTrack', () => {
     const { container } = render(track());
 
     expect(
-      screen.getByText('No repeat loci for this sample')
+      screen.getByText('No repeat loci in view')
     ).toBeInTheDocument();
     expect(markers(container)).toHaveLength(0);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -491,6 +491,28 @@ describe('GenomeRepeatExpansionTrack', () => {
       expect(
         screen.getByRole('img', { name: 'Repeat loci of S1 in view: failed to load' })
       ).toBeInTheDocument();
+    });
+
+    // #602 — a track that asked for nothing found nothing: it is not "none".
+    it('before the genome layout is known it is loading, not empty', () => {
+      serve({ data: { items: [locus()] } });
+      render(track({ layout: null }));
+
+      expect(
+        screen.getByRole('img', { name: 'Repeat loci of S1 in view: loading' })
+      ).toBeInTheDocument();
+      expect(screen.queryByText('No repeat loci in view')).not.toBeInTheDocument();
+    });
+
+    it('with no chromosome in view it asks for nothing and says so', () => {
+      serve({});
+      render(track({ chroms: [] }));
+
+      expect(lastQueryOptions().enabled).toBe(false);
+      expect(
+        screen.getByRole('img', { name: 'Repeat loci of S1 in view: no chromosomes in view' })
+      ).toBeInTheDocument();
+      expect(screen.queryByText('No repeat loci in view')).not.toBeInTheDocument();
     });
   });
 });

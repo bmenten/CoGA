@@ -27,14 +27,8 @@ import ViewerMemberSection from './ViewerMemberSection';
 import ViewerTrackBlock from './ViewerTrackBlock';
 import ViewerInteractionSurface from './ViewerInteractionSurface';
 import type { ChromosomeTrackVisibility } from './ChromosomeViewSidebar';
-import {
-  CHROMS,
-  buildTrackFilterSummary,
-  formatChromosomeLabel,
-  formatBp,
-  formatRoiCoordinates,
-  normalizeChrom,
-} from './viewerShared';
+import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
+import { CHROMS, buildTrackFilterSummary, formatBp, formatRoiCoordinates } from './viewerShared';
 
 const TRACK_HEIGHT = 120;
 const VARIANT_TRACK_HEIGHT = 80;

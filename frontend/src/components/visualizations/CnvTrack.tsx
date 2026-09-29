@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
+import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { useNavigate } from 'react-router';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
@@ -73,9 +74,7 @@ const CnvTrack: React.FC<Props> = ({
     isError,
   );
 
-  const cnvsOn =
-    `Clinical CNVs on chr${chrom.replace(/^chr/i, '')}:` +
-    `${regionStart.toLocaleString()}–${regionEnd.toLocaleString()}`;
+  const cnvsOn = `Clinical CNVs on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
 
   // A failed request must never read as an empty region (#510).
   if (isError) {
@@ -85,6 +84,11 @@ const CnvTrack: React.FC<Props> = ({
         <VizErrorOverlay what="clinical CNV regions" onRetry={() => void refetch()} />
       </div>
     );
+  }
+
+  // A view with no width asks for nothing: it is neither loading nor empty (#602).
+  if (!hasRegionInView(regionStart, regionEnd)) {
+    return <svg width={width} height={height} role="img" aria-label={`${cnvsOn}: ${NO_REGION_IN_VIEW}`} />;
   }
 
   if (!data) {

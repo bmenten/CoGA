@@ -57,9 +57,13 @@ const binValues = (
       const idx = Math.min(Math.floor((v - min) / binSize), bins - 1);
       counts[idx]++;
     });
-    labels = Array.from({ length: bins }, (_, i) =>
-      String(Math.round(min + binSize * i))
-    );
+    // Each bin is labelled by its lower edge, with as many decimals as the bin width needs:
+    // rounded to whole numbers, bins narrower than 1 shared a label (#602).
+    const decimals = binSize >= 1 ? 0 : Math.min(Math.ceil(-Math.log10(binSize)), 6);
+    labels = Array.from({ length: bins }, (_, i) => {
+      const edge = min + binSize * i;
+      return decimals === 0 ? String(Math.round(edge)) : edge.toFixed(decimals);
+    });
   }
   return { counts, labels };
 };
@@ -101,9 +105,12 @@ const Histogram: React.FC<Props> = ({
       .append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`);
 
+    // The band scale is keyed by bin, not by label: two bins with the same label (given
+    // binLabels can repeat) would otherwise share one band and be drawn on top of each
+    // other (#602).
     const x = d3
-      .scaleBand<string>()
-      .domain(labels)
+      .scaleBand<number>()
+      .domain(counts.map((_, i) => i))
       .range([0, innerWidth])
       .padding(0.1);
 
@@ -122,13 +129,13 @@ const Histogram: React.FC<Props> = ({
       .selectAll('rect')
       .data(counts)
       .join('rect')
-      .attr('x', (_, i) => x(labels[i]) || 0)
+      .attr('x', (_, i) => x(i) ?? 0)
       .attr('width', x.bandwidth())
       .attr('y', (d) => (logScale ? y(d + 1) : y(d)))
       .attr('height', (d) => innerHeight - (logScale ? y(d + 1) : y(d)))
       .attr('class', 'fill-secondary');
 
-    const xAxis = d3.axisBottom(x);
+    const xAxis = d3.axisBottom(x).tickFormat((i) => labels[i]);
     g
       .append('g')
       .attr('transform', `translate(0,${innerHeight})`)

@@ -119,7 +119,8 @@ describe('GenomeOverviewSidebar', () => {
     expect(props.onToggleSample).not.toHaveBeenCalled();
   });
 
-  it('lists chr1–chr22, chrX, chrY and chrMT, ticked from the chromosome selection', () => {
+  // The mitochondrion is chrM, as the viewer header and the tracks name it (#602).
+  it('lists chr1–chr22, chrX, chrY and chrM, ticked from the chromosome selection', () => {
     renderSidebar();
     const chromosomes = section('Chromosomes');
 
@@ -127,12 +128,12 @@ describe('GenomeOverviewSidebar', () => {
       ...Array.from({ length: 22 }, (_, index) => `chr${index + 1}`),
       'chrX',
       'chrY',
-      'chrMT',
+      'chrM',
     ]);
     expect(within(chromosomes).getByRole('checkbox', { name: 'chr1' })).toBeChecked();
     expect(within(chromosomes).getByRole('checkbox', { name: 'chrX' })).toBeChecked();
     expect(within(chromosomes).getByRole('checkbox', { name: 'chrY' })).not.toBeChecked();
-    expect(within(chromosomes).getByRole('checkbox', { name: 'chrMT' })).not.toBeChecked();
+    expect(within(chromosomes).getByRole('checkbox', { name: 'chrM' })).not.toBeChecked();
   });
 
   it('reports the bare chromosome name, without the chr prefix, when one is toggled', async () => {
@@ -141,7 +142,7 @@ describe('GenomeOverviewSidebar', () => {
 
     await user.click(screen.getByRole('checkbox', { name: 'chr7' }));
     await user.click(screen.getByRole('checkbox', { name: 'chrX' }));
-    await user.click(screen.getByRole('checkbox', { name: 'chrMT' }));
+    await user.click(screen.getByRole('checkbox', { name: 'chrM' }));
 
     expect(vi.mocked(props.onToggleChrom).mock.calls).toEqual([['7'], ['X'], ['MT']]);
   });

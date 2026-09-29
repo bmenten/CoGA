@@ -46,6 +46,8 @@ Het **ideogram** is de klassieke gestreepte chromosoomtekening. De banden (*cyto
 
 Deze tracks tonen data die per **sample** (individu) verschilt. Ze delen enkele patronen: coördinaten worden lineair naar pixels geschaald, en veel tracks houden bij een *pan* (verschuiven met gelijke breedte) tijdelijk het vorige beeld vast via de hook `useSameSpanFallbackData`, zodat het beeld glijdt in plaats van te knipperen. Dat vorige beeld blijft alleen staan zolang het nieuwe venster laadt, en alleen wat in het nieuwe venster ligt wordt getekend. Mislukt de aanvraag, dan valt de hook nooit terug op het vorige beeld: de track toont de fout boven een leeg venster (#586).
 
+Een venster zonder breedte (het begin op of voorbij het einde) vraagt niets op. De tracks noemen zich dan "no region in view", niet "loading", "none" of "too many": zo'n venster laadt niet en is ook niet leeg (`hasRegionInView` en `describeTrackRegion` in `frontend/src/components/visualizations/trackRegion.ts`). Chromosoomnamen komen overal uit `formatChromosomeLabel` in `frontend/src/lib/chromosomes.ts`: in de namen van de tracks, de chromosoomlijsten en de kop van de viewer heet het mitochondrion `chrM`, hoe de data het ook schrijft (#603).
+
 ### Coverage & segments (CoverageSegmentsChart)
 
 De coverage-track toont de dieptedekking (log-ratio) als een **scatter van stippen** (per bin één stip) met daaroverheen horizontale **segment**-lijnen (de CNV-calling-segmenten).

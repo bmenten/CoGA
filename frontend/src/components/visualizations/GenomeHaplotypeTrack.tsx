@@ -21,6 +21,7 @@ import {
 } from '../../lib/haplotypeRisk';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
 
 const DEFAULT_CHROMS = [...Array.from({ length: 22 }, (_, i) => String(i + 1)), 'X', 'Y'];
 
@@ -76,8 +77,6 @@ interface Props {
 }
 
 const isDeletedHaplotype = (value: string): boolean => value === '.';
-
-const chromLabel = (chrom: string): string => (/^chr/i.test(chrom) ? chrom : `chr${chrom}`);
 
 const GenomeHaplotypeTrack: React.FC<Props> = ({
   urls,
@@ -314,13 +313,13 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
   // shows, with the ROI it was assessed at. A load in flight claims no risk state, a
   // failed one says so (#510, #529), and without an ROI none was assessed (#588).
   const trackLabel = (() => {
-    const where = chroms.length === 1 ? `on ${chromLabel(chroms[0])}` : `across ${chroms.length} chromosomes`;
+    const where = chroms.length === 1 ? `on ${formatChromosomeLabel(chroms[0])}` : `across ${chroms.length} chromosomes`;
     const subject = `Haplotypes of ${sampleId} ${where}`;
     if (isError) return `${subject}: failed to load; risk state: unavailable`;
     if (isLoading || !layout) return `${subject}: loading`;
     const shown = `${subject}${segments.length ? '' : ': no data'}`;
     if (!analysisRegion || !riskState) return `${shown}; risk state: not assessed, no region of interest`;
-    const riskScope = `${chromLabel(String(analysisRegion.chr))}:${analysisRegion.start.toLocaleString()}–${analysisRegion.end.toLocaleString()}`;
+    const riskScope = `${formatChromosomeLabel(String(analysisRegion.chr))}:${analysisRegion.start.toLocaleString()}–${analysisRegion.end.toLocaleString()}`;
     return `${shown}; risk state at ${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}`;
   })();
 

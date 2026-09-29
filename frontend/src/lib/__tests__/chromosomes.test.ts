@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareChromosomes } from '../chromosomes';
+import { compareChromosomes, formatChromosomeLabel, normalizeChrom } from '../chromosomes';
 
 describe('compareChromosomes', () => {
   it('sorts chromosomes in natural order', () => {
@@ -15,3 +15,31 @@ describe('compareChromosomes', () => {
   });
 });
 
+describe('normalizeChrom', () => {
+  it.each([
+    ['chr1', '1'],
+    ['CHR01', '1'],
+    [' 7 ', '7'],
+    ['chrx', 'X'],
+    ['chrM', 'MT'],
+    ['chrMT', 'MT'],
+    ['m', 'MT'],
+  ])('%j → %j', (input, expected) => {
+    expect(normalizeChrom(input)).toBe(expected);
+  });
+});
+
+// #602 — one name per chromosome on screen: the mitochondrion is chrM however the data
+// spells it, as the viewer header already wrote it.
+describe('formatChromosomeLabel', () => {
+  it.each([
+    ['1', 'chr1'],
+    ['chr1', 'chr1'],
+    ['X', 'chrX'],
+    ['MT', 'chrM'],
+    ['chrMT', 'chrM'],
+    ['chrM', 'chrM'],
+  ])('%j → %j', (input, expected) => {
+    expect(formatChromosomeLabel(input)).toBe(expected);
+  });
+});
