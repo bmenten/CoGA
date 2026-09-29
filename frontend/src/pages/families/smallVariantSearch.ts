@@ -160,6 +160,9 @@ export interface SmallVariant {
   annotation_extra?: Record<string, string | number | boolean | null>;
   transcripts?: SmallVariantTranscript[];
   genotypes: SmallVariantGenotype[];
+  // On chrX/chrY outside the pseudo-autosomal regions, where a male carries one copy
+  // (#621). Set by the backend, which holds the PAR bounds.
+  hemizygous_in_males?: boolean;
   review?: SmallVariantReview | null;
   internal_cohort?: SmallVariantInternalCohort | null;
   priority?: SmallVariantPriority | null;

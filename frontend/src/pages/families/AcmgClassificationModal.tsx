@@ -221,6 +221,7 @@ export default function AcmgClassificationModal({
         role: member.role,
         affected: Boolean(member.affected) || member.clinical_status === 'affected',
         gt: variant.genotypes.find((g) => g.sample === member.sample_id)?.gt,
+        sex: member.sex,
       })),
     }),
     [members, variant],

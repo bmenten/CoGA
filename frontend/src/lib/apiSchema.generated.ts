@@ -1688,6 +1688,7 @@ export interface NiptVariantOut {
   annotation_extra: Record<string, unknown>;
   transcripts: SmallVariantTranscriptOut[];
   genotypes: GenotypeOut[];
+  hemizygous_in_males: boolean;
   review: SmallVariantReviewOut | null;
   internal_cohort: VariantInternalCohortOut | null;
   priority: VariantPriorityOut | null;
@@ -2886,6 +2887,7 @@ export interface VariantOut {
   annotation_extra: Record<string, unknown>;
   transcripts: SmallVariantTranscriptOut[];
   genotypes: GenotypeOut[];
+  hemizygous_in_males: boolean;
   review: SmallVariantReviewOut | null;
   internal_cohort: VariantInternalCohortOut | null;
   priority: VariantPriorityOut | null;

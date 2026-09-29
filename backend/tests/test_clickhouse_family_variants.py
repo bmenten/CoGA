@@ -169,7 +169,7 @@ def test_small_variant_out_primary_in_flat_fields_others_in_transcripts() -> Non
         calls=[_small_call("PROBAND", "0/1")],
     )
 
-    variant = _small_variant_out(record)
+    variant = _small_variant_out(record, assembly_name="GRCh38")
 
     # The primary transcript (MANE select NM_000059.4) is carried by the flat
     # fields and not duplicated in `transcripts`.
@@ -184,6 +184,24 @@ def test_small_variant_out_primary_in_flat_fields_others_in_transcripts() -> Non
     assert variant.transcripts[0].canonical is True
     assert variant.transcripts[0].hgvsc == "ENST00000380152.8:c.7007G>A"
     assert variant.transcripts[0].primary is False
+
+
+def test_small_variant_out_says_where_a_male_is_hemizygous() -> None:
+    # The ACMG dialog reads it to apply the sex-aware de novo rule (#621): the PAR
+    # bounds stay in one place, the backend.
+    def flagged(chrom: str, pos: int, assembly: str | None = "GRCh38") -> bool:
+        record = SmallVariantRecord(
+            variant_key=1, variant_id=f"{chrom}-{pos}", chr=chrom, start=pos, end=pos,
+            ref="A", alt="G", source=None, rsid=None, filters=[], gene_symbols=[],
+            annotations=[], calls=[_small_call("PROBAND", "1")],
+        )
+        return _small_variant_out(record, assembly_name=assembly).hemizygous_in_males
+
+    assert flagged("chrX", 31_500_000)
+    assert flagged("chrY", 2_787_000)
+    assert not flagged("chrX", 1_000_000)  # PAR1
+    assert not flagged("chr1", 31_500_000)
+    assert not flagged("chrX", 31_500_000, assembly="T2T-CHM13v2.0")  # PARs not known
 
 
 def _family_context() -> FamilyMetadataContext:
