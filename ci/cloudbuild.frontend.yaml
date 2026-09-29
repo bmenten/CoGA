@@ -2,9 +2,13 @@
 # `COPY frontend/...`). VITE_API_BASE_URL is baked at build time and must be /api so
 # the SPA calls same-origin; the load balancer routes /api/* to the backend.
 #
+# _PROBLEM_REPORT_URL is where users report a problem: the CMGGMC probleemmelding route
+# (TF-16, TF-17). Left empty, the build shows no problem-report link rather than the public
+# GitHub issue form.
+#
 # Invoke from repo root:
 #   gcloud builds submit --config=ci/cloudbuild.frontend.yaml \
-#     --substitutions=_IMAGE=<url>,_REPO_URL=<url>,_RELEASES_URL=<url>,_ISSUES_URL=<url> .
+#     --substitutions=_IMAGE=<url>,_REPO_URL=<url>,_RELEASES_URL=<url>,_ISSUES_URL=<url>,_PROBLEM_REPORT_URL=<url> .
 
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -22,6 +26,8 @@ steps:
       - VITE_GITHUB_RELEASES_URL=${_RELEASES_URL}
       - --build-arg
       - VITE_GITHUB_ISSUES_URL=${_ISSUES_URL}
+      - --build-arg
+      - VITE_PROBLEM_REPORT_URL=${_PROBLEM_REPORT_URL}
       - -t
       - ${_IMAGE}
       - .
@@ -36,3 +42,4 @@ substitutions:
   _REPO_URL: ""
   _RELEASES_URL: ""
   _ISSUES_URL: ""
+  _PROBLEM_REPORT_URL: ""

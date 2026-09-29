@@ -25,6 +25,8 @@ import {
 } from './smallVariantSearch';
 import { type StructuralVariant } from './structuralVariantSearch';
 import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
+import ReportSoftwareIdentity from './ReportSoftwareIdentity';
+import { formatSoftwareVersion, useReportBuild } from '../../lib/appVersion';
 import {
   acmgClassificationLabel,
   buildSegregationSentence,
@@ -302,6 +304,8 @@ const FamilyReportPage: React.FC = () => {
   });
   // The moment the report was produced (becomes the frozen sign-out time in Phase 3).
   const generatedAt = useMemo(() => new Date(), []);
+  // The build that renders the report, named in its footer (TF-15 §1).
+  const reportBuild = useReportBuild();
 
   // Evidence drift: classifications whose backing annotation changed since they
   // were made — a sign-out guardrail against stale interpretations.
@@ -389,6 +393,8 @@ const FamilyReportPage: React.FC = () => {
     driftFailed ? 'the evidence-drift check' : null,
     auditFailed ? 'the audit trail' : null,
     manifestFailed ? 'the annotation provenance' : null,
+    // A printout that cannot name the build that produced it is not complete either.
+    reportBuild.failed ? 'the software version' : null,
   ].filter((part): part is string => Boolean(part));
   const retryFailedParts = () => {
     geneProfileQueries.forEach((query) => {
@@ -398,6 +404,7 @@ const FamilyReportPage: React.FC = () => {
     if (driftFailed) void refetchDrift();
     if (auditFailed) void refetchAudit();
     if (manifestFailed) void refetchManifest();
+    if (reportBuild.failed) reportBuild.retry();
   };
   const incompleteNotice = failedParts.length
     ? `Incomplete — ${joinWithAnd(failedParts)} could not be loaded, so this printout does not show the whole report.`
@@ -978,11 +985,7 @@ const FamilyReportPage: React.FC = () => {
           {latestSignout.software_version ? (
             <p className="report-signout-software">
               <span className="report-footer-label">Software</span>{' '}
-              {`CoGA ${latestSignout.software_version}${
-                latestSignout.git_sha && latestSignout.git_sha !== 'unknown'
-                  ? ` (${latestSignout.git_sha.slice(0, 7)})`
-                  : ''
-              }`}
+              {formatSoftwareVersion(latestSignout.software_version, latestSignout.git_sha)}
             </p>
           ) : null}
           {latestSignout.qc_status ? (
@@ -1420,6 +1423,7 @@ const FamilyReportPage: React.FC = () => {
         <p className="report-footer-timestamp">
           Report generated {generatedAt.toISOString().replace('T', ' ').slice(0, 16)} UTC
         </p>
+        <ReportSoftwareIdentity reportBuild={reportBuild} />
         <p className="report-footer-versions">
           <span className="report-footer-label">Modules &amp; versions:</span>{' '}
           {manifestFailed

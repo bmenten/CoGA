@@ -573,6 +573,21 @@ tbody tr:hover {
   color: var(--color-white);
 }
 
+/* The device label (TF-15 §1): name and build, regulatory status, manufacturer, links. */
+.app-footer-line {
+  margin: 0;
+}
+
+.app-footer-line + .app-footer-line {
+  margin-top: 0.45rem;
+}
+
+/* A version and a git SHA are case-sensitive identifiers: shown as the build states them. */
+.app-footer-version {
+  text-transform: none;
+  letter-spacing: 0.06em;
+}
+
 .breadcrumb-shell {
   position: sticky;
   top: 4.15rem;
@@ -12607,6 +12622,12 @@ a.button-danger:hover {
   font-weight: 600;
 }
 .report-footer-versions {
+  margin: 0;
+  line-height: 1.5;
+}
+/* The build that rendered the report and the device label (TF-15 §1). */
+.report-footer-software,
+.report-footer-device {
   margin: 0;
   line-height: 1.5;
 }

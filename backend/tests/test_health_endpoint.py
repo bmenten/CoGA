@@ -72,6 +72,23 @@ def test_version_endpoint_reports_build_identity() -> None:
         app.state.skip_startup_tasks = False
 
 
+def test_version_endpoint_serves_a_named_model_for_the_frontend() -> None:
+    # The app footer and every report footer show this build (TF-15 §1), read through the
+    # type generated from this schema (scripts/generate-api-types.py). A bare
+    # dict[str, str] response has no named schema, so no type is generated for it.
+    spec = app.openapi()
+    response = spec["paths"]["/api/version"]["get"]["responses"]["200"]
+    assert response["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/VersionOut"
+    }
+    model = spec["components"]["schemas"]["VersionOut"]
+    assert set(model["required"]) == {"version", "git_sha"}
+    assert {name: prop["type"] for name, prop in model["properties"].items()} == {
+        "version": "string",
+        "git_sha": "string",
+    }
+
+
 def test_fastapi_app_version_is_wired_from_settings() -> None:
     # version= is threaded into FastAPI(...), so OpenAPI/docs report the build identity.
     assert app.version == settings.app_version

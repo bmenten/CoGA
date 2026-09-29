@@ -20,6 +20,7 @@ from sqlalchemy import text
 from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
+from ..schemas import VersionOut
 
 router = APIRouter(tags=["health"])
 
@@ -30,14 +31,16 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/version")
-async def version() -> dict[str, str]:
+@router.get("/version", response_model=VersionOut)
+async def version() -> VersionOut:
     """Build identity of the running backend (public, no PHI).
 
     The same ``app_version``/``git_sha`` settings are frozen into every signed
-    report's content hash, so this is the device identity, not a secret.
+    report's content hash, so this is the device identity, not a secret. The app
+    footer and every report footer show it (TF-15 §1), read through the frontend
+    type generated from ``VersionOut``.
     """
-    return {"version": settings.app_version, "git_sha": settings.git_sha}
+    return VersionOut(version=settings.app_version, git_sha=settings.git_sha)
 
 
 async def _postgres_ok() -> bool:

@@ -7,7 +7,10 @@ import AssemblyScopeBanner from '../../components/AssemblyScopeBanner';
 import PageState from '../../components/PageState';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import type { ApiNiptCoverageSummary, ApiNiptSummary } from '../../lib/apiTypes';
+import { useReportBuild } from '../../lib/appVersion';
 import NiptClassificationBlock from './NiptClassificationBlock';
+import ReportSoftwareIdentity from './ReportSoftwareIdentity';
+import { joinWithAnd } from './reportNarrative';
 import {
   CATEGORY_LABELS,
   NIPT_INHERITANCE_GROUPS,
@@ -158,6 +161,10 @@ const FamilyNiptReportPage: React.FC = () => {
     [variantPage],
   );
 
+  // The moment the report was produced, and the build that renders it (TF-15 §1).
+  const generatedAt = useMemo(() => new Date(), []);
+  const reportBuild = useReportBuild();
+
   // Bucket candidates into the actionable inheritance groups; anything left over
   // (categories 2 / 8 / unclassified) goes to the "Other" catch-all.
   const { grouped, other } = useMemo(() => {
@@ -252,13 +259,15 @@ const FamilyNiptReportPage: React.FC = () => {
   const failedParts = [
     summaryFailed ? 'the fetal-fraction estimate' : null,
     coverageFailed ? 'the coverage QC' : null,
+    // A printout that cannot name the build that produced it is not complete either.
+    reportBuild.failed ? 'the software version' : null,
   ].filter((part): part is string => Boolean(part));
 
   return (
     <div className="page-shell report-page space-y-6">
       {failedParts.length ? (
         <p className="report-print-notice print-only">
-          Incomplete — {failedParts.join(' and ')} could not be loaded, so this printout does not
+          Incomplete — {joinWithAnd(failedParts)} could not be loaded, so this printout does not
           show the whole report.
         </p>
       ) : null}
@@ -287,7 +296,7 @@ const FamilyNiptReportPage: React.FC = () => {
       {failedParts.length ? (
         <section className="surface-card report-incomplete no-print" role="alert">
           <p className="report-paragraph">
-            <strong>Parts of this report could not be loaded:</strong> {failedParts.join(' and ')}.
+            <strong>Parts of this report could not be loaded:</strong> {joinWithAnd(failedParts)}.
             A printout says the report is incomplete.{' '}
             <button
               type="button"
@@ -295,6 +304,7 @@ const FamilyNiptReportPage: React.FC = () => {
               onClick={() => {
                 if (summaryFailed) void refetchSummary();
                 if (coverageFailed) void refetchCoverage();
+                if (reportBuild.failed) reportBuild.retry();
               }}
             >
               Retry
@@ -444,6 +454,13 @@ const FamilyNiptReportPage: React.FC = () => {
           </>
         )}
       </section>
+
+      <footer className="surface-card report-footer">
+        <p className="report-footer-timestamp">
+          Report generated {generatedAt.toISOString().replace('T', ' ').slice(0, 16)} UTC
+        </p>
+        <ReportSoftwareIdentity reportBuild={reportBuild} />
+      </footer>
     </div>
   );
 };

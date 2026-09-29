@@ -4,16 +4,25 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import FamilyReportPage from '../FamilyReportPage';
+import { APP_VERSION_QUERY_KEY } from '../../../lib/appVersion';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
+  // GET /version, the build every report footer names (TF-15 §1). Answered here for every
+  // test, so each test's fake backend serves only the family.
+  version: vi.fn(),
 }));
 
 vi.mock('../../../lib/api', () => ({
-  default: apiMock,
+  default: {
+    get: (...args: unknown[]) => (args[0] === '/version' ? apiMock.version() : apiMock.get(...args)),
+    post: apiMock.post,
+  },
 }));
+
+const RUNNING_BUILD = { version: '0.2.0', git_sha: '0123456789abcdef' };
 
 const GRCH38_REFERENCE = {
   speciesName: 'Homo sapiens',
@@ -125,9 +134,9 @@ const mockApi = () => {
   });
 };
 
-const renderPage = () =>
+const renderPage = (queryClient = createTestQueryClient()) =>
   render(
-    <QueryClientProvider client={createTestQueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/families/F1/report']}>
         <Routes>
           <Route path="/families/:familyId/report" element={<FamilyReportPage />} />
@@ -136,9 +145,13 @@ const renderPage = () =>
     </QueryClientProvider>,
   );
 
+const reportFooter = async () =>
+  (await screen.findByText(/Report generated .* UTC/)).closest('footer') as HTMLElement;
+
 describe('FamilyReportPage', () => {
   beforeEach(() => {
     referenceMock.value = GRCH38_REFERENCE;
+    apiMock.version.mockResolvedValue({ data: RUNNING_BUILD });
   });
 
   it('drafts a report for each reported variant with description, criteria, gene and HPO', async () => {
@@ -168,6 +181,45 @@ describe('FamilyReportPage', () => {
     expect(await screen.findByText(/Report generated .* UTC/)).toBeInTheDocument();
     expect(screen.getByText(/ClinVar 2026-05/)).toBeInTheDocument();
     expect(screen.getByText(/Reference assembly GRCh38 \(2013-12-01\)/)).toBeInTheDocument();
+  });
+
+  // TF-15 §1: the version is "in every report footer" — it was only in the sign-out block of
+  // a signed report.
+  it('names the running build and the device label in the report footer', async () => {
+    mockApi();
+    renderPage();
+
+    const footer = await reportFooter();
+    expect(await within(footer).findByText('CoGA 0.2.0 (0123456)')).toBeInTheDocument();
+    expect(footer).toHaveTextContent('Software: CoGA 0.2.0 (0123456)');
+    expect(footer).toHaveTextContent(
+      'In-house IVD per IVDR Article 5(5) · Not CE-marked · For internal CMGG use only',
+    );
+    expect(footer).toHaveTextContent(
+      'Manufacturer: Center for Medical Genetics, Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent',
+    );
+    // A report whose build is known prints as complete.
+    expect(screen.queryByText(/so this printout does not show the whole report/)).not.toBeInTheDocument();
+  });
+
+  it('asks for the running build each time the report is opened, never showing the cached one', async () => {
+    mockApi();
+    let answer: (value: unknown) => void = () => undefined;
+    apiMock.version.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const queryClient = createTestQueryClient();
+    // What the app footer read before a redeploy.
+    queryClient.setQueryData([...APP_VERSION_QUERY_KEY], { version: '0.1.0', git_sha: 'fedcba9876543210' });
+    renderPage(queryClient);
+
+    // Until the server answers, the report names no build: not the cached one.
+    const footer = await reportFooter();
+    expect(within(footer).getByText('CoGA — loading the version…')).toBeInTheDocument();
+    expect(screen.queryByText(/CoGA 0\.1\.0/)).not.toBeInTheDocument();
+    expect(apiMock.version).toHaveBeenCalledTimes(1);
+
+    answer({ data: RUNNING_BUILD });
+    expect(await within(footer).findByText('CoGA 0.2.0 (0123456)')).toBeInTheDocument();
+    expect(screen.queryByText(/CoGA 0\.1\.0/)).not.toBeInTheDocument();
   });
 
   it('shows an empty state when no variants are tagged for reporting', async () => {
@@ -1137,6 +1189,37 @@ describe('FamilyReportPage', () => {
         expect(screen.queryByText(/Parts of this report could not be loaded/)).not.toBeInTheDocument(),
       );
       expect(screen.getByText(/ClinVar 2026-05/)).toBeInTheDocument();
+    });
+
+    it('says the software version could not be loaded, on screen and in print, and retries it', async () => {
+      mockApi();
+      let failing = true;
+      apiMock.version.mockImplementation(() =>
+        failing ? serverError() : Promise.resolve({ data: RUNNING_BUILD }),
+      );
+      renderPage();
+
+      const footer = await reportFooter();
+      expect(
+        await within(footer).findByText('CoGA — the version could not be loaded'),
+      ).toBeInTheDocument();
+      // A printout that cannot name the build that produced it is not complete.
+      expect(screen.getByText(/so this printout does not show the whole report/)).toHaveTextContent(
+        'Incomplete — the software version could not be loaded',
+      );
+
+      failing = false;
+      fireEvent.click(
+        within(screen.getByText(/Parts of this report could not be loaded/).closest('section')!).getByRole(
+          'button',
+          { name: 'Retry' },
+        ),
+      );
+
+      expect(await within(footer).findByText('CoGA 0.2.0 (0123456)')).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.queryByText(/Parts of this report could not be loaded/)).not.toBeInTheDocument(),
+      );
     });
   });
 });
