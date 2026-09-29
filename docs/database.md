@@ -33,7 +33,7 @@ same file.
 | `gene_info_refresh_jobs` | queued and running gene-reference syncs |
 | `blacklist` | problem regions per assembly |
 | `clinical_cnvs` | known CNV syndromes per assembly, with their ClinVar support (below) |
-| `clinical_cnv_kb_jobs` | Progress of admin-triggered rebuilds of the clinical CNV knowledgebase, per assembly (`queued`, `running`, `completed` or `failed`), with the number of rows inserted, the error and the tail of the build log. |
+| `clinical_cnv_kb_jobs` | Progress of admin-triggered rebuilds of the clinical CNV knowledgebase, per assembly (`queued`, `running`, `completed` or `failed`), with the number of rows inserted, the error and the tail of the build log. At most one job is queued or running at a time (`idx_clinical_cnv_kb_jobs_one_active`, a unique index on a constant). `worker_id` and `heartbeat_at` mark the worker running a job; a job whose heartbeat is ten minutes old is closed as failed. |
 | `dgv_variants` | Database of Genomic Variants entries per assembly, with a gain/loss/mixed class |
 | `segmental_duplications` | segmental duplications and low-copy repeats per assembly |
 | `gene_panels`, `gene_panel_genes` | panels and their gene lists |

@@ -415,6 +415,13 @@ class Settings(BaseSettings):
         default="/app/scripts/clinical_cnv_knowledgebase.py",
         alias="CLINICAL_CNV_KB_SCRIPT_PATH",
     )
+    # A build longer than this is stopped and its job marked failed; a normal one takes
+    # minutes, so the bound only catches a build that hangs (a stalled download).
+    clinical_cnv_kb_build_timeout_seconds: int = Field(
+        default=7200,
+        ge=60,
+        alias="CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS",
+    )
     paraphase_medical_regions_path: str | None = Field(
         default="/data/ref-data/paraphase-medical-regions.json",
         alias="PARAPHASE_MEDICAL_REGIONS_PATH",

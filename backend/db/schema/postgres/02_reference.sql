@@ -166,12 +166,54 @@ CREATE TABLE IF NOT EXISTS clinical_cnv_kb_jobs (
     inserted integer DEFAULT 0 NOT NULL,
     error text,
     log text,
+    -- The worker running the job and its last sign of life: a running job whose heartbeat is
+    -- older than the stale window has lost its worker, and is closed as failed.
+    worker_id text,
+    heartbeat_at timestamp with time zone,
     CONSTRAINT clinical_cnv_kb_jobs_pkey PRIMARY KEY (id),
     CONSTRAINT clinical_cnv_kb_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
     CONSTRAINT clinical_cnv_kb_jobs_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_clinical_cnv_kb_jobs_active ON clinical_cnv_kb_jobs USING btree (status) WHERE (status = ANY (ARRAY['queued'::text, 'running'::text]));
+-- Added after the table shipped; the baselines re-run on every boot, so an existing
+-- deployment picks the columns up without a migration ledger.
+ALTER TABLE clinical_cnv_kb_jobs
+    ADD COLUMN IF NOT EXISTS worker_id text,
+    ADD COLUMN IF NOT EXISTS heartbeat_at timestamp with time zone;
+
+-- One active rebuild at a time: the index key is a constant, so a second queued or running
+-- job collides with the first. The index it replaces, idx_clinical_cnv_kb_jobs_active, was
+-- keyed on the status, so a job could be queued beside a running one; that job's switch to
+-- running then failed, and it stayed queued, refusing every later rebuild.
+-- A database built before the fix is upgraded in place (the baselines re-run on every boot).
+-- Until the new index exists, the jobs the old one let through are closed as failed, keeping
+-- only the most recently started running build, so that the new index can be built and a
+-- job left queued no longer refuses every rebuild. A no-op once the new index exists: a later
+-- boot never closes an active job.
+-- Benign if an old instance still serving starts a job closed here in the same instant: it then runs.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND indexname = 'idx_clinical_cnv_kb_jobs_one_active'
+    ) THEN
+        UPDATE clinical_cnv_kb_jobs
+        SET status = 'failed',
+            completed_at = now(),
+            error = 'Closed on upgrade to one active rebuild at a time. Request a new rebuild if it is still needed.'
+        WHERE status IN ('queued', 'running')
+          AND id IS DISTINCT FROM (
+              SELECT id FROM clinical_cnv_kb_jobs
+              WHERE status = 'running'
+              ORDER BY started_at DESC NULLS LAST, requested_at DESC
+              LIMIT 1
+          );
+    END IF;
+END
+$$;
+DROP INDEX IF EXISTS idx_clinical_cnv_kb_jobs_active;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_clinical_cnv_kb_jobs_one_active ON clinical_cnv_kb_jobs USING btree ((true)) WHERE (status = ANY (ARRAY['queued'::text, 'running'::text]));
 CREATE INDEX IF NOT EXISTS idx_clinical_cnv_kb_jobs_requested_at ON clinical_cnv_kb_jobs USING btree (requested_at DESC);
 
 -- ---------------------------------------------------------------------------

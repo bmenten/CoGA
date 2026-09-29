@@ -550,6 +550,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   father's sex check; artifact auto-seeding counts only the assay's cfDNA samples and never lists a
   common or ClinVar pathogenic/conflicting variant; the Sample-QC NIPT summary describes the checks
   that run (CR-108, #646).
+- **Clinical CNV knowledgebase rebuild no longer gets stuck** — a rebuild requested during another,
+  or cut off by a restart or redeploy, stayed active for good and refused every later rebuild. A
+  rebuild is now refused with a 409 only while another is really active; one whose server has
+  gone quiet for ten minutes is closed as failed; a build stops after
+  `CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS` (default two hours); a database holding a stuck job is
+  repaired on upgrade (CR-104, #642).
 
 ### Security
 
