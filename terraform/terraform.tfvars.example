@@ -7,9 +7,10 @@ zone       = "europe-west1-b"
 
 app_domain = "coga.cmgg.be"
 
-# Container images (CI sets these per build; example shown for manual applies).
-backend_image  = "europe-west1-docker.pkg.dev/my-registry-project/coga/coga-backend:main"
-frontend_image = "europe-west1-docker.pkg.dev/my-registry-project/coga/coga-frontend:main"
+# Container images (CI sets these per build; example shown for manual applies). CI tags
+# a main build `main-<12-character commit>` and a release build with its release tag.
+backend_image  = "europe-west1-docker.pkg.dev/my-registry-project/coga/coga-backend:main-0123456789ab"
+frontend_image = "europe-west1-docker.pkg.dev/my-registry-project/coga/coga-frontend:main-0123456789ab"
 
 # CMEK: fully-qualified crypto key id, same region as the resources it protects.
 # Encryption is mandatory (organization policy) — there is no on/off toggle; this is

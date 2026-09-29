@@ -509,6 +509,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   `clinical_cnvs`, so nothing the app shows changes (#623).
 - **CNV page: failed or missing** — the clinical CNV page said "CNV not found." for any failure; a
   server error now reads "CNV could not be loaded", with the reason and a retry (#625).
+- **Deploy: a merge to main ships its code** — every main build was tagged `:main`, so after the
+  first deploy Terraform saw no new image: Cloud Run kept the previous code and the database
+  migration job never ran again. Main builds are now tagged with their commit,
+  `main-<12-character commit>` (CR-094, #632).
 
 ### Security
 

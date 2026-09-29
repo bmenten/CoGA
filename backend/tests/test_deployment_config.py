@@ -6,7 +6,9 @@ diff does not always catch a port that is published again or a mount that is wri
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -80,6 +82,64 @@ def test_only_one_trigger_deploys_to_the_single_environment() -> None:
     assert "vars.COGA_DEPLOY_TRIGGER == 'release'" in deploy_if
     assert "(vars.COGA_DEPLOY_TRIGGER || 'main') == 'main'" in deploy_if
     assert "COGA_TFVARS" in workflow and "ci.auto.tfvars" in workflow
+
+
+def _build_workflow() -> dict:
+    return yaml.safe_load((REPO / ".github" / "workflows" / "build.yml").read_text())
+
+
+def _run_build_metadata(repo: Path, *, ref_name: str, ref_type: str) -> dict[str, str]:
+    """Run the workflow's build-metadata step in ``repo``, as the runner would; return its outputs."""
+    step = next(s for s in _build_workflow()["jobs"]["prepare"]["steps"] if s.get("id") == "meta")
+    outputs = repo / "github_output"
+    outputs.write_text("")
+    env = {
+        "PATH": os.environ["PATH"],
+        "REPO_NAME": "CoGA",
+        "REF_NAME": ref_name,
+        "REF_TYPE": ref_type,
+        "GITHUB_OUTPUT": str(outputs),
+    }
+    subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]], cwd=repo, env=env, check=True)
+    return dict(line.split("=", 1) for line in outputs.read_text().splitlines())
+
+
+def test_each_main_build_deploys_an_image_tag_of_its_own(tmp_path: Path) -> None:
+    # Terraform deploys the image string it is given. A tag every main build reuses
+    # (`:main`) leaves it no change to apply: Cloud Run keeps the image it runs, and the
+    # db-migrate job, keyed on the backend image, never runs again after the first deploy.
+    git_env = {
+        "PATH": os.environ["PATH"],
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "CI",
+        "GIT_AUTHOR_EMAIL": "ci@example.org",
+        "GIT_COMMITTER_NAME": "CI",
+        "GIT_COMMITTER_EMAIL": "ci@example.org",
+    }
+
+    def commit() -> None:
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "change"], cwd=tmp_path, env=git_env, check=True)
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=git_env, check=True)
+    (tmp_path / "VERSION").write_text("1.4.0\n")
+    commit()
+    first = _run_build_metadata(tmp_path, ref_name="main", ref_type="branch")
+    commit()
+    second = _run_build_metadata(tmp_path, ref_name="main", ref_type="branch")
+
+    assert first["tag"] == f"main-{first['git_sha']}" and len(first["git_sha"]) == 12
+    assert second["tag"] != first["tag"], "two commits on main must deploy two different images"
+    assert _run_build_metadata(tmp_path, ref_name="v1.4.0", ref_type="tag")["tag"] == "v1.4.0"
+
+    # The images are built and deployed under that tag.
+    jobs = _build_workflow()["jobs"]
+    image_tag = ":${{ needs.prepare.outputs.tag }}"
+    for job in ("build-backend", "build-frontend"):
+        assert any(image_tag in step.get("run", "") for step in jobs[job]["steps"]), job
+    plan = next(step for step in jobs["deploy"]["steps"] if step.get("name") == "Terraform Plan")["run"]
+    assert plan.count(image_tag) == 2, "both images reach Terraform with the build's tag"
+    assert "triggers_replace = [var.backend_image]" in _terraform("migrate.tf")
 
 
 def _terraform(name: str) -> str:
