@@ -75,7 +75,7 @@ async def _exercise_cache(root: Path) -> dict:
 
 @pytest.fixture(scope="module")
 def run(tmp_path_factory, request) -> dict:
-    from backend.app.services import family_package_import as package_import
+    from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
     if not (_FIXTURE / "manifest.yaml").exists():
@@ -85,7 +85,7 @@ def run(tmp_path_factory, request) -> dict:
     shutil.copytree(_FIXTURE, root)
 
     mp = pytest.MonkeyPatch()
-    mp.setattr(package_import.settings, "family_import_roots", [str(root.parent)])
+    mp.setattr(settings, "family_import_roots", [str(root.parent)])
     request.addfinalizer(mp.undo)
 
     snapshot = _harness.run_async(lambda: _exercise_cache(root))

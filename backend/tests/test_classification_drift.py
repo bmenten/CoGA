@@ -5,7 +5,7 @@ import types
 from datetime import datetime, timezone
 
 from backend.app.services import classification_drift_service as cds
-from backend.app.services.small_variant_review_pg import build_evidence_snapshot
+from backend.app.services.small_variant_review_acmg import build_evidence_snapshot
 
 _WHEN = datetime(2026, 6, 25, tzinfo=timezone.utc)
 

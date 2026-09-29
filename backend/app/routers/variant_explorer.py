@@ -24,7 +24,7 @@ from ..schemas import (
 )
 from ..services.access_control import CurrentUser, is_admin_user
 from ..services.panel_metadata_service import _fetch_panel_genes
-from ..services.small_variant_review_pg import list_small_variant_tag_definitions
+from ..services.small_variant_review_tags import list_small_variant_tag_definitions
 from ..services.variant_explorer_service import (
     GlobalVariantFilters,
     export_global_small_variants,

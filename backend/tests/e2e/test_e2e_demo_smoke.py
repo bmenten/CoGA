@@ -185,7 +185,7 @@ async def _collect(nipt_root: Path, nipt_family_id: str) -> dict:
 
 @pytest.fixture(scope="module")
 def smoke(tmp_path_factory, request) -> dict:
-    from backend.app.services import family_package_import as package_import
+    from backend.app.core.config import settings
     from backend.tests.e2e import _harness
 
     if not (_NIPT_BUNDLE / "manifest.yaml").exists() or not (_QUARTET_BUNDLE / "metadata").exists():
@@ -197,7 +197,7 @@ def smoke(tmp_path_factory, request) -> dict:
 
     # Authorize the temp NIPT copy for package import.
     mp = pytest.MonkeyPatch()
-    mp.setattr(package_import.settings, "family_import_roots", [str(base)])
+    mp.setattr(settings, "family_import_roots", [str(base)])
     request.addfinalizer(mp.undo)
 
     return _harness.run_async(lambda: _collect(nipt_root, nipt_family_id))

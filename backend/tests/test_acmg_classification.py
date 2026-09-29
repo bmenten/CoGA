@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from backend.app.schemas import AcmgClassificationPayload, AcmgCriterionSelection
 from backend.app.services import acmg_points
-from backend.app.services.small_variant_review_pg import (
+from backend.app.services.small_variant_review_acmg import (
     _acmg_json_or_none,
     _deserialize_acmg,
     _normalize_acmg_payload,

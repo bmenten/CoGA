@@ -29,7 +29,7 @@ from .review_pg_utils import (
     _normalize_tags,
     _require_uuid,
 )
-from .small_variant_review_pg import list_small_variant_tag_definitions
+from .small_variant_review_tags import list_small_variant_tag_definitions
 
 
 def _normalize_cnv_acmg_payload(

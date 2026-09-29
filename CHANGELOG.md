@@ -213,6 +213,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Filter form sections (#528)** — the small-variant filter form, one ~1,800-line component, is
   split into a shared section shell and 11 section components; a markup snapshot recorded before the
   split shows the form renders exactly as it did (#600).
+- **Package-import and review imports (#528)** — modules import the package-import and
+  small-variant review helpers from the modules that define them, not through
+  `family_package_import.py` and `small_variant_review_pg.py`, which passed 213 and 19 names on
+  (#619).
 
 ### Removed
 
