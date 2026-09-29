@@ -1,4 +1,4 @@
-// The running build (TF-15 §1, TF-18 §2): read from /api/version, shown in the app footer
+// The running build (TF-15 §1, TF-18 §2) — REQ-UI-008 (risks H9, H10): read from /api/version, shown in the app footer
 // and on every report footer.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

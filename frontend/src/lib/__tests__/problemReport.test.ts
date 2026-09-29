@@ -1,4 +1,4 @@
-// Where a user reports a problem (TF-15 §7, TF-16, TF-17): in the clinical build a problem
+// Where a user reports a problem (TF-15 §7, TF-16, TF-17) — REQ-UI-008 (risk H10): in the clinical build a problem
 // goes through the CMGG route, never the public GitHub issue form.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

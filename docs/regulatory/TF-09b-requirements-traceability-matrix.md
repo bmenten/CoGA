@@ -155,6 +155,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-UI-005 | `components/RequireAuth.tsx`, `RequireAdmin.tsx` | `RequireAuth.test.tsx`; `RequireAdmin.test.tsx` (unauth→login, viewer→dashboard, admin/superuser→content) | H11 | ✅ |
 | REQ-UI-006 | `pages/auth/LoginPage.tsx` | `LoginPage.test.tsx` (next-path validation) | H11 | ✅ |
 | REQ-UI-007 | `components/visualizations/Pedigree.tsx` | `Pedigree.test.tsx` (affected/carrier/QC ring) | H4 | ✅ |
+| REQ-UI-008 | `routers/health.py` (`/version`, `VersionOut`); `lib/appVersion.ts`, `lib/deviceLabel.ts`, `lib/problemReport.ts`; `components/Layout.tsx` (app footer); `pages/families/ReportSoftwareIdentity.tsx` in `FamilyReportPage.tsx` and `FamilyNiptReportPage.tsx`; `pages/product/NewFeaturesPage.tsx` | `test_health_endpoint.py::test_version_endpoint_serves_a_named_model_for_the_frontend`; `appVersion.test.ts`; `problemReport.test.ts`; `Layout.test.tsx` (label, version, route); `FamilyReportPage.test.tsx` and `FamilyNiptReportPage.test.tsx` (footer build and label, asked again on open, failure marked incomplete); `NewFeaturesPage.test.tsx` (route) | H9, H10 | ✅ |
 | REQ-RPT-001 | `pages/families/FamilyReportPage.tsx`; `report_signout_service.py` | `FamilyReportPage.test.tsx` | H9 | ✅ |
 | REQ-RPT-002 | `pages/families/FamilyNiptReportPage.tsx` | `FamilyNiptReportPage.test.tsx` | H6 | ✅ |
 

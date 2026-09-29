@@ -190,6 +190,7 @@ small-variant/SV (REQ-DIAG-001/003), classification (REQ-CLASS-*) and Sample QC 
 | REQ-UI-005 | Route guards enforce authentication (`RequireAuth`) and admin-only areas (`RequireAdmin`). | C | H11 |
 | REQ-UI-006 | Login redirect (`next`) is validated against unsafe targets. | B | H11 |
 | REQ-UI-007 | The pedigree renders affected/carrier status and a per-sample QC ring. | B | H4 |
+| REQ-UI-008 | The app and every report (family and NIPT) identify the running build (version and commit) and carry the in-house-IVD label and the manufacturer ([TF-15 §1](TF-15-instructions-for-use.md)); a build that cannot be loaded is said as such, and marks a report printout incomplete. Problem reports go to the configured CMGGMC route, never a public tracker; without the route, a production build shows no problem-report link ([TF-15 §7](TF-15-instructions-for-use.md)). | B | H9, H10 |
 
 ### 4.3 Reporting (REQ-RPT)
 
