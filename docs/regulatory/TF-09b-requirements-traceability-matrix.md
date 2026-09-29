@@ -66,7 +66,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-DIAG-003 | `services/sv_gene_index_service.py::get_sv_second_hits` | `test_sv_gene_index.py`; `test_clickhouse_family_variants.py` (compound-het); `SvSecondHitBadge.test.tsx` | H2 | ✅ |
 | REQ-DIAG-004 | `services/repeat_expansion_pg.py::ingest_trgt_text`, `classify_repeat_count` | `test_repeat_expansion_pg.py` | — | ✅ |
 | REQ-DIAG-005 | `services/paraphase_pg.py` | `test_paraphase_pg.py` (SMN metrics, regions) | — | ✅ |
-| REQ-DIAG-006 | `services/mitochondrial_analysis.py` | `test_mitochondrial_analysis.py` (maternal, heteroplasmy) | H13 | ✅ |
+| REQ-DIAG-006 | `services/mitochondrial_analysis.py` | `test_mitochondrial_analysis.py` (maternal transmission from the mother the pedigree links to the proband, heteroplasmy, ClinVar status) | H13 | ✅ |
 | REQ-DIAG-007 | `services/variant_prioritization*.py` | `test_variant_prioritization.py` | H1 | ✅ |
 | REQ-DIAG-008 | `services/monarch_semsim.py`, `hpo_service.py` | `test_monarch_semsim.py`; `test_hpo_service.py` | — | ✅ |
 
@@ -138,7 +138,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | Req | Implementation | Verifying test | Risk | Status |
 | --- | --- | --- | --- | --- |
 | REQ-MITO-001 | `services/mitochondrial_analysis.py` (mtDNA) + `clickhouse_family_variants.py` (nuclear mito-gene panel) | `test_mitochondrial_analysis.py`; `test_clickhouse_family_variants.py` — combined-assay clinical concordance → TF-10 §3.5 | H1 | ◐ |
-| REQ-MITO-002 | `services/mitochondrial_analysis.py` (heteroplasmy + maternal transmission) | `test_mitochondrial_analysis.py` (maternal, heteroplasmy, haplogroup) | H13 | ✅ |
+| REQ-MITO-002 | `services/mitochondrial_analysis.py` (heteroplasmy + maternal transmission) | `test_mitochondrial_analysis.py` (maternal transmission from the pedigree-linked mother, three-generation pedigree; heteroplasmy; haplogroup) | H13 | ✅ |
 | REQ-MITO-003 | `services/sample_integrity_service.py` (checks); `report_signout_service.py::sign_out_report` (Sample-QC sign-out gate, REQ-TRACE-012); `mitochondrial_analysis.py` (per-sample haplogroups) | `test_sample_integrity_qc.py`; `test_sample_integrity_service.py`; `test_report_signout.py` (Sample-QC gate); `test_mitochondrial_analysis.py` (haplogroup listed). No automated maternal-lineage check: the haplogroup comparison is manual | H4 | ◐ |
 
 ### Non-functional
@@ -149,7 +149,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-PERF-003 | input validation across services (analysis/classification layer) | NIPT `test_nipt_analysis.py::test_*fails_safe_on_empty_input`; ACMG `test_acmg_classification.py::test_no_accepted_criteria_*`; CNV `test_cnv_acmg_points.py` (empty/missing-flag/malformed); haplotype `haplotypeRisk.test.ts` (empty→uninformative) | H1,H6 | ✅ |
 | REQ-UI-001 | `pages/families/FamilyNiptPage.tsx`; `NiptClassificationBlock.tsx` | `FamilyNiptPage.test.tsx`; `NiptClassificationBlock.test.tsx` (category/confidence/VAF/flags) | H6, H1, H10 | ✅ |
 | REQ-UI-002 | `components/visualizations/HaplotypePhasedTrack.tsx` | `HaplotypePhasedTrack.test.tsx` | H5, H10 | ✅ |
-| REQ-UI-003 | `pages/families/AcmgClassificationModal.tsx`; `AcmgScaleBar.tsx`; `CnvScaleBar.tsx` | `AcmgClassificationModal.test.tsx`; `AcmgScaleBar.test.tsx`; `CnvScaleBar.test.tsx` | H3, H10 | ✅ |
+| REQ-UI-003 | `pages/families/AcmgClassificationModal.tsx`; `AcmgScaleBar.tsx`; `CnvScaleBar.tsx`; the suggestions in `lib/acmg/evaluate.ts`, `evaluateMito.ts` and `pedigree.ts` (PM6 / PS2 parents from the pedigree links), with `lib/clinvar.ts` (PP5 / BP6) | `AcmgClassificationModal.test.tsx`; `AcmgScaleBar.test.tsx`; `CnvScaleBar.test.tsx`; `evaluate.test.ts`, `evaluateMito.test.ts`, `pedigree.test.ts`, `clinvar.test.ts` | H3, H10 | ✅ |
 | REQ-UI-004 | `pages/families/FamilyReportPage.tsx` | `FamilyReportPage.test.tsx` | H8, H9, H10 | ✅ |
 | REQ-UI-005 | `components/RequireAuth.tsx`, `RequireAdmin.tsx` | `RequireAuth.test.tsx`; `RequireAdmin.test.tsx` (unauth→login, viewer→dashboard, admin/superuser→content) | H11 | ✅ |
 | REQ-UI-006 | `pages/auth/LoginPage.tsx` | `LoginPage.test.tsx` (next-path validation) | H11 | ✅ |

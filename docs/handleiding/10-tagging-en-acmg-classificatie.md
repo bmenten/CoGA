@@ -76,13 +76,13 @@ De evaluator leest de variant, en waar beschikbaar het genprofiel (ClinGen-dosag
 | **PP2** | gnomAD missense-Z | Missense in een gen dat weinig missense verdraagt |
 | **PP3** / **BP4** | REVEL, SpliceAI, AlphaMissense | De voorspellers bepalen de sterkte; het ene criterium telt als tegenargument voor het andere |
 | **BP7** | gevolg en SpliceAI | Synoniem zonder voorspelde splice-impact |
-| **PP5** / **BP6** | ClinVar | ClinVar zegt pathogeen → PP5; benigne → BP6 |
+| **PP5** / **BP6** | ClinVar | ClinVar zegt pathogeen → PP5; benigne → BP6. *Conflicting classifications of pathogenicity* is geen van beide: geen PP5 en geen BP6 |
 | **PP4** | Monarch-fenotypescore of HPO-overlap | Hoe specifiek het fenotype bij het gen past |
-| **PM6**, **PP1**, **BS4** | genotypes in de familie | De novo (afwezig bij beide ouders) → PM6; bij een zoon op X of Y buiten de pseudo-autosomale regio's beslist alleen de ouder die dat chromosoom doorgeeft. Meerdere aangedane dragers → PP1 (*consider*); een aangedaan familielid zonder de variant → BS4 (*consider*). PS2 blijft een manuele keuze |
+| **PM6**, **PP1**, **BS4** | genotypes in de familie | De novo (afwezig bij beide ouders) → PM6. De ouders zijn de vader en moeder die de stamboom aan de proband koppelt, niet de leden met die rol: ook een grootouder heeft de rol vader of moeder. Heeft een ouder minder dan 8 reads, of is de proband homozygoot (buiten de X of Y van een zoon), dan wordt PM6 *consider* in plaats van toegepast. Bij een zoon op X of Y buiten de pseudo-autosomale regio's beslist alleen de ouder die dat chromosoom doorgeeft. Meerdere aangedane dragers → PP1 (*consider*); een aangedaan familielid zonder de variant → BS4 (*consider*). PS2 blijft een manuele keuze |
 
 De drempels volgen de ClinGen-kalibratie van 2022 en staan als benoemde constanten in de evaluator. Kon het genprofiel of de HPO-lijst niet geladen worden, dan zegt het bewijs dat het criterium *niet beoordeeld* is, niet dat het niet geldt. Criteria die een menselijk oordeel vragen dat CoGA niet uit de annotatie kan afleiden (o.a. PS1, PS3, PS4, PM1, PM3, PM5 en BP2), stelt de evaluator nooit als van toepassing voor.
 
-**Waar in de code:** `frontend/src/lib/acmg/evaluate.ts` (de evaluator) en `criteria.ts` (de catalogus van de 28 criteria); het ophalen van de context in `frontend/src/pages/families/AcmgClassificationModal.tsx`.
+**Waar in de code:** `frontend/src/lib/acmg/evaluate.ts` (de evaluator), `pedigree.ts` (de ouders uit de stamboom) en `criteria.ts` (de catalogus van de 28 criteria); de ClinVar-lezing in `frontend/src/lib/clinvar.ts`; het ophalen van de context in `frontend/src/pages/families/AcmgClassificationModal.tsx`.
 
 ### De puntenschaal en de vijf klassen
 
@@ -103,7 +103,7 @@ Het totaal geeft de klasse: **≥ 10** pathogeen (klasse 5), **6 tot 9** waarsch
 
 ### Mitochondriale varianten
 
-Een variant uit de mtDNA-analyse gaat naar een **aparte evaluator** volgens de ClinGen-specificaties voor mtDNA (McCormick 2020). mtDNA erft via de moeder en is haploïd, dus: geen de-novoregels, strengere frequentiedrempels, PVS1 alleen in eiwitcoderende loci, geen in-silicovoorspellers, en segregatie via de moederlijn en de heteroplasmie. De puntenschaal en de klassen zijn gelijk.
+Een variant uit de mtDNA-analyse gaat naar een **aparte evaluator** volgens de ClinGen-specificaties voor mtDNA (McCormick 2020). mtDNA erft via de moeder en is haploïd, dus: geen de-novoregels, strengere frequentiedrempels, PVS1 alleen in eiwitcoderende loci, geen in-silicovoorspellers, en segregatie via de moederlijn en de heteroplasmie. De moederlijn begint bij de moeder die de stamboom aan de proband koppelt; PP1 vraagt dat zij de variant draagt. De puntenschaal en de klassen zijn gelijk.
 
 **Waar in de code:** `frontend/src/lib/acmg/evaluateMito.ts`.
 
