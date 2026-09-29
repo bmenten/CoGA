@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.app.services.clickhouse_family_variants import SmallVariantCall, SmallVariantRecord
+from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 from backend.app.services import clickhouse_variant_storage
 from backend.app.services.genotypes import genotype_vocabulary
 

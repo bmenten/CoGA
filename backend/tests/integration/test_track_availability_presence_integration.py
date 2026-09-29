@@ -14,11 +14,8 @@ from uuid import uuid4
 
 import pytest
 
-from backend.app.services.clickhouse_family_variants import (
-    SmallVariantCall,
-    SmallVariantRecord,
-    _small_variant_present_sample_names,
-)
+from backend.app.services.clickhouse_family_variants import _small_variant_present_sample_names
+from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
@@ -127,13 +124,13 @@ def test_small_variant_presence_aggregate_against_clickhouse() -> None:
 
 
 def _sv_call(sample: str, gt: str):
-    from backend.app.services.clickhouse_family_variants import StructuralVariantCall
+    from backend.app.services.clickhouse_variant_records import StructuralVariantCall
 
     return StructuralVariantCall(sample=sample, gt=gt, qual=100.0, read_support=10, filter="PASS")
 
 
 def _sv_record(variant_id: str, chrom: str, start: int, end: int, calls):
-    from backend.app.services.clickhouse_family_variants import StructuralVariantRecord
+    from backend.app.services.clickhouse_variant_records import StructuralVariantRecord
 
     return StructuralVariantRecord(
         variant_key=None, variant_id=variant_id, chr=chrom, start=start, end=end,

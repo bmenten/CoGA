@@ -6,30 +6,34 @@ from clickhouse_connect.driver.exceptions import DatabaseError
 from fastapi import HTTPException
 
 from backend.app.services.clickhouse_family_variants import (
-    PanelFilterConstraints,
-    Region,
-    _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS,
-    SmallVariantCall,
-    SmallVariantRecord,
-    StructuralVariantCall,
-    StructuralVariantRecord,
-    _compound_het_partner_map,
-    _chromosome_options,
     _execute_clickhouse,
     _read_small_summary_cache,
-    _inheritance_result_items,
     _fetch_small_variant_rows,
-    _flexible_status_match,
-    _small_detail_filter_clauses,
-    _small_variant_where_clauses,
-    _small_variant_out,
-    _small_record_matches,
-    _normalize_small_variant_inheritance,
     _prioritized_small_variants_page,
     _prioritized_structural_variants_page,
     get_family_compound_het_candidates,
     get_family_small_variants_page,
     get_family_structural_variants_page,
+)
+from backend.app.services.clickhouse_variant_queries import (
+    _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS,
+    _compound_het_partner_map,
+    _chromosome_options,
+    _inheritance_result_items,
+    _small_detail_filter_clauses,
+    _small_variant_where_clauses,
+    _small_variant_out,
+    _small_record_matches,
+    _normalize_small_variant_inheritance,
+)
+from backend.app.services.clickhouse_variant_records import (
+    PanelFilterConstraints,
+    Region,
+    SmallVariantCall,
+    SmallVariantRecord,
+    StructuralVariantCall,
+    StructuralVariantRecord,
+    _flexible_status_match,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import (
@@ -2068,12 +2072,11 @@ async def test_small_variant_track_mode_samples_across_filtered_region(
 def test_small_panel_filter_skips_region_inlining_for_large_gene_panels():
     """A large gene panel (e.g. the Mendeliome) must not inline thousands of region
     triples into the query — gene-symbol + gene-index matching covers it."""
-    from backend.app.services.clickhouse_family_variants import (
+    from backend.app.services.clickhouse_variant_queries import (
         _PANEL_REGION_INLINE_LIMIT,
-        PanelFilterConstraints,
-        Region,
         _small_panel_filter_condition,
     )
+    from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region
 
     context = _family_context()
     filters = SmallVariantQueryFilters(page=1, page_size=100)
@@ -2096,11 +2099,8 @@ def test_small_panel_filter_skips_region_inlining_for_large_gene_panels():
 
 
 def test_small_panel_filter_keeps_regions_for_normal_panels():
-    from backend.app.services.clickhouse_family_variants import (
-        PanelFilterConstraints,
-        Region,
-        _small_panel_filter_condition,
-    )
+    from backend.app.services.clickhouse_variant_queries import _small_panel_filter_condition
+    from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region
 
     context = _family_context()
     filters = SmallVariantQueryFilters(page=1, page_size=100)
@@ -2374,7 +2374,7 @@ async def test_prioritized_structural_variants_tie_order_is_deterministic(
 
 
 def test_clamp_small_variant_page_bounds_deep_offset() -> None:
-    from backend.app.services.clickhouse_family_variants import (
+    from backend.app.services.clickhouse_variant_queries import (
         _SMALL_COUNT_LIMIT,
         _clamp_small_variant_page,
         _page_offset,

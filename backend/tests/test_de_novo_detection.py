@@ -2,13 +2,12 @@
 
 from types import SimpleNamespace
 
-from backend.app.services.clickhouse_family_variants import (
-    SmallVariantCall,
-    SmallVariantRecord,
+from backend.app.services.clickhouse_variant_queries import (
     _call_is_confident_hom_ref,
     _child_parent_map,
     _record_matches_de_novo,
 )
+from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 
 
 def _call(sample: str, gt: str, dp: int | None = 30) -> SmallVariantCall:

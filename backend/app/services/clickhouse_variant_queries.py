@@ -42,9 +42,6 @@ from .variant_prioritization import (
     MODE_HOM_RECESSIVE,
     MODE_X_LINKED,
 )
-
-# Re-exported so existing import paths and orig.<name> attribute reads keep resolving.
-
 from .clickhouse_variant_records import (
     CLINVAR_FREQUENCY_RESCUE_TERMS,
     Region,

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from fastapi import HTTPException, UploadFile
 import pytest
 
-from backend.app.services.clickhouse_variant_storage import build_small_variant_id
+from backend.app.services.clickhouse_variant_ids import build_small_variant_id
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services import haplotype_block_builder, variant_upload_service
 from backend.app.services.annotation_table_parser import _coerce_int, _vep_location_allele_key

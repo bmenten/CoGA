@@ -16,11 +16,11 @@ from ..schemas import (
     MitoDNAVariantOut,
     MitoDNAVariantSampleCallOut,
 )
-from .clickhouse_family_variants import (
+from .clickhouse_family_variants import _fetch_small_variant_rows
+from .clickhouse_variant_records import (
     PanelFilterConstraints,
     SmallVariantCall,
     SmallVariantRecord,
-    _fetch_small_variant_rows,
 )
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .family_metadata_context import FamilyMetadataContext

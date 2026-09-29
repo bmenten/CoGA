@@ -188,6 +188,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   ideograms, the interval and repeat tracks, the variant explorer, the SV summary, the clinical CNV
   explorer, and the admin and sign-up pages. The coverage floors rise to just below the new figures
   (lines 78 %), with a floor of their own for the visualisations (#579).
+- **ClickHouse variant imports (#528)** — modules import the ClickHouse query and record helpers
+  from the modules that define them, not through `clickhouse_family_variants.py`, which passed
+  120 names on. That ends a dependency cycle between the family-variant layer and variant storage
+  that two function-level imports had hidden (#584).
 
 ### Removed
 

@@ -2579,7 +2579,7 @@ return f&quot;{query}\n        LIMIT %(limit)s OFFSET %(offset)s&quot;
 <tr>
 <td><strong>ClickHouse-variantlaag</strong></td>
 <td><code>clickhouse_variant_storage.py</code>, <code>clickhouse_variant_queries.py</code>, <code>clickhouse_variant_records.py</code>, <code>clickhouse_variant_rows.py</code>, <code>clickhouse_variant_ids.py</code>, <code>clickhouse_small_variants.py</code>, <code>clickhouse_family_variants.py</code>, <code>clickhouse_interval_tracks.py</code>, <code>clickhouse_integrity_monitor.py</code></td>
-<td>Opbouw en uitvoering van variant-queries tegen ClickHouse. De "leaf"-modules <code>clickhouse_variant_queries.py</code> (het <em>bouwen</em> van de SQL-tekst + parameters, met allowlist- en int-coercie) en <code>clickhouse_variant_records.py</code> (het <em>parsen</em> van ruwe rijen naar records) scheiden query-opbouw van resultaatverwerking.</td>
+<td>Opbouw en uitvoering van variant-queries tegen ClickHouse. De "leaf"-modules <code>clickhouse_variant_queries.py</code> (het <em>bouwen</em> van de SQL-tekst + parameters, met allowlist- en int-coercie) en <code>clickhouse_variant_records.py</code> (het <em>parsen</em> van ruwe rijen naar records) scheiden query-opbouw van resultaatverwerking. Code importeert hun helpers rechtstreeks uit die twee modules; <code>clickhouse_family_variants.py</code> exporteert ze niet opnieuw, en de opslag- en rijmodules hangen niet van die familielaag af (#528).</td>
 </tr>
 <tr>
 <td><strong>Familie-metadata &amp; context</strong></td>
