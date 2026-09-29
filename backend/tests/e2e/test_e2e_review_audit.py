@@ -151,6 +151,14 @@ async def _collect(root: Path) -> dict:
         r["review"] = _cap(
             await ac.put(f"/api/families/{FAMILY}/small-variants/{PLP_VARIANT_ID}/review", json=review_payload)
         )
+        # The review as a variant list serves it: the list the tables, the report and the
+        # ACMG dialog opened from a list read.
+        r["list_after_review"] = _cap(
+            await ac.get(
+                f"/api/families/{FAMILY}/small-variants",
+                params={"review_tag": "report", "page_size": 50},
+            )
+        )
         r["audit"] = _cap(await ac.get(f"/api/families/{FAMILY}/clinical-audit"))
         r["integrity_clinical"] = _cap(
             await ac.get("/api/admin/integrity/verify", params={"table": "clinical_audit_events", "family_id": FAMILY})
@@ -297,3 +305,21 @@ def test_signout_check_flags_a_review_edited_after_signout(snap):
     resp = _resp(snap, "check_after_edit")
     assert resp["json"]["matches"] is False, resp["json"]
     assert "reported_variants" in resp["json"]["changed_sections"]
+
+
+def test_a_variant_list_serves_the_review_with_its_acmg_criteria(snap):
+    # Through the real list endpoint, ClickHouse and Postgres: the saved criteria come back,
+    # with the class the server recomputed, as the review save returned them.
+    saved = _resp(snap, "review")
+    resp = _resp(snap, "list_after_review")
+    assert resp["status"] == 200, resp["text"]
+    [variant] = [v for v in resp["json"]["variants"] if v["_id"] == PLP_VARIANT_ID]
+    review = variant["review"]
+    assert review["acmg"] is not None, review
+    assert [(c["code"], c["strength"], c["accepted"]) for c in review["acmg"]["criteria"]] == [
+        ("PVS1", "very_strong", True),
+        ("PM2", "supporting", True),
+        ("BA1", "stand_alone", False),
+    ]
+    assert review["acmg"] == saved["json"]["acmg"]
+    assert review["acmg_unreadable"] is False
