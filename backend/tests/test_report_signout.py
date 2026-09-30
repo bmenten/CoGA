@@ -800,14 +800,23 @@ def test_snapshot_gaps_list_what_the_record_could_not_capture() -> None:
 _HPO_PREDATES_GAP = {"section": "modules", "item": "HPO", "reason": "signed before CoGA recorded its version"}
 
 
-def test_snapshot_gaps_name_the_hpo_release_a_record_signed_before_it_was_recorded_lacks() -> None:
-    # A record signed before CoGA froze the HPO release does not say which release its
-    # phenotype matching ran on. It carries no list of the reference modules it looked up.
-    older = {"modules": [{"key": "clinvar", "version": "2026-05"}], "sequencing_qc": {"thresholds": {}, "samples": {}}}
+def test_snapshot_gaps_name_a_reference_module_added_after_the_record_was_signed() -> None:
+    # CoGA started recording the HPO release after this record was signed: its list of the
+    # reference modules it looked up does not name HPO, and it holds no HPO version.
+    older = {
+        "modules": [{"key": "clinvar", "version": "2026-05"}],
+        "reference_modules": ["assembly", "gene_loci", "monarch"],
+        "sequencing_qc": {"thresholds": {}, "samples": {}},
+    }
     assert rss.snapshot_gaps(older) == [_HPO_PREDATES_GAP]
     # One whose pipeline declared an HPO version holds one, so nothing is missing.
     declared = {**older, "modules": [*older["modules"], {"key": "hpo", "label": "HPO", "version": "2025-01"}]}
     assert rss.snapshot_gaps(declared) == []
+    # A record that names no looked-up modules has each one it lacks named, never assumed.
+    unnamed = {key: value for key, value in older.items() if key != "reference_modules"}
+    assert [gap["item"] for gap in rss.snapshot_gaps(unnamed)] == [
+        rss.module_label(key) for key in ams.REFERENCE_MODULE_KEYS
+    ]
 
 
 def _capture_audit(monkeypatch) -> dict:
@@ -1013,10 +1022,9 @@ def test_signout_check_flags_a_review_changed_after_signout(monkeypatch) -> None
     assert out["changed_sections"] == ["reported_variants"]
 
 
-def test_signout_check_older_snapshot_sections(monkeypatch) -> None:
-    # A sign-out made before sections were frozen: absent reported SVs mean none were
-    # signed (so a CNV reported since then is a change); other absent sections are not
-    # comparable rather than "changed".
+def test_signout_check_does_not_compare_a_section_the_record_does_not_hold(monkeypatch) -> None:
+    # A section CoGA adds after a record was signed is not in that record: it is not
+    # comparable, and does not on its own make the page "changed".
     _patch_check(monkeypatch, reviews=[_REVIEW])
     signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
     for key in ("reported_structural_variants", "sequencing_qc"):
@@ -1025,7 +1033,7 @@ def test_signout_check_older_snapshot_sections(monkeypatch) -> None:
 
     out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
     assert out["matches"] is True
-    assert out["not_compared"] == ["sequencing_qc"]
+    assert out["not_compared"] == ["reported_structural_variants", "sequencing_qc"]
 
     async def _one_cnv(session, family_uuid):
         return [{"variant_id": "DEL-1-1000-2000", "tags": ["report"]}]
@@ -1033,8 +1041,8 @@ def test_signout_check_older_snapshot_sections(monkeypatch) -> None:
     monkeypatch.setattr(rss, "_reported_structural_reviews", _one_cnv)
     out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
     assert out["matches"] is False
-    # The CNV was reported without frozen evidence, so it is in the SV/CNV drift as well.
-    assert out["changed_sections"] == ["reported_structural_variants", "structural_drift"]
+    # The CNV was reported without frozen evidence, so the SV/CNV drift the record holds changed.
+    assert out["changed_sections"] == ["structural_drift"]
 
 
 # ---------------------------------------------------------------------------
@@ -1415,9 +1423,12 @@ def test_a_signed_version_names_what_its_record_could_not_capture(monkeypatch) -
     assert ReportSignoutDetail.model_validate(detail).model_dump()["not_captured"] == gaps
 
 
-def test_a_version_signed_before_the_hpo_release_was_recorded_names_it(monkeypatch) -> None:
-    # The pinned record holds no list of the reference modules it looked up.
-    assert _detail_of(monkeypatch, _pre_gate_row())["not_captured"] == [_HPO_PREDATES_GAP]
+def test_a_version_that_names_no_looked_up_modules_names_each_one_it_lacks(monkeypatch) -> None:
+    # The pinned record holds no list of the reference modules it looked up, and only a
+    # pipeline module: every reference module is named as missing, none assumed looked up.
+    gaps = _detail_of(monkeypatch, _pre_gate_row())["not_captured"]
+    assert [gap["item"] for gap in gaps] == [rss.module_label(key) for key in ams.REFERENCE_MODULE_KEYS]
+    assert {gap["reason"] for gap in gaps} == {"signed before CoGA recorded its version"}
 
 
 def test_a_complete_signed_version_names_nothing_missing(monkeypatch) -> None:
@@ -1553,12 +1564,12 @@ def _patch_manifest(monkeypatch, platform: dict) -> None:
 
 
 def _signed_before_hpo_was_recorded(monkeypatch) -> dict:
-    """A snapshot as a sign-out made before this change froze it: no HPO module, and no
-    list of the reference modules it looked up."""
+    """A snapshot signed before CoGA recorded the HPO release: no HPO module, and HPO not
+    among the reference modules it looked up (a module CoGA added later)."""
     _patch_check(monkeypatch, reviews=[_REVIEW])
     _patch_manifest(monkeypatch, _ASSEMBLY)
     signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
-    signed.pop("reference_modules", None)
+    signed["reference_modules"] = [key for key in signed["reference_modules"] if key != "hpo"]
     return signed
 
 
@@ -1624,11 +1635,11 @@ def test_a_record_signed_before_the_hpo_release_was_recorded_still_verifies(monk
     assert chain.verified is True, chain
 
 
-def test_signout_check_does_not_call_a_record_signed_before_the_hpo_release_changed(monkeypatch) -> None:
-    # The live manifest now carries the HPO release, which a record signed before it was
-    # recorded does not hold. Comparing the module lists as they are would report every
+def test_signout_check_does_not_call_a_record_signed_before_a_module_was_added_changed(monkeypatch) -> None:
+    # The live manifest now carries the HPO release, which a record signed before CoGA
+    # recorded it does not hold. Comparing the module lists as they are would report every
     # such record as changed ("annotation and pipeline versions") though nothing it froze
-    # changed. Like a snapshot section an older record predates (#508), the module is not
+    # changed. Like a snapshot section a record predates (#508), the module is not
     # compared, and the record is said not to hold it.
     signed = _signed_before_hpo_was_recorded(monkeypatch)
     _patch_manifest(monkeypatch, {**_ASSEMBLY, **_HPO})
@@ -1946,11 +1957,6 @@ _PRE_SV_EVIDENCE_SNAPSHOT = {
 }
 _PRE_SV_EVIDENCE_CONTENT_HASH = "6156d04eb0c40c35c459890a1da9c365ad6f0639ca055e96e12bd44349da383b"
 _PRE_SV_EVIDENCE_ROW_HASH = "ac4958a8d570a1702d62c384ceb6aeaf833bc8f338e89435f0c623b5f1333af7"
-_SV_EVIDENCE_PREDATES_GAP = {
-    "section": "reported_structural_variants",
-    "item": "Evidence of the reported structural variants and CNVs",
-    "reason": "signed before CoGA froze it",
-}
 
 
 def _pre_sv_evidence_row() -> dict:
@@ -1995,23 +2001,19 @@ def _as_now(monkeypatch, *, reported: list, structural_drifted: list) -> None:
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
 
 
-def test_signout_check_does_not_compare_the_sv_evidence_an_older_record_predates(monkeypatch) -> None:
-    # The same reported CNV, now with frozen evidence that has not drifted. The older record
-    # froze no evidence and no SV/CNV drift: neither is compared, and the record is not
-    # called changed; the page is told the record holds no SV evidence.
+def test_signout_check_compares_the_sv_evidence_a_record_does_not_hold(monkeypatch) -> None:
+    # The same reported CNV, now with frozen evidence that has not drifted. The pinned
+    # record froze no evidence in its reported SV and holds no SV/CNV drift section: the
+    # section is not compared, but the reported SV is, whole, so the record reads as
+    # changed rather than as matching (records from before the release candidate get no
+    # special reading, #681).
     row = _pre_sv_evidence_row()
     _as_now(monkeypatch, reported=[_reported_sv()], structural_drifted=[])
     out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
-    assert out["matches"] is True, out
-    assert out["changed_sections"] == []
-    assert out["not_compared"] == ["reported_structural_variants.evidence_snapshot", "structural_drift"]
-    assert out["not_captured"] == [_SV_EVIDENCE_PREDATES_GAP]
-
-    # Everything else about the reported CNV is still compared.
-    _as_now(monkeypatch, reported=[_reported_sv(cnv_class="cnv_class_4")], structural_drifted=[])
-    out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
-    assert out["matches"] is False
+    assert out["matches"] is False, out
     assert out["changed_sections"] == ["reported_structural_variants"]
+    assert out["not_compared"] == ["structural_drift"]
+    assert out["not_captured"] == []
 
 
 def test_signout_check_flags_sv_evidence_that_drifted_after_sign_out(monkeypatch) -> None:
@@ -2025,11 +2027,3 @@ def test_signout_check_flags_sv_evidence_that_drifted_after_sign_out(monkeypatch
     out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()))
     assert out["matches"] is False
     assert out["changed_sections"] == ["structural_drift"]
-
-
-def test_snapshot_gaps_name_the_sv_evidence_an_older_record_lacks() -> None:
-    assert _SV_EVIDENCE_PREDATES_GAP in rss.snapshot_gaps(_PRE_SV_EVIDENCE_SNAPSHOT)
-    # An older record with no reported SV lacks nothing; a newer one holds the evidence.
-    assert rss.snapshot_gaps({**_PRE_SV_EVIDENCE_SNAPSHOT, "reported_structural_variants": []}) == []
-    newer = {**_PRE_SV_EVIDENCE_SNAPSHOT, "structural_drift": {"checked": 1, "drifted_count": 0, "drifted": []}}
-    assert rss.snapshot_gaps(newer) == []

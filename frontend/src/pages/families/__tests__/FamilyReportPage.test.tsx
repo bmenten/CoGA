@@ -649,6 +649,7 @@ describe('FamilyReportPage', () => {
     reference_modules: ['assembly', 'gene_loci', 'monarch', 'hpo'],
     software: { version: '0.1.0', git_sha: 'abc1234def567' },
     drift: { checked: 1, drifted_count: 0, drifted: [] },
+    structural_drift: { checked: 0, drifted_count: 0, drifted: [] },
     sample_qc: {
       overall_status: 'pass',
       application: 'wgs',
@@ -822,10 +823,8 @@ describe('FamilyReportPage', () => {
       expect(screen.getByText(/No reported classification had changed evidence/)).toHaveTextContent(
         'No reported classification had changed evidence when this version was signed (1 checked).',
       );
-      // Signed before CoGA froze the SV/CNV evidence: the record says it holds no drift for them.
-      expect(
-        screen.getByText(/The record predates the drift check of the structural-variant and CNV classifications/),
-      ).toBeInTheDocument();
+      // The record holds the SV/CNV drift check too, so no note says it is missing.
+      expect(screen.queryByText(/holds no drift check of the structural-variant/)).not.toBeInTheDocument();
 
       // The footer: the versions and the build as signed, and the build that rendered it.
       const footer = container.querySelector('footer')!;
@@ -889,7 +888,19 @@ describe('FamilyReportPage', () => {
       print.mockRestore();
     });
 
-    it('says what a version signed before a section was frozen does not hold', async () => {
+    it('says when a record holds the small-variant drift check but not the SV/CNV one', async () => {
+      const withoutStructuralDrift: Record<string, unknown> = { ...SIGNED_SNAPSHOT };
+      delete withoutStructuralDrift.structural_drift;
+      mockSignedCase({ snapshot: withoutStructuralDrift });
+      renderPage();
+
+      await signedRecordCard();
+      expect(
+        screen.getByText(/The signed record holds no drift check of the structural-variant and CNV classifications/),
+      ).toBeInTheDocument();
+    });
+
+    it('says what a record that does not hold a section lacks', async () => {
       const older = {
         family_id: 'F1',
         assembly: 'GRCh38',
@@ -904,8 +915,9 @@ describe('FamilyReportPage', () => {
 
       const card = await signedRecordCard();
       expect(card).toHaveTextContent('Signed with not in the signed record');
-      expect(screen.getByText(/signed before CoGA froze reported structural variants/)).toHaveTextContent(
-        'Signed version 2 records 1 reported small variant and no reported structural variants in family F1: it was signed before CoGA froze reported structural variants, so its record holds none, even if the report showed some.',
+      // A section the record does not hold reads as not in the record, never as "none".
+      expect(screen.getByText(/no list of reported structural variants/)).toHaveTextContent(
+        'Signed version 2 records 1 reported small variant and no list of reported structural variants in family F1.',
       );
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       expect(within(checks).getAllByText('Not in the signed record.')).toHaveLength(3);

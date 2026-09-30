@@ -73,8 +73,7 @@ _ASSERTED_RELATIONSHIPS = frozenset({"parent-child", "sibling"})
 # The dataset lists an incomplete-import flag records; frozen sorted so the hash is stable.
 _IMPORT_FLAG_DATASET_LISTS = ("failed_datasets", "imported_datasets")
 
-# The snapshot section holding the SV/CNV evidence drift. Its absence marks a record
-# signed before SV/CNV classifications froze their evidence.
+# The snapshot section holding the SV/CNV evidence drift.
 STRUCTURAL_DRIFT_SECTION = "structural_drift"
 
 
@@ -442,17 +441,16 @@ async def _canonical_sequencing_qc(
     }
 
 
-# The reference-layer modules the software looked up before a snapshot recorded the list
-# (see REFERENCE_MODULE_KEYS): a record signed then holds no HPO release.
-_LEGACY_REFERENCE_MODULES: tuple[str, ...] = ("assembly", "gene_loci", "monarch")
-
-
 def _reference_modules_looked_up(snapshot: Mapping[str, Any]) -> set[str]:
-    """The reference-layer modules the software that built ``snapshot`` looked up."""
+    """The reference-layer modules the software that built ``snapshot`` looked up.
+
+    Every snapshot records them (``reference_modules``); one that does not names none, so
+    each reference module it lacks is said to be missing, never assumed looked up.
+    """
     recorded = snapshot.get("reference_modules")
     if isinstance(recorded, list):
         return {str(key) for key in recorded}
-    return set(_LEGACY_REFERENCE_MODULES)
+    return set()
 
 
 def _module_keys(modules: Any) -> set[str]:
@@ -469,10 +467,9 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
     A lookup that failed while the snapshot was built is frozen as an explicit marker,
     never as an empty block that reads like "nothing there". This lists those markers so
     the audit event and the report page can say what the signed record lacks. It also
-    lists a reference module a record signed before CoGA recorded it does not hold (the
-    HPO release): the record cannot say which version its report was produced with. And,
-    for a record signed before SV/CNV classifications froze their evidence, that its
-    reported structural variants carry none.
+    lists a reference module CoGA added after the record was signed (not among the
+    modules it looked up, and not held): the record cannot say which version its report
+    was produced with.
     """
     if not isinstance(snapshot, Mapping):
         return []
@@ -507,14 +504,6 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
                         "reason": "signed before CoGA recorded its version",
                     }
                 )
-    if STRUCTURAL_DRIFT_SECTION not in snapshot and snapshot.get("reported_structural_variants"):
-        gaps.append(
-            {
-                "section": "reported_structural_variants",
-                "item": "Evidence of the reported structural variants and CNVs",
-                "reason": "signed before CoGA froze it",
-            }
-        )
     return gaps
 
 
@@ -583,8 +572,8 @@ async def build_report_snapshot(
         "assembly": manifest.get("assembly"),
         "modules": manifest.get("modules", []),
         # The reference-layer modules looked up for `modules`: one of them missing there
-        # was not loaded at sign-out. A record without this list was signed before CoGA
-        # recorded the HPO release, which is how the sign-out check tells the two apart.
+        # was not loaded at sign-out. A reference module CoGA adds later is not in this
+        # list, which is how the sign-out check tells the two apart and leaves it out.
         "reference_modules": list(REFERENCE_MODULE_KEYS),
         # Build identity of the software that produced this snapshot, frozen into the
         # content hash so a signed report is bound to the exact code that made it.
@@ -603,9 +592,7 @@ async def build_report_snapshot(
             "drifted": drifted,
         },
         # The evidence drift of the structural-variant and CNV classifications, sorted and
-        # gated like `drift`. A record signed without this section predates the SV/CNV
-        # evidence snapshot: the sign-out check does not compare it (nor the evidence in
-        # its reported SVs), and snapshot_gaps says it holds none.
+        # gated like `drift`.
         STRUCTURAL_DRIFT_SECTION: {
             "checked": structural["checked"] + len(structural_unsnapshotted),
             "drifted_count": len(structural_drifted),
@@ -1059,11 +1046,8 @@ REPORT_CONTENT_SECTIONS = (
     "sequencing_qc",
     "import_incomplete",
 )
-# A sign-out made before a section was frozen has no value for it. For the reported
-# structural variants that means none were signed — the page could show them but the
-# snapshot could not hold them — so the absent section compares as an empty list. Any
-# other absent section cannot be compared and is reported as such.
-_ABSENT_SECTION_DEFAULTS: dict[str, Any] = {"reported_structural_variants": []}
+# A section a record does not hold (one CoGA adds after it was signed) cannot be compared
+# and is reported as such.
 
 
 def _section_fingerprint(value: Any) -> str:
@@ -1077,12 +1061,12 @@ def _modules_comparable_with(
 ) -> tuple[list[Any], list[str]]:
     """The current modules to compare with a signed record's, and the keys left out.
 
-    A reference-layer module the record neither holds nor looked up postdates it: the HPO
-    release, for a record signed before CoGA recorded it. Like a snapshot section an older
-    record predates, it is not compared, instead of turning every such record into a
-    change to modules nothing in it froze. One the record looked up and does not hold
-    was not loaded then, so its arrival is a change; and a pipeline module is always
-    compared, as one the family's pipeline declared since came with a re-import.
+    A reference-layer module the record neither holds nor looked up postdates it: CoGA
+    added it after the record was signed. Like a snapshot section a record predates, it is
+    not compared, instead of turning every such record into a change to modules nothing in
+    it froze. One the record looked up and does not hold was not loaded then, so its
+    arrival is a change; and a pipeline module is always compared, as one the family's
+    pipeline declared since came with a re-import.
     """
     held = _module_keys(signed.get("modules"))
     looked_up = _reference_modules_looked_up(signed)
@@ -1102,27 +1086,6 @@ def _modules_comparable_with(
     return comparable, postdating
 
 
-def _structural_reviews_comparable_with(
-    signed: Mapping[str, Any], signed_value: Any, current: list[Any]
-) -> tuple[list[Any], list[str]]:
-    """The current reported SVs to compare with a signed record's, and what is left out.
-
-    A record signed before SV/CNV classifications froze their evidence (it has no
-    STRUCTURAL_DRIFT_SECTION) holds none in its reported SVs. Their evidence is then not
-    compared, like a section the record predates, rather than turning every such record
-    with a reported SV into a change; everything else about them still is.
-    """
-    if STRUCTURAL_DRIFT_SECTION in signed:
-        return current, []
-    comparable = [
-        {key: value for key, value in entry.items() if key != "evidence_snapshot"}
-        if isinstance(entry, Mapping)
-        else entry
-        for entry in current
-    ]
-    return comparable, (["reported_structural_variants.evidence_snapshot"] if signed_value else [])
-
-
 async def compare_report_with_latest_signout(
     session: AsyncSession,
     *,
@@ -1139,8 +1102,7 @@ async def compare_report_with_latest_signout(
     version; on that version, whether the family's data changed since (#508). This
     rebuilds the snapshot body and compares it, section by section, with the frozen one. A
     section or reference module the signed record predates is listed in ``not_compared``
-    (a module as ``modules.<key>``, the evidence of its reported SVs as
-    ``reported_structural_variants.evidence_snapshot``) rather than reported as changed.
+    (a module as ``modules.<key>``) rather than reported as changed.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -1178,22 +1140,14 @@ async def compare_report_with_latest_signout(
     changed: list[str] = []
     not_compared: list[str] = []
     for section in REPORT_CONTENT_SECTIONS:
-        if section in signed:
-            signed_value = signed[section]
-        elif section in _ABSENT_SECTION_DEFAULTS:
-            signed_value = _ABSENT_SECTION_DEFAULTS[section]
-        else:
+        if section not in signed:
             not_compared.append(section)
             continue
+        signed_value = signed[section]
         current_value = current.get(section)
         if section == "modules" and isinstance(current_value, list):
             current_value, postdating = _modules_comparable_with(signed, current_value)
             not_compared.extend(f"modules.{key}" for key in postdating)
-        if section == "reported_structural_variants" and isinstance(current_value, list):
-            current_value, left_out = _structural_reviews_comparable_with(
-                signed, signed_value, current_value
-            )
-            not_compared.extend(left_out)
         if _section_fingerprint(signed_value) != _section_fingerprint(current_value):
             changed.append(section)
     return {

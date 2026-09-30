@@ -173,8 +173,8 @@ The record does not hold the rest of what the live report shows: the variant des
 consequence, genotypes, population frequency, in silico predictions), the segregation and the family's
 members, the gene description, conditions and panels, the phenotype match, the audit trail and the
 pipeline settings. The page says so, once for the report and on each variant, and never fills them in
-from current data. If a version was signed before CoGA froze some part, that part is marked *Not in the
-signed record*. A version signed before CoGA froze reported structural variants holds none.
+from current data. A part the record does not hold is marked *Not in the signed record*, never shown as
+empty.
 
 **Print signed version N** prints this view. The printout starts with a notice when the version is not
 the latest, intact record: *Do not use — …* when the stored record does not match its fingerprint,
@@ -209,12 +209,9 @@ that part is recorded as unavailable, not as empty, and the signed version says 
 signed version 2: …*. The audit trail lists the same parts. An HPO ontology imported from a file that
 recorded no release is marked the same way (*release not recorded*).
 
-A version signed before CoGA recorded the HPO release does not name it. The signed version says so
-(*HPO (signed before CoGA recorded its version)*), and that alone does not count as a change.
-
-A version signed before CoGA froze the evidence of structural-variant and CNV classifications holds
-none for its reported structural variants. The record says so (*Evidence of the reported structural
-variants and CNVs (signed before CoGA froze it)*), and that alone does not turn the page amber either.
+A reference module CoGA starts recording after a version was signed is not in that version. The signed
+version says so (*… (signed before CoGA recorded its version)*), and that alone does not count as a
+change.
 
 **When part of the report cannot be loaded.** The page never shows a part it could not load as empty.
 If a signed version cannot be loaded, the page shows only *Signed version N could not be loaded*, with

@@ -204,6 +204,7 @@ candidate. One line per change: what changed, its pull request, and the proposed
 
 ### Proposed minor
 
+- A signed record is read in the release candidate's format only: the special readings of records from earlier development builds go (a missing list of looked-up reference modules names every module as missing; an absent SV list or SV/CNV drift section is not compared, its reported SVs compared whole) (#705; proposed Minor)
 - The APCAD and coverage-segment charts read a chromosome however the data spells it (lower case, a leading zero), as the other tracks do (#701; proposed Minor)
 - Monogenic NIPT: the fetal fraction takes no external value (the API-only `external_ff` and its disagreement flag are removed), and every change to the artifact list is a clinical audit event (#700; proposed Minor)
 - A per-sample filter minimum (GQ, DP, AF, AD alt, SV QUAL) that is not a number fails the search with a 422 naming it; an unreadable AF or AD-alt minimum used to be dropped, widening the result without saying so (#690; proposed Minor)

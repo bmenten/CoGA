@@ -156,9 +156,8 @@ latest signed version; one that never was opens on the live report.
 time, content hash, `verified` and the frozen build; each reported variant's classification,
 accepted criteria, evidence snapshot, tags and note; the reported SVs with their ClinGen CNV
 scoring; the drift, Sample QC, sequencing QC and import state, with the acknowledgements; the
-frozen modules; and `not_captured`. A section the snapshot lacks (a record signed before the
-section was frozen) is shown as not in the record, never as empty; a record without
-`reported_structural_variants` holds no SVs. What no snapshot holds is said on the page: the
+frozen modules; and `not_captured`. A section the snapshot lacks is shown as not in the record,
+never as empty. What no snapshot holds is said on the page: the
 variant description (gene, HGVS, consequence, genotypes, frequencies, predictions), the
 segregation, the gene and phenotype context, the audit trail and the pipeline settings. Print
 prints this view. A printout starts with a notice when the record fails its content hash, when
@@ -179,19 +178,20 @@ Every printout of the live report starts with a notice ("Draft …", "Not the si
 sign-out record is loading or could not be loaded, sign-out is not offered. After a sign-out the
 page shows the new version.
 
-Each snapshot also records the reference modules its build looked up (`reference_modules`).
-A snapshot without that list was signed before CoGA recorded the HPO release and holds none:
-the check lists `modules.hpo` under `not_compared` instead of calling the record changed, and
-`not_captured` names the missing release. A snapshot with the list but no HPO module was signed
-with no ontology loaded, so an ontology imported since is a change.
+Each snapshot also records the reference modules its build looked up (`reference_modules`). A
+reference module CoGA adds later is not in that list: for a record signed before it, the check
+lists `modules.<key>` under `not_compared` instead of calling the record changed, and
+`not_captured` names the missing version. A module in the list but not held was not loaded at
+sign-out, so one loaded since is a change. A snapshot without the list names no module, so every
+reference module it does not hold is listed as missing.
 
-A snapshot without `structural_drift` was signed before structural-variant and CNV
-classifications froze their evidence, and its reported structural variants hold none. The check
-lists `structural_drift` and `reported_structural_variants.evidence_snapshot` under `not_compared`
-and compares the rest of each reported SV; `not_captured` says the record holds no evidence for
-them. A signed version lists the SV/CNV classifications whose evidence had moved at sign-out with
-the small variants', under *Evidence drift at sign-out*, and says when its record predates that
+A signed version lists the SV/CNV classifications whose evidence had moved at sign-out with the
+small variants', under *Evidence drift at sign-out*, and says when its record holds no SV/CNV drift
 check.
+
+The release candidate's snapshot format is the first one CoGA reads: records signed by earlier
+development builds get no reading of their own (#681). They still verify, since verification
+re-hashes the record as stored.
 
 Both views download the frozen record as JSON.
 
