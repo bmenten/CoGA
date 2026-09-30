@@ -733,6 +733,14 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Handleiding: the notes on secrets and the Terraform state corrected** — chapter 4 said the
+  Secret Manager values are added separately so that they never end up in the Terraform state.
+  `coga-postgres-password` does: Terraform reads it to set the owner's password in Cloud SQL, as
+  `terraform/secrets.tf` and `terraform/README.md` say. The chapter now says the values are kept
+  out of Terraform variables, names that exception and asks for a private state bucket, and its
+  security section no longer says the secrets never reach the state. The same bullet no longer
+  says the code does not check that `SECRET_KEY` and the anchor key differ: since #651 the
+  backend refuses to start when they are equal (#669).
 - **Pre-release change log folded into the validation plan** — before the first release candidate
   TF-18 keeps no per-change records. TF-18 §3a sets out the lifecycle phases (development, release
   candidate, beta clinical validation, v1.0.0) and when change control starts; TF-10 §8 lists, one
