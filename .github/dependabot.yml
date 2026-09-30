@@ -26,6 +26,20 @@ updates:
     groups:
       frontend-minor-patch:
         update-types: ["minor", "patch"]
+      # ESLint and its JS config are released together; move them in one PR.
+      eslint:
+        patterns: ["eslint", "@eslint/js"]
+    # Held back until the lint plugins support them (#674). Drop a rule once its
+    # blocker's peer range admits the new version, then take the update on its own.
+    ignore:
+      # eslint-plugin-react 7.37.5 accepts eslint up to ^9.7, jsx-a11y 6.10.2 up to ^9.
+      - dependency-name: "eslint"
+        versions: [">=10.0.0"]
+      - dependency-name: "@eslint/js"
+        versions: [">=10.0.0"]
+      # typescript-eslint 8.71 accepts typescript < 6.1.0.
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
 
   - package-ecosystem: github-actions
     directory: /
