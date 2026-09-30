@@ -128,6 +128,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   and its state before and after, on a chain of its own (`system:nipt-artifacts`) that
   `/admin/integrity/verify` checks. The list decides which variants every NIPT analysis of its assay
   filters out (#700).
+- **Computed-style diff for stylesheet changes (#712)** — `frontend/scripts/stylediff` renders two
+  production builds side by side against the same seeded stack and compares every element's computed
+  style, pseudo-elements and box over ~110 routes at three widths, with forced `:hover`/`:focus`,
+  expanded `<details>` and print media; `scripts/seed_style_diff_demo.py` seeds the NIPT demo and the
+  demo quartet for it. It verified that the CSS clean-up changed nothing on screen. A manual tool, not
+  a CI job (#720).
 
 ### Changed
 
