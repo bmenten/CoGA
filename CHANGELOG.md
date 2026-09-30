@@ -324,6 +324,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   candidate's snapshot format is the first CoGA reads. The mechanism for later formats stays: a module
   or section a record does not hold is not compared and reads as not in the record. Old records still
   verify (#705).
+- **Dead CSS (#707)** — `theme.css` loses the 331 rules whose selectors named classes no component
+  renders any more (remnants of the gene explorer, the gene profile, the compact checklist, the old
+  dashboard, variant-card banners and more), 33 dead selectors in lists that stay, 4 declarations a
+  later rule with the same selector overrode, and 7 custom properties nothing read: 40 KB (15 %) of
+  the file, 31 KB of the built CSS. Every page renders exactly as before, checked by a computed-style
+  diff of the old and new builds. A test now fails when the stylesheet names a class the source
+  cannot produce, or defines a custom property nothing reads (#714).
 
 ### Fixed
 
