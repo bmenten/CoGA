@@ -593,7 +593,9 @@ async def upload_family_small_variant_file(
 
     ``vep_annotations`` supplies an already-parsed annotation lookup, for callers whose
     annotation file is not a VEP TSV (the mitochondrial callset is annotated by
-    mutserve). It is mutually exclusive with ``annotation_file``, which parses one.
+    mutserve). It is mutually exclusive with ``annotation_file``, which parses one. The
+    upload closes only a lookup it parsed itself: a caller's stays open, for the caller
+    to read after the upload and close.
 
     ``overwrite_scope`` says what the upload replaces. ``"source"``, the default, is the
     family's rows of the upload's callset: a family VCF holds every sample's calls.
@@ -994,7 +996,8 @@ async def upload_family_small_variant_file(
                 )
         raise
     finally:
-        if vep_annotations is not None:
+        # The lookup parsed from ``annotation_file`` is this upload's; a caller's is not.
+        if annotation_file is not None and vep_annotations is not None:
             vep_annotations.close()
 
 

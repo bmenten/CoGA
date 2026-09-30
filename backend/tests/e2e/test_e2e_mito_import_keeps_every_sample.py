@@ -13,7 +13,9 @@ The family here is its own (a new id each run), so the golden trio is never touc
 * the first import brings in the mother's, the proband's and the father's calls; every
   sample's calls must remain, one live row per variant, also after ClickHouse has merged
   the parts, and the mtDNA workspace must show the variant the mother and the proband
-  share as maternally shared;
+  share as maternally shared, and each sample's haplogroup from its mutserve annotation
+  (the maternal-lineage check of the Sample QC review compares them; the import used to
+  close the annotation before it read the haplogroup, so none was ever shown);
 * a second import in ``overwrite`` mode brings a new proband file and an empty father
   file: the proband's calls are replaced, the father's are removed (his new callset has
   none) and the mother's stay exactly as stored.
@@ -81,8 +83,25 @@ _PROBAND_V2 = _HEADER + (
 _EMPTY = _HEADER
 
 
-def _write_package(root: Path, family_id: str, files: dict[str, str]) -> None:
-    """A package with the trio's PED and a ``mito`` dataset of ``files`` (sample -> VCF)."""
+def _annotation(*rows: tuple[int, str, str, str]) -> str:
+    """A mutserve annotation TSV of ``(pos, ref, alt, Phylotree17 haplogroups)`` rows."""
+    return "ID\tFilter\tPos\tRef\tVariant\tVariantLevel\tMaplocus\tPhylotree17_haplogroups\n" + "".join(
+        f"sample\tPASS\t{pos}\t{ref}\t{alt}\t1.0\tMT\t{haplogroups}\n" for pos, ref, alt, haplogroups in rows
+    )
+
+
+# Each sample's haplogroup is the one most of its annotated variants name: U5a1 for the
+# mother and the proband (one maternal line), H1 for the father.
+_MOTHER_ANNOTATION = _annotation((73, "A", "G", "U5a1,H1"), (3243, "A", "G", "."), (16519, "T", "C", "U5a1"))
+_PROBAND_ANNOTATION = _annotation((73, "A", "G", "U5a1,H1"), (3243, "A", "G", "."), (9000, "C", "T", "U5a1"))
+_FATHER_ANNOTATION = _annotation((73, "A", "G", "U5a1,H1"), (263, "A", "G", "H1"))
+
+
+def _write_package(
+    root: Path, family_id: str, files: dict[str, str], annotations: dict[str, str] | None = None
+) -> None:
+    """A package with the trio's PED and a ``mito`` dataset of ``files`` (sample -> VCF),
+    with the mutserve ``annotations`` given (sample -> TSV)."""
     father, mother, proband = (f"{role}_{family_id}" for role in ("FATHER", "MOTHER", "PROBAND"))
     root.mkdir(parents=True)
     (root / "family.ped").write_text(
@@ -102,7 +121,11 @@ def _write_package(root: Path, family_id: str, files: dict[str, str]) -> None:
     ]
     for sample_id, vcf in files.items():
         (root / "mito" / f"{sample_id}.vcf").write_text(vcf, encoding="utf-8")
-        lines.append(f"      {sample_id}: {{vcf: mito/{sample_id}.vcf}}")
+        entry = f"vcf: mito/{sample_id}.vcf"
+        if annotations and sample_id in annotations:
+            (root / "mito" / f"{sample_id}_snv_annot.txt").write_text(annotations[sample_id], encoding="utf-8")
+            entry += f", annotation_tsv: mito/{sample_id}_snv_annot.txt"
+        lines.append(f"      {sample_id}: {{{entry}}}")
     (root / "manifest.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -184,7 +207,12 @@ async def _exercise(base: Path, family_id: str) -> dict:
     out: dict = {"samples": {"father": father, "mother": mother, "proband": proband}}
 
     first = base / "first" / family_id
-    _write_package(first, family_id, {mother: _MOTHER, proband: _PROBAND, father: _FATHER})
+    _write_package(
+        first,
+        family_id,
+        {mother: _MOTHER, proband: _PROBAND, father: _FATHER},
+        {mother: _MOTHER_ANNOTATION, proband: _PROBAND_ANNOTATION, father: _FATHER_ANNOTATION},
+    )
     out["first"] = await run_import(first, "cancel")
 
     async with sessionmaker() as session:
@@ -281,6 +309,15 @@ def test_mtdna_workspace_shows_the_maternally_shared_heteroplasmy(run) -> None:
     assert shared["maternal_transmission"] == "maternal_shared"
     assert variants["M-16519-T-C"]["maternal_transmission"] == "maternal_only"
     assert variants["M-9000-C-T"]["maternal_transmission"] == "maternal_not_observed"
+
+
+def test_mtdna_workspace_shows_each_samples_haplogroup(run) -> None:
+    mtdna = run["mtdna"]
+    assert mtdna["status"] == 200, mtdna["text"]
+    mother, proband, father = (run["samples"][role] for role in ("mother", "proband", "father"))
+    haplogroups = {sample["sample_id"]: sample["haplogroup"] for sample in mtdna["json"]["samples"]}
+    assert haplogroups == {mother: "U5a1", proband: "U5a1", father: "H1"}
+    assert "No per-sample mtDNA haplogroup metadata is available." not in mtdna["json"]["qc_notes"]
 
 
 def test_reimport_replaces_only_the_imported_samples_calls(run) -> None:
