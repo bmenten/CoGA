@@ -177,8 +177,10 @@ async def get_clickhouse_client() -> Any:
 
 def _query_returns_rows(query: str) -> bool:
     first_token = query.strip().split(None, 1)[0].upper() if query.strip() else ""
-    # CHECK TABLE ... SETTINGS check_query_single_value_result = 0 returns a row
-    # per part (part_path, is_passed, message), so it must go through query().
+    # CHECK TABLE returns rows (one per part with check_query_single_value_result = 0),
+    # but clickhouse-connect runs CHECK as a command even through query(): the rows come
+    # back as ONE row of tab-split fields. clickhouse_variant_storage._check_table reads
+    # that shape; do not read a CHECK result row by row.
     return first_token in {"SELECT", "SHOW", "DESCRIBE", "DESC", "EXISTS", "WITH", "CHECK"}
 
 

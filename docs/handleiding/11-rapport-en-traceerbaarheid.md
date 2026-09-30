@@ -163,7 +163,9 @@ Wie de sleutel niet heeft, kan een keten wel herberekenen, maar geen geldig onde
 
 De ankers dekken de Postgres-ketens. De variantopslag in ClickHouse bewaakt een aparte monitor: kort na het opstarten en daarna op een vast interval controleert hij de varianttabellen van elke assembly, en bij een beschadigde of ontbrekende tabel schrijft hij een fout naar de log, bedoeld om een waarschuwing te laten afgaan vóór gebruikers er last van hebben. Het laatste resultaat wordt in het geheugen bewaard, maar door geen endpoint getoond; een beheerder start de controle zelf via `GET /api/admin/clickhouse/variants/{assembly}/integrity`.
 
-**Waar in de code:** `backend/app/services/clickhouse_integrity_monitor.py`.
+**Wat de controle beoordeelt.** Per varianttabel geeft ClickHouse zelf zijn oordeel over de hele tabel, over elk actief onderdeel. Alleen van een tabel die niet in orde is, leest CoGA de onderdelen één voor één, om de kapotte te noemen. Een tabel zonder rijen is in orde. Een resultaat dat niet te lezen is, geldt nooit als in orde. Dezelfde controle bewaakt het herbouwen van de gen-index van de small variants: de nieuwe index komt pas in gebruik als al zijn onderdelen in orde zijn.
+
+**Waar in de code:** `backend/app/services/clickhouse_integrity_monitor.py`; de controle zelf in `check_clickhouse_variant_integrity` en `_check_table` (`backend/app/services/clickhouse_variant_storage.py`).
 
 ## De volledige traceerbaarheidsketen
 

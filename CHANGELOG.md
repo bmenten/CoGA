@@ -632,6 +632,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   criterion's strength or points, its evidence or a suggestion now writes a clinical audit event
   with the whole criteria record before and after, for small variants and CNVs; an unchanged
   re-save still writes none (#665).
+  a per-sample SV upload also records its caller in the family's annotation versions (#654).
+- **ClickHouse integrity check on real data** — the check (the admin action and the scheduled monitor)
+  crashed on any variant table without rows, so the endpoint answered 500 and each sweep logged a failure
+  and recorded no status for that assembly; and it judged a table with several parts on its first part only,
+  so a corrupt later part passed. It now takes ClickHouse's own verdict on every part of each table, names
+  the failed parts, passes a table without rows, and never passes a result it cannot read. The gene-index
+  rebuild's check before its swap had the same flaw and is fixed with it (#663).
 
 ### Security
 

@@ -1771,6 +1771,111 @@ async def _distinct_key_count(table: str) -> int:
     return int(rows[0][0]) if rows and rows[0] else 0
 
 
+# CHECK TABLE, as the ClickHouse client hands its result back. clickhouse-connect runs
+# CHECK as a command and splits the tab-separated body on tabs only. A part-by-part result
+# (check_query_single_value_result = 0) therefore arrives as ONE flattened row, each next
+# part starting with the newline left in front of its path, and a table without active
+# parts as a single empty value. Read row by row, a table was judged on its first part
+# alone and a table without parts raised IndexError. The helpers below read every shape.
+_CHECK_PASSED = {"1": True, "true": True, "0": False, "false": False}
+_TSV_ESCAPES = {"\\": "\\", "t": "\t", "n": "\n", "r": "\r", "0": "\0", "'": "'", "b": "\b", "f": "\f"}
+
+
+def _tsv_unescape(value: str) -> str:
+    out: list[str] = []
+    chars = iter(value)
+    for char in chars:
+        if char == "\\":
+            escaped = next(chars, "")
+            out.append(_TSV_ESCAPES.get(escaped, "\\" + escaped))
+        else:
+            out.append(char)
+    return "".join(out)
+
+
+def _read_check_verdict(rows: Any) -> bool | None:
+    """The single value of ``CHECK TABLE … check_query_single_value_result = 1``: the
+    server's verdict on the whole table, every active part. None when it cannot be read."""
+    try:
+        (row,) = list(rows or [])
+        (value,) = list(row)
+    except (TypeError, ValueError):
+        return None
+    return _CHECK_PASSED.get(str(value).strip().lower())
+
+
+def _read_check_parts(rows: Any) -> list[tuple[str, bool, str]] | None:
+    """The part-by-part result of ``CHECK TABLE … check_query_single_value_result = 0``:
+    one ``(part_path, passed, message)`` per active part, whatever row shape the client
+    returned (rows of three fields, or the one flattened row); ``[]`` for a table without
+    active parts. None when the output is not that result.
+
+    Tab-separated values escape tabs and newlines, so re-joining the fields on tabs and
+    the rows on newlines restores the text the server sent.
+    """
+    try:
+        text = "\n".join(
+            "\t".join("" if field is None else str(field) for field in row) for row in rows or []
+        )
+    except TypeError:
+        return None
+    parts: list[tuple[str, bool, str]] = []
+    for line in text.split("\n"):
+        if not line:
+            continue
+        fields = line.split("\t")
+        passed = _CHECK_PASSED.get(fields[1].strip().lower()) if len(fields) == 3 else None
+        if passed is None or not fields[0]:
+            return None
+        parts.append((fields[0], passed, _tsv_unescape(fields[2])))
+    return parts
+
+
+async def _check_table_parts(qualified_table: str) -> list[tuple[str, bool, str]] | None:
+    """Every active part of a table with its CHECK TABLE result (see _read_check_parts)."""
+    return _read_check_parts(
+        await _execute(
+            f"CHECK TABLE {qualified_table} SETTINGS check_query_single_value_result = 0"
+        )
+    )
+
+
+async def _check_table(qualified_table: str) -> dict[str, Any]:
+    """CHECK TABLE one table: ``passed``, ``failed_parts`` and ``messages``.
+
+    The verdict is the server's own for the whole table (one value, whatever the number
+    of parts), so it never rests on how a list was read. Only a table that did not pass
+    is checked part by part, to name its failed parts. A result that cannot be read never
+    passes: it is reported as not passed, with the reason.
+    """
+    verdict = _read_check_verdict(
+        await _execute(
+            f"CHECK TABLE {qualified_table} SETTINGS check_query_single_value_result = 1"
+        )
+    )
+    if verdict is True:
+        return {"passed": True, "failed_parts": 0, "messages": []}
+    parts = await _check_table_parts(qualified_table)
+    if verdict is None and parts and all(passed for _path, passed, _message in parts):
+        # The verdict could not be read, but every part was, and every part passed.
+        return {"passed": True, "failed_parts": 0, "messages": []}
+    failed = [
+        f"{path}: {message or '(no message)'}" for path, passed, message in parts or [] if not passed
+    ]
+    if verdict is None:
+        messages = failed or ["CHECK TABLE returned a result that could not be read."]
+    else:
+        messages = failed or [
+            "CHECK TABLE failed the table, and its failed parts could not be listed."
+        ]
+    return {
+        "passed": False,
+        # A failing verdict means at least one part failed, listed or not.
+        "failed_parts": max(len(failed), 1 if verdict is False else 0),
+        "messages": messages,
+    }
+
+
 async def rebuild_small_variant_gene_index(assembly_name: str) -> dict[str, Any]:
     dataset = _require_clickhouse_identifier(assembly_name)
     await ensure_clickhouse_variant_tables(dataset)
@@ -1804,14 +1909,13 @@ async def rebuild_small_variant_gene_index(assembly_name: str) -> dict[str, Any]
             """
         )
         # Never swap a bad index over good data: the shadow must pass its part
-        # checks and cover exactly the gene-bearing keys of annotation_index.
-        check_rows = await _execute(
-            f"CHECK TABLE {rebuild_table} SETTINGS check_query_single_value_result = 0"
-        )
-        bad_parts = [row for row in check_rows if not int(row[1])]
-        if bad_parts:
+        # checks, every part of it, and cover exactly the gene-bearing keys of
+        # annotation_index.
+        shadow_check = await _check_table(rebuild_table)
+        if not shadow_check["passed"]:
             raise RuntimeError(
-                f"gene_index rebuild produced {len(bad_parts)} corrupt part(s); not swapping"
+                f"gene_index rebuild produced {shadow_check['failed_parts']} corrupt part(s) "
+                f"({'; '.join(shadow_check['messages'])}); not swapping"
             )
         rebuilt_keys = await _distinct_key_count(rebuild_table)
         source_keys = await _gene_bearing_annotation_key_count(annotation_index_table)
@@ -1834,7 +1938,8 @@ async def check_clickhouse_variant_integrity(assembly_name: str) -> dict[str, An
     Runs three guards over an assembly's variant tables:
       * ``CHECK TABLE`` on each read-path table to find corrupt active parts
         (e.g. the UNKNOWN_CODEC / CHECKSUM_DOESNT_MATCH failures that only break
-        gene/panel queries);
+        gene/panel queries), every part judged, a table without parts passing
+        (``_check_table``);
       * a scan of ``system.detached_parts`` for ``broken-on-start`` parts, which
         signal storage-volume damage even when the live read path looks intact;
       * a key-count comparison between ``gene_index`` and the gene-bearing keys of
@@ -1865,24 +1970,17 @@ async def check_clickhouse_variant_integrity(assembly_name: str) -> dict[str, An
                 {"name": name, "exists": False, "passed": None, "failed_parts": 0, "messages": []}
             )
             continue
-        qualified = f"{settings.clickhouse_database}.`{name}`"
-        rows = await _execute(
-            f"CHECK TABLE {qualified} SETTINGS check_query_single_value_result = 0"
-        )
-        failures = [
-            str(row[2]) if len(row) > 2 and row[2] else "(no message)"
-            for row in rows
-            if not int(row[1])
-        ]
-        if failures:
+        # Every active part is judged; a table without parts passes (nothing to check).
+        checked = await _check_table(f"{settings.clickhouse_database}.`{name}`")
+        if not checked["passed"]:
             corrupt = True
         table_checks.append(
             {
                 "name": name,
                 "exists": True,
-                "passed": not failures,
-                "failed_parts": len(failures),
-                "messages": failures[:5],
+                "passed": checked["passed"],
+                "failed_parts": checked["failed_parts"],
+                "messages": checked["messages"][:5],
             }
         )
 
