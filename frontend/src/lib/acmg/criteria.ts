@@ -54,7 +54,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
       'Predicted null (nonsense, frameshift, canonical splice, start-loss, exon deletion) where loss of function is a known disease mechanism.',
     defaultStrength: 'very_strong',
     allowedStrengths: ['very_strong', 'strong', 'moderate', 'supporting'],
-    autoEvaluable: true,
   },
   {
     code: 'PS1',
@@ -64,7 +63,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
       'Same amino acid change as a previously established pathogenic variant regardless of nucleotide change.',
     defaultStrength: 'strong',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'PS2',
@@ -73,7 +71,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'De novo (maternity and paternity confirmed) in a patient with the disease and no family history.',
     defaultStrength: 'strong',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'PS3',
@@ -82,7 +79,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Well-established functional studies show a deleterious effect.',
     defaultStrength: 'strong',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'PS4',
@@ -91,7 +87,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Prevalence in affected individuals significantly increased over controls.',
     defaultStrength: 'strong',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'PM1',
@@ -100,7 +95,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Located in a mutational hot spot and/or critical, well-established functional domain without benign variation.',
     defaultStrength: 'moderate',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'PM2',
@@ -109,7 +103,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Absent (or at extremely low frequency) from gnomAD and other controls. Applied at Supporting per ClinGen.',
     defaultStrength: 'supporting',
     allowedStrengths: ['moderate', 'supporting'],
-    autoEvaluable: true,
   },
   {
     code: 'PM3',
@@ -118,7 +111,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'For recessive disorders, detected in trans with a pathogenic variant.',
     defaultStrength: 'moderate',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'PM4',
@@ -127,7 +119,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Protein length change from in-frame indels or stop-loss in a non-repeat region.',
     defaultStrength: 'moderate',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: true,
   },
   {
     code: 'PM5',
@@ -136,7 +127,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Novel missense change at an amino acid residue where a different pathogenic missense has been seen.',
     defaultStrength: 'moderate',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'PM6',
@@ -145,7 +135,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Assumed de novo without confirmation of maternity and paternity.',
     defaultStrength: 'moderate',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'PP1',
@@ -154,7 +143,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Cosegregation with disease in multiple affected family members.',
     defaultStrength: 'supporting',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'PP2',
@@ -163,7 +151,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Missense in a gene with a low rate of benign missense variation where missense is a common mechanism.',
     defaultStrength: 'supporting',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: true,
   },
   {
     code: 'PP3',
@@ -172,7 +159,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Multiple in-silico lines of evidence support a deleterious effect. Strength scaled per ClinGen calibration.',
     defaultStrength: 'supporting',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: true,
   },
   {
     code: 'PP4',
@@ -181,7 +167,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: "Patient's phenotype or family history is highly specific for a disease with a single genetic etiology.",
     defaultStrength: 'supporting',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: true,
   },
   {
     code: 'PP5',
@@ -190,7 +175,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Reputable source (e.g. ClinVar) reports the variant pathogenic but evidence is not available to evaluate.',
     defaultStrength: 'supporting',
     allowedStrengths: PATHOGENIC_STRENGTHS,
-    autoEvaluable: true,
   },
   // ---- Benign ----
   {
@@ -200,7 +184,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Allele frequency ≥ 5% in gnomAD or another large population database. Stand-alone benign.',
     defaultStrength: 'stand_alone',
     allowedStrengths: ['stand_alone'],
-    autoEvaluable: true,
   },
   {
     code: 'BS1',
@@ -209,7 +192,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Allele frequency greater than expected for the disorder.',
     defaultStrength: 'strong',
     allowedStrengths: BENIGN_STRENGTHS,
-    autoEvaluable: true,
   },
   {
     code: 'BS2',
@@ -218,7 +200,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Observed in healthy adults (homozygous for recessive, heterozygous for dominant, hemizygous for X-linked).',
     defaultStrength: 'strong',
     allowedStrengths: BENIGN_STRENGTHS,
-    autoEvaluable: true,
   },
   {
     code: 'BS3',
@@ -227,7 +208,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Well-established functional studies show no deleterious effect.',
     defaultStrength: 'strong',
     allowedStrengths: BENIGN_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'BS4',
@@ -236,7 +216,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Lack of segregation in affected members of a family.',
     defaultStrength: 'strong',
     allowedStrengths: BENIGN_STRENGTHS,
-    autoEvaluable: false,
   },
   {
     code: 'BP1',
@@ -245,7 +224,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Missense variant in a gene where only truncating variants cause disease.',
     defaultStrength: 'supporting',
     allowedStrengths: ['supporting', 'moderate'],
-    autoEvaluable: false,
   },
   {
     code: 'BP2',
@@ -254,7 +232,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Observed in trans with a pathogenic variant for a dominant disorder, or in cis with a pathogenic variant.',
     defaultStrength: 'supporting',
     allowedStrengths: ['supporting', 'moderate'],
-    autoEvaluable: false,
   },
   {
     code: 'BP3',
@@ -263,7 +240,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'In-frame indel in a repetitive region without a known function.',
     defaultStrength: 'supporting',
     allowedStrengths: ['supporting', 'moderate'],
-    autoEvaluable: false,
   },
   {
     code: 'BP4',
@@ -272,7 +248,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Multiple in-silico lines of evidence support no impact. Strength scaled per ClinGen calibration.',
     defaultStrength: 'supporting',
     allowedStrengths: ['supporting', 'moderate', 'strong'],
-    autoEvaluable: true,
   },
   {
     code: 'BP5',
@@ -281,7 +256,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Variant found in a case with an alternate molecular basis for disease.',
     defaultStrength: 'supporting',
     allowedStrengths: ['supporting', 'moderate'],
-    autoEvaluable: false,
   },
   {
     code: 'BP6',
@@ -290,7 +264,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Reputable source (e.g. ClinVar) reports the variant benign but evidence is not available to evaluate.',
     defaultStrength: 'supporting',
     allowedStrengths: ['supporting', 'moderate'],
-    autoEvaluable: true,
   },
   {
     code: 'BP7',
@@ -299,7 +272,6 @@ export const ACMG_CRITERIA: AcmgCriterionDef[] = [
     description: 'Synonymous variant with no predicted splice impact and not highly conserved.',
     defaultStrength: 'supporting',
     allowedStrengths: ['supporting', 'moderate'],
-    autoEvaluable: true,
   },
 ];
 
