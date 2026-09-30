@@ -94,6 +94,7 @@ audit trail aids reconstruction of any affected case.
 The mechanics of executing a release — tagging, building, capturing evidence and filing the record — are in [`RELEASING.md`](../../RELEASING.md). This checklist is the clinical gate that must pass before those mechanics are run for a clinical release.
 
 - [ ] All required CI gates green on the release commit ([TF-18 §6](TF-18-change-configuration-management.md)).
+- [ ] Design and code review recorded for the release candidate: reviewers, scope, findings and their resolution ([TF-18 §3a](TF-18-change-configuration-management.md)).
 - [ ] RTM updated; no requirement without a passing verifying test.
 - [ ] Risk file (TF-06) reviewed for new/affected hazards; controls verified.
 - [ ] SOUP register / SBOM (TF-08/TF-13) reconciled; no unaddressed high-severity vuln.

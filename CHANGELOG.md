@@ -14,16 +14,19 @@ That model classifies a change **against the previously validated version**. CoG
 had one: there is no release, no tag, and `VERSION` is still `0.1.0`. Everything below is
 therefore pre-first-release development toward that baseline, and is deliberately **not**
 labelled patch/minor/major — retrofitting regulatory classifications onto work that predates
-the baseline they are measured against would be inventing evidence, not recording it. A
-pre-release change with a change record in TF-18 §8 has a **proposed** level there, which QA
-has yet to confirm.
+the baseline they are measured against would be inventing evidence, not recording it. Before the
+first release candidate a change carries no TF-18 record
+([TF-18 §3a](docs/regulatory/TF-18-change-configuration-management.md)); one that alters a
+clinical output is listed, with a **proposed** level that QA has yet to confirm, in
+[TF-10 §8](docs/regulatory/TF-10-performance-evaluation-plan.md), the scope of the first
+validation.
 
 The work from before this file was started (2026-07-28, #396), when CoGA had 353 merged pull
 requests, is summarised here rather than transcribed: the authoritative record is the git
 history and the
 [pull-request list](https://github.com/bmenten/CoGA/pulls?q=is%3Apr+is%3Amerged).
 
-**From the first release onward, each entry carries its TF-18 level**, like so:
+**From the first release candidate onward, each entry carries its TF-18 level**, like so:
 
 ```markdown
 ### Fixed
@@ -519,69 +522,69 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Deploy: a merge to main ships its code** — every main build was tagged `:main`, so after the
   first deploy Terraform saw no new image: Cloud Run kept the previous code and the database
   migration job never ran again. Main builds are now tagged with their commit,
-  `main-<12-character commit>` (CR-094, #632).
+  `main-<12-character commit>` (#632).
 - **IGV reads in Google Cloud** — with Google Cloud Storage as the store, IGV reads aligned reads
   from the PHI bucket in the browser, which needs a CORS policy the bucket lacked. The bucket now
-  lets the app's own origin read it, and nothing else (CR-095, #633).
+  lets the app's own origin read it, and nothing else (#633).
 - **Review edits keep a CNV classification** — toggling a tag or saving the review dialog on an
   SV/CNV no longer erases its ClinGen classification, nor the classification label the ClinGen
-  dialog set; sending `cnv_acmg` as null clears the scoring on purpose (CR-101, #639).
+  dialog set; sending `cnv_acmg` as null clears the scoring on purpose (#639).
 - **Per-sample SV upload scoped to its own source** — a Sniffles, Spectre or manual upload now checks,
   merges and replaces only that caller's calls. It refused a sample's first upload over its NeedlR
   calls and, on overwrite, duplicated other sources' SVs so that a later merge dropped the sample's
-  calls. An unknown `source_format` is refused (CR-105, #643).
+  calls. An unknown `source_format` is refused (#643).
 - **ACMG suggestions: conflicting ClinVar and the right parents** — the ACMG dialog and the mtDNA
   table no longer read a ClinVar "Conflicting classifications of pathogenicity" record as
   pathogenic. PM6/PS2 and the mtDNA maternal transmission use the parents the pedigree links, not a
   grandparent who shares the role. PM6 is offered for review instead of applied when a reference
-  parent has under 8 reads or the proband is homozygous (CR-106, #644).
+  parent has under 8 reads or the proband is homozygous (#644).
 - **Sign-out and incomplete imports** — sign-out refuses a family whose data import only partly
   succeeded unless the signer gives a reason, which is frozen into the signed record and the audit
   trail; every family page warns while the import is incomplete, naming the failed datasets and the
-  import job that holds their errors (CR-112, #650).
+  import job that holds their errors (#650).
 - **Compound-het phase and the SV second-hit index** — the second-hit badge no longer calls an
   SNV + SV pair trans, or "effectively biallelic", on the strength of relatives who carry neither
   hit. Phase comes from the reads or the parents, by the same rule for SNV + SNV pairs, which now
   also show trans by segregation. The SV→gene index is rebuilt after any SV change, not only after
-  a package import (CR-107, #645).
+  a package import (#645).
 - **Monogenic NIPT consistency** — the variant list reports and classifies against the Summary's fetal
   fraction; categories respect the father's genotype, and a father call under 10× counts as no call;
   paternity rests on confident father calls only; haploid chrX calls inform fetal sex and the
   father's sex check; artifact auto-seeding counts only the assay's cfDNA samples and never lists a
   common or ClinVar pathogenic/conflicting variant; the Sample-QC NIPT summary describes the checks
-  that run (CR-108, #646).
+  that run (#646).
 - **Clinical CNV knowledgebase rebuild no longer gets stuck** — a rebuild requested during another,
   or cut off by a restart or redeploy, stayed active for good and refused every later rebuild. A
   rebuild is now refused with a 409 only while another is really active; one whose server has
   gone quiet for ten minutes is closed as failed; a build stops after
   `CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS` (default two hours); a database holding a stuck job is
-  repaired on upgrade (CR-104, #642).
+  repaired on upgrade (#642).
 - **HPO release in the signed record** — a signed report now records the HPO release it was produced
   with, and a report signed before this is not shown as changed for lacking it; the HPO admin
   summary and the prioritised-ranking cache follow the release that is actually loaded; the HPO
-  admin page starts from the file the backend loads (`hp.obo`, not `hpo.obo`) (CR-109, #647).
+  admin page starts from the file the backend loads (`hp.obo`, not `hpo.obo`) (#647).
 - **Device label and problem route** — the app footer and the family and NIPT report footers name the
   running build (version and short commit), the in-house-IVD status and the manufacturer; "Report a
   problem" goes to the CMGG route set by `VITE_PROBLEM_REPORT_URL`, and a production build without it
-  no longer links the public GitHub issue form (CR-110, #648).
+  no longer links the public GitHub issue form (#648).
 - **SV/CNV review changes are audited** — SV/CNV classification (the ClinGen scoring included), tag
   and note changes, and a cleared small-variant review, now write hash-chained clinical audit events
-  (CR-111, #649).
+  (#649).
 - **PGT embryo calls** — an embryo without its own haplotype across the ROI reads *uninformative*,
   not *unaffected*, and a recessive embryo whose other homolog is unseen is not called a carrier;
   an unconfirmed phasing side no longer defines the disease haplotype; an X-linked recessive embryo
   of unrecorded sex is not called a carrier when a son would be affected (a "sex unknown" warning
   gives both calls); a male embryo at a pseudo-autosomal locus is read on both copies, so a paternal
-  risk haplotype there is called (CR-114, #652).
+  risk haplotype there is called (#652).
 - **Bucket package imports in cloud mode** — importing a family package from a gs:// or s3:// folder
   no longer downloads its CRAM/BAM files, and the genome browser shows its reads and its depth, MAF
   and copy-number tracks from the bucket. Raw-file provenance records each file's SHA-256 and size,
   or the bucket's own record for files left there; the family record, import log and validation
   report name the source folder, and a package without `family_id` is named after it; S3 discovery
-  lists every package; the admin raw-files view no longer calls a bucket file missing (CR-115, #653).
+  lists every package; the admin raw-files view no longer calls a bucket file missing (#653).
 - **Per-sample SV rewrites keep every other call** — an SV upload or admin delete for one sample writes
   every other stored call back unchanged (phase set, breakend end, project, inactive members' calls);
-  a per-sample SV upload also records its caller in the family's annotation versions (CR-116, #654).
+  a per-sample SV upload also records its caller in the family's annotation versions (#654).
 - **Classified variants reopen with their saved criteria** — every list of small variants (the tables and
   cards, the report, the NIPT candidates, the mtDNA analysis) now serves each review with its ACMG record.
   The lists left it out, so the ACMG dialog reopened a classified variant with the pre-evaluation alone, a
@@ -590,7 +593,7 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Deleting a sample keeps the other members' small variants** — the whole-sample delete writes every
   other stored call back unchanged, in every callset (the imputed one included), project and field; it
   used to rebuild them from the family view and wipe the imputed callset, an inactive member's calls
-  and rows in projects the family had left (CR-117, #655).
+  and rows in projects the family had left (#655).
 
 ### Security
 
@@ -653,53 +656,59 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   could still update and delete `qc_threshold_changes`, the append-only history of QC
   acceptance limits; only its trigger refused. It now holds INSERT and SELECT only, like the
   other append-only tables. The integration test reads every trigger-guarded table from the
-  catalogue and fails if one keeps UPDATE or DELETE (CR-092, #630).
+  catalogue and fails if one keeps UPDATE or DELETE (#630).
 - **QC-limit history tested on the server** — a cut-off edit is now shown, in a unit test and
   against the real database, to record the limit it replaced, the new limit, who made the
-  change and why; a change without a reason is refused and records nothing (CR-093, #631).
+  change and why; a change without a reason is refused and records nothing (#631).
 - **Reference-data bucket read-only to the app** — the backend's service account held a role
   that could write the reference-data bucket, which is mounted read-only and never written by the
-  app. It now holds the read-only `roles/storage.objectViewer`, as on the PHI bucket (CR-096, #634).
+  app. It now holds the read-only `roles/storage.objectViewer`, as on the PHI bucket (#634).
 - **Audit log and manifest controls enforced** — outside development the backend refuses
   `AUDIT_LOG_MODE=off` and an `INTEGRITY_ANCHOR_SIGNING_KEY` equal to `SECRET_KEY`; only an admin can
   replace a family's annotation manifest, which is always recorded as manual, with the manifest it
   replaced, on the family's audit trail, and an import can no longer overwrite a replacement
-  (CR-113, #651).
+  (#651).
 
 ### Documentation
 
+- **Pre-release change log folded into the validation plan** — before the first release candidate
+  TF-18 keeps no per-change records. TF-18 §3a sets out the lifecycle phases (development, release
+  candidate, beta clinical validation, v1.0.0) and when change control starts; TF-10 §8 lists, one
+  line each, the changes that altered a clinical output, the scope of the first validation; the
+  release checklist (TF-09 §6) asks for the recorded code review. References to the retired CR
+  numbers now name the pull request (#664).
 - **In-app docs and clinical notes trimmed and corrected** — the reference docs lab users follow
   were re-checked against the code and state the known limits plainly; the user guide has fifteen
   sections instead of twenty; the clinical notes in `docs/` keep developer detail only, and the NIPT
-  classification note is merged into `docs/monogenic-nipt.md` (CR-103, #641).
+  classification note is merged into `docs/monogenic-nipt.md` (#641).
 - **Technical and deployment docs trimmed and corrected** — the Google Cloud guide no longer
   generates an integrity-anchor key the backend refuses (it must be 32 bytes); the data-import
   guide is rewritten at half the length; the database reference lists every table; the
-  traceability, security and Terraform documents describe what the code does now (CR-102, #640).
+  traceability, security and Terraform documents describe what the code does now (#640).
 - **Handleiding rewritten against current main** — the fifteen chapters of the Dutch codebase
   manual were re-checked against the code and shortened by almost half, with one home per topic
-  and the limits a reviewer should know stated plainly (CR-100, #638).
+  and the limits a reviewer should know stated plainly (#638).
 - **Root and developer guides trimmed and corrected** — the README is a short front door; setup,
   architecture and open work each have one home (`docs/development.md`,
   `docs/application-scheme.md`, `docs/ROADMAP.md`); the retired workplan and the separate storage
   document are gone; AGENTS.md, CONTRIBUTING.md and SECURITY.md match how the project works now
-  (CR-099, #637).
+  (#637).
 - **Technical file checked against the code** — every document in `docs/regulatory/` was re-read
   against the code. The Sample QC checks, the version display, the in-app label, the problem-report
   route and several requirement statuses now say what CoGA does, with open gaps marked for the
-  owner (CR-098, #636).
+  owner (#636).
 - **Overview deck removed** — the seven-slide overview deck in `docs/overview-deck/`, with its
-  PDF and slide images, is removed at the owner's request; nothing linked to it (CR-097, #635).
+  PDF and slide images, is removed at the owner's request; nothing linked to it (#635).
 - **Schema references repointed** — the handleiding, the runtime-role runbook and three other
   docs named Postgres schema files that #373 replaced. Each reference now names the baseline
   (`01_access.sql` to `05_grants.sql`) that holds the object, and the runbook and handleiding
-  list all four tables the append-only `REVOKE` covers (CR-090, #628).
+  list all four tables the append-only `REVOKE` covers (#628).
 - **Google Cloud is the production target** — the owner's decision (Terraform on Google Cloud;
   DPIA signed, data-processing agreement being signed; no production deployment yet) is
   recorded in TF-02 §10 and TF-14, and the deployment guide, runbook and Terraform README
   describe the go-live switches (#627).
 - **Password policy confirmed** — the device owner confirmed the 15-character minimum for a new
-  local account (CR-059), recorded in TF-18 and `docs/security-posture.md` (#626).
+  local account (#582), recorded in TF-18 and `docs/security-posture.md` (#626).
 - **Docs and repo hygiene (#530)** — AGENTS.md, the README, `.env.example` (now every backend
   setting with its default), `docs/database.md` (eight undocumented tables, plus the HPO and
   Monarch tables), TF-08 §A.2 (locked frontend versions and where each runs), RELEASING.md
