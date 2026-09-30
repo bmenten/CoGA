@@ -268,14 +268,12 @@ export interface ApiSmallVariantReviewSummary {
 export interface ApiNiptFetalFraction {
   ff: number;
   ff_computed?: number | null;
-  ff_external?: number | null;
   ff_median?: number | null;
   ci_low?: number | null;
   ci_high?: number | null;
   n_sites: number;
   method: string;
   low_confidence: boolean;
-  disagreement: boolean;
 }
 
 export interface ApiNiptSummary {

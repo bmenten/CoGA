@@ -4,7 +4,8 @@ Artifacts are scoped per ``(assembly_id, assay_key)`` -- recurrent artifacts are
 capture/chemistry-specific, so a new panel starts with a clean list. The list is
 curated through the admin API (no UI), where ``auto-seed`` proposes candidates from
 recurrence in the assay's own cfDNA samples; ``load_nipt_artifact_ids`` provides the
-fast membership set the analysis uses to exclude (and count) artifacts.
+fast membership set the analysis uses to exclude (and count) artifacts. Every change to
+the list is recorded in the clinical audit trail (``NIPT_ARTIFACT_AUDIT_CHAIN``).
 
 See docs/monogenic-nipt.md.
 """
@@ -18,7 +19,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .clickhouse_family_variants import fetch_recurrent_small_variant_ids
+from .clinical_audit_service import record_clinical_event
 from .nipt import NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_PANEL_KEY, assay_key_for_sample_metadata
+
+# A change to the artifact list changes which variants every NIPT analysis of its scope
+# filters out, so each add, update, removal and auto-seed is a hash-chained clinical audit
+# event (#683). They form a chain of their own, not tied to a family; verify it with
+# GET /admin/integrity/verify?table=clinical_audit_events&family_id=system:nipt-artifacts.
+NIPT_ARTIFACT_AUDIT_CHAIN = "system:nipt-artifacts"
 
 _ARTIFACT_COLUMNS = """
     id::text AS id,
@@ -31,6 +39,45 @@ _ARTIFACT_COLUMNS = """
     created_at,
     updated_at
 """
+
+
+def _artifact_state(row: dict[str, Any]) -> dict[str, Any]:
+    """What an audit event records of an artifact entry (JSON-safe)."""
+    return {
+        "assembly_id": row.get("assembly_id"),
+        "assay_key": row.get("assay_key"),
+        "variant_id": row.get("variant_id"),
+        "source": row.get("source"),
+        "label": row.get("label"),
+        "recurrence_count": row.get("recurrence_count"),
+    }
+
+
+async def _record_artifact_event(
+    session: AsyncSession,
+    *,
+    actor: str,
+    actor_id: str | None,
+    action: str,
+    summary: str,
+    variant_id: str | None = None,
+    before: dict[str, Any] | None = None,
+    after: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    await record_clinical_event(
+        session,
+        family_uuid=None,
+        family_identifier=NIPT_ARTIFACT_AUDIT_CHAIN,
+        variant_id=variant_id,
+        actor=actor,
+        actor_id=actor_id,
+        action=action,
+        summary=summary,
+        before=before,
+        after=after,
+        metadata=metadata,
+    )
 
 
 async def load_nipt_artifact_ids(
@@ -91,8 +138,23 @@ async def add_nipt_artifact(
     source: str = "curated",
     recurrence_count: int = 0,
     created_by: str | None = None,
+    actor: str = "system",
 ) -> dict[str, Any]:
-    """Insert (or update on conflict) an artifact within its scope."""
+    """Insert (or update on conflict) an artifact within its scope, and audit it."""
+    existing = (
+        await session.execute(
+            text(
+                f"""
+                SELECT {_ARTIFACT_COLUMNS}
+                FROM nipt_artifact_variants
+                WHERE assembly_id = CAST(:assembly_id AS uuid)
+                  AND assay_key = :assay_key
+                  AND variant_id = :variant_id
+                """
+            ),
+            {"assembly_id": assembly_id, "assay_key": assay_key, "variant_id": variant_id},
+        )
+    ).mappings().first()
     result = await session.execute(
         text(
             f"""
@@ -121,17 +183,59 @@ async def add_nipt_artifact(
         },
     )
     row = dict(result.mappings().one())
+    before = _artifact_state(dict(existing)) if existing is not None else None
+    await _record_artifact_event(
+        session,
+        actor=actor,
+        actor_id=created_by,
+        action="nipt_artifact_updated" if before is not None else "nipt_artifact_added",
+        summary=(
+            f"{'Updated' if before is not None else 'Added'} {variant_id} "
+            f"{'on' if before is not None else 'to'} the NIPT artifact list ({assay_key})"
+        ),
+        variant_id=variant_id,
+        before=before,
+        after=_artifact_state(row),
+        metadata={"assembly_id": assembly_id, "assay_key": assay_key},
+    )
     await session.commit()
     return row
 
 
-async def delete_nipt_artifact(session: AsyncSession, *, artifact_id: str) -> bool:
+async def delete_nipt_artifact(
+    session: AsyncSession,
+    *,
+    artifact_id: str,
+    actor: str = "system",
+    actor_id: str | None = None,
+) -> bool:
+    """Remove an artifact entry, and audit it; False when there is none."""
     result = await session.execute(
-        text("DELETE FROM nipt_artifact_variants WHERE id = CAST(:id AS uuid)"),
+        text(
+            f"""
+            DELETE FROM nipt_artifact_variants WHERE id = CAST(:id AS uuid)
+            RETURNING {_ARTIFACT_COLUMNS}
+            """
+        ),
         {"id": artifact_id},
     )
+    deleted = result.mappings().first()
+    if deleted is None:
+        await session.rollback()
+        return False
+    removed = _artifact_state(dict(deleted))
+    await _record_artifact_event(
+        session,
+        actor=actor,
+        actor_id=actor_id,
+        action="nipt_artifact_removed",
+        summary=f"Removed {removed['variant_id']} from the NIPT artifact list ({removed['assay_key']})",
+        variant_id=removed["variant_id"],
+        before=removed,
+        metadata={"assembly_id": removed["assembly_id"], "assay_key": removed["assay_key"]},
+    )
     await session.commit()
-    return (result.rowcount or 0) > 0
+    return True
 
 
 async def bulk_upsert_nipt_artifacts(
@@ -143,7 +247,7 @@ async def bulk_upsert_nipt_artifacts(
     source: str = "auto",
     created_by: str | None = None,
 ) -> int:
-    """Upsert ``(variant_id, recurrence_count)`` pairs into a scope.
+    """Upsert ``(variant_id, recurrence_count)`` pairs into a scope (the caller commits).
 
     On conflict only the recurrence count is refreshed, so a manually curated
     entry keeps its source and label when it also turns up as recurrent.
@@ -178,7 +282,6 @@ async def bulk_upsert_nipt_artifacts(
         ),
         rows,
     )
-    await session.commit()
     return len(rows)
 
 
@@ -228,6 +331,7 @@ async def auto_seed_nipt_artifacts(
     assay_key: str,
     min_carrier_samples: int = 5,
     created_by: str | None = None,
+    actor: str = "system",
 ) -> dict[str, int]:
     """Seed the artifact list from recurrence among the assay's own cfDNA samples.
 
@@ -272,4 +376,27 @@ async def auto_seed_nipt_artifacts(
         source="auto",
         created_by=created_by,
     )
+    if seeded:
+        await _record_artifact_event(
+            session,
+            actor=actor,
+            actor_id=created_by,
+            action="nipt_artifacts_auto_seeded",
+            summary=(
+                f"Auto-seeded {seeded} recurrent variant(s) into the NIPT artifact list "
+                f"({assay_key}; carried by at least {min_carrier_samples} cfDNA samples)"
+            ),
+            after={
+                "variants": [
+                    {"variant_id": variant_id, "recurrence_count": int(count)}
+                    for variant_id, count in recurrent
+                ]
+            },
+            metadata={
+                "assembly_id": assembly_id,
+                "assay_key": assay_key,
+                "min_carrier_samples": min_carrier_samples,
+            },
+        )
+        await session.commit()
     return {"seeded": seeded, "min_carrier_samples": min_carrier_samples}

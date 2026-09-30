@@ -123,6 +123,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   ClinVar reads "not recorded", not 0 (#625).
 - **Scheduled ClickHouse integrity result for admins** — an admin endpoint and the ClickHouse page show each
   assembly's last scheduled integrity result and when it ran, or that it could not run (#660).
+- **NIPT artifact list in the clinical audit trail (#683)** — each add, update, removal and
+  auto-seed through the admin API is a hash-chained clinical audit event with the actor, the variant
+  and its state before and after, on a chain of its own (`system:nipt-artifacts`) that
+  `/admin/integrity/verify` checks. The list decides which variants every NIPT analysis of its assay
+  filters out (#700).
 
 ### Changed
 
@@ -300,6 +305,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   /admin/hpo/sync`, behind *Admin → HPO Terminology*, does the same with a preview) and `GET
   /families/{id}/members/{sample_id}/impact` (a member delete without `confirm` answers with the impact).
   `GET /panels/{id}/versions/{version}` stays, to look up the panel version a report names (#699).
+- **External fetal fraction (#683)** — the NIPT summary and variant list no longer accept the
+  `external_ff` parameter no screen sent. It could replace the computed fetal fraction when too few
+  informative sites gave one; the fetal fraction is now always CoGA's own estimate. Its disagreement
+  flag and REQ-NIPT-005 go with it (#700).
 
 ### Fixed
 
