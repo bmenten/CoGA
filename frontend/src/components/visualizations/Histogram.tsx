@@ -1,5 +1,6 @@
 import React from 'react';
 import * as d3 from 'd3';
+import { countOf } from '../../lib/countOf';
 
 interface Props {
   data: number[];
@@ -67,9 +68,6 @@ const binValues = (
   }
   return { counts, labels };
 };
-
-const countOf = (count: number, one: string, many = `${one}s`): string =>
-  `${count.toLocaleString()} ${count === 1 ? one : many}`;
 
 const Histogram: React.FC<Props> = ({
   data,

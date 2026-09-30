@@ -110,7 +110,6 @@ from .clickhouse_variant_queries import (
     _small_query_filter_parts,
     _small_record_matches,
     _small_summary_table_name,
-    _small_table_name,
     _small_track_limit_response,
     _small_variant_out,
     _split_gene_terms,
@@ -118,12 +117,12 @@ from .clickhouse_variant_queries import (
     _structural_annotation_extra,
     _structural_record_matches,
     _structural_segregation_modes,
-    _structural_table_name,
     _structural_variant_out,
     _structural_variant_where_clauses,
     _variant_gene_keys,
     _visible_clickhouse_sample_ids,
 )
+from .clickhouse_variant_ids import _small_table_name, _structural_table_name
 from .clickhouse_variant_storage import (
     ensure_clickhouse_variant_tables,
     get_family_small_variant_data_version,
@@ -773,32 +772,6 @@ async def _execute_clickhouse(query: str, params: dict[str, Any]) -> list[tuple[
         raise
 
 
-async def _read_small_summary_cache(
-    query: str, params: dict[str, Any]
-) -> list[tuple[Any, ...]]:
-    """Read a ``family*_variant_summary`` cache table, tolerating the pre-``project_guid`` schema.
-
-    The per-family/per-sample summaries gained a ``project_guid`` column via a drop+recreate
-    migration (``_migrate_legacy_family_sample_variant_summary``) that only runs on the
-    ingest/table-ensure path. On a ClickHouse instance still carrying the legacy table, the read
-    path queries a column that does not exist and ClickHouse raises ``UNKNOWN_IDENTIFIER`` —
-    which ``_execute_clickhouse`` does not (and should not, globally) swallow, so the request
-    500s before the live ``entries`` fallback can run. Treat that one case as a cache miss so the
-    caller recomputes from ``entries``; the migration recreates the table on the next ingest.
-    """
-    try:
-        return await _execute_clickhouse(query, params)
-    except ClickHouseError as exc:
-        message = str(exc)
-        if "UNKNOWN_IDENTIFIER" in message and "project_guid" in message:
-            logger.warning(
-                "Small-variant summary cache predates the project_guid migration; "
-                "falling back to a live entries scan."
-            )
-            return []
-        raise
-
-
 async def _count_small_variant_rows_bounded(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -984,7 +957,7 @@ async def _fetch_small_variant_summary(
 
     if len(context.project_ids) == 1:
         family_params["project_guid"] = context.project_ids[0]
-        family_rows = await _read_small_summary_cache(
+        family_rows = await _execute_clickhouse(
             f"""
             SELECT total_variants, snv_count, indel_count
             FROM {_small_summary_table_name(context.assembly_name, 'family_variant_summary')}
@@ -1034,7 +1007,7 @@ async def _fetch_small_variant_summary(
 
     sample_rows: list[tuple[Any, ...]] = []
     if len(context.project_ids) == 1:
-        sample_rows = await _read_small_summary_cache(
+        sample_rows = await _execute_clickhouse(
             f"""
             SELECT sample_id, non_ref_count, het_count, hom_alt_count
             FROM {_small_summary_table_name(context.assembly_name, 'family_sample_variant_summary')}

@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import AssemblyScopeBanner from '../../components/AssemblyScopeBanner';
 import ImportIncompleteBanner from '../../components/ImportIncompleteBanner';
 import Pedigree from '../../components/visualizations/Pedigree';
+import { parsePedigree } from '../../lib/pedigree';
 
 /**
  * The top card every family-scoped page opens with.
@@ -16,26 +17,6 @@ import Pedigree from '../../components/visualizations/Pedigree';
  * same destination — except on the workspace itself, where `isWorkspace` leaves it as
  * plain text rather than a link to the page you are already on.
  */
-export interface PedRow {
-  fid: string;
-  iid: string;
-  pid: string;
-  mid: string;
-  sex: string;
-  phen: string;
-}
-
-export const parsePedigree = (pedigree?: string | null): PedRow[] => {
-  if (!pedigree) return [];
-  return pedigree
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [fid, iid, pid, mid, sex, phen] = line.trim().split(/\s+/);
-      return { fid, iid, pid, mid, sex, phen };
-    });
-};
-
 /**
  * Only what the header needs. Each page fetches its own family shape — the members carry
  * page-specific extras — so this stays deliberately loose rather than forcing every

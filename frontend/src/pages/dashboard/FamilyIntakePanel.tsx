@@ -6,6 +6,7 @@ import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useProjectCatalog } from '../../lib/reference';
+import type { PedRow } from '../../lib/pedigree';
 
 type IntakeMode = 'manual' | 'upload';
 type Sex = 'male' | 'female' | 'und';
@@ -24,15 +25,6 @@ type DraftMember = {
   carrierStatus: boolean;
   carrierType: CarrierType;
   isCfdna: boolean;
-};
-
-type PedRow = {
-  fid: string;
-  iid: string;
-  pid: string;
-  mid: string;
-  sex: string;
-  phen: string;
 };
 
 type DraftCouple = {

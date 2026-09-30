@@ -219,7 +219,6 @@ def test_admin_family_status_crud(family_metadata_client) -> None:
         "/api/families/FAM1/small-variants",
         "/api/families/FAM1/structural-variants",
         "/api/families/FAM1/nipt/variants",
-        "/api/structural-variants/SAMPLE1",
     ],
 )
 @pytest.mark.parametrize("bad_page_size", [10_000_001, -1])
@@ -250,14 +249,12 @@ def test_the_nipt_variant_page_says_when_its_list_is_capped(
             fetal_fraction=FetalFractionEstimate(
                 ff=0.1,
                 ff_computed=0.1,
-                ff_external=None,
                 ff_median=0.1,
                 ci_low=0.09,
                 ci_high=0.11,
                 n_sites=40,
                 method="category7_pooled",
                 low_confidence=False,
-                disagreement=False,
             ),
             total=1234,
             variants=[],

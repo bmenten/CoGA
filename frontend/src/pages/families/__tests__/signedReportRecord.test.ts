@@ -290,7 +290,7 @@ describe('the signed report’s wording', () => {
     const item = { variantId: 'sv', changed: [], evidenceFrom: evidence, evidenceTo: evidence, classifiedBy: null };
     expect(describeSignedStructuralDrift({ ...item, status: 'variant_missing' })).toBe('no longer present in the data');
     expect(describeSignedStructuralDrift({ ...item, status: 'no_snapshot' })).toBe(
-      'no frozen evidence (no CNV scoring saved, or saved before CoGA froze its evidence)',
+      'no frozen evidence (no CNV scoring saved)',
     );
     expect(describeSignedStructuralDrift({ ...item, status: 'unknown' })).toBe('its evidence could not be compared');
     expect(

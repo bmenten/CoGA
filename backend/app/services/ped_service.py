@@ -3,12 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any
-from uuid import UUID
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import require_uuid
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
 from .clickhouse_variant_storage import delete_family_small_variants, delete_family_structural_variants
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
@@ -246,13 +246,6 @@ def _metadata_project_ids_for_user(user: CurrentUser) -> set[str]:
     }
 
 
-def _require_uuid(value: str, detail: str) -> None:
-    try:
-        UUID(value)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=detail) from exc
-
-
 async def _resolve_accessible_project_id(
     session: AsyncSession,
     user: CurrentUser,
@@ -264,7 +257,7 @@ async def _resolve_accessible_project_id(
             return None
         raise HTTPException(status_code=400, detail="Project assignment is required")
 
-    _require_uuid(normalized_project_id, "Invalid project id")
+    require_uuid(normalized_project_id, "Invalid project id")
     result = await session.execute(
         text("SELECT id::text AS id FROM projects WHERE id = CAST(:project_id AS uuid)"),
         {"project_id": normalized_project_id},

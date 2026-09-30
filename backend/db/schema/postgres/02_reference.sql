@@ -141,13 +141,6 @@ CREATE TABLE IF NOT EXISTS clinical_cnvs (
     CONSTRAINT clinical_cnvs_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
 );
 
--- Added after the table shipped; the baselines re-run on every boot, so an existing
--- deployment picks the columns up without a migration ledger.
-ALTER TABLE clinical_cnvs
-    ADD COLUMN IF NOT EXISTS clinvar_pathogenic_loss_count integer,
-    ADD COLUMN IF NOT EXISTS clinvar_pathogenic_gain_count integer,
-    ADD COLUMN IF NOT EXISTS clinvar_pathogenic_accessions text[];
-
 CREATE INDEX IF NOT EXISTS idx_clinical_cnvs_assembly_region ON clinical_cnvs USING btree (assembly_id, chr, start);
 
 -- ---------------------------------------------------------------------------
@@ -175,44 +168,10 @@ CREATE TABLE IF NOT EXISTS clinical_cnv_kb_jobs (
     CONSTRAINT clinical_cnv_kb_jobs_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
 );
 
--- Added after the table shipped; the baselines re-run on every boot, so an existing
--- deployment picks the columns up without a migration ledger.
-ALTER TABLE clinical_cnv_kb_jobs
-    ADD COLUMN IF NOT EXISTS worker_id text,
-    ADD COLUMN IF NOT EXISTS heartbeat_at timestamp with time zone;
-
 -- One active rebuild at a time: the index key is a constant, so a second queued or running
--- job collides with the first. The index it replaces, idx_clinical_cnv_kb_jobs_active, was
--- keyed on the status, so a job could be queued beside a running one; that job's switch to
--- running then failed, and it stayed queued, refusing every later rebuild.
--- A database built before the fix is upgraded in place (the baselines re-run on every boot).
--- Until the new index exists, the jobs the old one let through are closed as failed, keeping
--- only the most recently started running build, so that the new index can be built and a
--- job left queued no longer refuses every rebuild. A no-op once the new index exists: a later
--- boot never closes an active job.
--- Benign if an old instance still serving starts a job closed here in the same instant: it then runs.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_indexes
-        WHERE schemaname = current_schema()
-          AND indexname = 'idx_clinical_cnv_kb_jobs_one_active'
-    ) THEN
-        UPDATE clinical_cnv_kb_jobs
-        SET status = 'failed',
-            completed_at = now(),
-            error = 'Closed on upgrade to one active rebuild at a time. Request a new rebuild if it is still needed.'
-        WHERE status IN ('queued', 'running')
-          AND id IS DISTINCT FROM (
-              SELECT id FROM clinical_cnv_kb_jobs
-              WHERE status = 'running'
-              ORDER BY started_at DESC NULLS LAST, requested_at DESC
-              LIMIT 1
-          );
-    END IF;
-END
-$$;
-DROP INDEX IF EXISTS idx_clinical_cnv_kb_jobs_active;
+-- job collides with the first. Keyed on the status instead, a job could be queued beside a
+-- running one; its switch to running then failed, and it stayed queued, refusing every later
+-- rebuild.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_clinical_cnv_kb_jobs_one_active ON clinical_cnv_kb_jobs USING btree ((true)) WHERE (status = ANY (ARRAY['queued'::text, 'running'::text]));
 CREATE INDEX IF NOT EXISTS idx_clinical_cnv_kb_jobs_requested_at ON clinical_cnv_kb_jobs USING btree (requested_at DESC);
 
@@ -307,43 +266,6 @@ CREATE TABLE IF NOT EXISTS gene_panel_regions (
     CONSTRAINT gene_panel_regions_panel_id_fkey FOREIGN KEY (panel_id) REFERENCES gene_panels(id) ON DELETE CASCADE,
     CONSTRAINT gene_panel_regions_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
 );
-
--- Upgrade a table created before regions were scoped by assembly (#515). A row copied
--- from the gene reference is kept once for every assembly whose gene record it matches
--- exactly (the mtDNA matches in both GRCh38 and T2T); a row that matches none
--- (PanelApp's own coordinates) cannot be attributed safely and is dropped: the panel's
--- gene list is untouched, the family filter resolves gene loci per assembly at query
--- time, and a re-import restores PanelApp coordinates. A no-op once the column exists.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = 'gene_panel_regions'
-          AND column_name = 'assembly_id'
-    ) THEN
-        ALTER TABLE gene_panel_regions ADD COLUMN assembly_id uuid;
-        ALTER TABLE gene_panel_regions DROP CONSTRAINT gene_panel_regions_pkey;
-        INSERT INTO gene_panel_regions (panel_id, assembly_id, gene, chr, start, "end")
-        SELECT DISTINCT r.panel_id, g.assembly_id, r.gene, r.chr, r.start, r."end"
-        FROM gene_panel_regions r
-        JOIN genes g
-          ON upper(g.hgnc_symbol) = upper(r.gene)
-         AND g.chr = r.chr
-         AND g.start = r.start
-         AND g."end" = r."end"
-        WHERE r.assembly_id IS NULL;
-        DELETE FROM gene_panel_regions WHERE assembly_id IS NULL;
-        ALTER TABLE gene_panel_regions ALTER COLUMN assembly_id SET NOT NULL;
-        ALTER TABLE gene_panel_regions
-            ADD CONSTRAINT gene_panel_regions_pkey
-            PRIMARY KEY (panel_id, assembly_id, gene, chr, start, "end");
-        ALTER TABLE gene_panel_regions
-            ADD CONSTRAINT gene_panel_regions_assembly_id_fkey
-            FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE;
-    END IF;
-END
-$$;
 
 -- ---------------------------------------------------------------------------
 -- gene_panel_versions  (034)

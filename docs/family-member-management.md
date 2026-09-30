@@ -27,7 +27,6 @@ These also refer to a member:
 | `PUT /families/{family_id}/members/{sample_id}` | edits one member (states, sex, role, parents, rename) |
 | `PUT /families/{family_id}/members/batch` | edits several members in one transaction |
 | `DELETE /families/{family_id}/members/{sample_id}?confirm=true` | removes a member; without `confirm` it returns 409 with the impact |
-| `GET /families/{family_id}/members/{sample_id}/impact` | shows what a change to this member would touch, before you make it |
 | `PUT /families/{family_id}/structure` | adds, updates and removes members and replaces relationships in one request |
 
 The member endpoints go through the structure update, so the rules below apply to all of

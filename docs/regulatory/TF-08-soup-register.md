@@ -50,7 +50,7 @@ each release; it is not maintained by hand. **Reconciled with the lockfile on 20
 | pydantic / pydantic-settings | 2.13.5 / 2.15.0 | Data validation, settings | H | Changelog |
 | **PyJWT[crypto]** (+ cryptography) | **2.15.0** (+ 50.0.0) | JWT signing/verification (HS256 local, RS256 Azure) | **H (security)** | CVE watch (auth) |
 | bcrypt | 5.0.0 | Password hashing, called directly (no passlib wrapper); the stored `$2b$` hashes verify unchanged | **H (security)** | CVE watch |
-| pysam / pyfaidx | 0.24.1 / 0.9.0.4 | VCF/BAM/FASTA access | H | Changelog |
+| pysam | 0.24.1 | VCF/BAM/CRAM access | H | Changelog |
 | pyBigWig | 0.3.26 | bigWig signal-track reading (HiFiCNV read depth and minor allele fraction) | M | Changelog |
 | pandas / numpy | 2.3.3 / 2.2.6 | CNV knowledgebase build, analysis | M | Changelog |
 | requests / httpx / beautifulsoup4 | 2.34.2 / 0.28.1 / 4.15.0 | External fetches, parsing | M | CVE watch |

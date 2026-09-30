@@ -1,4 +1,5 @@
 import express from 'express';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Readable, pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,15 @@ const BACKEND_URL = (process.env.BACKEND_URL || 'http://backend:8000').replace(/
 const app = express();
 
 const distPath = path.join(__dirname, 'dist');
+// The app shell, read once: no request reaches the file system for it (#702). Absent
+// until the app is built (a test importing this module); the fallback then answers 503.
+const indexHtmlPath = path.join(distPath, 'index.html');
+const indexHtml = existsSync(indexHtmlPath) ? readFileSync(indexHtmlPath) : null;
+
+// A request's method and URL in a log line: line breaks removed so a URL cannot forge
+// log lines, and passed as %s arguments, never as the format string itself (#702). The
+// breaks are deleted, not replaced: that is the form CodeQL recognises as a sanitiser.
+const forLog = (value) => String(value).replace(/\n|\r/g, '');
 const hopByHopHeaders = new Set([
   'connection',
   'content-length',
@@ -98,7 +108,7 @@ app.use('/api', async (req, res) => {
     // error that could take the whole server down (#521). Now it ends this response.
     pipeline(Readable.fromWeb(upstream.body), res, (error) => {
       if (error && !controller.signal.aborted) {
-        console.error(`API proxy stream failed for ${req.method} ${req.originalUrl}`, error);
+        console.error('API proxy stream failed for %s %s', forLog(req.method), forLog(req.originalUrl), error);
       }
     });
   } catch (error) {
@@ -111,7 +121,7 @@ app.use('/api', async (req, res) => {
       // The client went away; there is no one to answer.
       return;
     }
-    console.error(`API proxy failed for ${req.method} ${req.originalUrl}`, error);
+    console.error('API proxy failed for %s %s', forLog(req.method), forLog(req.originalUrl), error);
     // The backend address stays in the server log; the browser needs only the outcome.
     res.status(timedOut ? 504 : 502).json({
       detail: timedOut
@@ -134,9 +144,13 @@ app.use(express.static(distPath));
 // `path-to-regexp@6`, which does not accept "*" string paths. Use
 // a regular expression to match any remaining route instead.
 app.get(/.*/, (_req, res) => {
-  // `root` keeps send's dotfile rule to the file name: an absolute path through a
-  // dot-directory (a checkout under ~/.something) would otherwise answer 404.
-  res.sendFile('index.html', { root: distPath });
+  if (!indexHtml) {
+    res.status(503).type('text/plain').send('The app is not built.');
+    return;
+  }
+  // Revalidated on every load, so a new release's shell is picked up at once.
+  res.set('Cache-Control', 'no-cache');
+  res.type('html').send(indexHtml);
 });
 
 // Only start listening when run directly (`node server.mjs`); importing this module

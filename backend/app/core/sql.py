@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Iterable
 from uuid import UUID
 
+from fastapi import HTTPException
 from sqlalchemy import bindparam
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.exc import DBAPIError
@@ -14,6 +15,14 @@ def uuid_value(value: str | UUID) -> UUID:
     if isinstance(value, UUID):
         return value
     return UUID(str(value))
+
+
+def require_uuid(value: str, detail: str) -> None:
+    """Refuse (400) an identifier from the request that is not a UUID."""
+    try:
+        UUID(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=detail) from exc
 
 
 def uuid_values(values: Iterable[str | UUID]) -> list[UUID]:

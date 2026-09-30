@@ -1272,27 +1272,6 @@ async def _attach_sequencing_qc_verdicts(
         logger.warning("Sequencing-QC threshold evaluation failed for family %s", family_uuid, exc_info=True)
 
 
-async def list_family_project_assignments(
-    session: AsyncSession,
-) -> list[dict[str, Any]]:
-    family_rows = await _fetch_family_rows(session)
-    sample_rows_by_family = await _fetch_family_sample_rows(session, [row["id"] for row in family_rows])
-    assignments: list[dict[str, Any]] = []
-    for row in family_rows:
-        project_ids = _string_list(row.get("project_ids"))
-        assignments.append(
-            {
-                "family_id": row["family_id"],
-                "projects": project_ids,
-                "samples": [
-                    {"sample_id": sample_row["sample_id"], "projects": project_ids}
-                    for sample_row in sample_rows_by_family.get(row["id"], [])
-                ],
-            }
-        )
-    return assignments
-
-
 async def _validate_project_ids(session: AsyncSession, project_ids: list[str]) -> list[str]:
     deduped = list(dict.fromkeys(project_ids))
     if not deduped:

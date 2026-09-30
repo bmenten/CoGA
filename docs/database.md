@@ -8,9 +8,9 @@ reference.
 
 The schema is five idempotent baseline files in
 [backend/db/schema/postgres/](../backend/db/schema/postgres/), applied in name order on every
-start (see "Startup Behavior"). There is no migration ledger. Each table is created in its
-final form; the few columns added later use `ALTER TABLE … ADD COLUMN IF NOT EXISTS` in the
-same file.
+start (see "Startup Behavior"). There is no migration ledger and no upgrade statement: each
+table is created in its final form, and a database from an older schema is reset, not
+migrated ([development.md](development.md#stop-and-reset)).
 
 ### 01_access.sql: genome foundation and access
 
@@ -38,7 +38,7 @@ same file.
 | `segmental_duplications` | segmental duplications and low-copy repeats per assembly |
 | `gene_panels`, `gene_panel_genes` | panels and their gene lists |
 | `gene_panel_regions` | a panel's coordinates, one row per gene (or PanelApp region) per assembly (below) |
-| `gene_panel_versions` | an immutable snapshot of every version of a panel: genes, regions, source, external version and author |
+| `gene_panel_versions` | an immutable snapshot of every version of a panel: genes, regions, source, external version and author. `GET /api/panels/{id}/versions/{version}` returns one; no screen shows it, it is there to look up the panel version a report names |
 | `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure` | one HPO release: terms, synonyms, `is_a` links, and every ancestor of a term with its distance |
 | `monarch_gene_disease`, `monarch_disease_phenotype` | Monarch gene-to-disease links (predicate, sources, causal or not) and disease-to-HPO annotations, including negated ones |
 | `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs) |
@@ -82,7 +82,7 @@ built-in reference file is recorded under its file name.
 | `sample_interval_track_sources` | one row per sample, track type (`coverage`, `segments`, `apcad`, `apcad_pcf`, `haplotype`), source and file, with its row count; the rows themselves are in ClickHouse |
 | `small_variant_reviews` | the classification, ACMG criteria, tags, notes and evidence snapshot of a small variant in a family |
 | `structural_variant_reviews` | the same for a structural variant or CNV, with the CNV ACMG points and the evidence snapshot of the CNV classification |
-| `small_variant_filter_presets`, `structural_variant_filter_presets` | saved filter sets, per user and for one family or all |
+| `small_variant_filter_presets`, `structural_variant_filter_presets` | saved filter sets, per user: a small-variant one is reusable in every family, a structural-variant one is for one family or all |
 | `small_variant_tag_definitions`, `small_variant_tag_definition_project_links` | the review-tag catalogue, global or per project |
 | `family_sv_gene_index`, `family_sv_gene_index_status` | per family, which genes a structural variant hits (for the "also hit by an SV" flag), and when and from which SV data version (`sv_data_version`, below) that index was built. It is rebuilt on next use once the family's SVs have changed |
 | `family_variant_ranking_cache` | cached prioritised rankings (see [variant-ranking-cache.md](variant-ranking-cache.md)) |

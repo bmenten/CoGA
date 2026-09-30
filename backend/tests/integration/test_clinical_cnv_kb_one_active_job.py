@@ -11,11 +11,7 @@ running for good, with the same effect. Against the real schema, this checks tha
 * a job whose worker is gone (no heartbeat for the stale window, or never started) is
   closed as failed by the status and by a rebuild request, which is then accepted, while a
   job that still heartbeats is kept; its old worker can no longer write to it;
-* a database that still has the old index is upgraded in place by the idempotent schema
-  load: the heartbeat columns are added, the jobs the old index let through are closed as
-  failed, a running build is kept, the old index is replaced, and a later load leaves an
-  active job alone;
-* a table created fresh gets the new index and the heartbeat columns.
+* a table created fresh gets the one-active index and the heartbeat columns.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -34,13 +30,6 @@ from sqlalchemy import text
 pytestmark = pytest.mark.integration
 
 _NEW_INDEX = "idx_clinical_cnv_kb_jobs_one_active"
-_OLD_INDEX = "idx_clinical_cnv_kb_jobs_active"
-# The index exactly as it was before the fix: keyed on the status, so a queued job and a
-# running one did not collide.
-_OLD_INDEX_DDL = (
-    f"CREATE UNIQUE INDEX {_OLD_INDEX} ON clinical_cnv_kb_jobs USING btree (status) "
-    "WHERE (status = ANY (ARRAY['queued'::text, 'running'::text]))"
-)
 # Either side of the ten-minute stale window.
 _STALE = timedelta(minutes=11)
 _FRESH = timedelta(minutes=9)
@@ -366,71 +355,7 @@ def test_a_closed_job_is_no_longer_its_old_workers(kb) -> None:
     _with_assembly(test)
 
 
-# --- the schema: upgrading an existing database, and a fresh one ------------------------------
-
-
-@pytest.mark.parametrize(
-    "left_behind",
-    [("running", "queued"), ("queued",)],
-    ids=["queued-beside-a-running-build", "queued-alone"],
-)
-def test_a_database_with_the_old_index_is_upgraded_in_place(kb, left_behind: tuple[str, ...]) -> None:
-    service, _started = kb
-
-    async def test(sm, assembly: str) -> None:
-        # The table as it was before the fix, holding what the defect leaves behind: a job
-        # queued while another build ran, whose switch to running then failed (alone once that
-        # build has finished).
-        async with sm() as s:
-            await s.execute(text(f"DROP INDEX IF EXISTS {_NEW_INDEX}"))
-            await s.execute(
-                text(
-                    "ALTER TABLE clinical_cnv_kb_jobs "
-                    "DROP COLUMN IF EXISTS worker_id, DROP COLUMN IF EXISTS heartbeat_at"
-                )
-            )
-            await s.execute(text(_OLD_INDEX_DDL))
-            await s.commit()
-        job_ids = {
-            status: await _insert_job(
-                sm,
-                assembly,
-                status=status,
-                requested_ago=timedelta(minutes=2 if status == "running" else 1),
-                started_ago=timedelta(minutes=2) if status == "running" else None,
-            )
-            for status in left_behind
-        }
-
-        from backend.app.core.postgres import init_postgres_schema
-
-        await init_postgres_schema()  # the upgrade
-
-        indexes = await _indexes(sm)
-        assert _OLD_INDEX not in indexes
-        assert indexes[_NEW_INDEX].startswith(f"CREATE UNIQUE INDEX {_NEW_INDEX} ")
-        assert "((true))" in indexes[_NEW_INDEX]
-        assert {"worker_id", "heartbeat_at"} <= await _columns(sm)
-
-        status, error = await _job_status(sm, job_ids["queued"])
-        assert status == "failed" and (error or "").startswith("Closed on upgrade")
-        if "running" in job_ids:
-            # A running build may still be building: it is kept, and still refuses others.
-            assert (await _job_status(sm, job_ids["running"]))[0] == "running"
-            assert await _refusal(service, sm, assembly) == 409
-            async with sm() as s:
-                await s.execute(
-                    text(f"UPDATE clinical_cnv_kb_jobs SET {_DONE} WHERE id = CAST(:j AS uuid)"),
-                    {"j": job_ids["running"]},
-                )
-                await s.commit()
-
-        # Rebuilds are accepted again, and a later load leaves an active job alone.
-        job = await _queue(service, sm, assembly)
-        await init_postgres_schema()
-        assert (await _job_status(sm, str(job.id)))[0] == "queued"
-
-    _with_assembly(test)
+# --- the schema -------------------------------------------------------------------------------
 
 
 def test_a_fresh_table_gets_the_new_index_and_the_heartbeat_columns() -> None:

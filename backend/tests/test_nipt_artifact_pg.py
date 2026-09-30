@@ -10,6 +10,18 @@ from backend.app.services.nipt_artifact_pg import (
 )
 
 
+@pytest.fixture(autouse=True)
+def audit_events(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """The clinical audit events the artifact service records (#683), captured."""
+    recorded: list[dict] = []
+
+    async def record(_session, **kwargs):
+        recorded.append(kwargs)
+
+    monkeypatch.setattr(nipt_artifact_pg, "record_clinical_event", record)
+    return recorded
+
+
 class _FakeResult:
     def __init__(self, rows):
         self._rows = rows
@@ -175,7 +187,7 @@ class _AutoSeedSession:
 
 @pytest.mark.asyncio
 async def test_auto_seed_nipt_artifacts_upserts_recurrent(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, audit_events: list[dict]
 ) -> None:
     async def fake_recurrent(assembly_name, *, min_carrier_samples, **_kwargs):
         assert assembly_name == "GRCh38"
@@ -190,11 +202,24 @@ async def test_auto_seed_nipt_artifacts_upserts_recurrent(
         assembly_id="assembly-uuid",
         assay_key="nipt_cfdna",
         min_carrier_samples=5,
+        actor="curator",
     )
 
     assert result == {"seeded": 2, "min_carrier_samples": 5}
     assert session.bulk_rows is not None and len(session.bulk_rows) == 2
     assert session.bulk_rows[0]["source"] == "auto"
+    # One audit event on the list's own chain names every seeded variant, then one commit.
+    [event] = audit_events
+    assert event["family_identifier"] == nipt_artifact_pg.NIPT_ARTIFACT_AUDIT_CHAIN
+    assert event["action"] == "nipt_artifacts_auto_seeded"
+    assert event["actor"] == "curator"
+    assert event["after"] == {
+        "variants": [
+            {"variant_id": "1-100-A-G", "recurrence_count": 12},
+            {"variant_id": "2-200-C-T", "recurrence_count": 7},
+        ]
+    }
+    assert session.commits == 1
 
 
 @pytest.mark.asyncio
@@ -238,7 +263,7 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
 
 @pytest.mark.asyncio
 async def test_auto_seed_without_cfdna_samples_for_the_assay_seeds_nothing(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, audit_events: list[dict]
 ) -> None:
     async def fake_recurrent(assembly_name, *, min_carrier_samples, carrier_samples=None, **_kwargs):
         assert carrier_samples == {}
@@ -255,6 +280,7 @@ async def test_auto_seed_without_cfdna_samples_for_the_assay_seeds_nothing(
 
     assert result == {"seeded": 0, "min_carrier_samples": 5}
     assert session.bulk_rows is None
+    assert audit_events == []  # nothing changed, nothing to audit
 
 
 @pytest.mark.asyncio

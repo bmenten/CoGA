@@ -284,10 +284,9 @@ export type SmallVariantReviewSavePayload = {
   cnv_acmg?: CnvAcmgReviewPayload;
 };
 
+// A small-variant preset is its owner's, reusable in every family they can open.
 export interface SmallVariantFilterPreset {
   _id: string;
-  family_id?: string | null;
-  scope: 'family' | 'global';
   owner: string;
   name: string;
   description?: string | null;
@@ -316,15 +315,6 @@ export type SmallVariantFamily = Pick<
   ApiFamilyRecord,
   'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata'
 >;
-
-export interface PedRow {
-  fid: string;
-  iid: string;
-  pid: string;
-  mid: string;
-  sex: string;
-  phen: string;
-}
 
 export interface GenePanel {
   _id: string;
@@ -777,17 +767,6 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   category: '',
   min_confidence: '',
 });
-
-export const parsePedigree = (pedigree?: string | null): PedRow[] => {
-  if (!pedigree) return [];
-  return pedigree
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [fid, iid, pid, mid, sex, phen] = line.trim().split(/\s+/);
-      return { fid, iid, pid, mid, sex, phen };
-    });
-};
 
 const buildDefaultSampleFilters = (
   members: FamilyMember[],
@@ -1898,9 +1877,6 @@ export const countPresetRules = (preset: SmallVariantFilterPreset) => {
   const templateCount = Object.keys(preset.sample_templates || {}).length;
   return filterCount + sampleCount + templateCount;
 };
-
-export const getPresetScopeLabel = (scope: SmallVariantFilterPreset['scope']) =>
-  scope === 'family' ? 'Family' : 'Reusable';
 
 export const getTagDefinitionMap = (tags: SmallVariantTagDefinition[]) =>
   Object.fromEntries(tags.map((tag) => [tag.key, tag]));

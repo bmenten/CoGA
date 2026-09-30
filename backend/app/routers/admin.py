@@ -118,7 +118,6 @@ from ..services.hpo_service import (
     sync_hpo_ontology,
 )
 from ..services.metadata_service import (
-    list_family_project_assignments,
     update_family_project_assignments,
 )
 from ..services.access_control import CurrentUser
@@ -266,6 +265,7 @@ async def add_nipt_artifact_endpoint(
         source=payload.source,
         recurrence_count=payload.recurrence_count,
         created_by=user.id,
+        actor=user.username,
     )
     return NiptArtifactOut(**row)
 
@@ -276,7 +276,9 @@ async def delete_nipt_artifact_endpoint(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> Dict[str, bool]:
-    deleted = await delete_nipt_artifact(session, artifact_id=artifact_id)
+    deleted = await delete_nipt_artifact(
+        session, artifact_id=artifact_id, actor=user.username, actor_id=user.id
+    )
     if not deleted:
         raise HTTPException(status_code=404, detail="Artifact not found")
     return {"deleted": True}
@@ -294,16 +296,9 @@ async def auto_seed_nipt_artifacts_endpoint(
         assay_key=payload.assay_key,
         min_carrier_samples=payload.min_carrier_samples,
         created_by=user.id,
+        actor=user.username,
     )
     return NiptArtifactAutoSeedOut(**result)
-
-
-@router.get("/projects")
-async def list_project_assignments(
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
-) -> List[Dict]:
-    return await list_family_project_assignments(session)
 
 
 @router.put("/families/{family_id}/projects")

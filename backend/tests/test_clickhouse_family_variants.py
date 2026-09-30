@@ -7,7 +7,6 @@ from fastapi import HTTPException
 
 from backend.app.services.clickhouse_family_variants import (
     _execute_clickhouse,
-    _read_small_summary_cache,
     _fetch_small_variant_rows,
     _prioritized_small_variants_page,
     _prioritized_structural_variants_page,
@@ -716,49 +715,6 @@ async def test_execute_clickhouse_returns_empty_for_missing_table(
     )
 
     assert await _execute_clickhouse("SELECT 1", {}) == []
-
-
-@pytest.mark.asyncio
-async def test_read_small_summary_cache_falls_back_on_legacy_schema(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A summary cache table predating the project_guid migration must not 500 the read path."""
-
-    async def fake_execute_clickhouse(_query: str, _params: dict[str, object]):
-        raise DatabaseError(
-            "Code: 47. DB::Exception: Unknown expression or function identifier "
-            "`project_guid` in scope SELECT sample_id FROM "
-            "coga.`GRCh38/SNV_INDEL/family_sample_variant_summary` (UNKNOWN_IDENTIFIER)"
-        )
-
-    monkeypatch.setattr(
-        "backend.app.services.clickhouse_family_variants.execute_clickhouse",
-        fake_execute_clickhouse,
-    )
-
-    # Treated as a cache miss so the caller recomputes from the live entries table.
-    assert await _read_small_summary_cache("SELECT 1", {}) == []
-
-
-@pytest.mark.asyncio
-async def test_read_small_summary_cache_reraises_unrelated_errors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The fallback is scoped to the project_guid case; other failures still surface."""
-
-    async def fake_execute_clickhouse(_query: str, _params: dict[str, object]):
-        raise DatabaseError(
-            "Code: 47. DB::Exception: Unknown expression or function identifier "
-            "`some_other_column` (UNKNOWN_IDENTIFIER)"
-        )
-
-    monkeypatch.setattr(
-        "backend.app.services.clickhouse_family_variants.execute_clickhouse",
-        fake_execute_clickhouse,
-    )
-
-    with pytest.raises(DatabaseError):
-        await _read_small_summary_cache("SELECT 1", {})
 
 
 def test_clinvar_status_filter_is_exact_not_substring() -> None:

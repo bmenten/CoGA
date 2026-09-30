@@ -5,7 +5,7 @@
 
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { clientAddress, forwardedHeaders } from '../../proxyRequest.mjs';
 
@@ -72,11 +72,15 @@ describe('API proxy', () => {
   it('does not name the internal backend address when it is unreachable', async () => {
     await new Promise((resolve) => backend.close(resolve));
     backend.closeAllConnections?.();
-    const res = await fetch(`${base}/api/ok`);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await fetch(`${base}/api/ok%25s`);
     expect(res.status).toBe(502);
     const body = await res.text();
     expect(body).not.toContain(backendUrl);
     expect(body).toContain('Unable to reach the backend API');
+    // The URL is an argument, never the format string: a "%s" in it stays text (#702).
+    expect(logged).toHaveBeenLastCalledWith('API proxy failed for %s %s', 'GET', '/api/ok%25s', expect.anything());
+    logged.mockRestore();
     backend = http.createServer();
   });
 });

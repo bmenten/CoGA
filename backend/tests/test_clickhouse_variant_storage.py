@@ -163,12 +163,7 @@ async def test_ensure_tables_creates_the_family_data_version_table(monkeypatch) 
         statements.append(" ".join(query.split()))
         return []
 
-    async def _noop(*_a, **_k):
-        return None
-
     monkeypatch.setattr(cvs, "_execute", fake_execute)
-    monkeypatch.setattr(cvs, "_migrate_legacy_family_sample_variant_summary", _noop)
-    monkeypatch.setattr(cvs, "_drop_legacy_gt_stats_aggregates", _noop)
     monkeypatch.setattr(cvs, "_ensured_variant_table_assemblies", set())
 
     await cvs.ensure_clickhouse_variant_tables("GRCh38")
@@ -266,12 +261,7 @@ async def test_ensure_tables_creates_the_sv_data_version_table(monkeypatch) -> N
         statements.append(" ".join(query.split()))
         return []
 
-    async def _noop(*_a, **_k):
-        return None
-
     monkeypatch.setattr(cvs, "_execute", fake_execute)
-    monkeypatch.setattr(cvs, "_migrate_legacy_family_sample_variant_summary", _noop)
-    monkeypatch.setattr(cvs, "_drop_legacy_gt_stats_aggregates", _noop)
     monkeypatch.setattr(cvs, "_ensured_variant_table_assemblies", set())
 
     await cvs.ensure_clickhouse_variant_tables("GRCh38")

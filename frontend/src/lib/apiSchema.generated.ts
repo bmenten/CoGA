@@ -1126,7 +1126,6 @@ export interface GithubReleaseOut {
 export interface GlobalVariantPageOut {
   total: number;
   total_is_estimated: boolean;
-  page: number;
   page_size: number;
   next_cursor: string | null;
   assembly_id: string | null;
@@ -1266,12 +1265,6 @@ export interface HpoOntologyImportOut {
   synonyms: number;
   edges: number;
   closure_rows: number;
-}
-
-export interface HpoOntologyImportRequest {
-  path: string;
-  release_version?: string | null;
-  release_date?: string | null;
 }
 
 export interface HpoOntologySyncOut {
@@ -1633,14 +1626,12 @@ export interface NiptCoverageSummaryOut {
 export interface NiptFetalFractionOut {
   ff: number;
   ff_computed: number | null;
-  ff_external: number | null;
   ff_median: number | null;
   ci_low: number | null;
   ci_high: number | null;
   n_sites: number;
   method: string;
   low_confidence: boolean;
-  disagreement: boolean;
 }
 
 /** Monogenic NIPT analysis summary: fetal fraction and category/filter counts. */
@@ -2172,19 +2163,6 @@ export interface ReferenceImportSourceOrganismOut {
   assembly_count: number;
 }
 
-export interface ReferenceReadOut {
-  pos: number;
-  seq: string;
-}
-
-export interface ReferenceReadsOut {
-  reads: ReferenceReadOut[];
-}
-
-export interface ReferenceSequenceOut {
-  sequence: string;
-}
-
 export interface ReferenceUploadResult {
   assembly_id: string;
   assembly_name: string;
@@ -2536,7 +2514,6 @@ export interface SmallVariantCompoundHetReviewUpdate {
 
 export interface SmallVariantFilterPresetCreate {
   name: string;
-  scope?: "family" | "global";
   description?: string | null;
   filters?: Record<string, unknown>;
   sample_filters?: Record<string, unknown>;
@@ -2545,8 +2522,6 @@ export interface SmallVariantFilterPresetCreate {
 
 export interface SmallVariantFilterPresetOut {
   _id: string;
-  family_id: string | null;
-  scope: "family" | "global";
   owner: string;
   name: string;
   description: string | null;

@@ -7,14 +7,15 @@ from typing import Any, Iterable, Sequence
 
 from fastapi import HTTPException
 
-from ..core.clickhouse import clickhouse_dataset_key
-from ..core.config import settings
 from ..schemas import (
     GenotypeOut,
     SmallVariantReviewOut,
     SmallVariantTranscriptOut,
     VariantOut,
     VariantPage,
+)
+from .clickhouse_variant_ids import (
+    _small_table_name,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .variant_annotation_parser import _spliceai_delta
@@ -188,15 +189,6 @@ _SUPPORTED_SMALL_INHERITANCE = {
 }
 
 
-def _require_clickhouse_identifier(value: str) -> str:
-    return clickhouse_dataset_key(value)
-
-
-def _small_table_name(assembly_name: str, suffix: str) -> str:
-    dataset = _require_clickhouse_identifier(assembly_name)
-    return f"{settings.clickhouse_database}.`{dataset}/SNV_INDEL/{suffix}`"
-
-
 def _small_annotation_table_name(assembly_name: str) -> str:
     return _small_table_name(assembly_name, "variants/annotations")
 
@@ -211,11 +203,6 @@ def _small_annotation_gene_index_table_name(assembly_name: str) -> str:
 
 def _small_summary_table_name(assembly_name: str, suffix: str) -> str:
     return _small_table_name(assembly_name, suffix)
-
-
-def _structural_table_name(assembly_name: str, suffix: str) -> str:
-    dataset = _require_clickhouse_identifier(assembly_name)
-    return f"{settings.clickhouse_database}.`{dataset}/SV/{suffix}`"
 
 
 def _append_unique(values: list[str], value: Any) -> None:

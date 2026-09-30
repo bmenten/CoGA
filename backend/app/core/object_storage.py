@@ -592,15 +592,3 @@ def _gcs_list_package_candidates(root_uri: str, location: RemoteLocation) -> lis
             }
         )
     return candidates
-
-
-# ---------------------------------------------------------------------------
-# Deprecated S3-named aliases (kept for backward compatibility). New code should
-# use the scheme-neutral names above.
-# ---------------------------------------------------------------------------
-
-is_s3_uri = is_remote_uri
-parse_s3_uri = parse_remote_uri
-join_s3_uri = join_remote_uri
-list_s3_package_candidates = list_remote_package_candidates
-S3Location = RemoteLocation

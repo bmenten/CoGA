@@ -15,11 +15,6 @@ const formatPresetDate = (value?: string) => {
   return timestamp.toLocaleDateString();
 };
 
-const getScopeLabel = (preset: SmallVariantFilterPreset) => {
-  if (preset.scope === 'global') return 'Reusable';
-  return preset.family_id ? `Legacy family (${preset.family_id})` : 'Legacy family';
-};
-
 export default function SmallVariantFilterPresetTable({
   presets,
   emptyMessage,
@@ -41,7 +36,6 @@ export default function SmallVariantFilterPresetTable({
         <thead>
           <tr>
             <th>Name</th>
-            <th>Scope</th>
             <th>Rules</th>
             {showOwner ? <th>Created by</th> : null}
             <th>Created</th>
@@ -59,7 +53,6 @@ export default function SmallVariantFilterPresetTable({
                   ) : null}
                 </div>
               </td>
-              <td>{getScopeLabel(preset)}</td>
               <td>{countPresetRules(preset)} rules</td>
               {showOwner ? <td>{preset.owner}</td> : null}
               <td>{formatPresetDate(preset.created_at)}</td>

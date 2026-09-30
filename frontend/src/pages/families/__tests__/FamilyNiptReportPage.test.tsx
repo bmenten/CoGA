@@ -101,7 +101,6 @@ describe('FamilyNiptReportPage', () => {
               n_sites: 42,
               method: 'category7_pooled',
               low_confidence: false,
-              disagreement: false,
             },
             category_counts: {},
             filter_counts: {},

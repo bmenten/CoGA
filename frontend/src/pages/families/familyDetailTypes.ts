@@ -1,12 +1,3 @@
-export interface PedRow {
-  fid: string;
-  iid: string;
-  pid: string;
-  mid: string;
-  sex: string;
-  phen: string;
-}
-
 export type ClinicalStatus = 'unknown' | 'unaffected' | 'affected';
 export type CarrierStatus = 'unknown' | 'not_carrier' | 'carrier';
 export type CarrierType = 'obligate' | 'proven' | 'reported' | 'inferred';

@@ -16,7 +16,7 @@ Code comments refer to four parts by number: Phase 0 (the annotation manifest), 
 | --- | --- | --- |
 | Annotation manifest | `family_annotation_manifest` | per family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
 | Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot`, `structural_variant_reviews.cnv_evidence_snapshot` | for each ACMG classification of a small variant, and each CNV (ClinGen) classification of a structural variant or CNV, what the classifier saw |
-| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, replaced the annotation manifest or signed out, when, with before and after |
+| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, replaced the annotation manifest, changed the NIPT artifact list or signed out, when, with before and after |
 | Signed reports | `report_signouts` | each sign-out as a frozen, versioned, content-hashed snapshot |
 | HTTP audit log | `audit_log_events` | every API request, with the user and a masked body |
 
@@ -51,7 +51,7 @@ stored without a snapshot.
 
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
-to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too. Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one) and `sign_out`.
+to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family). Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `sign_out`, and `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed` and `nipt_artifacts_auto_seeded`.
 For a small variant, `classification` holds the ACMG class, the accepted criteria, the point
 total, the VUS tier and every stored criterion: its strength, whether it was accepted, its
 evidence text and whether it was an automatic suggestion. For a structural variant or CNV, it
@@ -156,9 +156,8 @@ latest signed version; one that never was opens on the live report.
 time, content hash, `verified` and the frozen build; each reported variant's classification,
 accepted criteria, evidence snapshot, tags and note; the reported SVs with their ClinGen CNV
 scoring; the drift, Sample QC, sequencing QC and import state, with the acknowledgements; the
-frozen modules; and `not_captured`. A section the snapshot lacks (a record signed before the
-section was frozen) is shown as not in the record, never as empty; a record without
-`reported_structural_variants` holds no SVs. What no snapshot holds is said on the page: the
+frozen modules; and `not_captured`. A section the snapshot lacks is shown as not in the record,
+never as empty. What no snapshot holds is said on the page: the
 variant description (gene, HGVS, consequence, genotypes, frequencies, predictions), the
 segregation, the gene and phenotype context, the audit trail and the pipeline settings. Print
 prints this view. A printout starts with a notice when the record fails its content hash, when
@@ -179,19 +178,20 @@ Every printout of the live report starts with a notice ("Draft …", "Not the si
 sign-out record is loading or could not be loaded, sign-out is not offered. After a sign-out the
 page shows the new version.
 
-Each snapshot also records the reference modules its build looked up (`reference_modules`).
-A snapshot without that list was signed before CoGA recorded the HPO release and holds none:
-the check lists `modules.hpo` under `not_compared` instead of calling the record changed, and
-`not_captured` names the missing release. A snapshot with the list but no HPO module was signed
-with no ontology loaded, so an ontology imported since is a change.
+Each snapshot also records the reference modules its build looked up (`reference_modules`). A
+reference module CoGA adds later is not in that list: for a record signed before it, the check
+lists `modules.<key>` under `not_compared` instead of calling the record changed, and
+`not_captured` names the missing version. A module in the list but not held was not loaded at
+sign-out, so one loaded since is a change. A snapshot without the list names no module, so every
+reference module it does not hold is listed as missing.
 
-A snapshot without `structural_drift` was signed before structural-variant and CNV
-classifications froze their evidence, and its reported structural variants hold none. The check
-lists `structural_drift` and `reported_structural_variants.evidence_snapshot` under `not_compared`
-and compares the rest of each reported SV; `not_captured` says the record holds no evidence for
-them. A signed version lists the SV/CNV classifications whose evidence had moved at sign-out with
-the small variants', under *Evidence drift at sign-out*, and says when its record predates that
+A signed version lists the SV/CNV classifications whose evidence had moved at sign-out with the
+small variants', under *Evidence drift at sign-out*, and says when its record holds no SV/CNV drift
 check.
+
+The release candidate's snapshot format is the first one CoGA reads: records signed by earlier
+development builds get no reading of their own (#681). They still verify, since verification
+re-hashes the record as stored.
 
 Both views download the frozen record as JSON.
 

@@ -242,7 +242,6 @@ async def run_family_nipt_analysis(
     user: CurrentUser,
     project_id: str | None = None,
     qc: NiptQualityThresholds | None = None,
-    external_ff: float | None = None,
 ) -> NiptAnalysisResult:
     trio, context, assay_key = await _resolve_trio_and_context(
         session, family_id=family_id, user=user, project_id=project_id
@@ -252,7 +251,7 @@ async def run_family_nipt_analysis(
     # The whole family callset goes through the analysis: pure CPU work, so it runs in a
     # worker thread and other requests are served meanwhile (#527).
     return await asyncio.to_thread(
-        _analyse_family_sites, records, trio, qc or NiptQualityThresholds(), artifact_lookup, external_ff
+        _analyse_family_sites, records, trio, qc or NiptQualityThresholds(), artifact_lookup
     )
 
 
@@ -261,14 +260,8 @@ def _analyse_family_sites(
     trio: NiptTrio,
     qc: NiptQualityThresholds,
     artifact_lookup: Any,
-    external_ff: float | None,
 ) -> NiptAnalysisResult:
-    return run_nipt_analysis(
-        _family_sites(records, trio),
-        qc,
-        artifact_lookup=artifact_lookup,
-        external_ff=external_ff,
-    )
+    return run_nipt_analysis(_family_sites(records, trio), qc, artifact_lookup=artifact_lookup)
 
 
 def _estimate_cohort_fetal_fraction(
@@ -276,7 +269,6 @@ def _estimate_cohort_fetal_fraction(
     trio: NiptTrio,
     qc: NiptQualityThresholds,
     artifact_ids: set[str],
-    external_ff: float | None,
 ) -> FetalFractionEstimate:
     # The summary's computation, over the same filtered sites, so the variant list
     # reports -- and classifies against -- the fetal fraction the summary shows. It used
@@ -285,7 +277,6 @@ def _estimate_cohort_fetal_fraction(
         _family_sites(records, trio),
         qc,
         artifact_lookup=artifact_ids.__contains__,
-        external_ff=external_ff,
     ).fetal_fraction
 
 
@@ -435,7 +426,6 @@ async def get_family_nipt_variants(
     page: int = 1,
     page_size: int = 100,
     qc: NiptQualityThresholds | None = None,
-    external_ff: float | None = None,
 ) -> NiptVariantsResult:
     qc = qc or NiptQualityThresholds()
 
@@ -475,7 +465,7 @@ async def get_family_nipt_variants(
     # many sites, so they run in a worker thread (#527).
     cohort_records = await _load_family_records(context)
     ff_estimate = await asyncio.to_thread(
-        _estimate_cohort_fetal_fraction, cohort_records, trio, qc, artifact_ids, external_ff
+        _estimate_cohort_fetal_fraction, cohort_records, trio, qc, artifact_ids
     )
 
     panel_constraints = PanelFilterConstraints()

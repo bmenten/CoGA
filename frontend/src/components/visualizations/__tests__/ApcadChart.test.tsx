@@ -78,6 +78,18 @@ describe('ApcadChart', () => {
     expect(screen.queryByText(/No APCAD data in this region/i)).not.toBeInTheDocument();
   });
 
+  it('reads a chromosome however the data spells it (#684)', async () => {
+    // Lower case and a leading zero used to miss the chromosome the chart draws.
+    respondWith([
+      { chr: 'chrx', start: 100, end: 101, value: 0.5, origin: 'und' },
+      { chr: 'chr01', start: 200, end: 201, value: 0.5, origin: 'und' },
+    ]);
+
+    renderChart({ chroms: ['1', 'X'] });
+
+    await waitFor(() => expect(arcSpy).toHaveBeenCalledTimes(2));
+  });
+
   it('still draws phased points', async () => {
     respondWith([
       { chr: '1', start: 100, end: 101, value: 0.5, origin: 'paternal' },

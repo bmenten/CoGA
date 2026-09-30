@@ -8,13 +8,9 @@ cohort.
 
 Design notes
 ------------
-* **Source of truth = ``entries``.** A pre-aggregated ``project_gt_stats`` /
-  ``gt_stats`` materialized-view cascade used to exist but was never read here,
-  and its MVs ignored the CollapsingMergeTree ``sign`` column so re-imports/
-  deletes inflated them; it has since been removed (see
-  ``clickhouse_variant_storage._drop_legacy_gt_stats_aggregates``). We aggregate
-  carrier counts directly from ``entries`` with ``sign = 1``. Counting distinct
-  ``sampleId`` also dedupes
+* **Source of truth = ``entries``.** Carrier counts are aggregated directly from
+  ``entries`` with ``sign = 1``: no pre-aggregated table can drift from it when a
+  re-import or delete collapses rows. Counting distinct ``sampleId`` also dedupes
   any sample that appears under multiple accessible projects, and lets us
   return the distinct family count in the same query.
 * **Permissions.** Every query is scoped to the project GUIDs the user can
@@ -42,8 +38,7 @@ from typing import Any, Sequence
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
-from ..core.config import settings
+from ..core.clickhouse import execute_clickhouse
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
     GlobalVariantPageOut,
@@ -53,6 +48,7 @@ from ..schemas import (
     VariantCarriersOut,
     VariantExplorerAssemblyOut,
 )
+from .clickhouse_variant_ids import _small_table_name
 from .clickhouse_variant_records import CLINVAR_FREQUENCY_RESCUE_TERMS, _status_filter_terms
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
@@ -191,11 +187,6 @@ _CLINVAR_RANK = {
 }
 
 _MAX_TAG_FILTER_VARIANT_IDS = 200_000
-
-
-def _small_table_name(assembly_name: str, suffix: str) -> str:
-    dataset = clickhouse_dataset_key(assembly_name)
-    return f"{settings.clickhouse_database}.`{dataset}/SNV_INDEL/{suffix}`"
 
 
 def _split_terms(value: str | None) -> list[str]:

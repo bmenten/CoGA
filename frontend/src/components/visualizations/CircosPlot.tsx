@@ -8,6 +8,7 @@ import {
 } from '../../lib/ideogram';
 import { getStainColor } from '../../lib/stainColors';
 import { escapeHtml } from '../../lib/escapeHtml';
+import { countOf } from '../../lib/countOf';
 
 interface IdeogramBand {
   name: string;
@@ -55,9 +56,6 @@ const TELOMERE_END_WHITESPACE = 0.0007;
 
 // The types the legend names (typeColors below), in its order.
 const LEGEND_TYPES = ['DEL', 'DUP', 'INS', 'INV', 'BND'];
-
-const countOf = (count: number, one: string, many = `${one}s`): string =>
-  `${count.toLocaleString()} ${count === 1 ? one : many}`;
 
 /**
  * The plot's accessible name: what is drawn now. A variant is counted only when both of

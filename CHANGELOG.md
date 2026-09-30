@@ -123,6 +123,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   ClinVar reads "not recorded", not 0 (#625).
 - **Scheduled ClickHouse integrity result for admins** — an admin endpoint and the ClickHouse page show each
   assembly's last scheduled integrity result and when it ran, or that it could not run (#660).
+- **NIPT artifact list in the clinical audit trail (#683)** — each add, update, removal and
+  auto-seed through the admin API is a hash-chained clinical audit event with the actor, the variant
+  and its state before and after, on a chain of its own (`system:nipt-artifacts`) that
+  `/admin/integrity/verify` checks. The list decides which variants every NIPT analysis of its assay
+  filters out (#700).
 
 ### Changed
 
@@ -260,6 +265,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   combined, global and per module) are raised to 3 points under what CI measured. The frontend's 67
   explicit `any`s are typed, so ESLint now allows no warnings at all. The package-validation command
   has a test (#695).
+- **Shared helpers (#684)** — the PED parser and its row type (four and six copies), the count-with-noun
+  formatter of four charts, and the ClickHouse table-name and UUID-check helpers (three copies each)
+  each live once now (`lib/pedigree.ts`, `lib/countOf.ts`, `clickhouse_variant_ids`, `core/sql.require_uuid`).
+  The APCAD and coverage-segment charts use the shared chromosome normaliser, so a `chrx` or `chr01` in
+  the data now reaches the X or 1 panel, as on the other tracks. The `formatBp` variants stay: each
+  formats for its own scale (#701).
 
 ### Removed
 
@@ -274,6 +285,43 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   only added prefixes for Firefox and Opera releases from before 2019) and the direct
   `@typescript-eslint/eslint-plugin` and `/parser` entries, which `typescript-eslint` brings in.
   `python-dotenv` stays: it reads the `.env` file (#689).
+- **ClickHouse schema upgrades (#679)** — the code that brought older ClickHouse tables up to date:
+  the migration that dropped the per-sample summary without `project_guid`, the drop of the retired
+  `gt_stats` aggregates, the read path's tolerance for that old summary, and four `ALTER`s that
+  added or dropped columns the `CREATE TABLE` statements already define. The data is synthetic, so
+  the tables are created from their final definition only; a local database with an older schema
+  is reset (`docker compose down -v`). A table with an older row identity is still refused (#696).
+- **Postgres schema upgrades (#680)** — the statements in the baselines that upgraded an older
+  database: six `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for 11 columns the `CREATE TABLE`s already define, the
+  `DO` block that rebuilt `gene_panel_regions` per assembly, and the one that closed the rebuild
+  jobs an old index let through, with that index's `DROP`. A fresh database gets the same schema
+  (compared column by column, with every constraint, index, trigger, function and grant), and a
+  database from an older schema is reset, not migrated (#697).
+- **Vestigial API fields, aliases and routes (#681)** — the explorer page's `page` field (unused
+  since keyset paging, #274); five deprecated S3-named aliases in `object_storage`; family-scoped
+  small-variant presets, which no screen created since presets became reusable (a preset is now
+  its owner's, one per name, and the preset tables lose their *Scope* column; structural-variant
+  presets keep their family or reusable choice); and the frontend redirects `/family-intake`,
+  `/families` and `/admin/operations/variants`. The NIPT page's back link goes to the dashboard
+  (#698).
+- **API endpoints without a caller (#682)** — `GET /reference/sequence` and `/reference/reads/{sample_id}`
+  (with `pyfaidx` and the `REFERENCE_FASTA_PATH` and `READS_PATH` settings only they read), the per-sample
+  `GET /structural-variants/{sample_id}` (the family SV list takes a `sample` parameter), `GET
+  /admin/projects` (the data inventory shows a family's projects), `POST /hpo/import` (`POST
+  /admin/hpo/sync`, behind *Admin → HPO Terminology*, does the same with a preview) and `GET
+  /families/{id}/members/{sample_id}/impact` (a member delete without `confirm` answers with the impact).
+  `GET /panels/{id}/versions/{version}` stays, to look up the panel version a report names (#699).
+- **External fetal fraction (#683)** — the NIPT summary and variant list no longer accept the
+  `external_ff` parameter no screen sent. It could replace the computed fetal fraction when too few
+  informative sites gave one; the fetal fraction is now always CoGA's own estimate. Its disagreement
+  flag and REQ-NIPT-005 go with it (#700).
+- **Pre-release signed-record formats (#681)** — the sign-out check, the signed view and the docs no
+  longer carry special readings for records signed by earlier development builds: the assumed module
+  list of a record without one, the "signed before CoGA froze it" gap and the uncompared evidence of
+  a record without SV/CNV drift, and the empty SV list assumed for a record without one. The release
+  candidate's snapshot format is the first CoGA reads. The mechanism for later formats stays: a module
+  or section a record does not hold is not compared and reads as not in the record. Old records still
+  verify (#705).
 
 ### Fixed
 
@@ -797,6 +845,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   replace a family's annotation manifest, which is always recorded as manual, with the manifest it
   replaced, on the family's audit trail, and an import can no longer overwrite a replacement
   (#651).
+- **Frontend server (#702)** — the `/api` proxy's error log put the request URL into the console
+  format string, so a `%s` in it was read as a directive and a line break could forge a log line; it
+  now passes the method and URL as `%s` arguments with line breaks deleted (#704). The app shell is read
+  once at start-up and served from memory, so no page request reaches the file system (CodeQL
+  found both once #694 scanned the server) (#703).
 
 ### Documentation
 

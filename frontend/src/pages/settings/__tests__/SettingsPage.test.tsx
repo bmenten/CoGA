@@ -22,8 +22,6 @@ beforeEach(() => {
         data: [
           {
             _id: 'preset-1',
-            family_id: null,
-            scope: 'global',
             owner: 'reviewer',
             name: 'Dominant shortlist',
             description: 'Clinical dominant review filter',
@@ -58,8 +56,6 @@ test('saves window sizes and shows saved small-variant filters', async () => {
   queryClient.setQueryData(['auth', 'small-variant-filter-presets'], [
     {
       _id: 'preset-1',
-      family_id: null,
-      scope: 'global',
       owner: 'reviewer',
       name: 'Dominant shortlist',
       description: 'Clinical dominant review filter',

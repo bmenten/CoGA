@@ -627,11 +627,8 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
               and{' '}
               {structuralVariants
                 ? plural(structuralVariants.length, 'reported structural variant')
-                : 'no reported structural variants'}{' '}
-              in family <strong>{record.familyId ?? familyId}</strong>
-              {structuralVariants
-                ? '.'
-                : ': it was signed before CoGA froze reported structural variants, so its record holds none, even if the report showed some.'}
+                : 'no list of reported structural variants'}{' '}
+              in family <strong>{record.familyId ?? familyId}</strong>.
             </p>
             <p className="report-disclaimer">
               ACMG/AMP classifications are decision support and must be confirmed by a qualified
@@ -701,8 +698,8 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
             )}
             {record.drift && !record.structuralDrift ? (
               <p className="report-paragraph">
-                The record predates the drift check of the structural-variant and CNV
-                classifications: it holds none for them.
+                The signed record holds no drift check of the structural-variant and CNV
+                classifications.
               </p>
             ) : null}
           </section>

@@ -10,6 +10,7 @@ import type {
   StructuralVariantSearchState,
 } from './structuralVariantSearch';
 import {
+  getPresetScopeLabel,
   STRUCTURAL_ALL_GT_GROUPS,
   STRUCTURAL_HET_GT_GROUP,
   STRUCTURAL_HOM_GT_GROUP,
@@ -18,7 +19,6 @@ import {
 import {
   ACMG_CLASSIFICATION_TAGS,
   countPresetRules,
-  getPresetScopeLabel,
   sortTagDefinitions,
 } from './smallVariantSearch';
 import { GENOTYPE_GROUP_HINTS } from '../../lib/genotypes';

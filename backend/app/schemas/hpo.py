@@ -132,12 +132,6 @@ class FamilyPhenotypeMatchOut(BaseModel):
     source: str = "Monarch Initiative semsim"
 
 
-class HpoOntologyImportRequest(BaseModel):
-    path: str = Field(min_length=1)
-    release_version: Optional[str] = None
-    release_date: Optional[date] = None
-
-
 class HpoOntologyImportOut(BaseModel):
     terms: int
     synonyms: int
