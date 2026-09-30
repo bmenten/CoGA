@@ -239,7 +239,8 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 - `coga_app` keeps INSERT on the chained tables, so it could append a forged but
   self-consistent row; it cannot rewrite or delete existing ones.
 - The manifest's platform layer covers the assembly, the gene loci, Monarch and HPO. The
-  releases of the gene reference, PanelApp and the clinical CNVs are not in it, and
-  `reference_dataset_imports.source_version` and `source_release_date` are never filled.
+  releases of the gene reference, PanelApp and the clinical CNVs are not in it. Each
+  reference import records the release its source states in `reference_dataset_imports`,
+  but the manifest does not read it; the clinical-CNV knowledgebase states none.
 - Any user who can open the family can sign out; sign-out is not limited to a role.
 - Sign-out exists for the family report only; the monogenic NIPT report page has none.

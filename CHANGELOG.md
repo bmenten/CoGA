@@ -121,6 +121,8 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   pathogenic ClinVar CNVs, per side, is stored in `clinical_cnvs` and shown in the explorer and on
   the CNV page, with a link to each supporting ClinVar record. A knowledgebase built without
   ClinVar reads "not recorded", not 0 (#625).
+- **Scheduled ClickHouse integrity result for admins** — an admin endpoint and the ClickHouse page show each
+  assembly's last scheduled integrity result and when it ran, or that it could not run (#660).
 
 ### Changed
 
@@ -639,6 +641,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   so a corrupt later part passed. It now takes ClickHouse's own verdict on every part of each table, names
   the failed parts, passes a table without rows, and never passes a result it cannot read. The gene-index
   rebuild's check before its swap had the same flaw and is fixed with it (#663).
+- **Reference imports record their release** — a GENCODE import records its version and date; every other
+  source records `not stated`; an upload is recorded as `upload` (it used to take its last row's source) and a
+  built-in file under its file name (#660).
+- **Structure and HPO stale markers are stored** — a structure update records whether it kept the imported
+  data (`raw_datasets_preserved`), and a clear is recorded and warned about; before, neither marker was ever
+  written (#660).
+- **A structure save refreshes the genome-overview lineage and warms the ranking**, like a member edit (#660).
 
 ### Security
 

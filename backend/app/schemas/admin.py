@@ -1,5 +1,6 @@
 """Admin inventory and ClickHouse maintenance."""
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -95,3 +96,24 @@ class ClickHouseVariantIntegrityOut(BaseModel):
         default_factory=ClickHouseGeneIndexConsistencyOut
     )
     notes: List[str] = Field(default_factory=list)
+
+
+class ClickHouseIntegrityMonitorResultOut(BaseModel):
+    """The scheduled integrity check's last result for one assembly."""
+
+    assembly_name: str
+    checked_at: datetime
+    # The integrity report, or None when the check could not run (``error`` says so).
+    report: Optional[ClickHouseVariantIntegrityOut] = None
+    error: Optional[str] = None
+
+
+class ClickHouseIntegrityMonitorOut(BaseModel):
+    """The scheduled ClickHouse integrity check, as the running server last saw it."""
+
+    enabled: bool
+    interval_seconds: int
+    last_sweep_at: Optional[datetime] = None
+    # Set when the last sweep could not list the assemblies; the results are then older.
+    last_sweep_error: Optional[str] = None
+    results: List[ClickHouseIntegrityMonitorResultOut] = Field(default_factory=list)

@@ -388,6 +388,9 @@ async def _run_job(job_id: str) -> None:
             raise _JobClosed()
         sessionmaker = get_postgres_sessionmaker()
         async with sessionmaker() as session:
+            # The knowledgebase has no release of its own: it is built from the ClinGen,
+            # ClinVar and UCSC data current on the day, so the import is recorded as one
+            # whose source states no release, dated by when it was loaded.
             result = await apply_reference_dataset_text(
                 session,
                 assembly_id=row["assembly_id"],

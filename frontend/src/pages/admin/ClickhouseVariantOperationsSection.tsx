@@ -8,12 +8,46 @@ import {
   type ClickHouseVariantIntegrity,
 } from './dataManagementTypes';
 import { apiPath } from '../../lib/apiPath';
+import type {
+  ClickHouseIntegrityMonitorOut,
+  ClickHouseIntegrityMonitorResultOut,
+} from '../../lib/apiSchema.generated';
 
 const INTEGRITY_LABELS: Record<ClickHouseVariantIntegrity['status'], string> = {
   ok: 'Healthy',
   degraded: 'Degraded',
   corrupt: 'Corrupt',
   missing: 'No tables',
+};
+
+const integrityLabel = (status: string): string =>
+  INTEGRITY_LABELS[status as ClickHouseVariantIntegrity['status']] ?? status;
+
+const formatCheckedAt = (value: string | null | undefined): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+};
+
+const formatInterval = (seconds: number): string => {
+  if (seconds % 3600 === 0) {
+    const hours = seconds / 3600;
+    return hours === 1 ? 'every hour' : `every ${hours} hours`;
+  }
+  const minutes = Math.round(seconds / 60);
+  return minutes === 1 ? 'every minute' : `every ${minutes} minutes`;
+};
+
+// What the scheduled check is doing; each assembly's last result sits on its card.
+const scheduledCheckSummary = (monitor: ClickHouseIntegrityMonitorOut): string => {
+  if (!monitor.enabled) {
+    return 'The scheduled integrity check is off (CLICKHOUSE_INTEGRITY_MONITOR_ENABLED).';
+  }
+  const cadence = `The scheduled integrity check runs ${formatInterval(monitor.interval_seconds)}`;
+  const lastRun = monitor.last_sweep_at
+    ? `${cadence}; it last ran ${formatCheckedAt(monitor.last_sweep_at)}.`
+    : `${cadence}; it has not run since the server started.`;
+  return monitor.last_sweep_error ? `${lastRun} ${monitor.last_sweep_error}` : lastRun;
 };
 
 type RunAction = (
@@ -29,6 +63,9 @@ interface ClickhouseVariantOperationsSectionProps {
   errorMessage?: string | null;
   busyKey: string | null;
   onRunAction: RunAction;
+  /** The scheduled integrity check's last result per assembly (null until loaded). */
+  integrityMonitor?: ClickHouseIntegrityMonitorOut | null;
+  integrityMonitorError?: string | null;
 }
 
 const HEALTH_LABELS: Record<ClickHouseVariantAssemblyStatus['health'], string> = {
@@ -40,13 +77,58 @@ const HEALTH_LABELS: Record<ClickHouseVariantAssemblyStatus['health'], string> =
 const trimAssemblyPrefix = (assemblyName: string, tableName: string): string =>
   tableName.startsWith(`${assemblyName}/`) ? tableName.slice(assemblyName.length + 1) : tableName;
 
+// One assembly's last scheduled result: its status and when it was checked, or that the
+// check could not run.
+const ScheduledIntegrityResult: React.FC<{
+  assemblyName: string;
+  scheduled?: ClickHouseIntegrityMonitorResultOut;
+  monitor: ClickHouseIntegrityMonitorOut | null;
+}> = ({ assemblyName, scheduled, monitor }) => {
+  if (!scheduled) {
+    // Only worth saying once the scheduled check has run and passed this assembly by.
+    return monitor?.enabled && monitor.last_sweep_at ? (
+      <p className="table-empty">The scheduled check has not checked this assembly.</p>
+    ) : null;
+  }
+  return (
+    <div
+      className="admin-variant-integrity"
+      aria-label={`Scheduled integrity result for ${assemblyName}`}
+    >
+      <div className="admin-variant-metrics">
+        <span className="badge-chip">
+          Scheduled check: {scheduled.report ? integrityLabel(scheduled.report.status) : 'Could not run'}
+        </span>
+        <span className="badge-chip">Checked {formatCheckedAt(scheduled.checked_at)}</span>
+      </div>
+      {scheduled.error && <p className="table-empty">{scheduled.error}</p>}
+      {scheduled.report && scheduled.report.notes.length > 0 && (
+        <ul className="admin-variant-integrity-notes">
+          {scheduled.report.notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSectionProps> = ({
   assemblies,
   loading,
   errorMessage,
   busyKey,
   onRunAction,
+  integrityMonitor = null,
+  integrityMonitorError = null,
 }) => {
+  const scheduledByAssembly = React.useMemo(
+    () =>
+      new Map<string, ClickHouseIntegrityMonitorResultOut>(
+        (integrityMonitor?.results ?? []).map((result) => [result.assembly_name, result]),
+      ),
+    [integrityMonitor],
+  );
   // The integrity check is a read-only probe (unlike the mutating onRunAction
   // operations), so it manages its own per-assembly fetch state and shows the
   // returned report inline.
@@ -63,7 +145,7 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
     });
     try {
       const response = await api.get<ClickHouseVariantIntegrity>(
-        `/admin/clickhouse/variants/${assemblyName}/integrity`,
+        apiPath`/admin/clickhouse/variants/${assemblyName}/integrity`,
       );
       setIntegrity((prev) => ({ ...prev, [assemblyName]: response.data }));
     } catch (error) {
@@ -83,6 +165,11 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
             Inspect CoGA variant tables per assembly, then ensure, rebuild or optimize them when
             operational cleanup is needed.
           </p>
+          {integrityMonitorError ? (
+            <p className="section-copy">{integrityMonitorError}</p>
+          ) : integrityMonitor ? (
+            <p className="section-copy">{scheduledCheckSummary(integrityMonitor)}</p>
+          ) : null}
         </div>
       </div>
 
@@ -190,6 +277,12 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
                   </div>
                 </div>
               )}
+
+              <ScheduledIntegrityResult
+                assemblyName={assembly.assembly_name}
+                scheduled={scheduledByAssembly.get(assembly.assembly_name)}
+                monitor={integrityMonitor}
+              />
 
               {integrityError[assembly.assembly_name] && (
                 <p className="table-empty">{integrityError[assembly.assembly_name]}</p>

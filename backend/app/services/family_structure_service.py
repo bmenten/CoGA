@@ -856,30 +856,40 @@ def _warning_payload(
     warnings: list[str] = []
     stale_scopes: list[str] = []
     cleared_counts = _nonzero_counts(cleared_data_counts or {})
+    clear_stated = False
     if added_sample_ids:
         warnings.append("New family members have no genomic tracks until sample data are imported.")
         stale_scopes.append("sample-data")
     if removed_sample_ids:
         if cleared_counts:
             warnings.append("Removed family members are inactive and previously imported genomic data was cleared for reload.")
+            clear_stated = True
         else:
             warnings.append("Removed family members are inactive; imported genomic datasets were preserved.")
         stale_scopes.append("sample-data")
     if relationships_changed:
         if cleared_counts:
             warnings.append("Relationship-dependent data was cleared; reload genomic datasets before review.")
+            clear_stated = True
         else:
             warnings.append("Relationship-dependent analyses were marked stale; imported genomic datasets were preserved.")
         stale_scopes.extend(["segregation", "haplotypes", "phasing"])
     elif structure_changed:
         if cleared_counts:
             warnings.append("Family structure changed and genomic data was cleared; reload datasets before review.")
+            clear_stated = True
         else:
             warnings.append("Family structure metadata changed; relationship-dependent outputs were marked stale without reloading raw datasets.")
         stale_scopes.extend(["segregation", "haplotypes"])
     if status_changed:
         warnings.append("Phenotype and carrier labels were updated; downstream interpretation views were marked stale without reloading raw datasets.")
         stale_scopes.append("variant-interpretation")
+    if cleared_counts:
+        # The imported data is gone, whatever else changed: it has to be imported again,
+        # and the response says so even when the request changed nothing else.
+        if not clear_stated:
+            warnings.append("Imported genomic data was cleared; reload the datasets before review.")
+        stale_scopes.append("sample-data")
     deduped_scopes = list(dict.fromkeys(stale_scopes))
     return warnings, deduped_scopes
 
@@ -1035,6 +1045,8 @@ async def update_family_structure_for_admin(
         relationships_changed=relationships_changed,
         cleared_data_counts=cleared_data_counts,
     )
+    # `derived_data_status` is built whole rather than with a nested jsonb_set: that returns
+    # its input unchanged when the parent key is missing, as it is until the first marker.
     await session.execute(
         text(
             """
@@ -1043,20 +1055,23 @@ async def update_family_structure_for_admin(
                 metadata = CASE
                     WHEN :stale_scopes = '[]' THEN metadata
                     ELSE jsonb_set(
-                        jsonb_set(
-                            COALESCE(metadata, '{}'::jsonb),
-                            '{derived_data_status,family_metadata}',
-                            jsonb_build_object(
+                        COALESCE(metadata, '{}'::jsonb),
+                        '{derived_data_status}',
+                        CASE
+                            WHEN jsonb_typeof(metadata -> 'derived_data_status') = 'object'
+                                THEN metadata -> 'derived_data_status'
+                            ELSE '{}'::jsonb
+                        END
+                        || jsonb_build_object(
+                            'family_metadata', jsonb_build_object(
                                 'state', 'stale',
                                 'reason', CAST(:reason AS text),
                                 'scopes', CAST(:stale_scopes AS jsonb),
-                                'raw_datasets_preserved', TRUE,
+                                'raw_datasets_preserved', CAST(:raw_datasets_preserved AS boolean),
                                 'updated_at', timezone('utc', now())
                             ),
-                            TRUE
+                            'updated_at', timezone('utc', now())
                         ),
-                        '{derived_data_status,updated_at}',
-                        to_jsonb(timezone('utc', now())),
                         TRUE
                     )
                 END
@@ -1068,6 +1083,8 @@ async def update_family_structure_for_admin(
             "pedigree": pedigree,
             "reason": update.change_reason or "family_structure_metadata_updated",
             "stale_scopes": json.dumps(stale_scopes),
+            # False once this update deleted imported data (clear_existing_genomic_data).
+            "raw_datasets_preserved": not _nonzero_counts(cleared_data_counts),
         },
     )
 

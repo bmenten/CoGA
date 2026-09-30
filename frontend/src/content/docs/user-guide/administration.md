@@ -43,6 +43,8 @@ Administrator tools sit behind admin access. **Admin** on the dashboard opens th
 ### Database & Operations
 
 - **ClickHouse Tables & Operations** — technical database maintenance, for the bioinformatics team.
+  Each assembly shows the last result of the scheduled integrity check and when it ran;
+  **Integrity check** runs one now.
 
 ### Monitoring & Audit
 

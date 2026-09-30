@@ -517,6 +517,14 @@ def _gencode_release_from_gzip(raw: bytes) -> GencodeRelease:
         return parse_gencode_release(itertools.islice(stream, 20))
 
 
+def _stated_release_date(release: GencodeRelease) -> date | None:
+    """The ``##date:`` a GTF states, or None when it states none or no real date."""
+    try:
+        return date.fromisoformat(release.date) if release.date else None
+    except ValueError:
+        return None
+
+
 class _AnnotationDownloadFailed(Exception):
     """The GTF annotation for a genome could not be fetched or read; the reason is the message."""
 
@@ -526,7 +534,7 @@ async def _download_gencode_genes(
     *,
     assembly_id: str,
     ucsc_genome: str,
-) -> tuple[Any, str, str] | None:
+) -> tuple[Any, str, str, GencodeRelease] | None:
     """Fetch gene rows from a GTF, or ``None`` to let the caller fall back to UCSC.
 
     GRCh38 gets GENCODE. T2T-CHM13 gets UCSC's RefSeq-derived GTF, because GENCODE
@@ -535,9 +543,11 @@ async def _download_gencode_genes(
     Ensembl identifiers or MANE tags, which is why its rows are labelled by their real
     source rather than as GENCODE.
 
-    Returns ``None`` for a genome without a configured GTF. A failure to fetch or read
-    the GTF raises ``_AnnotationDownloadFailed``: the caller still falls back to the UCSC
-    track, so a bootstrap is not blocked, but it records that it did (#536).
+    Returns the rows, the GTF's URL, the source label and the release the GTF states in
+    its preamble (empty when it has none, as UCSC's GTF does). Returns ``None`` for a
+    genome without a configured GTF. A failure to fetch or read the GTF raises
+    ``_AnnotationDownloadFailed``: the caller still falls back to the UCSC track, so a
+    bootstrap is not blocked, but it records that it did (#536).
     """
     if ucsc_genome == HUMAN_GRCH38_UCSC_GENOME:
         url = str(settings.reference_gencode_gtf_url or "").strip()
@@ -562,7 +572,8 @@ async def _download_gencode_genes(
             refseq_by_transcript=refseq_by_transcript,
             source=source_label,
         )
-        return rows, url, f"{source_label} {release.label}" if release.label else source_label
+        label = f"{source_label} {release.label}" if release.label else source_label
+        return rows, url, label, release
     except Exception as exc:  # pragma: no cover - network shape varies
         # Values from the request and the upstream error are scrubbed of control
         # characters so they cannot forge log lines (CodeQL py/log-injection, #522).
@@ -889,7 +900,7 @@ async def import_reference_from_ucsc(
             except _AnnotationDownloadFailed as failure:
                 gencode, gtf_failure = None, str(failure)
             if gencode is not None:
-                gencode_rows, gene_source_url, gene_source = gencode
+                gencode_rows, gene_source_url, gene_source, gene_release = gencode
                 genes = await apply_reference_gene_rows(
                     session,
                     assembly_id=assembly_id,
@@ -899,6 +910,9 @@ async def import_reference_from_ucsc(
                     performed_by=performed_by,
                     source=gene_source,
                     source_url=gene_source_url,
+                    # The release the GTF states in its preamble; UCSC's GTF states none.
+                    source_version=gene_release.label,
+                    source_release_date=_stated_release_date(gene_release),
                 )
                 genes_inserted = genes.inserted
                 genes_replaced = genes.replaced

@@ -13,7 +13,7 @@ the code. This note covers the implementation.
 Pedigree IBD matching reads every phased site and re-derives each relative's colour, which is too slow
 for the genome overview on every page load. So:
 
-- **Genome overview** — served from a precompute. After a family import, a PED upload or a member edit,
+- **Genome overview** — served from a precompute. After a family import, a PED upload, a structure save or a member edit,
   CoGA runs the genome-wide IBD once in the background and stores it as a `haplotype_lineage` interval
   track (the two lane tags packed into the `origin` column).
 - **Chromosome view and ROI** — computed on demand for the visible window only, which is cheap and gives

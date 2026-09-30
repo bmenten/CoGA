@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.clickhouse import clickhouse_dataset_key
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
+    ClickHouseIntegrityMonitorOut,
     ClickHouseVariantAssemblyListOut,
     ClickHouseVariantAssemblyStatusOut,
     ClickHouseVariantIntegrityOut,
@@ -21,6 +22,7 @@ from ..schemas import (
     RawImportFileVerifyOut,
     SampleInventoryOut,
 )
+from .clickhouse_integrity_monitor import integrity_monitor_state
 from .clickhouse_interval_tracks import (
     delete_interval_track_sources,
     delete_interval_tracks,
@@ -737,6 +739,11 @@ async def check_clickhouse_variant_integrity_status(
     return ClickHouseVariantIntegrityOut.model_validate(
         await check_clickhouse_variant_integrity(assembly_name)
     )
+
+
+def get_clickhouse_integrity_monitor_status() -> ClickHouseIntegrityMonitorOut:
+    """The scheduled integrity check's last result per assembly, as this server holds it."""
+    return ClickHouseIntegrityMonitorOut.model_validate(integrity_monitor_state())
 
 
 async def _sample_row_or_404(session: AsyncSession, sample_id: str) -> dict[str, Any]:

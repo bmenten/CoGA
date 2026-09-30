@@ -19,6 +19,7 @@ from app.services.reference_metadata_service import (
     _DGV_INSERT_CHUNK,
     insert_dgv_batch,
     parse_dgv_row,
+    record_reference_import,
 )
 
 _COMMIT_EVERY = 200_000
@@ -80,15 +81,16 @@ async def main(assembly: str, file_path: str, replace: bool, performed_by: str) 
             await insert_dgv_batch(session, batch)
             inserted += len(batch)
 
-        await session.execute(
-            text(
-                """
-                INSERT INTO reference_dataset_imports
-                    (assembly_id, dataset_type, inserted, replaced, source, performed_by)
-                VALUES (CAST(:aid AS uuid), 'dgv', :inserted, :replaced, 'dgv', :by)
-                """
-            ),
-            {"aid": assembly_id, "inserted": inserted, "replaced": replace, "by": performed_by},
+        # The DGV file states no release inside it, so the import is recorded as one whose
+        # source states none.
+        await record_reference_import(
+            session,
+            assembly_id=assembly_id,
+            dataset_type="dgv",
+            inserted=inserted,
+            replaced=replace,
+            source="dgv",
+            performed_by=performed_by,
         )
         await session.commit()
         print(f"Done: {inserted:,} DGV variants imported for {assembly}.", flush=True)

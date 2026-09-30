@@ -16,6 +16,7 @@ from ..schemas import (
     IntegrityAnchorOut,
     IntegrityAnchorVerifyOut,
     IntegrityVerifyOut,
+    ClickHouseIntegrityMonitorOut,
     ClickHouseVariantAssemblyListOut,
     ClickHouseVariantAssemblyStatusOut,
     ClickHouseVariantIntegrityOut,
@@ -84,6 +85,7 @@ from ..services.admin_service import (
     list_data_inventory_page,
     list_clickhouse_variant_status,
     check_clickhouse_variant_integrity_status,
+    get_clickhouse_integrity_monitor_status,
     optimize_clickhouse_variant_status,
     rebuild_clickhouse_small_variant_gene_index_status,
     verify_raw_import_file_by_id,
@@ -370,6 +372,22 @@ async def rebuild_clickhouse_small_variant_gene_index(
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> ClickHouseVariantAssemblyStatusOut:
     return await rebuild_clickhouse_small_variant_gene_index_status(assembly_name)
+
+
+@router.get(
+    "/clickhouse/variants/integrity-monitor",
+    response_model=ClickHouseIntegrityMonitorOut,
+)
+async def get_clickhouse_integrity_monitor_endpoint(
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> ClickHouseIntegrityMonitorOut:
+    """The scheduled integrity check's last result per assembly, without running a check.
+
+    Whether the check is on and how often it runs, when the last sweep ran, and per
+    assembly when it was checked and the report, or that the check could not run. The
+    result is held by this server process, so it is empty until its first sweep.
+    """
+    return get_clickhouse_integrity_monitor_status()
 
 
 @router.get(

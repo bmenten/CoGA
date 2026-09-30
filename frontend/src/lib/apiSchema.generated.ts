@@ -203,6 +203,23 @@ export interface ClickHouseGeneIndexConsistencyOut {
   drift: number;
 }
 
+/** The scheduled ClickHouse integrity check, as the running server last saw it. */
+export interface ClickHouseIntegrityMonitorOut {
+  enabled: boolean;
+  interval_seconds: number;
+  last_sweep_at: string | null;
+  last_sweep_error: string | null;
+  results: ClickHouseIntegrityMonitorResultOut[];
+}
+
+/** The scheduled integrity check's last result for one assembly. */
+export interface ClickHouseIntegrityMonitorResultOut {
+  assembly_name: string;
+  checked_at: string;
+  report: ClickHouseVariantIntegrityOut | null;
+  error: string | null;
+}
+
 export interface ClickHouseVariantAssemblyListOut {
   assemblies: ClickHouseVariantAssemblyStatusOut[];
 }

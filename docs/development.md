@@ -139,8 +139,10 @@ docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT
   errors near the start of the backend log.
 - **Variants do not list or import** — this usually sits in an assembly's ClickHouse tables.
   An admin can check them under Administration → ClickHouse Tables & Operations
-  (`/admin/operations/clickhouse`): table status, an integrity check, and buttons to create
-  missing tables, rebuild the small-variant gene index and optimize the tables. The API
-  offers the same: `GET /api/admin/clickhouse/variants` lists the assemblies, and under
-  `/api/admin/clickhouse/variants/{assembly_name}/` are `ensure`, `optimize` and
-  `rebuild-small-variant-gene-index` (POST) and `integrity` (GET).
+  (`/admin/operations/clickhouse`): table status, the last result of the scheduled integrity
+  check, an integrity check to run now, and buttons to create missing tables, rebuild the
+  small-variant gene index and optimize the tables. The API offers the same:
+  `GET /api/admin/clickhouse/variants` lists the assemblies,
+  `GET /api/admin/clickhouse/variants/integrity-monitor` returns the scheduled check's last
+  result per assembly, and under `/api/admin/clickhouse/variants/{assembly_name}/` are
+  `ensure`, `optimize` and `rebuild-small-variant-gene-index` (POST) and `integrity` (GET).

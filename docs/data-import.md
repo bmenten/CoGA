@@ -82,8 +82,9 @@ Admins manage reference data on **Admin → Species & Assemblies**
   (`POST /assemblies/{assembly_id}/reference-upload/{dataset_type}`). If the assembly already
   holds that dataset, the upload is refused unless `overwrite=true`, which replaces it.
 
-Every import and upload is recorded with who ran it and the source, and shows under
-"Recent reference activity".
+Every import and upload is recorded with who ran it, the source, and the release the source
+states: a GENCODE import its version and date, every other import `not stated` (see
+[database.md](database.md)). The imports show under "Recent reference activity".
 
 | `dataset_type` | File format |
 | --- | --- |
