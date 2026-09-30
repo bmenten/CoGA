@@ -289,6 +289,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   renders differently. The rest of the apparent duplication is the shared-base-then-override pattern
   (`button, .form-button {…}` then `.button-secondary {…}`) or coincidences between unrelated components,
   and stays (#716).
+- **CSS colour tokens (#710)** — 39 colour literals that were the value of an existing token, used in
+  that token's role, are the token now: hairline borders `--color-border`/`--color-border-strong`, white
+  surfaces and text `--color-surface`/`--color-white`, and the brand and accent colours. A literal that
+  only happens to share a token's value in another role (a border colour used as a background) keeps
+  its value. Nothing renders differently. The file still holds 355 distinct colour literals, many of
+  them near-identical shades of the same few colours (three warning-text browns, four muted greys, six
+  near-white surfaces); unifying those would change pixels and is left for a design decision (#717).
 
 ### Removed
 
