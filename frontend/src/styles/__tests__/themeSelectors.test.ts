@@ -5,10 +5,12 @@ import postcss, { type Rule } from 'postcss';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
+import { THEME_DIR, THEME_ENTRY, themeModules, themeText } from './themeSource';
+
 /**
- * theme.css grew to 266 KB because nothing ever removed a rule once the markup it styled was
- * gone: 331 rules named classes that no component rendered any more (#707). This keeps the
- * stylesheet honest. Every class a selector names must be one the source can put in the DOM,
+ * The stylesheet (theme.css and the modules it imports) grew to 266 KB because nothing ever
+ * removed a rule once the markup it styled was gone: 331 rules named classes that no component
+ * rendered any more (#707). This keeps it honest. Every class a selector names must be one the source can put in the DOM,
  * every custom property it defines must be read somewhere, and every one it reads must be
  * defined.
  *
@@ -23,7 +25,6 @@ import { describe, expect, it } from 'vitest';
  */
 
 const SRC = path.resolve(process.cwd(), 'src');
-const THEME_PATH = path.join(SRC, 'styles/theme.css');
 
 /**
  * Open fragments that are not class names but, as prefixes, would excuse every class they
@@ -249,8 +250,23 @@ const readSourceWords = (): SourceWords => {
 };
 
 const WORDS = readSourceWords();
-const THEME_CSS = readFileSync(THEME_PATH, 'utf8');
-const THEME = postcss.parse(THEME_CSS);
+const MODULES = themeModules().map((module) => ({
+  ...module,
+  root: postcss.parse(module.css, { from: module.name }),
+}));
+const THEME_CSS = themeText();
+const walkRules = (visit: (rule: Rule, where: string) => void): void => {
+  for (const module of MODULES) {
+    module.root.walkRules((rule) =>
+      visit(rule, `${module.name}:${rule.source?.start?.line}`)
+    );
+  }
+};
+const walkCustomProperties = (
+  visit: (decl: postcss.Declaration) => void
+): void => {
+  for (const module of MODULES) module.root.walkDecls(/^--/, visit);
+};
 const CLASS_PREFIXES = [...WORDS.prefixes].filter(
   (prefix) => prefix.length >= 3 && !(prefix in NOT_CLASS_FRAGMENTS)
 );
@@ -295,10 +311,10 @@ const inKeyframes = (rule: Rule): boolean =>
   rule.parent?.type === 'atrule' &&
   /keyframes$/.test((rule.parent as postcss.AtRule).name);
 
-describe('theme.css', () => {
+describe('the stylesheet', () => {
   it('names only classes the source can produce', () => {
     const dead: string[] = [];
-    THEME.walkRules((rule) => {
+    walkRules((rule, where) => {
       if (inKeyframes(rule)) return;
       for (const selector of rule.selectors) {
         const missing = requiredClasses(selector).filter(
@@ -306,7 +322,7 @@ describe('theme.css', () => {
         );
         if (missing.length) {
           dead.push(
-            `line ${rule.source?.start?.line}: ${selector.trim()} (no .${missing.join(', .')})`
+            `${where}: ${selector.trim()} (no .${missing.join(', .')})`
           );
         }
       }
@@ -325,7 +341,7 @@ describe('theme.css', () => {
       [...THEME_CSS.matchAll(/var\(\s*(--[\w-]+)/g)].map((match) => match[1])
     );
     const unread: string[] = [];
-    THEME.walkDecls(/^--/, (decl) => {
+    walkCustomProperties((decl) => {
       // d3 tracks read colours by name (cssVar('--color-cnv-clinical')).
       const readElsewhere =
         [...WORDS.literals].some((literal) => named(literal, decl.prop)) ||
@@ -342,7 +358,7 @@ describe('theme.css', () => {
     // A var() of a name nothing defines renders its fallback, so the name only pretends to be
     // a token; without a fallback the declaration is invalid and the property unset (#708).
     const defined = new Set<string>();
-    THEME.walkDecls(/^--/, (decl) => {
+    walkCustomProperties((decl) => {
       defined.add(decl.prop);
     });
     // Set inline by components, e.g. style={{ '--viewer-sel-start': ... }}.
@@ -358,6 +374,30 @@ describe('theme.css', () => {
         'defines them. Define the token in :root, or write the value it renders. A name that ' +
         "Tailwind's theme layer happens to emit (--radius-sm) does not count: write its value."
     ).toEqual([]);
+  });
+
+  it('is the modules theme.css imports, each once, and nothing else', () => {
+    const entry = postcss.parse(readFileSync(THEME_ENTRY, 'utf8'));
+    const own = entry.nodes
+      .filter(
+        (node) =>
+          node.type !== 'comment' &&
+          !(node.type === 'atrule' && node.name === 'import')
+      )
+      .map((node) => node.toString());
+    expect(
+      own,
+      'theme.css only lists the modules, in cascade order; put the rule in a module.'
+    ).toEqual([]);
+    const imported = MODULES.map((module) => module.name);
+    const onDisk = readdirSync(THEME_DIR)
+      .filter((file) => file.endsWith('.css'))
+      .map((file) => `theme/${file}`);
+    expect(
+      [...imported].sort(),
+      'Every module under styles/theme/ is imported by theme.css, once.'
+    ).toEqual([...new Set(onDisk)].sort());
+    expect(new Set(imported).size).toBe(imported.length);
   });
 
   it('reads dynamic class names as patterns and everything else as literal words', () => {

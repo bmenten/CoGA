@@ -1,0 +1,1035 @@
+/* The variant card: second-hit badges, the card layout, genotypes, frequencies, transcripts and review. */
+
+/* "Gene also hit by an SV" cross-type second-hit flag (see docs/snv-sv-compound-het.md). */
+.sv-second-hit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+  color: var(--color-warning-strong);
+  background: var(--color-warning-surface);
+  border: 1px solid var(--color-warning-border);
+  cursor: help;
+}
+
+/* When the badge leads somewhere it is a link, not just an explanation: take the
+   pointer and underline on hover so the click target is discoverable. */
+.sv-second-hit-badge--link {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sv-second-hit-badge--link:hover,
+.sv-second-hit-badge--link:focus-visible {
+  text-decoration: underline;
+  border-color: var(--color-warning-strong);
+}
+
+.sv-second-hit-badge:hover,
+.sv-second-hit-badge:focus-visible {
+  filter: brightness(0.97);
+}
+
+/* A visible keyboard focus ring (WCAG 2.4.7): the slight darkening alone was not one. */
+.sv-second-hit-badge:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.sv-second-hit-badge--del {
+  color: var(--color-signature-red);
+  background: var(--color-danger-surface);
+  border-color: var(--color-danger-border);
+}
+
+/* Without a link the badge is a <button>, so keyboard users can reach its explanation.
+   Undo the shared button rule: its 3rem height, uppercase tracking, and a hover (dark
+   fill, red text, lift) that would replace the tone. */
+button.sv-second-hit-badge {
+  min-height: auto;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+button.sv-second-hit-badge:hover {
+  color: var(--color-warning-strong);
+  background: var(--color-warning-surface);
+  transform: none;
+}
+
+button.sv-second-hit-badge--del:hover {
+  color: var(--color-signature-red);
+  background: var(--color-danger-surface);
+}
+
+/* A deletion in trans with a het SNV (effectively biallelic) — strongest emphasis. */
+.sv-second-hit-badge--unmasked {
+  box-shadow: 0 0 0 1px var(--color-signature-red);
+  font-weight: 700;
+}
+
+.sv-second-hit-phase {
+  margin-left: 0.25rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* Read-based phase (direct, from a shared phase set) — stronger than inferred segregation. */
+.sv-second-hit-phase--read {
+  background: var(--color-accent, #2563eb);
+  color: var(--color-white);
+}
+
+/* Fixed hover/focus tooltip — escapes the variant table's scroll clip and renders even
+   when the pointer is over the badge's inline SVG (which swallows the native title). */
+.sv-second-hit-tooltip {
+  position: fixed;
+  z-index: 70;
+  width: 260px;
+  max-width: calc(100vw - 1rem);
+  padding: 0.45rem 0.6rem;
+  border-radius: 7px;
+  background: var(--color-text, #141517);
+  color: var(--color-white);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+  box-shadow: 0 12px 30px rgba(8, 10, 12, 0.35);
+  pointer-events: none;
+}
+
+.variant-card-subtitle {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--color-text-muted);
+}
+
+.variant-card-body {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr) minmax(240px, 0.78fr);
+  align-items: start;
+}
+
+.variant-card-column {
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.variant-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.variant-card-actions .button-secondary {
+  min-height: 2.2rem;
+  padding: 0.56rem 0.8rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+}
+
+.variant-card-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.variant-card-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  padding: 0.2rem 0.52rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.variant-card-chip--tag {
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.variant-card-chip--neutral {
+  border-color: var(--color-border);
+  background: rgba(247, 249, 252, 0.98);
+  color: var(--color-text-muted);
+}
+
+.variant-card-chip--soft {
+  border-color: rgba(135, 111, 61, 0.18);
+  background: rgba(205, 179, 125, 0.16);
+  color: #816939;
+}
+
+.variant-card-chip--strong {
+  border-color: rgba(124, 144, 157, 0.2);
+  background: rgba(124, 144, 157, 0.14);
+  color: var(--color-secondary);
+}
+
+.variant-card-chip--impact {
+  border-color: rgba(52, 96, 150, 0.22);
+  background: rgba(82, 111, 161, 0.14);
+  color: #3f618f;
+}
+
+.variant-card-chip--critical {
+  border-color: rgba(173, 31, 45, 0.22);
+  background: rgba(173, 31, 45, 0.1);
+  color: var(--color-signature-red);
+}
+
+.variant-card-chip--warning {
+  border-color: rgba(180, 125, 45, 0.22);
+  background: rgba(180, 125, 45, 0.12);
+  color: #8d6020;
+}
+
+.variant-card-chip--success {
+  border-color: rgba(53, 111, 83, 0.22);
+  background: rgba(53, 111, 83, 0.12);
+  color: #356f53;
+}
+
+.variant-card-chip--accent {
+  border-color: rgba(159, 34, 57, 0.2);
+  background: rgba(159, 34, 57, 0.1);
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-chip--link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.variant-card-chip--link:hover {
+  filter: brightness(0.94);
+  text-decoration: underline;
+}
+
+/* --- Compact single-variant card layout --- */
+.variant-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.9rem;
+}
+
+.variant-card-priority {
+  display: grid;
+  /* Constrain the single column to the container so long lines wrap instead of
+     forcing the block (and the popover) wider than its box. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.3rem;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.05);
+  padding: 0.5rem 0.62rem;
+}
+
+.variant-card-priority-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.variant-card-priority-score {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.variant-card-priority-rank {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(10, 11, 12, 0.55);
+}
+
+.variant-card-priority-pheno {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.variant-card-priority-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.9rem;
+  min-width: 0;
+}
+
+.variant-card-priority-metric {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: baseline;
+}
+
+.variant-card-priority-metric-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: rgba(10, 11, 12, 0.5);
+}
+
+.variant-card-priority-metric-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.variant-card-priority-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(10, 11, 12, 0.66);
+  overflow-wrap: anywhere;
+}
+
+.variant-card-headline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.variant-card-gene {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--color-heading);
+  text-decoration: none;
+}
+
+.variant-card-gene:hover {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-headtags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.variant-card-chip-key {
+  margin-right: 0.32rem;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.variant-card-resources {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.7rem;
+}
+
+.variant-card-resource {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.variant-card-resource:hover {
+  text-decoration: underline;
+}
+
+.variant-card-resource--clinical {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.variant-card-quick {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.variant-card-nav {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
+}
+
+.variant-card-more {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.variant-card-more > summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  list-style: none;
+}
+
+.variant-card-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.variant-card-more > summary::before {
+  content: '▸ ';
+}
+
+.variant-card-more[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
+.variant-card-more[open] > summary::before {
+  content: '▾ ';
+}
+
+.variant-card-more-grid {
+  display: grid;
+  gap: 0.8rem 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 0.8rem;
+}
+
+/* --- Multi-column card body --- */
+.variant-card-tag-row {
+  gap: 0.4rem;
+}
+
+.variant-card-cols {
+  display: grid;
+  gap: 0.7rem 1.6rem;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.95fr);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .variant-card-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.variant-card-col {
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+  min-width: 0;
+}
+
+/* A column heading that is also a way out to the source behind its numbers. It keeps
+   the heading's own colour and weight until you go near it. */
+.variant-card-col-title-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+
+.variant-card-col-title-link:hover,
+.variant-card-col-title-link:focus-visible {
+  color: var(--color-signature-red);
+  border-bottom-style: solid;
+}
+
+/* A shade larger and more widely tracked than the field names below it, so the column
+   and section headers read as headers rather than as another key. */
+.variant-card-col-title,
+.variant-card-section-title {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* One grid for the whole list rather than a grid per row, so the key column is sized by
+   the longest label present (ALPHAMISSENSE overflowed the old fixed 5.25rem and ran
+   under its own value) and every row still lines up. */
+.variant-card-mini-dl,
+.variant-card-detail-list,
+.variant-card-stat-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.16rem 0.7rem;
+  margin: 0;
+  align-items: baseline;
+}
+
+.variant-card-mini-dl > div,
+.variant-card-detail-row,
+.variant-card-stat-row {
+  display: contents;
+}
+
+/* The card and its disclosure are one document: same key, same value, same rhythm. */
+.variant-card-mini-dl dt,
+.variant-card-detail-row dt,
+.variant-card-stat-row dt {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-card-mini-dl dd,
+.variant-card-detail-row dd,
+.variant-card-stat-row dd {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--color-secondary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.variant-card-cytoband {
+  margin-left: 0.4rem;
+  color: var(--color-text-muted);
+}
+
+.variant-card-col .variant-transcript-trigger {
+  width: auto;
+  justify-content: flex-start;
+  min-height: 1.6rem;
+  margin-top: 0.15rem;
+  /* No horizontal padding, so the frameless accession lines up with the rows below it. */
+  padding: 0.12rem 0;
+  font-size: 0.72rem;
+}
+
+.variant-card-coga {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+  padding-top: 0.32rem;
+  border-top: 1px dashed var(--color-border);
+  font-size: 0.8rem;
+}
+
+.variant-card-col-key {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-coga-value {
+  color: var(--color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Per-member genotype table (left column), aligned in columns via subgrid. */
+.variant-card-gtlist {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
+  gap: 0.14rem 0.7rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.variant-card-gthead,
+.variant-card-gtline {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+}
+
+.variant-card-gthead {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-card-gtline-sample {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--color-secondary);
+}
+
+.variant-card-gtline-sex {
+  font-weight: 700;
+}
+
+.variant-card-gtline-sex--male {
+  color: #3f618f;
+}
+
+.variant-card-gtline-sex--female {
+  color: #8a5277;
+}
+
+.variant-card-gtline-sex--und {
+  color: var(--color-text-muted);
+}
+
+.variant-card-gtline-role {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.variant-card-gtline-gt {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.variant-card-gtline-metric {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.variant-card-gtline--het .variant-card-gtline-gt {
+  color: #8d6020;
+}
+
+.variant-card-gtline--hom .variant-card-gtline-gt {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-gtline--ref .variant-card-gtline-gt {
+  color: var(--color-text-muted);
+}
+
+.variant-card-gtline--na {
+  opacity: 0.6;
+}
+
+.variant-card-gtline.is-affected .variant-card-gtline-sample {
+  font-weight: 700;
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-gtline.is-proband .variant-card-gtline-role {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-inline-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.9rem;
+  border-radius: 999px;
+  padding: 0.22rem 0.62rem;
+  border: 1px solid rgba(10, 11, 12, 0.07);
+  background: rgba(246, 249, 252, 0.88);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-secondary);
+}
+
+/* The transcript accession and the flags that describe it, on one line. */
+.variant-card-transcript-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.variant-card-idlist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
+}
+
+/* A plain link, not a chip: the VCF ID column can hold several accessions and a row
+   of pills reads as tags rather than as the identifiers they are. */
+.variant-card-id-link {
+  color: var(--color-secondary);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(10, 11, 12, 0.18);
+}
+
+.variant-card-id-link:hover,
+.variant-card-id-link:focus-visible {
+  color: var(--color-signature-red-dark);
+  border-bottom-color: var(--color-signature-red);
+}
+
+.variant-card-inline-link:hover {
+  border-color: rgba(198, 31, 45, 0.14);
+  background: rgba(198, 31, 45, 0.05);
+  color: var(--color-signature-red-dark);
+}
+
+.variant-transcript-trigger {
+  width: 100%;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-radius: 4px;
+  text-align: left;
+  /* Reads as the variant's transcript identity rather than a heavy action button, so it
+     drops both the filled background and the frame, and carries the accession in the
+     signature colour. */
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 0.25rem 0;
+}
+
+.variant-transcript-trigger:hover,
+.variant-transcript-trigger:focus-visible {
+  background: transparent;
+  border-color: transparent;
+}
+
+.variant-transcript-trigger:hover .variant-transcript-trigger-id,
+.variant-transcript-trigger:focus-visible .variant-transcript-trigger-id {
+  color: var(--color-signature-red-dark);
+  text-decoration: underline;
+}
+
+.variant-transcript-trigger-id {
+  color: var(--color-signature-red);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.variant-transcript-trigger-count {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.variant-card-section {
+  display: grid;
+  gap: 0.6rem;
+  /* Grid cells stretch to the tallest section in the row, and auto rows stretch with
+     them — which floated a short list (population frequencies especially) into the
+     vertical middle of its cell. Pack the rows to the top instead. */
+  align-content: start;
+}
+
+.variant-card-note-box {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid rgba(10, 11, 12, 0.06);
+  border-radius: 4px;
+  background: rgba(247, 249, 252, 0.92);
+  padding: 0.82rem 0.9rem;
+}
+
+.variant-card-empty-note {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.variant-card-review-panel {
+  display: grid;
+  gap: 0.42rem;
+  border: 1px solid rgba(159, 34, 57, 0.1);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(252, 247, 248, 0.94) 0%, rgba(255, 255, 255, 1) 100%);
+  padding: 0.5rem 0.58rem;
+}
+
+.variant-card-review-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.variant-table-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  align-items: center;
+}
+
+.variant-quick-toggle,
+.variant-review-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.1rem 0.42rem;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-quick-toggle--active {
+  border-color: rgba(173, 31, 45, 0.18);
+  background: rgba(173, 31, 45, 0.08);
+  color: var(--color-signature-red-dark);
+}
+
+/* A toggle's pressed state is not told by the tint alone (#529): a check mark, with empty
+   alternative text, since assistive technology reads aria-pressed instead. */
+.variant-quick-toggle--active::before {
+  content: '✓ ';
+  content: '✓ ' / '';
+}
+
+.variant-review-link {
+  background: transparent;
+  color: var(--color-secondary);
+}
+
+.variant-card-review-note {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--color-heading);
+  white-space: pre-wrap;
+}
+
+.variant-compound-het-summary {
+  display: grid;
+  gap: 0.42rem;
+  border: 1px solid rgba(82, 111, 161, 0.14);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(242, 247, 253, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+  padding: 0.56rem 0.64rem;
+}
+
+.variant-compound-het-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.variant-compound-het-summary-row > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.variant-transcript-modal {
+  display: grid;
+  gap: 0.62rem;
+  width: min(1760px, calc(100vw - 0.75rem));
+  max-height: 90vh;
+  overflow: hidden;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  border-radius: 10px;
+}
+
+.modal-surface.variant-transcript-modal {
+  width: min(1760px, calc(100vw - 0.75rem));
+  max-width: min(1760px, calc(100vw - 0.75rem));
+}
+
+.variant-transcript-modal .catalog-card-title {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.variant-transcript-modal .variant-review-modal-subtitle {
+  font-size: 0.72rem;
+}
+
+.variant-transcript-summary-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.variant-transcript-summary-grid > div {
+  display: grid;
+  gap: 0.15rem;
+  border: 1px solid rgba(10, 11, 12, 0.06);
+  border-radius: 4px;
+  background: rgba(247, 249, 252, 0.92);
+  padding: 0.52rem 0.62rem;
+  min-width: 0;
+}
+
+.variant-transcript-summary-grid span {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-transcript-summary-grid strong {
+  min-width: 0;
+  font-size: 0.82rem;
+  color: var(--color-heading);
+  overflow-wrap: anywhere;
+}
+
+.variant-transcript-table-shell {
+  min-height: 0;
+  overflow: auto;
+}
+
+.variant-transcript-table {
+  min-width: 1060px;
+  font-size: 0.77rem;
+}
+
+.variant-transcript-table th {
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+}
+
+.variant-transcript-table th,
+.variant-transcript-table td {
+  vertical-align: top;
+  padding-top: 0.34rem;
+  padding-bottom: 0.34rem;
+}
+
+.variant-transcript-id,
+.variant-transcript-hgvs {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.variant-transcript-id strong,
+.variant-transcript-hgvs span {
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+  overflow-wrap: anywhere;
+}
+
+.variant-transcript-id span,
+.variant-transcript-hgvs span:last-child {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+
+.variant-transcript-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* RefSeq accessions the annotation maps onto a transcript the VCF named by its Ensembl
+   id. Monospace like the transcript id above it, muted so the id stays primary. */
+/* Gene-disease associations in a card's expanded detail. Two short lists rather than a
+   table: they are for orientation, with the Gene Explorer holding the full set. */
+.variant-card-disease-groups {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.variant-card-disease-heading {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin: 0 0 0.25rem;
+}
+
+.variant-card-disease-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.variant-card-disease-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.73rem;
+}
+
+.variant-card-disease-source {
+  font-size: 0.66rem;
+  color: var(--color-text-muted);
+}
+
+.variant-transcript-refseq {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Which annotation version the CCDS/RefSeq came from, or why they are withheld (#536). */
+.variant-transcript-xref-note {
+  font-size: 0.68rem;
+  font-style: italic;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1180px) {
+  .variant-card-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-header-inner,
+  .app-main-inner,
+  .app-footer-inner,
+  .breadcrumb-inner {
+    padding-left: 1.1rem;
+    padding-right: 1.1rem;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-header-inner,
+  .app-main-inner,
+  .app-footer-inner,
+  .breadcrumb-inner {
+    padding-left: var(--layout-gutter-mobile);
+    padding-right: var(--layout-gutter-mobile);
+  }
+
+  .variant-card {
+    padding: 0.95rem;
+  }
+
+  /* Narrow enough that a key column costs more than it buys: stack key over value.
+     The rows are display:contents, so this is set on the list that owns the grid. */
+  .variant-card-mini-dl,
+  .variant-card-detail-list,
+  .variant-card-stat-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.18rem;
+  }
+
+  .variant-transcript-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

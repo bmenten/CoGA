@@ -1,0 +1,271 @@
+/* Repeat expansions: status chips, the loci table and cutoffs. */
+
+.repeat-status {
+  display: inline;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.repeat-status--normal {
+  color: #4b5563;
+}
+
+.repeat-status--intermediate {
+  color: #a16207;
+}
+
+.repeat-status--pathogenic {
+  color: #991b1b;
+}
+
+.repeat-status--unknown {
+  color: #6b7280;
+}
+
+.family-repeat-table-calls {
+  min-width: 13rem;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.family-repeat-table {
+  font-size: 0.84rem;
+}
+
+.family-repeat-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.65rem;
+  padding: 0.72rem;
+  border: 1px solid rgba(10, 11, 12, 0.07);
+  border-radius: 6px;
+  background: rgba(247, 249, 252, 0.72);
+}
+
+.family-repeat-filter-field {
+  min-width: 11rem;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.family-repeat-filter-field > span,
+.family-repeat-filter-toggle,
+.family-repeat-filter-count {
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.family-repeat-filter-field select {
+  min-height: 2.35rem;
+  padding: 0.45rem 0.72rem;
+  font-size: 0.82rem;
+}
+
+.family-repeat-filter-toggle {
+  min-height: 2.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.45rem 0.66rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.family-repeat-filter-count {
+  margin-left: auto;
+  padding-bottom: 0.54rem;
+}
+
+.family-repeat-table th {
+  padding-top: 0.62rem;
+  padding-bottom: 0.62rem;
+}
+
+.family-repeat-table td {
+  padding-top: 0.62rem;
+  padding-bottom: 0.62rem;
+  vertical-align: top;
+}
+
+/* Status rail instead of a fill: red (pathogenic) / orange (grey zone) top + left
+   border, matching the small-variant cards (no reddish background). */
+.family-repeat-table tbody tr.family-repeat-table-row--intermediate > td {
+  border-top: 2px solid var(--color-repeat-intermediate);
+}
+
+.family-repeat-table tbody tr.family-repeat-table-row--intermediate > td:first-child {
+  border-left: 3px solid var(--color-repeat-intermediate);
+}
+
+/* An allele the catalog cannot classify (#535): its own rail colour, so it reads as
+   "needs a look" rather than as grey zone or pathogenic. */
+.family-repeat-table tbody tr.family-repeat-table-row--review > td {
+  border-top: 2px solid var(--color-repeat-review);
+}
+
+.family-repeat-table tbody tr.family-repeat-table-row--review > td:first-child {
+  border-left: 3px solid var(--color-repeat-review);
+}
+
+.family-repeat-table tbody tr.family-repeat-table-row--pathogenic > td {
+  border-top: 2px solid var(--color-repeat-pathogenic);
+}
+
+.family-repeat-table tbody tr.family-repeat-table-row--pathogenic > td:first-child {
+  border-left: 3px solid var(--color-repeat-pathogenic);
+}
+
+.family-repeat-table-locus-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.1rem;
+}
+
+/* Gene and disease names read larger than the table body. */
+.family-repeat-locus-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.family-repeat-disease-link {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.family-repeat-table-locus-flag {
+  padding-top: 0.18rem;
+  padding-bottom: 0.18rem;
+}
+
+.family-repeat-table-locus-flag--intermediate {
+  border-color: rgba(180, 125, 45, 0.24);
+  background: rgba(180, 125, 45, 0.12);
+  color: #8d6020;
+}
+
+.family-repeat-table-locus-flag--pathogenic {
+  border-color: rgba(173, 31, 45, 0.24);
+  background: rgba(173, 31, 45, 0.12);
+  color: var(--color-signature-red);
+}
+
+.family-repeat-table-locus-flag--unknown {
+  border-color: rgba(124, 129, 134, 0.2);
+  background: rgba(124, 129, 134, 0.1);
+  color: var(--color-text-muted);
+}
+
+.family-repeat-table-call-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.22rem 0;
+  border-bottom: 1px solid rgba(10, 11, 12, 0.05);
+}
+
+.family-repeat-table-call-row:last-child {
+  border-bottom: 0;
+}
+
+.family-repeat-table-call-row--abnormal .family-repeat-table-call-person strong {
+  color: var(--color-heading);
+}
+
+.family-repeat-table-call-person {
+  min-width: 0;
+  display: grid;
+  gap: 0.02rem;
+}
+
+.family-repeat-table-call-person strong {
+  font-size: 0.74rem;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+}
+
+.family-repeat-table-call-value {
+  text-align: right;
+}
+
+.family-repeat-table-call-stack {
+  display: inline-grid;
+  justify-items: end;
+  gap: 0.16rem;
+}
+
+.family-repeat-table-call-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: rgba(247, 249, 252, 0.96);
+  padding: 0.16rem 0.48rem;
+  line-height: 1;
+}
+
+.family-repeat-table-call-chip--normal {
+  border-color: rgba(124, 129, 134, 0.12);
+  background: rgba(247, 249, 252, 0.92);
+}
+
+.family-repeat-table-call-chip--intermediate {
+  border-color: rgba(180, 125, 45, 0.22);
+  background: rgba(180, 125, 45, 0.12);
+}
+
+.family-repeat-table-call-chip--pathogenic {
+  border-color: rgba(173, 31, 45, 0.24);
+  background: rgba(173, 31, 45, 0.12);
+  box-shadow: 0 0 0 1px rgba(173, 31, 45, 0.05);
+}
+
+.family-repeat-table-call-chip--unknown {
+  border-color: rgba(124, 129, 134, 0.18);
+  background: rgba(124, 129, 134, 0.08);
+}
+
+.family-repeat-table-call-chip--pathogenic .repeat-status,
+.family-repeat-table-call-chip--intermediate .repeat-status {
+  font-size: 0.84rem;
+}
+
+.family-repeat-table-call-flag {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.family-repeat-table-call-motifs {
+  max-width: 18rem;
+  font-size: 0.66rem;
+  line-height: 1.2;
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.repeat-cutoff-head,
+.repeat-cutoff-cell {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.repeat-cutoff-cell {
+  min-width: 11rem;
+  font-size: 0.78rem;
+}

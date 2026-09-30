@@ -1,0 +1,153 @@
+/* Family administration: selection, overview and deletion. */
+
+/* ===========================================================================
+   Admin -> Data -> Families: family selector, embedded workspace, consolidated
+   sample management, raw-file provenance, and the delete-family confirmation.
+   =========================================================================== */
+
+.admin-family-select-card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Family names rendered as selection buttons inside the dashboard catalog. */
+.family-select-link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.family-select-link:hover {
+  text-decoration: underline;
+}
+
+.family-select-link--active {
+  color: var(--color-signature-red);
+  text-decoration: underline;
+}
+
+.admin-family-overview-header {
+  align-items: flex-start;
+}
+
+/* The embedded Family Workspace drops its own page padding to nest in the card. */
+.admin-embedded-workspace {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.55);
+  padding: 0.75rem;
+}
+
+.admin-embedded-workspace .family-detail-page {
+  margin: 0;
+}
+
+/* Raw-file provenance tables. */
+.admin-raw-file-group-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.admin-raw-file-table td,
+.admin-raw-file-table th {
+  vertical-align: top;
+}
+
+.admin-raw-file-name {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.admin-raw-file-dataset {
+  font-size: 0.62rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.admin-raw-file-path {
+  max-width: 18rem;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.66rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-raw-file-hash {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.66rem;
+  white-space: nowrap;
+}
+
+.admin-raw-file-verify-chip {
+  margin-left: 0.4rem;
+}
+
+.admin-raw-file-verify-message {
+  margin: 0.3rem 0 0;
+  font-size: 0.68rem;
+  color: var(--color-signature-red);
+}
+
+.badge-chip--success {
+  border-color: rgba(22, 128, 76, 0.24);
+  background: rgba(22, 128, 76, 0.1);
+  color: #16804c;
+}
+
+.badge-chip--danger {
+  border-color: rgba(198, 31, 45, 0.24);
+  background: var(--color-signature-red-soft);
+  color: var(--color-signature-red);
+}
+
+/* Delete-entire-family confirmation modal. */
+.page-kicker--danger {
+  color: var(--color-signature-red);
+}
+
+.admin-delete-family-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  width: min(560px, 100%);
+}
+
+.admin-delete-family-warning {
+  border: 1px solid rgba(198, 31, 45, 0.24);
+  background: var(--color-signature-red-soft);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.admin-delete-family-warning ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.admin-delete-family-warning-strong {
+  font-weight: 700;
+  color: var(--color-signature-red);
+}
+
+.modal-actions {
+  justify-content: flex-end;
+}

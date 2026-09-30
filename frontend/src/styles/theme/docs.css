@@ -1,0 +1,392 @@
+/* The user guide, the in-app reference docs, the release history and sanitised HTML blocks. */
+
+.user-guide-page {
+  align-items: stretch;
+  gap: 2.75rem;
+}
+
+.user-guide-eyebrow {
+  margin: 0 0 0.9rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.user-guide-hero {
+  padding-bottom: 1.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.user-guide-title {
+  margin: 0.45rem 0 0;
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-heading);
+}
+
+.user-guide-lede {
+  margin: 0.75rem 0 0;
+  max-width: 54rem;
+  font-size: 1.02rem;
+  line-height: 1.72;
+  color: var(--color-secondary);
+}
+
+.user-guide-layout {
+  display: grid;
+  gap: 2.75rem;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 992px) {
+  .user-guide-layout {
+    grid-template-columns: 13rem minmax(0, 1fr);
+    gap: 3.25rem;
+  }
+}
+
+/* Sticky text-link contents: no card, no boxes. */
+.user-guide-toc {
+  position: sticky;
+  top: 5.5rem;
+  align-self: start;
+}
+
+.user-guide-toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--color-border);
+}
+
+.user-guide-toc-link {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  margin-left: -1px;
+  padding: 0.32rem 0 0.32rem 0.85rem;
+  border-left: 2px solid transparent;
+  color: var(--color-secondary);
+  text-decoration: none;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.user-guide-toc-link:hover {
+  color: var(--color-signature-red-dark);
+  border-left-color: var(--color-signature-red);
+}
+
+.user-guide-toc-index {
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+.user-guide-toc-title {
+  font-weight: 600;
+}
+
+.user-guide-content {
+  min-width: 0;
+}
+
+/* Reading column: sections divided by hairlines, not cards. */
+.user-guide-section {
+  padding: 2.5rem 0;
+  border-top: 1px solid var(--color-border);
+  scroll-margin-top: 5.75rem;
+}
+
+.user-guide-section:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.user-guide-section-header {
+  margin-bottom: 1.1rem;
+}
+
+.user-guide-section-index {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--color-signature-red);
+}
+
+.user-guide-section-title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-heading);
+}
+
+.user-guide-section-summary {
+  margin: 0.5rem 0 0;
+  max-width: 50rem;
+  font-size: 0.96rem;
+  line-height: 1.72;
+  color: var(--color-secondary);
+}
+
+/* Quick links: inline text links, not pills. */
+.user-guide-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.4rem;
+  margin: 1rem 0 1.4rem;
+}
+
+.user-guide-link-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-signature-red-dark);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.user-guide-link-chip::before {
+  content: "→";
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.user-guide-link-chip:hover {
+  color: var(--color-signature-red);
+  text-decoration: underline;
+}
+
+.user-guide-link-note {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.user-guide-section-prose {
+  gap: 0.95rem;
+  max-width: 52rem;
+}
+
+/* Callout: left-accent note, no rounded box. */
+.user-guide-callout {
+  margin: 0.4rem 0;
+  padding: 0.35rem 0 0.35rem 1.1rem;
+  border-left: 3px solid var(--color-signature-red);
+  background: none;
+  color: var(--color-secondary);
+}
+
+/* The guide's Markdown writes a callout as a blockquote, which holds a paragraph (#528):
+   it keeps the callout's colour instead of the prose paragraph's. */
+.user-guide-callout > p {
+  margin: 0;
+  color: inherit;
+}
+
+/* "In-depth reference" link from a guide section to an in-app reference doc. */
+.user-guide-further-reading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0.9rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--color-border, #eef2f7);
+}
+.user-guide-further-reading-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted, #64748b);
+}
+.user-guide-doc-link {
+  font-weight: 600;
+}
+
+/* In-app reference doc (rendered from Markdown). */
+.reference-doc-page {
+  display: grid;
+  gap: 1rem;
+}
+.reference-doc-breadcrumb {
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+}
+.reference-doc-prose h1 {
+  margin-top: 0;
+}
+
+/* Mini grid: flat hairline-topped blocks, no boxes. */
+.user-guide-mini-grid {
+  display: grid;
+  gap: 1.1rem 2.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  margin: 0.4rem 0;
+}
+
+.user-guide-mini-card {
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--color-border);
+  background: none;
+}
+
+.user-guide-mini-card-title {
+  margin: 0 0 0.28rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.user-guide-mini-card-copy {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.66;
+  color: var(--color-text-muted);
+}
+
+.user-guide-backlink {
+  display: inline-block;
+  margin-top: 1.5rem;
+}
+
+.release-history-page {
+  align-items: stretch;
+}
+
+.release-history-hero {
+  display: grid;
+  gap: 1rem;
+}
+
+.release-history-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.release-history-actions {
+  align-items: center;
+}
+
+.release-history-callout {
+  border-left: 4px solid rgba(190, 52, 85, 0.7);
+}
+
+.release-history-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.release-history-card {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1.05rem 1.1rem;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 1rem;
+  background: rgba(247, 249, 252, 0.86);
+}
+
+.release-history-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.release-history-version-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.release-history-version {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.release-history-title {
+  margin: 0;
+  font-size: 1.08rem;
+  letter-spacing: -0.02em;
+  color: var(--color-heading);
+}
+
+.release-history-date {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.release-history-summary {
+  margin: 0;
+  white-space: pre-line;
+  line-height: 1.8;
+  color: var(--color-text);
+}
+
+.release-history-card-actions {
+  justify-content: flex-start;
+}
+
+.content-html {
+  display: grid;
+  gap: 1rem;
+  color: var(--color-text);
+  line-height: 1.78;
+}
+
+.content-html h1,
+.content-html h2,
+.content-html h3 {
+  margin: 0;
+}
+
+.content-html p,
+.content-html li {
+  color: var(--color-text);
+}
+
+@media (max-width: 760px) {
+  .release-history-card-header {
+    flex-direction: column;
+  }
+}
+
+.content-html a {
+  color: var(--color-primary);
+}
+
+.content-html table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.content-html th,
+.content-html td {
+  border: 1px solid var(--color-border);
+  padding: 0.8rem;
+}

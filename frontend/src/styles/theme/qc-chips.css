@@ -1,0 +1,117 @@
+/* Table-chip tones and the sequencing-QC chip of the members table. */
+
+.table-chip--accent {
+  border-color: rgba(124, 144, 157, 0.2);
+  background: rgba(124, 144, 157, 0.1);
+  color: var(--color-secondary);
+}
+
+.table-chip--neutral {
+  border-color: var(--color-border);
+  background: rgba(246, 249, 252, 0.96);
+  color: var(--color-text-muted);
+}
+
+.table-chip--success {
+  border-color: rgba(53, 111, 83, 0.22);
+  background: rgba(53, 111, 83, 0.12);
+  color: #356f53;
+}
+
+.table-chip--warning {
+  border-color: rgba(180, 125, 45, 0.22);
+  background: rgba(180, 125, 45, 0.12);
+  color: #8d6020;
+}
+
+.table-chip--critical {
+  border-color: rgba(173, 31, 45, 0.22);
+  background: rgba(173, 31, 45, 0.1);
+  color: var(--color-signature-red);
+}
+
+.table-chip--strong {
+  border-color: rgba(82, 111, 161, 0.2);
+  background: rgba(82, 111, 161, 0.11);
+  color: #466592;
+}
+
+/* Sequencing-QC cell: the metric chip doubles as the control that opens the
+   pipeline's QC report, so it needs to read as interactive while keeping the chip
+   shape the rest of the members table uses. */
+.family-qc-cell {
+  display: grid;
+  gap: 0.24rem;
+  justify-items: start;
+}
+
+.family-qc-chip,
+.family-qc-chip-static {
+  /* Measurements, not a label: the table's uppercase treatment turns "18.6x" into
+     "18.6X" and "kb" into "KB", and widens the chip past its column. */
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 0.66rem;
+  white-space: nowrap;
+}
+
+/* Shape and interactivity only. The colour lives in the tone classes below, because
+   `.table-chip--warning` / `--critical` set the same three properties and this rule sits
+   later in the file — declaring colours here silently won and the verdict tone was lost.
+
+   The min-height/box-shadow/transform resets matter: this chip is a <button>, so without
+   them it inherits `min-height: 3rem` from the global button rule and stands 48px tall,
+   more than doubling the height of every members-table row, and it jumps on hover from
+   the button's translateY. Same reset the `.badge-chip button` rule uses. */
+.family-qc-chip {
+  cursor: pointer;
+  font-family: inherit;
+  min-height: auto;
+  box-shadow: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.family-qc-chip:hover,
+.family-qc-chip:focus-visible {
+  transform: none;
+}
+
+/* Neutral tone, applied when the verdict is pass or not-assessed. */
+.family-qc-chip--neutral {
+  border-color: rgba(82, 111, 161, 0.28);
+  background: rgba(82, 111, 161, 0.09);
+  color: #43608c;
+}
+
+.family-qc-chip--neutral:hover:not(:disabled),
+.family-qc-chip--neutral:focus-visible {
+  border-color: var(--color-accent, #2563eb);
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--color-accent, #2563eb);
+}
+
+/* A toned chip keeps its verdict colour on hover — deepen it instead of replacing it,
+   so hovering a failing sample never makes it look neutral. */
+.family-qc-chip.table-chip--warning:hover:not(:disabled),
+.family-qc-chip.table-chip--critical:hover:not(:disabled),
+.family-qc-chip.table-chip--warning:focus-visible,
+.family-qc-chip.table-chip--critical:focus-visible {
+  filter: brightness(0.94);
+  text-decoration: underline;
+}
+
+.family-qc-chip:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.family-qc-chip-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.family-qc-cell-error {
+  max-width: 12rem;
+}
