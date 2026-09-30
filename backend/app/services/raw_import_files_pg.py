@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import uuid
 from pathlib import Path
@@ -31,10 +32,13 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import scrub_log
 from ..core.object_storage import is_remote_uri, remote_object_identity
 
 # Repo-level data directory (matches routers/cram.py DATA_DIR resolution).
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+logger = logging.getLogger(__name__)
+
 MANAGED_SUBDIR = "raw_imports"
 
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB streaming reads keep large VCF/CRAM out of memory.
@@ -246,7 +250,15 @@ async def record_uploaded_file(
             metadata=metadata,
         )
         await session.commit()
-    except Exception:  # noqa: BLE001  # pragma: no cover - provenance is non-critical
+    except Exception:
+        # Provenance must not fail the import, but a missing record must leave a trace (#686).
+        logger.warning(
+            "Raw-file provenance for family %s (%s, %s) was not recorded",
+            scrub_log(family_id),
+            scrub_log(dataset),
+            scrub_log(file_name),
+            exc_info=True,
+        )
         try:
             await session.rollback()
         except Exception:  # noqa: BLE001 - nothing more to do after a failed rollback
@@ -271,7 +283,14 @@ async def record_upload_file_obj(
     try:
         await file.seek(0)
         content = await file.read()
-    except Exception:  # noqa: BLE001 - an upload that cannot be re-read is not recorded
+    except Exception:
+        logger.warning(
+            "Raw-file provenance for family %s (%s, %s) was not recorded: the upload could not be re-read",
+            scrub_log(family_id),
+            scrub_log(dataset),
+            scrub_log(file.filename or "upload"),
+            exc_info=True,
+        )
         content = b""
     if not content:
         return

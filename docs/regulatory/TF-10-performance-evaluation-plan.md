@@ -204,6 +204,7 @@ candidate. One line per change: what changed, its pull request, and the proposed
 
 ### Proposed minor
 
+- A per-sample filter minimum (GQ, DP, AF, AD alt, SV QUAL) that is not a number fails the search with a 422 naming it; an unreadable AF or AD-alt minimum used to be dropped, widening the result without saying so (#690; proposed Minor)
 - A package import records each sample's mtDNA haplogroup, so the mtDNA workspace shows it for the maternal-lineage check of the Sample QC review (#671; proposed Minor)
 - The writes of one family's variants run one at a time: uploads, deletes and package imports of a family started together keep every call, and a write that waited for the deletion of its sample or family writes nothing (#670; proposed Minor)
 - Importing one sample's mitochondrial calls replaces only that sample's calls; every member's chrM calls stay for the maternal transmission (#666; proposed Minor)

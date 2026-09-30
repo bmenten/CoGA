@@ -702,6 +702,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   temporary database whatever happens; a file naming a sample the family lacks used to leave it in
   `/tmp` (memory, on Cloud Run) until the instance restarted. A VEP or mutserve table whose parse fails
   part-way no longer leaves its database behind either (#671).
+- **Sample-filter values that can't be read (#686)** — a per-sample minimum (GQ, DP, AF or AD alt, or
+  an SV's QUAL) that is not a number fails the search with a 422 that names it. An unreadable AF or
+  AD-alt minimum used to be dropped, so the search returned more than asked without saying so, and an
+  unreadable GQ or DP minimum surfaced as a 500. A raw-file provenance record that can't be written
+  still doesn't fail the import, but the loss is now logged with the family, dataset and file (#690).
 
 ### Security
 

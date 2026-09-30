@@ -1,8 +1,9 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .core.clickhouse import (
     close_clickhouse_client,
@@ -28,6 +29,7 @@ from .services.gene_info_jobs_pg import (
     queue_startup_gene_reference_refresh_if_needed,
     stop_gene_reference_worker,
 )
+from .services.family_variant_filters import SampleFilterError
 from .services.family_package_import import (
     family_package_import_worker,
     stop_family_package_import_worker,
@@ -152,6 +154,15 @@ for router in all_routers:
     api_router.include_router(router)
 
 app.include_router(api_router)
+
+
+async def _refuse_unreadable_sample_filter(request: Request, exc: Exception) -> JSONResponse:
+    # A sample filter value that cannot be read is the caller's error: answer 422 with the
+    # value named, whichever search it reached (#686).
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+app.add_exception_handler(SampleFilterError, _refuse_unreadable_sample_filter)
 
 # The trailing-slash normaliser needs the set of `/api/...` collection-root paths
 # (e.g. `/api/families/`). We read them from the OpenAPI schema rather than

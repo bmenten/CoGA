@@ -23,7 +23,8 @@ The filters are grouped as on the screen: **Phenotype**, **Structural second hit
 **Frequency**, **Locations**, **Exclude** and **Review and curation**. For de novo and dominant, a male's
 call on chrX or chrY outside the pseudo-autosomal regions (`1` or `1/1`) counts as one copy. A location
 entry that cannot be read (for example an end before its start) is named under its field, and nothing is
-searched until you fix it.
+searched until you fix it. A per-sample minimum (GQ, DP, AF or AD alt) that is not a number fails the
+search, and the message names it.
 
 The built-in presets are *Phenotype priority*, *Dominant strict*, *Dominant relaxed*, *Expanded carrier
 screening* (couples only: genes where both partners carry a rare variant), *Compound het*, *Recessive
