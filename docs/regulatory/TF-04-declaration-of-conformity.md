@@ -32,23 +32,20 @@ the relevant general safety and performance requirements of Annex I.
 | Name | Center for Medical Genetics Ghent (CMGG) |
 | Legal entity | Ghent University Hospital (UZ Gent) |
 | Address | Corneel Heymanslaan 10, 9000 Gent, Belgium *(as written in the BELAC scope annex)* |
-| Accreditation | EN ISO 15189:2022 — BELAC accreditation **351-MED**, **certificate version 8**, validity **2025-07-03 → 2026-09-10**; scope annex **BELAC 351-MED V. 19/1**. Source: [351-MED certificate + scope annex (BELAC)](https://ng3.economie.fgov.be/NI/belac/medilabs/scope_pdf/351-MED.pdf), retrieved 2026-07-28; a dated copy of the cited version is archived in the CMGG QMS. |
+| Accreditation | EN ISO 15189:2022 — BELAC accreditation **351-MED**, **certificate version 9**, validity **2026-09-11 → 2031-09-10**; scope annex **BELAC 351-MED V. 21**, with the same validity. Source: [351-MED certificate + scope annex (BELAC)](https://ng3.economie.fgov.be/NI/belac/medilabs/scope_pdf/351-MED.pdf), retrieved 2026-09-30. BELAC replaces the file at that address with each new version, so a dated copy of the cited version belongs in the CMGG QMS. **🔲 QA:** file a dated copy of certificate version 9 and scope annex V. 21 (document control, [TF-07 §3](TF-07-software-lifecycle-plan.md)). |
 | Responsible contact | Björn Menten — Lab director / project lead, <bjorn.menten@ugent.be> |
 
 > **🔲 RA DECISION REQUIRED — the declaring institution and the accreditation holder are not
-> the same legal person.** Verified against the BELAC source on 2026-07-28: certificate 351-MED
-> is issued to **Universiteit Gent**, Sint-Pietersnieuwstraat 25, 9000 Gent, enterprise number
-> **0248.015.142**. *Universitair ziekenhuis Gent — Centrum Medische Genetica Gent (CMGG)*,
-> Corneel Heymanslaan 10, appears in the scope annex as an **activity site**, not as the
-> certificate holder.
+> the same legal person.** Verified against the BELAC source on 2026-09-30: certificate 351-MED
+> version 9, like version 8 before it, is issued to **Universiteit Gent**,
+> Sint-Pietersnieuwstraat 25, 9000 Gent, enterprise number **0248.015.142**. *Universitair
+> ziekenhuis Gent — Centrum Medische Genetica Gent (CMGG)*, Corneel Heymanslaan 10, appears in
+> scope annex V. 21 as an **activity site**, not as the certificate holder.
 >
 > IVDR Article 5(5)(c) requires the **health institution** making this declaration to comply
 > with EN ISO 15189 (or applicable national provisions). CMGG RA must therefore confirm **which
 > legal person declares** — and that the accreditation relied on covers it. This is not a
 > wording preference; it determines whether the declaration is valid.
->
-> **Also:** the validity of the certificate version cited above ended on **2026-09-10**.
-> **🔲 RA:** cite the current certificate (version and validity window) from BELAC.
 
 ### 2. Device identification
 
