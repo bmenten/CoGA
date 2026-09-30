@@ -873,6 +873,8 @@ async def sign_out_report(
             "import_incomplete_acknowledgement_reason"
         ],
         "snapshot": snapshot,
+        # As a detail read returns it: what the new record could not capture.
+        "not_captured": gaps,
     }
 
 
@@ -961,10 +963,12 @@ async def get_report_signout(
     if row is None:
         raise HTTPException(status_code=404, detail="Sign-out version not found")
     record = dict(row)
+    # Served as the object it was verified as, even from a driver that hands back text.
+    record["snapshot"] = _as_snapshot(record["snapshot"])
     # Re-verify the stored content hash against the snapshot on read (tamper-evidence).
     # A mismatch means the immutable snapshot was altered out-of-band; surface it as a
     # non-fatal flag — the record must still be returned so an auditor can inspect it.
-    recomputed = _canonical_hash(_as_snapshot(record["snapshot"]))
+    recomputed = _canonical_hash(record["snapshot"])
     record["verified"] = recomputed == record["content_hash"]
     if not record["verified"]:
         logger.error(
@@ -976,7 +980,11 @@ async def get_report_signout(
                 "recomputed_content_hash": recomputed,
             },
         )
-    return _serialize_signout(record)
+    detail = _serialize_signout(record)
+    # The report page renders a signed version from its snapshot alone, so it must be able
+    # to say what that record lacks — for any version, not only the latest (#514).
+    detail["not_captured"] = snapshot_gaps(record["snapshot"])
+    return detail
 
 
 # The snapshot sections that make up the report's clinical content. The build identity
@@ -1047,12 +1055,14 @@ async def compare_report_with_latest_signout(
 ) -> dict[str, Any]:
     """Does the report, as it would be signed now, still match the latest sign-out?
 
-    The report page renders live data, so a change after sign-out (a review edit, a new
-    report tag, a re-import, a QC cut-off change) would otherwise be printed under the
-    "Signed out" banner as if it were the signed record (#508). This rebuilds the
-    snapshot body and compares it, section by section, with the frozen one. A section or
-    reference module the signed record predates is listed in ``not_compared`` (a module
-    as ``modules.<key>``) rather than reported as changed.
+    The report page renders a signed version from its frozen snapshot and the live report
+    from current data. A change after sign-out (a review edit, a new report tag, a
+    re-import, a QC cut-off change) leaves the signed version as it was, so the page uses
+    this check to say so: on the live report, whether it still matches the latest signed
+    version; on that version, whether the family's data changed since (#508). This
+    rebuilds the snapshot body and compares it, section by section, with the frozen one. A
+    section or reference module the signed record predates is listed in ``not_compared``
+    (a module as ``modules.<key>``) rather than reported as changed.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id

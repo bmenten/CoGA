@@ -12556,6 +12556,69 @@ a.button-danger:hover {
   background: #fef2f2;
   color: #991b1b;
 }
+/* The live report beside the latest signed version: never the signed report, so never green,
+   even when its content matches. */
+.report-signout-live {
+  border-left-color: #64748b;
+  background: #f8fafc;
+}
+.report-signout-live .report-signout-line {
+  color: #334155;
+}
+/* A signed version rendered from its frozen record: green, unless its record fails its
+   content hash (red) or a later version replaces it (amber). */
+.report-signed-record--tampered {
+  border-left-color: #dc2626;
+  background: #fef2f2;
+}
+.report-signed-record--tampered .report-signout-line,
+.report-signed-record--tampered .report-signed-warning {
+  color: #991b1b;
+}
+.report-signed-record--superseded {
+  border-left-color: #d97706;
+  background: #fffbeb;
+}
+.report-signed-record--superseded .report-signout-line {
+  color: #92400e;
+}
+.report-signed-warning {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #92400e;
+}
+.report-signed-current {
+  margin: 0;
+  font-size: 0.86rem;
+}
+.report-signed-current--changed {
+  color: #92400e;
+}
+.report-version-nav {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+}
+.report-signed-absent,
+.report-signed-drift,
+.report-signed-checks {
+  display: grid;
+  gap: 0.5rem;
+}
+.report-signed-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+/* What the signed record does not hold, said on each variant it concerns. */
+.report-signed-absent-line {
+  margin: 0;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--color-text-muted, #64748b);
+}
 
 /* Printed at the top of any report page that is not the verified signed record. */
 .print-only {

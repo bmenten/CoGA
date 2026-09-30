@@ -25,8 +25,11 @@ filter.
 
 ## Opening the report
 
-The **Report** button in the family workspace opens `/families/{family_id}/report`. The page
-loads the small variants and the structural variants tagged `report`
+The **Report** button in the family workspace opens `/families/{family_id}/report`. A family
+that has been signed out opens on its latest signed version, drawn from the frozen record
+(below); this template is the live report (`?view=live`), which is where the case is signed
+out. The live report loads the small variants and the structural variants
+tagged `report`
 (`GET /families/{family_id}/small-variants?review_tag=report` and the
 `structural-variants` equivalent), the gene profile of each reported gene
 (`GET /genes/profile`), the family's HPO terms (`GET /families/{family_id}/hpo`) and its
@@ -63,12 +66,19 @@ report** action with its gates. What these record and how they work is in
 lab user works with them is in the user guide's clinical report section
 ([clinical-report.md](../frontend/src/content/docs/user-guide/clinical-report.md)).
 
-The page always draws live data. After a sign-out it checks itself against the signed
-version and says whether it still matches; the signed version itself can be downloaded as
-JSON.
+The live report always draws live data and is never the signed report. After a sign-out it
+checks itself against the latest signed version and says whether it still matches.
+
+A signed version is rendered from its frozen record alone: each reported variant's
+classification, criteria, frozen evidence, tags and note, and the checks at sign-out. The record
+holds none of the prose inputs above (the variant description, segregation, gene and phenotype
+context), so a signed version names each variant by its ID and says what its record does not
+hold. Both views download the signed version as JSON.
 
 ## Printing
 
-**Print report** opens the browser's print dialog. The print styles hide the page chrome
-and keep each variant card on one page, so it exports cleanly to PDF. A page that is not the
-verified signed record prints with a notice at the top.
+**Print report** on the live report, and **Print signed version N** on a signed version, open
+the browser's print dialog. The print styles hide the report's buttons and keep each card on one
+page, so it exports cleanly to PDF. Every printout of the live report starts with a notice
+that it is not the signed report. A signed version prints with a notice only when its record
+fails its content hash, a later version supersedes it, or the versions could not be listed.

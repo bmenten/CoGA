@@ -594,6 +594,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   other stored call back unchanged, in every callset (the imputed one included), project and field; it
   used to rebuild them from the family view and wipe the imputed callset, an inactive member's calls
   and rows in projects the family had left (#655).
+- **Signed report drawn from its record** — a signed case opens on its signed version, rendered and
+  printed from the frozen snapshot alone (version, date, signer, content hash, each reported variant's
+  classification, criteria, frozen evidence and note, the checks at sign-out). It says what the record does
+  not hold (the variant description, gene and phenotype context) rather than filling it in from live data.
+  The live report of a signed case is labelled as not the signed version, on screen and in print, even
+  when it matches; after sign-out the page shows the version just signed (#659).
 
 ### Security
 

@@ -1,18 +1,30 @@
 import React, { useMemo, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import ModalDialog from '../../components/ModalDialog';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
+import SignedFamilyReport from './SignedFamilyReport';
 import type {
   ApiAnnotationManifest,
   ApiClassificationDrift,
   ApiClinicalAudit,
-  ApiReportSignoutCheck,
-  ApiReportSignoutList,
 } from '../../lib/apiTypes';
+import {
+  apiErrorMessage,
+  useReportSignoutCheck,
+  useReportSignouts,
+  useSignedVersionDownload,
+} from './reportSignoutQueries';
+import {
+  describeModuleVersions,
+  describeReportSections,
+  formatReportTime,
+  parseSignedVersionParam,
+  reportViewSearch,
+} from './signedReportRecord';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { formatLocus } from './smallVariantResultUtils';
 import {
@@ -26,7 +38,7 @@ import {
 import { type StructuralVariant } from './structuralVariantSearch';
 import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
-import { formatSoftwareVersion, useReportBuild } from '../../lib/appVersion';
+import { useReportBuild } from '../../lib/appVersion';
 import {
   acmgClassificationLabel,
   buildSegregationSentence,
@@ -125,38 +137,25 @@ const modesOfInheritance = (profile?: GeneProfileResponse): string[] =>
     ),
   );
 
-// Snapshot sections the sign-out check can report as changed (report_signout_service
-// REPORT_CONTENT_SECTIONS), in words a reviewer reads.
-const REPORT_SECTION_LABELS: Record<string, string> = {
-  assembly: 'reference assembly',
-  modules: 'annotation and pipeline versions',
-  reported_variants: 'reported small variants',
-  reported_structural_variants: 'reported structural variants',
-  drift: 'evidence drift',
-  sample_qc: 'sample-integrity QC',
-  sequencing_qc: 'sequencing QC cut-offs',
-  import_incomplete: 'import completeness',
-};
+// How the live report relates to the latest signed version. It is never the signed report,
+// whatever the state: only the signed version, rendered from its record, is (#508).
+type SignedState =
+  | 'loading'
+  | 'none'
+  | 'checking'
+  | 'matches'
+  | 'changed'
+  | 'unverified'
+  | 'unknown';
 
-const describeSections = (sections: string[]): string =>
-  joinWithAnd(sections.map((section) => REPORT_SECTION_LABELS[section] ?? section));
-
-// How the page relates to the latest signed record. Only "matches" may present the page as
-// the signed report; every other state must say it is not (#508).
-type SignedState = 'none' | 'checking' | 'matches' | 'changed' | 'unverified' | 'unknown';
-
-const apiErrorMessage = (error: unknown, fallback: string): string => {
-  const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
-    .response;
-  const detail = response?.data?.detail;
-  if (typeof detail === 'string' && detail.trim()) return detail;
-  if (response?.status) return `${fallback} (the server returned ${response.status}).`;
-  return `${fallback} (the server could not be reached).`;
-};
-
-const FamilyReportPage: React.FC = () => {
+/**
+ * The live report: current data, and where the case is signed out. Labelled on screen and in
+ * print as not the signed version.
+ */
+const LiveFamilyReport: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const preferredProjectId = useMemo(
     () => new URLSearchParams(location.search).get('project_id') || undefined,
     [location.search],
@@ -324,37 +323,31 @@ const FamilyReportPage: React.FC = () => {
       (await api.get(apiPath`/families/${familyId}/clinical-audit`)).data as ApiClinicalAudit,
   });
 
-  // Case sign-out: the frozen, versioned, content-hashed report record.
+  // Case sign-out: the frozen, versioned, content-hashed report record. This page is never
+  // it; a signed version is rendered from its record by SignedFamilyReport.
   const queryClient = useQueryClient();
   const {
     data: signouts,
     isError: signoutsFailed,
+    isPending: signoutsPending,
     refetch: refetchSignouts,
-  } = useQuery<ApiReportSignoutList>({
-    queryKey: ['family', familyId, 'report-signouts'],
-    enabled: Boolean(familyId),
-    queryFn: async () =>
-      (await api.get(apiPath`/families/${familyId}/report/sign-outs`)).data as ApiReportSignoutList,
-  });
+  } = useReportSignouts(familyId);
 
-  // Does the live content below still match the frozen, signed record? The page renders
-  // live data, so without this a change made after sign-out would print under the
-  // "Signed out" banner as if it were the signed report (#508).
+  // Does the live content below still match the latest signed version? It says so, and
+  // what changed, but even a match does not make this page the signed report (#508).
   const latestSignout = signouts?.latest ?? null;
-  const { data: signoutCheck, isError: signoutCheckFailed } = useQuery<ApiReportSignoutCheck>({
-    queryKey: ['family', familyId, 'report-signout-check', latestSignout?.version ?? null],
-    enabled: Boolean(familyId && latestSignout),
-    staleTime: 0,
-    refetchOnMount: 'always',
-    queryFn: async () =>
-      (await api.get(apiPath`/families/${familyId}/report/sign-out-check`))
-        .data as ApiReportSignoutCheck,
-  });
+  const { data: signoutCheck, isError: signoutCheckFailed } = useReportSignoutCheck(
+    familyId,
+    latestSignout?.version ?? null,
+  );
   // A sign-out record that could not be loaded leaves it unknown whether the case is
   // signed: the page is then neither a draft nor the signed report (#605).
+  // Still loading, it is not known either: not yet a draft (#605).
   const signedState: SignedState = signoutsFailed
     ? 'unknown'
-    : !latestSignout
+    : signoutsPending
+      ? 'loading'
+      : !latestSignout
     ? 'none'
     : signoutCheckFailed
       ? 'unverified'
@@ -366,21 +359,20 @@ const FamilyReportPage: React.FC = () => {
           : signoutCheck.matches
             ? 'matches'
             : 'changed';
-  // A lookup that failed while the record was frozen is recorded as such, not as an
-  // empty block; say so wherever the signed record is shown (#514).
-  const signedGaps =
-    latestSignout && signoutCheck?.version === latestSignout.version
-      ? (signoutCheck.not_captured ?? [])
-      : [];
+  // Every printout of this page says it is not the signed report: even content that matches
+  // the latest signed version is drawn from current data, the gene and phenotype context
+  // included, which the signed record does not hold.
   const signedNotice =
     signedState === 'unknown'
       ? 'The sign-out record could not be loaded — do not use as the signed report.'
+      : signedState === 'loading'
+        ? 'The sign-out record is still loading — do not use as the signed report.'
       : signedState === 'none'
       ? 'Draft — this report has not been signed.'
       : signedState === 'changed'
         ? `Not the signed report — the content differs from signed version ${latestSignout?.version}.`
         : signedState === 'matches'
-          ? null
+          ? `Not the signed report — this is the live report. Print signed version ${latestSignout?.version} from its record.`
           : `Not verified against signed version ${latestSignout?.version} — do not use as the signed report.`;
   // The parts of the report that could not be loaded. Each says so where it belongs, and
   // together they head every printed page: a printout without them used to read as
@@ -442,7 +434,6 @@ const FamilyReportPage: React.FC = () => {
   } | null>(null);
   const [importReason, setImportReason] = useState('');
   const [signOutError, setSignOutError] = useState<string | null>(null);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const closeGates = () => {
     setDriftGate(null);
@@ -472,11 +463,15 @@ const FamilyReportPage: React.FC = () => {
   const attemptSignOut = async (vars: SignOutVars) => {
     setSignOutError(null);
     try {
-      await signOut.mutateAsync(vars);
+      const signed = (await signOut.mutateAsync(vars)) as { version?: unknown } | undefined;
       closeGates();
       setDriftReason('');
       setQcReason('');
       setImportReason('');
+      // Show the signer what was signed: the new version, rendered from its record.
+      if (typeof signed?.version === 'number') {
+        navigate({ search: reportViewSearch(location.search, { version: signed.version }) });
+      }
     } catch (error) {
       const response = (
         error as { response?: { status?: number; data?: { detail?: unknown } } }
@@ -582,26 +577,9 @@ const FamilyReportPage: React.FC = () => {
   };
 
   // The frozen record itself, as stored at sign-out.
-  const downloadSignedVersion = async () => {
-    if (!latestSignout) return;
-    setDownloadError(null);
-    try {
-      const res = await api.get(
-        apiPath`/families/${familyId}/report/sign-outs/${latestSignout.version}`,
-      );
-      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${familyId}-signed-report-v${latestSignout.version}.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setDownloadError(apiErrorMessage(error, 'The signed version could not be downloaded'));
-    }
-  };
+  const { download: downloadSignedVersion, error: downloadError } = useSignedVersionDownload(
+    familyId ?? '',
+  );
 
   const presentHpoTerms = useMemo(() => {
     const byId = new Map<string, string>();
@@ -706,7 +684,13 @@ const FamilyReportPage: React.FC = () => {
           unavailable: referenceFailed,
           onRetry: retryReference,
         }}
-        kicker="Clinical report"
+        kicker={
+          latestSignout
+            ? 'Clinical report — live, not the signed version'
+            : signoutsFailed || signoutsPending
+              ? 'Clinical report — live'
+              : 'Clinical report — draft, not signed'
+        }
         familyId={familyId}
         family={family}
         projectId={projectId}
@@ -722,13 +706,17 @@ const FamilyReportPage: React.FC = () => {
               onClick={handleSignOut}
               // Off the validated scope the server refuses anyway; do not offer it (#515).
               // Nor while the sign-out record is unknown: this may already be signed (#605).
-              disabled={signOut.isPending || assemblyValidated === false || signoutsFailed}
+              disabled={
+                signOut.isPending || assemblyValidated === false || signoutsFailed || signoutsPending
+              }
               title={
                 assemblyValidated === false
                   ? 'Not validated for clinical use — this report cannot be signed out'
                   : signoutsFailed
                     ? 'The sign-out record could not be loaded'
-                    : undefined
+                    : signoutsPending
+                      ? 'The sign-out record is still loading'
+                      : undefined
               }
             >
               {signOut.isPending
@@ -953,24 +941,31 @@ const FamilyReportPage: React.FC = () => {
       ) : null}
 
       {latestSignout ? (
+        // The latest signed version, next to what this page is: never that version, only a
+        // comparison with it (#508). The version itself is rendered from its record.
         <section
-          className={`surface-card report-signout report-signout-${signedState}`}
+          className={`surface-card report-signout report-signout-${
+            signedState === 'matches' ? 'live' : signedState
+          }`}
           role={signedState === 'changed' || signedState === 'unverified' ? 'alert' : undefined}
         >
           <p className="report-signout-line">
-            {signedState === 'matches' ? '✓ ' : ''}Signed out — version {latestSignout.version} by{' '}
-            <strong>{latestSignout.signed_out_by}</strong> on{' '}
-            {latestSignout.signed_out_at.replace('T', ' ').slice(0, 16)} UTC
+            This is the live report, not signed version {latestSignout.version}.
           </p>
           <p className="report-signout-status">
-            {signedState === 'checking' ? 'Checking this page against the signed content…' : null}
+            Signed version {latestSignout.version} was signed out by{' '}
+            <strong>{latestSignout.signed_out_by}</strong> on{' '}
+            {formatReportTime(latestSignout.signed_out_at)}.{' '}
+            {signedState === 'checking'
+              ? `Checking this page against signed version ${latestSignout.version}…`
+              : null}
             {signedState === 'matches'
-              ? `This page matches signed version ${latestSignout.version}.`
+              ? `This page still matches signed version ${latestSignout.version}.`
               : null}
             {signedState === 'changed' ? (
               <>
                 <strong>⚠ Changed since sign-out:</strong>{' '}
-                {describeSections(signoutCheck?.changed_sections ?? [])}. This page shows the
+                {describeReportSections(signoutCheck?.changed_sections ?? [])}. This page shows the
                 current state, not signed version {latestSignout.version} — sign out again to
                 issue a new version.
               </>
@@ -979,61 +974,24 @@ const FamilyReportPage: React.FC = () => {
               ? `This page could not be checked against signed version ${latestSignout.version} — treat it as unsigned.`
               : null}
           </p>
-          <p className="report-signout-hash">
-            <span className="report-footer-label">Content hash</span> {latestSignout.content_hash}
-          </p>
-          {latestSignout.software_version ? (
-            <p className="report-signout-software">
-              <span className="report-footer-label">Software</span>{' '}
-              {formatSoftwareVersion(latestSignout.software_version, latestSignout.git_sha)}
-            </p>
-          ) : null}
-          {latestSignout.qc_status ? (
-            <p className="report-signout-qc">
-              <span className="report-footer-label">Sample QC</span>{' '}
-              {latestSignout.qc_status}
-              {latestSignout.qc_acknowledged ? (
-                <> — override acknowledged: {latestSignout.qc_acknowledgement_reason}</>
-              ) : null}
-            </p>
-          ) : null}
-          {latestSignout.drift_acknowledged ? (
-            <p className="report-signout-qc">
-              <span className="report-footer-label">Evidence drift</span> override acknowledged:{' '}
-              {latestSignout.drift_acknowledgement_reason || 'no reason recorded'}
-            </p>
-          ) : null}
-          {latestSignout.import_incomplete_acknowledged ? (
-            <p className="report-signout-qc">
-              <span className="report-footer-label">Incomplete import</span>{' '}
-              {latestSignout.import_incomplete_failed_datasets?.length
-                ? `${joinWithAnd(latestSignout.import_incomplete_failed_datasets)} not imported `
-                : ''}
-              {latestSignout.import_incomplete_job_id
-                ? `(import job ${latestSignout.import_incomplete_job_id}) `
-                : ''}
-              {latestSignout.import_incomplete_failed_datasets?.length ||
-              latestSignout.import_incomplete_job_id
-                ? '— '
-                : ''}
-              override acknowledged:{' '}
-              {latestSignout.import_incomplete_acknowledgement_reason || 'no reason recorded'}
-            </p>
-          ) : null}
-          {signedGaps.length > 0 ? (
-            <p className="report-signout-gaps" role="note">
-              <strong>Not captured in signed version {latestSignout.version}:</strong>{' '}
-              {signedGaps.map((gap) => `${gap.item} (${gap.reason})`).join('; ')}.
-            </p>
-          ) : null}
           <p className="report-signout-actions no-print">
-            <button type="button" className="button-secondary" onClick={downloadSignedVersion}>
+            <Link
+              to={{ search: reportViewSearch(location.search, { version: latestSignout.version }) }}
+              className="button-secondary"
+            >
+              View signed version {latestSignout.version}
+            </Link>{' '}
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => void downloadSignedVersion(latestSignout.version)}
+            >
               Download signed version {latestSignout.version} (JSON)
             </button>
             {downloadError ? (
               <span className="report-signout-download-error" role="alert">
                 {' '}
-                {downloadError}
+                {downloadError.message}
               </span>
             ) : null}
           </p>
@@ -1428,31 +1386,67 @@ const FamilyReportPage: React.FC = () => {
           <span className="report-footer-label">Modules &amp; versions:</span>{' '}
           {manifestFailed
             ? 'could not be loaded'
-            : manifest?.modules?.some((module) => module.version)
-            ? manifest.modules
-                .filter((module) => module.version)
-                .map((module) => {
-                  // Per-modality divergence (issue #294): when a database was cited
-                  // at different releases by different pipelines, show each — e.g.
-                  // "GENCODE 49 (snv), 45 (sv)" — so the report is fully traceable.
-                  const byModality = module.by_modality;
-                  const distinct = byModality
-                    ? Array.from(new Set(Object.values(byModality)))
-                    : [];
-                  if (byModality && distinct.length > 1) {
-                    const perModality = Object.entries(byModality)
-                      .map(([mod, version]) => `${version} (${mod})`)
-                      .join(', ');
-                    return `${module.label} ${perModality}`;
-                  }
-                  return `${module.label} ${module.version}${module.detail ? ` (${module.detail})` : ''}`;
-                })
-                .join(' · ')
-            : 'not recorded for this family'}
+            : (describeModuleVersions(manifest?.modules ?? []) ?? 'not recorded for this family')}
         </p>
       </footer>
     </div>
   );
+};
+
+/**
+ * The family report. A case that has been signed out opens on its latest signed version,
+ * rendered from the frozen record; `?version=N` opens signed version N and `?view=live` the
+ * live report, which is where the case is signed out. A case never signed out opens on the
+ * live report, a draft.
+ */
+const FamilyReportPage: React.FC = () => {
+  const { familyId } = useParams<{ familyId: string }>();
+  const location = useLocation();
+  const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const signouts = useReportSignouts(familyId);
+
+  if (!familyId) {
+    return <PageState kicker="Report" title="Family not specified" />;
+  }
+  const projectId = params.get('project_id') || undefined;
+  const versionParam = params.get('version');
+  if (versionParam !== null) {
+    const version = parseSignedVersionParam(versionParam);
+    if (version === null) {
+      return (
+        <PageState
+          kicker="Report"
+          title="Not a signed version"
+          message={`“${versionParam}” is not the number of a signed version.`}
+          action={
+            <Link to={{ search: reportViewSearch(location.search, 'live') }} className="button-secondary">
+              Open the live report
+            </Link>
+          }
+        />
+      );
+    }
+    return <SignedFamilyReport familyId={familyId} version={version} projectId={projectId} />;
+  }
+  if (params.get('view') !== 'live') {
+    // Only until the first answer. A refetch (the live report's own, after a failure) must not
+    // swap the page back to this state: it would unmount the report that asked, over and over.
+    if (!signouts.isFetched) {
+      return (
+        <PageState
+          kicker="Report"
+          title="Preparing the family report"
+          message="Looking up the signed versions."
+        />
+      );
+    }
+    const latest = signouts.data?.latest;
+    if (latest) {
+      return <SignedFamilyReport familyId={familyId} version={latest.version} projectId={projectId} />;
+    }
+  }
+  // Never signed out, or the sign-out record could not be loaded: the live report says which.
+  return <LiveFamilyReport />;
 };
 
 export default FamilyReportPage;

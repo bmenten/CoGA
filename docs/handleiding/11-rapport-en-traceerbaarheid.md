@@ -14,12 +14,12 @@ Enkele begrippen:
 
 Er zijn twee rapportpagina's:
 
-- **`FamilyReportPage.tsx`** — het familierapport. Het toont de varianten met de reviewtag **`report`** (small variants en structurele varianten), met per gerapporteerd gen het genprofiel en de HPO-termen van de familie. De zinnen van het rapport bouwen hulpfuncties die apart getest worden (`reportNarrative.ts`).
+- **`FamilyReportPage.tsx`** — het familierapport. Het live rapport toont de varianten met de reviewtag **`report`** (small variants en structurele varianten), met per gerapporteerd gen het genprofiel en de HPO-termen van de familie. De zinnen van het rapport bouwen hulpfuncties die apart getest worden (`reportNarrative.ts`). Een ondertekende versie tekent `SignedFamilyReport.tsx` uit het bevroren snapshot (zie verder).
 - **`FamilyNiptReportPage.tsx`** — het rapport voor monogene NIPT, met de foetale fractie, de dekking en de kandidaatvarianten (hoofdstuk 8).
 
 Wat elke variantsectie bevat, beschrijft `docs/report-template.md`. Exporteren gebeurt via de printfunctie van de browser. **Beide pagina's dragen een disclaimer** dat het rapport beslissingsondersteuning is die een gekwalificeerd klinisch wetenschapper moet bevestigen; het NIPT-rapport vraagt ook bevestiging met een invasieve diagnostische test.
 
-**Beide pagina's eindigen met een voettekst** die noemt wanneer het rapport gemaakt werd en met welke build (*Software: CoGA x.y.z (commit)*, uit `GET /api/version`), gevolgd door het label: in-house IVD volgens IVDR Artikel 5(5), niet CE-gemarkeerd, alleen voor intern gebruik bij CMGG, en de fabrikant. Het rapport vraagt de build bij elke opening opnieuw op en toont tot dan geen eerder bewaarde waarde, zodat de voettekst na een update nooit de vorige build noemt. Lukt het opvragen niet, dan zegt de voettekst dat en begint een afdruk met de melding dat ze onvolledig is. De build die een versie ondertekende, staat in het ondertekeningsrecord. Dezelfde versie en hetzelfde label staan in de voettekst van elke pagina van de app.
+**Beide pagina's eindigen met een voettekst** die noemt wanneer het rapport gemaakt werd en met welke build (*Software: CoGA x.y.z (commit)*, uit `GET /api/version`), gevolgd door het label: in-house IVD volgens IVDR Artikel 5(5), niet CE-gemarkeerd, alleen voor intern gebruik bij CMGG, en de fabrikant. Het rapport vraagt de build bij elke opening opnieuw op en toont tot dan geen eerder bewaarde waarde, zodat de voettekst na een update nooit de vorige build noemt. Lukt het opvragen niet, dan zegt de voettekst dat en begint een afdruk met de melding dat ze onvolledig is. Een ondertekende versie noemt in haar voettekst twee builds: *Signed with*, de build die ze bevroor, en *Rendered by*, de build die de pagina uit het record tekende. Dezelfde versie en hetzelfde label staan in de voettekst van elke pagina van de app.
 
 **Waar in de code:** `useReportBuild` in `frontend/src/lib/appVersion.ts`, `frontend/src/pages/families/ReportSoftwareIdentity.tsx`, en de tekst van het label in `frontend/src/lib/deviceLabel.ts`.
 
@@ -31,7 +31,7 @@ Naast de varianten toont het familierapport drie herkomstelementen, elk met een 
 | Driftmelding | Classificaties waarvan de annotatie veranderde sinds ze gemaakt werden | `GET /families/{id}/classification-drift` |
 | Klinisch auditspoor | Wie wat classificeerde of tagde of het annotatiemanifest verving, wanneer, met de waarde ervoor en erna | `GET /families/{id}/clinical-audit` |
 
-Dezelfde drie worden bij het ondertekenen bevroren.
+De versies en de driftstatus worden bij het ondertekenen bevroren. Het auditspoor zit niet in het snapshot: het is zelf append-only.
 
 ## Ondertekenen
 
@@ -48,7 +48,7 @@ Ondertekenen gaat via **`POST /api/families/{id}/report/sign-out`**. De service 
 
 **Wie mag ondertekenen.** Alleen wie het labo als ondertekenaar machtigt. Dat is een procedurele maatregel, geen controle in de software: CoGA laat elk lid van het project (ook een `viewer`) ondertekenen (`TF-06`, gevaar H15). Ondertekenen vraagt wel een login en projecttoegang. De ondertekenaar wordt vastgelegd als verwijzing naar het account én als tekst, zodat hij herkenbaar blijft als het account later verdwijnt.
 
-**Wijzigingen.** Elke ondertekening is een nieuwe versie; een ondertekende versie wordt nooit gewijzigd. In de UI heet de knop dan *Amend sign-out*.
+**Wijzigingen.** Elke ondertekening is een nieuwe versie; een ondertekende versie wordt nooit gewijzigd. In het live rapport heet de knop dan *Amend sign-out*.
 
 **Waar in de code:** `backend/app/services/report_signout_service.py` (`sign_out_report`, `build_report_snapshot`).
 
@@ -108,14 +108,17 @@ Bij het ondertekenen komen er de versie, het tijdstip, de ondertekenaar en de er
 
 ### Toont de rapportpagina het ondertekende rapport?
 
-Nee, niet vanzelf. In het kort:
+Alleen de ondertekende versie is het ondertekende rapport. De rapportpagina heeft twee weergaven:
 
-- De rapportpagina toont altijd de **huidige** data.
-- Een controle (`GET /families/{id}/report/sign-out-check`) bouwt het snapshot zoals het nu zou worden bevroren en vergelijkt het, sectie per sectie, met de laatste ondertekende versie. Alleen bij een bevestigde overeenkomst toont het record "This page matches signed version N"; anders noemt het de gewijzigde delen, of zegt het dat de controle niet kon draaien.
-- Een afdruk die niet het bevestigde ondertekende record is, krijgt bovenaan een melding. Het bevroren record zelf is als JSON te downloaden.
-- Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly, de genloci, Monarch of HPO), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als *niet beschikbaar*, met de reden. Een HPO-ontologie uit een bestand zonder release krijgt dezelfde markering. Het auditevent en het ondertekeningsrecord noemen die delen.
-- Een versie die ondertekend werd voordat CoGA de HPO-release vastlegde, bevat die release niet. De controle vergelijkt daar niet op (`not_compared` bevat `modules.hpo`) en meldt het rapport dus niet als gewijzigd; het record noemt de release als niet vastgelegd.
-- Het rapport volledig **uit het snapshot** opbouwen, is nog niet gerealiseerd: het snapshot bevat de verhalende invoer (genprofielen, HGVS, frequenties) nog niet.
+- **Een ondertekende versie** (`?version=N`). Een ondertekende casus opent op de laatste. `SignedFamilyReport.tsx` tekent ze uitsluitend uit het bevroren snapshot dat `GET /families/{id}/report/sign-outs/{versie}` teruggeeft; `signedReportRecord.ts` leest het sectie per sectie. De pagina toont de versie, de ondertekenaar, het tijdstip, de inhoudshash en of die nog klopt (`verified`), de build die ondertekende, per gerapporteerde variant de klasse, de aanvaarde criteria, het bevroren bewijs, de tags en de notitie, de SV's met hun ClinGen-CNV-criteria, de drift, de sample-QC, de sequencing-QC en de importstatus met de erkenningen, en de bevroren versies.
+- Wat geen snapshot bevat — de variantbeschrijving (gen, HGVS, consequentie, genotypes, frequenties, voorspellingen), de segregatie, de gen- en fenotypecontext, het auditspoor en de pipelinesettings — zegt die pagina, voor het rapport en per variant. Ze vult het nooit aan met huidige data; elke variant heet er bij zijn ID. Een sectie die een oudere versie nog niet bevroor, staat er als *Not in the signed record*, nooit als leeg; een versie van vóór het bevriezen van SV's bevat er geen.
+- De printknop drukt die weergave af. Een record dat niet meer bij zijn inhoudshash past, een versie die een latere vervangt, of een versie waarvan niet vaststaat dat ze de laatste is, krijgt bovenaan de afdruk een melding.
+- **Het live rapport** (`?view=live`) toont de **huidige** data. Hier wordt de casus ondertekend; daarna toont de pagina de nieuwe versie. Het is nooit het ondertekende rapport, ook niet als de inhoud overeenkomt ("This is the live report, not signed version N"), en elke afdruk ervan krijgt bovenaan een melding. Zolang het ondertekeningsrecord laadt of niet geladen kon worden, biedt het geen ondertekening aan.
+- Een controle (`GET /families/{id}/report/sign-out-check`) bouwt het snapshot zoals het nu zou worden bevroren en vergelijkt het, sectie per sectie, met de laatste ondertekende versie. Het live rapport zegt zo of het nog overeenkomt, noemt de gewijzigde delen, of zegt dat de controle niet kon draaien. Op de laatste ondertekende versie zegt dezelfde controle, alleen op het scherm, of de data van de familie sindsdien veranderde.
+- Het bevroren record zelf is in beide weergaven als JSON te downloaden.
+- Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly, de genloci, Monarch of HPO), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als *niet beschikbaar*, met de reden. Een HPO-ontologie uit een bestand zonder release krijgt dezelfde markering. Het auditevent en de ondertekende versie noemen die delen (`not_captured`, ook in het antwoord van `GET …/sign-outs/{versie}`).
+- Een versie die ondertekend werd voordat CoGA de HPO-release vastlegde, bevat die release niet. De controle vergelijkt daar niet op (`not_compared` bevat `modules.hpo`) en meldt het rapport dus niet als gewijzigd; de ondertekende versie noemt de release als niet vastgelegd.
+- Of het snapshot ook de variantbeschrijving en de gen- en fenotypecontext moet bevriezen, is een open beslissing (`TF-09b` §3). Dat zou veranderen wat gehasht en wat vergeleken wordt.
 
 ## Append-only, hash-geketend auditspoor
 
@@ -192,4 +195,5 @@ Deze keten is de technische invulling van de eis tot traceerbaarheid onder de IV
 | `backend/app/services/clickhouse_integrity_monitor.py` | Bewaking van de variantopslag |
 | `backend/db/schema/postgres/04_traceability.sql` · `05_grants.sql` | De tabellen, triggers en rechten |
 | `frontend/src/pages/families/FamilyReportPage.tsx` · `FamilyNiptReportPage.tsx` | De rapportpagina's |
+| `frontend/src/pages/families/SignedFamilyReport.tsx` · `signedReportRecord.ts` | Een ondertekende versie, getekend uit haar bevroren snapshot |
 | `frontend/src/lib/appVersion.ts` · `frontend/src/lib/deviceLabel.ts` | De draaiende build en het label in de voetteksten |

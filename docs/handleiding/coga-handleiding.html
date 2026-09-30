@@ -2373,11 +2373,11 @@ python docs/handleiding/build_site.py
 <h2>Het rapport</h2>
 <p>Er zijn twee rapportpagina's:</p>
 <ul>
-<li><strong><code>FamilyReportPage.tsx</code></strong> — het familierapport. Het toont de varianten met de reviewtag <strong><code>report</code></strong> (small variants en structurele varianten), met per gerapporteerd gen het genprofiel en de HPO-termen van de familie. De zinnen van het rapport bouwen hulpfuncties die apart getest worden (<code>reportNarrative.ts</code>).</li>
+<li><strong><code>FamilyReportPage.tsx</code></strong> — het familierapport. Het live rapport toont de varianten met de reviewtag <strong><code>report</code></strong> (small variants en structurele varianten), met per gerapporteerd gen het genprofiel en de HPO-termen van de familie. De zinnen van het rapport bouwen hulpfuncties die apart getest worden (<code>reportNarrative.ts</code>). Een ondertekende versie tekent <code>SignedFamilyReport.tsx</code> uit het bevroren snapshot (zie verder).</li>
 <li><strong><code>FamilyNiptReportPage.tsx</code></strong> — het rapport voor monogene NIPT, met de foetale fractie, de dekking en de kandidaatvarianten (hoofdstuk 8).</li>
 </ul>
 <p>Wat elke variantsectie bevat, beschrijft <code>docs/report-template.md</code>. Exporteren gebeurt via de printfunctie van de browser. <strong>Beide pagina's dragen een disclaimer</strong> dat het rapport beslissingsondersteuning is die een gekwalificeerd klinisch wetenschapper moet bevestigen; het NIPT-rapport vraagt ook bevestiging met een invasieve diagnostische test.</p>
-<p><strong>Beide pagina's eindigen met een voettekst</strong> die noemt wanneer het rapport gemaakt werd en met welke build (<em>Software: CoGA x.y.z (commit)</em>, uit <code>GET /api/version</code>), gevolgd door het label: in-house IVD volgens IVDR Artikel 5(5), niet CE-gemarkeerd, alleen voor intern gebruik bij CMGG, en de fabrikant. Het rapport vraagt de build bij elke opening opnieuw op en toont tot dan geen eerder bewaarde waarde, zodat de voettekst na een update nooit de vorige build noemt. Lukt het opvragen niet, dan zegt de voettekst dat en begint een afdruk met de melding dat ze onvolledig is. De build die een versie ondertekende, staat in het ondertekeningsrecord. Dezelfde versie en hetzelfde label staan in de voettekst van elke pagina van de app.</p>
+<p><strong>Beide pagina's eindigen met een voettekst</strong> die noemt wanneer het rapport gemaakt werd en met welke build (<em>Software: CoGA x.y.z (commit)</em>, uit <code>GET /api/version</code>), gevolgd door het label: in-house IVD volgens IVDR Artikel 5(5), niet CE-gemarkeerd, alleen voor intern gebruik bij CMGG, en de fabrikant. Het rapport vraagt de build bij elke opening opnieuw op en toont tot dan geen eerder bewaarde waarde, zodat de voettekst na een update nooit de vorige build noemt. Lukt het opvragen niet, dan zegt de voettekst dat en begint een afdruk met de melding dat ze onvolledig is. Een ondertekende versie noemt in haar voettekst twee builds: <em>Signed with</em>, de build die ze bevroor, en <em>Rendered by</em>, de build die de pagina uit het record tekende. Dezelfde versie en hetzelfde label staan in de voettekst van elke pagina van de app.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>useReportBuild</code> in <code>frontend/src/lib/appVersion.ts</code>, <code>frontend/src/pages/families/ReportSoftwareIdentity.tsx</code>, en de tekst van het label in <code>frontend/src/lib/deviceLabel.ts</code>.</p>
 <p>Naast de varianten toont het familierapport drie herkomstelementen, elk met een eigen endpoint in <code>backend/app/routers/families_reports.py</code>:</p>
 <div class="scroll"><table>
@@ -2406,7 +2406,7 @@ python docs/handleiding/build_site.py
 </tr>
 </tbody>
 </table></div>
-<p>Dezelfde drie worden bij het ondertekenen bevroren.</p>
+<p>De versies en de driftstatus worden bij het ondertekenen bevroren. Het auditspoor zit niet in het snapshot: het is zelf append-only.</p>
 <h2>Ondertekenen</h2>
 <p>Ondertekenen gaat via <strong><code>POST /api/families/{id}/report/sign-out</code></strong>. De service <code>sign_out_report</code> doet, in volgorde:</p>
 <ol start="0">
@@ -2420,7 +2420,7 @@ python docs/handleiding/build_site.py
 <li><strong>Een klinisch auditevent schrijven</strong> (<code>sign_out</code>), in dezelfde transactie.</li>
 </ol>
 <p><strong>Wie mag ondertekenen.</strong> Alleen wie het labo als ondertekenaar machtigt. Dat is een procedurele maatregel, geen controle in de software: CoGA laat elk lid van het project (ook een <code>viewer</code>) ondertekenen (<code>TF-06</code>, gevaar H15). Ondertekenen vraagt wel een login en projecttoegang. De ondertekenaar wordt vastgelegd als verwijzing naar het account én als tekst, zodat hij herkenbaar blijft als het account later verdwijnt.</p>
-<p><strong>Wijzigingen.</strong> Elke ondertekening is een nieuwe versie; een ondertekende versie wordt nooit gewijzigd. In de UI heet de knop dan <em>Amend sign-out</em>.</p>
+<p><strong>Wijzigingen.</strong> Elke ondertekening is een nieuwe versie; een ondertekende versie wordt nooit gewijzigd. In het live rapport heet de knop dan <em>Amend sign-out</em>.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/report_signout_service.py</code> (<code>sign_out_report</code>, <code>build_report_snapshot</code>).</p>
 <h3>Poort 1 — geen onverklaarde drift</h3>
 <p>Drift betekent dat het bewijs achter een classificatie veranderde sinds ze gemaakt werd (hoofdstuk 10). Voor elke ACMG-classificatie van een small variant in de familie met bevroren bewijs (gerapporteerd of niet) vergelijkt de controle de bevroren hash van de annotatieset met de huidige. Een ontbrekende hash telt als <code>unknown</code>, en een gerapporteerde classificatie zonder bevroren bewijs als <code>no_snapshot</code>; beide tellen als drift. Is er drift en heeft de ondertekenaar die niet erkend, dan volgt <code>409</code>. Erkennen vraagt een reden (anders <code>422</code>); de erkenning en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen.</p>
@@ -2499,14 +2499,17 @@ python docs/handleiding/build_site.py
 <p><strong>Los van ClickHouse.</strong> Het snapshot bevat zelf de waarden die het nodig heeft. Een latere herbouw van ClickHouse of een nieuwe annotatieversie verandert het ondertekende record niet.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>build_report_snapshot</code>; de codering in <code>backend/app/services/hash_chain.py</code>; de tabel <code>report_signouts</code> in <code>04_traceability.sql</code>.</p>
 <h3>Toont de rapportpagina het ondertekende rapport?</h3>
-<p>Nee, niet vanzelf. In het kort:</p>
+<p>Alleen de ondertekende versie is het ondertekende rapport. De rapportpagina heeft twee weergaven:</p>
 <ul>
-<li>De rapportpagina toont altijd de <strong>huidige</strong> data.</li>
-<li>Een controle (<code>GET /families/{id}/report/sign-out-check</code>) bouwt het snapshot zoals het nu zou worden bevroren en vergelijkt het, sectie per sectie, met de laatste ondertekende versie. Alleen bij een bevestigde overeenkomst toont het record "This page matches signed version N"; anders noemt het de gewijzigde delen, of zegt het dat de controle niet kon draaien.</li>
-<li>Een afdruk die niet het bevestigde ondertekende record is, krijgt bovenaan een melding. Het bevroren record zelf is als JSON te downloaden.</li>
-<li>Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly, de genloci, Monarch of HPO), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als <em>niet beschikbaar</em>, met de reden. Een HPO-ontologie uit een bestand zonder release krijgt dezelfde markering. Het auditevent en het ondertekeningsrecord noemen die delen.</li>
-<li>Een versie die ondertekend werd voordat CoGA de HPO-release vastlegde, bevat die release niet. De controle vergelijkt daar niet op (<code>not_compared</code> bevat <code>modules.hpo</code>) en meldt het rapport dus niet als gewijzigd; het record noemt de release als niet vastgelegd.</li>
-<li>Het rapport volledig <strong>uit het snapshot</strong> opbouwen, is nog niet gerealiseerd: het snapshot bevat de verhalende invoer (genprofielen, HGVS, frequenties) nog niet.</li>
+<li><strong>Een ondertekende versie</strong> (<code>?version=N</code>). Een ondertekende casus opent op de laatste. <code>SignedFamilyReport.tsx</code> tekent ze uitsluitend uit het bevroren snapshot dat <code>GET /families/{id}/report/sign-outs/{versie}</code> teruggeeft; <code>signedReportRecord.ts</code> leest het sectie per sectie. De pagina toont de versie, de ondertekenaar, het tijdstip, de inhoudshash en of die nog klopt (<code>verified</code>), de build die ondertekende, per gerapporteerde variant de klasse, de aanvaarde criteria, het bevroren bewijs, de tags en de notitie, de SV's met hun ClinGen-CNV-criteria, de drift, de sample-QC, de sequencing-QC en de importstatus met de erkenningen, en de bevroren versies.</li>
+<li>Wat geen snapshot bevat — de variantbeschrijving (gen, HGVS, consequentie, genotypes, frequenties, voorspellingen), de segregatie, de gen- en fenotypecontext, het auditspoor en de pipelinesettings — zegt die pagina, voor het rapport en per variant. Ze vult het nooit aan met huidige data; elke variant heet er bij zijn ID. Een sectie die een oudere versie nog niet bevroor, staat er als <em>Not in the signed record</em>, nooit als leeg; een versie van vóór het bevriezen van SV's bevat er geen.</li>
+<li>De printknop drukt die weergave af. Een record dat niet meer bij zijn inhoudshash past, een versie die een latere vervangt, of een versie waarvan niet vaststaat dat ze de laatste is, krijgt bovenaan de afdruk een melding.</li>
+<li><strong>Het live rapport</strong> (<code>?view=live</code>) toont de <strong>huidige</strong> data. Hier wordt de casus ondertekend; daarna toont de pagina de nieuwe versie. Het is nooit het ondertekende rapport, ook niet als de inhoud overeenkomt ("This is the live report, not signed version N"), en elke afdruk ervan krijgt bovenaan een melding. Zolang het ondertekeningsrecord laadt of niet geladen kon worden, biedt het geen ondertekening aan.</li>
+<li>Een controle (<code>GET /families/{id}/report/sign-out-check</code>) bouwt het snapshot zoals het nu zou worden bevroren en vergelijkt het, sectie per sectie, met de laatste ondertekende versie. Het live rapport zegt zo of het nog overeenkomt, noemt de gewijzigde delen, of zegt dat de controle niet kon draaien. Op de laatste ondertekende versie zegt dezelfde controle, alleen op het scherm, of de data van de familie sindsdien veranderde.</li>
+<li>Het bevroren record zelf is in beide weergaven als JSON te downloaden.</li>
+<li>Mislukt tijdens het ondertekenen een opzoeking (bv. de QC-grenzen of de versie van de assembly, de genloci, Monarch of HPO), dan gaat de ondertekening door, maar bevriest het snapshot dat deel expliciet als <em>niet beschikbaar</em>, met de reden. Een HPO-ontologie uit een bestand zonder release krijgt dezelfde markering. Het auditevent en de ondertekende versie noemen die delen (<code>not_captured</code>, ook in het antwoord van <code>GET …/sign-outs/{versie}</code>).</li>
+<li>Een versie die ondertekend werd voordat CoGA de HPO-release vastlegde, bevat die release niet. De controle vergelijkt daar niet op (<code>not_compared</code> bevat <code>modules.hpo</code>) en meldt het rapport dus niet als gewijzigd; de ondertekende versie noemt de release als niet vastgelegd.</li>
+<li>Of het snapshot ook de variantbeschrijving en de gen- en fenotypecontext moet bevriezen, is een open beslissing (<code>TF-09b</code> §3). Dat zou veranderen wat gehasht en wat vergeleken wordt.</li>
 </ul>
 <h2>Append-only, hash-geketend auditspoor</h2>
 <p>CoGA houdt twee auditlogs bij:</p>
@@ -2600,6 +2603,10 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>frontend/src/pages/families/FamilyReportPage.tsx</code> · <code>FamilyNiptReportPage.tsx</code></td>
 <td>De rapportpagina's</td>
+</tr>
+<tr>
+<td><code>frontend/src/pages/families/SignedFamilyReport.tsx</code> · <code>signedReportRecord.ts</code></td>
+<td>Een ondertekende versie, getekend uit haar bevroren snapshot</td>
 </tr>
 <tr>
 <td><code>frontend/src/lib/appVersion.ts</code> · <code>frontend/src/lib/deviceLabel.ts</code></td>

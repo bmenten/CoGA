@@ -35,8 +35,8 @@ guessed. The footer prints with the report and is part of the signed record.
 
 The footer also names the software: *Software: CoGA X.Y.Z (commit)*, the build that produced the page,
 followed by the in-house IVD statement and the manufacturer. The report asks for the build each time it
-opens. The build that signed a version is named in its sign-out record; after a CoGA update the two can
-differ.
+opens. A signed version's footer names two builds: *Signed with*, the build that froze it, and *Rendered
+by*, the build that drew the page from its record. After a CoGA update the two can differ.
 
 ## 2. Evidence-drift banner — has anything changed
 
@@ -128,35 +128,80 @@ the signed record and in the audit trail.
 ### Amendments
 
 Signing out again creates a new version (v2, v3, …); earlier versions are never overwritten. Once a
-case is signed out, the button reads **Amend sign-out**.
+case is signed out, the button on the live report reads **Amend sign-out**.
 
 ---
 
-## Is this page the signed report?
+## The signed version and the live report
 
-The report page always shows the **current** data and checks it against the latest signed version.
+The report page has two views. Only the signed version is the signed report.
 
-- **Green** — *✓ Signed out — version 2 by … · This page matches signed version 2.*
-- **Amber** — something changed after sign-out (a review, a report tag, a re-import, a QC cut-off). The
-  record names what changed; the page is then *not* the signed report, and a printout says so at the
-  top. Sign out again to issue a new version.
-- **Grey** — *This page could not be checked against signed version N — treat it as unsigned.*
+### The signed version
 
-**Download signed version N (JSON)** returns the frozen version itself.
+A case that has been signed out opens on its **latest signed version**. The page is drawn from the
+frozen record alone; nothing on it is read from the family's current data. Its top card says *Signed
+version 2 — signed out by … on …*, with the fingerprint (content hash), the build that signed it, and
+whether the stored record still matches its fingerprint.
+
+It shows what the record holds:
+
+- each reported small variant, named by its variant ID, with its classification and points, the
+  accepted ACMG criteria and their evidence, the evidence frozen when it was classified (the ClinVar
+  significance and the annotation version), its tags and its note;
+- each reported structural variant or CNV, with its classification and ClinGen CNV criteria;
+- the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
+  acknowledgement and its reason;
+- the versions it was signed with, in the footer.
+
+The record does not hold the rest of what the live report shows: the variant description (gene, HGVS,
+consequence, genotypes, population frequency, in silico predictions), the segregation and the family's
+members, the gene description, conditions and panels, the phenotype match, the audit trail and the
+pipeline settings. The page says so, once for the report and on each variant, and never fills them in
+from current data. If a version was signed before CoGA froze some part, that part is marked *Not in the
+signed record*. A version signed before CoGA froze reported structural variants holds none.
+
+**Print signed version N** prints this view. The printout starts with a notice when the version is not
+the latest, intact record: *Do not use — …* when the stored record does not match its fingerprint,
+*Superseded — …* when a later version replaces it, *Not confirmed as the latest signed version — …*
+when the versions could not be listed.
+
+*Signed versions* at the top lists every version; an earlier one names the version that replaces it.
+On the latest version the page says whether the family's current data still matches it, or what has
+changed since (a review, a report tag, a re-import, a QC cut-off). That line is not printed: the
+version stays what was signed. Sign out again to issue a new version.
+
+**Download signed version N (JSON)** returns the frozen record itself.
+
+### The live report
+
+**Open the live report** shows the current data: the variant descriptions, the gene context, the
+phenotype match, the drift banner and the audit trail. It is where the case is signed out. It is never
+the signed report. Its top card says *This is the live report, not signed
+version 2*, and whether it still matches that version:
+
+- *This page still matches signed version 2* — even then, print the signed version for the record;
+- amber — something changed after sign-out, and the card names what;
+- grey — *This page could not be checked against signed version N — treat it as unsigned.*
+
+Every printout of the live report starts with a notice: *Not the signed report — …*, or *Draft — this
+report has not been signed* for a case that was never signed out. After **Sign out report**, the page
+shows the version you signed.
 
 **What a signed version could not capture.** If a lookup fails while the version is frozen — the QC
 cut-offs, or the version of the assembly, the gene loci, Monarch or HPO — sign-out still goes ahead, but
-that part is recorded as unavailable, not as empty, and the record says so: *Not captured in signed
-version 2: …*. The audit trail lists the same parts. An HPO ontology imported from a file that recorded
-no release is marked the same way (*release not recorded*).
+that part is recorded as unavailable, not as empty, and the signed version says so: *Not captured in
+signed version 2: …*. The audit trail lists the same parts. An HPO ontology imported from a file that
+recorded no release is marked the same way (*release not recorded*).
 
-A version signed before CoGA recorded the HPO release does not name it. The record says so (*HPO
-(signed before CoGA recorded its version)*), and that alone does not turn the page amber.
+A version signed before CoGA recorded the HPO release does not name it. The signed version says so
+(*HPO (signed before CoGA recorded its version)*), and that alone does not count as a change.
 
 **When part of the report cannot be loaded.** The page never shows a part it could not load as empty.
-If the family or a list of reported variants cannot be loaded, the page shows only *Report could not be
-loaded*, with **Retry**. If the sign-out record cannot be loaded, the page says it is not known whether
-the case is signed and does not offer sign-out. Any other part that failed (a gene description, the HPO
-terms, the drift check, the audit trail, the annotation versions, the CoGA version) is marked where it
-belongs, and a printout starts with *Incomplete — … could not be loaded*. The NIPT report does the same
-for the fetal fraction, the coverage check and the CoGA version.
+If a signed version cannot be loaded, the page shows only *Signed version N could not be loaded*, with
+**Retry**. If the family or a list of reported variants cannot be loaded, the live report shows only
+*Report could not be loaded*, with **Retry**. If the sign-out record cannot be loaded, the live report
+says it is not known whether the case is signed. Until that record is known, sign-out is not offered.
+Any other part that failed (a gene description, the HPO terms, the drift check, the audit trail, the
+annotation versions, the CoGA version) is marked where it belongs, and a printout starts with
+*Incomplete — … could not be loaded*. The NIPT report does the same for the fetal fraction, the coverage
+check and the CoGA version.

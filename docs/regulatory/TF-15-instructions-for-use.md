@@ -64,8 +64,12 @@ analysis, and **how to interpret each QC/warning signal and what to do when it f
 Outputs are candidates/pre-evaluations with QC. Residual risks the user must be aware of are
 listed per TF-06 (e.g. possibility of a missed variant if a filter is too aggressive,
 uninformative/ambiguous calls, drift if reference data changed). The provenance footer and
-drift indicators support correct interpretation. The report page shows live data: it says when
-it no longer matches the signed version, and the signed version itself can be downloaded.
+drift indicators support correct interpretation. A signed case opens on its signed version,
+rendered and printed from the frozen record: use that version as the signed report. It names
+each variant by its ID and does not hold the variant description (gene, HGVS, consequence,
+genotypes, frequencies, predictions) or the gene and phenotype context; the page says so. The
+live report shows those from current data. It is labelled as not the signed version, on screen
+and in print, and says when it no longer matches the signed version.
 
 ## 6. Minimum IT & security requirements (IVDR Annex I §16.4)
 Operate CoGA only in the UZ Gent/CMGG Google Cloud project built from `terraform/`
