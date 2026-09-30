@@ -273,6 +273,14 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   The APCAD and coverage-segment charts use the shared chromosome normaliser, so a `chrx` or `chr01` in
   the data now reaches the X or 1 panel, as on the other tracks. The `formatBp` variants stay: each
   formats for its own scale (#701).
+- **CSS custom properties (#708)** — `theme.css` read 13 custom properties that it never defined. Where a
+  use had a fallback, the fallback rendered; without one, the property was unset. `--radius-sm`
+  turned out to come from Tailwind's theme layer (4px), so its 6px fallback never applied. The danger
+  colour is now the signature red it always was, and the warning and danger surfaces, borders and text
+  are real tokens with the values they fell back to. One-offs are written as the value they render, and
+  the three uses without a fallback say what they render (`inherit`, `unset`). Nothing renders
+  differently. The stylesheet test now also fails on a custom property that neither the stylesheet nor
+  a component defines (#715).
 
 ### Removed
 

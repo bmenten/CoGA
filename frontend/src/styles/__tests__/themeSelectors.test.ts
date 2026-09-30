@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vitest';
  * theme.css grew to 266 KB because nothing ever removed a rule once the markup it styled was
  * gone: 331 rules named classes that no component rendered any more (#707). This keeps the
  * stylesheet honest. Every class a selector names must be one the source can put in the DOM,
- * and every custom property it defines must be read somewhere.
+ * every custom property it defines must be read somewhere, and every one it reads must be
+ * defined.
  *
  * "Can put in the DOM" is read from the TypeScript AST of every non-test source file:
  * - every string literal contributes its whitespace-separated words;
@@ -334,6 +335,28 @@ describe('theme.css', () => {
     expect(
       unread,
       'No stylesheet rule or source file reads these custom properties.'
+    ).toEqual([]);
+  });
+
+  it('reads only custom properties that are defined', () => {
+    // A var() of a name nothing defines renders its fallback, so the name only pretends to be
+    // a token; without a fallback the declaration is invalid and the property unset (#708).
+    const defined = new Set<string>();
+    THEME.walkDecls(/^--/, (decl) => {
+      defined.add(decl.prop);
+    });
+    // Set inline by components, e.g. style={{ '--viewer-sel-start': ... }}.
+    const setByCode = (prop: string): boolean => WORDS.literals.has(prop);
+    const undefinedReads = [
+      ...new Set(
+        [...THEME_CSS.matchAll(/var\(\s*(--[\w-]+)/g)].map((match) => match[1])
+      ),
+    ].filter((prop) => !defined.has(prop) && !setByCode(prop));
+    expect(
+      undefinedReads,
+      'theme.css reads these custom properties, but neither the stylesheet nor a component ' +
+        'defines them. Define the token in :root, or write the value it renders. A name that ' +
+        "Tailwind's theme layer happens to emit (--radius-sm) does not count: write its value."
     ).toEqual([]);
   });
 
