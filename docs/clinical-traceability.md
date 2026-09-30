@@ -110,20 +110,32 @@ clinical audit trail. A stored hash is always checked against the snapshot as it
 a version signed before a field was added still verifies; the sign-out check reports that
 section as `not_compared`.
 
-Four gates run first, in this order:
+Five gates run first, in this order:
 
 1. **Assembly scope.** A family whose assembly is not in `VALIDATED_ASSEMBLIES` (default
    GRCh38), or that has none, is refused with 409 (`gate: "assembly_scope"`). This cannot be
    acknowledged. The family and report pages say such a family is not validated for clinical
    use, and the report page offers no sign-out.
-2. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
+2. **Data being written.** A package import writes a family over minutes and commits as it
+   goes, and flags it `import_incomplete` only once it has failed, so a snapshot read while it
+   runs can hold a half-imported family. A family with a package-import job (not a dry run)
+   that is `queued` (naming the family in its request), `validating` or `running` is refused
+   with 409 (`gate: "import_in_progress"`, naming the job), and so is a family whose
+   variant-write locks a writer holds (`gate: "variant_writes_in_progress"`: an import, an
+   upload, an admin delete). Neither can be acknowledged; the sign-out does not wait. Past
+   this gate the sign-out shares the family's variant-write locks
+   (`pg_try_advisory_xact_lock_shared`) until it commits, so no write of the family's variants
+   starts while it reads, and it checks the import jobs once more after the snapshot: an
+   import claimed meanwhile commits its job as `running` before it writes, and refuses the
+   sign-out. A job whose worker stopped keeps refusing until a worker claims it again.
+3. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
    variant or of a structural variant or CNV, gives 409, unless the request sets
    `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason). One
    acknowledgement covers both; the message says how many are structural variants or CNVs.
-3. **Sample-integrity QC.** A QC fail (a detected sample or pedigree swap), or a swap check that
+4. **Sample-integrity QC.** A QC fail (a detected sample or pedigree swap), or a swap check that
    could not run for a relationship the pedigree asserts, gives 409 (`gate: "sample_qc"`),
    unless the request sets `acknowledge_qc` with a `qc_acknowledgement_reason` (422 without).
-4. **Incomplete import.** A family flagged `metadata.import_incomplete` by a package import
+5. **Incomplete import.** A family flagged `metadata.import_incomplete` by a package import
    that left it partly loaded ([data-import.md](data-import.md)) gives 409
    (`gate: "import_incomplete"`, naming the failed datasets and the import job), unless the
    request sets `acknowledge_import_incomplete` with an

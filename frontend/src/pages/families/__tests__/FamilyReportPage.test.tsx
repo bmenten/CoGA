@@ -500,6 +500,33 @@ describe('FamilyReportPage', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  // A family whose import is queued or running, or whose variants another write holds, is
+  // refused: no dialog offers to sign it out anyway.
+  it.each([
+    [
+      'import_in_progress',
+      'An import of this family’s data is in progress (import job job-7), so the report would be signed out from data that is incomplete or changing. Sign out once the import has finished.',
+    ],
+    [
+      'variant_writes_in_progress',
+      'This family’s variants are being written (by an import, an upload or a deletion), so the report would be signed out from data that is changing. Sign out once the write has finished.',
+    ],
+    ['a_gate_this_page_does_not_know', 'Refused for a reason this page was not built for.'],
+  ])('shows the %s refusal as a refusal, never as an override', async (gate, message) => {
+    mockUnsignedFamily();
+    apiMock.post.mockRejectedValue({
+      response: { status: 409, data: { detail: { gate, message } } },
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+
+    expect(await screen.findByText(/Not signed out\./)).toBeInTheDocument();
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Evidence has changed/)).not.toBeInTheDocument();
+  });
+
   // #608 — the reported variants are read within the family's project: with the catalogue
   // failed the report used to render with none. It says it could not be prepared.
   it('does not render an empty report when the reference could not be loaded', async () => {

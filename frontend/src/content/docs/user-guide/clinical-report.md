@@ -21,15 +21,17 @@ gene context and phenotype overlap — and is where the case is signed out. Once
 ### Signing out
 
 **Sign out report** freezes the reported result into a numbered version with a unique fingerprint. It
-stops for four things:
+stops for five things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
-2. **Evidence drift**, of a small variant, a structural variant or a CNV, including a reported variant
+2. **Data being written**: a data import of the family is queued or running, or an upload or deletion
+   is changing its variants. Sign out once it has finished; there is no override.
+3. **Evidence drift**, of a small variant, a structural variant or a CNV, including a reported variant
    that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked):
    re-review, or acknowledge with a reason.
-3. **Sample QC** that failed, or could not confirm the pedigree: acknowledge with a reason.
-4. **An incomplete import** (the page says *Import incomplete*): re-run the import, or acknowledge with
+4. **Sample QC** that failed, or could not confirm the pedigree: acknowledge with a reason.
+5. **An incomplete import** (the page says *Import incomplete*): re-run the import, or acknowledge with
    a reason.
 
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
