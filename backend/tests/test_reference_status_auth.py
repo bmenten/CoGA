@@ -74,7 +74,6 @@ def test_reference_status_returns_data_for_authenticated_user(reference_status_c
     "path",
     [
         "/api/genes/GRCh38/chr1",
-        "/api/reference/sequence?chrom=chr1&start=1&end=2",
         "/api/chromosomes/GRCh38",
         "/api/chromosomes/GRCh38/details",
         "/api/chromosomes/GRCh38/chr1",

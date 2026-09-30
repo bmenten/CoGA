@@ -1267,12 +1267,6 @@ export interface HpoOntologyImportOut {
   closure_rows: number;
 }
 
-export interface HpoOntologyImportRequest {
-  path: string;
-  release_version?: string | null;
-  release_date?: string | null;
-}
-
 export interface HpoOntologySyncOut {
   preview_only: boolean;
   release_version: string | null;
@@ -2169,19 +2163,6 @@ export interface ReferenceImportSourceOrganismOut {
   common_name: string;
   tax_id: number;
   assembly_count: number;
-}
-
-export interface ReferenceReadOut {
-  pos: number;
-  seq: string;
-}
-
-export interface ReferenceReadsOut {
-  reads: ReferenceReadOut[];
-}
-
-export interface ReferenceSequenceOut {
-  sequence: string;
 }
 
 export interface ReferenceUploadResult {

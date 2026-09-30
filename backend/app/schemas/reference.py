@@ -167,14 +167,3 @@ class SegmentalDuplicationOut(ApiDocumentModel):
     source: Optional[str] = None
 
 
-class ReferenceSequenceOut(BaseModel):
-    sequence: str
-
-
-class ReferenceReadOut(BaseModel):
-    pos: int
-    seq: str
-
-
-class ReferenceReadsOut(BaseModel):
-    reads: List[ReferenceReadOut] = Field(default_factory=list)

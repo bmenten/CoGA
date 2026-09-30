@@ -293,6 +293,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   presets keep their family or reusable choice); and the frontend redirects `/family-intake`,
   `/families` and `/admin/operations/variants`. The NIPT page's back link goes to the dashboard
   (#698).
+- **API endpoints without a caller (#682)** — `GET /reference/sequence` and `/reference/reads/{sample_id}`
+  (with `pyfaidx` and the `REFERENCE_FASTA_PATH` and `READS_PATH` settings only they read), the per-sample
+  `GET /structural-variants/{sample_id}` (the family SV list takes a `sample` parameter), `GET
+  /admin/projects` (the data inventory shows a family's projects), `POST /hpo/import` (`POST
+  /admin/hpo/sync`, behind *Admin → HPO Terminology*, does the same with a preview) and `GET
+  /families/{id}/members/{sample_id}/impact` (a member delete without `confirm` answers with the impact).
+  `GET /panels/{id}/versions/{version}` stays, to look up the panel version a report names (#699).
 
 ### Fixed
 

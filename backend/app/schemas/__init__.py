@@ -47,7 +47,6 @@ from .hpo import (
     PhenotypeTermRefOut,
     PhenotypeMatchResultOut,
     FamilyPhenotypeMatchOut,
-    HpoOntologyImportRequest,
     HpoOntologyImportOut,
 )
 from .qc import (
@@ -248,9 +247,6 @@ from .reference import (
     ChromosomeSizeOut,
     BlacklistRegionOut,
     SegmentalDuplicationOut,
-    ReferenceSequenceOut,
-    ReferenceReadOut,
-    ReferenceReadsOut,
 )
 from .sample_integrity import (
     SampleIntegritySexCheckOut,
@@ -359,7 +355,6 @@ __all__ = [
     "PhenotypeTermRefOut",
     "PhenotypeMatchResultOut",
     "FamilyPhenotypeMatchOut",
-    "HpoOntologyImportRequest",
     "HpoOntologyImportOut",
     "QcMetricCatalogueOut",
     "QcThresholdOut",
@@ -538,9 +533,6 @@ __all__ = [
     "ChromosomeSizeOut",
     "BlacklistRegionOut",
     "SegmentalDuplicationOut",
-    "ReferenceSequenceOut",
-    "ReferenceReadOut",
-    "ReferenceReadsOut",
     "SampleIntegritySexCheckOut",
     "SampleIntegrityRelatednessCheckOut",
     "SampleIntegrityMendelianCheckOut",

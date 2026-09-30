@@ -52,7 +52,6 @@ def hpo_api_client(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides[get_postgres_session] = override_get_postgres_session
     app.dependency_overrides[admin_router.get_current_admin_user] = override_get_current_admin_user
     app.dependency_overrides[hpo_router.get_current_user] = override_get_current_user
-    app.dependency_overrides[hpo_router.get_current_admin_user] = override_get_current_admin_user
     app.dependency_overrides[families_router.get_current_user] = override_get_current_user
     app.dependency_overrides[families_router.get_current_admin_user] = override_get_current_admin_user
 
@@ -244,9 +243,6 @@ def test_family_member_management_endpoints(hpo_api_client) -> None:
             "impact": impact,
         }
 
-    async def fake_impact(*args, **kwargs):
-        return impact
-
     async def fake_update(*args, **kwargs):
         return {
             "family": family,
@@ -280,13 +276,11 @@ def test_family_member_management_endpoints(hpo_api_client) -> None:
         }
 
     monkeypatch.setattr(families_router, "get_family_member_detail_for_user", fake_detail)
-    monkeypatch.setattr(families_router, "get_family_member_impact_for_user", fake_impact)
     monkeypatch.setattr(families_router, "update_family_member_for_admin", fake_update)
     monkeypatch.setattr(families_router, "update_family_members_batch_for_admin", fake_batch_update)
     monkeypatch.setattr(families_router, "delete_family_member_for_admin", fake_delete)
 
     detail_response = client.get("/api/families/FAM1/members/PROBAND")
-    impact_response = client.get("/api/families/FAM1/members/PROBAND/impact")
     update_response = client.put(
         "/api/families/FAM1/members/PROBAND",
         json={"carrier_status": "carrier", "father_id": "FATHER", "mother_id": "MOTHER"},
@@ -308,8 +302,6 @@ def test_family_member_management_endpoints(hpo_api_client) -> None:
 
     assert detail_response.status_code == 200
     assert detail_response.json()["hpo_annotations"][0]["definition"] == "A seizure phenotype."
-    assert impact_response.status_code == 200
-    assert impact_response.json()["data_counts"]["small_variants"] == 12
     assert update_response.status_code == 200
     assert update_response.json()["member"]["sample_id"] == "PROBAND"
     assert batch_response.status_code == 200
