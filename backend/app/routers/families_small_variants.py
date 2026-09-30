@@ -320,7 +320,9 @@ async def export_family_small_variants_csv(
     """Download the filtered small variants for this family as a CSV file.
 
     Up to the export cap (50,000 rows). A larger result is not cut silently: the
-    file name says TRUNCATED and the X-CoGA-Export-* headers report it (#512).
+    file name says TRUNCATED and the X-CoGA-Export-* headers report it (#512). So is a
+    result drawn from a capped candidate read (X-CoGA-Export-Truncated-Reason:
+    candidate-limit), which can miss matches however few rows it holds.
     """
 
     context = await build_family_metadata_context(
@@ -357,6 +359,7 @@ async def export_family_small_variants_csv(
             rows=len(export.rows),
             truncated=export.truncated,
             limit=export.limit,
+            reason=export.truncated_reason,
         ),
     )
 

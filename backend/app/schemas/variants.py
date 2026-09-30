@@ -217,6 +217,11 @@ class VariantPage(BaseModel):
     # True when a prioritized request had more candidates than the ranking window, so
     # the ranking is incomplete and the user should narrow their filters.
     ranking_truncated: bool = False
+    # True when the rows came from a capped candidate read (compound-het / recessive
+    # pairing, expanded carrier screening, a Python-filtered SV search): a match beyond
+    # the candidate window is absent from this result, however few rows it holds. A CSV
+    # export over such a page is reported truncated.
+    candidates_capped: bool = False
     # Provenance of a prioritized ranking: whether it was served from the cache and when
     # the ranking was computed (so the UI can show a "from cache · N min ago" indicator).
     ranking_cached: bool = False

@@ -37,22 +37,48 @@ def csv_safe_cell(value: str) -> str:
 EXPORT_ROWS_HEADER = "X-CoGA-Export-Rows"
 EXPORT_TRUNCATED_HEADER = "X-CoGA-Export-Truncated"
 EXPORT_LIMIT_HEADER = "X-CoGA-Export-Limit"
-EXPORT_HEADERS = ("Content-Disposition", EXPORT_ROWS_HEADER, EXPORT_TRUNCATED_HEADER, EXPORT_LIMIT_HEADER)
+# Why a truncated export is incomplete: it hit its own row cap ("row-limit": the file is
+# the first ``limit`` rows), or the search behind it read a capped candidate window
+# ("candidate-limit": a match beyond the window is missing, however few rows the file has).
+EXPORT_TRUNCATED_REASON_HEADER = "X-CoGA-Export-Truncated-Reason"
+EXPORT_HEADERS = (
+    "Content-Disposition",
+    EXPORT_ROWS_HEADER,
+    EXPORT_TRUNCATED_HEADER,
+    EXPORT_LIMIT_HEADER,
+    EXPORT_TRUNCATED_REASON_HEADER,
+)
+
+TRUNCATED_BY_ROW_LIMIT = "row-limit"
+TRUNCATED_BY_CANDIDATE_LIMIT = "candidate-limit"
 
 
-def export_response_headers(filename_stem: str, *, rows: int, truncated: bool, limit: int) -> dict[str, str]:
+def export_response_headers(
+    filename_stem: str,
+    *,
+    rows: int,
+    truncated: bool,
+    limit: int,
+    reason: str | None = None,
+) -> dict[str, str]:
     """Headers for a CSV export response.
 
     A truncated export says so in the file name as well as in the headers, so the file
     itself — once saved, forwarded or attached — cannot pass for the complete result.
+    A truncation without a stated reason is taken as the row cap.
     """
 
-    filename = (
-        f"{filename_stem}-TRUNCATED-first-{limit}.csv" if truncated else f"{filename_stem}.csv"
-    )
+    if truncated:
+        reason = reason or TRUNCATED_BY_ROW_LIMIT
+        suffix = "partial-search" if reason == TRUNCATED_BY_CANDIDATE_LIMIT else f"first-{limit}"
+        filename = f"{filename_stem}-TRUNCATED-{suffix}.csv"
+    else:
+        reason = None
+        filename = f"{filename_stem}.csv"
     return {
         "Content-Disposition": f'attachment; filename="{filename}"',
         EXPORT_ROWS_HEADER: str(rows),
         EXPORT_TRUNCATED_HEADER: "true" if truncated else "false",
         EXPORT_LIMIT_HEADER: str(limit),
+        EXPORT_TRUNCATED_REASON_HEADER: reason or "",
     }

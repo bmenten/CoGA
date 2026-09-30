@@ -838,6 +838,17 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   build without `VERSION`. `frontend/package.json` said 1.0.0, so the frontend SBOM named a version
   CoGA never had. It now carries `VERSION`, and the release check, which also runs in the backend
   tests, fails when the two differ (#723).
+- **An export from a capped search says it is incomplete** — compound-het, recessive and
+  expanded-carrier-screening searches read at most 5,000 candidate variants, and a
+  Python-filtered SV search 50,000, before pairing or filtering them. The CSV export only
+  compared its rows with its own 50,000-row cap, so a file drawn from a full candidate window
+  (a few hundred rows, say) reported itself complete while matches beyond the window were
+  missing. The page now carries `candidates_capped`, and an export over a capped read, like one
+  over a truncated ranking, is marked truncated: it is saved as `…-TRUNCATED-partial-search.csv`,
+  sends `X-CoGA-Export-Truncated-Reason: candidate-limit`, and the UI says the search read only
+  part of the callset. A prioritised search whose overflowing window filtered to nothing also
+  flags its ranking as truncated now (small variants and SVs); it used to return an empty,
+  complete-looking ranking (#725).
 
 ### Security
 

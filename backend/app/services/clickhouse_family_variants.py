@@ -13,6 +13,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import execute_clickhouse
+from ..core.csv_export import TRUNCATED_BY_CANDIDATE_LIMIT, TRUNCATED_BY_ROW_LIMIT
 from ..schemas import (
     MonarchPhenotypeMatchOut,
     SmallVariantGroupOut,
@@ -1878,10 +1879,13 @@ async def _prioritized_small_variants_page(
                 "filters": canonical_filters(filters),
             },
         )
+        # Nothing in the window survived the filters, but when the window overflowed a
+        # match may lie beyond it: the empty ranking is as incomplete as a full one.
         return VariantPage(
             total=0,
             total_is_estimated=capped,
             count_limit=_SMALL_COUNT_LIMIT - 1,
+            ranking_truncated=capped,
             variants=[],
             small_variant_summary=small_variant_summary,
         )
@@ -2407,6 +2411,7 @@ async def _small_variants_candidate_page(
         unfiltered_total=unfiltered_total,
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
+        candidates_capped=inheritance_candidates_capped,
         variants=variants,
         small_variant_summary=small_variant_summary,
     )
@@ -2477,6 +2482,7 @@ async def _small_variants_inheritance_page(
         unfiltered_total=unfiltered_total,
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
+        candidates_capped=candidates_capped,
         variants=page_single_variants,
         variant_groups=page_variant_groups,
         small_variant_summary=small_variant_summary,
@@ -2675,15 +2681,40 @@ _MAX_SMALL_VARIANT_EXPORT_ROWS = 50_000
 
 @dataclass(slots=True)
 class VariantExport:
-    """The rows of a CSV export and whether the filtered result was cut at ``limit``.
+    """The rows of a CSV export and why, if at all, they are not the whole filtered result.
 
     A clinical export must never be silently partial (#512): the caller names the file
-    and tells the user when ``truncated`` is set.
+    and tells the user when ``truncated`` is set. ``truncated_reason`` is
+    ``TRUNCATED_BY_ROW_LIMIT`` when the result was cut at ``limit`` rows, and
+    ``TRUNCATED_BY_CANDIDATE_LIMIT`` when the search behind it read a capped candidate
+    window (a match beyond it is missing however few rows the file has).
     """
 
     rows: list[VariantOut]
-    truncated: bool
+    truncated_reason: str | None
     limit: int
+
+    @property
+    def truncated(self) -> bool:
+        return self.truncated_reason is not None
+
+
+def _export_truncation(page: VariantPage, rows: Sequence[VariantOut], limit: int) -> str | None:
+    """Why an export over ``page`` is incomplete, or None when it holds every match.
+
+    The export's own row cap is not the only cut: a prioritised ranking covers only its
+    candidate window (``ranking_truncated``), and compound-het / recessive pairing,
+    expanded carrier screening and a Python-filtered SV search read a capped candidate
+    window (``candidates_capped``). Either way a match can be missing from a file far
+    below the row cap, so either marks the export truncated. The candidate reason wins:
+    it says the file may lack matches anywhere, not only past row ``limit``.
+    """
+
+    if page.ranking_truncated or page.candidates_capped:
+        return TRUNCATED_BY_CANDIDATE_LIMIT
+    if len(rows) > limit:
+        return TRUNCATED_BY_ROW_LIMIT
+    return None
 
 
 async def export_family_small_variants(
@@ -2704,8 +2735,10 @@ async def export_family_small_variants(
     The page function clamps page_size to MAX_VARIANT_PAGE_SIZE (10,000) for HTTP
     callers; before #512 that silently cut this export at 10,000 rows. The export lifts
     the clamp to its own cap and asks for one row more, so a larger result is reported
-    as truncated rather than cut without a trace. A prioritised export is also truncated
-    when the ranking itself only covers the candidate window.
+    as truncated rather than cut without a trace. An export is also truncated when the
+    search behind it read a capped candidate window: a prioritised ranking, or the
+    compound-het / recessive / carrier-screening candidate read (see
+    :func:`_export_truncation`).
     """
 
     limit = max(1, min(limit, _MAX_SMALL_VARIANT_EXPORT_ROWS))
@@ -2723,8 +2756,7 @@ async def export_family_small_variants(
     for group in page.variant_groups:
         rows.extend(group.variants)
     rows.extend(page.variants)
-    truncated = len(rows) > limit or bool(getattr(page, "ranking_truncated", False))
-    return VariantExport(rows=rows[:limit], truncated=truncated, limit=limit)
+    return VariantExport(rows=rows[:limit], truncated_reason=_export_truncation(page, rows, limit), limit=limit)
 
 
 _MAX_STRUCTURAL_VARIANT_EXPORT_ROWS = 50_000
@@ -2758,8 +2790,7 @@ async def export_family_structural_variants(
         **filters,
     )
     rows = list(page.variants)
-    truncated = len(rows) > limit or bool(getattr(page, "ranking_truncated", False))
-    return VariantExport(rows=rows[:limit], truncated=truncated, limit=limit)
+    return VariantExport(rows=rows[:limit], truncated_reason=_export_truncation(page, rows, limit), limit=limit)
 
 
 async def _prioritized_structural_variants_page(
@@ -2845,7 +2876,15 @@ async def _prioritized_structural_variants_page(
         )
     ]
     if not filtered:
-        return VariantPage(total=0, variants=[], summary={})
+        # An overflowed read may hold a match beyond the window, even when none of the
+        # window survived the filters: flag the empty ranking as truncated.
+        return VariantPage(
+            total=0,
+            total_is_estimated=fetch_overflowed,
+            ranking_truncated=fetch_overflowed,
+            variants=[],
+            summary={},
+        )
     # The cap now bounds the ranking work over the filtered set, which is what it was
     # for; scoring every SV in a large callset is the expensive part.
     capped = fetch_overflowed or len(filtered) > _PRIORITIZE_CANDIDATE_LIMIT
@@ -3200,6 +3239,8 @@ async def get_family_structural_variants_page(
         total=total,
         total_is_estimated=total_is_estimated,
         count_limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP if total_is_estimated else None,
+        # total_is_estimated here means exactly that the candidate read overflowed.
+        candidates_capped=total_is_estimated,
         variants=variants,
         summary=None if track_mode else summary,
     )

@@ -43,6 +43,7 @@
    ]
   ],
   "page": {
+   "candidates_capped": true,
    "count_limit": 10000,
    "small_variant_summary": {
     "indel_count": 2,
