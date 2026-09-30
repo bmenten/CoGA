@@ -243,6 +243,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   code (E402) unless a `noqa` says why, and a `noqa` that no longer suppresses anything (RUF100): 63
   stale markers are gone, and 32 broad handlers now carry their reason. `.gitignore` and
   `.dockerignore` cover `.env.*`, `.claude/` and the coverage files (#687).
+- **Held-back dependency majors (#674)** — Dependabot no longer proposes ESLint 10, @eslint/js 10 or
+  TypeScript 6.1 and later, which the lint plugins don't support yet (eslint-plugin-react and
+  jsx-a11y accept ESLint 9 at most; typescript-eslint 8 needs TypeScript below 6.1). ESLint and
+  @eslint/js now update in one PR. Dependabot #376, #377 and #556, which failed CI for that
+  reason, are closed (#688).
 
 ### Removed
 
