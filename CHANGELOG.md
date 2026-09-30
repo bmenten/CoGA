@@ -822,6 +822,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   recurrent regions cannot be loaded the build stops instead of writing a knowledgebase without them: the
   rebuild fails, keeps the knowledgebase it would have replaced, and its error, now shown on the
   Reference catalogue, says why. Rebuild the knowledgebase of both assemblies after upgrading (#721).
+- **A first `docker compose up` starts the frontend** — on its first boot the backend downloads
+  GENCODE, RefSeq and HPO before it answers its health check, which took about 150 s, and the
+  healthcheck allowed about 165 s (a 90 s start period plus five 15 s retries), with a probe failing
+  now and then while the reference sync ran. Compose then marked the backend unhealthy and left the
+  frontend `Created`, reporting *dependency backend failed*. The start period is now 10 minutes, and
+  probes run every 5 s during it, so the backend turns healthy as soon as it answers (#713).
 
 ### Security
 
