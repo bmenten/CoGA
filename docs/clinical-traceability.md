@@ -52,9 +52,14 @@ stored without a snapshot.
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
 to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too. Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one) and `sign_out`.
-For a small variant, `classification` holds the ACMG class and the accepted criteria. For a
-structural variant or CNV, it holds the reviewer's classification and the CNV (ClinGen)
-scoring: the class, the kind, the point total and each accepted criterion with its points.
+For a small variant, `classification` holds the ACMG class, the accepted criteria, the point
+total, the VUS tier and every stored criterion: its strength, whether it was accepted, its
+evidence text and whether it was an automatic suggestion. For a structural variant or CNV, it
+holds the reviewer's classification and the CNV (ClinGen) scoring: the class, the kind, the
+point total, the accepted criteria with their points, and every stored criterion in the same
+detail. Any change to that record writes an event, even when the class stays the same, and its
+summary names what changed (*ACMG criteria updated (…): PM2 moderate → supporting*). An
+unchanged re-save writes none.
 Points are recorded as the database reads them back, so a total of -0.0 is stored as 0 and the
 chain still verifies. These events carry `metadata.modality = "sv"`, so an SV id is never read
 as a small variant's. A save that clears or deletes a review is recorded like any other
