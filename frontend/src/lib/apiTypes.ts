@@ -412,11 +412,47 @@ export interface ApiClassificationDriftItem {
   clinvar_to: string | null;
 }
 
+// The evidence a structural-variant / CNV classification rested on, as frozen and as it
+// is now (backend services/structural_variant_evidence.py).
+export interface ApiStructuralEvidence {
+  source?: string | null;
+  sv_type?: string | null;
+  chrom?: string | null;
+  start?: number | null;
+  end?: number | null;
+  gene_symbols?: string[] | null;
+  gene_count?: number | null;
+  pli?: number | null;
+  inheritance?: string | null;
+  [field: string]: unknown;
+}
+
+export interface ApiStructuralClassificationDriftItem {
+  variant_id: string;
+  classification: string | null;
+  cnv_class: string | null;
+  classified_by: string | null;
+  classified_at: string | null;
+  status: string; // 'drifted' | 'unknown' | 'variant_missing'
+  // What moved: 'source' | 'sv_type' | 'locus' | 'gene_symbols' | 'pli' | 'inheritance' | 'annotations'.
+  changed: string[];
+  evidence_from: ApiStructuralEvidence | null;
+  evidence_to: ApiStructuralEvidence | null;
+}
+
+export interface ApiStructuralClassificationDrift {
+  checked: number;
+  drifted_count: number;
+  drifted: ApiStructuralClassificationDriftItem[];
+}
+
 export interface ApiClassificationDrift {
   family_id: string;
   checked: number;
   drifted_count: number;
   drifted: ApiClassificationDriftItem[];
+  // The structural variants' and CNVs' classifications (the small variants are above).
+  structural?: ApiStructuralClassificationDrift;
 }
 
 export interface ApiClinicalAuditEvent {

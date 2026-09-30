@@ -21,6 +21,7 @@ import {
   describeModuleVersions,
   describeReportSections,
   describeSignedDrift,
+  describeSignedStructuralDrift,
   formatReportTime,
   parseSignedReport,
   qcStatusLabel,
@@ -443,6 +444,13 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
       .join(' ') || null;
   const smallVariants = record?.reportedVariants ?? null;
   const structuralVariants = record?.reportedStructuralVariants ?? null;
+  // The drift at sign-out of the small variants' and the SV/CNV classifications, counted as one.
+  const driftedAtSignout =
+    (record?.drift?.driftedCount ?? 0) + (record?.structuralDrift?.driftedCount ?? 0);
+  const checkedCounts = [record?.drift?.checked, record?.structuralDrift?.checked].filter(
+    (value): value is number => typeof value === 'number',
+  );
+  const checkedAtSignout = checkedCounts.length ? checkedCounts.reduce((sum, value) => sum + value, 0) : null;
 
   return (
     <div className="page-shell report-page report-page--signed space-y-6">
@@ -654,23 +662,32 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
 
           <section className="surface-card report-signed-drift">
             <h2 className="report-audit-heading">Evidence drift at sign-out</h2>
-            {!record.drift ? (
+            {!record.drift && !record.structuralDrift ? (
               <p className="report-paragraph">Not in the signed record.</p>
-            ) : record.drift.driftedCount === 0 ? (
+            ) : driftedAtSignout === 0 ? (
               <p className="report-paragraph">
                 No reported classification had changed evidence when this version was signed
-                {record.drift.checked !== null ? ` (${record.drift.checked} checked)` : ''}.
+                {checkedAtSignout !== null ? ` (${checkedAtSignout} checked)` : ''}.
               </p>
             ) : (
               <>
                 <p className="report-paragraph">
-                  {plural(record.drift.driftedCount, 'classification')} had evidence that changed, or
-                  could not be verified, when this version was signed:
+                  {plural(driftedAtSignout, 'classification')} had evidence that changed, or could not
+                  be verified, when this version was signed:
                 </p>
                 <ul className="report-drift-list">
-                  {record.drift.drifted.map((item, index) => (
+                  {(record.drift?.drifted ?? []).map((item, index) => (
                     <li key={`${item.variantId}-${index}`}>
                       <strong>{item.variantId}</strong> — {describeSignedDrift(item)}
+                      {item.classifiedBy ? (
+                        <span className="report-drift-meta"> (classified by {item.classifiedBy})</span>
+                      ) : null}
+                    </li>
+                  ))}
+                  {(record.structuralDrift?.drifted ?? []).map((item, index) => (
+                    <li key={`sv:${item.variantId}-${index}`}>
+                      <strong>{item.variantId}</strong> (structural variant) —{' '}
+                      {describeSignedStructuralDrift(item)}
                       {item.classifiedBy ? (
                         <span className="report-drift-meta"> (classified by {item.classifiedBy})</span>
                       ) : null}
@@ -682,6 +699,12 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
                 </p>
               </>
             )}
+            {record.drift && !record.structuralDrift ? (
+              <p className="report-paragraph">
+                The record predates the drift check of the structural-variant and CNV
+                classifications: it holds none for them.
+              </p>
+            ) : null}
           </section>
 
           {smallVariants === null ? (

@@ -9,7 +9,9 @@ into ``report_signouts`` as a new version; the sign-out is recorded in the immut
 clinical audit trail.
 
 Sign-out is gated on evidence drift: if any classification's backing annotation has
-changed since it was made, the caller must explicitly acknowledge the drift. It is also
+changed since it was made — a small variant's ACMG classification, or a structural
+variant's / CNV's ClinGen classification — the caller must explicitly acknowledge the
+drift. It is also
 gated on the Sample-integrity QC and on an incomplete import (a family-package import
 that partly failed); each gate is acknowledged separately, with a reason that is frozen
 into the snapshot and recorded in the audit event.
@@ -70,6 +72,10 @@ _ASSERTED_RELATIONSHIPS = frozenset({"parent-child", "sibling"})
 
 # The dataset lists an incomplete-import flag records; frozen sorted so the hash is stable.
 _IMPORT_FLAG_DATASET_LISTS = ("failed_datasets", "imported_datasets")
+
+# The snapshot section holding the SV/CNV evidence drift. Its absence marks a record
+# signed before SV/CNV classifications froze their evidence.
+STRUCTURAL_DRIFT_SECTION = "structural_drift"
 
 
 def _canonical_hash(snapshot: dict[str, Any]) -> str:
@@ -350,7 +356,8 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
 async def _reported_structural_reviews(
     session: AsyncSession, family_uuid: str
 ) -> list[dict[str, Any]]:
-    """Structural variants / CNVs tagged for the report, with their classification.
+    """Structural variants / CNVs tagged for the report, with their classification and the
+    evidence its CNV scoring froze.
 
     The report page renders these beside the small variants, so the signed record must
     freeze them too — before #508 a reported CNV was printed but never signed.
@@ -360,7 +367,7 @@ async def _reported_structural_reviews(
             text(
                 """
                 SELECT variant_id, variant_key, classification, cnv_class, cnv_point_total,
-                       cnv_acmg, tags, note
+                       cnv_acmg, tags, note, cnv_evidence_snapshot
                 FROM structural_variant_reviews
                 WHERE family_id = CAST(:family_uuid AS uuid)
                   AND tags @> :report_tag
@@ -380,6 +387,7 @@ async def _reported_structural_reviews(
             "cnv_acmg": row["cnv_acmg"],
             "tags": sorted(row["tags"] or []),
             "note": row["note"],
+            "evidence_snapshot": row["cnv_evidence_snapshot"],
         }
         for row in rows
     ]
@@ -462,7 +470,9 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
     never as an empty block that reads like "nothing there". This lists those markers so
     the audit event and the report page can say what the signed record lacks. It also
     lists a reference module a record signed before CoGA recorded it does not hold (the
-    HPO release): the record cannot say which version its report was produced with.
+    HPO release): the record cannot say which version its report was produced with. And,
+    for a record signed before SV/CNV classifications froze their evidence, that its
+    reported structural variants carry none.
     """
     if not isinstance(snapshot, Mapping):
         return []
@@ -497,6 +507,14 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
                         "reason": "signed before CoGA recorded its version",
                     }
                 )
+    if STRUCTURAL_DRIFT_SECTION not in snapshot and snapshot.get("reported_structural_variants"):
+        gaps.append(
+            {
+                "section": "reported_structural_variants",
+                "item": "Evidence of the reported structural variants and CNVs",
+                "reason": "signed before CoGA froze it",
+            }
+        )
     return gaps
 
 
@@ -541,6 +559,25 @@ async def build_report_snapshot(
         [*drift["drifted"], *unsnapshotted],
         key=lambda item: item.get("variant_id") or "",
     )
+    # The same for the reported structural variants and CNVs: their classification's
+    # frozen evidence against the SV as it is now, and a reported one whose evidence was
+    # never frozen (no CNV scoring saved, or one saved before CoGA froze it) as
+    # "no_snapshot".
+    structural = drift["structural"]
+    structural_unsnapshotted = [
+        {
+            "variant_id": r["variant_id"],
+            "classification": r.get("classification"),
+            "cnv_class": r.get("cnv_class"),
+            "status": "no_snapshot",
+        }
+        for r in reported_structural
+        if not r.get("evidence_snapshot")
+    ]
+    structural_drifted = sorted(
+        [*structural["drifted"], *structural_unsnapshotted],
+        key=lambda item: item.get("variant_id") or "",
+    )
     return {
         "family_id": context.family_id,
         "assembly": manifest.get("assembly"),
@@ -564,6 +601,15 @@ async def build_report_snapshot(
             # verified and so must gate. Scoped to the sign-out/hash path only — the live
             # drift endpoint keeps its most-recent-first display order.
             "drifted": drifted,
+        },
+        # The evidence drift of the structural-variant and CNV classifications, sorted and
+        # gated like `drift`. A record signed without this section predates the SV/CNV
+        # evidence snapshot: the sign-out check does not compare it (nor the evidence in
+        # its reported SVs), and snapshot_gaps says it holds none.
+        STRUCTURAL_DRIFT_SECTION: {
+            "checked": structural["checked"] + len(structural_unsnapshotted),
+            "drifted_count": len(structural_drifted),
+            "drifted": structural_drifted,
         },
         # Sample-integrity QC (sample/pedigree-swap detection) frozen into the content
         # hash so the signed record proves QC was run and exactly what it found. A pure
@@ -655,14 +701,21 @@ async def sign_out_report(
         session, family_id=family_id, user=user, project_id=project_id
     )
 
-    drifted_count = snapshot_body["drift"]["drifted_count"]
+    # One gate, one acknowledgement: the small-variant and the SV/CNV drift together.
+    structural_drifted_count = snapshot_body[STRUCTURAL_DRIFT_SECTION]["drifted_count"]
+    drifted_count = snapshot_body["drift"]["drifted_count"] + structural_drifted_count
     if drifted_count and not acknowledge_drift:
+        structural_part = (
+            f" ({structural_drifted_count} of them structural-variant or CNV classifications)"
+            if structural_drifted_count
+            else ""
+        )
         raise HTTPException(
             status_code=409,
             detail=(
-                f"{drifted_count} classification(s) have evidence that changed, or that "
-                "cannot be verified (no frozen snapshot), since they were made. Re-review, "
-                "or acknowledge the drift to sign out anyway."
+                f"{drifted_count} classification(s){structural_part} have evidence that "
+                "changed, or that cannot be verified (no frozen snapshot), since they were "
+                "made. Re-review, or acknowledge the drift to sign out anyway."
             ),
         )
     # Overriding the drift gate is attested like the QC override: with a reason that is
@@ -832,7 +885,9 @@ async def sign_out_report(
             "git_sha": snapshot_body["software"]["git_sha"],
             "reported_count": len(snapshot_body["reported_variants"]),
             "reported_structural_count": len(snapshot_body["reported_structural_variants"]),
+            # Every classification the drift gate counted, and how many are SVs or CNVs.
             "drifted_count": drifted_count,
+            "structural_drifted_count": structural_drifted_count,
             "drift_acknowledgement_reason": snapshot["drift_acknowledgement_reason"],
             "qc_status": qc_status,
             "acknowledged_qc": snapshot["acknowledged_qc"],
@@ -999,6 +1054,7 @@ REPORT_CONTENT_SECTIONS = (
     "reported_variants",
     "reported_structural_variants",
     "drift",
+    STRUCTURAL_DRIFT_SECTION,
     "sample_qc",
     "sequencing_qc",
     "import_incomplete",
@@ -1046,6 +1102,27 @@ def _modules_comparable_with(
     return comparable, postdating
 
 
+def _structural_reviews_comparable_with(
+    signed: Mapping[str, Any], signed_value: Any, current: list[Any]
+) -> tuple[list[Any], list[str]]:
+    """The current reported SVs to compare with a signed record's, and what is left out.
+
+    A record signed before SV/CNV classifications froze their evidence (it has no
+    STRUCTURAL_DRIFT_SECTION) holds none in its reported SVs. Their evidence is then not
+    compared, like a section the record predates, rather than turning every such record
+    with a reported SV into a change; everything else about them still is.
+    """
+    if STRUCTURAL_DRIFT_SECTION in signed:
+        return current, []
+    comparable = [
+        {key: value for key, value in entry.items() if key != "evidence_snapshot"}
+        if isinstance(entry, Mapping)
+        else entry
+        for entry in current
+    ]
+    return comparable, (["reported_structural_variants.evidence_snapshot"] if signed_value else [])
+
+
 async def compare_report_with_latest_signout(
     session: AsyncSession,
     *,
@@ -1062,7 +1139,8 @@ async def compare_report_with_latest_signout(
     version; on that version, whether the family's data changed since (#508). This
     rebuilds the snapshot body and compares it, section by section, with the frozen one. A
     section or reference module the signed record predates is listed in ``not_compared``
-    (a module as ``modules.<key>``) rather than reported as changed.
+    (a module as ``modules.<key>``, the evidence of its reported SVs as
+    ``reported_structural_variants.evidence_snapshot``) rather than reported as changed.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -1111,6 +1189,11 @@ async def compare_report_with_latest_signout(
         if section == "modules" and isinstance(current_value, list):
             current_value, postdating = _modules_comparable_with(signed, current_value)
             not_compared.extend(f"modules.{key}" for key in postdating)
+        if section == "reported_structural_variants" and isinstance(current_value, list):
+            current_value, left_out = _structural_reviews_comparable_with(
+                signed, signed_value, current_value
+            )
+            not_compared.extend(left_out)
         if _section_fingerprint(signed_value) != _section_fingerprint(current_value):
             changed.append(section)
     return {

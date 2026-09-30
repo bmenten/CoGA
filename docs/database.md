@@ -73,7 +73,7 @@ alone. PanelApp's own coordinates are stored for the assembly they were requeste
 | `nipt_artifact_variants` | the recurrent-artifact list for monogenic NIPT, per assembly and assay, curated or seeded from the cohort (see [monogenic-nipt.md](monogenic-nipt.md)) |
 | `sample_interval_track_sources` | one row per sample, track type (`coverage`, `segments`, `apcad`, `apcad_pcf`, `haplotype`), source and file, with its row count; the rows themselves are in ClickHouse |
 | `small_variant_reviews` | the classification, ACMG criteria, tags, notes and evidence snapshot of a small variant in a family |
-| `structural_variant_reviews` | the same for a structural variant or CNV, with the CNV ACMG points |
+| `structural_variant_reviews` | the same for a structural variant or CNV, with the CNV ACMG points and the evidence snapshot of the CNV classification |
 | `small_variant_filter_presets`, `structural_variant_filter_presets` | saved filter sets, per user and for one family or all |
 | `small_variant_tag_definitions`, `small_variant_tag_definition_project_links` | the review-tag catalogue, global or per project |
 | `family_sv_gene_index`, `family_sv_gene_index_status` | per family, which genes a structural variant hits (for the "also hit by an SV" flag), and when and from which SV data version (`sv_data_version`, below) that index was built. It is rebuilt on next use once the family's SVs have changed |

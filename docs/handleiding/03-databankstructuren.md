@@ -22,7 +22,7 @@ Het Postgres-schema staat in vijf SQL-bestanden in `backend/db/schema/postgres/`
 | `04_traceability.sql` | Herkomst en klinisch auditspoor | `raw_import_files`, `family_annotation_manifest`, `audit_log_events`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`, `ui_events`, plus de append-only triggers (ook die op `qc_threshold_changes`) |
 | `05_grants.sql` | Rechtenscheiding | De beperkte runtime-rol `coga_app` en de `REVOKE` op de append-only tabellen (hoofdstuk 2) |
 
-Twee kenmerken vallen op. Bijna alle referentiedata per assembly verwijst naar `assemblies` met `ON DELETE CASCADE`; de Monarch-tabellen zijn bewust assembly-onafhankelijk (gekoppeld op HGNC- en MONDO-id's). En het bevroren ACMG-bewijs per classificatie staat in de kolom `small_variant_reviews.acmg_evidence_snapshot` (hoofdstuk 10).
+Twee kenmerken vallen op. Bijna alle referentiedata per assembly verwijst naar `assemblies` met `ON DELETE CASCADE`; de Monarch-tabellen zijn bewust assembly-onafhankelijk (gekoppeld op HGNC- en MONDO-id's). En het bevroren ACMG-bewijs per classificatie staat in de kolom `small_variant_reviews.acmg_evidence_snapshot`, dat van een CNV-classificatie in `structural_variant_reviews.cnv_evidence_snapshot` (hoofdstuk 10).
 
 **Waar in de code:** de bestanden in `backend/db/schema/postgres/`; de volledige kolomreferentie in `docs/database.md`.
 

@@ -600,6 +600,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   not hold (the variant description, gene and phenotype context) rather than filling it in from live data.
   The live report of a signed case is labelled as not the signed version, on screen and in print, even
   when it matches; after sign-out the page shows the version just signed (#659).
+- **SV/CNV evidence drift** — saving a CNV (ClinGen) classification freezes the evidence it rests on (type,
+  genes and gene count, pLI, annotated inheritance, caller and locus, an annotation hash, the SV callset's
+  versions). The drift banner and the sign-out drift gate cover SV/CNV classifications, a reported one
+  without frozen evidence included, with the same acknowledgement, and a signed version lists them under its
+  evidence drift at sign-out; a scoring for an SV not in the data is refused. Earlier signed reports still
+  verify, are not compared on what they predate, and say they hold no SV/CNV drift (#661).
 
 ### Security
 

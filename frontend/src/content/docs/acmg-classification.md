@@ -254,7 +254,9 @@ ACMG technical standard for copy-number variants (Riggs et al. 2020). Choose **C
 duplication or insertion and loss otherwise.
 
 Each criterion carries a point value, some with a range you can adjust. The server keeps each value
-within its allowed range and recomputes the total when you save.
+within its allowed range and recomputes the total when you save. Saving also freezes the evidence the
+pre-selection reads, so the report can tell when it changes (see the
+[traceability reference](/docs/reference/clinical-traceability)).
 
 | Points | Class |
 | --- | --- |

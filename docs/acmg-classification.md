@@ -36,8 +36,11 @@ The frontend and backend scorers must agree. Each side has its own tests (listed
   criterion codes and strengths, recomputes the points and class, stores the VUS tier in the JSON
   record, and freezes the evidence snapshot (`build_evidence_snapshot`) that the report's drift check
   compares against later.
-- CNVs: `structural_variant_reviews.cnv_acmg` (JSONB), `cnv_point_total` and `cnv_class`. The server
-  clamps each submitted point value to the criterion's allowed range before summing.
+- CNVs: `structural_variant_reviews.cnv_acmg` (JSONB), `cnv_point_total`, `cnv_class` and
+  `cnv_evidence_snapshot`. The server clamps each submitted point value to the criterion's allowed
+  range before summing, and freezes the evidence the classification reads
+  (`build_structural_evidence_snapshot` in `backend/app/services/structural_variant_evidence.py`) for
+  the same drift check.
 - Every list of small variants serves each review with the columns of a single-review read
   (`_fetch_review_rows_for_variants` in `small_variant_review_repository.py`), the ACMG record
   included. The dialog opened from a list is seeded from that record: without it, a classified variant

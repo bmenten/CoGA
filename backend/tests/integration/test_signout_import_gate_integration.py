@@ -72,7 +72,12 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
         return {"assembly": "GRCh38", "modules": [{"key": "clinvar", "version": "2026-05"}]}
 
     async def _drift(session, *, family_id, user, project_id=None):
-        return {"checked": 0, "drifted_count": 0, "drifted": []}
+        return {
+            "checked": 0,
+            "drifted_count": 0,
+            "drifted": [],
+            "structural": {"checked": 0, "drifted_count": 0, "drifted": []},
+        }
 
     async def _qc(session, *, family_id, user, project_id=None):
         return SampleIntegrityReport(overall_status="pass")

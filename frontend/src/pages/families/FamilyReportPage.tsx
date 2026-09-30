@@ -11,6 +11,7 @@ import type {
   ApiAnnotationManifest,
   ApiClassificationDrift,
   ApiClinicalAudit,
+  ApiStructuralClassificationDriftItem,
 } from '../../lib/apiTypes';
 import {
   apiErrorMessage,
@@ -21,6 +22,7 @@ import {
 import {
   describeModuleVersions,
   describeReportSections,
+  describeStructuralEvidenceChange,
   formatReportTime,
   parseSignedVersionParam,
   reportViewSearch,
@@ -136,6 +138,16 @@ const modesOfInheritance = (profile?: GeneProfileResponse): string[] =>
         .filter((value): value is string => Boolean(value)),
     ),
   );
+
+// What moved in the evidence of an SV/CNV classification, in the words of its inputs.
+const describeStructuralDrift = (item: ApiStructuralClassificationDriftItem): string => {
+  if (item.status === 'variant_missing') return 'no longer present in the dataset';
+  if (item.status === 'unknown') return 'its frozen evidence cannot be compared';
+  return (
+    describeStructuralEvidenceChange(item.changed, item.evidence_from, item.evidence_to) ??
+    (item.changed.includes('annotations') ? 'annotation changed' : 'evidence changed')
+  );
+};
 
 // How the live report relates to the latest signed version. It is never the signed report,
 // whatever the state: only the signed version, rendered from its record, is (#508).
@@ -314,6 +326,9 @@ const LiveFamilyReport: React.FC = () => {
     queryFn: async () =>
       (await api.get(apiPath`/families/${familyId}/classification-drift`)).data as ApiClassificationDrift,
   });
+  // The small variants' drift and the structural variants' / CNVs' drift, in one banner.
+  const structuralDrift = drift?.structural?.drifted ?? [];
+  const driftCount = (drift?.drifted_count ?? 0) + (drift?.structural?.drifted_count ?? 0);
 
   // Immutable clinical audit trail (who classified / tagged / annotated what, when).
   const { data: audit, isError: auditFailed, refetch: refetchAudit } = useQuery<ApiClinicalAudit>({
@@ -1022,16 +1037,16 @@ const LiveFamilyReport: React.FC = () => {
             is not known. Sign-out checks it again.
           </p>
         </section>
-      ) : drift && drift.drifted_count > 0 ? (
+      ) : drift && driftCount > 0 ? (
         <section className="surface-card report-drift" role="alert">
           <p className="report-drift-title">
-            ⚠ {drift.drifted_count} classification{drift.drifted_count === 1 ? '' : 's'}{' '}
-            {drift.drifted_count === 1 ? 'has' : 'have'} evidence changes since being made
+            ⚠ {driftCount} classification{driftCount === 1 ? '' : 's'}{' '}
+            {driftCount === 1 ? 'has' : 'have'} evidence changes since being made
           </p>
           <p className="report-paragraph report-drift-lead">
-            The annotation backing the following classification
-            {drift.drifted_count === 1 ? '' : 's'} has changed since it was recorded. Re-review
-            before sign-out.
+            The evidence behind the following classification
+            {driftCount === 1 ? '' : 's'} has changed since it was recorded. Re-review before
+            sign-out.
           </p>
           <ul className="report-drift-list">
             {drift.drifted.map((item) => (
@@ -1042,6 +1057,15 @@ const LiveFamilyReport: React.FC = () => {
                   : item.clinvar_from !== item.clinvar_to
                     ? ` — ClinVar ${item.clinvar_from || 'n/a'} → ${item.clinvar_to || 'n/a'}`
                     : ' — annotation set changed'}
+                {item.classified_by ? (
+                  <span className="report-drift-meta"> (classified by {item.classified_by})</span>
+                ) : null}
+              </li>
+            ))}
+            {structuralDrift.map((item) => (
+              <li key={`sv:${item.variant_id}`}>
+                <strong>{item.variant_id}</strong> (structural variant) —{' '}
+                {describeStructuralDrift(item)}
                 {item.classified_by ? (
                   <span className="report-drift-meta"> (classified by {item.classified_by})</span>
                 ) : null}
