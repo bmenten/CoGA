@@ -189,6 +189,11 @@ caller made it), `glimpse2` (imputed; hidden from the diagnostic lists by defaul
 (chrM). Structural variants: `needlr` and `hificnv` from packages, and `manual`, `sniffles` or
 `spectre` from a direct upload.
 
+Deleting a sample (`DELETE /admin/samples/{sample_id}`) rewrites the family's
+`SNV_INDEL/entries` from the stored rows: every callset, project and column comes back as
+stored, minus that sample's calls. The shared `SNV_INDEL/variants/*` tables are left alone, so
+each row keeps its annotation version and annotation-set hash.
+
 `SNV_INDEL/family_data_version` (plain `MergeTree`) is not variant data. Every change to a
 family's small variants (an insert, a full or source-scoped delete, and the summary refresh
 that also follows a snapshot restore) appends one row with a random token once the write
