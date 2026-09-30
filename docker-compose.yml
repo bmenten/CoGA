@@ -92,8 +92,12 @@ services:
       timeout: 5s
       retries: 5
       # Startup runs schema init + seeds (+ optional reference bootstrap); give it
-      # room before failures count against the container.
-      start_period: 90s
+      # room before failures count against the container. A first boot downloads
+      # GENCODE/RefSeq/HPO and takes minutes, so the window is generous; the
+      # container turns healthy on the first passing probe, polled every
+      # start_interval, so a fast start is not delayed.
+      start_period: 600s
+      start_interval: 5s
     depends_on:
       postgres:
         condition: service_healthy

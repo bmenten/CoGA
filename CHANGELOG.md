@@ -769,6 +769,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   AD-alt minimum used to be dropped, so the search returned more than asked without saying so, and an
   unreadable GQ or DP minimum surfaced as a 500. A raw-file provenance record that can't be written
   still doesn't fail the import, but the loss is now logged with the family, dataset and file (#690).
+- **A first `docker compose up` starts the frontend** — on its first boot the backend downloads
+  GENCODE, RefSeq and HPO before it answers its health check, which took about 150 s, and the
+  healthcheck allowed about 165 s (a 90 s start period plus five 15 s retries), with a probe failing
+  now and then while the reference sync ran. Compose then marked the backend unhealthy and left the
+  frontend `Created`, reporting *dependency backend failed*. The start period is now 10 minutes, and
+  probes run every 5 s during it, so the backend turns healthy as soon as it answers (#713).
 
 ### Security
 
