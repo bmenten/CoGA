@@ -629,12 +629,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   family's whole mito callset, so only the last sample's chrM calls remained (a file without variants
   removed them all); the mother's and siblings' calls, which the maternal transmission and the mito
   ACMG PP1/BS4 read, were lost. Each file now replaces only its sample's calls (#666).
-  and rows in projects the family had left (#655).
 - **The audit trail records every change to a classification** — a save that changes only a
   criterion's strength or points, its evidence or a suggestion now writes a clinical audit event
   with the whole criteria record before and after, for small variants and CNVs; an unchanged
   re-save still writes none (#665).
-  a per-sample SV upload also records its caller in the family's annotation versions (#654).
 - **ClickHouse integrity check on real data** — the check (the admin action and the scheduled monitor)
   crashed on any variant table without rows, so the endpoint answered 500 and each sweep logged a failure
   and recorded no status for that assembly; and it judged a table with several parts on its first part only,
@@ -648,6 +646,16 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   data (`raw_datasets_preserved`), and a clear is recorded and warned about; before, neither marker was ever
   written (#660).
 - **A structure save refreshes the genome-overview lineage and warms the ranking**, like a member edit (#660).
+- **Re-run match runs again** — the phenotype-match panel's *Re-run match* did nothing and kept the first
+  ranking. Each press now runs the match on the phenotypes recorded then; a run in progress and a failure
+  (with its reason) are shown as such, and an earlier ranking never stays on screen as the current one
+  (#657).
+- **Variant summary button** — the button showed for families with small variants only, where the
+  structural-variant summary had nothing to show; it now appears when the family has structural variants
+  (#657).
+- **Circos plot per assembly** — the Circos page drew every family on GRCh38's chromosomes; it now draws the
+  family's own assembly, and draws nothing, saying why, when it has no linked project, no chromosome sizes
+  or chromosomes it cannot place (#657).
 
 ### Security
 

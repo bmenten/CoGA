@@ -16,9 +16,10 @@ the same phenotype score as small variants. **Clear all filters** removes the de
 **ACMG (CNV)** on a row opens the ClinGen copy-number classifier (Riggs et al. 2020): choose
 *Copy-number loss* or *Copy-number gain*, check the pre-selected criteria and add the rest.
 
-**Variant summary** on the family page summarises the structural variants: counts per chromosome and
-type, sharing between members, and size distributions. It has nothing to show for a family with small
-variants only.
+**Variant summary** on the family page summarises the structural variants of every caller, HiFiCNV's
+copy-number calls included: counts per chromosome and type, sharing between members, and size
+distributions. The button appears when the family has structural variants. Small variants are not in
+it, nor are the WisecondorX and QDNAseq segments, which are coverage tracks rather than variants.
 
 ### mtDNA
 

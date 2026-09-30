@@ -54,7 +54,11 @@ Monarch returns up to 50 genes, ranked by how well each gene's phenotype profile
 
 - Genes that exist in CoGA link straight to their gene profile.
 - The panel calls Monarch only when you press the button, so it never slows down opening a family.
-  Results are cached for a while.
+  Each press, **Re-run match** included, runs the match again on the phenotypes recorded now. Monarch's
+  answer for the same terms is reused for a while, so a re-run on unchanged terms gives the same
+  ranking.
+- A match that fails, for example because Monarch cannot be reached, is said as a failure with its
+  reason, and no ranking is shown; **Re-run match** tries again.
 - HPO terms recorded on unaffected relatives are part of the query too. Keep that in mind when you read
   the ranking.
 

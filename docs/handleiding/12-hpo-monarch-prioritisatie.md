@@ -85,7 +85,7 @@ Verandert één invoer, dan verandert de hash: de cache mist en de rangschikking
 
 ## Kandidaatgenen op de familiepagina
 
-Het paneel `MonarchPhenotypeMatchPanel.tsx` roept Monarch pas aan na een klik op *Find candidate genes* (`GET /api/families/{family_id}/phenotype-match`), zodat de externe dienst niet bij elke paginalading wordt aangesproken. Het endpoint verzamelt de `present`-termen van de familie (of van één lid) en verrijkt elk gevonden gen: bestaat het gen in CoGA (dan linkt de UI naar het genprofiel, hoofdstuk 13), en welke fenotypes van het gen heeft de familie wel of niet (met de ontologie meegerekend, dus een algemeen genfenotype telt ook als de patiënt een specifieker subtype heeft).
+Het paneel `MonarchPhenotypeMatchPanel.tsx` roept Monarch pas aan na een klik op *Find candidate genes* (`GET /api/families/{family_id}/phenotype-match`), zodat de externe dienst niet bij elke paginalading wordt aangesproken. Elke klik, ook op *Re-run match*, stelt de vraag opnieuw, met de termen van dat moment; de backend hergebruikt het antwoord van Monarch voor dezelfde termen een uur lang (`monarch_semsim.py`). Tijdens een vraag toont het paneel geen vorig resultaat, en een mislukte vraag verschijnt als fout met de reden. Het endpoint verzamelt de `present`-termen van de familie (of van één lid) en verrijkt elk gevonden gen: bestaat het gen in CoGA (dan linkt de UI naar het genprofiel, hoofdstuk 13), en welke fenotypes van het gen heeft de familie wel of niet (met de ontologie meegerekend, dus een algemeen genfenotype telt ook als de patiënt een specifieker subtype heeft).
 
 ## Veiligheid en traceerbaarheid
 

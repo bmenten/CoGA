@@ -24,6 +24,7 @@ diseases and HPO phenotypes.
   says how many the family shows (*"3 observed in family"*).
 - **On the family page**, the **Phenotype match (Monarch)** panel ranks candidate genes when you press
   **Find candidate genes**. It sends the HPO terms of every family member, not only the affected ones.
+  **Re-run match** runs it again on the phenotypes recorded now, for example after you added one.
 - **In the variant list**, the *Phenotype priority* preset ranks variants partly by how well their gene
   matches the affected members' phenotypes (see [Small-variant prioritisation](#small-variant-filtering)).
 

@@ -2,16 +2,43 @@ import { useState, useMemo, type FC } from 'react';
 import { useParams, useLocation, Link, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
-import type { ApiFamilyRecord } from '../../lib/apiTypes';
+import type { ChromosomeOut, FamilyOut } from '../../lib/apiSchema.generated';
 import CircosPlot, { Chromosome, Variant, CHROMS } from '../../components/visualizations/CircosPlot';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import PageState from '../../components/PageState';
 import VizErrorOverlay from '../../components/visualizations/VizErrorOverlay';
-import { formatChromosomeLabel } from '../../lib/chromosomes';
+import { compareChromosomes, formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
 import { apiPath, raw } from '../../lib/apiPath';
 
-const ASSEMBLY = 'GRCh38';
+// A nuclear chromosome's name without "chr": a number, a number with a letter (2A) or one
+// letter (X, W). Contigs (1_KI270706v1_random, Un_GL000195v1, EBV) and the mitochondrion
+// (MT) do not match; the plot leaves them out.
+const NUCLEAR_CHROMOSOME = /^(\d+[A-Z]?|[A-Z])$/;
+
+/**
+ * The chromosomes of the family's assembly as the plot draws them: those of 1–22, X and Y
+ * the assembly has, in that order, at its own sizes. `unplaceable` lists its other nuclear
+ * chromosomes (chr23 and up, W, Z, 2A): the plot has no place for them, and the page says so
+ * rather than drawing the assembly without them.
+ */
+const placeChromosomes = (rows: ChromosomeOut[]) => {
+  const byName = new Map<string, Chromosome>();
+  const unplaceable = new Set<string>();
+  rows.forEach(({ chr, size, bands }) => {
+    const name = normalizeChrom(chr);
+    if (CHROMS.includes(name)) {
+      byName.set(name, { chr: name, size, bands });
+    } else if (NUCLEAR_CHROMOSOME.test(name)) {
+      unplaceable.add(name);
+    }
+  });
+  return {
+    drawn: CHROMS.flatMap((name) => byName.get(name) ?? []),
+    unplaceable: [...unplaceable].sort(compareChromosomes).map(formatChromosomeLabel),
+  };
+};
 
 const CircosPlotPage: FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -22,19 +49,30 @@ const CircosPlotPage: FC = () => {
     [location.search],
   );
 
-  const { data: family } = useQuery<Pick<ApiFamilyRecord, 'projects'>>({
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<Pick<FamilyOut, 'projects'>>({
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const response = await api.get(apiPath`/families/${familyId}`);
-      return response.data as Pick<ApiFamilyRecord, 'projects'>;
+      const response = await api.get<Pick<FamilyOut, 'projects'>>(apiPath`/families/${familyId}`);
+      return response.data;
     },
   });
 
-  const { projectId: resolvedProjectId } = useFamilyReference(
-    family?.projects as string[] | undefined,
-    preferredProjectId,
-  );
+  // The family's assembly is its project's: the plot is drawn on that assembly's
+  // chromosomes, never on a default one.
+  const {
+    assemblyName,
+    projectId: resolvedProjectId,
+    isLoading: referenceLoading,
+    isError: referenceFailed,
+    retry: retryReference,
+  } = useFamilyReference(family?.projects, preferredProjectId);
 
   const queryParams = useMemo(() => {
     const p = new URLSearchParams(location.search);
@@ -62,21 +100,21 @@ const CircosPlotPage: FC = () => {
   );
 
   const {
-    data: chromData,
+    data: assemblyChromosomes,
     error: chromError,
     refetch: refetchChroms,
-  } = useQuery<Chromosome[]>({
-    queryKey: ['circos-chromosomes', ASSEMBLY],
+  } = useQuery<ChromosomeOut[]>({
+    queryKey: ['circos-chromosomes', assemblyName],
+    enabled: Boolean(assemblyName),
     queryFn: async () => {
-      const response = await api.get(apiPath`/chromosomes/${ASSEMBLY}/details`);
-      const chromosomes = new Map<string, Chromosome>();
-      (response.data as Chromosome[]).forEach((entry) => {
-        const chrom = entry.chr.replace(/^chr/i, '');
-        chromosomes.set(chrom, { ...entry, chr: chrom });
-      });
-      return CHROMS.map((chrom) => chromosomes.get(chrom)).filter(Boolean) as Chromosome[];
+      const response = await api.get<ChromosomeOut[]>(apiPath`/chromosomes/${assemblyName}/details`);
+      return response.data;
     },
   });
+  const placement = useMemo(
+    () => (assemblyChromosomes ? placeChromosomes(assemblyChromosomes) : undefined),
+    [assemblyChromosomes],
+  );
 
   const {
     data: svPage,
@@ -97,7 +135,8 @@ const CircosPlotPage: FC = () => {
         limit: typeof res.data.count_limit === 'number' ? res.data.count_limit : null,
       };
     },
-    enabled: !!familyId,
+    // Asked for once the family's assembly, and with it the project scope, is known.
+    enabled: Boolean(familyId && assemblyName),
   });
   const tooManyVariants = Boolean(svPage?.capped);
   // Undefined until loaded, and while failed or capped: none is drawn, never as "none".
@@ -115,13 +154,64 @@ const CircosPlotPage: FC = () => {
       )
     );
 
+  const loadingState = (
+    <PageState
+      kicker="Visualization"
+      title="Loading circos plot"
+      message="Preparing chromosome scaffolds and structural variant links."
+    />
+  );
+
+  if (familyLoading || (family?.projects?.length && referenceLoading)) {
+    return loadingState;
+  }
+
+  if (familyFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Visualization"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This circos plot could not resolve the requested family."
+        onRetry={() => void refetchFamily()}
+      />
+    );
+  }
+
+  // Without the family's assembly there are no chromosomes to draw. None is assumed: every
+  // way of not knowing it is said as such.
+  if (referenceFailed) {
+    return (
+      <PageState
+        kicker="Visualization"
+        title="Reference could not be loaded"
+        message="The family's project, and with it the reference assembly, could not be loaded. The circos plot is drawn on that assembly's chromosomes."
+        action={
+          <button type="button" className="button-secondary" onClick={retryReference}>
+            Retry
+          </button>
+        }
+      />
+    );
+  }
+
+  if (!assemblyName) {
+    return (
+      <PageState
+        kicker="Visualization"
+        title="Reference not linked"
+        message="The circos plot is drawn on the chromosomes of the family's reference assembly, which comes from its project. This family has no such assembly."
+      />
+    );
+  }
+
   // A failed request must not read as a plot still loading, forever (#589, #510).
-  if (!chromData && chromError) {
+  if (!assemblyChromosomes && chromError) {
     return (
       <PageState
         kicker="Visualization"
         title="Could not load the chromosomes"
-        message={`${getErrorMessage(chromError, 'The request failed').replace(/\.+$/, '')}. The circos plot needs them.`}
+        message={`${getErrorMessage(chromError, 'The request failed').replace(/\.+$/, '')}. The circos plot needs the chromosome sizes of ${assemblyName}.`}
         action={
           <button type="button" className="button-secondary" onClick={() => void refetchChroms()}>
             Retry
@@ -131,15 +221,36 @@ const CircosPlotPage: FC = () => {
     );
   }
 
-  if (!chromData) {
+  if (!assemblyChromosomes || !placement) {
+    return loadingState;
+  }
+
+  if (assemblyChromosomes.length === 0) {
     return (
       <PageState
         kicker="Visualization"
-        title="Loading circos plot"
-        message="Preparing chromosome scaffolds and structural variant links."
+        title={`No chromosome sizes for ${assemblyName}`}
+        message={`The circos plot draws each chromosome to its size, and CoGA holds none for ${assemblyName}. An administrator loads them with the assembly's reference data.`}
       />
     );
   }
+
+  // Drawn without some of its chromosomes, the plot would pass for the whole genome.
+  if (placement.unplaceable.length > 0 || placement.drawn.length === 0) {
+    return (
+      <PageState
+        kicker="Visualization"
+        title={`The circos plot cannot draw ${assemblyName}`}
+        message={
+          placement.unplaceable.length > 0
+            ? `It draws chromosomes 1–22, X and Y. ${assemblyName} also has ${placement.unplaceable.join(', ')}, which it cannot place: it would leave them, and their structural variants, out.`
+            : `It draws chromosomes 1–22, X and Y, and ${assemblyName} has none of them.`
+        }
+      />
+    );
+  }
+
+  const chromData = placement.drawn;
 
   const handleChromClick = (chr: string) =>
     navigate(`/families/${familyId}/chromosome/${chr}${resolvedSearch ? `?${resolvedSearch}` : ''}`);
@@ -184,7 +295,7 @@ const CircosPlotPage: FC = () => {
             </button>
           </div>
           <ul className="mt-3 grid grid-cols-2 gap-y-2 gap-x-2">
-            {CHROMS.map((c) => (
+            {chromData.map(({ chr: c }) => (
               <li key={c}>
                 <label className="analysis-checkbox whitespace-nowrap">
                   <input
@@ -206,7 +317,7 @@ const CircosPlotPage: FC = () => {
               <p className="page-kicker">Visualization</p>
               <h1 className="catalog-card-title">Circos plot for family {familyId}</h1>
               <p className="catalog-card-copy">
-                Explore structural rearrangements across chromosomes.
+                Explore structural rearrangements across the chromosomes of {assemblyName}.
               </p>
             </div>
             <Link

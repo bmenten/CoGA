@@ -4,7 +4,8 @@ family page:
 - **Genome view** — the whole genome with its variants and tracks.
 - **Chromosome view** — one chromosome with coverage, segments, APCAD, haplotypes and variant tracks.
   Clicking the ROI on the family page opens it here with 1 Mb on each side.
-- **Circos plot** — genome-wide structural relationships at a glance.
+- **Circos plot** — genome-wide structural relationships at a glance, drawn on chromosomes 1–22, X and
+  Y of the family's assembly. For an assembly it cannot draw, the page says why and draws nothing.
 - **IGV viewer** — the reads at a locus.
 
 The **IGV** and **View** links on a variant row or card, and the **Genome** and **Circos** buttons above

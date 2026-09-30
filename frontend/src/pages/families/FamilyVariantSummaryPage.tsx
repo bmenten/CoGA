@@ -175,7 +175,10 @@ const FamilyVariantSummaryPage: React.FC = () => {
           </button>
         }
       >
-        <p className="catalog-card-copy">Review counts, sharing, and length distributions.</p>
+        <p className="catalog-card-copy">
+          Counts, sharing and length distributions of this family&apos;s structural variants, from
+          every caller.
+        </p>
       </FamilyPageHeader>
 
       <nav className="analysis-nav">
