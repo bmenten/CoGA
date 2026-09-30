@@ -205,17 +205,15 @@ async def _load_glimpse2(project_id: str) -> dict:
 
 async def _remove_added_rows(family_uuid: str) -> None:
     """Remove what this module adds: the GLIMPSE2 callset and its haplotype blocks, the
-    Sniffles and Spectre rows (with their details and lookup rows, which a source-scoped
-    SV delete leaves behind) and the compound-het review. Idempotent."""
+    Sniffles and Spectre rows (the source-scoped SV delete removes their details and lookup
+    rows too) and the compound-het review. Idempotent."""
     from sqlalchemy import text
 
-    from backend.app.core.clickhouse import execute_clickhouse
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services.clickhouse_interval_tracks import (
         delete_interval_track_sources,
         delete_interval_tracks,
     )
-    from backend.app.services.clickhouse_variant_ids import _structural_table_name
     from backend.app.services.clickhouse_variant_storage import (
         delete_family_small_variants,
         delete_family_structural_variants,
@@ -226,18 +224,6 @@ async def _remove_added_rows(family_uuid: str) -> None:
     await delete_interval_tracks(_harness.ASSEMBLY, family_uuid=family_uuid, track_type="haplotype")
     for source in ("sniffles", "spectre"):
         await delete_family_structural_variants(_harness.ASSEMBLY, family_uuid, source=source)
-    await execute_clickhouse(
-        f"ALTER TABLE {_structural_table_name(_harness.ASSEMBLY, 'variants/details')} "
-        "DELETE WHERE family_guid = %(family_guid)s AND source IN %(sources)s "
-        "SETTINGS mutations_sync = 1",
-        {"family_guid": family_uuid, "sources": ("sniffles", "spectre")},
-    )
-    await execute_clickhouse(
-        f"ALTER TABLE {_structural_table_name(_harness.ASSEMBLY, 'key_lookup')} "
-        "DELETE WHERE family_guid = %(family_guid)s AND variantId = %(variant_id)s "
-        "SETTINGS mutations_sync = 1",
-        {"family_guid": family_uuid, "variant_id": _DELETION},
-    )
     async with get_postgres_sessionmaker()() as session:
         await delete_interval_track_sources(session, family_uuid=family_uuid, track_type="haplotype")
         await session.execute(

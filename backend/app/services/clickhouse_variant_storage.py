@@ -700,20 +700,40 @@ async def delete_family_structural_variants(
     *,
     source: str | None = None,
 ) -> None:
+    """Delete the family's structural variants: every source's, or exactly ``source``'s.
+
+    The ``entries`` rows go first. Then the ``variants/details`` and ``key_lookup`` rows of
+    the same scope go, except a row whose key a remaining ``entries`` row of the family
+    still has. Both tables are family-scoped: the key hashes the family
+    (``structural_variant_key``), every row carries ``family_guid``, and a write that keeps
+    a stored key writes it back to the family it read it from. So only the family's own
+    entries can reach these rows, and the check reads those alone.
+
+    After a family delete no entry is left, so all of the family's rows go. After a
+    source-scoped delete the source's rows go unless another source's entry has their key,
+    as two callers' calls at one position had before the key named the source (#658).
+    ClickHouse keeps one details row per key, so removing that row would strip the other
+    caller's SV of its span, length and annotation.
+    """
     await ensure_clickhouse_variant_tables(assembly_name)
-    query = f"ALTER TABLE {_structural_table_name(assembly_name, 'entries')} DELETE WHERE family_guid = %(family_guid)s"
+    entries_table = _structural_table_name(assembly_name, "entries")
     params: dict[str, Any] = {"family_guid": family_uuid}
+    scope = "family_guid = %(family_guid)s"
     if source is not None:
-        query += " AND source = %(source)s"
+        scope += " AND source = %(source)s"
         params["source"] = source
-    query += " SETTINGS mutations_sync = 1"
-    await _execute(query, params)
-    if source is None:
-        for suffix in ("variants/details", "key_lookup"):
-            await _execute(
-                f"ALTER TABLE {_structural_table_name(assembly_name, suffix)} DELETE WHERE family_guid = %(family_guid)s SETTINGS mutations_sync = 1",
-                {"family_guid": family_uuid},
-            )
+    await _execute(
+        f"ALTER TABLE {entries_table} DELETE WHERE {scope} SETTINGS mutations_sync = 1",
+        params,
+    )
+    for suffix in ("variants/details", "key_lookup"):
+        await _execute(
+            f"ALTER TABLE {_structural_table_name(assembly_name, suffix)} DELETE "
+            f"WHERE {scope} AND key NOT IN "
+            f"(SELECT key FROM {entries_table} WHERE family_guid = %(family_guid)s) "
+            "SETTINGS mutations_sync = 1",
+            params,
+        )
     await bump_family_structural_variant_data_version(assembly_name, family_uuid)
 
 
