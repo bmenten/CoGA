@@ -2,10 +2,10 @@
 real Postgres.
 
 The list decides which variants every NIPT analysis of its scope filters out, and it is
-curated through the admin API alone. This adds an entry, updates it, auto-seeds two more
-(the recurrence lookup stubbed), removes one, and checks that each change left one event
-naming the actor, the variant and its before/after state, on the list's own chain, and that
-the chain verifies.
+curated through the admin API alone. This adds an entry, updates it, re-saves it unchanged,
+auto-seeds two more (the recurrence lookup stubbed) and removes one, and checks that each
+change, and only a change, left one event naming the actor, the variant and its before/after
+state, on the list's own chain, and that the chain verifies.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -82,6 +82,11 @@ def test_each_artifact_list_change_is_audited_on_its_own_chain(monkeypatch: pyte
                     s, assembly_id=assembly_id, assay_key=assay, variant_id=variant,
                     label="seen in the run", actor="curator",
                 )
+                await nipt_artifact_pg.add_nipt_artifact(
+                    s, assembly_id=assembly_id, assay_key=assay, variant_id=variant,
+                    label="recurrent in the run", actor="curator",
+                )
+                # The same again changes nothing: no event.
                 await nipt_artifact_pg.add_nipt_artifact(
                     s, assembly_id=assembly_id, assay_key=assay, variant_id=variant,
                     label="recurrent in the run", actor="curator",

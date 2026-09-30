@@ -184,20 +184,22 @@ async def add_nipt_artifact(
     )
     row = dict(result.mappings().one())
     before = _artifact_state(dict(existing)) if existing is not None else None
-    await _record_artifact_event(
-        session,
-        actor=actor,
-        actor_id=created_by,
-        action="nipt_artifact_updated" if before is not None else "nipt_artifact_added",
-        summary=(
-            f"{'Updated' if before is not None else 'Added'} {variant_id} "
-            f"{'on' if before is not None else 'to'} the NIPT artifact list ({assay_key})"
-        ),
-        variant_id=variant_id,
-        before=before,
-        after=_artifact_state(row),
-        metadata={"assembly_id": assembly_id, "assay_key": assay_key},
-    )
+    after = _artifact_state(row)
+    if after != before:  # an unchanged re-save changes nothing, and writes no event
+        await _record_artifact_event(
+            session,
+            actor=actor,
+            actor_id=created_by,
+            action="nipt_artifact_updated" if before is not None else "nipt_artifact_added",
+            summary=(
+                f"{'Updated' if before is not None else 'Added'} {variant_id} "
+                f"{'on' if before is not None else 'to'} the NIPT artifact list ({assay_key})"
+            ),
+            variant_id=variant_id,
+            before=before,
+            after=after,
+            metadata={"assembly_id": assembly_id, "assay_key": assay_key},
+        )
     await session.commit()
     return row
 
