@@ -11,7 +11,8 @@
 # result (TF-18 §2), that is a traceability defect, not a cosmetic one.
 #
 # VERSION stays the single source of truth; the tag mirrors it. The release commit bumps
-# VERSION, and the tag is then `v` + that value.
+# VERSION, and the tag is then `v` + that value. frontend/package.json carries the same
+# version, because the frontend SBOM filed with the release names the frontend by it.
 #
 #   Usage:
 #     ./scripts/check-release-version.sh                 # validate VERSION format only
@@ -44,9 +45,26 @@ if ! printf '%s' "$version" | grep -Eq "$SEMVER"; then
   exit 1
 fi
 
+# npm writes package.json with two-space indentation, so this line is its top-level version.
+frontend_version="$(sed -n 's/^  "version": "\([^"]*\)",\{0,1\}$/\1/p' frontend/package.json | head -n 1)"
+
+if [ "$frontend_version" != "$version" ]; then
+  echo "❌ frontend/package.json does not carry VERSION."
+  echo
+  echo "     frontend/package.json : ${frontend_version:-<not found>}"
+  echo "     VERSION file          : ${version}"
+  echo
+  echo "   The frontend SBOM names the frontend by its package version, so a release whose"
+  echo "   package version differs files an SBOM for a version it is not."
+  echo
+  echo "   To fix: (cd frontend && npm version --no-git-tag-version '${version}'), and commit"
+  echo "   frontend/package.json and frontend/package-lock.json."
+  exit 1
+fi
+
 # No tag to check against — format validation only (useful before cutting a release).
 if [ $# -eq 0 ] || [ -z "${1:-}" ]; then
-  echo "✓ VERSION is a valid semantic version (${version})."
+  echo "✓ VERSION is a valid semantic version (${version}), and frontend/package.json carries it."
   exit 0
 fi
 

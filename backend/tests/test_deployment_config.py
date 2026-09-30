@@ -268,3 +268,26 @@ def test_ingress_ranges_are_validated_as_cidrs() -> None:
     variables = _terraform("variables.tf")
     block = re.search(r'variable "allowed_ingress_cidrs"\s*\{(.*?)\n\}', variables, re.S)
     assert block and "can(cidrhost(cidr, 0))" in block.group(1)
+
+
+def test_an_unstamped_image_reports_the_version_file() -> None:
+    # Settings reads VERSION from the directory above backend/ (app/core/config.py's
+    # parents[3]). In the image config.py is /app/app/core/config.py, so that is /, where the
+    # Dockerfile copies VERSION. Compose leaves APP_VERSION empty unless it is exported, so
+    # a local build names the version it was built from (TF-18 §2).
+    dockerfile = (REPO / "backend" / "Dockerfile").read_text()
+    assert "COPY VERSION /VERSION" in dockerfile
+    assert "WORKDIR /app" in dockerfile and "COPY backend/app ./app" in dockerfile
+    assert re.search(r"^ARG APP_VERSION=$", dockerfile, re.M), "an unstamped build must leave APP_VERSION empty"
+    args = _compose()["services"]["backend"]["build"]["args"]
+    assert args["APP_VERSION"] == "${APP_VERSION:-}"
+    assert args["GIT_SHA"] == "${GIT_SHA:-unknown}"
+
+
+def test_the_repository_carries_one_version() -> None:
+    # build.yml runs the release check only after a merge; running it here fails a pull
+    # request that bumps VERSION without the frontend package, or makes VERSION malformed.
+    result = subprocess.run(
+        ["bash", str(REPO / "scripts" / "check-release-version.sh")], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

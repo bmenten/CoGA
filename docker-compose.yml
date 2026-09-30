@@ -62,9 +62,10 @@ services:
       dockerfile: backend/Dockerfile
       target: production
       args:
-        # Populate before `docker compose build`, e.g.
-        #   export APP_VERSION="$(cat VERSION)" GIT_SHA="$(git rev-parse --short=12 HEAD)"
-        APP_VERSION: ${APP_VERSION:-0.0.0+unknown}
+        # Unset, APP_VERSION leaves the image to report the VERSION file's version. The
+        # commit needs stamping; export it before `docker compose build`, e.g.
+        #   export GIT_SHA="$(git rev-parse --short=12 HEAD)"
+        APP_VERSION: ${APP_VERSION:-}
         GIT_SHA: ${GIT_SHA:-unknown}
     env_file:
       - .env

@@ -11,7 +11,7 @@ scripts that import backend code need the backend's environment, installed from
 | [check-test-catalogue.sh](check-test-catalogue.sh) | Fails unless `docs/testing.md` lists exactly the test files in the tree. |
 | [check-handleiding-sync.sh](check-handleiding-sync.sh) | Rebuilds the handleiding HTML and fails if that changed it; needs the `markdown` package. |
 | [check-coverage-floor.py](check-coverage-floor.py) | Fails when a clinical-critical backend module, or the backend as a whole, drops below its coverage floor. |
-| [check-release-version.sh](check-release-version.sh) | Checks that `VERSION` is valid SemVer and, given a tag, that the tag is `v<VERSION>` ([RELEASING.md](../RELEASING.md)). |
+| [check-release-version.sh](check-release-version.sh) | Checks that `VERSION` is valid SemVer, that `frontend/package.json` carries the same version and, given a tag, that the tag is `v<VERSION>` ([RELEASING.md](../RELEASING.md)). |
 | [audit-frontend-prod.mjs](audit-frontend-prod.mjs) | Audits the frontend's production dependencies; its exceptions are in [frontend-audit-allowlist.json](frontend-audit-allowlist.json) and justified in [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md). |
 | [generate-api-types.py](generate-api-types.py) | Writes the frontend's API types (`frontend/src/lib/apiSchema.generated.ts`) from the backend's OpenAPI schema; run it after changing a Pydantic model. `--check` fails when the file is stale. |
 | **Dependencies and SBOM** | |

@@ -15,6 +15,13 @@ from sqlalchemy.engine import URL
 # derivation in request_logging) can strip it without re-hardcoding the path.
 API_PATH_PREFIX = "/api"
 
+# The repository's VERSION file, the single source of truth for the version (TF-18 §2): the
+# directory above `backend/` in a checkout, and `/VERSION` in the image, which copies it there
+# so the dev stack's bind mount of `backend/` over `/app` cannot hide it.
+_VERSION_FILE = Path(__file__).resolve().parents[3] / "VERSION"
+# The version of a build that could not establish one: never blank, and never a real release.
+_UNKNOWN_APP_VERSION = "0.0.0+unknown"
+
 _DEVELOPMENT_ENVIRONMENTS = {"dev", "development", "local", "test"}
 _INSECURE_SECRET_VALUES = {"secret", "change-me"}
 _INSECURE_PASSWORD_VALUES = {"admin", "change-me"}
@@ -23,6 +30,15 @@ _INSECURE_PASSWORD_VALUES = {"admin", "change-me"}
 _MIN_SECRET_KEY_LENGTH = 32
 # libpq/asyncpg SSL modes for the Postgres connection (TF-13 S-2).
 _POSTGRES_SSLMODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+
+
+def _read_version_file() -> str:
+    """The VERSION file's version, or the unknown sentinel when it is missing or empty."""
+    try:
+        version = _VERSION_FILE.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return _UNKNOWN_APP_VERSION
+    return version or _UNKNOWN_APP_VERSION
 
 
 def _is_ed25519_seed(value: str) -> bool:
@@ -38,10 +54,11 @@ class Settings(BaseSettings):
 
     app_env: str = Field(default="production", alias="APP_ENV")
     # Build identity, injected at image-build time via the APP_VERSION/GIT_SHA
-    # build-args. Free-form strings with permissive defaults so a missing/malformed
-    # value never crash-loops the clinical app; "unknown" is recorded honestly (and
-    # frozen into every signed report's content hash).
-    app_version: str = Field(default="0.0.0+unknown", alias="APP_VERSION")
+    # build-args. A build that stamps no APP_VERSION reports the VERSION file's, so a
+    # local build names the version it was built from. Free-form strings with permissive
+    # defaults so a missing/malformed value never crash-loops the clinical app; "unknown"
+    # is recorded honestly (and frozen into every signed report's content hash).
+    app_version: str = Field(default="", alias="APP_VERSION", validate_default=True)
     git_sha: str = Field(default="unknown", alias="GIT_SHA")
     # Emit HSTS only where TLS terminates in front of the app (never over plain HTTP),
     # so it is safe to leave off for the no-TLS local/compose stack.
@@ -492,6 +509,14 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return value.strip().lower() or "production"
         return value
+
+    @field_validator("app_version")
+    @classmethod
+    def default_app_version_to_version_file(cls, value: str) -> str:
+        # No APP_VERSION, or the empty one the image carries when no build-arg was given:
+        # report the VERSION file's version (TF-18 §2). The commit stays GIT_SHA's, "unknown"
+        # unless stamped, so an unstamped build is still told apart from a released one.
+        return value.strip() or _read_version_file()
 
     @field_validator("storage_backend", mode="before")
     @classmethod
