@@ -38,7 +38,7 @@ migrated ([development.md](development.md#stop-and-reset)).
 | `segmental_duplications` | segmental duplications and low-copy repeats per assembly |
 | `gene_panels`, `gene_panel_genes` | panels and their gene lists |
 | `gene_panel_regions` | a panel's coordinates, one row per gene (or PanelApp region) per assembly (below) |
-| `gene_panel_versions` | an immutable snapshot of every version of a panel: genes, regions, source, external version and author |
+| `gene_panel_versions` | an immutable snapshot of every version of a panel: genes, regions, source, external version and author. `GET /api/panels/{id}/versions/{version}` returns one; no screen shows it, it is there to look up the panel version a report names |
 | `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure` | one HPO release: terms, synonyms, `is_a` links, and every ancestor of a term with its distance |
 | `monarch_gene_disease`, `monarch_disease_phenotype` | Monarch gene-to-disease links (predicate, sources, causal or not) and disease-to-HPO annotations, including negated ones |
 | `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs) |

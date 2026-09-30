@@ -51,7 +51,7 @@ De hele beheer-API staat in `backend/app/routers/admin.py` (`/api/admin`); elk e
 ### Gebruikers en projecten
 
 - **Gebruikers:** per gebruiker e-mail, naam, affiliatie, rol, actief en projecttoegang. Een beheerder activeert of deactiveert een account (`PATCH /api/auth/users/{user_id}`); projecttoegang wordt daar alleen getoond.
-- **Projecten van een familie:** welke projecten een familie zien (`GET /api/admin/projects`, `PUT /api/admin/families/{family_id}/projects`).
+- **Projecten van een familie:** welke projecten een familie zien; de data-inventaris (`GET /api/admin/data`) toont ze per familie, `PUT /api/admin/families/{family_id}/projects` wijzigt ze.
 
 ### Datamanagement en herkomst
 

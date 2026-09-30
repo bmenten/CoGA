@@ -36,7 +36,6 @@ python-multipart
 # Reads the .env file (config.py passes env_file to pydantic-settings, which calls it).
 python-dotenv
 httpx
-pyfaidx
 pysam
 # Reading the bigWig signal tracks HiFiCNV ships in a long-read family package
 # (read depth, minor allele fraction) -- see app/services/family_package_bigwig.py.

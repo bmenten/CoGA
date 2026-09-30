@@ -219,7 +219,6 @@ def test_admin_family_status_crud(family_metadata_client) -> None:
         "/api/families/FAM1/small-variants",
         "/api/families/FAM1/structural-variants",
         "/api/families/FAM1/nipt/variants",
-        "/api/structural-variants/SAMPLE1",
     ],
 )
 @pytest.mark.parametrize("bad_page_size", [10_000_001, -1])

@@ -241,7 +241,6 @@ class Settings(BaseSettings):
         default=r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$",
         alias="CORS_ORIGIN_REGEX",
     )
-    reference_fasta_path: str | None = None
     gene_reference_clingen_validity_url: str = Field(
         default="https://search.clinicalgenome.org/kb/gene-validity/download",
         alias="GENE_REFERENCE_CLINGEN_VALIDITY_URL",
@@ -343,7 +342,6 @@ class Settings(BaseSettings):
     # was downloaded is logged for traceability.
     hpo_ontology_sha256: str = Field(default="", alias="HPO_ONTOLOGY_SHA256")
     hpo_download_if_missing: bool = Field(default=True, alias="HPO_DOWNLOAD_IF_MISSING")
-    reads_path: str | None = None
     # Storage backend for raw family data (IGV alignments + family-package sources).
     # "local" reads from the local filesystem (dev); "s3"/"gcs" read from a cloud
     # object store (production) via presigned/signed URLs for IGV and temp staging

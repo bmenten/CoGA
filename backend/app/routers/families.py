@@ -14,7 +14,6 @@ from ..schemas import (
     FamilyMemberBatchUpdateOut,
     FamilyMemberDeleteOut,
     FamilyMemberDetailOut,
-    FamilyMemberImpactOut,
     FamilyMemberUpdate,
     FamilyMemberUpdateOut,
     FamilyMetadataUpdate,
@@ -37,7 +36,6 @@ from ..services.family_service import (
 from ..services.family_member_management_service import (
     delete_family_member_for_admin,
     get_family_member_detail_for_user,
-    get_family_member_impact_for_user,
     update_family_members_batch_for_admin,
     update_family_member_for_admin,
 )
@@ -191,21 +189,6 @@ async def get_family_member_detail(
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilyMemberDetailOut:
     return await get_family_member_detail_for_user(
-        session,
-        family_id=family_id,
-        sample_id=sample_id,
-        user=user,
-    )
-
-
-@router.get("/{family_id}/members/{sample_id}/impact", response_model=FamilyMemberImpactOut)
-async def get_family_member_impact(
-    family_id: str,
-    sample_id: str,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> FamilyMemberImpactOut:
-    return await get_family_member_impact_for_user(
         session,
         family_id=family_id,
         sample_id=sample_id,

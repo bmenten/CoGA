@@ -25,7 +25,7 @@ def test_application_routes_are_mounted_under_api_prefix() -> None:
     assert "/api/panels/" in paths
     assert "/api/families/" in paths
     assert "/api/auth/login" in paths
-    assert "/api/admin/projects" in paths
+    assert "/api/admin/data" in paths
 
 
 def test_unprefixed_application_routes_are_not_registered() -> None:
@@ -35,7 +35,7 @@ def test_unprefixed_application_routes_are_not_registered() -> None:
     assert "/panels/" not in paths
     assert "/families/" not in paths
     assert "/auth/login" not in paths
-    assert "/admin/projects" not in paths
+    assert "/admin/data" not in paths
 
 
 def test_api_collection_roots_accept_missing_trailing_slash_without_redirect(

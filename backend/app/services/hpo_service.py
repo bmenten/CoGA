@@ -544,7 +544,7 @@ def ensure_authorized_hpo_ontology_path(path: str | Path) -> Path:
     """Confirm an API-supplied ontology path resolves inside an authorized HPO ontology
     directory before it is opened.
 
-    ``/hpo/import`` and ``/admin/hpo/sync`` accept a raw filesystem path from the request
+    ``/admin/hpo/sync`` accepts a raw filesystem path from the request
     body; without this guard a request could point ``read_text`` at any host file (e.g.
     ``/etc/passwd``) — an admin-gated arbitrary-file read that violates least privilege
     on a clinical platform. The authorized roots are the directories of the known

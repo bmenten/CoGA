@@ -93,7 +93,7 @@ Een **tweede hit** is een heterozygote small variant samen met een structurele v
 
 De SV-pagina volgt hetzelfde stramien, met eigen bestanden (`FamilyStructuralVariantsPage.tsx`, `structuralVariantSearch.ts`, `StructuralVariantFilterForm.tsx`). De filters omvatten type (DEL, DUP, …), lengte, bron, regiovlaggen, frequentie in controles en populatie, genconstraint, fenotypevelden, gen of panel, overerving en genotype per sample. Naast de gefilterde vraag doet de pagina één vraag zonder filters, om het totaal "All variants" te tonen.
 
-Het endpoint is `GET /api/families/{family_id}/structural-variants`; voor de SV's van één sample bestaat `GET /api/structural-variants/{sample_id}`, met dezelfde service. De verschillen met small variants:
+Het endpoint is `GET /api/families/{family_id}/structural-variants`; de SV's van één sample vraag je op met de parameter `sample`. De verschillen met small variants:
 
 | Aspect | Small variants | Structurele varianten |
 | --- | --- | --- |

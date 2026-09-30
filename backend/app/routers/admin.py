@@ -118,7 +118,6 @@ from ..services.hpo_service import (
     sync_hpo_ontology,
 )
 from ..services.metadata_service import (
-    list_family_project_assignments,
     update_family_project_assignments,
 )
 from ..services.access_control import CurrentUser
@@ -296,14 +295,6 @@ async def auto_seed_nipt_artifacts_endpoint(
         created_by=user.id,
     )
     return NiptArtifactAutoSeedOut(**result)
-
-
-@router.get("/projects")
-async def list_project_assignments(
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
-) -> List[Dict]:
-    return await list_family_project_assignments(session)
 
 
 @router.put("/families/{family_id}/projects")

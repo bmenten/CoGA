@@ -1842,7 +1842,7 @@ python docs/handleiding/build_site.py
 <p class="waar"><strong>Waar in de code:</strong> de paren in <code>clickhouse_variant_queries.py</code> en <code>SmallVariantPairCards.tsx</code>; de faseregel via de ouders in <code>backend/app/services/compound_het_phase.py</code>; de SV-index in <code>backend/app/services/sv_gene_index_service.py</code>; de dragerscreening in <code>clickhouse_variant_queries.py</code> en <code>smallVariantSearch.ts</code>.</p>
 <h2>Deel A — Structurele varianten</h2>
 <p>De SV-pagina volgt hetzelfde stramien, met eigen bestanden (<code>FamilyStructuralVariantsPage.tsx</code>, <code>structuralVariantSearch.ts</code>, <code>StructuralVariantFilterForm.tsx</code>). De filters omvatten type (DEL, DUP, …), lengte, bron, regiovlaggen, frequentie in controles en populatie, genconstraint, fenotypevelden, gen of panel, overerving en genotype per sample. Naast de gefilterde vraag doet de pagina één vraag zonder filters, om het totaal "All variants" te tonen.</p>
-<p>Het endpoint is <code>GET /api/families/{family_id}/structural-variants</code>; voor de SV's van één sample bestaat <code>GET /api/structural-variants/{sample_id}</code>, met dezelfde service. De verschillen met small variants:</p>
+<p>Het endpoint is <code>GET /api/families/{family_id}/structural-variants</code>; de SV's van één sample vraag je op met de parameter <code>sample</code>. De verschillen met small variants:</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -3086,7 +3086,7 @@ python docs/handleiding/build_site.py
 <h3>Gebruikers en projecten</h3>
 <ul>
 <li><strong>Gebruikers:</strong> per gebruiker e-mail, naam, affiliatie, rol, actief en projecttoegang. Een beheerder activeert of deactiveert een account (<code>PATCH /api/auth/users/{user_id}</code>); projecttoegang wordt daar alleen getoond.</li>
-<li><strong>Projecten van een familie:</strong> welke projecten een familie zien (<code>GET /api/admin/projects</code>, <code>PUT /api/admin/families/{family_id}/projects</code>).</li>
+<li><strong>Projecten van een familie:</strong> welke projecten een familie zien; de data-inventaris (<code>GET /api/admin/data</code>) toont ze per familie, <code>PUT /api/admin/families/{family_id}/projects</code> wijzigt ze.</li>
 </ul>
 <h3>Datamanagement en herkomst</h3>
 <ul>

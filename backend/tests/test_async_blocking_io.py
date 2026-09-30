@@ -1,6 +1,5 @@
 """Tests for the #11 async-offloading / caching changes:
 - cram manifest resolves samples concurrently while preserving order + dedup,
-- reference_service caches the pyfaidx handle (opened once),
 - object_storage.download_prefix downloads every object under a prefix.
 """
 import threading
@@ -11,7 +10,6 @@ import pytest
 
 from app.core import object_storage as s
 from app.routers import cram
-from app.services import reference_service as rs
 
 
 # --------------------------------------------------------------------------- #
@@ -85,54 +83,6 @@ async def test_get_cram_header_offloads_blocking_read(monkeypatch):
     # The blocking pysam read is offloaded off the event loop via asyncio.to_thread,
     # not awaited inline (the offloaded callable is the patched _read_alignment_header).
     assert offloaded == ["fake_read"]
-
-
-# --------------------------------------------------------------------------- #
-# reference FASTA caching                                                      #
-# --------------------------------------------------------------------------- #
-class _FakeRecord:
-    def __getitem__(self, item):
-        return SimpleNamespace(seq="ACGT")
-
-
-class _FakeFasta:
-    instances = 0
-
-    def __init__(self, path):
-        type(self).instances += 1
-        self.path = path
-
-    def keys(self):
-        return ["chr1"]
-
-    def __getitem__(self, name):
-        return _FakeRecord()
-
-
-def test_reference_fasta_is_opened_once_and_reused(monkeypatch):
-    _FakeFasta.instances = 0
-    monkeypatch.setattr(rs, "_fasta_cache", {})  # isolate from process-wide cache
-    monkeypatch.setattr(rs, "Fasta", _FakeFasta)
-    monkeypatch.setattr(rs, "_resolve_matching_name", lambda names, chrom: chrom)
-    monkeypatch.setattr(rs.settings, "reference_fasta_path", "/ref/genome.fa")
-
-    out1 = rs.get_reference_sequence_data("chr1", 0, 4)
-    out2 = rs.get_reference_sequence_data("chr1", 10, 14)
-
-    assert out1.sequence == "ACGT"
-    assert out2.sequence == "ACGT"
-    # Re-instantiating Fasta() per call would have re-read the .fai each time.
-    assert _FakeFasta.instances == 1
-
-
-def test_reference_sequence_requires_configured_path(monkeypatch):
-    from fastapi import HTTPException
-
-    monkeypatch.setattr(rs, "_fasta_cache", {})
-    monkeypatch.setattr(rs.settings, "reference_fasta_path", "")
-    with pytest.raises(HTTPException) as exc:
-        rs.get_reference_sequence_data("chr1", 0, 4)
-    assert exc.value.status_code == 503
 
 
 # --------------------------------------------------------------------------- #
