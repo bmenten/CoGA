@@ -360,6 +360,133 @@ def test_structural_variant_review_saves_are_chained_and_verify() -> None:
     asyncio.run(_run())
 
 
+def test_criterion_level_changes_are_chained_and_verify() -> None:
+    """A change to any criterion of a stored classification (a strength, points, evidence
+    text, a suggestion) writes a chained event with the whole record before and after, for
+    a small variant (the real ``record_review_changes`` on normalised ACMG records) and a
+    CNV (the real ``upsert_structural_variant_review``). The chain verifies after the JSONB
+    round-trip, evidence with non-ASCII text included, and an unchanged re-save writes
+    nothing."""
+    from backend.app.core.postgres import (
+        close_postgres_engine,
+        get_postgres_sessionmaker,
+        init_postgres_schema,
+    )
+    from backend.app.schemas import (
+        AcmgClassificationPayload,
+        AcmgCriterionSelection,
+        CnvAcmgClassificationPayload,
+        CnvAcmgCriterion,
+        SmallVariantReviewUpdate,
+    )
+    from backend.app.services.clinical_audit_service import (
+        record_review_changes,
+        verify_clinical_audit_chain,
+    )
+    from backend.app.services.small_variant_review_acmg import _normalize_acmg_payload
+    from backend.app.services.structural_variant_review_pg import (
+        upsert_structural_variant_review,
+    )
+
+    replicated = "functional study — replicated, gène X"
+
+    def _snv(pm2_strength: str, ps3_evidence: str, pm1_offered: bool) -> dict:
+        criteria = [
+            AcmgCriterionSelection(code="PS3", strength="strong", accepted=True, evidence=ps3_evidence),
+            AcmgCriterionSelection(code="PM2", strength=pm2_strength, accepted=True),
+            AcmgCriterionSelection(code="PP3", strength="supporting", accepted=True),
+        ]
+        if pm1_offered:
+            criteria.append(
+                AcmgCriterionSelection(code="PM1", strength="moderate", accepted=False, auto_suggested=True)
+            )
+        blob, _points, class_key = _normalize_acmg_payload(AcmgClassificationPayload(criteria=criteria))
+        return {"acmg_class": class_key, "acmg": blob, "tags": [], "note": None}
+
+    snv_states = [
+        _snv("moderate", "functional study", False),
+        _snv("supporting", "functional study", False),  # a strength
+        _snv("supporting", replicated, False),  # evidence text
+        _snv("supporting", replicated, True),  # a suggestion appears
+        _snv("supporting", replicated, True),  # unchanged
+    ]
+
+    def _loss(evidence: str, points_4d: float, suggested_4d: bool) -> SmallVariantReviewUpdate:
+        return SmallVariantReviewUpdate(
+            classification="Pathogenic - class 5",
+            cnv_acmg=CnvAcmgClassificationPayload(
+                kind="loss",
+                criteria=[
+                    CnvAcmgCriterion(code="2A", points=1.0, accepted=True, evidence=evidence),
+                    CnvAcmgCriterion(code="4D", points=points_4d, accepted=False, auto_suggested=suggested_4d),
+                ],
+            ),
+        )
+
+    sv_saves = [
+        _loss("HI gene", 0.0, True),
+        _loss("HI gene — whole, gène Y", 0.0, True),  # evidence text
+        _loss("HI gene — whole, gène Y", -0.45, False),  # an unaccepted criterion
+        _loss("HI gene — whole, gène Y", -0.45, False),  # unchanged
+    ]
+
+    async def _run() -> None:
+        try:
+            await init_postgres_schema()
+            sm = get_postgres_sessionmaker()
+            label = f"criterion-audit-{uuid4()}"
+            async with sm() as s:
+                fam = await _fresh_family(s, label)
+                await s.commit()
+            user = SimpleNamespace(id=None, username="criterion-reviewer", email="cr@x.org")
+
+            previous = None
+            for state in snv_states:
+                async with sm() as s:
+                    await record_review_changes(
+                        s, family_uuid=fam, family_identifier=label, variant_id="1-2000-C-T",
+                        user=user, existing=previous, new_state=state,
+                    )
+                    await s.commit()
+                previous = state
+            context = SimpleNamespace(family_uuid=fam, family_id=label, project_ids=[])
+            for payload in sv_saves:
+                async with sm() as s:
+                    await upsert_structural_variant_review(
+                        s, context=context, variant_id="1-100000-250000-DEL---", payload=payload, user=user
+                    )
+
+            async with sm() as s:
+                chain = await verify_clinical_audit_chain(s, label)
+                rows = (
+                    await s.execute(
+                        text(
+                            "SELECT variant_id, summary, after FROM clinical_audit_events "
+                            "WHERE family_identifier = :f ORDER BY created_at ASC, id ASC"
+                        ),
+                        {"f": label},
+                    )
+                ).mappings().all()
+
+            assert chain.verified and chain.rows_checked == len(rows) == 7, (chain, rows)
+            summaries = [row["summary"] for row in rows]
+            assert summaries[1:4] == [
+                "ACMG criteria updated (Likely pathogenic (class 4)): PM2 moderate → supporting; total 7 → 6",
+                "ACMG criteria updated (Likely pathogenic (class 4)): PS3 evidence edited",
+                "ACMG criteria updated (Likely pathogenic (class 4)): PM1 suggested",
+            ]
+            assert summaries[5:] == [
+                "CNV criteria updated (Pathogenic - class 5): 2A evidence edited",
+                "CNV criteria updated (Pathogenic - class 5): 4D 0 → -0.45 points, no longer suggested",
+            ]
+            [ps3] = [c for c in rows[2]["after"]["criteria_detail"] if c["code"] == "PS3"]
+            assert ps3["evidence"] == replicated
+        finally:
+            await close_postgres_engine()
+
+    asyncio.run(_run())
+
+
 def test_report_signout_verifier_detects_tampering_and_survives_family_deletion() -> None:
     from backend.app.core.postgres import (
         close_postgres_engine,
