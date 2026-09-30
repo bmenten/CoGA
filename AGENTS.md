@@ -81,7 +81,8 @@
 - A new or deleted test file needs its row in `docs/testing.md`
   (`./scripts/check-test-catalogue.sh`). After editing a handleiding chapter, run
   `python docs/handleiding/build_site.py` and commit the rebuilt HTML.
-- Every PR adds a `CHANGELOG.md` entry and a TF-18 §8 change-record row with its proposed
-  level.
+- Every PR adds a `CHANGELOG.md` entry. Until the first release candidate TF-18 §8 keeps no
+  per-change rows (TF-18 §3a); a PR that changes a clinical output also adds one line, with its
+  proposed level, to TF-10 §8. From the release candidate on, each change adds a TF-18 §8 row.
 - The end-to-end harness (API contract, import, sign-out, Playwright journeys) backs the IVDR
   verification records — see `docs/regulatory/TF-09c` and `TF-09d`.

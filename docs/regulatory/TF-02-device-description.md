@@ -134,7 +134,7 @@ governed by **TF-18**.
 ## 10. Operating environment & deployment
 
 - Containerized. **Production target: Google Cloud**, deployed with Terraform (owner decision,
-  CR-089). There is **no production deployment yet**: the configuration in `terraform/` is
+  #627). There is **no production deployment yet**: the configuration in `terraform/` is
   written but has never been applied. It describes Cloud Run services behind an external
   HTTPS load balancer (TLS 1.2+, Cloud Armor), Cloud SQL, a ClickHouse VM and CMEK-encrypted
   buckets in the configured region (default `europe-west1`). The load balancer is

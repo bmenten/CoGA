@@ -45,7 +45,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   as well. Passwords are stored as bcrypt hashes.
 - ✅ **Passwords at sign-up** need at least 15 characters (`SIGNUP_PASSWORD_MIN_LENGTH`,
   following NIST SP 800-63B-4 for a single-factor password); a shorter one gets a 422 before
-  any throttling or hashing. The device owner confirmed this policy (TF-18 CR-088).
+  any throttling or hashing. The device owner confirmed this policy (#626).
 - ✅ **Reference routers need a signed-in user**, the species list included. Reference data
   (genes, assemblies, the CNV catalogue) is not project-scoped: it is public and not PHI.
 - ✅ **Outbound downloads.** The HPO bootstrap downloads over HTTPS only, capped in size,

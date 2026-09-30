@@ -83,9 +83,13 @@ The rules these gates enforce, and the ones they cannot:
   `--max-warnings` budget in `frontend/package.json`. When you fix one, lower the budget to
   match.
 - **The change is recorded.** Add an entry under `[Unreleased]` in
-  [CHANGELOG.md](CHANGELOG.md), and a row in the change-record log of
-  [TF-18 §8](docs/regulatory/TF-18-change-configuration-management.md) with the level you
-  propose (see below); QA confirms the level.
+  [CHANGELOG.md](CHANGELOG.md). Until the first release candidate that is the whole record
+  ([TF-18 §3a](docs/regulatory/TF-18-change-configuration-management.md)), except that a change
+  to a clinical output also adds one line to
+  [TF-10 §8](docs/regulatory/TF-10-performance-evaluation-plan.md) with the level you propose
+  (see below). From the release candidate on, each change adds a row to the change-record log of
+  [TF-18 §8](docs/regulatory/TF-18-change-configuration-management.md) with that level. QA
+  confirms the level.
 
 ### Branches and commits
 
