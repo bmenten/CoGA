@@ -490,4 +490,61 @@ describe('ReferenceCatalogPage', () => {
       screen.queryByRole('heading', { name: 'Upload reference data' })
     ).not.toBeInTheDocument();
   });
+
+  // A clinical CNV knowledgebase rebuild runs in the background; how it ended was not shown,
+  // so a failed rebuild looked like a finished one.
+  describe('clinical CNV knowledgebase rebuilds', () => {
+    const job = (id: string, status: string, requested: string, error: string | null = null) => ({
+      _id: id,
+      assembly_id: 'assembly-1',
+      assembly_name: 'GRCh38',
+      status,
+      skip_clinvar: false,
+      requested_by: 'lab.admin',
+      requested_at: requested,
+      started_at: requested,
+      completed_at: requested,
+      inserted: status === 'completed' ? 561 : 0,
+      error,
+    });
+    const withRebuilds = (jobs: ReturnType<typeof job>[]) => {
+      const get = api.get as unknown as Mock;
+      const working = get.getMockImplementation()!;
+      get.mockImplementation((url: string, config?: unknown) =>
+        url === '/admin/clinical-cnv-kb/status'
+          ? Promise.resolve({
+              data: { active_job: null, recent_jobs: jobs, available: true, detail: null },
+            })
+          : working(url, config),
+      );
+    };
+    const REASON =
+      'Knowledgebase build failed (exit 1): Build stopped: The ClinGen recurrent CNV regions ' +
+      'could not be downloaded';
+
+    it('says that the newest rebuild of an assembly failed, and why', async () => {
+      withRebuilds([
+        job('job-2', 'failed', '2026-09-30T15:00:00Z', REASON),
+        job('job-1', 'completed', '2026-09-29T10:00:00Z'),
+      ]);
+      renderPage();
+
+      const notice = await screen.findByLabelText('Failed clinical CNV knowledgebase rebuilds');
+      expect(notice).toHaveTextContent('The clinical CNV knowledgebase rebuild for GRCh38 failed');
+      expect(notice).toHaveTextContent(REASON);
+      expect(notice).toHaveTextContent('Nothing was loaded: the clinical CNVs from before it are unchanged.');
+    });
+
+    it('says nothing once a later rebuild of that assembly succeeded', async () => {
+      withRebuilds([
+        job('job-2', 'completed', '2026-09-30T16:00:00Z'),
+        job('job-1', 'failed', '2026-09-30T15:00:00Z', REASON),
+      ]);
+      renderPage();
+
+      expect(await screen.findByRole('heading', { name: 'Homo sapiens' })).toBeInTheDocument();
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith('/admin/clinical-cnv-kb/status'));
+      expect(screen.queryByLabelText('Failed clinical CNV knowledgebase rebuilds')).not.toBeInTheDocument();
+    });
+  });
 });

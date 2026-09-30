@@ -1,0 +1,123 @@
+/* Paraphase result detail: copy-number and read grids, clinical notes, extra fields and haplotype groups. */
+
+.paraphase-cn-grid,
+.paraphase-read-grid {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.paraphase-cn-grid span,
+.paraphase-read-grid span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  border-radius: 6px;
+  background: rgba(10, 11, 12, 0.035);
+  padding: 0.2rem 0.45rem;
+  color: var(--color-text-muted);
+}
+
+.paraphase-cn-grid strong,
+.paraphase-read-grid strong {
+  color: var(--color-heading);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.paraphase-cn-grid {
+  grid-template-columns: repeat(3, minmax(6rem, 1fr));
+}
+
+.paraphase-read-grid {
+  grid-template-columns: repeat(3, minmax(7rem, 1fr));
+}
+
+.paraphase-read-grid span {
+  background: rgba(26, 77, 100, 0.055);
+}
+
+.paraphase-read-grid--clinical span {
+  border: 1px solid rgba(180, 35, 24, 0.14);
+  background: rgba(180, 35, 24, 0.055);
+}
+
+.paraphase-clinical-note {
+  border-left: 3px solid rgba(180, 35, 24, 0.34);
+  padding: 0.22rem 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  background: rgba(180, 35, 24, 0.045);
+}
+
+.paraphase-extra-fields {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.paraphase-extra-field {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.42fr) minmax(12rem, 1fr);
+  gap: 0.5rem;
+  align-items: start;
+  padding: 0.34rem 0.5rem;
+  border: 1px solid rgba(24, 73, 92, 0.1);
+  border-radius: 6px;
+  background: rgba(26, 77, 100, 0.045);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.paraphase-extra-field span {
+  display: block;
+  color: var(--color-heading);
+  font-weight: 780;
+}
+
+.paraphase-extra-field p {
+  margin: 0.12rem 0 0;
+}
+
+.paraphase-extra-field strong {
+  min-width: 0;
+  color: var(--color-heading);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.paraphase-haplotype-groups {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.paraphase-haplotype-group {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, auto) auto minmax(12rem, 1fr);
+  align-items: baseline;
+  gap: 0.45rem;
+  border-radius: 6px;
+  background: rgba(10, 11, 12, 0.032);
+  padding: 0.24rem 0.45rem;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+.paraphase-haplotype-group > span {
+  font-weight: 750;
+  color: var(--color-heading);
+}
+
+.paraphase-haplotype-group > strong {
+  font-family: var(--font-mono);
+  color: var(--color-primary);
+}
+
+.paraphase-haplotype-group > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,817 @@
+/* The analysis shell and the variant filter workbench: filters, the NIPT form, presets and saved filters. */
+
+.analysis-shell {
+  display: grid;
+  gap: 1.15rem;
+}
+
+.analysis-grid {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.analysis-grid--viewer {
+  align-items: start;
+  gap: 0.9rem;
+}
+
+.analysis-sidebar {
+  display: grid;
+  gap: 1rem;
+  align-self: start;
+}
+
+.analysis-sidebar--viewer {
+  gap: 0.9rem;
+}
+
+.analysis-main {
+  display: grid;
+  /* Explicit shrinkable single column: without minmax(0, 1fr) the implicit grid
+     column sizes to its content, so a wide track row would blow the column out
+     past the viewer cell instead of letting the inner horizontal scroll engage. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.analysis-main--viewer {
+  min-width: 0;
+  align-content: start;
+}
+
+/* The genome viewer nests fixed-width track rows (DEFAULT_TRACK_WIDTH) inside an
+   overflow-x-auto scroller. Every grid/flex ancestor between the viewer main and
+   that scroller must be allowed to shrink below its content, or the page itself
+   scrolls horizontally on < ~1480px screens (and the tracks spill past the cell). */
+.genome-visualization-panel,
+.viz-shell,
+.viz-shell > .viz-panel {
+  min-width: 0;
+}
+
+.analysis-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.analysis-jump-form {
+  display: flex;
+  flex: 1 1 26rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.analysis-jump-field {
+  min-width: min(100%, 22rem);
+  flex: 1 1 22rem;
+}
+
+.analysis-panel {
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: var(--shadow-card);
+  padding: 1.35rem;
+}
+
+.analysis-panel-muted {
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: rgba(247, 249, 252, 0.96);
+  padding: 1.15rem;
+}
+
+.analysis-section-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.analysis-filter-grid {
+  display: grid;
+  /* Matches the filter dropdown's own 0.45rem rhythm; 0.9rem spread a row of small
+     numeric fields much wider than they need. */
+  gap: 0.45rem;
+}
+
+.variant-workbench-card {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.variant-workbench-card .page-top-card-copy {
+  gap: 0.7rem;
+}
+
+.variant-workbench-card .page-top-card-pedigree {
+  padding: 0.55rem 0.65rem;
+  border-radius: 6px;
+}
+
+.variant-search-workspace {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.variant-search-header {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.variant-search-meta {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.variant-search-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  align-items: center;
+}
+
+.variant-search-toolbar > select {
+  flex: 1 1 15rem;
+}
+
+.variant-search-toolbar > button {
+  flex: 0 0 auto;
+}
+
+.variant-search-section {
+  display: grid;
+  gap: 0.32rem;
+  border-top: 1px solid rgba(12, 14, 16, 0.08);
+  padding-top: 0.4rem;
+}
+
+.variant-search-section-copy {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.variant-search-section-copy code {
+  border: 1px solid var(--color-border);
+  background: rgba(245, 248, 251, 0.96);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.variant-sample-grid {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.variant-sample-row {
+  display: grid;
+  gap: 0.34rem;
+  border: 1px solid rgba(12, 14, 16, 0.08);
+  border-radius: 4px;
+  background: rgba(247, 249, 252, 0.9);
+  padding: 0.42rem 0.5rem;
+}
+
+.variant-sample-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.variant-sample-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.variant-sample-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.variant-sample-controls {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.variant-gt-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.variant-search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-start;
+}
+
+.variant-filter-dropdown-grid {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.variant-filter-dropdown {
+  position: relative;
+  border: 1px solid rgba(10, 11, 12, 0.07);
+  border-radius: 6px;
+  background: linear-gradient(145deg, rgba(249, 251, 253, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
+}
+
+.variant-filter-dropdown[open] {
+  border-color: rgba(82, 111, 161, 0.18);
+  box-shadow: 0 10px 24px rgba(12, 14, 16, 0.05);
+}
+
+.variant-filter-dropdown summary {
+  list-style: none;
+}
+
+.variant-filter-dropdown summary::-webkit-details-marker {
+  display: none;
+}
+
+.variant-filter-dropdown-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  cursor: pointer;
+  padding: 0.4rem 0.5rem;
+}
+
+.variant-filter-dropdown-summary-copy {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.variant-filter-dropdown-summary-controls {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  margin-left: auto;
+}
+
+.variant-summary-select-field {
+  display: grid;
+  gap: 0.12rem;
+  width: clamp(13rem, 23vw, 19rem);
+  min-width: 13rem;
+}
+
+.variant-summary-select-field > span {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-summary-select-field > select {
+  min-height: 2rem;
+  padding: 0.42rem 0.55rem;
+  font-size: 0.7rem;
+}
+
+.variant-filter-dropdown-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.variant-filter-dropdown-meta {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+.variant-filter-dropdown-caret {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  transition: transform 140ms ease;
+}
+
+.variant-filter-dropdown[open] .variant-filter-dropdown-caret {
+  transform: rotate(180deg);
+}
+
+.variant-filter-dropdown-content {
+  display: grid;
+  gap: 0.45rem;
+  border-top: 1px solid rgba(10, 11, 12, 0.06);
+  padding: 0.46rem 0.5rem 0.52rem;
+}
+
+/* A filter popover holds a dozen numeric fields to be read at a glance. The global
+   3.15rem control height is sized for standalone forms and left each dropdown a column
+   of oversized boxes — while the quick selects in the same form were already 2rem.
+   Match those, so one form has one control size. */
+.variant-filter-dropdown-content
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.variant-filter-dropdown-content select,
+.variant-filter-dropdown-content textarea,
+.analysis-filter-grid input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.analysis-filter-grid select {
+  min-height: 2rem;
+  padding: 0.42rem 0.55rem;
+  font-size: 0.7rem;
+}
+
+/* A range has no text to pad, so the inherited 1rem padding was pure height. */
+.variant-filter-dropdown-content input[type='range'] {
+  min-height: 1.1rem;
+  padding: 0;
+}
+
+/* Monogenic NIPT filter form helpers (mirror the small-variant filter look). */
+.analysis-field-label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #5b6166;
+}
+
+.nipt-category-grid {
+  display: grid;
+  gap: 0.3rem 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.nipt-category-option {
+  align-items: center;
+}
+
+.nipt-category-option-copy {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.nipt-category-option-count {
+  font-variant-numeric: tabular-nums;
+  color: #5b6166;
+  font-size: 0.78rem;
+}
+
+/* NIPT classification block (on the reused small-variant card) + table cell. */
+.nipt-classification-block {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.4rem 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 0.6rem;
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.nipt-classification-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.nipt-classification-category {
+  font-weight: 700;
+}
+
+.nipt-classification-label {
+  color: #5b6166;
+}
+
+.nipt-classification-confidence {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: #5b6166;
+}
+
+.nipt-classification-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.3rem 0.75rem;
+  margin: 0;
+}
+
+.nipt-classification-stats > div {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.nipt-classification-stats dt {
+  font-weight: 600;
+  color: #5b6166;
+}
+
+.nipt-classification-stats dd {
+  margin: 0;
+}
+
+.nipt-classification-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.nipt-table-cell {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.nipt-table-category {
+  font-weight: 700;
+}
+
+.nipt-table-detail {
+  font-size: 0.76rem;
+  color: #5b6166;
+}
+
+.variant-inline-controls {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.variant-checkbox-grid {
+  display: grid;
+  gap: 0.26rem 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(195px, 1fr));
+  justify-items: start;
+}
+
+.variant-checkbox-grid--small {
+  gap: 0.2rem 0.45rem;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.variant-checkbox-grid--compact {
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+}
+
+.variant-compact-checkbox {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--color-text-muted);
+}
+
+.variant-annotation-impact-groups {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  align-items: start;
+}
+
+.variant-annotation-impact-group {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0;
+}
+
+.variant-annotation-impact-title {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-annotation-impact-title-row {
+  align-items: center;
+}
+
+.variant-frequency-slider-grid {
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 420px));
+  justify-content: flex-start;
+}
+
+.variant-frequency-slider-row {
+  display: grid;
+  gap: 0.28rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 0.34rem 0.42rem;
+}
+
+.variant-frequency-slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+.variant-frequency-slider-row input[type='range'] {
+  width: 100%;
+  margin: 0;
+  accent-color: #526fa1;
+}
+
+.variant-frequency-clear {
+  min-height: 1.8rem;
+  padding: 0.42rem 0.58rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+}
+
+.variant-review-curation-columns {
+  display: grid;
+  gap: 0.55rem 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  align-items: start;
+}
+
+.variant-review-tag-column {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.variant-review-tag-list {
+  display: grid;
+  gap: 0.24rem;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+}
+
+.variant-review-tag-list .variant-compact-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.36rem;
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.variant-review-tag-list .variant-compact-checkbox input {
+  margin-top: 0.1rem;
+}
+
+.variant-workspace-feedback {
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  padding: 0.8rem 0.95rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.variant-workspace-feedback--success {
+  border-color: rgba(53, 111, 83, 0.2);
+  background: rgba(53, 111, 83, 0.1);
+  color: #356f53;
+}
+
+.variant-workspace-feedback--error {
+  border-color: rgba(173, 31, 45, 0.2);
+  background: rgba(173, 31, 45, 0.09);
+  color: var(--color-signature-red-dark);
+}
+
+.variant-workspace-feedback--warning {
+  border-color: rgba(180, 83, 9, 0.25);
+  background: rgba(180, 83, 9, 0.08);
+  color: #92400e;
+}
+
+/* Subtle provenance note for a prioritised ranking served from cache. */
+.ranking-cache-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.variant-save-panel {
+  display: grid;
+  gap: 0.3rem;
+  border: 1px solid rgba(10, 11, 12, 0.07);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.85);
+  padding: 0.42rem 0.48rem;
+}
+
+.variant-save-panel-row {
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.variant-save-panel textarea {
+  min-height: 2.6rem;
+}
+
+.variant-saved-disclosure {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.variant-saved-disclosure summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-saved-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.preset-catalog-empty {
+  display: grid;
+  place-items: center;
+  min-height: 5rem;
+  border: 1px dashed rgba(10, 11, 12, 0.09);
+  border-radius: 8px;
+  background: rgba(247, 249, 252, 0.7);
+}
+
+.preset-catalog-table td,
+.preset-catalog-table th {
+  white-space: nowrap;
+}
+
+.preset-catalog-table td:first-child {
+  min-width: 18rem;
+  white-space: normal;
+}
+
+.preset-catalog-name {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.preset-catalog-description {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.variant-filter-collapse-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.variant-filter-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.variant-filter-collapse-toggle:hover,
+.variant-filter-collapse-toggle:active {
+  background: none;
+  color: var(--color-heading);
+  transform: none;
+}
+
+.variant-filter-collapse-toggle .variant-filter-dropdown-caret {
+  color: var(--color-heading);
+}
+
+.variant-filter-collapse-toggle[aria-expanded='true'] .variant-filter-dropdown-caret {
+  transform: rotate(180deg);
+}
+
+.variant-filter-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+}
+
+/* Active-filter chips reuse the `.badge-chip` look; this only adds the
+   removable-button affordance (cursor + red hover). */
+.variant-filter-chip {
+  min-height: 0;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.variant-filter-chip:hover {
+  transform: none;
+  border-color: rgba(166, 26, 46, 0.3);
+  background: rgba(166, 26, 46, 0.08);
+  color: var(--color-signature-red);
+}
+
+.variant-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.variant-sample-summary {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.25rem;
+}
+
+.variant-sample-summary-table {
+  width: auto;
+  font-size: 0.6rem;
+  letter-spacing: 0.01em;
+}
+
+.variant-sample-summary-table th,
+.variant-sample-summary-table td {
+  padding: 0.25rem 0.4rem;
+  white-space: nowrap;
+}
+
+.variant-sample-summary-table thead th {
+  font-size: 0.5rem;
+}
+
+.variant-sample-summary .analysis-section-title {
+  font-size: 0.4rem;
+  margin-bottom: 0.25rem;
+}
+
+.analysis-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 900px) {
+  .variant-filter-dropdown-summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .variant-filter-dropdown-summary-controls {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .variant-summary-select-field {
+    width: min(100%, 15rem);
+  }
+
+  .variant-annotation-impact-groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .variant-frequency-slider-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .variant-review-curation-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.analysis-count {
+  font-size: 0.94rem;
+  line-height: 1.7;
+  color: var(--color-text-muted);
+}
+
+.analysis-results-card,
+.data-table-shell {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 10px 22px rgba(10, 12, 14, 0.025);
+}

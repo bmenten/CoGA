@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -50,6 +51,8 @@ from .reference_metadata_service import apply_reference_dataset_text
 logger = logging.getLogger(__name__)
 
 _STDERR_TAIL_CHARS = 8000
+_REASON_CHARS = 500
+_BUILD_LOG_PREFIX = "[build-cnv-kb] "
 
 # As in the family-import queue: the worker heartbeats every minute while the build runs,
 # and a job with no sign of its build for ten minutes has lost its worker.
@@ -81,6 +84,20 @@ _SCRIPT_ENV_ALLOWLIST = frozenset(
 def _build_script_env(environ: dict[str, str] | None = None) -> dict[str, str]:
     source = os.environ if environ is None else environ
     return {name: value for name, value in source.items() if name in _SCRIPT_ENV_ALLOWLIST}
+
+
+def _failure_reason(stderr_tail: str) -> str:
+    """Why the build failed, as it said last on stderr, or "" when it said nothing.
+
+    That is its "Build stopped: ..." line when a source it cannot do without could not be
+    loaded, or the last line of the traceback otherwise. Progress bars write their updates
+    with carriage returns, so those separate lines too.
+    """
+    lines = [line.strip() for line in re.split(r"[\r\n]+", stderr_tail) if line.strip()]
+    if not lines:
+        return ""
+    reason = lines[-1].removeprefix(_BUILD_LOG_PREFIX)
+    return reason[:_REASON_CHARS]
 
 
 def _script_path() -> Path | None:
@@ -371,14 +388,15 @@ async def _run_job(job_id: str) -> None:
         log_tail = stderr.decode("utf-8", "replace")[-_STDERR_TAIL_CHARS:]
 
         if process.returncode != 0:
+            # The admin sees the job's error, not its log: name the cause there. Nothing is
+            # loaded, so the knowledgebase from before the rebuild stays as it was.
+            reason = _failure_reason(log_tail)
+            error = f"Knowledgebase build failed (exit {process.returncode})"
             await _update_job(
                 job_id,
                 owner,
                 "status = 'failed', worker_id = NULL, completed_at = now(), error = :error, log = :log",
-                {
-                    "error": f"Knowledgebase build failed (exit {process.returncode}).",
-                    "log": log_tail,
-                },
+                {"error": f"{error}: {reason}" if reason else f"{error}.", "log": log_tail},
             )
             return
 

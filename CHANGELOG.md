@@ -128,6 +128,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   and its state before and after, on a chain of its own (`system:nipt-artifacts`) that
   `/admin/integrity/verify` checks. The list decides which variants every NIPT analysis of its assay
   filters out (#700).
+- **Computed-style diff for stylesheet changes (#712)** — `frontend/scripts/stylediff` renders two
+  production builds side by side against the same seeded stack and compares every element's computed
+  style, pseudo-elements and box over ~110 routes at three widths, with forced `:hover`/`:focus`,
+  expanded `<details>` and print media; `scripts/seed_style_diff_demo.py` seeds the NIPT demo and the
+  demo quartet for it. It verified that the CSS clean-up changed nothing on screen. A manual tool, not
+  a CI job (#720).
 
 ### Changed
 
@@ -273,6 +279,36 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   The APCAD and coverage-segment charts use the shared chromosome normaliser, so a `chrx` or `chr01` in
   the data now reaches the X or 1 panel, as on the other tracks. The `formatBp` variants stay: each
   formats for its own scale (#701).
+- **CSS custom properties (#708)** — `theme.css` read 13 custom properties that it never defined. Where a
+  use had a fallback, the fallback rendered; without one, the property was unset. `--radius-sm`
+  turned out to come from Tailwind's theme layer (4px), so its 6px fallback never applied. The danger
+  colour is now the signature red it always was, and the warning and danger surfaces, borders and text
+  are real tokens with the values they fell back to. One-offs are written as the value they render, and
+  the three uses without a fallback say what they render (`inherit`, `unset`). Nothing renders
+  differently. The stylesheet test now also fails on a custom property that neither the stylesheet nor
+  a component defines (#715).
+- **CSS duplicates (#709)** — five selector lists that `theme.css` spelled out in two rules each are
+  one rule now (`.surface-card`, `.gene-profile-stat`, the assemblies-table cells, the embedded catalog
+  toolbar), a `max-width` that a later rule always overrode is gone, and three pairs of neighbouring
+  rules with the same declarations share one. Each merge was checked against the cascade: no rule in
+  between sets a related property at the same specificity on an element both could match. Nothing
+  renders differently. The rest of the apparent duplication is the shared-base-then-override pattern
+  (`button, .form-button {…}` then `.button-secondary {…}`) or coincidences between unrelated components,
+  and stays (#716).
+- **CSS colour tokens (#710)** — 39 colour literals that were the value of an existing token, used in
+  that token's role, are the token now: hairline borders `--color-border`/`--color-border-strong`, white
+  surfaces and text `--color-surface`/`--color-white`, and the brand and accent colours. A literal that
+  only happens to share a token's value in another role (a border colour used as a background) keeps
+  its value. Nothing renders differently. The file still holds 355 distinct colour literals, many of
+  them near-identical shades of the same few colours (three warning-text browns, four muted greys, six
+  near-white surfaces); unifying those would change pixels and is left for a design decision (#717).
+- **Stylesheet modules (#711)** — the 11,000-line `theme.css` is now the ordered list of 28 modules
+  under `styles/theme/` (tokens, base, layout, docs, the family workspace, variant filters, tables and
+  cards, genes, repeat expansions, paraphase, mitochondrial DNA, the genome view, admin, projects,
+  modals, the variant explorer, the report and more; the largest is 22 KB). The modules are
+  consecutive slices of the old file in its own order, so the cascade is unchanged: the built CSS is
+  byte-identical. The stylesheet test reads the modules in import order and fails when `theme.css`
+  holds a rule of its own or a module under `styles/theme/` is not imported (#718).
 
 ### Removed
 
@@ -324,6 +360,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   candidate's snapshot format is the first CoGA reads. The mechanism for later formats stays: a module
   or section a record does not hold is not compared and reads as not in the record. Old records still
   verify (#705).
+- **Dead CSS (#707)** — `theme.css` loses the 331 rules whose selectors named classes no component
+  renders any more (remnants of the gene explorer, the gene profile, the compact checklist, the old
+  dashboard, variant-card banners and more), 33 dead selectors in lists that stay, 4 declarations a
+  later rule with the same selector overrode, and 7 custom properties nothing read: 40 KB (15 %) of
+  the file, 31 KB of the built CSS. Every page renders exactly as before, checked by a computed-style
+  diff of the old and new builds. A test now fails when the stylesheet names a class the source
+  cannot produce, or defines a custom property nothing reads (#714).
 
 ### Fixed
 
@@ -769,6 +812,16 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   AD-alt minimum used to be dropped, so the search returned more than asked without saying so, and an
   unreadable GQ or DP minimum surfaced as a 500. A raw-file provenance record that can't be written
   still doesn't fail the import, but the loss is now logged with the family, dataset and file (#690).
+- **Clinical CNV knowledgebase sources** — the GRCh37 build fetched ClinGen's recurrent-CNV regions
+  from `…-hg19.bed`, a 404 (ClinGen publishes `…-hg37.bed`), logged it and went on: every GRCh37
+  knowledgebase lacked them. A rebuild now adds 57 regions (1q21.1 TAR, 7q11.23 Williams-Beuren,
+  15q11.2q13 PWS/AS, 16p11.2, 22q11.2 and more) and gives 29 curated regions that source too. In
+  GRCh38, ClinGen writes X as `chrx`, which the build kept as `x`, so the clinical-CNV queries for X
+  never returned four X-linked recurrent regions (Xp22.31, Xp11.22p11.23, two in Xq28), and they had no
+  cytoband; chromosome names are now read case-insensitively. When ClinGen's dosage curation or
+  recurrent regions cannot be loaded the build stops instead of writing a knowledgebase without them: the
+  rebuild fails, keeps the knowledgebase it would have replaced, and its error, now shown on the
+  Reference catalogue, says why. Rebuild the knowledgebase of both assemblies after upgrading (#721).
 - **A first `docker compose up` starts the frontend** — on its first boot the backend downloads
   GENCODE, RefSeq and HPO before it answers its health check, which took about 150 s, and the
   healthcheck allowed about 165 s (a 90 s start period plus five 15 s retries), with a probe failing
@@ -858,6 +911,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   now passes the method and URL as `%s` arguments with line breaks deleted (#704). The app shell is read
   once at start-up and served from memory, so no page request reaches the file system (CodeQL
   found both once #694 scanned the server) (#703).
+- **urllib3 2.8.0** — the HTTP library under the ClickHouse client, requests and botocore moves from
+  2.7.0, which GHSA-8988-9cw3-xx77 and GHSA-vxq7-64xx-v4gw affect, to 2.8.0, which fixes both. The
+  blocking dependency audit failed every open PR on them. The unit suite and the integration and e2e
+  suites against Postgres and ClickHouse pass on 2.8.0 (#719).
 
 ### Documentation
 

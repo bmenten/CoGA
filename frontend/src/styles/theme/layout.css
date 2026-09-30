@@ -1,0 +1,378 @@
+/* The app shell: header, navigation, user menu, footer, breadcrumbs, page and content columns, prose. */
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(6, 8, 10, 0.96);
+  backdrop-filter: blur(16px);
+}
+
+.app-header-inner,
+.app-main-inner,
+.app-footer-inner,
+.breadcrumb-inner {
+  margin: 0 auto;
+  width: 100%;
+  max-width: var(--layout-max-width);
+  padding-left: var(--layout-gutter);
+  padding-right: var(--layout-gutter);
+}
+
+.app-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding-top: 0.95rem;
+  padding-bottom: 0.95rem;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.app-brand:hover {
+  color: inherit;
+}
+
+.app-brand:hover .app-brand-title {
+  color: var(--color-signature-red);
+}
+
+.app-brand:hover .app-brand-subtitle {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.app-brand-mark {
+  display: inline-flex;
+  height: 2.7rem;
+  width: 2.7rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid rgba(176, 31, 49, 0.42);
+  background: rgba(176, 31, 49, 0.08);
+  color: var(--color-signature-red);
+}
+
+.app-brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.app-brand-logo {
+  width: 1.52rem;
+  height: 1.52rem;
+  display: block;
+}
+
+.app-brand-logo-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.app-brand-title {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-signature-red);
+}
+
+.app-brand-subtitle {
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.app-userbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.app-header-control {
+  min-height: 2.6rem;
+  padding: 0.58rem 0.95rem;
+  border-radius: 999px;
+}
+
+.app-header .button-secondary,
+.app-header .button-ghost,
+.app-userpill {
+  border-color: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+}
+
+.app-header .button-secondary:hover,
+.app-header .button-ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-white);
+  transform: none;
+  box-shadow: none;
+}
+
+.app-userpill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-width: 9rem;
+  max-width: 16rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-main-inner {
+  padding-top: 1.6rem;
+  padding-bottom: 5rem;
+}
+
+.app-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--color-primary);
+}
+
+.app-footer-inner {
+  padding-top: 1.45rem;
+  padding-bottom: 1.6rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.68);
+  text-align: center;
+}
+
+.app-footer-inner a {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.app-footer-inner a:hover {
+  color: var(--color-white);
+}
+
+/* The device label (TF-15 §1): name and build, regulatory status, manufacturer, links. */
+.app-footer-line {
+  margin: 0;
+}
+
+.app-footer-line + .app-footer-line {
+  margin-top: 0.45rem;
+}
+
+/* A version and a git SHA are case-sensitive identifiers: shown as the build states them. */
+.app-footer-version {
+  text-transform: none;
+  letter-spacing: 0.06em;
+}
+
+.breadcrumb-shell {
+  position: sticky;
+  top: 4.15rem;
+  z-index: 35;
+  border-bottom: 1px solid rgba(10, 11, 12, 0.06);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px);
+}
+
+.breadcrumb-inner {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.breadcrumb-trail {
+  color: var(--color-text-muted);
+}
+
+.breadcrumb-link,
+.breadcrumb-separator {
+  color: rgba(176, 31, 49, 0.78);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.breadcrumb-link:hover {
+  color: var(--color-signature-red-dark);
+}
+
+.breadcrumb-current {
+  font-weight: 700;
+  color: var(--color-signature-red-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.page-shell {
+  margin: 0 auto;
+  max-width: var(--page-max-width);
+}
+
+.page-shell.analysis-shell,
+.page-shell.analysis-grid--viewer {
+  max-width: var(--workspace-max-width);
+}
+
+.page-shell-narrow {
+  margin: 0 auto;
+  max-width: 52rem;
+}
+
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+.page-kicker {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.page-subtitle {
+  max-width: 48rem;
+  font-size: 0.98rem;
+  line-height: 1.8;
+  color: var(--color-text-muted);
+}
+
+.page-state {
+  display: grid;
+  justify-items: center;
+  gap: 1.25rem;
+  text-align: center;
+  padding-top: 2.4rem;
+  padding-bottom: 2.4rem;
+}
+
+/* Loading variant: the flyer bar pins to the card's top edge; a spinner sits above
+   the title so the wait is obviously animated. */
+.page-state--loading {
+  position: relative;
+  overflow: hidden;
+}
+.page-state-spinner {
+  display: block;
+  margin: 0 auto 0.25rem;
+}
+
+.page-state-title {
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 0.96;
+}
+
+.page-state-copy {
+  max-width: 38rem;
+  font-size: 0.98rem;
+  line-height: 1.75;
+  color: var(--color-text-muted);
+}
+
+.section-title {
+  font-size: clamp(1.6rem, 2.4vw, 2.15rem);
+  letter-spacing: -0.03em;
+  color: var(--color-heading);
+}
+
+.section-copy {
+  font-size: 0.92rem;
+  line-height: 1.78;
+  color: var(--color-text-muted);
+}
+
+.content-shell {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.content-prose {
+  display: grid;
+  gap: 1.05rem;
+  max-width: 74rem;
+  line-height: 1.86;
+  color: var(--color-text);
+}
+
+.content-prose h2 {
+  margin-top: 1.4rem;
+  font-size: 1.4rem;
+  letter-spacing: -0.03em;
+}
+
+.content-prose h3 {
+  margin-top: 1rem;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+
+.content-prose p,
+.content-prose li {
+  color: var(--color-text);
+}
+
+.content-prose ul,
+.content-prose ol {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.content-prose li + li {
+  margin-top: 0.45rem;
+}
+
+.content-prose code {
+  border: 1px solid var(--color-border);
+  background: rgba(245, 248, 251, 0.96);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.92em;
+}
+
+.content-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.content-prose th,
+.content-prose td {
+  border: 1px solid var(--color-border);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.content-prose thead th {
+  background: rgba(245, 248, 251, 0.96);
+  font-weight: 650;
+}
+
+.content-prose .content-table-wrap {
+  overflow-x: auto;
+}

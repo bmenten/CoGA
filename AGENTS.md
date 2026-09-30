@@ -65,8 +65,9 @@
 - Call the API through `frontend/src/lib/api.ts`, and build every path with ``apiPath`…` ``
   from `lib/apiPath.ts`, which encodes each interpolated segment (use `raw()` for a query
   string).
-- Reuse the shared styles in `frontend/src/styles/theme.css` for buttons, links, tables and
-  layout.
+- Reuse the shared styles for buttons, links, tables and layout (`base.css`, `controls.css`,
+  `tables.css`, `layout.css` under `frontend/src/styles/theme/`). `theme.css` imports the modules in
+  cascade order: put a rule in the module of the feature it styles, and never reorder the imports.
 - The in-app docs are Markdown under `frontend/src/content/docs/` and render at `/docs`; the
   user-guide text is pinned by `UserGuideContent.test.tsx`.
 

@@ -1,0 +1,775 @@
+/* Analysis navigation and the genome and chromosome views: tracks, haplotypes, segregation, ROI markers, tooltips, CNV detail, pedigree and IGV. */
+
+.analysis-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.9rem;
+}
+
+.analysis-nav a {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.analysis-nav a:hover {
+  color: var(--color-primary);
+}
+
+.analysis-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: rgba(250, 252, 253, 0.98);
+  padding: 0.2rem 0.5rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.analysis-pill--muted {
+  border-color: var(--color-border);
+  background: rgba(246, 249, 252, 0.94);
+  color: var(--color-text-muted);
+}
+
+.analysis-pill-button {
+  min-height: auto;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(246, 249, 252, 0.94);
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+  box-shadow: none;
+}
+
+.analysis-pill-button:hover {
+  background: rgba(240, 244, 248, 0.98);
+  color: var(--color-primary);
+  transform: none;
+}
+
+.analysis-pill-button--active {
+  border-color: rgba(159, 34, 57, 0.2);
+  background: rgba(159, 34, 57, 0.1);
+  color: var(--color-signature-red-dark);
+}
+
+.analysis-control-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: rgba(246, 249, 252, 0.94);
+  padding: 0.2rem;
+}
+
+.analysis-icon-button {
+  min-height: auto;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: normal;
+  text-transform: none;
+  box-shadow: none;
+}
+
+.analysis-icon-button:hover {
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--color-primary);
+  transform: none;
+}
+
+.analysis-icon-button:disabled {
+  opacity: 0.4;
+}
+
+.pagination-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.viz-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.viz-panel {
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: var(--shadow-card);
+  padding: 0.8rem;
+}
+
+.viz-frame {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 252, 0.98));
+}
+
+.viewer-track-block {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.viewer-track-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  min-height: 1.1rem;
+}
+
+.viewer-track-label {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* A track's filter summary and its mark legend, side by side on the right. */
+.viewer-track-meta-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+}
+
+.viewer-track-meta {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.haplotype-legend,
+.small-variant-legend {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.48rem;
+  flex-wrap: wrap;
+  font-size: 0.62rem;
+  color: var(--color-text-muted);
+}
+
+.haplotype-legend-item,
+.small-variant-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  white-space: nowrap;
+}
+
+.haplotype-legend-swatch {
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 2px;
+  border: 1px solid rgba(17, 24, 39, 0.2);
+}
+
+.haplotype-track {
+  border-left: 2px solid transparent;
+}
+
+.haplotype-track--affected_or_at_risk {
+  border-left-color: var(--color-haplotype-affected);
+}
+
+.haplotype-track--carrier {
+  border-left-color: var(--color-haplotype-carrier);
+}
+
+/* Derived embryo segregation card (Family Workspace) */
+.segregation-note {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #64748b);
+}
+.segregation-note--error {
+  color: var(--color-haplotype-affected);
+}
+/* Derived segregation chip: same size/layout as the ped/user-defined status
+   table-chips, keeping the risk colour (tinted like .table-chip--critical/warning). */
+.segregation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  padding: 0.18rem 0.46rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: help;
+}
+.info-tip-popover {
+  z-index: 9999;
+  background: #1f2937;
+  color: #f8fafc;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+  padding: 6px 9px;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
+  pointer-events: none;
+}
+.segregation-badge--affected_or_at_risk {
+  border-color: rgba(198, 31, 45, 0.22);
+  background: rgba(198, 31, 45, 0.1);
+  color: var(--color-haplotype-affected);
+}
+.segregation-badge--carrier {
+  border-color: rgba(217, 130, 46, 0.22);
+  background: rgba(217, 130, 46, 0.12);
+  color: #8d6020;
+}
+.segregation-badge--unaffected_non_carrier {
+  border-color: rgba(56, 106, 85, 0.22);
+  background: rgba(56, 106, 85, 0.1);
+  color: var(--color-haplotype-mother-dark);
+}
+.segregation-badge--uninformative {
+  border-color: var(--color-border);
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--color-haplotype-unknown);
+}
+.segregation-warning {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--color-haplotype-carrier);
+  cursor: help;
+}
+
+/* ROI marker review table */
+.roi-markers-summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+/* Zoom / pan toolbar above the table. */
+.roi-markers-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.roi-markers-zoom {
+  display: inline-flex;
+  gap: 4px;
+}
+.roi-markers-zoom .button-ghost {
+  min-width: 2rem;
+  padding: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.roi-markers-range {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #64748b);
+}
+.roi-markers-range-span {
+  opacity: 0.8;
+}
+.roi-markers-updating {
+  color: var(--color-accent, var(--color-accent));
+  font-style: italic;
+}
+.roi-markers-table-wrap {
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 8px;
+}
+.roi-markers-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.72rem;
+}
+.roi-markers-table th,
+.roi-markers-table td {
+  border-right: 1px solid var(--color-border, #eef2f7);
+  border-bottom: 1px solid var(--color-border, #eef2f7);
+  white-space: nowrap;
+}
+.roi-markers-corner,
+.roi-markers-namecol {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-surface, var(--color-surface));
+  text-align: left;
+  padding: 2px 8px;
+}
+.roi-markers-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface, var(--color-surface));
+  font-weight: 500;
+  padding: 2px 4px;
+  transform: rotate(0);
+}
+.roi-markers-corner {
+  z-index: 3;
+}
+.roi-markers-poscol {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted, #64748b);
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  height: 5.5rem;
+  width: 1.6rem;
+  min-width: 1.6rem;
+  font-size: 0.62rem;
+}
+.roi-markers-name {
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+}
+.roi-markers-role {
+  color: var(--color-text-muted, #64748b);
+}
+.roi-markers-namecol {
+  vertical-align: middle;
+}
+.roi-markers-row--embryo .roi-markers-namecol {
+  font-weight: 700;
+}
+.roi-markers-mendel {
+  color: var(--color-haplotype-affected);
+  font-weight: 700;
+  cursor: help;
+}
+/* One member = two stacked homolog rows. The nucleotide sits on a white cell with
+   the lineage colour shown as a thin band line underneath it (see -band-line). */
+.roi-markers-band {
+  position: relative;
+  width: 1.6rem;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  text-align: center;
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.3px;
+  background: var(--color-surface, var(--color-surface));
+  border-right: 1px solid var(--color-border, #eef2f7);
+  border-bottom: none;
+}
+/* The lineage colour (blue/green/grey) as a continuous band line under the
+   nucleotides — it bridges the 1px cell seam (right: -1px) so the band flows
+   uninterrupted across the row, like the chromosome view. */
+.roi-markers-band-line {
+  position: absolute;
+  left: 0;
+  right: -1px;
+  bottom: 2px;
+  height: 6px;
+}
+/* IGV nucleotide colour set inline; sits in the upper part, clear of the band line. */
+.roi-markers-allele {
+  display: block;
+  line-height: 1rem;
+  font-weight: 800;
+}
+/* Uninformative alleles are dark grey (colour set inline) and a touch lighter weight. */
+.roi-markers-allele--muted {
+  font-weight: 600;
+}
+/* The ROI stands at full strength; flanking context (only shown when zoomed out) is
+   lightly muted but kept readable, and in-ROI position headers get a soft tint. */
+.roi-markers-table thead th.roi-markers-poscol--roi {
+  background: var(--color-accent-soft, var(--color-accent-soft));
+}
+.roi-markers-band--flank {
+  opacity: 0.85;
+}
+/* Suspect markers get an orange cell, in two distinct shades:
+   a Mendelian error (genotype not inheritable from the parents) is the darker
+   orange; a raw marker that merely disagrees with its cleaned haplotype block is
+   the lighter orange. */
+.roi-markers-band--mendel {
+  background: #fdba74;
+}
+.roi-markers-band--block-mismatch {
+  background: #ffe8cc;
+}
+/* Homozygous markers are uninformative for phasing — a very light grey. */
+.roi-markers-band--homozygous {
+  background: #f4f5f7;
+}
+/* The two bands of a member touch; members are separated by a spacer row. */
+.roi-markers-bandrow .roi-markers-namecol {
+  border-bottom: none;
+}
+.roi-markers-spacer td {
+  height: 7px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  line-height: 0;
+}
+/* In the inter-member gap, the flanks stay blank while the ROI columns carry a 2 px
+   orange line — so the ROI reads as a continuous bracket down the table. The
+   `td.` qualifier outweighs `.roi-markers-spacer td { background: transparent }`. */
+.roi-markers-spacer td.roi-markers-spacer-cell--roi {
+  background: linear-gradient(#f97316, #f97316) center / 100% 2px no-repeat;
+}
+/* Inner layout for the hover tooltip; the box itself is styled by .viz-tooltip. */
+.roi-markers-tip-head {
+  margin-bottom: 3px;
+}
+.roi-markers-tip-change {
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+}
+.roi-markers-tip-region,
+.roi-markers-tip-role {
+  color: var(--color-text-muted, #64748b);
+}
+.roi-markers-tip-mendel {
+  margin-top: 4px;
+  color: #c2410c;
+  font-weight: 600;
+}
+
+/* Shared interaction state for every windowed track. The guide/selection/pan
+   values are written to these custom properties on one ancestor so the cursor
+   line, rubber-band and pan preview render across all tracks at once without
+   re-rendering (or re-fetching) the track components. */
+.viewer-interaction-surface {
+  --viewer-guide-x: 0;
+  --viewer-sel-start: 0;
+  --viewer-sel-width: 0;
+  --viewer-shift-tx: 0px;
+  --viewer-shift-sx: 1;
+}
+
+.viewer-track-interactive {
+  position: relative;
+  overflow: hidden;
+}
+
+.viewer-track-interactive--pan {
+  cursor: grab;
+}
+
+.viewer-track-interactive--zoom {
+  cursor: crosshair;
+}
+
+/* While a drag is live, the whole surface adopts the gesture's cursor. */
+.viewer-interaction-surface[data-panning] .viewer-track-interactive {
+  cursor: grabbing;
+}
+
+.viewer-interaction-surface[data-selecting] .viewer-track-interactive {
+  cursor: crosshair;
+}
+
+/* Track content + ROI marker; slides together during a pan preview, then snaps
+   back to 0 as the committed region re-renders. */
+.viewer-track-shift {
+  position: relative;
+  width: 100%;
+  transform: translateX(var(--viewer-shift-tx, 0px)) scaleX(var(--viewer-shift-sx, 1));
+  transform-origin: 0 0;
+}
+
+/* Promote the shifted content to its own layer only while a pan/zoom preview is
+   live, so the transform updates stay compositor-only instead of repainting. */
+.viewer-interaction-surface[data-shifting] .viewer-track-shift {
+  will-change: transform;
+}
+
+.viewer-track-guide,
+.viewer-track-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  display: none;
+  pointer-events: none;
+}
+
+.viewer-track-guide {
+  width: 0;
+  left: calc(var(--viewer-guide-x, 0) * 100%);
+  border-left: 1px solid rgba(30, 41, 59, 0.42);
+}
+
+.viewer-track-band {
+  left: calc(var(--viewer-sel-start, 0) * 100%);
+  width: calc(var(--viewer-sel-width, 0) * 100%);
+  border: 1px dashed rgba(164, 26, 38, 0.6);
+  background: rgba(164, 26, 38, 0.12);
+}
+
+.viewer-interaction-surface[data-guide] .viewer-track-guide {
+  display: block;
+}
+
+.viewer-interaction-surface[data-selecting] .viewer-track-band {
+  display: block;
+}
+
+.chromosome-view-main .viz-panel {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.chromosome-view-main .viz-frame {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.genome-view-main .viz-frame {
+  border: 0;
+  background: var(--color-white);
+}
+
+.genome-view-main .viz-panel {
+  padding: 0;
+}
+
+.viz-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  backdrop-filter: blur(1px);
+}
+
+.viz-loading-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid rgba(17, 17, 17, 0.14);
+  border-top-color: var(--color-signature-red);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.viz-loading-spinner--lg {
+  width: 1.85rem;
+  height: 1.85rem;
+  border-width: 3px;
+}
+
+/* The coverage chart's gain/loss thresholds, always on screen (#529). */
+.viz-threshold-legend {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--color-text-muted, #64748b);
+  font-size: 10px;
+  line-height: 14px;
+  pointer-events: auto;
+}
+.viz-threshold-legend--custom {
+  color: var(--color-warning-strong);
+  font-weight: 600;
+}
+
+.viz-empty-overlay {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.55rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+/* A failed track request — deliberately unlike the quiet empty-state text above, so a
+   failure can never be read as "nothing in this region" (#510). */
+.viz-error-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0 0.75rem;
+  background: rgba(254, 242, 242, 0.92);
+  border: 1px dashed #dc2626;
+  color: #991b1b;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+/* Secondary layer (phased markers) failed while the blocks loaded: a small top-right
+   notice rather than a full overlay over valid blocks. */
+.viz-marker-error {
+  position: absolute;
+  top: 1px;
+  right: 4px;
+  z-index: 4;
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: #991b1b;
+  pointer-events: none;
+}
+
+.viz-error-retry {
+  border: 1px solid #dc2626;
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: #991b1b;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.6rem;
+  cursor: pointer;
+}
+
+.roi-marker-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.roi-marker-window {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-left: 2px solid rgba(176, 31, 49, 0.78);
+  border-right: 2px solid rgba(176, 31, 49, 0.78);
+  background: rgba(176, 31, 49, 0.16);
+}
+
+.viz-tooltip {
+  position: absolute;
+  z-index: 10;
+  max-width: 20rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-card);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: var(--color-text);
+  pointer-events: none;
+}
+
+/* Floating variant: portalled to <body> and pinned to the viewport so the
+   tooltip escapes the track frame's `overflow: hidden` clip and always renders
+   above the track below. Sits above track content and app chrome, below modals. */
+.viz-tooltip--floating {
+  position: fixed;
+  z-index: 45;
+}
+
+/* --- Clinical CNV details page --- */
+.cnv-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem 1.5rem;
+  margin: 0;
+}
+
+.cnv-detail-grid > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.cnv-detail-grid dt {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.cnv-detail-grid dd {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--color-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.cnv-detail-section-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.cnv-detail-text {
+  margin: 0;
+  color: var(--color-secondary);
+  line-height: 1.6;
+}
+
+.cnv-explorer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.cnv-explorer-search {
+  flex: 1 1 18rem;
+}
+
+.viz-swatch {
+  display: block;
+  height: 0.75rem;
+  width: 0.75rem;
+  border-radius: 2px;
+}
+
+.pedigree-svg {
+  display: block;
+  margin: 0 auto;
+  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.igv-shell {
+  min-height: 500px;
+}

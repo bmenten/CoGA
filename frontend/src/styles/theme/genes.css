@@ -1,0 +1,540 @@
+/* Gene pages. */
+
+.gene-profile-status {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 220px;
+}
+
+.gene-compact-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.gene-compact-header {
+  display: grid;
+  gap: 0.8rem;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 1rem;
+}
+
+.gene-compact-search {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.gene-compact-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+}
+
+.gene-compact-section {
+  display: grid;
+  gap: 0.8rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.95rem;
+}
+
+.gene-compact-section--overview {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.gene-compact-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.gene-compact-title-block {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.gene-compact-gene-title {
+  margin: 0;
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--color-heading);
+}
+
+.gene-compact-gene-subtitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.gene-compact-locus-line {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.gene-compact-title-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.gene-compact-meta-chip,
+.gene-compact-token,
+.gene-compact-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: rgba(247, 249, 252, 0.96);
+  padding: 0.22rem 0.58rem;
+  font-size: 0.69rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--color-secondary);
+}
+
+.gene-compact-source--success {
+  border-color: rgba(53, 111, 83, 0.2);
+  background: rgba(53, 111, 83, 0.1);
+  color: #356f53;
+}
+
+.gene-compact-source--missing {
+  border-color: rgba(124, 144, 157, 0.16);
+  background: rgba(124, 144, 157, 0.08);
+  color: var(--color-secondary);
+}
+
+.gene-compact-source--error {
+  border-color: rgba(173, 31, 45, 0.2);
+  background: rgba(173, 31, 45, 0.09);
+  color: var(--color-signature-red-dark);
+}
+
+.gene-compact-alias-line {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.gene-compact-alias-line span {
+  margin-right: 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.gene-compact-summary {
+  margin: 0;
+  max-width: 72rem;
+  font-size: 0.95rem;
+  line-height: 1.72;
+  color: var(--color-text);
+}
+
+.gene-compact-columns {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.gene-compact-block {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.gene-compact-block h3,
+.gene-compact-section-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-heading);
+}
+
+.gene-compact-detail-list {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.gene-compact-detail-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.78fr) minmax(0, 1.22fr);
+  gap: 0.75rem;
+  align-items: start;
+  border-bottom: 1px solid rgba(10, 11, 12, 0.05);
+  padding-bottom: 0.32rem;
+}
+
+.gene-compact-detail-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.gene-compact-detail-row dt {
+  font-size: 0.69rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.gene-compact-detail-row dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--color-heading);
+}
+
+.gene-compact-inline-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.65rem;
+  align-items: center;
+}
+
+.gene-compact-link {
+  color: var(--color-signature-red-dark);
+  text-decoration: none;
+}
+
+.gene-compact-link:hover {
+  text-decoration: underline;
+}
+
+.gene-compact-subsection {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.gene-compact-group-stack {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.gene-compact-subtitle-label {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.gene-compact-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.gene-compact-term-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.28rem;
+  border: 1px solid rgba(198, 31, 45, 0.14);
+  border-radius: 999px;
+  background: rgba(198, 31, 45, 0.055);
+  padding: 0.22rem 0.56rem;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--color-heading);
+}
+
+.gene-compact-term-chip span {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.gene-compact-list {
+  display: grid;
+  gap: 0.32rem;
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--color-text);
+}
+
+.gene-compact-list li {
+  display: grid;
+  gap: 0.08rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.gene-compact-list-meta,
+.gene-compact-empty,
+.gene-compact-paragraph,
+.gene-compact-section-note {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.gene-compact-empty,
+.gene-compact-paragraph {
+  margin: 0;
+}
+
+.gene-compact-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.gene-compact-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.gene-compact-collapse-button {
+  min-height: 2rem;
+  padding: 0.3rem 0.72rem;
+  white-space: nowrap;
+}
+
+.gene-compact-advanced-block {
+  display: grid;
+  gap: 0.55rem;
+  border-left: 3px solid rgba(198, 31, 45, 0.22);
+  padding-left: 0.7rem;
+}
+
+.gene-compact-expression-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.gene-compact-expression-row {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.gene-compact-expression-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--color-heading);
+}
+
+.gene-compact-expression-labels span:last-child {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.gene-compact-mini-bar {
+  height: 0.42rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(10, 11, 12, 0.07);
+}
+
+.gene-compact-mini-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-signature-red), #d56c3b);
+}
+
+.gene-transcript-table td:first-child {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.gene-compact-link-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.7rem;
+}
+
+.gene-compact-resource-link {
+  color: var(--color-secondary);
+  font-size: 0.84rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.gene-compact-resource-link:hover {
+  color: var(--color-signature-red-dark);
+  text-decoration: underline;
+}
+
+.gene-compact-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.7rem;
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 900px) {
+  .gene-compact-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .gene-compact-search {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gene-compact-title-row,
+  .gene-compact-section-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .gene-compact-section-actions {
+    justify-content: flex-start;
+  }
+
+  .gene-compact-title-meta {
+    justify-content: flex-start;
+  }
+
+  .gene-compact-detail-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.14rem;
+  }
+}
+
+.gene-profile-status-label,
+.gene-profile-stat-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.gene-profile-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.82fr);
+  align-items: start;
+}
+
+.gene-profile-stat {
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid rgba(10, 11, 12, 0.06);
+  border-radius: 4px;
+  padding: 0.9rem;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.gene-profile-stat strong {
+  overflow-wrap: anywhere;
+  color: var(--color-heading);
+}
+
+.gene-assembly-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.8rem;
+}
+
+.gene-sync-summary-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  margin-top: 1rem;
+}
+
+.gene-sync-action-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  margin-top: 1rem;
+}
+
+.gene-sync-action-panel {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.gene-sync-inline-form {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.gene-sync-job-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.gene-sync-progress-shell {
+  position: relative;
+  width: 100%;
+  height: 0.52rem;
+  border-radius: 999px;
+  background: rgba(10, 11, 12, 0.08);
+  overflow: hidden;
+}
+
+.gene-sync-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--color-signature-red), var(--color-signature-red-dark));
+  border-radius: inherit;
+}
+
+.gene-sync-job-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem 1.2rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 1080px) {
+  .gene-profile-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gene-sync-inline-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+
+  .variant-save-panel-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
