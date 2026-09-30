@@ -65,7 +65,7 @@ def test_traceability_immutable_trigger_parses_with_dollar_quoted_body() -> None
 
 
 def test_tag_scope_consolidation_has_no_destructive_backfill_update() -> None:
-    # P0-1 regression guard: init_postgres_schema() replays every statement on every
+    # Regression guard (#255): init_postgres_schema() replays every statement on every
     # restart (no migration ledger), so a one-shot UPDATE normalizing rows back to
     # scope='global'/project_id=NULL would silently clobber every legitimately created
     # project-scoped tag on each boot. The project-scoped-tag definition — now folded into

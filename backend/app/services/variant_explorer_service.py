@@ -84,7 +84,7 @@ _SORT_EXPR = {
     "position": "xpos",
 }
 _DEFAULT_SORT = "total_samples"
-# P2-4: cap the cohort-wide distinct-key count so the explorer never pays an unbounded
+# Cap the cohort-wide distinct-key count (#270) so the explorer never pays an unbounded
 # uniqExact over millions of keys per page. Past the cap the total is reported as the cap
 # with total_is_estimated=True (the UI renders "N+").
 _EXPLORER_COUNT_CAP = 10_000
@@ -98,7 +98,7 @@ def _bounded_total(raw_count: int) -> tuple[int, bool]:
     return raw_count, False
 
 
-# P2-4b: keyset (seek) pagination. The ORDER BY is `{sort_expr} {dir}, xpos ASC, key ASC`,
+# Keyset (seek) pagination (#274). The ORDER BY is `{sort_expr} {dir}, xpos ASC, key ASC`,
 # so a page boundary is fully described by the last row's (sort_value, xpos, key) — all
 # integers (carrier counts or xpos; key is the UInt64 variant key). The cursor encodes that
 # triple plus the sort/order it was issued for, so a stale cursor (after the user changes

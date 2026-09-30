@@ -217,7 +217,7 @@ def test_query_string_for_logging_sanitizes_sensitive_values(monkeypatch) -> Non
 
 
 def test_request_body_excluded_from_stdout_log_but_kept_in_audit(monkeypatch) -> None:
-    # P0-5: the clinical request body must NOT reach the stdout application log, but
+    # The clinical request body must NOT reach the stdout application log, but
     # must still be persisted to the access-controlled audit DB.
     captured_audit: list = []
 

@@ -1,4 +1,4 @@
-"""P2-3: the gene-search expression indexes serve their real queries (real Postgres).
+"""The gene-search expression indexes (#264) serve their real queries (real Postgres).
 
 Seeds a representative gene/gene_info set (one assembly, ~600 spread symbols + a unique
 marker), ANALYZEs, then EXPLAINs the ACTUAL service query shapes. A wrong index expression
@@ -33,7 +33,7 @@ async def _seed(session) -> str:
                 "INSERT INTO species (name, common_name, tax_id) "
                 "VALUES (:n, 'test', :t) RETURNING id::text"
             ),
-            {"n": f"P2-3 {uuid4()}", "t": tax},
+            {"n": f"gene-search {uuid4()}", "t": tax},
         )
     ).scalar_one()
     assembly = (
@@ -42,7 +42,7 @@ async def _seed(session) -> str:
                 "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
                 "VALUES (CAST(:s AS uuid), :a, 'v1', '2020-01-01') RETURNING id::text"
             ),
-            {"s": species, "a": f"P2-3-{uuid4()}"},
+            {"s": species, "a": f"gene-search-{uuid4()}"},
         )
     ).scalar_one()
     # ~600 spread genes so a selective predicate beats both a seq scan and the assembly-region index.

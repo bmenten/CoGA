@@ -1,4 +1,4 @@
-"""P2-4b end-to-end: the explorer's keyset (seek) pagination against real ClickHouse.
+"""End-to-end (#274): the explorer's keyset (seek) pagination against real ClickHouse.
 
 Ingests five distinct variants with varying carrier counts (including a tie on
 ``total_samples``), then pages through them at ``page_size=2`` following ``next_cursor``.

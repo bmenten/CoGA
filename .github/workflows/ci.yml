@@ -44,7 +44,7 @@ jobs:
       - name: Run tests with coverage
         # The suite is self-contained (Postgres/ClickHouse access is mocked), so
         # no service containers are required. Honours the pytest testpaths in pyproject.toml
-        # (backend/tests). --cov-fail-under is the global floor (P2-7). The data
+        # (backend/tests). --cov-fail-under is the global floor (#268). The data
         # file is kept for the combined report in the `coverage` job (#526).
         env:
           COVERAGE_FILE: coverage-unit.data
@@ -278,7 +278,7 @@ jobs:
       - name: Lint
         run: npm run lint
       - name: Test with coverage
-        # vitest enforces the coverage thresholds in vite.config.mts (P2-7b); the run
+        # vitest enforces the coverage thresholds in vite.config.mts (#273); the run
         # fails if any metric drops below its ratchet floor.
         run: npm run test:coverage
       - name: Upload coverage report

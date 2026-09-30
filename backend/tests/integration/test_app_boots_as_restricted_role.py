@@ -1,6 +1,6 @@
 """Integration smoke test: the app BOOTS and serves as the restricted role `coga_app`.
 
-This is the deployability proof for the P1-3/P1-4 privilege-separation split. It exercises
+This is the deployability proof for the privilege-separation split (#262). It exercises
 the exact deployed shape of the DSN flip (docs/db-runtime-role-runbook.md):
 
 1. Schema migrations run **out-of-band as the owner** (``run_schema_migrations`` — the

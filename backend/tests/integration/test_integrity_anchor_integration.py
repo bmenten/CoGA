@@ -4,7 +4,7 @@ Drives the real writer + the real anchor service against Postgres: a signed anch
 the live chain heads VERIFIES; a subsequent owner-bypass re-chain (recompute a head's
 row_hash) or truncation (delete a head) DIVERGES from the signed anchor; tampering an
 anchor's signature is caught; anchors chain; and the unsigned / unknown-key modes report
-their distinct statuses. This is the evidence that the anchor closes the P1-4
+their distinct statuses. This is the evidence that the anchor (#263) closes the hash chains'
 owner-re-chain / truncation gap that the in-DB chain alone cannot detect.
 
 Assertions are scoped to THIS test's families (the whole-system anchor also captures other

@@ -261,7 +261,7 @@ async def log_request_response(request: Request, call_next) -> Response:
             "protocol": request.scope.get("http_version"),
         }
 
-        # NOTE (P0-5): request_body (clinical PHI, up to 25KB) is intentionally NOT
+        # NOTE: request_body (clinical PHI, up to 25KB) is intentionally NOT
         # emitted to the stdout application log. It is persisted only to the
         # access-controlled audit DB (audit_log_events.request_body) via the
         # write_audit_log_event call below — which is unchanged.

@@ -1,4 +1,4 @@
-"""P2-1a: the aggregated small-variant presence query (track availability).
+"""The aggregated small-variant presence query (#266) (track availability).
 
 Exercises the real query construction (via the real ``_small_query_filter_parts``) and the
 per-sample presence logic, mocking only the ClickHouse execute. A sample is "present" iff a
@@ -106,7 +106,7 @@ def test_explicit_sample_absent_when_base_does_not_match(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Structural-variant presence aggregate (P2-1b). Present iff the sample has a call
+# Structural-variant presence aggregate (#267). Present iff the sample has a call
 # in a matching variant — any genotype (no non-ref requirement, unlike small variants).
 # --------------------------------------------------------------------------- #
 

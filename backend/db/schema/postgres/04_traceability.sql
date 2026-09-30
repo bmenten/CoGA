@@ -187,7 +187,7 @@ ALTER TABLE reference_dataset_imports
 -- access log). Events are written in the same transaction as the change they
 -- describe, so the trail can never drift from the data.
 --
--- row_hash / prev_hash (P1-4): per-family tamper-evidence hash chain. row_hash binds
+-- row_hash / prev_hash (#261): per-family tamper-evidence hash chain. row_hash binds
 -- each row's immutable content to the previous row's hash (per family), so
 -- deleting/reordering/editing a row becomes detectable. Historical rows keep NULL
 -- hashes — the verifier treats the first non-null row_hash as the chain origin.
@@ -255,7 +255,7 @@ CREATE TRIGGER clinical_audit_events_immutable
 --
 -- Each sign-out is a new version (amendments append; nothing is ever overwritten).
 -- content_hash is the SHA-256 of the canonical snapshot, so tampering is detectable.
--- row_hash / prev_hash (P1-4) chain content_hash + the immutable identity across a
+-- row_hash / prev_hash (#261) chain content_hash + the immutable identity across a
 -- family's sign-out versions; pre-chain rows keep NULL hashes.
 CREATE TABLE IF NOT EXISTS report_signouts (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -307,7 +307,7 @@ CREATE TRIGGER report_signouts_immutable
 -- ---------------------------------------------------------------------------
 -- integrity_anchors — external SIGNED CHAIN-HEAD ANCHOR
 -- ---------------------------------------------------------------------------
--- P1-4 follow-up: external SIGNED CHAIN-HEAD ANCHOR.
+-- External SIGNED CHAIN-HEAD ANCHOR (#263), the follow-up to the hash chains.
 --
 -- The per-family hash chains (clinical_audit_events/report_signouts) detect tampering
 -- by anyone who cannot recompute them, but an OWNER who DISABLEs the trigger can

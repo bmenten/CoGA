@@ -17,7 +17,7 @@ the DB OWNER, so this proves the triggers block the *owner's* UPDATE/DELETE, NOT
 the running app credential is unable to bypass them (an owner can still
 ``ALTER TABLE ... DISABLE TRIGGER`` / ``SET session_replication_role='replica'`` /
 ``TRUNCATE``). Closing the "immutable against the running app credential" claim needs
-the non-owner runtime role (P1-3) plus a test that runs as that constrained role.
+the non-owner runtime role (#262) plus a test that runs as that constrained role.
 
 The tests deliberately never disable a trigger and never DELETE (it is blocked); the
 few marker rows they insert accumulate harmlessly on the per-job ephemeral CI Postgres.

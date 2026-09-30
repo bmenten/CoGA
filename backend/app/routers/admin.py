@@ -140,7 +140,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-# Per-table verifiers for the append-only tamper-evidence hash chains (P1-4).
+# Per-table verifiers for the append-only tamper-evidence hash chains (#261).
 _INTEGRITY_VERIFIERS = {
     "report_signouts": verify_report_signout_chain,
     "clinical_audit_events": verify_clinical_audit_chain,

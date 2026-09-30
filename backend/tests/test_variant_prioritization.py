@@ -309,7 +309,7 @@ def test_phenomizer_score_unrelated_terms_is_low() -> None:
 
 
 def test_cap_terms_by_ic_breaks_ic_ties_deterministically() -> None:
-    # P0-2: with every term sharing the same IC, the tiebreaker alone decides which
+    # With every term sharing the same IC, the tiebreaker alone decides which
     # survive the cap. The deterministic id tiebreaker yields the lexicographically
     # smallest ids in sorted order, independent of set hashing / PYTHONHASHSEED; the
     # old IC-only sort returned set-iteration order (process-dependent), which for a

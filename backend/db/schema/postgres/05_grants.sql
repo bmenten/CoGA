@@ -1,9 +1,9 @@
--- P1-3 (DB privilege separation — single-role-fallback): create the restricted runtime
+-- DB privilege separation (#262; single-role fallback): create the restricted runtime
 -- role `coga_app` and lock it out of the mutations that would let it bypass the
 -- append-only + hash-chain controls.
 --
 -- This is the role the application SHOULD connect as. It closes the owner-bypass gap that
--- the P1-4 hash chain cannot detect: a NON-owner role cannot `ALTER TABLE ... DISABLE
+-- the hash chains (#261) cannot detect: a NON-owner role cannot `ALTER TABLE ... DISABLE
 -- TRIGGER`, cannot `SET session_replication_role` (superuser-only), and — with UPDATE/
 -- DELETE revoked below — cannot rewrite or remove audit rows, signed reports or the
 -- hash-chain columns. So a determined runtime attacker can no longer re-chain an interior

@@ -212,7 +212,7 @@ variable "allowed_ingress_cidrs" {
 }
 
 # ---------------------------------------------------------------------------
-# Database privilege separation (P1-3 / P1-4)
+# Database privilege separation (#262)
 # ---------------------------------------------------------------------------
 
 variable "db_runtime_role" {
