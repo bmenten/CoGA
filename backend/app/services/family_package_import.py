@@ -18,8 +18,11 @@ from ..schemas import (
     FamilyPackageValidationOut,
 )
 from .family_metadata_context import (
+    FamilyMetadataContext,
+    SampleMetadataContext,
     build_family_metadata_context,
 )
+from .family_variant_write_lock import hold_family_variant_writes
 from .metadata_service import get_current_user_by_email
 from .access_control import CurrentUser
 from . import ped_service
@@ -33,7 +36,7 @@ from .postgres_family_snapshot import (
     restore_family_postgres_state,
     snapshot_family_postgres_state,
 )
-from .family_package_common import PackageExecutionResult, ProgressCallback, _issue, _json_dict
+from .family_package_common import FamilyPackageBundle, PackageExecutionResult, ProgressCallback, _issue, _json_dict
 from .family_package_source import package_folder_path, staged_package_source_async
 from .family_package_validation import load_validated_family_package
 from .family_package_jobs import claim_next_family_import_job, _update_job_progress
@@ -210,6 +213,49 @@ async def _execute_family_package_import_local(
     if progress is not None:
         await progress(validation, datasets, logs, family_context.family_id)
 
+    # One write of the family's variants at a time, and this import is one write from its
+    # snapshot to its restore: it commits after its datasets, and a restore puts back the
+    # family's rows as they were before the import, so a write that ran in between would
+    # be undone. The locks are held for the whole run on a connection of their own; the
+    # dataset loaders take none of their own for this family. Taken after the family's
+    # registration has committed, so this session holds no lock another writer waits for.
+    async with hold_family_variant_writes(
+        family_context.family_uuid,
+        samples=[sample.sample_uuid for sample in sample_contexts.values()],
+    ):
+        return await _import_family_datasets(
+            session,
+            bundle=bundle,
+            validation=validation,
+            datasets=datasets,
+            logs=logs,
+            family_context=family_context,
+            family_created=family_created,
+            sample_contexts=sample_contexts,
+            conflict_mode=conflict_mode,
+            progress=progress,
+            job_id=job_id,
+            dry_run=dry_run,
+        )
+
+
+async def _import_family_datasets(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    validation: FamilyPackageValidationOut,
+    datasets: list[FamilyImportDatasetSummary],
+    logs: list[str],
+    family_context: FamilyMetadataContext,
+    family_created: bool,
+    sample_contexts: dict[str, SampleMetadataContext],
+    conflict_mode: str,
+    progress: ProgressCallback | None,
+    job_id: str | None,
+    dry_run: bool,
+) -> PackageExecutionResult:
+    """Import the package's datasets into the registered family, and leave it complete,
+    restored to its state before the import, or flagged import-incomplete."""
     # Overwrite of a PRE-EXISTING family is delete-then-insert, so a mid-import failure
     # can destroy the family's prior data. Snapshot it first so a failed overwrite is
     # atomically rolled back to the pre-import state (issue #365) instead of only being

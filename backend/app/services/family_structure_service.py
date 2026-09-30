@@ -25,6 +25,7 @@ from .clickhouse_variant_storage import (
     delete_family_small_variants,
     delete_family_structural_variants,
 )
+from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .metadata_service import get_accessible_family_mapping, get_family_record
 from .access_control import CurrentUser
 from .ped_service import _record_family_structure_version
@@ -260,6 +261,9 @@ async def _clear_family_genomic_data(
     *,
     family_uuid: str,
 ) -> dict[str, int]:
+    # Until the structure change commits, so no write that read the family's variants
+    # before the clear writes them back after it.
+    await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
     counts = await _family_genomic_data_counts(session, family_uuid=family_uuid)
     assembly_groups = await _family_assembly_groups(session, family_uuid=family_uuid)
     for assembly_name in assembly_groups:

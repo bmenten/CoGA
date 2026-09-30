@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,18 @@ def _authorize_tmp_import_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     ``test_nipt_package_import``).
     """
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+
+
+@pytest.fixture(autouse=True)
+def _no_family_write_hold(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The import holds the family's write locks on a Postgres connection of its own;
+    test_family_variant_writes_serialized has them."""
+
+    @asynccontextmanager
+    async def hold(_family_uuid, **_kwargs):
+        yield
+
+    monkeypatch.setattr(package_import, "hold_family_variant_writes", hold)
 
 
 def _write_minimal_package(root: Path, *, family_id: str | None = None) -> None:

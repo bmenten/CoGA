@@ -88,7 +88,11 @@ sort keys, how the storage keys are built and the recovery steps are in
    stays in a bucket with the bucket's record of it instead). Alignments (BAM/CRAM) and
    package sources are read from the local disk or from object storage (S3 or Google Cloud
    Storage), as `STORAGE_BACKEND` sets. A package in a bucket is copied for the import except
-   its alignments, which the genome browser reads from the bucket.
+   its alignments, which the genome browser reads from the bucket. The writes of one family's
+   variants (uploads, package imports, and the admin, PED and structure-change deletes) run one
+   at a time: each holds the family's write lock in Postgres from its first read of the rows it
+   replaces until it commits, whichever worker or process runs it
+   ([database.md](database.md#one-write-at-a-time-per-family)).
 6. Sign-out freezes the report's content, with the software and reference versions, into an
    append-only, hash-chained record ([clinical-traceability.md](clinical-traceability.md)).
 
@@ -130,7 +134,8 @@ Backend, under `backend/app/`:
   cross-project explorer; `services/variant_ranking_cache.py` — the phenotype-prioritised
   ranking cache.
 - `services/family_package_*.py` — the folder-based family-package import;
-  `services/variant_upload_service.py` and `services/bed_service.py` — single-file uploads.
+  `services/variant_upload_service.py` and `services/bed_service.py` — single-file uploads;
+  `services/family_variant_write_lock.py` — one write at a time to each family's variants.
 - `services/acmg_points.py`, `services/cnv_acmg_points.py` — ACMG/AMP scoring for small
   variants and CNVs.
 - `services/annotation_manifest_service.py`, `services/classification_drift_service.py`,

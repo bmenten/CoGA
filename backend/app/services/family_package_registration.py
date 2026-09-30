@@ -34,6 +34,7 @@ from .family_metadata_context import (
     SampleMetadataContext,
     build_family_metadata_context,
 )
+from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import record_raw_import_file
@@ -726,6 +727,8 @@ async def _delete_family_shell(
     """
     assembly_name = family_context.assembly_name
     family_uuid = family_context.family_uuid
+    # The import that calls this holds the lock already; any other caller takes it here.
+    await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
     if assembly_name:
         try:
             await delete_family_small_variants(assembly_name, family_uuid)

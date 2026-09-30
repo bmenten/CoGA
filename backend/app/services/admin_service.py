@@ -51,6 +51,12 @@ from .clickhouse_variant_storage import (
 )
 from .clickhouse_variant_records import StoredStructuralVariantRow
 from .family_metadata_context import FamilyMetadataContext
+from .family_variant_write_lock import (
+    SMALL_VARIANTS,
+    STRUCTURAL_VARIANTS,
+    VARIANT_TYPES,
+    lock_family_variant_writes,
+)
 from .raw_import_files_pg import (
     get_raw_import_file,
     list_raw_import_files,
@@ -834,6 +840,9 @@ async def delete_sample_data_by_type(
             family_id=sample_row["family_id"],
             sample_rows=sample_rows,
         )
+        # Held from the read of the family's rows until the commit below, so no other
+        # write of the family's SVs runs between the read and the rewrite.
+        await lock_family_variant_writes(session, sample_row["family_uuid"], [STRUCTURAL_VARIANTS])
         replacements = await _structural_variant_rows_without_sample(contexts, sample_row)
         before = 0
         for context, rows in replacements:
@@ -883,6 +892,9 @@ async def delete_family_data_by_type(
         family_id=family_id,
         sample_rows=sample_rows,
     )
+    # Until the commit below, so no write that read the family's rows before the delete
+    # writes them back after it.
+    await lock_family_variant_writes(session, family_uuid, [SMALL_VARIANTS])
     deleted = 0
     for context in contexts:
         if not context.assembly_name:
@@ -912,6 +924,10 @@ async def delete_sample_with_data(
         family_id=sample_row["family_id"],
         sample_rows=sample_rows,
     )
+    # Held from the reads of the family's rows until the commit below: no other write of
+    # the family's variants runs between them and the rewrites, nor after them, before the
+    # sample is gone.
+    await lock_family_variant_writes(session, sample_row["family_uuid"], VARIANT_TYPES)
 
     bed_deleted = 0
     for context in contexts:
@@ -1015,6 +1031,9 @@ async def delete_family_with_data(
         family_id=family_id,
         sample_rows=sample_rows,
     )
+    # Until the family is gone (the commit below): a write that waits for it then finds no
+    # family and writes nothing.
+    await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
 
     small_deleted = 0
     structural_deleted = 0

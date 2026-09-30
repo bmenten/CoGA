@@ -207,6 +207,11 @@ Deleting a sample's structural variants on **Admin → Family & Sample Data** re
 source. The upload and this delete leave every other call as it was, with its phase, including the calls
 of a member removed from the family.
 
+The uploads, deletes and package imports of one family's variants take turns. An upload started while
+another of them is writing the family's variants waits until it has finished, a package import until the
+whole import has, and then starts from what it left. If that write deleted the sample or the family, the
+upload stores nothing and says *Sample not found* or *Family not found*.
+
 ---
 
 ## Recommended order for a new setup

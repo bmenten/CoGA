@@ -213,6 +213,9 @@ def storage(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     async def must_not_run(*_args, **_kwargs):
         raise AssertionError("a per-sample upload does not count or refresh the source itself")
 
+    async def no_lock(*_args, **_kwargs):
+        return None
+
     for name, fn in {
         "fetch_family_small_variant_entries": fetch,
         "insert_small_variant_records": insert,
@@ -220,6 +223,8 @@ def storage(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "delete_family_small_variants": delete,
         "count_family_small_variants": must_not_run,
         "refresh_family_small_variant_summaries": must_not_run,
+        # The family's write lock is Postgres's; test_family_variant_writes_serialized has it.
+        "lock_family_variant_writes": no_lock,
     }.items():
         monkeypatch.setattr(variant_upload_service, name, fn)
     return state
@@ -301,7 +306,7 @@ async def test_samples_scope_refuses_a_file_that_names_no_sample(storage) -> Non
 @pytest.mark.asyncio
 async def test_removing_a_samples_calls_keeps_every_other_call(storage) -> None:
     removed = await variant_upload_service.remove_family_small_variant_sample_calls(
-        _context(), [_sample_contexts()["PROBAND"]], source="mito"
+        _FakeSession(), _context(), [_sample_contexts()["PROBAND"]], source="mito"  # type: ignore[arg-type]
     )
     assert removed == 1
     [(source, rows)] = storage["rewrites"]
@@ -311,7 +316,7 @@ async def test_removing_a_samples_calls_keeps_every_other_call(storage) -> None:
     storage["rewrites"].clear()
     storage["stored"] = [_entry("p1", 16519, {"MOTHER": ("1/1", 1.0)})]
     removed = await variant_upload_service.remove_family_small_variant_sample_calls(
-        _context(), [_sample_contexts()["PROBAND"]], source="mito"
+        _FakeSession(), _context(), [_sample_contexts()["PROBAND"]], source="mito"  # type: ignore[arg-type]
     )
     # Nothing of the sample's is stored: no write, so the family's data version stays.
     assert removed == 0

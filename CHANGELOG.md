@@ -664,6 +664,19 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   no remaining entry of the family has. Both tables are family-scoped, so other families' rows are neither
   read nor touched; other sources' rows stay as stored, and a row that another source's entry still reaches
   is kept. No page, count or report changes: nothing read those rows (#668).
+- **A family's variant writes run one at a time** — every write of a family's variants reads its stored rows,
+  deletes them and inserts them again changed, in ClickHouse, which has no transactions: the per-sample SV
+  and small-variant uploads, the admin sample and family deletes, a package import's datasets and its
+  restore of a failed overwrite, a PED overwrite and a structure change that clears the data. Nothing kept
+  two of them apart. Two writes of one family started together (PROBAND's and MOTHER's Sniffles uploads, an
+  admin delete and an upload) each wrote from what it had read before the other wrote, and both answered
+  200: one writer's calls were lost, a deleted sample's call came back, a variant was stored twice with
+  different calls (a part merge then keeps one), or an SV lost its details row, with its span, length and
+  annotation, to the other write's delete. Each writer now holds a Postgres advisory lock on the family's
+  small variants, its SVs or both, from before its read until its transaction ends, so the second write of a
+  family waits for the first, in any worker or process; a package import holds both from before its
+  snapshot until it has finished or restored the family. A write that waited for the deletion of its
+  sample or family writes nothing and answers 404 (#670).
 
 ### Security
 

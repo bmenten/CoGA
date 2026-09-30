@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
 from .clickhouse_variant_storage import delete_family_small_variants, delete_family_structural_variants
+from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .upload_safety import decode_upload_text
 from .access_control import CurrentUser, is_admin_user
 
@@ -416,6 +417,10 @@ async def _replace_existing_families(
         assembly_name = row.get("assembly_name")
         if assembly_name:
             assembly_rows_by_family.setdefault(family_id, set()).add(str(assembly_name))
+    # Each family's variant writes wait for this replacement to commit, and it for theirs.
+    # Taken family by family in one order, so two replacements never wait for each other.
+    for family_uuid in sorted(family_uuid_by_id.values()):
+        await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
     for family_id, family_uuid in family_uuid_by_id.items():
         for assembly_name in assembly_rows_by_family.get(family_id, set()):
             await delete_family_small_variants(assembly_name, family_uuid)
