@@ -1,10 +1,10 @@
 from typing import List
-from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
+from ..core.sql import require_uuid
 from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import ProjectCreate, ProjectDashboardOut, ProjectOut, ProjectUpdate
 from ..services.metadata_service import (
@@ -18,23 +18,16 @@ from ..services.access_control import CurrentUser
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-def _require_uuid(value: str, detail: str) -> None:
-    try:
-        UUID(value)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=detail) from exc
-
-
 @router.post("/", response_model=ProjectOut, status_code=201)
 async def create_project(
     project_in: ProjectCreate,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> ProjectOut:
-    _require_uuid(project_in.species_id, "Invalid species id")
-    _require_uuid(project_in.assembly_id, "Invalid assembly id")
+    require_uuid(project_in.species_id, "Invalid species id")
+    require_uuid(project_in.assembly_id, "Invalid assembly id")
     for user_id in project_in.user_ids:
-        _require_uuid(user_id, f"Invalid user id: {user_id}")
+        require_uuid(user_id, f"Invalid user id: {user_id}")
     return await create_project_record(
         session,
         name=project_in.name,
@@ -52,13 +45,13 @@ async def update_project(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> ProjectOut:
-    _require_uuid(project_id, "Invalid project id")
+    require_uuid(project_id, "Invalid project id")
     if project_in.species_id is not None:
-        _require_uuid(project_in.species_id, "Invalid species id")
+        require_uuid(project_in.species_id, "Invalid species id")
     if project_in.assembly_id is not None:
-        _require_uuid(project_in.assembly_id, "Invalid assembly id")
+        require_uuid(project_in.assembly_id, "Invalid assembly id")
     for user_id in project_in.user_ids or []:
-        _require_uuid(user_id, f"Invalid user id: {user_id}")
+        require_uuid(user_id, f"Invalid user id: {user_id}")
     return await update_project_record(
         session,
         project_id=project_id,
@@ -84,5 +77,5 @@ async def delete_project(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> None:
-    _require_uuid(project_id, "Invalid project id")
+    require_uuid(project_id, "Invalid project id")
     await delete_project_record(session, project_id=project_id)

@@ -18,6 +18,7 @@ import type {
   QcStatus,
 } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
+import { parsePedigree } from '../../lib/pedigree';
 
 const OVERALL_COPY: Record<QcStatus, string> = {
   pass: 'All sample-integrity checks passed. No swaps or mislabelled relationships detected.',
@@ -27,26 +28,6 @@ const OVERALL_COPY: Record<QcStatus, string> = {
 };
 
 const worstStatus = worstQcStatus;
-
-interface PedRow {
-  fid: string;
-  iid: string;
-  pid: string;
-  mid: string;
-  sex: string;
-  phen: string;
-}
-
-const parsePedigree = (pedigree?: string | null): PedRow[] => {
-  if (!pedigree) return [];
-  return pedigree
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [fid, iid, pid, mid, sex, phen] = line.trim().split(/\s+/);
-      return { fid, iid, pid, mid, sex, phen };
-    });
-};
 
 const StatusChip: React.FC<{ status: QcStatus }> = ({ status }) => (
   <span className={QC_STATUS_CHIP[status]}>{QC_STATUS_LABEL[status]}</span>

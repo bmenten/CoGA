@@ -110,7 +110,6 @@ from .clickhouse_variant_queries import (
     _small_query_filter_parts,
     _small_record_matches,
     _small_summary_table_name,
-    _small_table_name,
     _small_track_limit_response,
     _small_variant_out,
     _split_gene_terms,
@@ -118,12 +117,12 @@ from .clickhouse_variant_queries import (
     _structural_annotation_extra,
     _structural_record_matches,
     _structural_segregation_modes,
-    _structural_table_name,
     _structural_variant_out,
     _structural_variant_where_clauses,
     _variant_gene_keys,
     _visible_clickhouse_sample_ids,
 )
+from .clickhouse_variant_ids import _small_table_name, _structural_table_name
 from .clickhouse_variant_storage import (
     ensure_clickhouse_variant_tables,
     get_family_small_variant_data_version,

@@ -8,9 +8,10 @@ from typing import Any, Sequence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
+from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
 from ..core.sql import uuid_list_bindparam, uuid_values
+from .clickhouse_variant_ids import _require_clickhouse_identifier
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import SampleMetadataContext
 
@@ -21,10 +22,6 @@ VALID_INTERVAL_TRACK_TYPES = {"coverage", "apcad", "apcad_pcf", "segments", "hap
 # clickhouse_variant_storage._ensured_variant_table_assemblies).
 _ensured_interval_table_assemblies: set[str] = set()
 _ensure_interval_table_lock = asyncio.Lock()
-
-
-def _require_clickhouse_identifier(value: str) -> str:
-    return clickhouse_dataset_key(value)
 
 
 def _interval_table_name(assembly_name: str) -> str:

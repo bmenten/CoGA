@@ -12,21 +12,9 @@ import type {
   CoupleDraft,
   MemberDetailDraft,
   ParentChildDraft,
-  PedRow,
   StructureMemberDraft,
 } from './familyDetailTypes';
 import { ROLE_OPTIONS } from './familyDetailConstants';
-
-export const parsePedigree = (pedigree?: string | null): PedRow[] => {
-  if (!pedigree) return [];
-  return pedigree
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [fid, iid, pid, mid, sex, phen] = line.trim().split(/\s+/);
-      return { fid, iid, pid, mid, sex, phen };
-    });
-};
 
 export const sampleKey = (sampleId: string): string => sampleId.trim().toLowerCase();
 
