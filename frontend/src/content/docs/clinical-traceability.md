@@ -114,12 +114,17 @@ Sign-out stops at each of these, in this order:
 | Check | Stops when | To go on |
 | --- | --- | --- |
 | **Assembly scope** | The family is on an assembly outside the validated scope (GRCh38 unless the laboratory set otherwise). The pages carry *Not validated for clinical use*. | No override: the report cannot be signed out. |
+| **Data being written** | A data import of the family is queued or running, or its variants are being written (an upload or a deletion). | No override: sign out once it has finished. |
 | **Evidence drift** | A reported classification, of a small variant, a structural variant or a CNV, drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
 | **Sample QC** | Sample QC failed, or a check that confirms the pedigree could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 | **Incomplete import** | A data import for the family partly failed, so some of its data is missing. The pages carry *Import incomplete* (below). | Re-run the import, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
 so "signed out over a known problem, and why" is part of the permanent record.
+
+An import or upload that starts while a sign-out records the family either waits for the sign-out to
+finish or refuses the sign-out, so a signed version never mixes the family's data from before and after
+a write.
 
 If the family's project cannot be loaded, the assembly — and so the scope — is not known: the pages say
 *Validated scope not confirmed*, with **Retry**, and the report waits until it loads.

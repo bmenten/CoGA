@@ -98,10 +98,21 @@ def _patch_common(
     monkeypatch.setattr(rss, "record_clinical_event", _audit)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
     monkeypatch.setattr(rss, "_import_incomplete_state", _import_state, raising=False)
+    # No import of the family is queued or running, and no writer holds its variants.
+    monkeypatch.setattr(rss, "_active_import_job", _no_import_job, raising=False)
+    monkeypatch.setattr(rss, "try_share_family_variant_writes", _variant_writes_shared, raising=False)
 
 
 async def _no_structural_reviews(session, family_uuid):
     return []
+
+
+async def _no_import_job(session, family_identifier):
+    return None
+
+
+async def _variant_writes_shared(session, family_uuid):
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +184,201 @@ def test_a_validated_assembly_is_configured_not_hard_coded(monkeypatch) -> None:
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
     out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
     assert out["version"] == 1
+
+
+# ---------------------------------------------------------------------------
+# A family whose data is being written (TF-06 H16)
+# ---------------------------------------------------------------------------
+#
+# A package import writes a family over minutes and commits as it goes; the
+# import-incomplete flag is only set once it has failed. A sign-out while it ran froze a
+# half-imported family as a complete signed record.
+
+
+def _wrote_a_signout(session) -> bool:
+    return any("INSERT INTO report_signouts" in str(args[0]) for args, _ in session.executed)
+
+
+def _with_every_override():
+    return {
+        "acknowledge_drift": True,
+        "drift_acknowledgement_reason": "reviewed",
+        "acknowledge_qc": True,
+        "qc_acknowledgement_reason": "reviewed",
+        "acknowledge_import_incomplete": True,
+        "import_incomplete_acknowledgement_reason": "reviewed",
+    }
+
+
+@pytest.mark.parametrize(("status", "said"), [("running", "in progress"), ("validating", "in progress"), ("queued", "queued")])
+def test_sign_out_is_refused_while_an_import_of_the_family_is_queued_or_running(
+    monkeypatch, status, said
+) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    looked_up: list[str] = []
+
+    async def _job(session, family_identifier):
+        looked_up.append(family_identifier)
+        return {"id": "job-7", "status": status}
+
+    async def _must_not_build(*args, **kwargs):
+        raise AssertionError("the snapshot of a family being imported must not be read")
+
+    monkeypatch.setattr(rss, "_active_import_job", _job, raising=False)
+    monkeypatch.setattr(rss, "build_report_snapshot", _must_not_build)
+    session = _Session()
+    with pytest.raises(HTTPException) as excinfo:
+        # No acknowledgement opens this gate: the data is not yet what it will be.
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user(), **_with_every_override()))
+
+    assert excinfo.value.status_code == 409
+    detail = excinfo.value.detail
+    assert detail["gate"] == "import_in_progress"
+    assert detail["import_job"] == {"id": "job-7", "status": status}
+    assert f"is {said} (import job job-7)" in detail["message"]
+    assert looked_up == ["FAM1"], "looked up by the family's identifier, as the job records it"
+    assert not _wrote_a_signout(session)
+
+
+def test_sign_out_is_refused_while_a_writer_holds_the_familys_variants(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    shared: list[str] = []
+
+    async def _held_by_a_writer(session, family_uuid):
+        shared.append(family_uuid)
+        return False
+
+    async def _must_not_build(*args, **kwargs):
+        raise AssertionError("the snapshot of a family being written must not be read")
+
+    monkeypatch.setattr(rss, "try_share_family_variant_writes", _held_by_a_writer, raising=False)
+    monkeypatch.setattr(rss, "build_report_snapshot", _must_not_build)
+    session = _Session()
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user(), **_with_every_override()))
+
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["gate"] == "variant_writes_in_progress"
+    assert "being written" in excinfo.value.detail["message"]
+    assert shared == ["u1"], "the family's variant-write locks, by its uuid"
+    assert not _wrote_a_signout(session)
+
+
+def test_sign_out_is_refused_when_an_import_starts_while_the_snapshot_is_read(monkeypatch) -> None:
+    # The import's job is claimed after the first check and writes the pedigree and samples
+    # before it takes the variant-write locks: the snapshot may hold part of its writes.
+    _patch_common(monkeypatch, drifted_count=0)
+    jobs = iter([None, {"id": "job-8", "status": "running"}])
+
+    async def _job(session, family_identifier):
+        return next(jobs)
+
+    audited: list = []
+
+    async def _audit(*args, **kwargs):
+        audited.append(kwargs)
+
+    monkeypatch.setattr(rss, "_active_import_job", _job, raising=False)
+    monkeypatch.setattr(rss, "record_clinical_event", _audit)
+    session = _Session()
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
+
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["gate"] == "import_in_progress"
+    assert excinfo.value.detail["import_job"] == {"id": "job-8", "status": "running"}
+    assert not _wrote_a_signout(session)
+    assert audited == []
+
+
+def test_sign_out_keeps_writers_out_from_before_its_snapshot_until_it_commits(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    order: list[str] = []
+
+    async def _job(session, family_identifier):
+        order.append("import jobs checked")
+        return None
+
+    async def _share(session, family_uuid):
+        order.append("variant writes shared")
+        return True
+
+    real_build = rss.build_report_snapshot
+
+    async def _build(*args, **kwargs):
+        order.append("snapshot read")
+        return await real_build(*args, **kwargs)
+
+    class _OrderedSession(_Session):
+        async def execute(self, *args, **kwargs):
+            sql = str(args[0])
+            if "pg_advisory_xact_lock" in sql:
+                order.append("sign-out chain locked")
+            elif "INSERT INTO report_signouts" in sql:
+                order.append("signed")
+            return await super().execute(*args, **kwargs)
+
+        async def commit(self) -> None:
+            order.append("commit")
+
+    monkeypatch.setattr(rss, "_active_import_job", _job, raising=False)
+    monkeypatch.setattr(rss, "try_share_family_variant_writes", _share, raising=False)
+    monkeypatch.setattr(rss, "build_report_snapshot", _build)
+    out = asyncio.run(rss.sign_out_report(_OrderedSession(), family_id="FAM1", user=_user()))
+
+    assert out["version"] == 1
+    # The variant-write locks before the sign-out chain's, as every writer takes them
+    # first; the second import check after the snapshot and before anything is written.
+    assert order == [
+        "import jobs checked",
+        "variant writes shared",
+        "snapshot read",
+        "import jobs checked",
+        "sign-out chain locked",
+        "signed",
+        "commit",
+    ]
+
+
+def test_the_active_import_job_query_matches_what_an_import_writes() -> None:
+    # A running import names its family in family_id once its validation read the package;
+    # a queued one only by the family its request named. A dry run writes nothing; a
+    # finished job no longer writes.
+    sql = " ".join(str(rss._ACTIVE_IMPORT_JOB).split())
+    assert "status IN ('queued', 'validating', 'running')" in sql
+    assert "NOT dry_run" in sql
+    assert "family_id = :family_identifier" in sql
+    assert "metadata ->> 'requested_family_id' = :family_identifier" in sql
+
+
+def test_the_active_import_job_is_read_as_a_mapping() -> None:
+    class _Mappings:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def first(self):
+            return self._rows[0] if self._rows else None
+
+    class _JobResult:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def mappings(self):
+            return _Mappings(self._rows)
+
+    class _JobSession:
+        def __init__(self, rows):
+            self.rows = rows
+            self.params: list = []
+
+        async def execute(self, statement, params):
+            self.params.append(params)
+            return _JobResult(self.rows)
+
+    running = _JobSession([{"id": "job-9", "status": "running"}])
+    assert asyncio.run(rss._active_import_job(running, "FAM1")) == {"id": "job-9", "status": "running"}
+    assert running.params == [{"family_identifier": "FAM1"}]
+    assert asyncio.run(rss._active_import_job(_JobSession([]), "FAM1")) is None
 
 
 def test_sign_out_blocks_unacknowledged_drift(monkeypatch) -> None:

@@ -15,7 +15,10 @@ variants, its structural variants or both, from before its first read of the row
 transaction ends. A second writer of the same family and variant type waits for the first to
 commit or roll back, whichever worker or process runs it. The locks are transaction-scoped
 (``pg_advisory_xact_lock``), as the other locks of this code base are: a commit, a rollback
-or a lost connection releases them. Readers take no lock.
+or a lost connection releases them. Readers take no lock, except the one reader whose reads
+must all see one state of the family's variants: the report sign-out, which freezes them
+into a signed record. It shares the locks (:func:`try_share_family_variant_writes`), so no
+writer starts while it reads, and it refuses rather than waits when a writer holds them.
 
 A writer that waited may find its family or sample deleted by the writer before it. It then
 writes nothing and answers 404, as it would have had it started after the delete.
@@ -44,6 +47,9 @@ STRUCTURAL_VARIANTS = "structural_variants"
 VARIANT_TYPES: tuple[str, ...] = (SMALL_VARIANTS, STRUCTURAL_VARIANTS)
 
 _LOCK = text("SELECT pg_advisory_xact_lock(hashtext(:k))")
+# Shared and without waiting: granted unless a writer (an exclusive holder) holds the key,
+# beside any number of other shared holders.
+_TRY_SHARE = text("SELECT pg_try_advisory_xact_lock_shared(hashtext(:k))")
 # The named samples the family still has: no row when the family is gone, one NULL row when
 # it has none of them. Typed, so that an empty list renders as an empty set of text.
 _STORED_SAMPLES = text(
@@ -120,6 +126,25 @@ async def lock_family_variant_writes(
         await session.execute(_LOCK, {"k": key})
     if samples is not None:
         await _require_stored(session, family_uuid, samples)
+
+
+async def try_share_family_variant_writes(session: AsyncSession, family_uuid: str) -> bool:
+    """Keep every writer of the family's variants out until ``session``'s transaction ends,
+    or return False at once when one is writing.
+
+    For a reader whose reads must all see one state of the family's variants: the report
+    sign-out builds its snapshot from many reads, in Postgres and ClickHouse, and a write
+    between two of them would freeze a state the family never had into a signed record.
+    The locks are shared, so such readers do not keep each other out, and every writer
+    waits for them. They do not wait for a writer, since a package import holds the locks
+    for its whole run; the caller refuses instead. On False a key granted before the refused
+    one stays held until the transaction ends, as every lock of it does; the caller ends it.
+    """
+    for variant_type in VARIANT_TYPES:
+        key = family_variant_lock_key(family_uuid, variant_type)
+        if not (await session.execute(_TRY_SHARE, {"k": key})).scalar_one():
+            return False
+    return True
 
 
 @asynccontextmanager
