@@ -28,5 +28,6 @@ scripts that import backend code need the backend's environment, installed from
 | [generate_nipt_demo.py](generate_nipt_demo.py) | Regenerates the synthetic NIPT trio in `demo/nipt_family/`. |
 | [generate_golden_trio.py](generate_golden_trio.py) | Regenerates the golden-trio fixture, with its expected results, for the end-to-end tests. |
 | [seed_playwright_e2e.py](seed_playwright_e2e.py) | Imports the golden trio and creates the user the Playwright journeys sign in as. |
+| [seed_style_diff_demo.py](seed_style_diff_demo.py) | Adds the NIPT demo and the demo quartet on top of that seed, for the frontend style diff (`frontend/scripts/stylediff`). |
 | **Other tools** | |
 | [validate_family_package.py](validate_family_package.py) | Validates a family-package folder without importing it, and prints the result as JSON. |

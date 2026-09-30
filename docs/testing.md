@@ -95,6 +95,15 @@ taken.
 | [frontend/e2e/security-headers.spec.ts](../frontend/e2e/security-headers.spec.ts) | The production frontend server sends its security headers: the CSP (`default-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`), `X-Content-Type-Options` and the `Permissions-Policy`. |
 | [frontend/e2e/signout.spec.ts](../frontend/e2e/signout.spec.ts) | Clinical report sign-out from the browser: the live report of the seeded report-tagged variant renders, sign-out handles the drift and sample-QC override dialogs, and the page then shows the version just signed, rendered from its record, whose version advanced and which the family's data still matches. |
 
+### Stylesheet changes (computed-style diff)
+
+A CSS change can be checked for what it renders, not only for what it says.
+[frontend/scripts/stylediff](../frontend/scripts/stylediff/README.md) renders two production builds side by side against the same
+seeded stack (golden trio, NIPT demo, demo quartet) and compares every element's computed style,
+pseudo-elements and box, over ~110 routes at three widths, with forced `:hover`/`:focus`,
+expanded `<details>` and print media. It is a manual tool, not a CI job. It verified the CSS
+clean-up of #712: no element rendered differently.
+
 ---
 
 ## Backend tests
