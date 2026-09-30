@@ -482,10 +482,6 @@ CREATE TABLE IF NOT EXISTS structural_variant_reviews (
     CONSTRAINT structural_variant_reviews_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
 );
 
--- Added after the table shipped; the baselines re-run on every boot, so an existing
--- deployment picks the column up without a migration ledger.
-ALTER TABLE structural_variant_reviews ADD COLUMN IF NOT EXISTS cnv_evidence_snapshot jsonb;
-
 CREATE INDEX IF NOT EXISTS idx_structural_variant_reviews_family ON structural_variant_reviews USING btree (family_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_reviews_family_variant_id ON structural_variant_reviews USING btree (family_id, variant_id) WHERE (variant_id IS NOT NULL);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_reviews_family_variant_key ON structural_variant_reviews USING btree (family_id, variant_key) WHERE (variant_key IS NOT NULL);
@@ -533,16 +529,12 @@ CREATE TABLE IF NOT EXISTS family_sv_gene_index_status (
     gene_count integer DEFAULT 0 NOT NULL,
     -- The family's storage-level SV data version (ClickHouse SV/family_data_version) the
     -- index was built from. Any SV insert, delete or restore moves it, and a read that
-    -- finds it moved rebuilds the index; NULL (built before the column) always rebuilds.
+    -- finds it moved rebuilds the index; NULL (no version known) always rebuilds.
     sv_data_version text,
     computed_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT family_sv_gene_index_status_pkey PRIMARY KEY (family_id),
     CONSTRAINT family_sv_gene_index_status_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
 );
-
--- Added after the table shipped; the baselines re-run on every boot, so an existing
--- deployment picks the column up without a migration ledger.
-ALTER TABLE family_sv_gene_index_status ADD COLUMN IF NOT EXISTS sv_data_version text;
 
 -- ---------------------------------------------------------------------------
 -- family_variant_ranking_cache (folds superset cols from 036)
@@ -670,18 +662,13 @@ CREATE TABLE IF NOT EXISTS qc_threshold_changes (
     changed_by_email text,
     -- Why the cut-off moved, in the changer's own words. The values either side are
     -- recorded automatically, but they cannot say whether a limit was lowered because
-    -- a validation study supported it or because a run was inconvenient. Required by
-    -- the API; nullable here only so rows written before this column existed remain
-    -- readable in an append-only table.
+    -- a validation study supported it or because a run was inconvenient. The API
+    -- requires it (QcThresholdUpdate.reason).
     reason text,
     changed_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT qc_threshold_changes_pkey PRIMARY KEY (id),
     CONSTRAINT qc_threshold_changes_changed_by_fkey FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
 );
-
--- Added after the table shipped; the baselines re-run on every boot, so an existing
--- deployment picks the column up without a migration ledger.
-ALTER TABLE qc_threshold_changes ADD COLUMN IF NOT EXISTS reason text;
 
 CREATE INDEX IF NOT EXISTS idx_qc_threshold_changes_recent
     ON qc_threshold_changes USING btree (changed_at DESC);

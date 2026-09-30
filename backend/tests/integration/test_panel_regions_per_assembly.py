@@ -6,10 +6,7 @@ family could be filtered on T2T coordinates and vice versa. This checks, against
 schema, that
 
 * a gene is resolved in every assembly that has it, each region tagged with its assembly;
-* a family's panel filter reads only its own assembly's stored regions;
-* a table created before the fix is upgraded in place by the idempotent schema load:
-  gene-reference rows are attributed to their assembly, rows that match no gene record are
-  dropped, and the assembly becomes part of the primary key.
+* a family's panel filter reads only its own assembly's stored regions.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -25,24 +22,9 @@ from sqlalchemy import text
 pytestmark = pytest.mark.integration
 
 def _symbols() -> tuple[str, str]:
-    # Unique per test: the integration database is shared, and the schema upgrade
-    # matches regions to gene records by symbol and coordinates across all assemblies.
+    # Unique per test: the integration database is shared across tests.
     tag = uuid4().hex[:8].upper()
     return f"ZQX{tag}A", f"ZQX{tag}B"
-
-# The table exactly as it was before #515.
-_PRE_515_TABLE = """
-CREATE TABLE gene_panel_regions (
-    panel_id uuid NOT NULL,
-    gene text NOT NULL,
-    chr text NOT NULL,
-    start bigint NOT NULL,
-    "end" bigint NOT NULL,
-    CONSTRAINT gene_panel_regions_pkey PRIMARY KEY (panel_id, gene, chr, start, "end"),
-    CONSTRAINT gene_panel_regions_panel_id_fkey FOREIGN KEY (panel_id)
-        REFERENCES gene_panels(id) ON DELETE CASCADE
-)
-"""
 
 
 async def _seed(session, gene: str, only_in_b: str) -> dict[str, str]:
@@ -170,105 +152,6 @@ def test_panel_regions_are_resolved_stored_and_read_per_assembly() -> None:
                 assert not unscoped.regions
                 assert set(unscoped.genes) == {gene, only_in_b}
         finally:
-            await close_postgres_engine()
-
-    asyncio.run(_run())
-
-
-def test_a_pre_515_region_table_is_upgraded_in_place() -> None:
-    from backend.app.core.postgres import (
-        close_postgres_engine,
-        get_postgres_sessionmaker,
-        init_postgres_schema,
-    )
-
-    gene, only_in_b = _symbols()
-
-    async def _run() -> None:
-        try:
-            await init_postgres_schema()
-            sm = get_postgres_sessionmaker()
-            async with sm() as s:
-                ids = await _seed(s, gene, only_in_b)
-                # A second gene whose locus is identical in both assemblies, as the
-                # mtDNA genes are in GRCh38 and T2T.
-                await s.execute(
-                    text(
-                        'INSERT INTO genes (assembly_id, gene_id, hgnc_symbol, chr, start, "end", '
-                        "strand, biotype, description, source) VALUES "
-                        "(CAST(:a AS uuid), :gid_a, :sym, 'MT', 3307, 4262, 1, 'protein_coding', 't', 't'), "
-                        "(CAST(:b AS uuid), :gid_b, :sym, 'MT', 3307, 4262, 1, 'protein_coding', 't', 't')"
-                    ),
-                    {"a": ids["a"], "b": ids["b"], "gid_a": f"MT-{uuid4()}", "gid_b": f"MT-{uuid4()}", "sym": only_in_b + "MT"},
-                )
-                await s.commit()
-            async with sm() as s:
-                await s.execute(text("DROP TABLE gene_panel_regions"))
-                await s.execute(text(_PRE_515_TABLE))
-                await s.execute(
-                    text(
-                        'INSERT INTO gene_panel_regions (panel_id, gene, chr, start, "end") VALUES '
-                        # copied from assembly B's gene record
-                        "(CAST(:p AS uuid), :g, '1', 5000, 6500), "
-                        # identical in both assemblies: kept for each
-                        "(CAST(:p AS uuid), :mt, 'MT', 3307, 4262), "
-                        # PanelApp's own coordinates: no gene record matches them
-                        "(CAST(:p AS uuid), 'ISCA-REGION', '3', 100, 900)"
-                    ),
-                    {"p": ids["panel"], "g": gene, "mt": only_in_b + "MT"},
-                )
-                await s.commit()
-
-            await init_postgres_schema()  # the upgrade
-            await init_postgres_schema()  # and it stays a no-op afterwards
-
-            async with sm() as s:
-                rows = (
-                    await s.execute(
-                        text(
-                            "SELECT gene, assembly_id::text AS assembly_id FROM gene_panel_regions "
-                            "WHERE panel_id = CAST(:p AS uuid)"
-                        ),
-                        {"p": ids["panel"]},
-                    )
-                ).mappings().all()
-                assert {(r["gene"], r["assembly_id"]) for r in rows} == {
-                    (gene, ids["b"]),
-                    (only_in_b + "MT", ids["a"]),
-                    (only_in_b + "MT", ids["b"]),
-                }
-                nullable = (
-                    await s.execute(
-                        text(
-                            "SELECT is_nullable FROM information_schema.columns "
-                            "WHERE table_schema = current_schema() "
-                            "AND table_name = 'gene_panel_regions' AND column_name = 'assembly_id'"
-                        )
-                    )
-                ).scalar_one()
-                assert nullable == "NO"
-                pk = (
-                    await s.execute(
-                        text(
-                            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
-                            "WHERE conname = 'gene_panel_regions_pkey'"
-                        )
-                    )
-                ).scalar_one()
-                assert "assembly_id" in pk
-                fk = (
-                    await s.execute(
-                        text(
-                            "SELECT count(*) FROM pg_constraint "
-                            "WHERE conname = 'gene_panel_regions_assembly_id_fkey'"
-                        )
-                    )
-                ).scalar_one()
-                assert fk == 1
-        finally:
-            # Whatever happened above, leave the schema in its current shape for the
-            # tests that follow.
-            await init_postgres_schema()
             await close_postgres_engine()
 
     asyncio.run(_run())

@@ -169,13 +169,6 @@ CREATE TABLE IF NOT EXISTS family_annotation_manifest (
     UNIQUE (family_id)
 );
 
--- Let the platform reference layer record the source release/version it loaded,
--- so the merged manifest can report e.g. the ClinVar/DGV/clinical-CNV release.
-ALTER TABLE reference_dataset_imports
-    ADD COLUMN IF NOT EXISTS source_version TEXT,
-    ADD COLUMN IF NOT EXISTS source_release_date DATE,
-    ADD COLUMN IF NOT EXISTS source_url TEXT;
-
 -- ---------------------------------------------------------------------------
 -- clinical_audit_events — immutable, hash-chained clinical action log
 -- ---------------------------------------------------------------------------
