@@ -226,6 +226,42 @@ describe('FamilyReportPage', () => {
     expect(printNotice?.textContent).toMatch(expected);
   });
 
+  // The report asked for 500 reported variants and never looked at the total: a longer list
+  // ended at 500 without a trace, while the signed record holds every reported variant.
+  it('asks for every reported variant, not the first 500', async () => {
+    mockApi();
+    renderPage();
+    expect(await screen.findByRole('heading', { name: /BRCA1 c\.123A>G/ })).toBeInTheDocument();
+
+    const listUrls = apiMock.get.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => /^\/families\/F1\/(small|structural)-variants\?/.test(url));
+    expect(listUrls.some((url) => url.startsWith('/families/F1/small-variants?'))).toBe(true);
+    expect(listUrls.some((url) => url.startsWith('/families/F1/structural-variants?'))).toBe(true);
+    listUrls.forEach((url) => {
+      const params = new URLSearchParams(url.split('?')[1]);
+      expect(params.get('review_tag')).toBe('report');
+      expect(params.get('page_size')).toBe('10000');
+    });
+  });
+
+  it('says, on screen and in print, when a list holds more reported variants than it shows', async () => {
+    mockApi();
+    const base = apiMock.get.getMockImplementation()!;
+    apiMock.get.mockImplementation((url: string, config?: unknown) =>
+      url.startsWith('/families/F1/small-variants')
+        ? Promise.resolve({ data: { variants: [reportVariant], total: 3 } })
+        : base(url, config),
+    );
+    renderPage();
+
+    const expected = /Incomplete — the report lists 1 of the 3 reported small variants; the others are not shown\./;
+    const alert = (await screen.findAllByRole('alert')).find((node) => expected.test(node.textContent ?? ''));
+    expect(alert).toBeDefined();
+    expect(alert).toHaveClass('no-print');
+    expect(document.querySelector('.report-print-notice')?.textContent).toMatch(expected);
+  });
+
   it('shows no capped-list notice when the reported lists are complete', async () => {
     mockApi();
     renderPage();

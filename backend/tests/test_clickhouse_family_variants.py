@@ -2430,6 +2430,126 @@ async def test_prioritized_structural_variants_tie_order_is_deterministic(
     assert forward == ["sv-200", "sv-100"]
 
 
+def _reported_sv(variant_id: str, *, start: int) -> StructuralVariantRecord:
+    return StructuralVariantRecord(
+        variant_key=None,
+        variant_id=variant_id,
+        chr="1",
+        start=start,
+        end=start + 100,
+        sv_type="DEL",
+        source="sniffles",
+        remote_chr=None,
+        remote_start=None,
+        remote_end=None,
+        sv_len=-100,
+        filters=["PASS"],
+        gene_symbols=["GENE1"],
+        annotations=[{}],
+        calls=[StructuralVariantCall(sample="PROBAND", gt="0/1", qual=None, read_support=None, filter="PASS")],
+    )
+
+
+def _callset_fetch(records: list[StructuralVariantRecord], seen: list[dict]):
+    """A fake of ``_fetch_structural_variant_rows`` that answers as its SQL does: the review
+    selection and exclusion narrow the rows, and only then does ``limit`` cut them, in
+    callset order."""
+
+    async def _fetch(_context, _filters, *, limit=None, offset=0, **kwargs):
+        seen.append(kwargs)
+        include = kwargs.get("include_variant_ids")
+        excluded = set(kwargs.get("exclude_variant_ids") or ())
+        rows = [
+            record
+            for record in records
+            if (include is None or record.variant_id in include) and record.variant_id not in excluded
+        ][offset:]
+        return rows if limit is None else rows[:limit]
+
+    return _fetch
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prioritize", [False, True])
+async def test_a_reported_sv_beyond_the_candidate_cap_is_still_found(
+    monkeypatch: pytest.MonkeyPatch, prioritize: bool
+) -> None:
+    # The report lists its SVs with a review-tag search. That search read the first rows
+    # of the callset up to the candidate cap and only then kept the reviewed ones, so a
+    # reported SV past the cap was missing from the report. The selection now narrows the
+    # read, so the cap bounds the reported SVs, not the callset.
+    m = "backend.app.services.clickhouse_family_variants."
+    monkeypatch.setattr(m + "_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP", 2)
+    callset = [_reported_sv(f"sv-{index}", start=index * 1000) for index in range(1, 6)]
+    seen: list[dict] = []
+
+    async def _reported(_session, *, family_uuid, classifications=None, tags=None, has_notes=False):
+        return {"sv-5"} if tags == ["report"] else set()
+
+    async def _empty(*_a, **_k):
+        return {}
+
+    async def _no_hpo(*_a, **_k):
+        return (set(), {})
+
+    monkeypatch.setattr(m + "_fetch_structural_variant_rows", _callset_fetch(callset, seen))
+    monkeypatch.setattr(m + "list_matching_structural_variant_review_ids", _reported)
+    monkeypatch.setattr(m + "get_structural_variant_review_map", _empty)
+    monkeypatch.setattr(m + "_fetch_structural_cytoband_map", _empty)
+    monkeypatch.setattr(m + "_affected_present_hpo", _no_hpo)
+
+    page = await get_family_structural_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=500,
+        review_tags=["report"],
+        prioritize=prioritize,
+    )
+
+    assert [str(variant.id) for variant in page.variants] == ["sv-5"]
+    assert page.total == 1
+    assert page.candidates_capped is False
+    assert page.ranking_truncated is False
+    assert seen and seen[0]["include_variant_ids"] == {"sv-5"}
+
+
+@pytest.mark.asyncio
+async def test_an_sv_search_without_a_review_selection_reads_the_whole_callset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    m = "backend.app.services.clickhouse_family_variants."
+    seen: list[dict] = []
+
+    async def _none(*_a, **_k):
+        return set()
+
+    async def _empty(*_a, **_k):
+        return {}
+
+    monkeypatch.setattr(
+        m + "_fetch_structural_variant_rows",
+        _callset_fetch([_reported_sv("sv-1", start=1000)], seen),
+    )
+    monkeypatch.setattr(m + "list_matching_structural_variant_review_ids", _none)
+    monkeypatch.setattr(m + "get_structural_variant_review_map", _empty)
+    monkeypatch.setattr(m + "_fetch_structural_cytoband_map", _empty)
+
+    # A Python-side filter (the type) keeps the search off the native page; no review
+    # selection means no id restriction in SQL.
+    page = await get_family_structural_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=50,
+        type="DEL",
+    )
+
+    assert [str(variant.id) for variant in page.variants] == ["sv-1"]
+    assert seen[0]["include_variant_ids"] is None
+    assert not seen[0]["exclude_variant_ids"]
+
+
 def test_clamp_small_variant_page_bounds_deep_offset() -> None:
     from backend.app.services.clickhouse_variant_queries import (
         _SMALL_COUNT_LIMIT,

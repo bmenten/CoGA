@@ -5,6 +5,9 @@ gene context and phenotype overlap — and is where the case is signed out. Once
 
 ### What the live report shows
 
+- Every **reported variant**, small variants and structural variants alike. If a list cannot hold them
+  all, an *Incomplete* warning says so, on screen and in print, so a printout cannot pass for the whole
+  list.
 - A **provenance footer** with the CoGA version that produced the page, the in-house IVD statement and
   the manufacturer, and the versions behind the data: the pipeline tools, the assembly, the gene loci,
   the Monarch release and the HPO release. It prints with the report.

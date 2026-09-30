@@ -56,7 +56,10 @@ import {
   joinWithAnd,
 } from './reportNarrative';
 import { apiPath, raw } from '../../lib/apiPath';
-import type { CandidateCapFlags } from './CandidateCapNotice';
+import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
+
+// The report's SV list: its variants, and what the page says about its completeness.
+type StructuralReportPage = Omit<ReportedListPage, 'variants'> & { variants: StructuralVariant[] };
 
 interface GeneHpoTerm {
   hpo_id?: string | null;
@@ -216,7 +219,9 @@ const LiveFamilyReport: React.FC = () => {
   const reportQueryString = useMemo(() => {
     const params = new URLSearchParams();
     params.set('review_tag', REPORT_TAG_KEY);
-    params.set('page_size', '500');
+    // Every reported variant, up to the API's page maximum; a list holding more says so
+    // (reportedListNotice) instead of ending without a trace at the page size.
+    params.set('page_size', String(REPORT_LIST_PAGE_SIZE));
     if (projectId) params.set('project_id', projectId);
     return params.toString();
   }, [projectId]);
@@ -242,12 +247,12 @@ const LiveFamilyReport: React.FC = () => {
     isLoading: structuralLoading,
     isError: structuralFailed,
     refetch: refetchStructural,
-  } = useQuery<CandidateCapFlags & { variants: StructuralVariant[] }>({
+  } = useQuery<StructuralReportPage>({
     queryKey: ['family', familyId, 'report-structural-variants', reportQueryString],
     enabled: variantQueryReady,
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(reportQueryString)}`);
-      return res.data as CandidateCapFlags & { variants: StructuralVariant[] };
+      return res.data as StructuralReportPage;
     },
   });
   const structuralVariants = useMemo(
@@ -417,24 +422,14 @@ const LiveFamilyReport: React.FC = () => {
   const incompleteNotice = failedParts.length
     ? `Incomplete — ${joinWithAnd(failedParts)} could not be loaded, so this printout does not show the whole report.`
     : null;
-  // A list of reported variants drawn from a capped candidate read can miss a tagged
-  // variant beyond the window (#725 follow-up): said on screen and in print.
-  const cappedLists = [
-    reportPage?.candidates_capped ? 'small variants' : null,
-    structuralReportPage?.candidates_capped ? 'structural variants' : null,
-  ].filter((part): part is string => Boolean(part));
-  const cappedListLimits = [reportPage, structuralReportPage]
-    .filter((listPage) => listPage?.candidates_capped && typeof listPage.candidate_limit === 'number')
-    .map((listPage) => (listPage?.candidate_limit ?? 0).toLocaleString());
-  const cappedListNotice = cappedLists.length
-    ? `Incomplete — the list of reported ${joinWithAnd(cappedLists)} may miss a variant: the search ` +
-      `behind it ${
-        cappedListLimits.length
-          ? `stopped after the first ${joinWithAnd(cappedListLimits)} candidates of the callset`
-          : 'read only part of the callset'
-      }, so a reported variant beyond that point is not shown.`
-    : null;
-  const printNotice = [incompleteNotice, cappedListNotice, signedNotice].filter(Boolean).join(' ') || null;
+  // A list of reported variants is not the whole list when the search behind it read a
+  // capped candidate window, or when it holds more variants than the page it came in:
+  // said on screen and in print, so a printed report cannot pass for the whole list.
+  const reportListNotice = reportedListNotice([
+    { label: 'small variants', page: reportPage },
+    { label: 'structural variants', page: structuralReportPage },
+  ]);
+  const printNotice = [incompleteNotice, reportListNotice, signedNotice].filter(Boolean).join(' ') || null;
 
   // Override dialogs. Each gate is acknowledged with a reason that is frozen into the
   // signed record: evidence drift first, then a failing / unverifiable Sample QC, then an
@@ -977,9 +972,9 @@ const LiveFamilyReport: React.FC = () => {
         </section>
       ) : null}
 
-      {cappedListNotice ? (
+      {reportListNotice ? (
         <section className="surface-card report-incomplete no-print" role="alert">
-          <p className="report-paragraph">{cappedListNotice}</p>
+          <p className="report-paragraph">{reportListNotice}</p>
         </section>
       ) : null}
 

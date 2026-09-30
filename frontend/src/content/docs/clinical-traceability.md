@@ -225,5 +225,6 @@ If a signed version cannot be loaded, the page shows only *Signed version N coul
 says it is not known whether the case is signed. Until that record is known, sign-out is not offered.
 Any other part that failed (a gene description, the HPO terms, the drift check, the audit trail, the
 annotation versions, the CoGA version) is marked where it belongs, and a printout starts with
-*Incomplete — … could not be loaded*. The NIPT report does the same for the fetal fraction, the coverage
+*Incomplete — … could not be loaded*. A list of reported variants that holds more than the report reads
+(10,000 of each kind) is marked *Incomplete* too, on screen and in print. The NIPT report does the same for the fetal fraction, the coverage
 check, the name of its gene panel and the CoGA version.

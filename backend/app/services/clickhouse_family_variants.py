@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence
+from typing import Any, Collection, Mapping, Sequence
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -1370,6 +1370,8 @@ async def _fetch_structural_variant_rows(
     track_mode: bool = False,
     include_regions: Sequence[Region] = (),
     call_sample_names: Sequence[str] = (),
+    include_variant_ids: Collection[str] | None = None,
+    exclude_variant_ids: Collection[str] = (),
 ) -> list[StructuralVariantRecord]:
     """The family view of its SVs: the visible projects and samples, grouped per SV.
 
@@ -1382,7 +1384,11 @@ async def _fetch_structural_variant_rows(
     entries_table = _structural_table_name(context.assembly_name, "entries")
     details_table = _structural_table_name(context.assembly_name, "variants/details")
     where_clauses, params = _structural_variant_where_clauses(
-        context, filters, include_regions=include_regions
+        context,
+        filters,
+        include_regions=include_regions,
+        include_variant_ids=include_variant_ids,
+        exclude_variant_ids=exclude_variant_ids,
     )
     if call_sample_names:
         # Only the SVs with a call for these samples, the rule the record filter applies
@@ -2875,6 +2881,9 @@ async def _prioritized_structural_variants_page(
         filters,
         limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP + 1,
         include_regions=include_regions,
+        # The review selection narrows the read in SQL too, for the same reason.
+        include_variant_ids=review_variant_ids if include_review_filter_active else None,
+        exclude_variant_ids=excluded_review_variant_ids,
     )
     fetch_overflowed = len(records) > _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
     if fetch_overflowed:
@@ -3200,8 +3209,11 @@ async def get_family_structural_variants_page(
         limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP + 1,
         track_mode=track_mode,
         # Same reason as the ranked path: narrowing in SQL means the row cap cannot
-        # decide which rows the gene/panel filter sees.
+        # decide which rows the gene/panel or review filter sees. The report's list of
+        # reported SVs is such a review search.
         include_regions=include_regions,
+        include_variant_ids=review_variant_ids if include_review_filter_active else None,
+        exclude_variant_ids=excluded_review_variant_ids,
         # A track draws one sample: the cap should count that sample's SVs (#585).
         call_sample_names=selected_samples if track_mode and filters.selected_samples else (),
     )
