@@ -62,7 +62,7 @@ KNOWN_KEYS = {
 def load_schema() -> dict:
     os.environ.setdefault("APP_ENV", "test")
     sys.path.insert(0, str(ROOT))
-    from backend.app.main import app  # noqa: E402 - needs the env and path above
+    from backend.app.main import app  # needs the env and path above
 
     return app.openapi()
 

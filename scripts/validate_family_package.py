@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.app.services.family_package_validation import validate_family_package
+from backend.app.services.family_package_validation import validate_family_package  # noqa: E402 - needs ROOT on sys.path
 
 
 def build_parser() -> argparse.ArgumentParser:

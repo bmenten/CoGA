@@ -41,8 +41,8 @@
   (`services/access_control.py`, `services/family_metadata_context.py`) and use the right
   storage dependency.
 - Clinical and business logic lives in `backend/app/services/`. The clinical-critical
-  modules (scoring, traceability and sign-out, sample integrity) are the ones listed in
-  `mypy.ini` and floored in `scripts/check-coverage-floor.py`.
+  modules (scoring, traceability and sign-out, sample integrity) are the ones listed under
+  `[tool.mypy]` in `pyproject.toml` and floored in `scripts/check-coverage-floor.py`.
 - After changing a Pydantic model the API serves, regenerate the frontend types with
   `python scripts/generate-api-types.py`; CI runs it with `--check`.
 

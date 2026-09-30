@@ -34,7 +34,7 @@
 | Level | Method | Where | Gate |
 | --- | --- | --- | --- |
 | Unit | pytest (backend), vitest (frontend) | `backend/tests`, `frontend/src/**/*.test.ts(x)` | CI `backend`, `frontend` jobs |
-| Static analysis | TypeScript `tsc` and ESLint with the React hooks and accessibility rules (frontend); ruff, and mypy on the clinical-critical modules listed in `mypy.ini` (backend) | frontend, backend | CI `frontend` and `backend` jobs |
+| Static analysis | TypeScript `tsc` and ESLint with the React hooks and accessibility rules (frontend); ruff, and mypy on the clinical-critical modules listed under `[tool.mypy]` in `pyproject.toml` (backend) | frontend, backend | CI `frontend` and `backend` jobs |
 | Integration | Tests against real Postgres and ClickHouse: app startup (schema, admin seed, health), database immutability and role privileges, hash chains and anchors, ClickHouse queries | `backend/tests/integration` | CI `smoke` job |
 | End-to-end (system) | Golden-dataset pipeline run (ingest → query/API → review/audit/sign-out) + realistic demo bundles, checked vs documented expected results — see **[TF-09c](TF-09c-e2e-pipeline-verification.md)** | `backend/tests/e2e` | CI `e2e` job |
 | Browser / GUI end-to-end | Chromium drives the production build of the UI against a live backend and datastores (login → family workspace → genome view → sign-out), with a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job |

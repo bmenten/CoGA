@@ -11,11 +11,17 @@ from __future__ import annotations
 
 import asyncio
 
-
 from backend.app.services import clickhouse_family_variants as cfv
-from backend.app.services.clickhouse_family_variants import _small_variant_present_sample_names
+from backend.app.services.clickhouse_family_variants import (
+    _small_variant_present_sample_names,
+    _structural_present_sample_names,
+)
 from backend.app.services.family_metadata_context import FamilyMetadataContext
-from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+from backend.app.services.family_variant_filters import (
+    SmallVariantQueryFilters,
+    StructuralVariantQueryFilters,
+)
+from backend.app.services.genotypes import genotype_vocabulary
 
 
 def _context() -> FamilyMetadataContext:
@@ -103,9 +109,6 @@ def test_explicit_sample_absent_when_base_does_not_match(monkeypatch):
 # Structural-variant presence aggregate (P2-1b). Present iff the sample has a call
 # in a matching variant — any genotype (no non-ref requirement, unlike small variants).
 # --------------------------------------------------------------------------- #
-from backend.app.services.clickhouse_family_variants import _structural_present_sample_names
-from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
-from backend.app.services.genotypes import genotype_vocabulary
 
 
 def _sv_filters(**kwargs) -> StructuralVariantQueryFilters:

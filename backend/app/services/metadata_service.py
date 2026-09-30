@@ -1268,7 +1268,7 @@ async def _attach_sequencing_qc_verdicts(
                 profile_key=resolved["profile_key"],
                 profile_label=resolved["profile_label"],
             )
-    except Exception:  # noqa: BLE001 — a QC verdict must never break the workspace
+    except Exception:  # a QC verdict must never break the workspace
         logger.warning("Sequencing-QC threshold evaluation failed for family %s", family_uuid, exc_info=True)
 
 

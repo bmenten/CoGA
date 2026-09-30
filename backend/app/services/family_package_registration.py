@@ -39,8 +39,8 @@ from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import record_raw_import_file
 
-from .family_package_common import FamilyPackageBundle, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path  # noqa: F401
-from .family_package_manifest import _manifest_carrier_types, _manifest_member_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import  # noqa: F401
+from .family_package_common import FamilyPackageBundle, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path
+from .family_package_manifest import _manifest_carrier_types, _manifest_member_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
 
 
 logger = logging.getLogger(__name__)
@@ -737,7 +737,7 @@ async def _delete_family_shell(
             # a separate ClickHouse table; without this they survive the family delete
             # as orphan rows pointing at a now-deleted family.
             await delete_interval_tracks(assembly_name, family_uuid=family_uuid)
-        except Exception:  # noqa: BLE001 - best-effort store cleanup
+        except Exception:  # best-effort store cleanup
             logger.warning(
                 "Failed to clear ClickHouse rows during import compensation for %s",
                 family_context.family_id,
@@ -797,7 +797,7 @@ async def _flag_family_import_incomplete(
             {"family_uuid": family_context.family_uuid, "payload": json.dumps(payload)},
         )
         await session.commit()
-    except Exception:  # noqa: BLE001 - flag write must not mask the import failure
+    except Exception:  # flag write must not mask the import failure
         logger.warning(
             "Failed to flag family %s as import-incomplete",
             family_context.family_id,
@@ -829,7 +829,7 @@ async def _clear_family_import_incomplete(
             {"family_uuid": family_context.family_uuid},
         )
         await session.commit()
-    except Exception:  # noqa: BLE001 - best-effort flag clear
+    except Exception:  # best-effort flag clear
         logger.warning(
             "Failed to clear import-incomplete flag for family %s",
             family_context.family_id,

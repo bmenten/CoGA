@@ -184,14 +184,14 @@ def parse_small_variant_sample_filter(entry: str) -> SmallVariantSampleFilter | 
     if parts[4]:
         try:
             minimum_allele_frequency = float(parts[4])
-        except Exception:
+        except Exception:  # noqa: BLE001 - drops the filter silently; to be refused (#686)
             pass
 
     minimum_alt_depth = None
     if parts[5]:
         try:
             minimum_alt_depth = int(float(parts[5]))
-        except Exception:
+        except Exception:  # noqa: BLE001 - drops the filter silently; to be refused (#686)
             pass
 
     return SmallVariantSampleFilter(

@@ -27,7 +27,7 @@ commands under [Keeping this current](#keeping-this-current) print the counts.
 - **Fail-safe on degraded input.** Across NIPT, ACMG, CNV and haplotypes, degraded or empty
   input must abstain (low confidence, VUS, uninformative), never silently mis-call.
 - **One backend test root.** Every backend test lives under `backend/tests/`, the only
-  `testpaths` entry in `pytest.ini`, so `pytest` collects the same suite from the repository
+  `testpaths` entry in `pyproject.toml`, so `pytest` collects the same suite from the repository
   root and from `backend/`. `scripts/check-test-catalogue.sh` fails if a test file appears
   outside it.
 
@@ -55,7 +55,7 @@ security gates (`deps`, `secret-scan`, `codeql`) are in `.github/workflows/secur
 
 | Job | What it runs | Notes |
 | --- | --- | --- |
-| **backend** | `pip install -r backend/requirements-dev.txt`, `ruff check .`, `mypy`, `scripts/generate-api-types.py --check`, `pytest -q` | Lint (`ruff.toml`); a type check of the clinical-critical modules listed in `mypy.ini`; a check that the frontend's generated API types (`frontend/src/lib/apiSchema.generated.ts`) match the backend's OpenAPI schema; then the unit suite with its coverage floors. |
+| **backend** | `pip install -r backend/requirements-dev.txt`, `ruff check .`, `mypy`, `scripts/generate-api-types.py --check`, `pytest -q` | Lint (`[tool.ruff]` in `pyproject.toml`); a type check of the clinical-critical modules listed under `[tool.mypy]`; a check that the frontend's generated API types (`frontend/src/lib/apiSchema.generated.ts`) match the backend's OpenAPI schema; then the unit suite with its coverage floors. |
 | **smoke** | `pytest backend/tests/integration` against Postgres and ClickHouse service containers | The real startup: schema baselines, admin seed, health probe. Records coverage for the `coverage` job. |
 | **e2e** | `pytest backend/tests/e2e` against the same services | The golden-trio pipeline and the demo bundles against documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Records coverage for the `coverage` job. |
 | **coverage** | combines the `backend`, `smoke` and `e2e` coverage data, then `scripts/check-coverage-floor.py --combined` | Floors on the combined figure for the modules only real datastores exercise (import pipeline, integrity anchors, sign-out), which the unit job under-reports. Not a required check. |

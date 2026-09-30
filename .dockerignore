@@ -1,12 +1,14 @@
 # Version control and local metadata
 .git
 .gitignore
+.claude/
 .DS_Store
 Thumbs.db
 
 # Secrets and local environment files
 .env
 *.env
+.env.*
 !.env.example
 
 # Python local artifacts
@@ -19,7 +21,11 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage-*.data
+coverage*.json
 htmlcov/
+frontend/coverage/
 backend/.venv/
 backend/env/
 backend/venv/

@@ -1,0 +1,73 @@
+# Configuration of the Python tools run from the repository root. CoGA is not packaged;
+# the backend's dependencies are pinned in backend/requirements*.txt.
+
+# Lint gate (#526), run by the `backend` CI job. Pyflakes, plus the bugbear checks that
+# catch real defects: a closure that captures a loop variable (B023) and a re-raise that
+# loses its cause (B904); the async rules, which catch blocking I/O inside an async
+# function, where it would stall every request on the single worker (#527); a broad
+# `except` that neither re-raises nor logs the traceback (BLE001) and an import below
+# module code (E402), each allowed only with a `noqa` that says why; and a `noqa` that
+# no longer suppresses anything (RUF100).
+[tool.ruff]
+target-version = "py312"
+extend-exclude = ["frontend", "data", "demo", "docs"]
+
+[tool.ruff.lint]
+select = ["E9", "E402", "F", "B023", "B904", "ASYNC", "BLE001", "RUF100"]
+
+[tool.ruff.lint.per-file-ignores]
+# Command-line scripts and tests block no server.
+"scripts/**" = ["ASYNC"]
+# Its backend imports follow ensure_backend_runtime(), which re-runs the script under the
+# backend's virtualenv when the current interpreter lacks the dependencies.
+"scripts/load_demo_quartet.py" = ["ASYNC", "E402"]
+"backend/tests/**" = ["ASYNC"]
+
+# Type-check gate (#526), run by the `backend` CI job over the clinical-critical modules:
+# classification and scoring, the traceability and sign-out stack, and sample integrity.
+# Each one type-checks clean; add a module once it does. The rest of backend/app is not
+# gated yet (about 300 errors when measured for #526; haplotype_lineage_service and
+# clickhouse_family_variants are the largest).
+[tool.mypy]
+python_version = "3.12"
+files = [
+    "backend/app/services/acmg_points.py",
+    "backend/app/services/annotation_manifest_service.py",
+    "backend/app/services/assembly_scope.py",
+    "backend/app/services/classification_drift_service.py",
+    "backend/app/services/clinical_audit_service.py",
+    "backend/app/services/cnv_acmg_points.py",
+    "backend/app/services/compound_het_phase.py",
+    "backend/app/services/family_variant_filters.py",
+    "backend/app/services/family_variant_write_lock.py",
+    "backend/app/services/genotypes.py",
+    "backend/app/services/hash_chain.py",
+    "backend/app/services/integrity_anchor_service.py",
+    "backend/app/services/mitochondrial_analysis.py",
+    "backend/app/services/monarch_semsim.py",
+    "backend/app/services/nipt_analysis.py",
+    "backend/app/services/nipt_service.py",
+    "backend/app/services/qc_threshold_service.py",
+    "backend/app/services/report_signout_service.py",
+    "backend/app/services/review_pg_utils.py",
+    "backend/app/services/sample_integrity_qc.py",
+    "backend/app/services/sample_integrity_service.py",
+    "backend/app/services/structural_variant_evidence.py",
+    "backend/app/services/sv_gene_index_service.py",
+    "backend/app/services/variant_ranking_cache.py",
+]
+# Imported modules are analysed for their types, but only the listed files report errors.
+follow_imports = "silent"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+testpaths = ["backend/tests"]
+markers = [
+    "integration: end-to-end tests needing real Postgres + ClickHouse (RUN_INTEGRATION=1)",
+]
+
+# Record file paths relative to the repository root, so the coverage data of the unit,
+# smoke and e2e CI jobs combines into one report (#526).
+[tool.coverage.run]
+relative_files = true

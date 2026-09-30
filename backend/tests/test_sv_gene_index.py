@@ -304,7 +304,7 @@ def test_scan_groups_svs_by_gene(monkeypatch) -> None:
         ("sv2", "DUP", "1", 300, 400, ["BRCA2"], ["S1"], ["1/1"], [None]),
     ]
 
-    async def _fake_execute(query, params):  # noqa: ANN001
+    async def _fake_execute(query, params):
         assert params["family_guid"] == "u1"
         return rows
 
@@ -344,7 +344,7 @@ class _IndexSession:
         self.genes: dict[str, set[str]] = {fid: {"STALE"} for fid in self.built_from}
         self.commits = 0
 
-    async def execute(self, statement, params=None):  # noqa: ANN001
+    async def execute(self, statement, params=None):
         sql = " ".join(str(statement).split())
         rows = params if isinstance(params, list) else [params or {}]
         fid = rows[0].get("fid") if rows else None
@@ -374,15 +374,15 @@ def _ensure_index(monkeypatch, session: _IndexSession, *, current_version: str) 
     """Run the lazy index build against ``session`` with the SV data at ``current_version``."""
     scans = {"count": 0}
 
-    async def fake_scan(context):  # noqa: ANN001
+    async def fake_scan(context):
         scans["count"] += 1
         return {"BRCA2": [{"sv_id": "sv1", "sv_type": "DEL", "gt": {"S1": "0/1"}}]}, 1
 
-    async def fake_version(assembly_name, family_uuid):  # noqa: ANN001
+    async def fake_version(assembly_name, family_uuid):
         assert (assembly_name, family_uuid) == ("GRCh38", "u1")
         return current_version
 
-    async def fake_ensure_tables(assembly_name):  # noqa: ANN001
+    async def fake_ensure_tables(assembly_name):
         return None
 
     monkeypatch.setattr(cfv, "_scan_family_sv_gene_map", fake_scan)

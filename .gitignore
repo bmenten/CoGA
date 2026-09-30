@@ -2,9 +2,14 @@
 .DS_Store
 Thumbs.db
 
-# Environment variables
+# Environment variables (.env.example is the tracked template)
 .env
 *.env
+.env.*
+!.env.example
+
+# Claude Code session state and worktrees
+.claude/
 
 # Python
 __pycache__/
@@ -22,7 +27,9 @@ dist/
 *.egg-info/
 .mypy_cache/
 .pytest_cache/
+.ruff_cache/
 .coverage
+.coverage.*
 htmlcov/
 .cache/
 
@@ -69,9 +76,14 @@ frontend/playwright/.cache/
 /data/**/*.tsv.gz
 /data/ref-data/dbNSFP*
 
-# coverage (P2-7)
+# Coverage reports and the per-job data files CI combines
 frontend/coverage/
 coverage.json
+coverage-*.data
+coverage-combined.json
+
+# Vite / Vitest caches
+frontend/.vite/
 
 # Terraform / OpenTofu working files
 **/.terraform/*

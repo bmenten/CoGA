@@ -117,7 +117,7 @@ class FakeS3(FakeGcs):
         assert name == "list_objects_v2"
         return self
 
-    def paginate(self, Bucket: str, Prefix: str):  # noqa: N803 - boto3's keyword names
+    def paginate(self, Bucket: str, Prefix: str):  # boto3's keyword names
         return [
             {
                 "Contents": [
@@ -132,7 +132,7 @@ class FakeS3(FakeGcs):
         self.record_download(key)
         Path(target).write_text(self.objects[(bucket, key)])
 
-    def head_object(self, Bucket: str, Key: str, **kwargs: Any) -> dict[str, Any]:  # noqa: N803
+    def head_object(self, Bucket: str, Key: str, **kwargs: Any) -> dict[str, Any]:
         if (Bucket, Key) not in self.objects:
             raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
         self.last_head_kwargs = kwargs

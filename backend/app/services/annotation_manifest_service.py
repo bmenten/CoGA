@@ -205,7 +205,7 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
             if row:
                 detail = str(row["release_date"]) if row["release_date"] else (row["version"] or None)
                 modules["assembly"] = {"version": row["assembly_name"], "detail": detail}
-        except Exception:  # noqa: BLE001 — provenance must never break sign-out
+        except Exception:  # provenance must never break sign-out
             logger.warning("Reference-assembly provenance lookup failed", exc_info=True)
             modules["assembly"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
         # The gene loci CoGA itself loaded for the assembly (panel regions, gene tracks) and
@@ -229,7 +229,7 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
                     "version": str(gene_import["source"]),
                     "detail": f"imported {performed_at:%Y-%m-%d}" if performed_at else None,
                 }
-        except Exception:  # noqa: BLE001 — provenance must never break sign-out
+        except Exception:  # provenance must never break sign-out
             logger.warning("Gene-locus provenance lookup failed", exc_info=True)
             modules["gene_loci"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
     try:
@@ -245,7 +245,7 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
             ).scalar()
         if release:
             modules["monarch"] = {"version": str(release)}
-    except Exception:  # noqa: BLE001 — provenance must never break sign-out
+    except Exception:  # provenance must never break sign-out
         logger.warning("Monarch-release provenance lookup failed", exc_info=True)
         modules["monarch"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
     # The HPO release phenotype matching, HPO-driven ranking and the phenotype features ran
@@ -263,7 +263,7 @@ async def _platform_modules(session: AsyncSession, assembly_id: str | None) -> d
                 # Loaded without a release: say so rather than leave HPO out as if no
                 # ontology were loaded (#514).
                 modules["hpo"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "release not recorded"}
-    except Exception:  # noqa: BLE001 — provenance must never break sign-out
+    except Exception:  # provenance must never break sign-out
         logger.warning("HPO-release provenance lookup failed", exc_info=True)
         modules["hpo"] = {"version": UNAVAILABLE_MODULE_VERSION, "detail": "lookup failed"}
     return modules
@@ -462,7 +462,7 @@ async def merge_vcf_header_provenance(
                     "source": recorded_source,
                 },
             )
-    except Exception:  # noqa: BLE001 — provenance capture must never break ingestion
+    except Exception:  # provenance capture must never break ingestion
         logger.warning("%s provenance capture failed for family %s", recorded_source, family_uuid, exc_info=True)
 
 

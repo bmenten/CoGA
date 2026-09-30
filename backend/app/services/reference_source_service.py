@@ -595,7 +595,7 @@ async def _download_gencode_refseq_metadata(client: httpx.AsyncClient) -> dict[s
         return parse_gencode_refseq_metadata(
             io.TextIOWrapper(gzip.GzipFile(fileobj=io.BytesIO(raw)), encoding="utf-8", errors="replace")
         )
-    except Exception:  # pragma: no cover - network shape varies
+    except Exception:  # noqa: BLE001  # pragma: no cover - network shape varies
         logger.warning("GENCODE RefSeq metadata unavailable; accession lookups will be reduced")
         return {}
 

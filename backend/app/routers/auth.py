@@ -75,7 +75,7 @@ def notify_admin(email: str) -> None:
     try:
         with smtplib.SMTP(settings.smtp_host) as server:
             server.send_message(msg)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - the notification is best-effort; the sign-up stands
         logging.error("Failed to send signup notification: %s", exc)
 
 

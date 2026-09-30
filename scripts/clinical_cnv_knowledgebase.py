@@ -289,7 +289,7 @@ def normalize_clingen_table(df: pd.DataFrame, source_url: str, assembly: str) ->
                 chrom = clean_chr(row[chrom_col])
                 start = int(str(row[start_col]).replace(",", ""))
                 end = int(str(row[end_col]).replace(",", ""))
-            except Exception:
+            except Exception:  # noqa: BLE001 - a row whose coordinates cannot be read is skipped
                 chrom = start = end = None
 
         if chrom is None or start is None or end is None:
@@ -538,7 +538,7 @@ def clinvar_support_rows(df: pd.DataFrame) -> pd.DataFrame:
             chrom = clean_chr(r["Chromosome"])
             start = int(str(r["Start"]).replace(",", ""))
             end = int(str(r["Stop"]).replace(",", ""))
-        except Exception:
+        except Exception:  # noqa: BLE001 - a row whose coordinates cannot be read is skipped
             continue
 
         if start <= 0 or end <= 0:
@@ -665,7 +665,7 @@ def enrich_omim(kb: pd.DataFrame, api_key: Optional[str], sleep: float = 0.2) ->
                 or titles.get("includedTitles")
                 or ""
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; the title stays empty
             log(f"OMIM lookup failed for {mim_id}: {e}")
             title = ""
 
@@ -726,7 +726,7 @@ def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str] = None) -
         log("Downloading Orphanet nomenclature (en_product1.xml).")
         try:
             content = safe_get(ORPHANET_NOMENCLATURE_URL, timeout=180)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; the build continues without Orphanet
             log(f"Orphanet download failed: {e}")
             return out
         tmp = tempfile.NamedTemporaryFile(prefix="orphanet-", suffix=".xml", delete=False)
@@ -737,7 +737,7 @@ def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str] = None) -
 
     try:
         orpha = parse_orphanet_xml(str(xml_path))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - logged; the build continues without Orphanet
         log(f"Orphanet parse failed: {e}")
         return out
     finally:
@@ -894,7 +894,7 @@ def load_clingen_recurrent_regions(assembly: str) -> pd.DataFrame:
         return pd.DataFrame()
     try:
         text = safe_get(url).decode("utf-8", errors="replace")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - logged; the build continues without this source
         log(f"  skipped recurrent CNV bed: {e}")
         return pd.DataFrame()
 
@@ -995,7 +995,7 @@ def build_kb(
             if not norm.empty:
                 tables.append(norm)
                 log(f"  retained {len(norm)} interval records")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; the build continues without this source
             log(f"  skipped {url}: {e}")
 
     log("Loading ClinGen recurrent CNV regions (named syndromes).")

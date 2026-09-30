@@ -21,7 +21,7 @@ from .variant_annotation_parser import (
     update_annotation_header_state,
 )
 
-from .family_package_common import ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols  # noqa: F401
+from .family_package_common import ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols
 
 
 logger = logging.getLogger(__name__)

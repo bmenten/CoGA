@@ -327,7 +327,7 @@ async def get_family_member_impact_for_user(
                 sample_id=resolved_sample_id,
             )
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - reported as clickhouse_counts_unavailable
         data_counts["clickhouse_counts_unavailable"] = 1
     data_counts = {key: count for key, count in data_counts.items() if count > 0}
     pedigree_counts = {key: count for key, count in pedigree_counts.items() if count > 0}

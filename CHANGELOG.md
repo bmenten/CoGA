@@ -237,6 +237,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   small-variant review helpers from the modules that define them, not through
   `family_package_import.py` and `small_variant_review_pg.py`, which passed 213 and 19 names on
   (#619).
+- **Python tool configuration (#673)** — ruff, mypy, pytest and coverage read one `pyproject.toml`
+  instead of `ruff.toml`, `mypy.ini`, `pytest.ini` and `.coveragerc`. The lint gate also refuses a
+  broad `except` that neither re-raises nor logs its traceback (BLE001) and an import below module
+  code (E402) unless a `noqa` says why, and a `noqa` that no longer suppresses anything (RUF100): 63
+  stale markers are gone, and 32 broad handlers now carry their reason. `.gitignore` and
+  `.dockerignore` cover `.env.*`, `.claude/` and the coverage files (#687).
 
 ### Removed
 

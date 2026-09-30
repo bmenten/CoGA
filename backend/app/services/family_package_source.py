@@ -22,7 +22,7 @@ from ..core.object_storage import (
     remote_uri_within,
 )
 
-from .family_package_common import PackageManifest  # noqa: F401
+from .family_package_common import PackageManifest
 
 
 logger = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ def _load_manifest_dict(manifest_path: Path) -> dict[str, Any]:
             data = yaml.safe_load(text_value)
         else:
             data = json.loads(text_value)
-    except Exception:
+    except Exception:  # noqa: BLE001 - an unreadable manifest is listed without its details
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -163,7 +163,7 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
         # not break the local scan.
         try:
             candidates = list_remote_package_candidates(root_uri)
-        except Exception:
+        except Exception:  # noqa: BLE001 - an unreachable bucket must not break the local scan
             continue
         for candidate in candidates:
             uri = str(candidate["uri"])

@@ -901,7 +901,7 @@ async def refresh_monarch_associations(
     mendeliome_error: str | None = None
     try:
         await regenerate_mendeliome(session, user)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Mendeliome regeneration after Monarch refresh failed", exc_info=True)
         # The Monarch load is already committed; discard the half-built panel version.
         await session.rollback()

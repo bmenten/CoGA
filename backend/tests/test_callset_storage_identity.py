@@ -402,7 +402,7 @@ def _patch_startup(monkeypatch, recorder: _Recorder, *, identity_error: Exceptio
 
 
 class _App:
-    class state:  # noqa: N801 - mirrors FastAPI's app.state attribute
+    class state:  # mirrors FastAPI's app.state attribute
         skip_startup_tasks = False
 
 

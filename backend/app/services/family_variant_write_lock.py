@@ -152,7 +152,7 @@ async def hold_family_variant_writes(
             _holds.reset(token)
             try:
                 await lock_session.rollback()
-            except Exception:  # noqa: BLE001 - the block's own outcome stands
+            except Exception:  # the block's own outcome stands
                 # A connection whose rollback fails is discarded, and Postgres releases its
                 # locks with it.
                 logger.warning(

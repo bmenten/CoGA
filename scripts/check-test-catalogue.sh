@@ -32,7 +32,7 @@ grep -oE '\]\(\.\./[^)]+\)' "$DOC" \
 
 missing="$(comm -23 "$tree_files" "$doc_files")"
 stale="$(comm -13 "$tree_files" "$doc_files")"
-# pytest.ini collects backend tests from backend/tests only (#530).
+# pytest collects backend tests from backend/tests only (pyproject.toml testpaths, #530).
 stray="$(grep -E '^tests/' "$tree_files" || true)"
 status=0
 

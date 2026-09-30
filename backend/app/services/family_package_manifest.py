@@ -9,7 +9,7 @@ from ..schemas import (
     FamilyImportValidationIssue,
 )
 
-from .family_package_common import PackageManifest, ParsedPed, PedMember, _issue, _metadata_dict, _normalize_header_key  # noqa: F401
+from .family_package_common import PackageManifest, ParsedPed, PedMember, _issue, _metadata_dict, _normalize_header_key
 
 
 logger = logging.getLogger(__name__)

@@ -17,7 +17,7 @@ def _stub_review_map(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
 
     reviews: dict[str, object] = {}
 
-    async def fake_review_map(_session, *, family_uuid, variant_ids):  # noqa: ANN001
+    async def fake_review_map(_session, *, family_uuid, variant_ids):
         return {vid: reviews[vid] for vid in variant_ids if vid in reviews}
 
     monkeypatch.setattr(mitochondrial_analysis, "get_small_variant_review_map", fake_review_map)
@@ -144,7 +144,7 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
 
     # The mtDNA cut-offs are admin configuration, not constants in this module. Stand in
     # for the profile a lab would have configured.
-    async def fake_thresholds(_session, *, family_uuid):  # noqa: ANN001, ANN202
+    async def fake_thresholds(_session, *, family_uuid):
         return {
             "profile_key": "default",
             "profile_label": "Default",
@@ -398,7 +398,7 @@ async def test_maternal_transmission_follows_the_mother_the_pedigree_links_to_th
     async def fake_coverage_by_sample(_context):
         return {}
 
-    async def fake_thresholds(_session, *, family_uuid):  # noqa: ANN001, ANN202
+    async def fake_thresholds(_session, *, family_uuid):
         return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
 
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)

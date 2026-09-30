@@ -522,7 +522,7 @@ async def _rewrite_with_sample_calls(
             await rewrite_family_small_variant_entries(
                 assembly_name, context.family_uuid, stored, source=source
             )
-        except Exception:  # noqa: BLE001 - the restore must not mask the original error
+        except Exception:  # the restore must not mask the original error
             logger.warning(
                 "Failed to restore the %s small-variant rows of family %s after a failed rewrite",
                 scrub_log(source),
@@ -988,7 +988,7 @@ async def upload_family_small_variant_file(
                         assembly_name=context.assembly_name,
                         family_uuid=context.family_uuid,
                     )
-            except Exception:  # noqa: BLE001 - cleanup must not mask the original error
+            except Exception:  # cleanup must not mask the original error
                 logger.warning(
                     "Failed to clean up partial small-variant rows for family %s "
                     "after an upload error",

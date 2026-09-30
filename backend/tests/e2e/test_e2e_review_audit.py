@@ -44,7 +44,7 @@ def _cap(resp, *, as_json: bool = True) -> dict:
     if as_json and resp.status_code < 400:
         try:
             out["json"] = resp.json()
-        except Exception:  # pragma: no cover
+        except ValueError:  # pragma: no cover
             out["json"] = None
     return out
 

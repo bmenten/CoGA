@@ -246,10 +246,10 @@ async def record_uploaded_file(
             metadata=metadata,
         )
         await session.commit()
-    except Exception:  # pragma: no cover - provenance is non-critical
+    except Exception:  # noqa: BLE001  # pragma: no cover - provenance is non-critical
         try:
             await session.rollback()
-        except Exception:
+        except Exception:  # noqa: BLE001 - nothing more to do after a failed rollback
             pass
         return
 
@@ -271,7 +271,7 @@ async def record_upload_file_obj(
     try:
         await file.seek(0)
         content = await file.read()
-    except Exception:
+    except Exception:  # noqa: BLE001 - an upload that cannot be re-read is not recorded
         content = b""
     if not content:
         return
