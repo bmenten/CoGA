@@ -176,7 +176,7 @@ Their names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`) |
 | `SNV_INDEL/family_variant_summary`, `SNV_INDEL/family_sample_variant_summary` | variant counts per family and per sample |
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
-| `SV/variants/details` | one row per structural variant: type, span, the full annotation |
+| `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the full annotation |
 | `SV/key_lookup` | maps a family's variant ids, per source, to their internal keys |
 | `SV/entries` | the structural-variant calls per family and sample |
 | `SV/family_data_version` | one token per change to a family's structural variants (below) |
@@ -202,6 +202,21 @@ Deleting a sample (`DELETE /admin/samples/{sample_id}`) rewrites the family's
 `SNV_INDEL/entries` from the stored rows: every callset, project and column comes back as
 stored, minus that sample's calls. The shared `SNV_INDEL/variants/*` tables are left alone, so
 each row keeps its annotation version and annotation-set hash.
+
+An SV delete (`delete_family_structural_variants`) covers a family, or one source of it: the
+delete half of a per-sample upload's rewrite and of a package dataset's re-import. It deletes the
+scope's `SV/entries` rows first, then the scope's `SV/variants/details` and `SV/key_lookup` rows
+whose key no remaining `SV/entries` row of the family has. Unlike the small-variant annotation
+tables, these two are not shared between families. An SV's key hashes the family
+([Row identity](#row-identity)), every row carries `family_guid`, and every write that keeps a
+stored key (a per-sample upload, the admin sample delete, a snapshot restore) writes it back to
+the family it read it from. No other family's entry can reach them, so the delete reads only the
+family's own entries. After a family delete no entry is left and all of the family's rows go.
+After a source-scoped delete the source's rows go, but a row whose key another source's entry
+still has is kept: two callers' calls at one position shared a key before the key named the
+source, and `variants/details` keeps one row per key, so deleting it would strip the other
+caller's SV of its span, length and annotation. Other sources' and other families' rows are
+never touched.
 
 `SNV_INDEL/family_data_version` (plain `MergeTree`) is not variant data. Every change to a
 family's small variants (an insert, a full or source-scoped delete, and the summary refresh
