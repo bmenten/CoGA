@@ -677,6 +677,15 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   family waits for the first, in any worker or process; a package import holds both from before its
   snapshot until it has finished or restored the family. A write that waited for the deletion of its
   sample or family writes nothing and answers 404 (#670).
+- **A package import records each sample's mtDNA haplogroup, and the mito import leaves nothing in
+  `/tmp`** — the import read a sample's haplogroup from its mutserve annotation after the upload had
+  already closed that annotation, so no package import ever recorded one. The mtDNA workspace showed
+  *n/a* for every sample, and the haplogroup comparison that the Sample QC review asks for in
+  mitochondrial cases (TF-01 §4 condition 7) had nothing to compare. The upload now closes only an
+  annotation it parsed itself. The import reads the haplogroup and then removes the annotation's
+  temporary database whatever happens; a file naming a sample the family lacks used to leave it in
+  `/tmp` (memory, on Cloud Run) until the instance restarted. A VEP or mutserve table whose parse fails
+  part-way no longer leaves its database behind either (#671).
 
 ### Security
 
