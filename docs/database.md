@@ -229,6 +229,39 @@ an earlier value.
 a snapshot restore, appends a token. The SV→gene index stores the version it was built from in
 `family_sv_gene_index_status.sv_data_version` and is rebuilt when the family's version has moved.
 
+### One write at a time per family
+
+ClickHouse has no transactions, and a write of a family's variants replaces rows it has read: a
+per-sample upload merges its file's calls into its source's stored rows and writes them back,
+the admin sample delete writes the family's rows back without the sample, a package dataset
+replaces its source, and a failed package import restores the rows it snapshotted. Each writer
+therefore holds a transaction-scoped Postgres advisory lock
+(`pg_advisory_xact_lock(hashtext('family-variant-writes:<type>:<family uuid>'))`, `<type>`
+being `small_variants` or `structural_variants`) from before its first read of the rows until
+its transaction ends
+([family_variant_write_lock.py](../backend/app/services/family_variant_write_lock.py)). A second
+write of the same family and type waits for the first to commit or roll back, in any worker or
+process. Readers take no lock. A write that needs both takes the small-variant lock first.
+
+| Writer | Holds |
+| --- | --- |
+| per-sample SV upload (`POST /structural-variants/upload/{sample_id}`) | SVs |
+| family small-variant upload (`POST /families/{family_id}/small-variants/upload`) | small variants |
+| admin SV delete of a sample (`DELETE /admin/data/samples/{sample_id}/structural_variants`) | SVs |
+| admin small-variant delete (`DELETE /admin/data/families/{family_id}/small_variants`) | small variants |
+| admin sample and family deletes (`DELETE /admin/samples/{sample_id}`, `DELETE /admin/families/{family_id}`) | both |
+| PED overwrite of an existing family; a structure change that clears the family's data | both |
+| package import, from before its snapshot until it has finished or restored the family | both |
+
+The package import commits after its datasets, so it holds its locks on a Postgres connection
+of its own; the dataset loaders it runs take none of their own for the family. That connection
+stays idle in its transaction for the whole import, so the server must not end idle
+transactions (`idle_in_transaction_session_timeout`, off by default): ending it would release
+the locks while the import runs.
+
+An upload or a package import checks, once it holds the lock, that its family and samples are
+still stored: when the write before it deleted them, it writes nothing and answers 404.
+
 ### Row identity
 
 A stored row is one callset's call of one variant, in one family and one project. When

@@ -204,6 +204,7 @@ candidate. One line per change: what changed, its pull request, and the proposed
 
 ### Proposed minor
 
+- The writes of one family's variants run one at a time: uploads, deletes and package imports of a family started together keep every call, and a write that waited for the deletion of its sample or family writes nothing (#670; proposed Minor)
 - Importing one sample's mitochondrial calls replaces only that sample's calls; every member's chrM calls stay for the maternal transmission (#666; proposed Minor)
 - The NIPT report says when it lists fewer candidates than its scope holds, and names its scope (#656; proposed Minor)
 - Deleting a sample keeps every other small-variant call as stored (#655; proposed Minor)
