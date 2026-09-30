@@ -8,7 +8,7 @@ CoGA draait als **in-house IVD onder IVDR Artikel 5(5)** bij CMGG (ISO 15189). H
 
 ## Welke code beschrijft deze handleiding?
 
-Deze handleiding beschrijft de huidige `main`. Wijzigt een PR gedrag dat hier beschreven staat, dan werkt dezelfde PR het hoofdstuk bij en vermeldt dat in zijn CHANGELOG-regel. De CI-controle `scripts/check-handleiding-sync.sh` bewaakt dat de webpagina overeenkomt met de Markdown. Reviewt u een vaste versie, noteer dan de release-tag of de commit die u leest. Bij een verschil gaat de code voor, dan `docs/regulatory/`, dan `docs/`.
+Deze handleiding beschrijft de huidige `main`. Wijzigt een PR gedrag dat hier beschreven staat, dan werkt dezelfde PR het hoofdstuk bij en vermeldt dat in zijn beschrijving (vanaf de eerste release candidate ook in zijn CHANGELOG-regel). De CI-controle `scripts/check-handleiding-sync.sh` bewaakt dat de webpagina overeenkomt met de Markdown. Reviewt u een vaste versie, noteer dan de release-tag of de commit die u leest. Bij een verschil gaat de code voor, dan `docs/regulatory/`, dan `docs/`.
 
 ## Leeswijzer
 

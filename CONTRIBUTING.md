@@ -83,14 +83,14 @@ The rules these gates enforce, and the ones they cannot:
   `frontend/package.json`); type what you would have typed `any`.
 - **Clinical-critical modules keep their coverage.** A module listed under `[tool.mypy]` in
   `pyproject.toml` needs a floor in `scripts/check-coverage-floor.py`, or CI fails.
-- **The change is recorded.** Add an entry under `[Unreleased]` in
-  [CHANGELOG.md](CHANGELOG.md). Until the first release candidate that is the whole record
-  ([TF-18 §3a](docs/regulatory/TF-18-change-configuration-management.md)), except that a change
-  to a clinical output also adds one line to
+- **The change is recorded.** Until the first release candidate the pull request itself is the
+  record ([TF-18 §3a](docs/regulatory/TF-18-change-configuration-management.md)):
+  [CHANGELOG.md](CHANGELOG.md) holds one summary of the pre-release work and takes no
+  per-change entries, and a change to a clinical output adds one line to
   [TF-10 §8](docs/regulatory/TF-10-performance-evaluation-plan.md) with the level you propose
-  (see below). From the release candidate on, each change adds a row to the change-record log of
-  [TF-18 §8](docs/regulatory/TF-18-change-configuration-management.md) with that level. QA
-  confirms the level.
+  (see below). From the release candidate on, each change adds an entry under `[Unreleased]` in
+  CHANGELOG.md carrying its level, and a row to the change-record log of
+  [TF-18 §8](docs/regulatory/TF-18-change-configuration-management.md). QA confirms the level.
 
 ### Branches and commits
 

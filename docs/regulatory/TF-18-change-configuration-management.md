@@ -43,7 +43,7 @@ from the first release candidate.
 
 | Phase | What happens | How changes are handled |
 | --- | --- | --- |
-| **Development** (now) | Synthetic data only; no clinical use. Every change is a pull request on the protected `main` branch, verified by the CI gates ([TF-09 §1](TF-09-verification-validation.md)) and entered in `CHANGELOG.md`; the risk file ([TF-06](TF-06-risk-management-plan.md)) is kept current. | No per-change record in §8. A change that alters a clinical output adds one line to [TF-10 §8](TF-10-performance-evaluation-plan.md) with the §4 level it would carry: the behaviour the first validation must cover. |
+| **Development** (now) | Synthetic data only; no clinical use. Every change is a pull request on the protected `main` branch, verified by the CI gates ([TF-09 §1](TF-09-verification-validation.md)); the pull request and the git history are its record, and `CHANGELOG.md` holds one summary of the pre-release work; the risk file ([TF-06](TF-06-risk-management-plan.md)) is kept current. | No per-change record in §8. A change that alters a clinical output adds one line to [TF-10 §8](TF-10-performance-evaluation-plan.md) with the §4 level it would carry: the behaviour the first validation must cover. |
 | **Release candidate** | Feature freeze; `VERSION` takes an `-rc.N` suffix and the tag follows it (§2). A documented, risk-based design and code review: every clinical-critical module (the ones the type-check and coverage gates single out: scoring, prioritisation and filters, NIPT, PGT, sample QC, traceability and sign-out) in full, the rest by sample and automated analysis. Bio-IT ingangsvalidatie on H11.1-F12.2 ([TF-09](TF-09-verification-validation.md)); security go-live ([TF-13 §3](TF-13-cybersecurity.md)); QA confirms the TF-10 §8 list as validation scope. | Full change control from here: every change is assessed (§4) and recorded (§8). |
 | **Beta — clinical validation** | Clinical validation per method on H11.1-F11 ([TF-10](TF-10-performance-evaluation-plan.md)), on the frozen release candidate, in parallel with the current validated workflow. CoGA results are not used for patient care until the validation concludes *voldoet*. | Bug fixes only, where possible. Each fix is a new `-rc.N` with its §4 level, and states which validation it leaves standing and which it re-opens. |
 | **Release (v1.0.0)** | Release approval by the lab director and the release record (§7); registration in CMGGMC (`Sxxxx`); the Art. 5(5)(e) declaration made public before first use; post-market surveillance ([TF-16](TF-16-post-market-surveillance-plan.md)). | §4–§8 as written: patch, minor or major per H11.1-OP5. |
@@ -125,7 +125,8 @@ available to FAMHP on request (Art. 5(5)(e),(h)).
 ## 8. Change record log
 
 Before the first release candidate this log holds no per-change records (§3a). Each change is a
-pull request in git with its `CHANGELOG.md` entry, and a change that alters a clinical output adds
+pull request in git (`CHANGELOG.md` summarises the pre-release work once, with no per-change
+entries), and a change that alters a clinical output adds
 a line to [TF-10 §8](TF-10-performance-evaluation-plan.md). The rows kept here until 2026-09-30
 (CR-001 to CR-117) remain in this file's git history; their major and minor items are on the
 TF-10 §8 list.
