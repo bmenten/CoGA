@@ -53,7 +53,7 @@ each release; it is not maintained by hand. **Reconciled with the lockfile on 20
 | pysam / pyfaidx | 0.24.1 / 0.9.0.4 | VCF/BAM/FASTA access | H | Changelog |
 | pyBigWig | 0.3.26 | bigWig signal-track reading (HiFiCNV read depth and minor allele fraction) | M | Changelog |
 | pandas / numpy | 2.3.3 / 2.2.6 | CNV knowledgebase build, analysis | M | Changelog |
-| requests / httpx / beautifulsoup4 / lxml | 2.34.2 / 0.28.1 / 4.15.0 / 6.1.3 | External fetches, parsing | M | CVE watch |
+| requests / httpx / beautifulsoup4 | 2.34.2 / 0.28.1 / 4.15.0 | External fetches, parsing | M | CVE watch |
 | intervaltree | 3.2.1 | Interval ops | M | — |
 | boto3 | 1.43.103 | S3 object store: presigned access (`STORAGE_BACKEND=s3`) | M | CVE |
 | google-cloud-storage | 3.15.0 | GCS object store: IAM-signed URLs, package staging (`STORAGE_BACKEND=gcs`) | M | CVE |

@@ -15,7 +15,7 @@ Sources:
     - Optional DECIPHER manual mapping TSV
 
 Install:
-    pip install pandas requests beautifulsoup4 lxml intervaltree tqdm
+    pip install pandas requests beautifulsoup4 intervaltree tqdm
 
 Usage:
     python build_clinical_cnv_kb.py \

@@ -257,6 +257,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   sync. The bulk HGNC set and GENCODE now supply what they did, and NCBI is the only per-gene
   call left (#447).
 - **`REFERENCE_ALIAS_PATH` and `REFERENCE_CYTOBAND_PATH`** — settings nothing read (#553).
+- **Unused dependencies (#675)** — `lxml` (the knowledgebase script parses HTML with the standard
+  library parser), `autoprefixer` (Tailwind 4 already prefixes what the supported browsers need; it
+  only added prefixes for Firefox and Opera releases from before 2019) and the direct
+  `@typescript-eslint/eslint-plugin` and `/parser` entries, which `typescript-eslint` brings in.
+  `python-dotenv` stays: it reads the `.env` file (#689).
 
 ### Fixed
 
