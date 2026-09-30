@@ -1,4 +1,4 @@
-"""Tamper-evidence hash-chain primitives (P1-4): pure chain math.
+"""Tamper-evidence hash-chain primitives (#261): pure chain math.
 
 Pins the pure ``hash_chain`` primitives — canonical determinism, genesis anchoring,
 and that ``verify_chain`` flags content tampering, deletion and reordering. The

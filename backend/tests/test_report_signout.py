@@ -303,7 +303,7 @@ def test_serialize_signout_exposes_frozen_software_identity() -> None:
 
 
 def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> None:
-    # P0-3: identical clinical content with drift rows arriving in different orders
+    # Identical clinical content with drift rows arriving in different orders
     # (Postgres returns equal-updated_at rows arbitrarily) must hash identically. The
     # canonical hash sorts dict keys but not list element order, so the snapshot must
     # order the drift list by the unique variant_id.
@@ -357,7 +357,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
 
 
 def test_failing_sample_qc_blocks_sign_out(monkeypatch) -> None:
-    # P1-2: a "fail" Sample QC (possible sample/pedigree swap, TF-06 H4 / S5) blocks
+    # A "fail" Sample QC (possible sample/pedigree swap, TF-06 H4 / S5) blocks
     # sign-out with a structured 409 carrying the gate discriminator + a failure summary.
     _patch_common(monkeypatch, drifted_count=0, qc_status="fail")
     with pytest.raises(HTTPException) as excinfo:

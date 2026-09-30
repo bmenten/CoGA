@@ -59,7 +59,7 @@ export default defineConfig({
     // is a separate runner (npm run test:e2e) — keep vitest from collecting it.
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
-      // P2-7b: measure frontend coverage (mirrors the backend coverage floor). The global
+      // Measure frontend coverage (#273) (mirrors the backend coverage floor). The global
       // threshold ratchets against regression; `npm run test:coverage` fails below it.
       provider: 'v8',
       reporter: ['text-summary', 'json-summary', 'json'],

@@ -1,4 +1,4 @@
-"""P2-1a end-to-end: the aggregated small-variant presence query against real ClickHouse.
+"""End-to-end (#266): the aggregated small-variant presence query against real ClickHouse.
 
 Ingests a tiny fixture (one variant where S1 is non-ref + S2 is ref on chr1; another where
 S2 is non-ref on chr2) and asserts the aggregate's per-sample presence: non-ref counts,
@@ -83,7 +83,7 @@ def test_small_variant_presence_aggregate_against_clickhouse() -> None:
         # Sample CH ids are the names here (sample_name_to_uuid maps name->name).
         ctx = FamilyMetadataContext(
             family_uuid=family_uuid,
-            family_id="FAM-P2-1",
+            family_id="FAM-PRESENCE",
             project_ids=[project],
             sample_rows=[{"sample_id": "S1"}, {"sample_id": "S2"}],
             sample_uuid_to_name={"S1": "S1", "S2": "S2"},

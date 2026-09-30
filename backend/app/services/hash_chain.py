@@ -21,12 +21,13 @@ Design notes:
   recompute it*. Every non-owner DB role is blocked from writing ``row_hash``/``prev_hash``
   by the append-only trigger, so their edits/deletes are detected; careless owner
   tampering (mutating a column without recomputing the hashes) is detected too. But a
-  principal who can DISABLE the trigger — the table OWNER, which until the P1-3 non-owner
-  runtime role lands is the application's own DB role — can edit or delete an INTERIOR
+  principal who can DISABLE the trigger — the table OWNER, which is the application's own
+  DB role until the API runs as ``coga_app`` (docs/db-runtime-role-runbook.md) — can edit or delete an INTERIOR
   row and then recompute ``row_hash``/``prev_hash`` for it and every successor, yielding a
   self-consistent chain that verifies. Detecting a determined owner who re-chains (and
   whole-chain truncation) needs an EXTERNAL signed anchor of each chain head that the DB
-  role cannot forge — a deliberate follow-up (P1-3 + the anchor).
+  role cannot forge: the signed anchor (``integrity_anchor_service``, #263), together with
+  the restricted runtime role (#262).
 """
 
 from __future__ import annotations

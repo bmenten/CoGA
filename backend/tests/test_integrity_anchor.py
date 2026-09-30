@@ -1,4 +1,4 @@
-"""Signed chain-head anchor (P1-4 follow-up): pure signing + canonicalisation logic.
+"""Signed chain-head anchor (#263): pure signing + canonicalisation logic.
 
 End-to-end anchoring against real Postgres (create → verify → detect re-chain/truncation)
 lives in ``backend/tests/integration/test_integrity_anchor_integration.py`` (smoke job).

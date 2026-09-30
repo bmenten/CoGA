@@ -1,6 +1,6 @@
-"""P1-3: the restricted runtime role `coga_app` cannot bypass the append-only controls.
+"""The restricted runtime role `coga_app` cannot bypass the append-only controls.
 
-Verifying evidence for the privilege separation that closes P1-4's owner-bypass gap. As
+Verifying evidence for the privilege separation that closes the hash chains' owner-bypass gap (#262). As
 `coga_app` (assumed via ``SET LOCAL ROLE`` — auto-resets at transaction end, so no pooled
 connection keeps the role) the test asserts, for every append-only table:
 - it MAY ``INSERT`` + ``SELECT`` them (the app's real access), and

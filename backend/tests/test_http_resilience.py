@@ -1,4 +1,4 @@
-"""P2-9: outbound HTTP resilience (timeouts + capped retry/backoff) and S3 Config.
+"""Outbound HTTP resilience (#265) (timeouts + capped retry/backoff) and S3 Config.
 
 The retry behaviour is exercised with ``httpx.MockTransport`` (no network) and backoff
 zeroed so the tests are fast: idempotent requests retry transient failures (transport

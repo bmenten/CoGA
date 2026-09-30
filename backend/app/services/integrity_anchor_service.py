@@ -1,8 +1,8 @@
-"""External signed chain-head anchor (P1-4 follow-up).
+"""External signed chain-head anchor (#263), the follow-up to the hash chains (#261).
 
 Periodically snapshot every per-family hash-chain HEAD (across ``report_signouts`` and
 ``clinical_audit_events``) and seal the snapshot with an Ed25519 signature whose private
-key lives in app config/env — never in the database. This closes the part of the P1-4
+key lives in app config/env — never in the database. This closes the part of the
 gap the in-DB chain cannot: an OWNER who DISABLEs the trigger can re-chain an interior
 edit or truncate a chain into a self-consistent state that ``verify_*_chain`` accepts, but
 they cannot mint a matching signed anchor (no key), so the divergence between the live
@@ -19,7 +19,7 @@ HONEST TRUST BOUNDARY (do not overclaim — this is tamper-EVIDENT, not tamper-p
 - Does NOT by itself detect deletion of the most-recent (TAIL) anchors: the DB owner can
   DISABLE the append-only trigger and delete anchor rows, then re-link. Only an OUT-OF-BAND
   retained copy of the latest anchor (the deferred export seam ``export_anchor``) makes that
-  evident. Until the P1-3 DSN flip the app connects as owner, so this residual is live.
+  evident. Until the API runs as ``coga_app`` it connects as owner, so this residual is live.
 - Data written before a chain's first anchor is "unanchored" — no external assurance.
 - KEY ROTATION: verify trusts the single CONFIGURED key; an anchor signed by a retired key
   returns ``unknown_key`` (runtime monitoring keeps working once a fresh anchor is cut, but

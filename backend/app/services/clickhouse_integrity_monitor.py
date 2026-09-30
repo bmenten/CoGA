@@ -1,4 +1,4 @@
-"""P2-6: scheduled ClickHouse variant-integrity monitor.
+"""Scheduled ClickHouse variant-integrity monitor (#269).
 
 Runs ``check_clickhouse_variant_integrity`` over every variant assembly shortly after
 startup and then on a fixed interval, logging the per-assembly result and escalating to

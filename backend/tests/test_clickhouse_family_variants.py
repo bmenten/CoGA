@@ -1970,7 +1970,7 @@ async def test_compound_het_candidates_scopes_fetch_to_source_gene(
     # The other gene was never queried (no whole-family scan).
     assert all(call["gene"] != "GENE2" for call in fetch_calls)
     assert all(call["include"] is not None or call["gene"] == "GENE1" for call in fetch_calls)
-    # P0-6: the gene-scoped partner scan is bounded (not an unbounded fetch).
+    # The gene-scoped partner scan is bounded (not an unbounded fetch).
     scan_calls = [call for call in fetch_calls if call["include"] is None]
     assert scan_calls
     assert all(
@@ -2034,7 +2034,7 @@ async def test_compound_het_candidates_falls_back_without_gene_name(
     # gene_id-only source still finds the partner via the whole-family fallback.
     assert [str(variant.id) for variant in page.variants] == ["v2"]
     assert genes_seen == [None]
-    # P0-6: the gene_id-only whole-family fallback is intentionally left UNBOUNDED — a
+    # The gene_id-only whole-family fallback is intentionally left UNBOUNDED — a
     # blind row cap could silently drop a genuine same-gene_id partner (rows are ordered
     # by genomic position). Guard against a regression that re-introduces a silent cap.
     assert scan_limits == [None]
@@ -2210,7 +2210,7 @@ def test_small_panel_filter_keeps_regions_for_normal_panels():
 async def test_prioritized_small_variants_tie_order_is_deterministic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # P0-4: two variants that score identically must rank in a fully-determined,
+    # Two variants that score identically must rank in a fully-determined,
     # fetch-order-independent order (the rank is frozen into the cache/report). The
     # str(v.id) tiebreaker makes the order total regardless of the fetch order.
     calls = [_small_call("PROBAND", "0/1")]
@@ -2390,7 +2390,7 @@ async def test_prioritized_ranking_cache_misses_after_the_family_variant_data_ch
 async def test_prioritized_structural_variants_tie_order_is_deterministic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # P0-4 (SV path): two SVs that score identically must rank in a fully-determined,
+    # SV path: two SVs that score identically must rank in a fully-determined,
     # fetch-order-independent order via the item[0].variant_id tiebreaker.
     def _sv(variant_id: str, *, start: int) -> StructuralVariantRecord:
         return StructuralVariantRecord(

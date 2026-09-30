@@ -7,7 +7,7 @@ Schema `05_grants.sql` creates a **restricted runtime role
 application still connects as the table **owner**, so nothing changes at runtime yet.
 
 This runbook performs the **coordinated DSN flip** that makes the application connect as
-`coga_app`. That is what actually closes P1-4's owner-bypass gap: as a non-owner the
+`coga_app`. That is what actually closes the hash chains' owner-bypass gap: as a non-owner the
 runtime role cannot `ALTER TABLE … DISABLE TRIGGER`, cannot `SET session_replication_role`
 (superuser-only), and cannot `UPDATE`/`DELETE` the append-only tables — so it can neither
 edit/remove an audit row or signed report nor re-chain an interior edit.

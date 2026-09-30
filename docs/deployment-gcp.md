@@ -624,7 +624,7 @@ in place the first time the new version starts, and the previous version is not 
 to read it afterwards, so switching the image back is not a rollback. Take a snapshot of the
 data disk first (above); to roll back, restore that snapshot.
 
-> **Run a restore drill** before go-live (IVDR item P1-13): actually restore into a
+> **Run a restore drill** before go-live: actually restore into a
 > throwaway instance/VM and confirm the data is intact. A backup you've never
 > restored is not a backup.
 
@@ -733,8 +733,8 @@ This deployment closes the deployment-level security items tracked in
 | **S-3** secrets management | Secret Manager; values injected at runtime, not baked into images |
 | **S-4** byte-level PHI audit | GCS Data Access audit logs (set in the central infra repo) |
 | **S-8** network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege service accounts, NAT/PGA, optional edge IP allowlist (12.9) and ClickHouse egress lockdown (12.10) |
-| **P1-3/P1-4** DB privilege separation | `db_runtime_role = "coga_app"` (12.8): the API runs as a role that cannot change the audit trail and cannot read the owner's password |
-| **P1-13** backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots (**do a restore drill**) |
+| DB privilege separation (#262) | `db_runtime_role = "coga_app"` (12.8): the API runs as a role that cannot change the audit trail and cannot read the owner's password |
+| Backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots (**do a restore drill**) |
 | edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist; the HTTPS load balancer accepts TLS 1.2+ with the `MODERN` profile |
 
 **Still your responsibility (process, not code):** IVDR **change control** (TF-18) for

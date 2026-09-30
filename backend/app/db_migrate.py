@@ -1,6 +1,6 @@
 """Out-of-band Postgres schema migration + admin bootstrap.
 
-This is the **owner-privileged** half of the DB privilege separation (P1-3 / P1-4). Schema
+This is the **owner-privileged** half of the DB privilege separation (#262). Schema
 DDL — ``CREATE``/``ALTER TABLE``, trigger management, ``GRANT`` — must run as the table
 **owner**; the restricted runtime role ``coga_app`` deliberately cannot. Keeping the
 migration out of the API's request-serving process lets the app boot as ``coga_app``

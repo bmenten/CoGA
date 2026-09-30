@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P2-7: enforce per-module coverage floors on clinical-critical backend modules.
+"""Enforce per-module coverage floors on clinical-critical backend modules.
 
 Reads a coverage.json (``pytest --cov-report=json:coverage.json``) and fails if any listed
 module — or overall — has dropped below its floor. Floors are set just below the measured

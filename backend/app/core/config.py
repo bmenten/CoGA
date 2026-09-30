@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     #                    single-DSN deployment, unchanged.
     #   False: schema migrations are run out-of-band as the owner (``python -m
     #          backend.app.db_migrate``) and the app boots as the restricted runtime role
-    #          ``coga_app``, which cannot run DDL. This is the P1-3/P1-4 owner-bypass flip
+    #          ``coga_app``, which cannot run DDL. This is the switch that closes the owner bypass of the audit hash chains
     #          (see docs/db-runtime-role-runbook.md).
     postgres_run_schema_migrations_on_startup: bool = Field(
         default=True, alias="POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP"
@@ -126,7 +126,7 @@ class Settings(BaseSettings):
         ge=1,
         alias="CLICKHOUSE_SEND_RECEIVE_TIMEOUT",
     )
-    # P2-6: scheduled ClickHouse variant-integrity monitor (CHECK TABLE sweep). Detects
+    # Scheduled ClickHouse variant-integrity monitor (#269) (CHECK TABLE sweep). Detects
     # corruption proactively (logs ERROR on 'corrupt'/'missing') before it surfaces as 500s.
     clickhouse_integrity_monitor_enabled: bool = Field(
         default=True, alias="CLICKHOUSE_INTEGRITY_MONITOR_ENABLED"

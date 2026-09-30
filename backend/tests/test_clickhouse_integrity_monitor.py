@@ -1,4 +1,4 @@
-"""P2-6: the scheduled ClickHouse integrity monitor sweeps, escalates, and records its result.
+"""The scheduled ClickHouse integrity monitor (#269) sweeps, escalates, and records its result.
 
 Each sweep records, per assembly, when it checked and what it found: the integrity report,
 or that the check could not run. A failed check replaces an earlier good result, so the

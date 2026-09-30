@@ -139,7 +139,7 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "POSTGRES_DB"
         value = google_sql_database.coga.name
       }
-      # DB privilege separation (P1-3/P1-4), var.db_runtime_role. "owner" (default): the
+      # DB privilege separation (#262), var.db_runtime_role. "owner" (default): the
       # app connects as the table owner and applies the schema on startup. "coga_app": it
       # connects as the restricted role, never runs DDL, and the db-migrate job applies the
       # schema first (migrate.tf). See docs/db-runtime-role-runbook.md (change-controlled).

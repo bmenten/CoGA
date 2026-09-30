@@ -788,6 +788,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Retired workplan IDs and roadmap (#676)** — the ~70 references to the retired improvement
+  workplan's IDs (P0-1 … P3-5) in code comments, tests, the schema, Terraform and the docs now say
+  what they meant or cite the pull request that did it. The roadmap drops its two finished items (the
+  HPO release in the signed record, #647; sign-out reading the import-incomplete flag, #650) and says
+  what is still open: a queued or running import is not flagged (#693).
 - **Deployment notes and the traceability matrix corrected; an unused ACMG flag removed** —
   `terraform/secrets.tf` said the Cloud SQL user and the Cloud Run revisions resolve `latest` at
   apply time. Terraform reads the Postgres password through a data source when it plans or
