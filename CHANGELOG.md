@@ -619,6 +619,14 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   why, on screen and at the top of the printout, and each group counts what it lists; the NIPT page says
   when its list stops at the limit. A *Scope* section names the gene panel (with its version) and the
   genes, and says no other filter of the NIPT page applies (#656).
+- **A family small-variant upload that works says so** — the upload answered every successful upload
+  with a 500 after storing its rows, so the Upload page reported a failure and a retry met a 409; it
+  now answers 200 with its result. An unknown `source_format` is refused (422) before anything is
+  stored (#666).
+- **Importing one sample's mitochondrial calls keeps every other sample's** — each file replaced the
+  family's whole mito callset, so only the last sample's chrM calls remained (a file without variants
+  removed them all); the mother's and siblings' calls, which the maternal transmission and the mito
+  ACMG PP1/BS4 read, were lost. Each file now replaces only its sample's calls (#666).
 
 ### Security
 
