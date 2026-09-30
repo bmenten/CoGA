@@ -380,6 +380,8 @@ async def test_rebuild_small_variant_gene_index_is_explicit_batched_maintenance(
         data=None,
     ):
         executed_queries.append(query)
+        if "check_query_single_value_result = 1" in query:
+            return [[1]]  # the shadow table passes CHECK TABLE, as the client returns it
         return []
 
     async def fake_status(assembly_name: str) -> dict[str, object]:
