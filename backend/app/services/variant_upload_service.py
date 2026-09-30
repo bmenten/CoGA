@@ -15,6 +15,7 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import scrub_log
 from .annotation_table_parser import VepAnnotationLookup, _coerce_int, _parse_vep_tsv_annotation_lines
 from .bed_service import get_track_presence_by_sample
 from .upload_safety import decode_upload_text
@@ -524,8 +525,8 @@ async def _rewrite_with_sample_calls(
         except Exception:  # noqa: BLE001 - the restore must not mask the original error
             logger.warning(
                 "Failed to restore the %s small-variant rows of family %s after a failed rewrite",
-                source,
-                context.family_id,
+                scrub_log(source),
+                scrub_log(context.family_id),
                 exc_info=True,
             )
         raise
