@@ -47,7 +47,9 @@ ClinGen, UCSC and ClinVar. An administrator rebuilds it with the ↻ button next
 in the Reference catalogue. The build also counts, for each clinical CNV, the pathogenic or likely
 pathogenic ClinVar copy-number variants (losses and gains) that overlap it by at least 30% both ways —
 the **ClinVar P/LP** column of the Clinical CNV explorer. A knowledgebase built without ClinVar shows
-"—" there, which means *not recorded*, not zero.
+"—" there, which means *not recorded*, not zero. A rebuild whose ClinGen dosage curation or recurrent
+CNV regions cannot be loaded fails: the Reference catalogue says why, and the clinical CNVs stay as
+they were.
 
 **Gene reference refresh.** From the Reference catalogue an administrator can refresh the cached gene
 information for all human genes. The refresh reads a local dbNSFP gene file and the downloads of HGNC,

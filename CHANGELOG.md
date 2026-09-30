@@ -812,6 +812,16 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   AD-alt minimum used to be dropped, so the search returned more than asked without saying so, and an
   unreadable GQ or DP minimum surfaced as a 500. A raw-file provenance record that can't be written
   still doesn't fail the import, but the loss is now logged with the family, dataset and file (#690).
+- **Clinical CNV knowledgebase sources** — the GRCh37 build fetched ClinGen's recurrent-CNV regions
+  from `…-hg19.bed`, a 404 (ClinGen publishes `…-hg37.bed`), logged it and went on: every GRCh37
+  knowledgebase lacked them. A rebuild now adds 57 regions (1q21.1 TAR, 7q11.23 Williams-Beuren,
+  15q11.2q13 PWS/AS, 16p11.2, 22q11.2 and more) and gives 29 curated regions that source too. In
+  GRCh38, ClinGen writes X as `chrx`, which the build kept as `x`, so the clinical-CNV queries for X
+  never returned four X-linked recurrent regions (Xp22.31, Xp11.22p11.23, two in Xq28), and they had no
+  cytoband; chromosome names are now read case-insensitively. When ClinGen's dosage curation or
+  recurrent regions cannot be loaded the build stops instead of writing a knowledgebase without them: the
+  rebuild fails, keeps the knowledgebase it would have replaced, and its error, now shown on the
+  Reference catalogue, says why. Rebuild the knowledgebase of both assemblies after upgrading (#721).
 
 ### Security
 

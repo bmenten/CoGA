@@ -21,7 +21,7 @@ scripts that import backend code need the backend's environment, installed from
 | **Reference data** | |
 | [import_dgv.py](import_dgv.py) | Streams the full DGV file (about 2 million rows) into `dgv_variants` in batches. Run it in the backend container: `PYTHONPATH=/app python /app/scripts/import_dgv.py --assembly GRCh38 --file /data/ref-data/<dgv-file>.txt`. |
 | [gtf_to_ccds_gene_bed.py](gtf_to_ccds_gene_bed.py) | Turns a GENCODE GTF into a BED with one row per gene: the exons and introns of its largest CCDS transcript, for the gene reference upload. |
-| [clinical_cnv_knowledgebase.py](clinical_cnv_knowledgebase.py) | Builds the clinical CNV knowledgebase from ClinGen, ClinVar and the cytobands. The admin rebuild of the knowledgebase runs it. |
+| [clinical_cnv_knowledgebase.py](clinical_cnv_knowledgebase.py) | Builds the clinical CNV knowledgebase from ClinGen, ClinVar and the cytobands. The admin rebuild of the knowledgebase runs it. It stops, rather than build without them, when ClinGen's dosage curation or recurrent CNV regions cannot be loaded. |
 | **Demo and test data** | |
 | [generate_demo_quartet_dataset.py](generate_demo_quartet_dataset.py) | Regenerates the synthetic quartet in `demo/quartet_family/`. |
 | [load_demo_quartet.py](load_demo_quartet.py) | Loads that quartet into Postgres and ClickHouse ([demo/README.md](../demo/README.md)). |

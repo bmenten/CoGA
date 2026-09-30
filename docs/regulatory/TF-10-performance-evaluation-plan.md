@@ -204,6 +204,7 @@ candidate. One line per change: what changed, its pull request, and the proposed
 
 ### Proposed minor
 
+- The clinical CNV knowledgebase: a GRCh37 build reads ClinGen's recurrent-CNV regions from the file ClinGen publishes (they were missing: 57 regions added, 29 curated regions gain them as a source); GRCh38's four X-linked recurrent regions reach chromosome X, with their cytobands (stored as `x`, no query for X found them); and a rebuild whose ClinGen dosage curation or recurrent regions cannot be loaded fails with the reason, keeping the knowledgebase it would have replaced (#721; proposed Minor)
 - A signed record is read in the release candidate's format only: the special readings of records from earlier development builds go (a missing list of looked-up reference modules names every module as missing; an absent SV list or SV/CNV drift section is not compared, its reported SVs compared whole) (#705; proposed Minor)
 - The APCAD and coverage-segment charts read a chromosome however the data spells it (lower case, a leading zero), as the other tracks do (#701; proposed Minor)
 - Monogenic NIPT: the fetal fraction takes no external value (the API-only `external_ff` and its disagreement flag are removed), and every change to the artifact list is a clinical audit event (#700; proposed Minor)

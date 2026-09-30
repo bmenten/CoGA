@@ -317,6 +317,17 @@ const ReferenceCatalogPage: React.FC = () => {
     [referenceStatuses]
   );
 
+  // A rebuild runs in the background, and the page only learns how it ended from the status.
+  // Per assembly the newest job counts (the list is newest first): a failed one is shown with
+  // its reason until a later rebuild of that assembly succeeds.
+  const failedCnvRebuilds = useMemo(() => {
+    const newest = new Map<string, ClinicalCnvKbJob>();
+    for (const job of cnvKbStatus?.recent_jobs ?? []) {
+      if (!newest.has(job.assembly_name)) newest.set(job.assembly_name, job);
+    }
+    return [...newest.values()].filter((job) => job.status === 'failed');
+  }, [cnvKbStatus]);
+
   const populatedSpeciesCount = useMemo(
     () => species.filter((entry) => (assembliesBySpecies.get(entry.id) ?? []).length > 0).length,
     [assembliesBySpecies, species]
@@ -702,6 +713,19 @@ const ReferenceCatalogPage: React.FC = () => {
           <p className="section-copy" style={{ color: error ? 'var(--color-signature-red-dark)' : 'var(--color-secondary)' }}>
             {error ?? success}
           </p>
+        </section>
+      )}
+
+      {failedCnvRebuilds.length > 0 && (
+        <section className="surface-card" aria-label="Failed clinical CNV knowledgebase rebuilds">
+          {failedCnvRebuilds.map((job) => (
+            <p key={job._id} className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
+              The clinical CNV knowledgebase rebuild for {job.assembly_name} failed
+              {job.completed_at ? ` (${formatDateTime(job.completed_at)})` : ''}:{' '}
+              {job.error || 'no reason was recorded'}. Nothing was loaded: the clinical CNVs from
+              before it are unchanged.
+            </p>
+          ))}
         </section>
       )}
 

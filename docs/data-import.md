@@ -51,7 +51,9 @@ creates the empty GRCh38 assembly and carries on.
 The default clinical-CNV file is not in the repository, so a fresh install has no clinical
 CNVs, and nothing warns about it. Build them with the clinical CNV knowledgebase rebuild
 (the ↻ button next to the clinical-CNV count on **Admin → Species & Assemblies**;
-`POST /admin/clinical-cnv-kb/rebuild`), or upload a file (below).
+`POST /admin/clinical-cnv-kb/rebuild`), or upload a file (below). A rebuild whose ClinGen dosage
+curation or recurrent CNV regions cannot be loaded fails, says why on that page, and leaves the
+clinical CNVs as they were.
 
 **Gene loci.** GRCh38 gene loci come from the GENCODE basic annotation, pinned by the release
 in `REFERENCE_GENCODE_GTF_URL`. That is the annotation the variant pipeline uses, so the
