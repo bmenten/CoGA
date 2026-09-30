@@ -7,13 +7,16 @@ name: CoGA CodeQL config
 queries:
   - uses: security-extended
 
+# The production frontend server, its API proxy and CSP (frontend/*.mjs), and the scripts,
+# one of which (clinical_cnv_knowledgebase.py) the admin knowledgebase rebuild runs.
 paths:
   - backend/app
   - frontend/src
+  - "frontend/*.mjs"
+  - scripts
 
 paths-ignore:
   - backend/tests
-  - tests
   - "frontend/src/**/*.test.ts"
   - "frontend/src/**/*.test.tsx"
   - frontend/src/test

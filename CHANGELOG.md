@@ -248,6 +248,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   jsx-a11y accept ESLint 9 at most; typescript-eslint 8 needs TypeScript below 6.1). ESLint and
   @eslint/js now update in one PR. Dependabot #376, #377 and #556, which failed CI for that
   reason, are closed (#688).
+- **CI workflows (#677)** — the three integration jobs share one datastore `services` block (a YAML
+  anchor), so an image digest is bumped in one place; the `sbom` job runs `scripts/generate-sbom.sh
+  --native` instead of a copy of it, so the generator pins live in the script only; CodeQL also
+  scans the production frontend server, proxy and CSP (`frontend/*.mjs`) and `scripts/`, one of
+  which the knowledgebase rebuild runs; the `master` branch triggers are gone; and the Playwright
+  step says it serves the production bundle, not the Vite dev server (#694).
 
 ### Removed
 

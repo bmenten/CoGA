@@ -10,9 +10,9 @@ on:
   release:
     types: [published]
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 # Never let two runs for the same ref overlap. Both the release path and the main path end
 # in `terraform apply -auto-approve` against one shared state file, so concurrent runs race
@@ -98,7 +98,7 @@ jobs:
           GIT_SHA=$(git rev-parse --short=12 HEAD)
           if [ "$REF_TYPE" = "tag" ]; then
             TAG="$REF_NAME"
-          elif [ "$REF_NAME" = "main" ] || [ "$REF_NAME" = "master" ]; then
+          elif [ "$REF_NAME" = "main" ]; then
             TAG="main-${GIT_SHA}"
           else
             TAG=$(echo "$REF_NAME" | tr '/.' '_')
@@ -190,11 +190,11 @@ jobs:
   deploy:
     needs: [prepare, build-backend, build-frontend]
     # Apply only when GCP is configured, and from ONE trigger (#520): pushes to
-    # main/master (COGA_DEPLOY_TRIGGER unset or 'main', the documented default) or
+    # main (COGA_DEPLOY_TRIGGER unset or 'main', the documented default) or
     # published releases (COGA_DEPLOY_TRIGGER=release). There is one environment and one
     # state, so letting both apply would have a main push overwrite a release deployment.
     # Never on a branch push or PR.
-    if: ${{ needs.prepare.outputs.gcp_configured == 'true' && ((github.event_name == 'release' && vars.COGA_DEPLOY_TRIGGER == 'release') || (github.event_name == 'push' && (vars.COGA_DEPLOY_TRIGGER || 'main') == 'main' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'))) }}
+    if: ${{ needs.prepare.outputs.gcp_configured == 'true' && ((github.event_name == 'release' && vars.COGA_DEPLOY_TRIGGER == 'release') || (github.event_name == 'push' && (vars.COGA_DEPLOY_TRIGGER || 'main') == 'main' && github.ref == 'refs/heads/main')) }}
     runs-on: ubuntu-latest
     # Gate every infrastructure apply behind a protected GitHub Environment. Configure
     # required reviewers on the `gcp-deploy` environment (Settings → Environments) so a
