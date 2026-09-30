@@ -915,6 +915,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   2.7.0, which GHSA-8988-9cw3-xx77 and GHSA-vxq7-64xx-v4gw affect, to 2.8.0, which fixes both. The
   blocking dependency audit failed every open PR on them. The unit suite and the integration and e2e
   suites against Postgres and ClickHouse pass on 2.8.0 (#719).
+- **brace-expansion 1.1.21** — the copy that `minimatch` 3 pulls into the frontend's build tooling
+  (ESLint and its plugins) moves from 1.1.18 to 1.1.21, which fixes GHSA-q2hr-2g5m-vwhr: a pattern of
+  the form `{a},b}` took quadratic time to expand, a CPU denial of service (CVE-2026-102277, moderate;
+  Dependabot alert 119). It is not in the production image, and the other copy, 5.0.12 under
+  `@typescript-eslint`, was already fixed. `npm audit` now finds nothing in the whole frontend tree
+  (#722).
 
 ### Documentation
 
