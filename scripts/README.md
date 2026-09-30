@@ -17,7 +17,7 @@ scripts that import backend code need the backend's environment, installed from
 | **Dependencies and SBOM** | |
 | [compile-requirements.sh](compile-requirements.sh) | Recompiles the hash-locked backend requirements from the `.in` files, in Docker with Python 3.12. |
 | [verify-requirements.sh](verify-requirements.sh) | Checks that a compiled lock installs, hashes and all, in a clean Python 3.12. |
-| [generate-sbom.sh](generate-sbom.sh) | Writes the CycloneDX SBOMs to `sbom/`, in Docker ([sbom/README.md](../sbom/README.md)). |
+| [generate-sbom.sh](generate-sbom.sh) | Writes the CycloneDX SBOMs to `sbom/`, in Docker, or with `--native` as CI runs it ([sbom/README.md](../sbom/README.md)). |
 | **Reference data** | |
 | [import_dgv.py](import_dgv.py) | Streams the full DGV file (about 2 million rows) into `dgv_variants` in batches. Run it in the backend container: `PYTHONPATH=/app python /app/scripts/import_dgv.py --assembly GRCh38 --file /data/ref-data/<dgv-file>.txt`. |
 | [gtf_to_ccds_gene_bed.py](gtf_to_ccds_gene_bed.py) | Turns a GENCODE GTF into a BED with one row per gene: the exons and introns of its largest CCDS transcript, for the gene reference upload. |

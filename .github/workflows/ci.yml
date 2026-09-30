@@ -68,7 +68,9 @@ jobs:
   smoke:
     name: smoke (real startup against Postgres + ClickHouse)
     runs-on: ubuntu-latest
-    services:
+    # The datastores every integration job runs against; e2e and e2e-playwright reuse
+    # this block, so an image digest is bumped in one place.
+    services: &datastores
       postgres:
         image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
@@ -149,33 +151,7 @@ jobs:
   e2e:
     name: e2e (golden-trio pipeline against Postgres + ClickHouse)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
-        env:
-          POSTGRES_USER: coga
-          POSTGRES_PASSWORD: coga
-          POSTGRES_DB: coga
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U coga -d coga"
-          --health-interval 5s --health-timeout 5s --health-retries 20
-      clickhouse:
-        image: clickhouse/clickhouse-server:26.8@sha256:4769eec6a9b9842a7d102c8bdfca0400128bc6edf65dec4e19a7d3a2b25f32db
-        env:
-          # ClickHouse rejects the empty-password default user for network clients;
-          # provision a real one (matching the app env below) so authentication succeeds.
-          CLICKHOUSE_DB: coga
-          CLICKHOUSE_USER: coga
-          CLICKHOUSE_PASSWORD: coga
-          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
-        ports:
-          - 8123:8123
-          - 9000:9000
-        options: >-
-          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
-          --health-interval 5s --health-timeout 5s --health-retries 20
+    services: *datastores
     env:
       APP_ENV: test
       SECRET_KEY: ci-e2e-not-a-real-secret
@@ -291,31 +267,7 @@ jobs:
   e2e-playwright:
     name: e2e-playwright (browser journeys)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
-        env:
-          POSTGRES_USER: coga
-          POSTGRES_PASSWORD: coga
-          POSTGRES_DB: coga
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U coga -d coga"
-          --health-interval 5s --health-timeout 5s --health-retries 20
-      clickhouse:
-        image: clickhouse/clickhouse-server:26.8@sha256:4769eec6a9b9842a7d102c8bdfca0400128bc6edf65dec4e19a7d3a2b25f32db
-        env:
-          CLICKHOUSE_DB: coga
-          CLICKHOUSE_USER: coga
-          CLICKHOUSE_PASSWORD: coga
-          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
-        ports:
-          - 8123:8123
-          - 9000:9000
-        options: >-
-          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
-          --health-interval 5s --health-timeout 5s --health-retries 20
+    services: *datastores
     env:
       APP_ENV: test
       SECRET_KEY: ci-playwright-not-a-real-secret
@@ -360,8 +312,9 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
       - name: Run browser journeys
-        # Playwright starts uvicorn (python on PATH) + the Vite dev server and drives
-        # Chromium through login -> family workspace -> genome overview.
+        # Playwright starts uvicorn (python on PATH), builds the production bundle and
+        # serves it through server.mjs with its CSP (playwright.config.ts), and drives
+        # Chromium through the journeys; a CSP violation fails the run (#567).
         working-directory: frontend
         run: npx playwright test
       - name: Upload Playwright report
@@ -383,23 +336,9 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - name: Generate backend SBOM (from hash-locked requirements.txt)
-        run: |
-          pip install cyclonedx-bom==7.3.0
-          mkdir -p sbom
-          cyclonedx-py requirements backend/requirements.txt \
-            --output-format json > sbom/backend.cdx.json
-      - name: Generate frontend SBOM (from package-lock.json)
-        run: |
-          # --ignore-npm-errors: Tailwind v4 pulls in the optional package
-          # @tailwindcss/oxide-wasm32-wasi, whose transitive deps npm omits from
-          # the lockfile on platforms that don't use the wasm binary. `npm ls`
-          # (run internally by cyclonedx-npm) then exits non-zero on those
-          # "missing" optional sub-deps; the flag tolerates that while still
-          # emitting a complete SBOM for everything that is installed.
-          npx --yes @cyclonedx/cyclonedx-npm@5.0.0 \
-            --package-lock-only --output-format json --output-reproducible --ignore-npm-errors \
-            --output-file sbom/frontend.cdx.json frontend/package.json
+      - name: Generate the SBOMs (backend requirements.txt, frontend package-lock.json)
+        # The same script and pinned generators as a local run, without Docker here.
+        run: ./scripts/generate-sbom.sh --native
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

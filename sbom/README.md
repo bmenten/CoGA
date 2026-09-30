@@ -14,8 +14,9 @@ Format: **CycloneDX 1.6 (JSON)**.
 
 - **On demand:** `./scripts/generate-sbom.sh` (runs the pinned generators in
   `python:3.12` / `node:22` containers and writes both files here).
-- **In CI:** the `sbom` job in `.github/workflows/ci.yml` regenerates both on
-  every pull request and every push to `main`, and uploads them as the artifact
+- **In CI:** the `sbom` job in `.github/workflows/ci.yml` runs the same script
+  (`--native`, with the job's Python and Node instead of containers) on every pull
+  request and every push to `main`, and uploads both files as the artifact
   `sbom-cyclonedx`. GitHub **deletes it after 90 days**, so for a release it
   must be archived before then ([RELEASING.md §4](../RELEASING.md#4-capture-the-evidence)).
 
