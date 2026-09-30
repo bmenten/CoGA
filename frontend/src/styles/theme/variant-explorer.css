@@ -1,0 +1,772 @@
+/* The variant explorer and the ACMG and CNV classification dialogs. */
+
+/* --- Global Small Variant Explorer --- */
+.variant-explorer-assembly-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.variant-explorer-assembly-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+/* Wider but subtle, low-weight assembly selector in the header card. */
+.variant-explorer-assembly-row select {
+  min-width: 24rem;
+  font-size: 0.78rem;
+  min-height: auto;
+  height: auto;
+  padding: 0.18rem 0.45rem;
+  border-color: var(--color-border, rgba(0, 0, 0, 0.12));
+  color: var(--color-secondary);
+}
+
+.variant-explorer-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.variant-explorer-download {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.variant-explorer-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.variant-explorer-tag {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--color-white);
+  white-space: nowrap;
+}
+
+.variant-explorer-count-button {
+  font-variant-numeric: tabular-nums;
+}
+
+.variant-explorer-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.variant-carrier-modal {
+  max-width: 640px;
+  width: 100%;
+}
+
+.variant-carrier-family-list,
+.variant-carrier-sample-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.variant-carrier-family {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
+}
+
+.variant-carrier-family-header {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.variant-carrier-sample-list {
+  padding-left: 1rem;
+}
+
+.variant-carrier-sample {
+  padding: 0.15rem 0;
+}
+
+.variant-explorer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  margin-top: 1rem;
+}
+
+.variant-explorer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--color-secondary);
+}
+
+.variant-explorer-genotype-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  padding: 0.7rem 0.95rem;
+}
+
+.variant-explorer-genotype-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.variant-explorer-genotype-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.variant-explorer-genotype-imputed {
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+
+.variant-explorer-genotype-card select,
+.variant-explorer-genotype-card input[type='text'] {
+  font-size: 0.76rem;
+  min-height: auto;
+  height: auto;
+  padding: 0.12rem 0.35rem;
+}
+
+.variant-explorer-genotype-card input[type='text'] {
+  width: 11rem;
+  min-width: 11rem;
+}
+
+.variant-explorer-genotype-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.variant-explorer-genotype-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.variant-explorer-genotype-row select {
+  width: auto;
+  min-width: 0;
+}
+
+.variant-explorer-genotype-sample {
+  min-width: 14rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.variant-explorer-genotype-remove {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-secondary);
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+  min-height: auto;
+}
+
+.variant-explorer-genotype-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.variant-explorer-genotype-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.button-secondary.variant-explorer-mini-button {
+  font-size: 0.74rem;
+  min-height: auto;
+  padding: 0.16rem 0.55rem;
+  border-radius: 6px;
+}
+
+/* ---- ACMG classification modal ---- */
+.modal-surface.acmg-modal {
+  width: min(1200px, calc(100vw - 1.5rem));
+  max-width: min(1200px, calc(100vw - 1.5rem));
+  /* Bounded height so the body can scroll; header + footer stay pinned. */
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 1.5rem);
+  gap: 0.5rem;
+}
+
+.acmg-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.3rem;
+}
+
+/* External resource links in the modal header. */
+.acmg-resource-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.acmg-resource-link {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.12rem 0.5rem;
+  border: 1px solid var(--color-grid);
+  border-radius: 999px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.acmg-resource-link:hover {
+  border-color: var(--color-accent);
+  background: rgba(130, 147, 163, 0.1);
+}
+
+/* Scalebar sticks to the top while criteria scroll under it. The gradient runs
+   almost the full modal width — only a hair of horizontal padding. */
+.acmg-scalebar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  gap: 0.35rem;
+  padding: 0.5rem 0.1rem 0.55rem;
+  border-bottom: 1px solid var(--color-grid);
+  background: var(--color-surface);
+}
+
+.acmg-scalebar-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.acmg-scalebar-class {
+  font-weight: 650;
+  font-size: 0.88rem;
+}
+
+.acmg-scalebar-points {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.74rem;
+  color: var(--color-accent);
+  margin-left: auto;
+}
+
+.acmg-vus-tier-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-white);
+}
+
+.acmg-vus-tier-chip--hot {
+  background: #e11d48;
+}
+
+.acmg-vus-tier-chip--warm {
+  background: #f59e0b;
+}
+
+.acmg-vus-tier-chip--cold {
+  background: #38bdf8;
+  color: #0b3a4a;
+}
+
+.acmg-scalebar-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 16px;
+  margin-top: 0.7rem;
+}
+
+.acmg-scalebar-gradient {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    #1a7f37 0%,
+    #2da44e 16%,
+    #b8c40d 34%,
+    #e8c317 44%,
+    #e8a317 58%,
+    #e0552b 74%,
+    var(--color-signature-red) 100%
+  );
+}
+
+.acmg-scalebar-tick {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: rgba(10, 11, 12, 0.35);
+  transform: translateX(-0.5px);
+}
+
+.acmg-scalebar-arrow {
+  position: absolute;
+  top: -9px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 9px solid var(--color-text);
+  transform: translateX(-6px);
+  transition: left 0.18s ease;
+}
+
+.acmg-scalebar-legend {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 0.3rem;
+  font-size: 0.6rem;
+  color: var(--color-accent);
+}
+
+/* ClinGen CNV classification modal — compact, column-aligned criteria. */
+
+.cnv-section-hint {
+  font-size: 0.68rem;
+  color: var(--color-accent);
+  margin: 0;
+}
+
+/* The CNV modal is wider than the small-variant ACMG modal so the five ClinGen
+   sections can sit side by side as columns. */
+.modal-surface.cnv-acmg-modal {
+  width: min(1480px, calc(100vw - 1.5rem));
+  max-width: min(1480px, calc(100vw - 1.5rem));
+}
+
+/* Sections (1–5) are the top-level columns and always sit side by side in a
+   single row; each holds a vertical list of criteria. */
+.cnv-sections-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  /* Too narrow for five columns — fall back to a horizontal scroll so the
+     sections still stay on one row instead of stacking. */
+  .cnv-sections-grid {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(13rem, 1fr);
+    grid-template-columns: none;
+    overflow-x: auto;
+  }
+}
+
+.acmg-criteria-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.cnv-criteria-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* Each criterion: tickmark · score · note. */
+.cnv-criterion-row {
+  display: grid;
+  grid-template-columns: auto 4rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--color-grid);
+  border-radius: 7px;
+  background: var(--color-surface);
+  font-size: 0.72rem;
+}
+
+.cnv-criterion-row--active {
+  border-color: var(--color-accent);
+  background: rgba(130, 147, 163, 0.12);
+}
+
+/* Fixed-point criteria can't be edited — dim the score as a hint. */
+.cnv-criterion-row--fixed .cnv-points-input {
+  opacity: 0.5;
+  background: var(--color-grid);
+  cursor: not-allowed;
+}
+
+.cnv-criterion-main {
+  gap: 0.3rem;
+  align-items: center;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.cnv-criterion-code {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.cnv-points-input {
+  width: 100%;
+  padding: 0.18rem 0.3rem;
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cnv-points-input:disabled {
+  opacity: 0.5;
+  background: var(--color-grid);
+  cursor: not-allowed;
+}
+
+.cnv-evidence-field {
+  width: 100%;
+  padding: 0.16rem 0.4rem;
+  font-size: 0.7rem;
+}
+
+/* Hover tooltip carrying the full criterion text + allowed range. */
+.cnv-tooltip {
+  position: fixed;
+  z-index: 60;
+  max-width: 22rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 7px;
+  border: 1px solid var(--color-grid);
+  background: var(--color-text);
+  color: var(--color-surface);
+  font-size: 0.7rem;
+  line-height: 1.3;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+/* Family columns — scale from 2 up to 7 (one per ACMG family) so a wide modal
+   shows every family side by side in a single row, keeping the modal short. */
+.acmg-family-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.4rem;
+  align-items: start;
+}
+
+@media (min-width: 560px) {
+  .acmg-family-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 760px) {
+  .acmg-family-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 940px) {
+  .acmg-family-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1080px) {
+  .acmg-family-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1180px) {
+  .acmg-family-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
+.acmg-family {
+  border: 1px solid var(--color-grid);
+  border-top-width: 2px;
+  border-radius: 6px;
+  padding: 0.3rem 0.3rem 0.36rem;
+  background: rgba(248, 250, 252, 0.6);
+  min-width: 0;
+}
+
+.acmg-family--pathogenic {
+  border-top-color: rgba(198, 31, 45, 0.55);
+}
+
+.acmg-family--benign {
+  border-top-color: rgba(94, 124, 153, 0.6);
+}
+
+.acmg-tier-label {
+  font-size: 0.6rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  padding: 0 0.05rem 0.28rem;
+}
+
+.acmg-criteria-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16rem;
+}
+
+.acmg-criterion {
+  display: flex;
+  align-items: center;
+  gap: 0.22rem;
+  padding: 0.1rem 0.24rem;
+  border: 1px solid var(--color-grid);
+  border-radius: 5px;
+  background: var(--color-surface);
+  min-width: 0;
+}
+
+.acmg-criterion.acmg-criterion--accepted {
+  border-color: rgba(45, 164, 78, 0.55);
+  background: rgba(45, 164, 78, 0.09);
+}
+
+.acmg-criterion.acmg-criterion--benign.acmg-criterion--accepted {
+  border-color: rgba(130, 147, 163, 0.6);
+  background: rgba(130, 147, 163, 0.12);
+}
+
+/* Suggested-but-not-accepted (consider) rows get a subtle amber tint. */
+.acmg-criterion.acmg-criterion--suggested {
+  border-color: rgba(232, 163, 23, 0.5);
+  background: rgba(232, 163, 23, 0.06);
+}
+
+/* Contraindicated (data argues against) rows get a subtle red tint. */
+.acmg-criterion.acmg-criterion--against {
+  border-color: rgba(198, 31, 45, 0.4);
+  background: rgba(198, 31, 45, 0.05);
+}
+
+/* Not applicable to this variant class — clearly greyed, but still overridable. */
+.acmg-criterion.acmg-criterion--na {
+  background: rgba(10, 11, 12, 0.1);
+  border-color: rgba(10, 11, 12, 0.25);
+  border-style: dashed;
+}
+
+.acmg-criterion.acmg-criterion--na .acmg-criterion-code {
+  color: rgba(10, 11, 12, 0.55);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  text-decoration-color: rgba(10, 11, 12, 0.7);
+}
+
+.acmg-criterion > .analysis-checkbox {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.acmg-criterion-code {
+  flex: 0 0 auto;
+  font-weight: 650;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.acmg-criterion-flag {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  line-height: 1;
+}
+
+.acmg-criterion-flag--consider {
+  color: #d68a00;
+}
+
+.acmg-criterion-flag--against {
+  color: var(--color-signature-red);
+  font-weight: 700;
+}
+
+.acmg-criterion-flag--na {
+  color: rgba(10, 11, 12, 0.6);
+  font-size: 0.58rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.acmg-criterion-strength {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  font-size: 0.64rem;
+  padding: 0.05rem 0.15rem;
+  border: 1px solid var(--color-grid);
+  border-radius: 5px;
+  background: var(--color-surface);
+  max-width: 4.8rem;
+}
+
+.acmg-criterion-strength:disabled {
+  opacity: 0.4;
+}
+
+.acmg-modal-disclaimer {
+  font-size: 0.68rem;
+  color: var(--color-accent);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.acmg-modal-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+  padding-top: 0.75rem;
+}
+
+.acmg-modal-tags-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted, #475569);
+}
+
+.acmg-modal-tags-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--color-accent);
+}
+
+.acmg-modal-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.acmg-tag-toggle {
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #cbd5e1);
+  background: transparent;
+  color: var(--color-text-muted, #475569);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.acmg-tag-toggle:hover {
+  border-color: var(--color-accent, #64748b);
+}
+
+.acmg-tag-toggle--active {
+  border-width: 1px;
+}
+
+.acmg-key {
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.acmg-key--applied {
+  color: #1a7f37;
+}
+
+.acmg-key--consider {
+  color: #d68a00;
+}
+
+.acmg-key--against {
+  color: var(--color-signature-red);
+}
+
+.acmg-key--na {
+  color: var(--color-text-muted);
+}
+
+/* Custom hover tooltip (fixed so it escapes the scrolling body). */
+.acmg-tooltip {
+  position: fixed;
+  z-index: 70;
+  width: 320px;
+  max-width: calc(100vw - 1rem);
+  padding: 0.5rem 0.6rem;
+  border-radius: 7px;
+  background: var(--color-text, #141517);
+  color: var(--color-white);
+  box-shadow: 0 12px 30px rgba(8, 10, 12, 0.35);
+  pointer-events: none;
+}
+
+.acmg-tooltip-title {
+  margin: 0 0 0.2rem;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.acmg-tooltip-body {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.acmg-tooltip-against {
+  margin: 0.3rem 0 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #ff9b9b;
+}

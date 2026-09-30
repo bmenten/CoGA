@@ -1,0 +1,426 @@
+/* Modals, the variant review dialog, loading indicators and the results overlay. */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 10, 12, 0.4);
+  backdrop-filter: blur(14px);
+  padding: 1.5rem;
+}
+
+.modal-surface {
+  position: relative;
+  width: min(700px, 100%);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.variant-review-modal {
+  display: grid;
+  gap: 0.6rem;
+  width: min(680px, 100%);
+  border-radius: 10px;
+}
+
+.variant-review-modal-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.variant-review-modal-body {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.variant-review-modal-section {
+  display: grid;
+  gap: 0.42rem;
+  border: 1px solid rgba(10, 11, 12, 0.07);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.82);
+  padding: 0.56rem 0.62rem;
+}
+
+.variant-priority-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.variant-priority-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.variant-priority-label {
+  font-size: 0.7rem;
+  color: rgba(10, 11, 12, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.variant-priority-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.variant-priority-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 600;
+  cursor: help;
+}
+
+.variant-score-cell {
+  position: relative;
+}
+
+.variant-priority-popover {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  /* Definite width so the breakdown text always wraps inside the tooltip; no
+     height cap / inner scrollbar (a tooltip can't be scrolled) so it grows to
+     fit the phenotype list. VariantScoreCell measures it and flips it to stay
+     on-screen. */
+  width: min(340px, 90vw);
+  border: 1px solid rgba(10, 11, 12, 0.12);
+  border-radius: 10px;
+  background: var(--color-surface);
+  box-shadow: 0 10px 30px rgba(10, 11, 12, 0.16);
+  padding: 0.62rem 0.7rem;
+  pointer-events: none;
+  /* Backstop: nothing can paint past the rounded box even if a child misbehaves. */
+  overflow: hidden;
+}
+
+/* Force every descendant to wrap and shrink within the tooltip — flex/grid items
+   default to min-width: auto, which otherwise lets a long phenotype label push
+   the line wider than the box and spill out. */
+.variant-priority-popover,
+.variant-priority-popover * {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.variant-priority-popover .variant-card-priority {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.variant-priority-pheno {
+  color: #b45309;
+}
+
+.variant-review-note-header {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.variant-review-textarea {
+  min-height: 3.4rem;
+  resize: vertical;
+}
+
+.variant-review-modal-summary {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.variant-review-modal-subtitle {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+  word-break: break-word;
+}
+
+.variant-review-modal-actions {
+  justify-content: flex-end;
+  gap: 0.35rem;
+  padding-top: 0;
+}
+
+.variant-review-modal-header > .button-secondary,
+.variant-review-modal-actions > .button-secondary,
+.variant-review-modal-actions > .form-button {
+  min-height: 1.9rem;
+  padding: 0.38rem 0.72rem;
+  font-size: 0.68rem;
+}
+
+@media (min-width: 760px) {
+  .variant-search-header {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+    align-items: start;
+    column-gap: 0.9rem;
+  }
+
+  .variant-review-modal-header {
+    align-items: start;
+  }
+
+  .variant-review-modal-body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(17, 17, 17, 0.12);
+  border-top: 2px solid var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 1rem auto;
+}
+
+.variant-results-region {
+  position: relative;
+}
+
+/* Indeterminate "flyer" loading bar — a segment that slides across while a variant
+   search is in flight. Pinned to the top of the results region. */
+.loading-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+}
+.loading-bar-track {
+  display: block;
+  position: relative;
+  height: 3px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+.loading-bar-flyer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-accent, #2563eb),
+    transparent
+  );
+  animation: loading-bar-flyer 1.1s ease-in-out infinite;
+}
+@keyframes loading-bar-flyer {
+  0% {
+    left: -35%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar-flyer {
+    animation-duration: 2.4s;
+  }
+}
+
+.variant-results-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  border-radius: 0.75rem;
+  background: rgba(248, 250, 252, 0.62);
+  backdrop-filter: blur(2px);
+}
+
+/* Centered in the viewport like a modal so it sits in the middle of the
+   visible screen regardless of scroll position. Must not be nested inside the
+   blurred overlay above (backdrop-filter would trap the fixed positioning). */
+.variant-results-loading-card {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem 1.75rem;
+  border-radius: 0.9rem;
+  background: var(--color-surface);
+  border: 1px solid rgba(166, 26, 46, 0.18);
+  box-shadow: 0 18px 48px rgba(17, 17, 17, 0.28);
+}
+
+.variant-results-overlay-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.variant-results-overlay-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-signature-red);
+}
+
+.variant-results-overlay-sub {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.variant-results-fetching {
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@media (min-width: 768px) {
+  .page-header {
+    align-items: end;
+    justify-content: space-between;
+    flex-direction: row;
+  }
+
+  .auth-card {
+    grid-template-columns: 1.15fr 0.85fr;
+  }
+
+  .auth-gallery {
+    display: block;
+  }
+
+  .intake-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .member-card-header {
+    align-items: start;
+    justify-content: space-between;
+    flex-direction: row;
+  }
+
+  .analysis-filter-grid--4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .analysis-filter-grid--3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .analysis-filter-grid--5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .variant-search-header {
+    grid-template-columns: minmax(0, 1.2fr) auto;
+    align-items: end;
+  }
+
+  .variant-sample-row {
+    grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+@media (min-width: 1024px) {
+  .admin-data-layout {
+    grid-template-columns: minmax(18rem, 23rem) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .admin-variant-card-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .admin-family-list {
+    max-height: 72vh;
+    overflow: auto;
+    padding-right: 0.15rem;
+  }
+
+  .analysis-grid {
+    grid-template-columns: minmax(230px, 286px) minmax(0, 1fr);
+  }
+
+  .analysis-grid--viewer {
+    grid-template-columns: minmax(190px, 222px) minmax(0, 1fr);
+    column-gap: 0.9rem;
+  }
+
+  .analysis-sidebar {
+    position: sticky;
+    top: 7rem;
+  }
+
+  .analysis-sidebar--viewer {
+    top: 6.7rem;
+  }
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --layout-max-width: 132rem;
+    --page-max-width: 110rem;
+    --workspace-max-width: 128rem;
+    --layout-gutter: 1rem;
+  }
+
+  .analysis-grid {
+    grid-template-columns: minmax(220px, 274px) minmax(0, 1fr);
+  }
+
+  .analysis-grid--viewer {
+    grid-template-columns: minmax(176px, 206px) minmax(0, 1fr);
+    column-gap: 0.72rem;
+  }
+
+  .analysis-grid--viewer .analysis-panel,
+  .analysis-grid--viewer .surface-card,
+  .analysis-shell .analysis-panel {
+    padding: 1.1rem;
+  }
+
+  .chromosome-visualization-panel {
+    padding: 1.1rem;
+  }
+
+  .data-table-shell :is(th, td),
+  .analysis-table :is(th, td),
+  .reference-catalog-table :is(th, td),
+  .reference-catalog-assembly-table :is(th, td),
+  .preset-catalog-table :is(th, td),
+  .family-repeat-table :is(th, td),
+  .admin-sample-table :is(th, td),
+  .family-catalog-table :is(th, td),
+  .project-catalog-table :is(th, td) {
+    padding-left: 0.62rem;
+    padding-right: 0.62rem;
+  }
+}

@@ -1,0 +1,91 @@
+/* Design tokens: layout widths, fonts, and the colours of the UI, the status palette, the tracks and the ideogram. */
+
+:root {
+  --layout-max-width: 124rem;
+  --page-max-width: 104rem;
+  --workspace-max-width: 120rem;
+  --layout-gutter: 1.25rem;
+  --layout-gutter-mobile: 0.95rem;
+  --font-sans: 'Avenir Next', 'Helvetica Neue', 'Segoe UI', sans-serif;
+  --font-display: 'Avenir Next', 'Helvetica Neue', 'Segoe UI', sans-serif;
+  --font-mono: 'SFMono-Regular', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', monospace;
+
+  --color-bg: #f4f6f8;
+  --color-surface: #ffffff;
+  --color-text: #141517;
+  --color-heading: #0b0c0d;
+  --color-text-muted: #5c6670;
+  --color-primary: #0a0b0c;
+  --color-secondary: #4e5b67;
+  --color-accent: #8293a3;
+  --color-accent-soft: #e6ecf1;
+  --color-signature-red: #c61f2d;
+  --color-signature-red-dark: #9d1623;
+  --color-signature-red-soft: rgba(198, 31, 45, 0.08);
+  --color-danger-surface: #fdeced;
+  --color-danger-border: #efb6bb;
+  --color-warning-strong: #92580a;
+  --color-warning-surface: #fdf1d8;
+  --color-warning-border: #e8c989;
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-gray: #7c8186;
+  --color-grid: rgba(10, 11, 12, 0.06);
+  --color-axis: #95a0aa;
+  --color-border: rgba(10, 11, 12, 0.08);
+  --color-border-strong: rgba(10, 11, 12, 0.14);
+  --shadow-card: 0 16px 34px rgba(10, 12, 14, 0.03);
+
+  --color-variant-default: var(--color-gray);
+  --color-variant-del: #8d3f44;
+  --color-variant-dup: #556f87;
+  --color-variant-ins: #7a8ea4;
+  --color-variant-inv: #666884;
+  --color-variant-bnd: #44625e;
+
+  /* Parental homologs — muted slate-blue (paternal P1/P2) and sage-green
+     (maternal M1/M2), in the project's desaturated palette. Dark = homolog 1,
+     light = homolog 2. */
+  --color-haplotype-father-dark: #2f5575;
+  --color-haplotype-father-light: #8aa9c9;
+  --color-haplotype-mother-dark: #386a55;
+  --color-haplotype-mother-light: #8cc0a4;
+  /* Risk alleles, marked by a thin line under the homolog fill. */
+  --color-haplotype-affected: #c61f2d;
+  --color-haplotype-carrier: #d9822e;
+  --color-haplotype-unknown: #9ca3af;
+  --color-haplotype-deleted-fill: rgba(72, 84, 96, 0.10);
+  --color-haplotype-deleted-stroke: rgba(78, 91, 103, 0.6);
+  --color-repeat-normal: #9ca3af;
+  --color-repeat-review: #7c3aed;
+  --color-repeat-intermediate: #d97706;
+  --color-repeat-pathogenic: #b42318;
+  --color-repeat-unknown: #c6ccd3;
+
+  --color-apcad-paternal: var(--color-haplotype-father-dark);
+  --color-apcad-maternal: var(--color-haplotype-mother-dark);
+  --color-apcad-default: var(--color-gray);
+
+  --color-coverage-gain: #556f87;
+  --color-coverage-loss: #8d3f44;
+  --color-coverage-neutral: #8d9499;
+  --color-coverage-border: #7c909d;
+  --color-cnv-clinical: #c2772e;
+  --color-gene-fill: #556f87;
+  --color-gene-stroke: #556f87;
+  --color-blacklist: #9ca3af;
+  --color-segmental-duplication: #1f2937;
+  --color-dgv-gain: #3a6ea5;
+  --color-dgv-loss: #b04a4a;
+  --color-dgv-mixed: #6b5b95;
+  --color-dgv-other: #9aa0a6;
+
+  --color-stain-gneg: #ffffff;
+  --color-stain-gpos25: #c8c8c8;
+  --color-stain-gpos50: #969696;
+  --color-stain-gpos75: #646464;
+  --color-stain-gpos100: #000000;
+  --color-stain-gvar: #e0e0e0;
+  --color-stain-acen: #e60000;
+  --color-stain-stalk: #94a3b8;
+}

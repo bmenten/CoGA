@@ -1,0 +1,208 @@
+/* Data tables, sticky headers, table chips and the HPO term grid. */
+
+.data-table-shell table,
+.analysis-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.72rem;
+}
+
+.data-table-shell thead tr,
+.analysis-table thead tr {
+  background: rgba(246, 249, 252, 0.98);
+}
+
+.data-table-shell th,
+.analysis-table th {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.data-table-shell td,
+.analysis-table td {
+  color: var(--color-text);
+}
+
+.data-table-shell tbody tr:nth-child(even),
+.analysis-table tbody tr:nth-child(even) {
+  background: rgba(247, 249, 252, 0.82);
+}
+
+.data-table-shell tbody tr:hover,
+.analysis-table tbody tr:hover {
+  background: rgba(17, 17, 17, 0.028);
+}
+
+.table-sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(246, 249, 252, 0.98);
+  backdrop-filter: blur(8px);
+}
+
+.table-sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 180ms ease;
+}
+
+.table-sortable:hover {
+  color: var(--color-primary);
+}
+
+.table-filter-row th {
+  padding-top: 0.75rem;
+  padding-bottom: 0.85rem;
+  background: rgba(249, 251, 253, 0.96);
+  border-top: 1px solid var(--color-grid);
+}
+
+.table-sticky .table-filter-row th {
+  top: 3rem;
+}
+
+.table-filter-row input,
+.table-filter-row select {
+  min-width: 8rem;
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  font-size: 0.84rem;
+}
+
+.table-link {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+
+.table-link:hover {
+  color: var(--color-signature-red-dark);
+}
+
+button.table-link {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+button.table-link:hover {
+  background: transparent;
+  transform: none;
+}
+
+.table-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-secondary);
+  white-space: nowrap;
+}
+
+.table-cell-center {
+  text-align: center;
+}
+
+.table-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.nipt-coverage-qc {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.variant-table-genotypes {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 8.5rem;
+}
+
+.variant-table-genotype-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.7rem;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.variant-table-genotype-item--affected .variant-table-genotype-sample,
+.variant-table-genotype-item--affected .variant-table-genotype-value {
+  color: var(--color-signature-red);
+}
+
+.variant-table-genotype-item--proband .variant-table-genotype-sample,
+.variant-table-genotype-item--proband .variant-table-genotype-value {
+  font-weight: 800;
+}
+
+.variant-table-genotype-sample {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.variant-table-genotype-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--color-heading);
+  white-space: nowrap;
+}
+
+.table-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: rgba(247, 249, 252, 0.98);
+  padding: 0.18rem 0.46rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
+.table-chip--tag {
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.table-subtle {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+.hpo-term-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+
+.hpo-term-card {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: rgba(247, 249, 252, 0.98);
+  padding: 0.8rem 0.9rem;
+  color: var(--color-heading);
+  text-decoration: none;
+}
+
+.hpo-term-card:hover {
+  border-color: rgba(173, 31, 45, 0.2);
+  color: var(--color-signature-red-dark);
+}

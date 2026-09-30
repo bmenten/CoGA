@@ -296,6 +296,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   its value. Nothing renders differently. The file still holds 355 distinct colour literals, many of
   them near-identical shades of the same few colours (three warning-text browns, four muted greys, six
   near-white surfaces); unifying those would change pixels and is left for a design decision (#717).
+- **Stylesheet modules (#711)** — the 11,000-line `theme.css` is now the ordered list of 28 modules
+  under `styles/theme/` (tokens, base, layout, docs, the family workspace, variant filters, tables and
+  cards, genes, repeat expansions, paraphase, mitochondrial DNA, the genome view, admin, projects,
+  modals, the variant explorer, the report and more; the largest is 22 KB). The modules are
+  consecutive slices of the old file in its own order, so the cascade is unchanged: the built CSS is
+  byte-identical. The stylesheet test reads the modules in import order and fails when `theme.css`
+  holds a rule of its own or a module under `styles/theme/` is not imported (#718).
 
 ### Removed
 

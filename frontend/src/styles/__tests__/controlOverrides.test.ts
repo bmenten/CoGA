@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+
+import { themeText } from './themeSource';
 
 /**
  * The shared form-control rule is written as
@@ -20,7 +20,8 @@ import { describe, expect, it } from 'vitest';
  * This asserts that every override of that rule carries enough specificity to win.
  */
 
-const THEME = readFileSync(path.resolve(process.cwd(), 'src/styles/theme.css'), 'utf8')
+// Every module theme.css imports, in cascade order.
+const THEME = themeText()
   // Comments sit between rules and would otherwise be read as part of the next selector.
   .replace(/\/\*[\s\S]*?\*\//g, '');
 

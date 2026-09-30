@@ -1,0 +1,558 @@
+/* Sign-in and sign-up, family intake, member cards, project pages and the family catalog. */
+
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background:
+    linear-gradient(180deg, rgba(8, 10, 12, 0.04), rgba(8, 10, 12, 0)),
+    linear-gradient(180deg, #f7f9fb 0%, #eef2f5 100%);
+}
+
+.auth-card {
+  display: grid;
+  width: min(1180px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  box-shadow: 0 26px 54px rgba(10, 12, 14, 0.06);
+}
+
+.auth-gallery {
+  display: none;
+  background:
+    linear-gradient(180deg, rgba(8, 10, 12, 0.78), rgba(8, 10, 12, 0.58)), linear-gradient(150deg, #090b0d, #171c21);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.auth-gallery-inner {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 3rem;
+}
+
+.auth-gallery-title {
+  max-width: 11ch;
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 4vw, 4.4rem);
+  line-height: 0.94;
+  letter-spacing: -0.05em;
+  color: var(--color-white);
+}
+
+.auth-gallery-copy {
+  max-width: 28rem;
+  line-height: 1.86;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.auth-gallery-metrics {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.auth-gallery-metric {
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.auth-gallery-metric-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.auth-gallery-metric-value {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 1.02rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.auth-gallery-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.auth-gallery-figure {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.auth-gallery-grid img {
+  width: 100%;
+  object-fit: cover;
+  box-shadow: none;
+}
+
+.auth-gallery-figure figcaption {
+  padding: 0.95rem 1rem 1.05rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.auth-form {
+  padding: clamp(2.4rem, 4vw, 4rem);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.auth-form-shell {
+  max-width: 30rem;
+}
+
+.auth-form h1 {
+  font-size: clamp(2.4rem, 4vw, 3.8rem);
+  line-height: 0.96;
+}
+
+.auth-form .field-grid {
+  margin-top: 2rem;
+}
+
+.auth-form-intro {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.auth-form-note {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.intake-panel {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.family-intake-page .surface-card {
+  padding: 1.1rem;
+}
+
+.family-intake-page .surface-card-muted {
+  padding: 0.95rem;
+}
+
+.family-intake-page .surface-card-flat {
+  padding: 0.8rem;
+}
+
+.family-intake-page .page-header {
+  gap: 0.85rem;
+}
+
+.family-intake-page .page-top-card .catalog-card-copy {
+  margin-top: 0.1rem;
+  line-height: 1.55;
+}
+
+.family-intake-page .intake-panel {
+  gap: 1.1rem;
+}
+
+.family-intake-page .family-package-import-panel {
+  gap: 0.95rem;
+}
+
+.family-intake-page .member-card {
+  gap: 0.9rem;
+}
+
+.family-intake-page .member-card-header {
+  gap: 0.65rem;
+}
+
+.family-intake-page .action-row {
+  gap: 0.55rem;
+}
+
+.intake-summary-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.member-card {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.member-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.member-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.project-toggle {
+  min-height: auto;
+  width: 100%;
+  align-items: start;
+  justify-content: space-between;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--color-heading);
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  box-shadow: none;
+}
+
+.project-toggle:hover {
+  background: transparent;
+  transform: none;
+}
+
+.project-toggle:focus-visible {
+  outline: 2px solid var(--color-border-strong);
+  outline-offset: 4px;
+}
+
+.project-toggle-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 1.12rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.project-toggle-meta {
+  display: block;
+  margin-top: 0.45rem;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: var(--color-text-muted);
+}
+
+.family-catalog-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 0.85rem 1rem;
+  padding-top: 0.9rem;
+  padding-bottom: 0.9rem;
+}
+
+.family-catalog-toolbar--embedded {
+  margin-top: 0.95rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.family-catalog-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.family-catalog-search {
+  margin: 0;
+  width: min(100%, 22rem);
+}
+
+.family-catalog-search input {
+  margin-top: 0.38rem;
+}
+
+.family-catalog-table th,
+.family-catalog-table td {
+  padding: 0.8rem 1rem;
+  vertical-align: middle;
+}
+
+.family-catalog-project-cell {
+  min-width: 18rem;
+}
+
+.project-toggle--compact {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.project-toggle--compact .project-toggle-title {
+  font-size: 0.98rem;
+  letter-spacing: -0.01em;
+}
+
+.project-toggle--compact .project-toggle-meta {
+  margin-top: 0.18rem;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.family-catalog-reference-cell {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.family-catalog-detail-row td {
+  padding: 0;
+  background: rgba(246, 249, 252, 0.9);
+}
+
+.family-catalog-detail {
+  --family-catalog-family-column-width: clamp(11rem, 24vw, 14rem);
+  padding: 0.55rem 0.85rem 0.85rem;
+}
+
+.family-catalog-nested {
+  font-size: 0.86rem;
+  table-layout: fixed;
+}
+
+.family-catalog-family-column {
+  width: var(--family-catalog-family-column-width);
+}
+
+.family-catalog-family-cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.family-catalog-family-cell .table-link {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.family-catalog-added-column {
+  width: 8.5rem;
+}
+
+.family-catalog-added-cell {
+  text-align: right;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.family-catalog-samples-column {
+  width: 6rem;
+}
+
+.family-catalog-status-column {
+  width: 12rem;
+}
+
+.family-catalog-assigned-column,
+.family-catalog-reviewed-column {
+  width: 10rem;
+}
+
+.family-catalog-samples-cell {
+  font-variant-numeric: tabular-nums;
+}
+
+.family-catalog-sample-count {
+  cursor: default;
+  border-bottom: 1px dotted currentColor;
+}
+
+.family-catalog-assigned-cell,
+.family-catalog-reviewed-cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.family-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  white-space: nowrap;
+}
+
+.family-status-badge--empty {
+  color: var(--color-text-muted);
+}
+
+.family-status-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.family-status-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.family-catalog-nested th,
+.family-catalog-nested td {
+  padding: 0.6rem 0.9rem;
+}
+
+.dashboard-catalog-inline-state {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.project-page .page-header {
+  gap: 1rem;
+}
+
+.project-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.85rem;
+  align-items: center;
+}
+
+.project-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+}
+
+.project-filter-field {
+  width: min(100%, 32rem);
+}
+
+.project-filter-summary {
+  margin-top: -0.15rem;
+  font-size: 0.84rem;
+  color: var(--color-text-muted);
+}
+
+.project-form-grid,
+.project-access-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.project-form-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.project-catalog-table th,
+.project-catalog-table td {
+  white-space: nowrap;
+}
+
+.project-catalog-table td:first-child,
+.project-catalog-table td:last-child {
+  white-space: normal;
+}
+
+.project-catalog-row--selected {
+  background: rgba(176, 31, 49, 0.06);
+}
+
+.project-catalog-row--selected td {
+  border-top-color: rgba(176, 31, 49, 0.16);
+}
+
+.project-catalog-select {
+  width: 100%;
+  text-align: left;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.project-catalog-select:hover {
+  transform: none;
+}
+
+.project-table-meta {
+  margin-top: 0.28rem;
+  font-size: 0.79rem;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.project-catalog-note-cell {
+  max-width: 24rem;
+}
+
+.project-detail-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.project-detail-main,
+.project-detail-side {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.project-stat-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.project-stat-card {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 0.95rem;
+}
+
+.project-note-block {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--color-text);
+}
+
+.project-family-samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.project-family-uploaded-header,
+.project-family-uploaded-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-family-table th {
+  white-space: nowrap;
+}
+
+@media (min-width: 1080px) {
+  .project-detail-layout {
+    grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.95fr);
+    align-items: start;
+  }
+}

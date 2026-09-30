@@ -1,0 +1,485 @@
+/* Mitochondrial DNA: sample cards, QC, calls, significance and transmission. */
+
+.family-mtdna-sample-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(18rem, 0.9fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.family-mtdna-sample-group {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.72rem;
+  border: 1px solid rgba(10, 11, 12, 0.07);
+  border-radius: 8px;
+  background: rgba(247, 249, 252, 0.72);
+}
+
+.family-mtdna-sample-group--father {
+  background: rgba(241, 246, 249, 0.76);
+}
+
+.family-mtdna-sample-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.family-mtdna-sample-group-head span {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.family-mtdna-sample-group-head strong {
+  color: var(--color-heading);
+  font-size: 0.84rem;
+}
+
+.family-mtdna-sample-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
+  gap: 0.55rem;
+}
+
+/* Flat QC card: no fill; a left + top rail carries the QC status accent. */
+.family-mtdna-sample-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.55rem 0.6rem 0.65rem 0.65rem;
+  border: 0;
+  border-top: 2px solid var(--color-border-strong);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: 0;
+  background: transparent;
+}
+
+.family-mtdna-sample-card--warn {
+  border-top-color: #b47d2d;
+  border-left-color: #b47d2d;
+}
+
+.family-mtdna-sample-card--fail {
+  border-top-color: var(--color-signature-red);
+  border-left-color: var(--color-signature-red);
+}
+
+.family-mtdna-sample-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.family-mtdna-sample-card-head strong {
+  font-size: 0.86rem;
+  color: var(--color-heading);
+}
+
+.family-mtdna-sample-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.family-mtdna-sample-metrics span {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+  border-radius: 6px;
+  background: rgba(10, 11, 12, 0.035);
+  padding: 0.34rem 0.44rem;
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+
+.family-mtdna-sample-metrics strong {
+  min-width: 0;
+  color: var(--color-heading);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.family-mtdna-qc-chip {
+  text-transform: uppercase;
+}
+
+.family-mtdna-qc-chip--pass {
+  border-color: rgba(38, 134, 90, 0.2);
+  background: rgba(38, 134, 90, 0.1);
+  color: #1f7a53;
+}
+
+.family-mtdna-qc-chip--warn {
+  border-color: rgba(180, 125, 45, 0.24);
+  background: rgba(180, 125, 45, 0.12);
+  color: #8d6020;
+}
+
+.family-mtdna-qc-chip--fail {
+  border-color: rgba(173, 31, 45, 0.24);
+  background: rgba(173, 31, 45, 0.12);
+  color: var(--color-signature-red);
+}
+
+.family-mtdna-qc-chip--skip {
+  border-color: rgba(124, 129, 134, 0.18);
+  background: rgba(124, 129, 134, 0.08);
+  color: var(--color-text-muted);
+}
+
+.family-mtdna-qc-notes {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.family-mtdna-qc-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.family-mtdna-qc-banner span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.24rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(180, 125, 45, 0.18);
+  background: rgba(255, 252, 245, 0.9);
+  color: #8d6020;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.family-mtdna-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.65rem;
+  padding: 0.72rem;
+  border: 1px solid rgba(10, 11, 12, 0.07);
+  border-radius: 6px;
+  background: rgba(247, 249, 252, 0.72);
+}
+
+.family-mtdna-filter-field {
+  width: min(21rem, 100%);
+  display: grid;
+  gap: 0.28rem;
+}
+
+.family-mtdna-filter-field > span,
+.family-mtdna-filter-count {
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.family-mtdna-filter-field input,
+.family-mtdna-filter-field select {
+  min-height: 2.35rem;
+  padding: 0.45rem 0.72rem;
+  font-size: 0.82rem;
+}
+
+.family-mtdna-filter-field:has(select) {
+  width: min(15rem, 100%);
+}
+
+.family-mtdna-filter-toggle {
+  min-height: 2.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.2rem 0.1rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.family-mtdna-filter-toggle input {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.family-mtdna-acmg-chip {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4338ca;
+  font-weight: 700;
+}
+
+.family-mtdna-scope-toggle {
+  min-height: 2.35rem;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.16rem;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.family-mtdna-scope-toggle button {
+  min-height: 1.95rem;
+  padding: 0.32rem 0.54rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.family-mtdna-scope-toggle button.is-active {
+  background: var(--color-heading);
+  color: white;
+}
+
+.family-mtdna-filter-count {
+  margin-left: auto;
+  padding-bottom: 0.54rem;
+}
+
+.family-mtdna-table {
+  min-width: 74rem;
+  font-size: 0.84rem;
+}
+
+.family-mtdna-table th {
+  padding-top: 0.62rem;
+  padding-bottom: 0.62rem;
+}
+
+.family-mtdna-table td {
+  padding-top: 0.66rem;
+  padding-bottom: 0.66rem;
+  vertical-align: top;
+}
+
+.family-mtdna-row--pathogenic,
+.family-mtdna-row--likely_pathogenic {
+  background: linear-gradient(90deg, rgba(173, 31, 45, 0.08), transparent 4.6rem), rgba(247, 249, 252, 0.9);
+}
+
+.family-mtdna-row--benign,
+.family-mtdna-row--likely_benign,
+.family-mtdna-row--polymorphism {
+  background: linear-gradient(90deg, rgba(38, 134, 90, 0.07), transparent 4.6rem), rgba(247, 249, 252, 0.88);
+}
+
+.family-mtdna-variant-head {
+  min-width: 14rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 0.45rem;
+}
+
+.family-mtdna-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.family-mtdna-links a,
+.family-mtdna-links button {
+  color: var(--color-primary);
+}
+
+/* The shared "Chromosome view" link keeps the small-variant card red, not the
+   container's primary colour. */
+.family-mtdna-links .variant-card-resource--clinical {
+  color: var(--color-signature-red-dark);
+}
+
+.family-mtdna-copy-note {
+  color: inherit;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.family-mtdna-significance--pathogenic,
+.family-mtdna-significance--likely_pathogenic {
+  border-color: rgba(173, 31, 45, 0.24);
+  background: rgba(173, 31, 45, 0.12);
+  color: var(--color-signature-red);
+}
+
+.family-mtdna-significance--benign,
+.family-mtdna-significance--likely_benign,
+.family-mtdna-significance--polymorphism {
+  border-color: rgba(38, 134, 90, 0.2);
+  background: rgba(38, 134, 90, 0.1);
+  color: #1f7a53;
+}
+
+.family-mtdna-significance--reported,
+.family-mtdna-significance--uncertain {
+  border-color: rgba(180, 125, 45, 0.24);
+  background: rgba(180, 125, 45, 0.12);
+  color: #8d6020;
+}
+
+.family-mtdna-annotation {
+  min-width: 16rem;
+  display: grid;
+  gap: 0.16rem;
+}
+
+.family-mtdna-annotation strong {
+  color: var(--color-heading);
+}
+
+.family-mtdna-annotation > span,
+.family-mtdna-polymorphism {
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.family-mtdna-disorders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  margin-top: 0.18rem;
+}
+
+.family-mtdna-disorders span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding: 0.16rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(24, 73, 92, 0.12);
+  background: rgba(26, 77, 100, 0.06);
+  color: var(--color-primary);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.family-mtdna-transmission {
+  white-space: nowrap;
+}
+
+.family-mtdna-transmission--maternal_shared {
+  border-color: rgba(38, 134, 90, 0.2);
+  background: rgba(38, 134, 90, 0.1);
+  color: #1f7a53;
+}
+
+.family-mtdna-transmission--maternal_not_observed,
+.family-mtdna-transmission--father_only,
+.family-mtdna-transmission--family_private {
+  border-color: rgba(180, 125, 45, 0.24);
+  background: rgba(180, 125, 45, 0.12);
+  color: #8d6020;
+}
+
+.family-mtdna-call-grid {
+  min-width: 22rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
+  gap: 0.4rem;
+}
+
+.family-mtdna-call-grid--father {
+  min-width: 13rem;
+}
+
+/* Flat call chip: no fill; a left + top rail carries the zygosity accent,
+   matching the small-variant / TRGT cards. */
+.family-mtdna-call {
+  display: grid;
+  gap: 0.24rem;
+  padding: 0.4rem 0.5rem 0.5rem 0.55rem;
+  border: 0;
+  border-top: 2px solid var(--color-border-strong);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: 0;
+  background: transparent;
+}
+
+.family-mtdna-call--alt {
+  border-top-color: rgba(24, 73, 92, 0.5);
+  border-left-color: rgba(24, 73, 92, 0.5);
+}
+
+.family-mtdna-call--homoplasmic {
+  border-top-color: #1a4d64;
+  border-left-color: #1a4d64;
+}
+
+.family-mtdna-call--heteroplasmic,
+.family-mtdna-call--low_level {
+  border-top-color: #b47d2d;
+  border-left-color: #b47d2d;
+}
+
+.family-mtdna-call-head,
+.family-mtdna-call-state {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.family-mtdna-call-head strong {
+  color: var(--color-heading);
+  font-size: 0.76rem;
+}
+
+.family-mtdna-call-head span,
+.family-mtdna-call-state span {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+
+.family-mtdna-call-state strong {
+  color: var(--color-heading);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 960px) {
+  .family-mtdna-sample-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .family-mtdna-filter-count {
+    width: 100%;
+    margin-left: 0;
+    padding-bottom: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .family-mtdna-sample-metrics,
+  .family-mtdna-call-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .family-mtdna-scope-toggle {
+    width: 100%;
+  }
+
+  .family-mtdna-scope-toggle button {
+    flex: 1 1 9rem;
+  }
+}

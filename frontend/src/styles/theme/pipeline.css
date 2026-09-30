@@ -1,0 +1,169 @@
+/* Analysis-pipeline settings, the review column and table-chip controls. */
+
+/* Analysis-pipeline settings, shown both as a workspace card and a report section. */
+/* Four columns, so eight groups fall into two readable rows. auto-fit spread them
+   across eight narrow columns on a wide screen, which put one short list under each
+   heading and made the section look far busier than it is. */
+.pipeline-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem 1.5rem;
+}
+
+@media (max-width: 1100px) {
+  .pipeline-settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .pipeline-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Collapsed by default on the workspace: reference material, consulted occasionally. */
+.pipeline-settings-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pipeline-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.pipeline-settings-summary::before {
+  content: '\25b8';
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  transition: transform 0.12s ease;
+}
+
+.pipeline-settings-details[open] > .pipeline-settings-summary::before {
+  transform: rotate(90deg);
+}
+
+.pipeline-settings-summary h2 {
+  margin: 0;
+}
+
+/* The panel is full width in both places, so the grid may keep its columns. */
+
+.pipeline-settings-group {
+  display: grid;
+  gap: 0.3rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.pipeline-settings-group-title {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.pipeline-settings-list {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+}
+
+.pipeline-settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.pipeline-settings-row dt {
+  color: var(--color-text-muted);
+}
+
+/* What a tool was used for, beside its name — the job, not another column. */
+.pipeline-settings-note {
+  font-size: 0.68rem;
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.pipeline-settings-row dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-settings-stages {
+  margin: 0.7rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.report-pipeline .pipeline-settings-grid {
+  margin-top: 0.5rem;
+}
+
+.variant-table-review {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 10rem;
+}
+
+.variant-table-review-group {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.38rem 0.46rem;
+  border: 1px solid rgba(82, 111, 161, 0.14);
+  border-radius: 8px;
+  background: rgba(242, 247, 253, 0.82);
+}
+
+.variant-table-row--clinvar-pathogenic {
+  background: rgba(180, 35, 24, 0.06);
+}
+
+.variant-table-row--clinvar-benign {
+  background: rgba(47, 133, 90, 0.06);
+}
+
+.variant-table-row--excluded {
+  opacity: 0.82;
+}
+
+.variant-table-review-note {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--color-heading);
+  white-space: pre-wrap;
+}
+
+.table-chip button,
+.table-chip .button-ghost {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-secondary);
+}
+
+.table-checkbox-grid {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 13rem;
+}
+
+.table-checkbox-grid label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.84rem;
+  color: var(--color-text);
+}

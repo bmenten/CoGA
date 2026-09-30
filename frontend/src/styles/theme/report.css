@@ -1,0 +1,717 @@
+/* The family report, sample QC, sign-out states, the print layout and annotation provenance. */
+
+/* ---- Family report template ---- */
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.report-header-meta {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #475569);
+}
+
+.report-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.report-intro,
+.report-variant,
+.report-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.report-nipt-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.qc-overall {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.qc-overall-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.qc-overall--fail {
+  border-left: 3px solid var(--color-signature-red);
+}
+
+.qc-overall--warn {
+  border-left: 3px solid #b47d2d;
+}
+
+.qc-overall--pass {
+  border-left: 3px solid #356f53;
+}
+
+.qc-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid rgba(10, 11, 12, 0.06);
+}
+
+.qc-check-row:first-of-type {
+  border-top: none;
+}
+
+.qc-check-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.qc-check-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* --- Sample-integrity QC: pedigree overlay, sample table, relatedness matrix --- */
+.qc-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.qc-ring-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.qc-ring-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.qc-ring-swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 999px;
+  border: 2.5px solid transparent;
+  background: transparent;
+}
+
+.qc-ring-swatch--pass {
+  border-color: #16a34a;
+}
+
+.qc-ring-swatch--warn {
+  border-color: #d97706;
+}
+
+.qc-ring-swatch--fail {
+  border-color: #dc2626;
+}
+
+.qc-pedigree-frame {
+  display: flex;
+  justify-content: center;
+  padding: 0.5rem 0;
+}
+
+.qc-genotype-sex {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.qc-genotype-sex--match {
+  color: #15803d;
+}
+
+.qc-genotype-sex--mismatch {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.1);
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.4rem;
+}
+
+.qc-mendel {
+  font-weight: 600;
+}
+
+.qc-mendel--ok {
+  color: #15803d;
+}
+
+.qc-mendel--warn {
+  color: #b45309;
+}
+
+.qc-mendel--fail {
+  color: #b91c1c;
+}
+
+.qc-mendel-sub {
+  font-weight: 400;
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.82em;
+}
+
+.qc-matrix {
+  border-collapse: separate;
+  border-spacing: 3px;
+  font-size: 0.8rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* The relatedness matrix is content-width and centred via the auto margins above. The shared
+   `.data-table-shell table { width: 100% }` rule is more specific and would otherwise stretch
+   it full-width (defeating the centring), so narrow it back here. */
+.data-table-shell .qc-matrix {
+  width: auto;
+}
+
+.qc-matrix th {
+  padding: 0.3rem 0.5rem;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.qc-matrix th[scope='row'] {
+  text-align: right;
+}
+
+.qc-matrix-corner {
+  background: transparent;
+}
+
+.qc-matrix td {
+  width: 6.5rem;
+  height: 3.4rem;
+  text-align: center;
+  vertical-align: middle;
+  border-radius: 0.45rem;
+}
+
+.qc-matrix-diag {
+  background: rgba(100, 116, 139, 0.12);
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.qc-matrix-empty {
+  background: rgba(100, 116, 139, 0.05);
+}
+
+/* The cell is a real <td> (keeps the table grid intact); the flex stack lives on
+   an inner element so the matrix doesn't collapse. */
+.qc-matrix-cell {
+  padding: 0;
+}
+
+.qc-matrix-cell-inner {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  line-height: 1.25;
+  cursor: help;
+}
+
+.qc-matrix-cell--warn {
+  outline: 2px solid #d97706;
+  outline-offset: -2px;
+}
+
+.qc-matrix-cell--fail {
+  outline: 2.5px solid #dc2626;
+  outline-offset: -2px;
+  font-weight: 700;
+}
+
+.qc-matrix-rel {
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.qc-matrix-metric {
+  font-size: 0.72rem;
+  color: var(--color-text, #1f2937);
+}
+
+.qc-matrix-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.qc-matrix-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.qc-matrix-legend-swatch {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 0.25rem;
+}
+
+.report-paragraph {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--color-text, #1f2937);
+}
+
+.report-disclaimer {
+  margin: 0;
+  font-size: 0.76rem;
+  font-style: italic;
+  color: var(--color-text-muted, #64748b);
+}
+
+/* Evidence-drift callout: classifications whose backing annotation changed. */
+.report-drift {
+  border-left: 4px solid #f59e0b;
+  background: #fffbeb;
+  display: grid;
+  gap: 0.4rem;
+}
+.report-drift-title {
+  margin: 0;
+  font-weight: 700;
+  color: #92400e;
+}
+.report-drift-lead {
+  margin: 0;
+}
+.report-drift-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.86rem;
+  color: #78350f;
+}
+.report-drift-meta {
+  color: var(--color-text-muted, #64748b);
+}
+
+/* A family on an assembly outside the validated scope (TF-06 H12, #515), or whose
+   package import partly failed. Printed too: a printout of such a report must carry the
+   label. */
+.assembly-scope-banner,
+.import-incomplete-banner {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  border-left: 4px solid var(--color-warning-strong);
+  border-radius: 4px;
+  background: var(--color-warning-surface);
+  color: var(--color-warning-strong);
+  font-size: 0.88rem;
+}
+
+/* Case sign-out: the frozen, versioned, content-hashed report record. */
+.report-signout {
+  border-left: 4px solid #16a34a;
+  background: #f0fdf4;
+  display: grid;
+  gap: 0.25rem;
+}
+.report-signout-line {
+  margin: 0;
+  font-weight: 600;
+  color: #166534;
+}
+.report-signout-hash {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--color-text-muted, #64748b);
+  word-break: break-all;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.report-signout-status {
+  margin: 0;
+  font-size: 0.86rem;
+}
+/* Only a verified match is presented as the signed record (green). Anything else —
+   still checking, changed since sign-out, or not verifiable — must not look signed. */
+.report-signout-checking,
+.report-signout-unverified {
+  border-left-color: #94a3b8;
+  background: #f8fafc;
+}
+.report-signout-checking .report-signout-line,
+.report-signout-unverified .report-signout-line {
+  color: #334155;
+}
+.report-signout-changed {
+  border-left-color: #d97706;
+  background: #fffbeb;
+}
+.report-signout-changed .report-signout-line,
+.report-signout-changed .report-signout-status {
+  color: #92400e;
+}
+/* The sign-out record itself could not be loaded: neither signed nor a draft (#605). */
+.report-signout-unknown {
+  border-left-color: #d97706;
+  background: #fffbeb;
+}
+.report-signout-unknown .report-signout-line {
+  color: #92400e;
+}
+/* Parts of the report that could not be loaded (#605). */
+.report-incomplete {
+  border-left: 4px solid #d97706;
+  background: #fffbeb;
+  color: #92400e;
+}
+/* A candidate list that shows fewer variants than its scope holds says so, in print too. */
+.report-incomplete-list {
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid #d97706;
+  background: #fffbeb;
+  color: #92400e;
+}
+.report-signout-gaps {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #92400e;
+}
+.report-signout-actions {
+  margin: 0.25rem 0 0;
+}
+.report-signout-download-error {
+  font-size: 0.8rem;
+  color: #b91c1c;
+}
+.report-signout-error {
+  border-left: 4px solid #dc2626;
+  background: #fef2f2;
+  color: #991b1b;
+}
+/* The live report beside the latest signed version: never the signed report, so never green,
+   even when its content matches. */
+.report-signout-live {
+  border-left-color: #64748b;
+  background: #f8fafc;
+}
+.report-signout-live .report-signout-line {
+  color: #334155;
+}
+/* A signed version rendered from its frozen record: green, unless its record fails its
+   content hash (red) or a later version replaces it (amber). */
+.report-signed-record--tampered {
+  border-left-color: #dc2626;
+  background: #fef2f2;
+}
+.report-signed-record--tampered .report-signout-line,
+.report-signed-record--tampered .report-signed-warning {
+  color: #991b1b;
+}
+.report-signed-record--superseded {
+  border-left-color: #d97706;
+  background: #fffbeb;
+}
+.report-signed-record--superseded .report-signout-line {
+  color: #92400e;
+}
+.report-signed-warning {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #92400e;
+}
+.report-signed-current {
+  margin: 0;
+  font-size: 0.86rem;
+}
+.report-signed-current--changed {
+  color: #92400e;
+}
+.report-version-nav {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+}
+.report-signed-absent,
+.report-signed-drift,
+.report-signed-checks {
+  display: grid;
+  gap: 0.5rem;
+}
+.report-signed-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+/* What the signed record does not hold, said on each variant it concerns. */
+.report-signed-absent-line {
+  margin: 0;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--color-text-muted, #64748b);
+}
+
+/* Printed at the top of any report page that is not the verified signed record. */
+.print-only {
+  display: none;
+}
+.report-print-notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid #111827;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+/* Immutable clinical audit trail: who classified / tagged / annotated what, when. */
+.report-audit {
+  display: grid;
+  gap: 0.5rem;
+}
+.report-audit-heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.report-audit-lead {
+  margin: 0;
+  font-size: 0.86rem;
+}
+.report-audit-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+.report-audit-item {
+  display: grid;
+  grid-template-columns: 11rem 1fr auto;
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 0.82rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+}
+.report-audit-time {
+  color: var(--color-text-muted, #64748b);
+  font-variant-numeric: tabular-nums;
+}
+.report-audit-actor {
+  color: var(--color-text-muted, #64748b);
+  white-space: nowrap;
+}
+
+/* Provenance footer: generation timestamp + the annotation/reference versions. */
+.report-footer {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.74rem;
+  color: var(--color-text-muted, #64748b);
+}
+.report-footer-timestamp {
+  margin: 0;
+  font-weight: 600;
+}
+/* The report's versions, the build that rendered it and the device label (TF-15 §1). */
+.report-footer-versions,
+.report-footer-software,
+.report-footer-device {
+  margin: 0;
+  line-height: 1.5;
+}
+.report-footer-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.68rem;
+}
+
+.report-variant-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  padding-bottom: 0.6rem;
+}
+
+.report-classification-chip {
+  font-weight: 650;
+  background: rgba(15, 118, 110, 0.12);
+  border-color: rgba(15, 118, 110, 0.3);
+  color: #0f766e;
+}
+
+.report-classification-chip--none {
+  background: rgba(100, 116, 139, 0.12);
+  border-color: rgba(100, 116, 139, 0.3);
+  color: #475569;
+}
+
+.report-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.report-subheading {
+  margin: 0;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #475569);
+}
+
+.report-criteria-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.report-criterion {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.5rem;
+  border-left: 3px solid transparent;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.report-criterion--pathogenic {
+  border-left-color: #b42318;
+}
+
+.report-criterion--benign {
+  border-left-color: #2f855a;
+}
+
+.report-criterion-code {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-criterion-strength {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  white-space: nowrap;
+}
+
+.report-evidence-summary {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #475569);
+}
+
+.report-variant-locus {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.76rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.report-note {
+  white-space: pre-wrap;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .report-page {
+    gap: 1rem;
+  }
+
+  .surface-card {
+    box-shadow: none;
+    border: 1px solid #cbd5e1;
+    break-inside: avoid;
+  }
+}
+
+/* Annotation provenance footer (filter page): a wrapping row of the tool/database
+   versions a family's data was built from — a surface-card at the bottom of the
+   page, mirroring the report's provenance footer. */
+.annotation-provenance-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.34rem 0.5rem;
+  margin-top: 1rem;
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.annotation-provenance-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-right: 0.12rem;
+}
+
+.annotation-provenance-chip {
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.annotation-provenance-chip strong {
+  color: inherit;
+  font-weight: 800;
+}
+
+.annotation-provenance-toggle {
+  font-size: 0.7rem;
+}
+
+.annotation-provenance-source {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}

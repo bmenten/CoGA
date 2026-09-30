@@ -1,0 +1,173 @@
+/* Links styled as buttons, field grids, eyebrow labels, pill toggles and badge chips. */
+
+.subtle-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  /* Fully shed the global <button> chrome so a `<button className="subtle-link">`
+     renders as plain small text, not a filled pill. (Tailwind v4 moved Preflight
+     into @layer base, so it no longer resets buttons over this unlayered sheet —
+     the reset has to be explicit here.) */
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.subtle-link:hover {
+  color: var(--color-signature-red-dark);
+}
+
+a.form-button,
+a.button-link,
+a.button-secondary,
+a.button-grey,
+a.button-ghost,
+a.button-danger {
+  text-decoration: none;
+}
+
+a.form-button:hover {
+  color: var(--color-white);
+}
+
+a.button-link:hover,
+a.button-secondary:hover,
+a.button-grey:hover,
+a.button-ghost:hover,
+a.button-danger:hover {
+  text-decoration: none;
+}
+
+@media (min-width: 900px) {
+  .dashboard-hero-shell {
+    grid-template-columns: minmax(0, 1.35fr) minmax(20rem, 0.95fr);
+    align-items: start;
+  }
+
+  .reference-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.field-grid {
+  display: grid;
+  gap: 1.15rem;
+}
+
+.field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.field-hint {
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--color-text-muted);
+}
+
+.eyebrow-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.pill-toggle {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid transparent;
+  border-bottom-color: var(--color-border);
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+  box-shadow: none;
+}
+
+.pill-toggle:hover {
+  background: transparent;
+  color: var(--color-primary);
+}
+
+.pill-toggle--active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  box-shadow: none;
+}
+
+.badge-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.26rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: rgba(246, 249, 252, 0.94);
+  padding: 0.22rem 0.52rem;
+  font-size: 0.46rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* The filtered-count chip ("Showing N") — the headline number, so make it stand out from the
+   muted context chips beside it. */
+.badge-chip--emphasis {
+  background: var(--color-accent, #2563eb);
+  border-color: var(--color-accent, #2563eb);
+  color: var(--color-white);
+  font-size: 0.58rem;
+  padding: 0.26rem 0.62rem;
+}
+
+.badge-chip--signature {
+  border-color: rgba(173, 31, 45, 0.2);
+  background: var(--color-signature-red-soft);
+  color: var(--color-signature-red);
+}
+
+.badge-chip button,
+.badge-chip .button-ghost {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8d3f44;
+  box-shadow: none;
+  font-size: 0.68rem;
+}
+
+.badge-chip-button {
+  min-height: auto;
+  border-radius: 999px;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.badge-chip-button:hover {
+  background: rgba(176, 31, 49, 0.14);
+  color: var(--color-signature-red-dark);
+  transform: none;
+}
+
+.table-empty {
+  color: var(--color-text-muted);
+  font-size: 0.94rem;
+}
