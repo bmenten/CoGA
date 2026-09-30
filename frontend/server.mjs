@@ -22,8 +22,9 @@ const indexHtmlPath = path.join(distPath, 'index.html');
 const indexHtml = existsSync(indexHtmlPath) ? readFileSync(indexHtmlPath) : null;
 
 // A request's method and URL in a log line: line breaks removed so a URL cannot forge
-// log lines, and passed as %s arguments, never as the format string itself (#702).
-const forLog = (value) => String(value).replace(/\n|\r/g, ' ');
+// log lines, and passed as %s arguments, never as the format string itself (#702). The
+// breaks are deleted, not replaced: that is the form CodeQL recognises as a sanitiser.
+const forLog = (value) => String(value).replace(/\n|\r/g, '');
 const hopByHopHeaders = new Set([
   'connection',
   'content-length',
