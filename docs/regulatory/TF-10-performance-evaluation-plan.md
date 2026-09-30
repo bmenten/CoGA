@@ -113,10 +113,10 @@ effect on agreement estimates noted.
 - **Units of analysis:** **fetal-fraction estimate** (quantitative QC, vs comparator/known FF); **per-variant zygosity category**; and the **inheritance-preset conclusions** (de novo, paternal/maternal dominant, recessive at-risk).
 - **Inputs:** combined two-sample (paternal + cfDNA) annotated VCFs, coverage, pedigree; external FF where available.
 - **Metrics:**
-  - FF: bias and correlation (Pearson/Deming, Bland–Altman) of CoGA's fetal-fraction estimate (from paternally inherited variants, category 7) vs comparator FF; agreement with external FF (disagreement-flag behavior).
+  - FF: bias and correlation (Pearson/Deming, Bland–Altman) of CoGA's fetal-fraction estimate (from paternally inherited variants, category 7) vs comparator FF (the external FF, where available).
   - Category assignment & inheritance calls: PPA/NPA/OPA vs the confirmed fetal genotype/comparator; **false-negative rate** (paternal homozygous variants missing from the cfDNA, category 8).
 - **Proposed acceptance (confirm):** FF within ‹±X absolute / ±Y%› of comparator; **no missed at-risk fetal calls** (false-negative is the safety-critical error for a screening test); category concordance ≥‹threshold› at adequate FF/coverage; correct low-confidence behavior at low FF/depth (no forced calls).
-- **Edge cases:** low fetal fraction, low depth, category-8 dropout, FF disagreement with external estimate.
+- **Edge cases:** low fetal fraction, low depth, category-8 dropout, FF far from the comparator.
 
 ### 3.5 Mitochondrial disease — ONT adaptive sampling (N to define)
 - **Units of analysis:** the **mtDNA variant + heteroplasmy** call set (variant detection and heteroplasmy fraction), the **nuclear mito-gene** variant/diagnostic conclusion, and the combined **diagnostic conclusion**.
@@ -204,6 +204,7 @@ candidate. One line per change: what changed, its pull request, and the proposed
 
 ### Proposed minor
 
+- Monogenic NIPT: the fetal fraction takes no external value (the API-only `external_ff` and its disagreement flag are removed), and every change to the artifact list is a clinical audit event (#700; proposed Minor)
 - A per-sample filter minimum (GQ, DP, AF, AD alt, SV QUAL) that is not a number fails the search with a 422 naming it; an unreadable AF or AD-alt minimum used to be dropped, widening the result without saying so (#690; proposed Minor)
 - A package import records each sample's mtDNA haplogroup, so the mtDNA workspace shows it for the maternal-lineage check of the Sample QC review (#671; proposed Minor)
 - The writes of one family's variants run one at a time: uploads, deletes and package imports of a family started together keep every call, and a write that waited for the deletion of its sample or family writes nothing (#670; proposed Minor)

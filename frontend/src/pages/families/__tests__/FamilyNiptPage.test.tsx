@@ -17,14 +17,12 @@ vi.mock('../../../lib/api', () => ({
 const FETAL_FRACTION = {
   ff: 0.1,
   ff_computed: 0.1,
-  ff_external: null,
   ff_median: 0.1,
   ci_low: 0.095,
   ci_high: 0.105,
   n_sites: 40,
   method: 'category7_pooled',
   low_confidence: false,
-  disagreement: false,
 };
 
 const renderPage = (familyId: string) => {
@@ -326,7 +324,7 @@ describe('FamilyNiptPage', () => {
       expect(await screen.findByText('Fetal fraction could not be loaded')).toBeInTheDocument();
       expect(
         screen.getByText(/Could not load the fetal-fraction estimate — this is not an empty result/),
-      ).toHaveTextContent(/low-confidence and disagreement warnings, and the filter and category counts, are unknown/);
+      ).toHaveTextContent(/low-confidence warning, and the filter and category counts, are unknown/);
       // The funnel and the category options read as unknown, not 0.
       expect(screen.queryByText(/Fetal fraction —/)).not.toBeInTheDocument();
       expect(screen.getAllByText(/ —$/).length).toBeGreaterThan(0);

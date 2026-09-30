@@ -34,14 +34,12 @@ def _nipt_fetal_fraction_out(ff) -> NiptFetalFractionOut:
     return NiptFetalFractionOut(
         ff=ff.ff,
         ff_computed=ff.ff_computed,
-        ff_external=ff.ff_external,
         ff_median=ff.ff_median,
         ci_low=ff.ci_low,
         ci_high=ff.ci_high,
         n_sites=ff.n_sites,
         method=ff.method,
         low_confidence=ff.low_confidence,
-        disagreement=ff.disagreement,
     )
 
 
@@ -67,7 +65,6 @@ def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
 async def get_family_nipt_summary(
     family_id: str,
     project_id: str | None = None,
-    external_ff: float | None = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptSummaryOut:
@@ -76,7 +73,6 @@ async def get_family_nipt_summary(
         family_id=family_id,
         user=user,
         project_id=project_id,
-        external_ff=external_ff,
     )
     return NiptSummaryOut(
         family_id=family_id,
@@ -92,7 +88,6 @@ async def get_family_nipt_variants_page(
     page: int = 1,
     page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
     project_id: str | None = None,
-    external_ff: float | None = None,
     category: list[int] | None = Query(None),
     min_confidence: float | None = None,
     inheritance: str | None = None,
@@ -183,7 +178,6 @@ async def get_family_nipt_variants_page(
         inheritance=inheritance,
         page=page,
         page_size=page_size,
-        external_ff=external_ff,
     )
     return NiptVariantPage(
         family_id=family_id,

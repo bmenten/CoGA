@@ -1626,14 +1626,12 @@ export interface NiptCoverageSummaryOut {
 export interface NiptFetalFractionOut {
   ff: number;
   ff_computed: number | null;
-  ff_external: number | null;
   ff_median: number | null;
   ci_low: number | null;
   ci_high: number | null;
   n_sites: number;
   method: string;
   low_confidence: boolean;
-  disagreement: boolean;
 }
 
 /** Monogenic NIPT analysis summary: fetal fraction and category/filter counts. */

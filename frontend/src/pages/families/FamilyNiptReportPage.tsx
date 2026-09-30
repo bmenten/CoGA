@@ -501,12 +501,6 @@ const FamilyNiptReportPage: React.FC = () => {
               , derived from {ff.n_sites} category-7 site{ff.n_sites === 1 ? '' : 's'} using the{' '}
               {ff.method} method.
             </p>
-            {ff.ff_external != null ? (
-              <p className="report-paragraph">
-                An externally reported fetal fraction of {pct(ff.ff_external)} was also provided
-                {ff.disagreement ? ', which disagrees with the computed estimate' : ''}.
-              </p>
-            ) : null}
             {ff.low_confidence ? (
               <p className="report-paragraph report-disclaimer">
                 The fetal-fraction estimate is flagged low-confidence; interpret category calls with
@@ -516,8 +510,8 @@ const FamilyNiptReportPage: React.FC = () => {
           </>
         ) : summaryFailed ? (
           <p className="report-paragraph" role="alert">
-            The fetal-fraction estimate could not be loaded, and with it any low-confidence or
-            disagreement warning. Do not interpret the category calls without it.
+            The fetal-fraction estimate could not be loaded, and with it any low-confidence
+            warning. Do not interpret the category calls without it.
           </p>
         ) : (
           <p className="report-paragraph">No fetal-fraction estimate is available for this family.</p>

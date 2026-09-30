@@ -48,7 +48,7 @@ package import. The analysis reads each call's GT, DP, AD and AF and the site-le
 | `min_father_qual`, `min_vaf` | 20, 0 | not effective: the father's QUAL is never set, and there is no VAF floor |
 | `vaf_ceiling` | 0.25 | FF sites |
 | `min_sites` / `hard_floor` | 30 / 5 | low-confidence FF / no estimate |
-| `max_ci_halfwidth`, `disagreement_tol` | 0.03, 0.03 | low-confidence FF, external-FF disagreement |
+| `max_ci_halfwidth` | 0.03 | low-confidence FF |
 | `overdispersion` | 0.005 | beta-binomial likelihood |
 | de novo prior weight | 0.02 | category 1 |
 | `min_separation`, `detect_min`, `ff_too_low` | 0.90, 3, 0.01 | `ambiguous`, category 8 versus `undetectable_at_ff`, withholding the fetal call |
@@ -85,11 +85,14 @@ DP and QUAL) and the artifact list, then the estimate.
   genes with a maternal carrier (categories 2–6) and a paternal carrier (het or hom-alt GT).
 
 Endpoints (`routers/families_nipt.py`, under `/api`): `GET /families/{id}/nipt/summary`,
-`/nipt/variants` and `/nipt/coverage`. Summary and variants accept an `external_ff` query parameter
-that the UI never sends. The artifact list has admin-only endpoints in `routers/admin.py`:
+`/nipt/variants` and `/nipt/coverage`. The fetal fraction is always CoGA's own estimate; it takes no
+external value. The artifact list has admin-only endpoints in `routers/admin.py`, and no screen:
 `GET` / `POST /admin/nipt/artifacts`, `DELETE /admin/nipt/artifacts/{id}` and
 `POST /admin/nipt/artifacts/auto-seed`; the table is `nipt_artifact_variants` (see
-[database.md](database.md)).
+[database.md](database.md)). Each add, update, removal and auto-seed is a clinical audit event, with
+the actor, the variant and its state before and after, on a chain of its own
+(`family_identifier = system:nipt-artifacts`); `GET /admin/integrity/verify?table=clinical_audit_events&family_id=system:nipt-artifacts`
+checks it.
 
 Auto-seed (`auto_seed_nipt_artifacts` → `fetch_recurrent_small_variant_ids`) counts carriers only among
 the samples tagged `assay: nipt_cfdna` whose `assay_panel` resolves to the scope, once per sample
