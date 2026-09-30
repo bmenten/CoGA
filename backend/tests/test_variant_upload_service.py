@@ -1,4 +1,6 @@
 from io import BytesIO
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 
 from fastapi import HTTPException, UploadFile
@@ -755,3 +757,28 @@ def test_parse_vep_tsv_annotation_upload_only_marks_true_mane_flags() -> None:
         assert "mane_select" not in annotations[1]
     finally:
         lookup.close()
+
+
+def test_a_vep_tsv_parse_that_fails_leaves_no_temporary_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The lookup is an SQLite file in the temporary directory, which on Cloud Run is memory.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    header = "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence\tIMPACT\tSYMBOL\n"
+    row = "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST1\tTranscript\tmissense_variant\tMODERATE\tGENE1\n"
+    lookup = _parse_vep_tsv_annotation_upload(_vep_upload(header + row))
+    assert len(list(tmp_path.iterdir())) == 1
+    lookup.close()
+    assert list(tmp_path.iterdir()) == []
+
+    with pytest.raises(HTTPException) as missing_header:
+        _parse_vep_tsv_annotation_upload(_vep_upload(row))
+    assert missing_header.value.status_code == 400
+    assert list(tmp_path.iterdir()) == []
+
+    # A line past the length cap, after a row has been indexed.
+    monkeypatch.setattr(variant_upload_service, "MAX_UPLOAD_LINE_BYTES", 200)
+    with pytest.raises(HTTPException) as too_long:
+        _parse_vep_tsv_annotation_upload(_vep_upload(header + row + "x" * 300 + "\n"))
+    assert too_long.value.status_code == 413
+    assert list(tmp_path.iterdir()) == []

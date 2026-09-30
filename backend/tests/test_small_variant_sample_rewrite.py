@@ -6,17 +6,27 @@ view reads one of them and a part merge keeps only one. So a sample's upload is 
 into the callset's stored rows: the other samples' calls are written back as stored, and
 the uploaded calls join their variant's row. The end-to-end run is
 ``e2e/test_e2e_mito_import_keeps_every_sample.py``; these pin the rules on their own.
+
+The mito import hands the upload the sample's mutserve annotation as an SQLite lookup in
+the temporary directory, which on Cloud Run is memory. The upload leaves a caller's
+lookup open, so the import reads the sample's haplogroup from it, and the import removes
+it whatever happens.
 """
 
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
+import tempfile
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import HTTPException, UploadFile
 import pytest
 
-from backend.app.services import clickhouse_variant_storage, variant_upload_service
+from backend.app.schemas import FamilyImportDatasetSummary
+from backend.app.services import clickhouse_variant_storage, family_package_datasets, variant_upload_service
+from backend.app.services.annotation_table_parser import parse_mutserve_annotation_lines
 from backend.app.services.clickhouse_variant_ids import small_variant_key
 from backend.app.services.clickhouse_variant_storage import (
     SMALL_VARIANT_ENTRY_COLUMNS,
@@ -24,6 +34,8 @@ from backend.app.services.clickhouse_variant_storage import (
     small_variant_entry_without_samples,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from backend.app.services.family_package_common import ManifestDataset
+from backend.app.services.family_package_datasets import DatasetImportJob
 from backend.app.services.variant_upload_service import _entries_with_uploaded_calls
 
 
@@ -393,3 +405,149 @@ async def test_entry_columns_are_the_columns_the_insert_writes(monkeypatch: pyte
         "GRCh38", "family-uuid", ["p1"], [record]
     )
     assert (entry["source"], entry["pos"], entry["calls.sampleId"], entry["qual"]) == ("mito", 73, ["PROBAND"], 30.0)
+
+
+# mutserve's annotation of the proband's two chrM variants. Each row lists the haplogroups
+# its variant marks; the sample's haplogroup is the one most rows name (H1, twice).
+_MUTSERVE_TSV = (
+    "ID\tFilter\tPos\tRef\tVariant\tVariantLevel\tCoverage\tMaplocus\tPhylotree17_haplogroups\n"
+    "sample\tGERMLINE\t73\tA\tG\t1.0\t500\tMT-DLOOP2\tH2a2a1,H1\n"
+    "sample\tGERMLINE\t3243\tA\tG\t0.5\t500\tMT-TL1\tH1\n"
+)
+
+_VEP_TSV = (
+    "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence\tIMPACT\tSYMBOL\n"
+    "chrM_3243_A/G\tchrM:3243\tG\tENSG1\tENST1\tTranscript\tnon_coding_transcript_exon_variant\tMODIFIER\tMT-TL1\n"
+)
+
+
+@pytest.fixture()
+def scratch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The temporary directory the annotation lookups are created in, empty to begin with."""
+    directory = tmp_path / "tmp"
+    directory.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(directory))
+    return directory
+
+
+@pytest.mark.asyncio
+async def test_the_upload_leaves_a_callers_lookup_open_and_removes_its_own(storage, scratch: Path) -> None:
+    lookup = parse_mutserve_annotation_lines(_MUTSERVE_TSV.splitlines(keepends=True))
+    try:
+        for fail_rewrites in (0, 1):
+            storage["fail_rewrites"] = fail_rewrites
+            try:
+                result = await variant_upload_service.upload_family_small_variant_file(
+                    _FakeSession(),  # type: ignore[arg-type]
+                    context=_context(),
+                    sample_contexts=_sample_contexts(),
+                    file=UploadFile(file=BytesIO(_PROBAND_VCF.encode()), filename="PROBAND.vcf"),
+                    overwrite=True,
+                    format_hint="mito",
+                    vep_annotations=lookup,
+                    overwrite_scope="samples",
+                )
+                assert result["annotation_rows"] == 2
+            except RuntimeError:
+                assert fail_rewrites
+            # Succeeded or not, the caller's lookup is still there for it to read and close.
+            assert lookup.conn is not None
+            assert len(list(scratch.iterdir())) == 1
+    finally:
+        lookup.close()
+    assert list(scratch.iterdir()) == []
+
+    # A VEP table the upload parses itself is the upload's to remove.
+    storage["fail_rewrites"] = 0
+    await variant_upload_service.upload_family_small_variant_file(
+        _FakeSession(),  # type: ignore[arg-type]
+        context=_context(),
+        sample_contexts=_sample_contexts(),
+        file=UploadFile(file=BytesIO(_PROBAND_VCF.encode()), filename="PROBAND.vcf"),
+        overwrite=True,
+        format_hint="mito",
+        annotation_file=UploadFile(file=BytesIO(_VEP_TSV.encode()), filename="PROBAND.vep.tsv"),
+        overwrite_scope="samples",
+    )
+    assert list(scratch.iterdir()) == []
+
+
+@pytest.fixture()
+def recorded_mtdna(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str, Any]]:
+    """The mtDNA metadata the import records, by sample."""
+    recorded: dict[str, dict[str, Any]] = {}
+
+    async def record(_session, *, sample_context, mtdna):
+        recorded[sample_context.sample_id] = mtdna
+
+    monkeypatch.setattr(family_package_datasets, "record_sample_mtdna_metadata", record)
+    return recorded
+
+
+def _mito_job(root: Path, vcf: str, annotation: str = _MUTSERVE_TSV) -> DatasetImportJob:
+    """The proband's entry of a package's ``mito`` dataset: its chrM VCF and mutserve annotation."""
+    root.mkdir(exist_ok=True)
+    (root / "PROBAND.vcf").write_text(vcf, encoding="utf-8")
+    (root / "PROBAND_snv_annot.txt").write_text(annotation, encoding="utf-8")
+    return DatasetImportJob(
+        session=_FakeSession(),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=root),  # type: ignore[arg-type]
+        dataset=ManifestDataset(
+            per_sample={"PROBAND": {"vcf": "PROBAND.vcf", "annotation_tsv": "PROBAND_snv_annot.txt"}}
+        ),
+        summary=FamilyImportDatasetSummary(dataset_type="mito", status="valid"),
+        family_context=_context(),
+        sample_contexts=_sample_contexts(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_mito_import_records_the_samples_haplogroup_and_removes_its_lookup(
+    storage, scratch: Path, recorded_mtdna, tmp_path: Path
+) -> None:
+    summary = await family_package_datasets._import_mito_dataset(_mito_job(tmp_path / "package", _PROBAND_VCF))
+
+    assert summary.status == "imported"
+    assert summary.summary["PROBAND"]["inserted"] == 2
+    # Read from the annotation after the upload, which used to have closed it by then.
+    assert recorded_mtdna == {"PROBAND": {"haplogroup": "H1", "haplogroup_support": 2}}
+    assert list(scratch.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_a_sample_with_no_chrm_call_leaves_no_lookup(storage, scratch: Path, recorded_mtdna, tmp_path: Path) -> None:
+    no_calls = "\n".join(_PROBAND_VCF.splitlines()[:2]) + "\n"
+
+    summary = await family_package_datasets._import_mito_dataset(_mito_job(tmp_path / "package", no_calls))
+
+    assert summary.summary["PROBAND"]["message"] == "No chrM variants called"
+    assert summary.summary["PROBAND"]["removed"] == 1
+    assert recorded_mtdna == {}
+    assert list(scratch.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_a_failed_mito_upload_leaves_no_lookup(storage, scratch: Path, recorded_mtdna, tmp_path: Path) -> None:
+    storage["fail_rewrites"] = 1
+
+    with pytest.raises(RuntimeError, match="ClickHouse went away"):
+        await family_package_datasets._import_mito_dataset(_mito_job(tmp_path / "package", _PROBAND_VCF))
+
+    assert recorded_mtdna == {}
+    assert list(scratch.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_a_file_naming_an_unknown_sample_is_refused_before_its_annotation_is_read(
+    storage, scratch: Path, recorded_mtdna, tmp_path: Path
+) -> None:
+    lines = _PROBAND_VCF.splitlines()
+    two_samples = "\n".join(
+        [lines[0], lines[1] + "\tSTRANGER"] + [line + "\t1/1:500:0,500:1" for line in lines[2:]]
+    ) + "\n"
+
+    with pytest.raises(RuntimeError, match="match no family sample"):
+        await family_package_datasets._import_mito_dataset(_mito_job(tmp_path / "package", two_samples))
+
+    assert storage["rewrites"] == [] and recorded_mtdna == {}
+    assert list(scratch.iterdir()) == []

@@ -1335,10 +1335,6 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
         vcf_path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
         if vcf_path is None:
             continue
-        annotation_path = _resolve_package_path(bundle.root, raw_entry.get("annotation_tsv"))
-        mutserve_annotations = (
-            parse_mutserve_annotation_path(annotation_path) if annotation_path is not None else None
-        )
         vcf_columns = read_vcf_sample_columns(vcf_path)
         aliases, unresolved = vcf_sample_alias_map(
             vcf_columns,
@@ -1350,6 +1346,13 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
             raise RuntimeError(
                 f"Mito VCF for {sample_id} has sample column(s) {unresolved} that match no family sample"
             )
+        # The annotation is an SQLite file in the temporary directory, which on Cloud Run is
+        # memory. The upload leaves it open for the haplogroup read below, and the finally
+        # removes it whatever happens.
+        annotation_path = _resolve_package_path(bundle.root, raw_entry.get("annotation_tsv"))
+        mutserve_annotations = (
+            parse_mutserve_annotation_path(annotation_path) if annotation_path is not None else None
+        )
         try:
             async with _local_upload(vcf_path) as upload:
                 result = await upload_family_small_variant_file(
@@ -1381,13 +1384,17 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                 }
                 continue
             raise
-        imported_any = True
-        sample_results[sample_id] = result
-        await _record_mtdna_sample_metadata(
-            session,
-            sample_context=sample_context,
-            annotations=mutserve_annotations,
-        )
+        else:
+            imported_any = True
+            sample_results[sample_id] = result
+            await _record_mtdna_sample_metadata(
+                session,
+                sample_context=sample_context,
+                annotations=mutserve_annotations,
+            )
+        finally:
+            if mutserve_annotations is not None:
+                mutserve_annotations.close()
 
     if not imported_any:
         return summary.model_copy(

@@ -354,7 +354,7 @@ The `snv` dataset takes three optional settings:
 | `haplotypes` | a family GLIMPSE2 VCF becomes small variants plus haplotype blocks; a per-sample BCF is only registered, not imported |
 | `paraphase` | Paraphase results (Postgres), shown on the family's Paraphase page |
 | `cnv` (HiFiCNV) | structural variants, source `hificnv`; the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers), and the MAF bigWig as `apcad` |
-| `mito` | chrM small variants, source `mito`, annotated from the mutserve table |
+| `mito` | chrM small variants, source `mito`, annotated from the mutserve table, and each sample's mtDNA haplogroup, the one most of its annotated variants name |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table |
 | `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI |
 | `pipeline_info` | tool versions in the annotation manifest; run parameters on the family |
