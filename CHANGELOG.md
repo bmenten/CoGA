@@ -656,6 +656,14 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 - **Circos plot per assembly** — the Circos page drew every family on GRCh38's chromosomes; it now draws the
   family's own assembly, and draws nothing, saying why, when it has no linked project, no chromosome sizes
   or chromosomes it cannot place (#657).
+- **A source-scoped SV delete leaves none of that source's rows behind** — since each caller's call of an
+  SV has its own key (#658), it also has its own `SV/variants/details` and `SV/key_lookup` row. Deleting
+  one source, the delete half of a per-sample SV upload's overwrite and of a package dataset's re-import,
+  removed only its `SV/entries` rows, so the details and lookup rows of every SV it removed stayed behind,
+  with no entry to reach them. The delete now also removes the source's details and lookup rows whose key
+  no remaining entry of the family has. Both tables are family-scoped, so other families' rows are neither
+  read nor touched; other sources' rows stay as stored, and a row that another source's entry still reaches
+  is kept. No page, count or report changes: nothing read those rows (#668).
 
 ### Security
 
