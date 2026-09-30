@@ -156,7 +156,7 @@ def _sv_review(**fields) -> dict:
     return review
 
 
-def test_structural_state_records_accepted_criteria_with_points_only() -> None:
+def test_structural_state_records_the_scoring_and_every_stored_criterion() -> None:
     state = cas.structural_review_state(
         _sv_review(
             classification="  Likely pathogenic ",
@@ -171,8 +171,14 @@ def test_structural_state_records_accepted_criteria_with_points_only() -> None:
         "cnv_class": "cnv_class_3",
         "cnv_kind": "loss",
         "cnv_point_total": 0.6,
-        # Sorted, unaccepted criteria left out, evidence text not recorded.
+        # The criteria the class rests on, with their points, sorted.
         "cnv_criteria": [{"code": "2H", "points": 0.15}, {"code": "3B", "points": 0.45}],
+        # Every stored criterion as stored, unaccepted ones and evidence included.
+        "cnv_criteria_detail": [
+            {"code": "2A", "points": 1.0, "accepted": False, "evidence": "free text", "auto_suggested": False},
+            {"code": "2H", "points": 0.15, "accepted": True, "evidence": "free text", "auto_suggested": False},
+            {"code": "3B", "points": 0.45, "accepted": True, "evidence": "free text", "auto_suggested": False},
+        ],
         "tags": [],
         "note": None,
     }
@@ -220,7 +226,14 @@ def test_structural_diff_classification_label_and_cnv_class() -> None:
         {"code": "2A", "points": 1.0},
         {"code": "3B", "points": 0.45},
     ]
-    assert set(event["before"]) == {"classification", "cnv_class", "cnv_kind", "cnv_point_total", "cnv_criteria"}
+    assert set(event["before"]) == {
+        "classification",
+        "cnv_class",
+        "cnv_kind",
+        "cnv_point_total",
+        "cnv_criteria",
+        "cnv_criteria_detail",
+    }
 
 
 def test_structural_diff_label_only_and_kind_only_changes() -> None:
@@ -234,7 +247,7 @@ def test_structural_diff_label_only_and_kind_only_changes() -> None:
         _sv_review(cnv_acmg=_cnv("loss", ("3A", 0.0, True)), **scored),
         _sv_review(cnv_acmg=_cnv("gain", ("3A", 0.0, True)), **scored),
     )
-    assert kind["summary"] == "CNV criteria updated (VUS - class 3)"
+    assert kind["summary"] == "CNV criteria updated (VUS - class 3): kind loss → gain"
     assert (kind["before"]["cnv_kind"], kind["after"]["cnv_kind"]) == ("loss", "gain")
 
 
@@ -282,6 +295,7 @@ def test_structural_diff_deleted_review_records_every_aspect() -> None:
         "cnv_kind": None,
         "cnv_point_total": None,
         "cnv_criteria": [],
+        "cnv_criteria_detail": [],
     }
 
 
@@ -317,3 +331,179 @@ def test_record_structural_review_changes_marks_the_events_as_sv() -> None:
     assert all(json.loads(c["metadata"]) == {"modality": "sv"} for c in inserts)
     assert all(c["actor"] == "bob" and c["variant_id"] == "1-1000-2000-DEL---" for c in inserts)
     assert all(c["row_hash"] for c in inserts)
+
+
+# --- every change to the stored ACMG record is recorded (small variants) ----------------------
+# Criteria are (code, strength, accepted, evidence, auto_suggested), as the review stores them.
+
+
+def _acmg(acmg_class: str | None, *criteria: tuple, point_total=None, vus_tier=None) -> dict:
+    return {
+        "acmg_class": acmg_class,
+        "acmg": {
+            "criteria": [
+                {"code": c, "strength": s, "accepted": a, "evidence": e, "auto_suggested": g}
+                for c, s, a, e, g in criteria
+            ],
+            "point_total": point_total,
+            "vus_tier": vus_tier,
+        },
+        "tags": [],
+        "note": None,
+    }
+
+
+PS3 = ("PS3", "strong", True, "functional study", False)
+PM2 = ("PM2", "moderate", True, None, False)
+PP3 = ("PP3", "supporting", True, None, False)
+LP = "acmg_class_4"
+
+
+def _classification_event(existing: dict, new: dict) -> dict:
+    events = cas.diff_review_changes(existing, new)
+    assert [event["action"] for event in events] == ["classification"], events
+    return events[0]
+
+
+def test_diff_a_strength_change_alone_is_recorded() -> None:
+    event = _classification_event(
+        _acmg(LP, PS3, PM2, PP3, point_total=7),
+        _acmg(LP, PS3, ("PM2", "supporting", True, None, False), PP3, point_total=6),
+    )
+    assert event["summary"] == (
+        "ACMG criteria updated (Likely pathogenic (class 4)): PM2 moderate → supporting; total 7 → 6"
+    )
+    assert event["before"]["criteria"] == event["after"]["criteria"] == ["PM2", "PP3", "PS3"]
+    strengths = {c["code"]: c["strength"] for c in event["after"]["criteria_detail"]}
+    assert strengths == {"PM2": "supporting", "PP3": "supporting", "PS3": "strong"}
+    assert (event["before"]["point_total"], event["after"]["point_total"]) == (7, 6)
+
+
+def test_diff_an_evidence_edit_alone_is_recorded() -> None:
+    event = _classification_event(
+        _acmg(LP, PS3, PM2, point_total=6),
+        _acmg(LP, ("PS3", "strong", True, "functional study, replicated", False), PM2, point_total=6),
+    )
+    assert event["summary"] == "ACMG criteria updated (Likely pathogenic (class 4)): PS3 evidence edited"
+    [ps3] = [c for c in event["after"]["criteria_detail"] if c["code"] == "PS3"]
+    assert ps3["evidence"] == "functional study, replicated"
+
+
+def test_diff_a_suggestion_that_appears_or_goes_is_recorded() -> None:
+    suggested = ("PM1", "moderate", False, None, True)
+    appeared = _classification_event(_acmg(LP, PS3, PM2, point_total=6), _acmg(LP, PS3, PM2, suggested, point_total=6))
+    assert appeared["summary"] == "ACMG criteria updated (Likely pathogenic (class 4)): PM1 suggested"
+    gone = _classification_event(_acmg(LP, PS3, PM2, suggested, point_total=6), _acmg(LP, PS3, PM2, point_total=6))
+    assert gone["summary"] == "ACMG criteria updated (Likely pathogenic (class 4)): PM1 removed"
+
+
+def test_diff_accepting_or_rejecting_a_suggestion_names_it() -> None:
+    offered = ("PP3", "supporting", False, None, True)
+    taken = ("PP3", "supporting", True, None, True)
+    accepted = _classification_event(_acmg(LP, PS3, PM2, offered, point_total=6), _acmg(LP, PS3, PM2, taken, point_total=7))
+    assert accepted["summary"] == "ACMG criteria updated (Likely pathogenic (class 4)): PP3 accepted; total 6 → 7"
+    rejected = _classification_event(_acmg(LP, PS3, PM2, taken, point_total=7), _acmg(LP, PS3, PM2, offered, point_total=6))
+    assert rejected["summary"] == "ACMG criteria updated (Likely pathogenic (class 4)): PP3 rejected; total 7 → 6"
+
+
+def test_diff_the_vus_tier_is_recorded() -> None:
+    event = _classification_event(
+        _acmg("acmg_class_3", PS3, point_total=4, vus_tier="hot"),
+        _acmg("acmg_class_3", ("PS3", "moderate", True, "functional study", False), point_total=2, vus_tier="warm"),
+    )
+    assert event["summary"] == (
+        "ACMG criteria updated (VUS (class 3)): PS3 strong → moderate; total 4 → 2; VUS tier hot → warm"
+    )
+    assert (event["before"]["vus_tier"], event["after"]["vus_tier"]) == ("hot", "warm")
+
+
+def test_diff_a_class_change_keeps_its_headline_and_records_the_detail() -> None:
+    event = _classification_event(_acmg("acmg_class_3", PS3, point_total=4), _acmg(LP, PS3, PM2, point_total=6))
+    assert event["summary"] == "Classification VUS (class 3) → Likely pathogenic (class 4)"
+    assert [c["code"] for c in event["after"]["criteria_detail"]] == ["PM2", "PS3"]
+
+
+def test_diff_an_unchanged_resave_of_the_full_record_writes_nothing() -> None:
+    record = _acmg(LP, PS3, PM2, ("PM1", "moderate", False, "considered", True), point_total=6)
+    reordered = _acmg(LP, ("PM1", "moderate", False, "considered", True), PM2, PS3, point_total=6)
+    assert cas.diff_review_changes(record, reordered) == []
+
+
+def test_diff_many_changes_are_shortened_in_the_summary_but_all_recorded() -> None:
+    codes = ["PM1", "PM2", "PM4", "PM5", "PM6", "PP1", "PP2"]
+    before = _acmg(LP, *[(c, "moderate", True, None, False) for c in codes], point_total=6)
+    after = _acmg(LP, *[(c, "moderate", True, "noted", False) for c in codes], point_total=6)
+    event = _classification_event(before, after)
+    assert event["summary"].endswith("PM6 evidence added; and 2 more")
+    assert all(c["evidence"] == "noted" for c in event["after"]["criteria_detail"])
+
+
+# --- every change to the stored ClinGen scoring is recorded (CNVs) ------------------------------
+# Criteria are (code, points, accepted, evidence, auto_suggested).
+
+
+def _scoring(kind: str, *criteria: tuple, total: float, cnv_class: str) -> dict:
+    return _sv_review(
+        cnv_acmg={
+            "kind": kind,
+            "criteria": [
+                {"code": c, "points": p, "accepted": a, "evidence": e, "auto_suggested": g}
+                for c, p, a, e, g in criteria
+            ],
+        },
+        cnv_point_total=total,
+        cnv_class=cnv_class,
+    )
+
+
+def _cnv_classification_event(existing: dict, new: dict) -> dict:
+    events = cas.diff_structural_review_changes(existing, new)
+    assert [event["action"] for event in events] == ["classification"], events
+    return events[0]
+
+
+def test_structural_diff_an_evidence_edit_alone_is_recorded() -> None:
+    event = _cnv_classification_event(
+        _scoring("loss", ("2A", 1.0, True, "HI gene", False), total=1.0, cnv_class="cnv_class_5"),
+        _scoring("loss", ("2A", 1.0, True, "HI gene, whole", False), total=1.0, cnv_class="cnv_class_5"),
+    )
+    assert event["summary"] == "CNV criteria updated (Pathogenic - class 5): 2A evidence edited"
+    assert event["after"]["cnv_criteria_detail"][0]["evidence"] == "HI gene, whole"
+
+
+def test_structural_diff_a_change_to_an_unaccepted_criterion_is_recorded() -> None:
+    accepted = ("2A", 1.0, True, None, False)
+    event = _cnv_classification_event(
+        _scoring("loss", accepted, ("4D", 0.0, False, None, True), total=1.0, cnv_class="cnv_class_5"),
+        _scoring("loss", accepted, ("4D", -0.45, False, None, False), total=1.0, cnv_class="cnv_class_5"),
+    )
+    assert event["summary"] == (
+        "CNV criteria updated (Pathogenic - class 5): 4D 0 → -0.45 points, no longer suggested"
+    )
+
+
+def test_structural_diff_points_moved_between_criteria_are_recorded() -> None:
+    # The same total and class, reached with different criteria points.
+    event = _cnv_classification_event(
+        _scoring("loss", ("2B", 0.15, True, None, False), ("2H", 0.15, True, None, False), total=0.3, cnv_class="cnv_class_3"),
+        _scoring("loss", ("2B", 0.3, True, None, False), ("2H", 0.0, True, None, False), total=0.3, cnv_class="cnv_class_3"),
+    )
+    assert event["summary"] == (
+        "CNV criteria updated (VUS - class 3): 2B 0.15 → 0.3 points; 2H 0.15 → 0 points"
+    )
+
+
+def test_structural_diff_rejecting_a_suggested_criterion_names_it() -> None:
+    event = _cnv_classification_event(
+        _scoring("loss", ("2A", 1.0, True, None, True), total=1.0, cnv_class="cnv_class_5"),
+        _scoring("loss", ("2A", 1.0, False, None, True), total=0.0, cnv_class="cnv_class_3"),
+    )
+    # A class change keeps its headline; the rejection is in the recorded detail.
+    assert event["summary"] == "CNV classification Pathogenic - class 5 → VUS - class 3"
+    assert event["after"]["cnv_criteria_detail"][0]["accepted"] is False
+
+
+def test_structural_diff_an_unchanged_resave_of_the_full_scoring_writes_nothing() -> None:
+    scoring = _scoring("loss", ("2A", 1.0, True, "x", True), ("4D", 0.0, False, None, False), total=1.0, cnv_class="cnv_class_5")
+    reordered = _scoring("loss", ("4D", 0.0, False, None, False), ("2A", 1.0, True, "x", True), total=1.0, cnv_class="cnv_class_5")
+    assert cas.diff_structural_review_changes(scoring, reordered) == []

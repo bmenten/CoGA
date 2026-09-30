@@ -72,30 +72,179 @@ def _criteria_codes(acmg: Any) -> list[str]:
     return sorted(codes)
 
 
+def _json_record(value: Any) -> dict[str, Any] | None:
+    """A stored JSON record as a dict (a JSON string is parsed), or None."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, dict) else None
+
+
+def _audit_total(value: Any) -> int | float | None:
+    """A point total as the chained payload records it: an integer stays one."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return _audit_points(value)
+
+
+def _criteria_detail(record: dict[str, Any] | None, value_key: str) -> list[dict[str, Any]]:
+    """Every criterion the stored record holds, as stored, in a fixed order.
+
+    ``value_key`` is the criterion's weight: ``strength`` (ACMG) or ``points`` (ClinGen
+    CNV). With whether it was accepted, its evidence text and whether it was an automatic
+    suggestion, this is the whole record: any change to it is a change to the
+    classification, so the audit sees it.
+    """
+    raw = (record or {}).get("criteria")
+    entries: list[dict[str, Any]] = []
+    for criterion in raw if isinstance(raw, list) else []:
+        if not isinstance(criterion, dict) or not criterion.get("code"):
+            continue
+        weight = criterion.get(value_key)
+        entries.append(
+            {
+                "code": str(criterion["code"]),
+                value_key: _audit_points(weight) if value_key == "points" else (
+                    str(weight) if weight is not None else None
+                ),
+                "accepted": bool(criterion.get("accepted")),
+                "evidence": str(criterion.get("evidence") or "").strip() or None,
+                "auto_suggested": bool(criterion.get("auto_suggested")),
+            }
+        )
+    return sorted(
+        entries,
+        key=lambda item: (
+            item["code"],
+            str(item[value_key]),
+            item["accepted"],
+            item["evidence"] or "",
+            item["auto_suggested"],
+        ),
+    )
+
+
+def _acmg_state(review: dict[str, Any]) -> dict[str, Any]:
+    """What a small-variant ``classification`` event records: the class, the accepted
+    codes, the point total, the VUS tier and every stored criterion."""
+    record = _json_record(review.get("acmg"))
+    return {
+        "acmg_class": review.get("acmg_class"),
+        "criteria": _criteria_codes(record),
+        "point_total": _audit_total((record or {}).get("point_total")),
+        "vus_tier": (record or {}).get("vus_tier") or None,
+        "criteria_detail": _criteria_detail(record, "strength"),
+    }
+
+
+_MAX_SUMMARY_CHANGES = 5
+
+
+def _format_weight(value: Any, value_key: str) -> str:
+    if value is None:
+        return "none"
+    if value_key == "points" and isinstance(value, (int, float)):
+        return f"{value:g}"
+    return str(value)
+
+
+def _criteria_changes(
+    before: list[dict[str, Any]], after: list[dict[str, Any]], value_key: str
+) -> list[str]:
+    """One phrase per criterion that changed, for the event's one-line summary."""
+    old = {item["code"]: item for item in before}
+    new = {item["code"]: item for item in after}
+    phrases: list[str] = []
+    for code in sorted(old.keys() | new.keys()):
+        was, now = old.get(code), new.get(code)
+        if was == now:
+            continue
+        if now is None:
+            phrases.append(f"{code} removed")
+            continue
+        if was is None:
+            state = "accepted" if now["accepted"] else "suggested" if now["auto_suggested"] else "added"
+            phrases.append(f"{code} {state}")
+            continue
+        bits: list[str] = []
+        if was["accepted"] != now["accepted"]:
+            bits.append("accepted" if now["accepted"] else "rejected")
+        if was[value_key] != now[value_key]:
+            change = f"{_format_weight(was[value_key], value_key)} → {_format_weight(now[value_key], value_key)}"
+            bits.append(f"{change} points" if value_key == "points" else change)
+        if was["evidence"] != now["evidence"]:
+            bits.append(
+                "evidence added" if not was["evidence"]
+                else "evidence removed" if not now["evidence"]
+                else "evidence edited"
+            )
+        if was["auto_suggested"] != now["auto_suggested"]:
+            bits.append("now suggested" if now["auto_suggested"] else "no longer suggested")
+        phrases.append(f"{code} {', '.join(bits)}")
+    return phrases
+
+
+def _criteria_update_summary(
+    headline: str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    detail_key: str,
+    value_key: str,
+    total_key: str,
+    kind_key: str | None = None,
+    tier_key: str | None = None,
+) -> str:
+    """``headline: what changed`` for a save that kept the class but changed its basis."""
+    if kind_key and before[kind_key] != after[kind_key]:
+        # Another kind is scored on another catalogue: every criterion differs.
+        phrases = [f"kind {before[kind_key] or 'none'} → {after[kind_key] or 'none'}"]
+    else:
+        phrases = _criteria_changes(before[detail_key], after[detail_key], value_key)
+        if len(phrases) > _MAX_SUMMARY_CHANGES:
+            hidden = len(phrases) - _MAX_SUMMARY_CHANGES
+            phrases = phrases[:_MAX_SUMMARY_CHANGES] + [f"and {hidden} more"]
+    if before[total_key] != after[total_key]:
+        phrases.append(
+            f"total {_format_weight(before[total_key], 'points')} → "
+            f"{_format_weight(after[total_key], 'points')}"
+        )
+    if tier_key and before[tier_key] != after[tier_key]:
+        phrases.append(f"VUS tier {before[tier_key] or 'none'} → {after[tier_key] or 'none'}")
+    return f"{headline}: {'; '.join(phrases)}" if phrases else headline
+
+
 def diff_review_changes(
     existing: dict[str, Any] | None, new_state: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Compute the clinical audit events implied by a review save (before -> after)."""
+    """Compute the clinical audit events implied by a review save (before -> after).
+
+    The ``classification`` event covers the whole stored ACMG record, not only the class
+    and the accepted codes: a criterion added or removed, a strength or evidence text
+    changed, a suggestion accepted or rejected. An unchanged re-save writes nothing.
+    """
     prior = existing or {}
     events: list[dict[str, Any]] = []
 
-    old_class = prior.get("acmg_class")
-    new_class = new_state.get("acmg_class")
-    old_codes = _criteria_codes(prior.get("acmg"))
-    new_codes = _criteria_codes(new_state.get("acmg"))
-    if old_class != new_class or old_codes != new_codes:
+    before = _acmg_state(prior)
+    after = _acmg_state(new_state)
+    if before != after:
+        old_class, new_class = before["acmg_class"], after["acmg_class"]
         if old_class != new_class:
             summary = f"Classification {_acmg_label(old_class)} → {_acmg_label(new_class)}"
         else:
-            summary = f"ACMG criteria updated ({_acmg_label(new_class)})"
-        events.append(
-            {
-                "action": "classification",
-                "summary": summary,
-                "before": {"acmg_class": old_class, "criteria": old_codes},
-                "after": {"acmg_class": new_class, "criteria": new_codes},
-            }
-        )
+            summary = _criteria_update_summary(
+                f"ACMG criteria updated ({_acmg_label(new_class)})",
+                before,
+                after,
+                detail_key="criteria_detail",
+                value_key="strength",
+                total_key="point_total",
+                tier_key="vus_tier",
+            )
+        events.append({"action": "classification", "summary": summary, "before": before, "after": after})
 
     events.extend(_tags_and_note_events(prior, new_state))
     return events
@@ -153,6 +302,7 @@ _STRUCTURAL_CLASSIFICATION_FIELDS = (
     "cnv_kind",
     "cnv_point_total",
     "cnv_criteria",
+    "cnv_criteria_detail",
 )
 
 
@@ -178,18 +328,9 @@ def _audit_points(value: Any) -> float | None:
     return points + 0.0 if math.isfinite(points) else None
 
 
-def _cnv_record(value: Any) -> dict[str, Any] | None:
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except ValueError:
-            return None
-    return value if isinstance(value, dict) else None
-
-
 def _accepted_cnv_criteria(cnv: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """The accepted CNV criteria with the points given (evidence text is not recorded,
-    as for small variants), in a fixed order."""
+    """The accepted CNV criteria with the points given, in a fixed order: what the class
+    rests on. The whole stored record is ``cnv_criteria_detail``."""
     raw = (cnv or {}).get("criteria")
     accepted = [
         {"code": str(criterion["code"]), "points": _audit_points(criterion.get("points"))}
@@ -210,13 +351,14 @@ def structural_review_state(review: dict[str, Any] | None) -> dict[str, Any]:
     ``note``); ``None`` is no review.
     """
     prior = review or {}
-    cnv = _cnv_record(prior.get("cnv_acmg"))
+    cnv = _json_record(prior.get("cnv_acmg"))
     return {
         "classification": str(prior.get("classification") or "").strip() or None,
         "cnv_class": prior.get("cnv_class") or None,
         "cnv_kind": (cnv or {}).get("kind") or None,
         "cnv_point_total": _audit_points(prior.get("cnv_point_total")),
         "cnv_criteria": _accepted_cnv_criteria(cnv),
+        "cnv_criteria_detail": _criteria_detail(cnv, "points"),
         "tags": sorted(prior.get("tags") or []),
         "note": str(prior.get("note") or "").strip() or None,
     }
@@ -234,8 +376,21 @@ def _structural_classification_summary(before: dict[str, Any], after: dict[str, 
             f"CNV classification {_cnv_label(before['cnv_class'])} → "
             f"{_cnv_label(after['cnv_class'])}"
         )
-    elif any(before[key] != after[key] for key in ("cnv_kind", "cnv_point_total", "cnv_criteria")):
-        parts.append(f"CNV criteria updated ({_cnv_label(after['cnv_class'])})")
+    elif any(
+        before[key] != after[key]
+        for key in ("cnv_kind", "cnv_point_total", "cnv_criteria", "cnv_criteria_detail")
+    ):
+        parts.append(
+            _criteria_update_summary(
+                f"CNV criteria updated ({_cnv_label(after['cnv_class'])})",
+                before,
+                after,
+                detail_key="cnv_criteria_detail",
+                value_key="points",
+                total_key="cnv_point_total",
+                kind_key="cnv_kind",
+            )
+        )
     return "; ".join(parts)
 
 

@@ -73,10 +73,13 @@ and needs an acknowledgement (see *The sign-out checks*).
 
 The **Classification audit trail** lists, most recent first, every clinical action on the family's
 small variants, structural variants and CNVs: who classified, tagged or annotated which variant, when,
-and what changed (before → after), including each sign-out and each replacement of the pipeline versions. For a CNV it also lists each change to
-its ClinGen classification (the class, the points or the criteria). Clearing a review is listed too.
+and what changed (before → after), including each sign-out and each replacement of the pipeline versions. A change to
+the criteria behind a class is listed too, even when the class stays the same: a criterion accepted or
+rejected, its strength (for a CNV, its points) or its evidence changed, a suggestion that appeared or
+went. Clearing a review is listed too.
 
 - *Classification VUS (class 3) → Likely pathogenic (class 4)*
+- *ACMG criteria updated (Likely pathogenic (class 4)): PM2 moderate → supporting; total 7 → 6*
 - *CNV classification VUS - class 3 → Pathogenic - class 5*
 - *Tags added report*
 - *Annotation manifest replaced (was vcf_header, now manual): VEP 110 → 112*

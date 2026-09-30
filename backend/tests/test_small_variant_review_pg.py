@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from backend.app.schemas import AcmgClassificationPayload, SmallVariantReviewUpdate
+from backend.app.schemas import AcmgClassificationPayload, AcmgCriterionSelection, SmallVariantReviewUpdate
 from backend.app.services import clinical_audit_service
 from backend.app.services import small_variant_review_pg
 from backend.app.services import small_variant_review_tags
+from backend.app.services.small_variant_review_acmg import _normalize_acmg_payload
 
 
 class _FakeResult:
@@ -323,3 +324,32 @@ def test_clearing_a_review_that_keeps_its_compound_het_pairing_is_audited(monkey
 def test_an_empty_save_of_no_review_audits_nothing(monkeypatch) -> None:
     audits, writes, session = _clear(monkeypatch, None, SmallVariantReviewUpdate())
     assert (audits, writes, session.commits) == ([], [], 0)
+
+
+# --- a re-classification that keeps the class is audited ------------------------------------------
+
+
+def _classified(*criteria: tuple[str, str]):
+    payload = AcmgClassificationPayload(
+        criteria=[AcmgCriterionSelection(code=code, strength=strength, accepted=True) for code, strength in criteria]
+    )
+    blob, _points, class_key = _normalize_acmg_payload(payload)
+    return payload, blob, class_key
+
+
+def test_a_strength_only_reclassification_is_audited(monkeypatch) -> None:
+    _, stored, stored_class = _classified(("PS3", "strong"), ("PM2", "moderate"), ("PP3", "supporting"))
+    existing = _stored_review(
+        classification=None, tags=[], note=None, acmg=stored, acmg_class=stored_class,
+        acmg_point_total=stored["point_total"],
+    )
+    payload, _, new_class = _classified(("PS3", "strong"), ("PM2", "supporting"), ("PP3", "supporting"))
+    assert new_class == stored_class  # the class stays; only PM2's strength changes
+
+    audits, writes, _session = _clear(monkeypatch, existing, SmallVariantReviewUpdate(acmg=payload))
+
+    assert writes == ["update"]
+    [audit] = audits
+    [event] = clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"])
+    assert event["action"] == "classification"
+    assert "PM2 moderate → supporting" in event["summary"]

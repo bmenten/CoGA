@@ -366,13 +366,17 @@ def test_a_cnv_classification_is_recorded_in_the_audit_trail() -> None:
         "Classification unclassified → Pathogenic - class 5; "
         "CNV classification unclassified → Pathogenic - class 5"
     )
-    # The criteria the class rests on, with their points; an unaccepted one is not listed.
+    # The criteria the class rests on, with their points, and the whole stored record.
     assert event["after"] == {
         "classification": "Pathogenic - class 5",
         "cnv_class": "cnv_class_5",
         "cnv_kind": "loss",
         "cnv_point_total": 1.0,
         "cnv_criteria": [{"code": "2A", "points": 1.0}],
+        "cnv_criteria_detail": [
+            {"code": "2A", "points": 1.0, "accepted": True, "evidence": None, "auto_suggested": False},
+            {"code": "3A", "points": 0.0, "accepted": False, "evidence": None, "auto_suggested": False},
+        ],
     }
     assert event["before"]["cnv_class"] is None and event["before"]["cnv_criteria"] == []
     # Marked as a structural variant, so its id is never read as a small variant's.
@@ -423,8 +427,30 @@ def test_a_points_only_change_is_recorded_as_a_criteria_update() -> None:
     _save(table, SmallVariantReviewUpdate(cnv_acmg=_payload("loss", ("2B", 0.30, True))))
 
     event = _audit_rows(table)[-1]
-    assert event["summary"] == "CNV criteria updated (VUS - class 3)"
+    assert event["summary"] == "CNV criteria updated (VUS - class 3): 2B 0.15 → 0.3 points; total 0.15 → 0.3"
     assert (event["before"]["cnv_point_total"], event["after"]["cnv_point_total"]) == (0.15, 0.3)
+
+
+def test_an_evidence_only_rescoring_is_recorded() -> None:
+    def scoring(evidence: str) -> CnvAcmgClassificationPayload:
+        return CnvAcmgClassificationPayload(
+            kind="loss",
+            criteria=[
+                CnvAcmgCriterion(code="2A", points=1.0, accepted=True, evidence=evidence),
+                CnvAcmgCriterion(code="4D", points=0.0, accepted=False, auto_suggested=True),
+            ],
+        )
+
+    table = _ReviewTable()
+    _save(table, SmallVariantReviewUpdate(cnv_acmg=scoring("HI gene")))
+    table.audit.clear()
+    _save(table, SmallVariantReviewUpdate(cnv_acmg=scoring("HI gene, whole")))
+    _save(table, SmallVariantReviewUpdate(cnv_acmg=scoring("HI gene, whole")))  # unchanged
+
+    [event] = _audit_rows(table)
+    assert event["summary"] == "CNV criteria updated (Pathogenic - class 5): 2A evidence edited"
+    assert event["before"]["cnv_criteria_detail"][0]["evidence"] == "HI gene"
+    assert event["after"]["cnv_criteria_detail"][0]["evidence"] == "HI gene, whole"
 
 
 def test_deleting_a_review_records_what_was_removed() -> None:
