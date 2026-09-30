@@ -33,6 +33,7 @@ PyJWT[crypto]
 # (#525). The stored $2b$ hashes keep verifying.
 bcrypt>=5.0.0,<6
 python-multipart
+# Reads the .env file (config.py passes env_file to pydantic-settings, which calls it).
 python-dotenv
 httpx
 pyfaidx
@@ -47,7 +48,6 @@ PyYAML
 pandas
 requests
 beautifulsoup4
-lxml
 
 intervaltree
 tqdm
