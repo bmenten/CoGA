@@ -13,9 +13,13 @@
 #   printf '%s' "$CH_PW"        | gcloud secrets versions add coga-clickhouse-password    --data-file=- --project <p>
 #   printf '%s' "$APP_PG_PW"    | gcloud secrets versions add coga-postgres-app-password  --data-file=- --project <p>
 #
-# Versions MUST exist before `terraform apply` (the Cloud SQL user and the Cloud Run
-# revisions resolve `latest` at apply time). See docs/deployment-gcp.md §5.5. The
-# last one, coga_app's password (printable ASCII), is needed only before switching to
+# Versions MUST exist before the full `terraform apply` (docs/deployment-gcp.md §5.5).
+# Terraform reads coga-postgres-password itself, through the data source below, when it
+# plans or applies, and sets the Cloud SQL user's password from it. Cloud Run resolves
+# each `latest` env-var secret when an instance starts, not at apply: an instance cannot
+# start while a secret it reads has no version, and keeps the value it started with
+# (rotation: §12.2). The ClickHouse VM fetches its password when it boots. coga_app's
+# password (the last command above; printable ASCII) is needed only before switching to
 # db_runtime_role = "coga_app": docs/db-runtime-role-runbook.md, "Google Cloud".
 
 resource "google_secret_manager_secret" "app" {

@@ -56,8 +56,6 @@ export interface AcmgCriterionDef {
   defaultStrength: AcmgStrength;
   // Strength modifiers the analyst may pick from for this criterion.
   allowedStrengths: AcmgStrength[];
-  // True when the auto-evaluator can produce a data-driven suggestion for it.
-  autoEvaluable: boolean;
 }
 
 // How the available data positions a criterion:

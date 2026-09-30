@@ -537,14 +537,18 @@ Alignments that no import recorded are looked for at `<family_id>/<sample_id>.cr
 the bucket (under `GCS_PREFIX` when that is set).
 
 **Sizing.** The temporary folder is `/tmp`, which on Cloud Run is memory: a staged package
-counts against `backend_memory` (2 GiB by default). The aligned reads are not staged, but
-everything else is: for a whole-genome trio, the SNV VCF and its VEP table alone can take
+counts against `backend_memory` (2 GiB by default). The aligned reads and their indexes stay
+in the bucket; every other object under the package folder is staged, whether the manifest
+names it or not. For a whole-genome trio, the SNV VCF and its VEP table alone can take
 several GB. The import also parses the VEP table into a temporary database in `/tmp`, and
 reads each SV and CNV VCF whole into memory (up to `MAX_UPLOAD_BYTES`, 1 GiB, and
-`MAX_DECOMPRESSED_UPLOAD_BYTES`, 2 GiB once decompressed). Each running import stages its
-own copy (`FAMILY_IMPORT_WORKER_COUNT`, 1 by default), and **Validate package** stages
-another for the length of the request. Set `backend_memory` to fit the largest package
-without its alignments, plus that parsing, for every import that may run at once.
+`MAX_DECOMPRESSED_UPLOAD_BYTES`, 2 GiB once decompressed). Each import job stages its own
+copy and deletes it when the import ends, whether it succeeded or failed, and each backend
+instance runs up to `FAMILY_IMPORT_WORKER_COUNT` jobs at once (1 by default). A
+**Validate package** run is a dry-run import job and stages the package the same way; only
+the API's `POST /api/family-imports/validate` stages a copy outside the jobs, and deletes it
+before it answers. Set `backend_memory` to fit the largest package without its alignments,
+plus that parsing, for every import that may run at once.
 
 The **reference-data** bucket (`refdata`) is always mounted into the backend at
 `/data/ref-data`, regardless of this setting, and **read-only**. The backend image holds
