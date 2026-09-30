@@ -280,6 +280,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   added or dropped columns the `CREATE TABLE` statements already define. The data is synthetic, so
   the tables are created from their final definition only; a local database with an older schema
   is reset (`docker compose down -v`). A table with an older row identity is still refused (#696).
+- **Postgres schema upgrades (#680)** — the statements in the baselines that upgraded an older
+  database: six `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for 11 columns the `CREATE TABLE`s already define, the
+  `DO` block that rebuilt `gene_panel_regions` per assembly, and the one that closed the rebuild
+  jobs an old index let through, with that index's `DROP`. A fresh database gets the same schema
+  (compared column by column, with every constraint, index, trigger, function and grant), and a
+  database from an older schema is reset, not migrated (#697).
 
 ### Fixed
 

@@ -8,9 +8,9 @@ reference.
 
 The schema is five idempotent baseline files in
 [backend/db/schema/postgres/](../backend/db/schema/postgres/), applied in name order on every
-start (see "Startup Behavior"). There is no migration ledger. Each table is created in its
-final form; the few columns added later use `ALTER TABLE … ADD COLUMN IF NOT EXISTS` in the
-same file.
+start (see "Startup Behavior"). There is no migration ledger and no upgrade statement: each
+table is created in its final form, and a database from an older schema is reset, not
+migrated ([development.md](development.md#stop-and-reset)).
 
 ### 01_access.sql: genome foundation and access
 
