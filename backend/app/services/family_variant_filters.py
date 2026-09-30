@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 import re
 from typing import List
 
@@ -19,6 +20,15 @@ GENOTYPE_ALIASES: dict[str, GenotypeClass] = {
     "wt": HOM_REF,
     "hom_ref": HOM_REF,
 }
+
+
+class SampleFilterError(ValueError):
+    """A sample filter carries a value that cannot be read (#686).
+
+    The app answers it with a 422 naming the value. An unreadable AF or AD-alt minimum used to
+    be dropped, which widened the search without saying so, and an unreadable GQ or DP one
+    surfaced as a 500.
+    """
 
 
 @dataclass(slots=True)
@@ -74,6 +84,12 @@ class StructuralVariantQueryFilters:
     has_notes: bool = False
     overlap: bool = False
 
+    def __post_init__(self) -> None:
+        # Read every sample filter once, so an unreadable value is refused before any
+        # search runs, whichever path the filters take (#686).
+        for entry in self.sample_filters:
+            parse_structural_sample_filter(entry)
+
 
 @dataclass(slots=True)
 class SmallVariantQueryFilters:
@@ -127,6 +143,32 @@ class SmallVariantQueryFilters:
     require_sv_second_hit: bool = False
     sv_hit_genes: List[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        # Read every sample filter once, so an unreadable value is refused before any
+        # search runs, whichever path the filters take (#686).
+        for entry in self.sample_filters:
+            parse_small_variant_sample_filter(entry)
+
+
+def _sample_filter_number(sample_name: str, label: str, value: str) -> float | None:
+    """One numeric field of a sample filter: blank restricts nothing; anything else must be a
+    finite number, or the filter is refused (#686)."""
+    if not value.strip():
+        return None
+    try:
+        number = float(value)
+    except ValueError:
+        number = math.nan
+    if not math.isfinite(number):
+        raise SampleFilterError(
+            f"Sample filter for {sample_name}: {label} {value!r} is not a number."
+        )
+    return number
+
+
+def _optional_int(value: float | None) -> int | None:
+    return int(value) if value is not None else None
+
 
 def split_filter_entry(entry: str, expected_parts: int) -> List[str]:
     parts = entry.split(":")
@@ -165,7 +207,7 @@ def parse_structural_sample_filter(entry: str) -> StructuralSampleFilter | None:
     return StructuralSampleFilter(
         sample_name=sample_name,
         genotype_classes=genotype_classes,
-        minimum_quality=float(parts[2]) if parts[2] else None,
+        minimum_quality=_sample_filter_number(sample_name, "QUAL", parts[2]),
         read_support=parts[3] or None,
         filter_text=parts[4] or None,
         include_absent=include_absent,
@@ -179,27 +221,12 @@ def parse_small_variant_sample_filter(entry: str) -> SmallVariantSampleFilter | 
         return None
 
     genotype_classes, include_absent = parse_genotype_filter(parts[1] or None)
-
-    minimum_allele_frequency = None
-    if parts[4]:
-        try:
-            minimum_allele_frequency = float(parts[4])
-        except Exception:  # noqa: BLE001 - drops the filter silently; to be refused (#686)
-            pass
-
-    minimum_alt_depth = None
-    if parts[5]:
-        try:
-            minimum_alt_depth = int(float(parts[5]))
-        except Exception:  # noqa: BLE001 - drops the filter silently; to be refused (#686)
-            pass
-
     return SmallVariantSampleFilter(
         sample_name=sample_name,
         genotype_classes=genotype_classes,
-        minimum_genotype_quality=float(parts[2]) if parts[2] else None,
-        minimum_depth=int(float(parts[3])) if parts[3] else None,
-        minimum_allele_frequency=minimum_allele_frequency,
-        minimum_alt_depth=minimum_alt_depth,
+        minimum_genotype_quality=_sample_filter_number(sample_name, "GQ", parts[2]),
+        minimum_depth=_optional_int(_sample_filter_number(sample_name, "DP", parts[3])),
+        minimum_allele_frequency=_sample_filter_number(sample_name, "AF", parts[4]),
+        minimum_alt_depth=_optional_int(_sample_filter_number(sample_name, "AD alt", parts[5])),
         include_absent=include_absent,
     )
