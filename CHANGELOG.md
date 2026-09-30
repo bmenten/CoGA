@@ -163,13 +163,15 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   - Backend: FastAPI 0.141.1, Starlette 1.7.0, uvicorn 0.54.0, SQLAlchemy 2.1.1, pydantic
     2.13.5, pydantic-settings 2.15.0, clickhouse-connect 1.9.0, PyJWT 2.15.0, pysam 0.24.1,
     pyBigWig 0.3.26, lxml 6.1.3, anyio 4.14.2, soupsieve 2.9, plus cloud and support libraries
-    (#409, #438, #503, #504, #506, #565).
-  - Frontend: React 19.3.0, react-router 8.4.0, TanStack Query 5.103.2, axios 1.20.0, igv.js
-    3.8.9, Vite 8.3.1, qs 6.16.0 (#406, #441, #496, #505).
+    (#409, #438, #503, #504, #506, #565). pandas 3.0.6 (#691), which no longer needs pytz and
+    tzdata, so both leave the lock (76 packages); its one user, the clinical CNV knowledgebase
+    build, gives byte-identical output for GRCh38 and GRCh37 under pandas 2.3.3 and 3.0.6.
+  - Frontend: React 19.3.0, react-router 8.4.0, TanStack Query 5.104.0, axios 1.20.0, igv.js
+    3.8.9, Vite 8.3.1, qs 6.16.0 (#406, #441, #496, #505, #692).
   - Test and lint tooling: jsdom 24 → 30 (#435), @testing-library/jest-dom 7, vitest 5.0.2 with
-    @vitest/coverage-v8 5.0.2, Playwright 1.63.0 and typescript-eslint 8.70.1 (#408, #441, #502,
-    #505, #629). The jest-dom matchers are now typed through its vitest entry, which vitest 5
-    needs.
+    @vitest/coverage-v8 5.0.2, Playwright 1.63.0, typescript-eslint 8.70.1, @eslint/js 9.39.5
+    and @types/node 26.6.3 (#408, #441, #502, #505, #629, #692). The jest-dom matchers are now
+    typed through its vitest entry, which vitest 5 needs.
   - GitHub Actions: setup-python 7 and setup-node 7 (#404, #405), CodeQL action 4.38.2 (#433,
     #480, #561).
   - Container images: the rebuilt `postgres:16` digest in compose and CI (#559) and the
