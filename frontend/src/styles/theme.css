@@ -288,7 +288,7 @@ button:disabled,
 }
 
 .button-link:focus-visible {
-  outline: 2px solid rgba(10, 11, 12, 0.14);
+  outline: 2px solid var(--color-border-strong);
   outline-offset: 4px;
 }
 
@@ -541,7 +541,7 @@ tbody tr:hover {
 
 .app-footer {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  background: #0a0b0c;
+  background: var(--color-primary);
 }
 
 .app-footer-inner {
@@ -1273,7 +1273,7 @@ tbody tr:hover {
 .page-top-card {
   position: relative;
   overflow: hidden;
-  border-color: rgba(10, 11, 12, 0.08);
+  border-color: var(--color-border);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 252, 0.98));
   box-shadow: 0 18px 40px rgba(10, 12, 14, 0.035);
 }
@@ -1698,7 +1698,7 @@ tbody tr:hover {
   gap: 0.55rem;
   margin-top: 0.85rem;
   padding-top: 0.85rem;
-  border-top: 1px solid rgba(10, 11, 12, 0.08);
+  border-top: 1px solid var(--color-border);
 }
 
 .dashboard-top-card-catalog {
@@ -2242,7 +2242,7 @@ tbody tr:hover {
 }
 
 .dashboard-hero {
-  border-color: rgba(10, 11, 12, 0.08);
+  border-color: var(--color-border);
   background:
     radial-gradient(circle at top right, rgba(198, 31, 45, 0.04), transparent 20%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 252, 0.98));
@@ -3032,7 +3032,7 @@ tbody tr:hover {
 .variant-frequency-slider-row {
   display: grid;
   gap: 0.28rem;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.78);
   padding: 0.34rem 0.42rem;
@@ -3097,7 +3097,7 @@ tbody tr:hover {
 
 .variant-workspace-feedback {
   border-radius: 10px;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   padding: 0.8rem 0.95rem;
   font-size: 0.84rem;
   font-weight: 600;
@@ -3592,7 +3592,7 @@ tbody tr:hover {
   align-items: center;
   min-height: 2rem;
   border-radius: 999px;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   padding: 0.36rem 0.82rem;
   font-size: 0.8rem;
   font-weight: 700;
@@ -3705,7 +3705,7 @@ button.sv-second-hit-badge--del:hover {
 /* Read-based phase (direct, from a shared phase set) — stronger than inferred segregation. */
 .sv-second-hit-phase--read {
   background: var(--color-accent, #2563eb);
-  color: #fff;
+  color: var(--color-white);
 }
 
 /* Fixed hover/focus tooltip — escapes the variant table's scroll clip and renders even
@@ -3718,7 +3718,7 @@ button.sv-second-hit-badge--del:hover {
   padding: 0.45rem 0.6rem;
   border-radius: 7px;
   background: var(--color-text, #141517);
-  color: #fff;
+  color: var(--color-white);
   font-size: 0.72rem;
   font-weight: 500;
   line-height: 1.4;
@@ -4398,7 +4398,7 @@ button.sv-second-hit-badge--del:hover {
   justify-content: center;
   min-height: 1.45rem;
   border-radius: 999px;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   background: rgba(255, 255, 255, 0.92);
   padding: 0.1rem 0.42rem;
   font-size: 0.56rem;
@@ -4666,7 +4666,7 @@ button.sv-second-hit-badge--del:hover {
 .gene-compact-header {
   display: grid;
   gap: 0.8rem;
-  border-bottom: 1px solid rgba(10, 11, 12, 0.08);
+  border-bottom: 1px solid var(--color-border);
   padding-bottom: 1rem;
 }
 
@@ -4686,7 +4686,7 @@ button.sv-second-hit-badge--del:hover {
 .gene-compact-section {
   display: grid;
   gap: 0.8rem;
-  border-top: 1px solid rgba(10, 11, 12, 0.08);
+  border-top: 1px solid var(--color-border);
   padding-top: 0.95rem;
 }
 
@@ -4745,7 +4745,7 @@ button.sv-second-hit-badge--del:hover {
   align-items: center;
   gap: 0.3rem;
   border-radius: 999px;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   background: rgba(247, 249, 252, 0.96);
   padding: 0.22rem 0.58rem;
   font-size: 0.69rem;
@@ -5012,7 +5012,7 @@ button.sv-second-hit-badge--del:hover {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #c61f2d, #d56c3b);
+  background: linear-gradient(90deg, var(--color-signature-red), #d56c3b);
 }
 
 .gene-transcript-table td:first-child {
@@ -5044,7 +5044,7 @@ button.sv-second-hit-badge--del:hover {
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
-  border-top: 1px solid rgba(10, 11, 12, 0.08);
+  border-top: 1px solid var(--color-border);
   padding-top: 0.7rem;
   font-size: 0.74rem;
   color: var(--color-text-muted);
@@ -5475,7 +5475,7 @@ button.table-link:hover {
   align-items: center;
   gap: 0.42rem;
   padding: 0.45rem 0.66rem;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.82);
 }
@@ -5610,7 +5610,7 @@ button.table-link:hover {
   align-items: center;
   gap: 0.42rem;
   border-radius: 999px;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   background: rgba(247, 249, 252, 0.96);
   padding: 0.16rem 0.48rem;
   line-height: 1;
@@ -5707,7 +5707,7 @@ button.table-link:hover {
   align-items: center;
   gap: 0.42rem;
   padding: 0.45rem 0.66rem;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.82);
 }
@@ -5717,7 +5717,7 @@ button.table-link:hover {
   display: inline-flex;
   align-items: center;
   padding: 0.16rem;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.82);
 }
@@ -6162,7 +6162,7 @@ button.table-link:hover {
   align-items: center;
   flex-wrap: wrap;
   padding: 0.16rem;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.82);
 }
@@ -6550,7 +6550,7 @@ button.table-link:hover {
 }
 
 .table-chip--neutral {
-  border-color: rgba(10, 11, 12, 0.08);
+  border-color: var(--color-border);
   background: rgba(246, 249, 252, 0.96);
   color: var(--color-text-muted);
 }
@@ -7122,7 +7122,7 @@ button.table-link:hover {
   opacity: 0.8;
 }
 .roi-markers-updating {
-  color: var(--color-accent, #8293a3);
+  color: var(--color-accent, var(--color-accent));
   font-style: italic;
 }
 .roi-markers-table-wrap {
@@ -7147,7 +7147,7 @@ button.table-link:hover {
   position: sticky;
   left: 0;
   z-index: 2;
-  background: var(--color-surface, #fff);
+  background: var(--color-surface, var(--color-surface));
   text-align: left;
   padding: 2px 8px;
 }
@@ -7155,7 +7155,7 @@ button.table-link:hover {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--color-surface, #fff);
+  background: var(--color-surface, var(--color-surface));
   font-weight: 500;
   padding: 2px 4px;
   transform: rotate(0);
@@ -7204,7 +7204,7 @@ button.table-link:hover {
   font-weight: 700;
   font-size: 0.7rem;
   letter-spacing: 0.3px;
-  background: var(--color-surface, #fff);
+  background: var(--color-surface, var(--color-surface));
   border-right: 1px solid var(--color-border, #eef2f7);
   border-bottom: none;
 }
@@ -7231,7 +7231,7 @@ button.table-link:hover {
 /* The ROI stands at full strength; flanking context (only shown when zoomed out) is
    lightly muted but kept readable, and in-ROI position headers get a soft tint. */
 .roi-markers-table thead th.roi-markers-poscol--roi {
-  background: var(--color-accent-soft, #e6ecf1);
+  background: var(--color-accent-soft, var(--color-accent-soft));
 }
 .roi-markers-band--flank {
   opacity: 0.85;
@@ -7481,7 +7481,7 @@ button.table-link:hover {
 .viz-error-retry {
   border: 1px solid #dc2626;
   border-radius: 999px;
-  background: #fff;
+  background: var(--color-surface);
   color: #991b1b;
   font-size: 0.68rem;
   font-weight: 700;
@@ -7733,7 +7733,7 @@ a.button-danger:hover {
 .badge-chip--emphasis {
   background: var(--color-accent, #2563eb);
   border-color: var(--color-accent, #2563eb);
-  color: #fff;
+  color: var(--color-white);
   font-size: 0.58rem;
   padding: 0.26rem 0.62rem;
 }
@@ -7792,7 +7792,7 @@ a.button-danger:hover {
   gap: 0.5rem;
   padding: 0.38rem 0.6rem;
   border-radius: 999px;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   background: rgba(255, 255, 255, 0.94);
 }
 
@@ -7876,7 +7876,7 @@ a.button-danger:hover {
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.72rem 0.82rem;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   background: rgba(255, 255, 255, 0.9);
 }
 
@@ -8182,9 +8182,9 @@ a.button-danger:hover {
   display: grid;
   width: min(1180px, 100%);
   overflow: hidden;
-  border: 1px solid rgba(10, 11, 12, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  background: #ffffff;
+  background: var(--color-surface);
   box-shadow: 0 26px 54px rgba(10, 12, 14, 0.06);
 }
 
@@ -8393,7 +8393,7 @@ a.button-danger:hover {
 }
 
 .project-toggle:focus-visible {
-  outline: 2px solid rgba(10, 11, 12, 0.14);
+  outline: 2px solid var(--color-border-strong);
   outline-offset: 4px;
 }
 
@@ -8820,7 +8820,7 @@ a.button-danger:hover {
   width: min(340px, 90vw);
   border: 1px solid rgba(10, 11, 12, 0.12);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--color-surface);
   box-shadow: 0 10px 30px rgba(10, 11, 12, 0.16);
   padding: 0.62rem 0.7rem;
   pointer-events: none;
@@ -8986,7 +8986,7 @@ a.button-danger:hover {
   gap: 1rem;
   padding: 1.25rem 1.75rem;
   border-radius: 0.9rem;
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid rgba(166, 26, 46, 0.18);
   box-shadow: 0 18px 48px rgba(17, 17, 17, 0.28);
 }
@@ -9352,7 +9352,7 @@ a.button-danger:hover {
   border-radius: 999px;
   font-size: 0.68rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--color-white);
   white-space: nowrap;
 }
 
@@ -9600,7 +9600,7 @@ a.button-danger:hover {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #fff;
+  color: var(--color-white);
 }
 
 .acmg-vus-tier-chip--hot {
@@ -10048,7 +10048,7 @@ a.button-danger:hover {
   padding: 0.5rem 0.6rem;
   border-radius: 7px;
   background: var(--color-text, #141517);
-  color: #fff;
+  color: var(--color-white);
   box-shadow: 0 12px 30px rgba(8, 10, 12, 0.35);
   pointer-events: none;
 }
