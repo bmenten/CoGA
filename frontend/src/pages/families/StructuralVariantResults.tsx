@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../../lib/api';
 import { describeCsvExport, saveCsvBlob, truncatedExportMessage } from '../../lib/csvExport';
+import CandidateCapNotice, { type CandidateCapFlags } from './CandidateCapNotice';
 import ResultsPagination from './ResultsPagination';
 import StructuralVariantCards from './StructuralVariantCards';
 import StructuralVariantColumnControls from './StructuralVariantColumnControls';
@@ -27,7 +28,11 @@ type StructuralVariantResultsProps = {
   speciesName?: string;
   assemblyName?: string;
   assemblyVersion?: string;
+  /** Whether the search behind these rows read only part of the callset. */
+  candidateCap?: CandidateCapFlags;
   filteredTotal: number;
+  /** The filtered total is a lower bound (the search read a capped window). */
+  filteredTotalIsEstimated?: boolean;
   linkSearch: string;
   members: StructuralVariantFamilyMember[];
   onPageChange: (nextPage: number) => void;
@@ -51,7 +56,9 @@ export default function StructuralVariantResults({
   speciesName,
   assemblyName,
   assemblyVersion,
+  candidateCap,
   filteredTotal,
+  filteredTotalIsEstimated = false,
   linkSearch,
   members,
   onPageChange,
@@ -97,6 +104,7 @@ export default function StructuralVariantResults({
   const [sortKey, setSortKey] = useState<StructuralSortableKeys>('chr');
   const [sortAsc, setSortAsc] = useState(true);
 
+  const filteredLabel = `${filteredTotal.toLocaleString()}${filteredTotalIsEstimated ? '+' : ''}`;
   const hasPriority = useMemo(() => variants.some((variant) => variant.priority), [variants]);
   // When the backend returns prioritized results, default to the priority ranking.
   useEffect(() => {
@@ -160,8 +168,8 @@ export default function StructuralVariantResults({
             <h2 className="section-title">Variants</h2>
             <p className="table-subtle">
               {overallTotal === null
-                ? `Filtered ${filteredTotal.toLocaleString()} SVs; the number imported could not be loaded.`
-                : `Filtered ${filteredTotal.toLocaleString()} of ${overallTotal.toLocaleString()} imported SVs.`}{' '}
+                ? `Filtered ${filteredLabel} SVs; the number imported could not be loaded.`
+                : `Filtered ${filteredLabel} of ${overallTotal.toLocaleString()} imported SVs.`}{' '}
               Auto view switches to cards at {CARD_VIEW_THRESHOLD} results.
             </p>
           </div>
@@ -207,6 +215,8 @@ export default function StructuralVariantResults({
             {exportWarning}
           </div>
         ) : null}
+
+        <CandidateCapNotice page={candidateCap} noun="SVs" />
 
         <StructuralVariantSummaryTable summary={summary} />
 

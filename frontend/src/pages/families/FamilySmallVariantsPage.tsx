@@ -34,14 +34,7 @@ import {
   updateSmallVariantPageReview,
 } from './smallVariantReview';
 import { apiPath, raw } from '../../lib/apiPath';
-
-const formatVariantTotal = (total: number | undefined, estimated?: boolean): string => {
-  const safeTotal = Math.max(total ?? 0, 0);
-  if (!estimated || safeTotal <= 0) {
-    return safeTotal.toLocaleString();
-  }
-  return `${Math.max(safeTotal - 1, 0).toLocaleString()}+`;
-};
+import { formatVariantTotal } from './smallVariantResultUtils';
 
 const formatSummaryCount = (value: number | undefined): string =>
   Math.max(value ?? 0, 0).toLocaleString();
@@ -405,10 +398,11 @@ const FamilySmallVariantsPage: React.FC = () => {
                     ) : null}
                     <div className="variant-summary-row">
                       <span className="badge-chip badge-chip--emphasis">
-                        Showing {formatVariantTotal(data?.total, data?.total_is_estimated)}
+                        Showing {formatVariantTotal(data?.total, data?.total_is_estimated, data?.count_limit)}
                       </span>
                       <span className="badge-chip">
-                        All variants {formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated)}
+                        All variants{' '}
+                        {formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated, data?.count_limit)}
                       </span>
                       {smallVariantSummary ? (
                         <>

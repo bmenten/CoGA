@@ -5,6 +5,7 @@ import {
   buildSvSecondHitHref,
   formatGenomicChange,
   formatPredictionScore,
+  formatVariantTotal,
   parseVariantIds,
 } from '../smallVariantResultUtils';
 
@@ -293,5 +294,26 @@ describe('buildGnomadSvRegionHref', () => {
       assemblyName: 'GRCh38',
     });
     expect(href).toContain('/region/1-500-500');
+  });
+});
+
+describe('formatVariantTotal', () => {
+  it('shows an exact total as it is', () => {
+    expect(formatVariantTotal(24680, false, 10000)).toBe('24,680');
+    expect(formatVariantTotal(undefined)).toBe('0');
+  });
+
+  it('shows a count past its limit as the limit and a lower bound', () => {
+    // The backend counts one past the limit to tell "more" from "exactly the limit".
+    expect(formatVariantTotal(10001, true, 10000)).toBe('10,000+');
+    // Without a limit it falls back to one less than the count sent.
+    expect(formatVariantTotal(1001, true)).toBe('1,000+');
+  });
+
+  it('counts what a capped candidate read found, as a lower bound (#725 follow-up)', () => {
+    // 12 matches in a capped window: 12 or more, not "11+".
+    expect(formatVariantTotal(12, true, 10000)).toBe('12+');
+    // Nothing in a capped window is not "no matches".
+    expect(formatVariantTotal(0, true, 10000)).toBe('0+');
   });
 });

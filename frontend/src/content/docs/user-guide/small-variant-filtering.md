@@ -32,6 +32,12 @@ hom*, *Recessive broad*, *Any affected* and *ClinVar review*. A preset saves the
 save your own to standardise a search. Compound-heterozygous candidates are shown as pairs. Up to 100
 matches show as cards, more as a table.
 
+> **A search can stop part-way.** Compound-het and recessive pairing and *Expanded carrier screening*
+> read a limited number of candidates (up to 5,000) before they filter. When a search fills that window,
+> a warning above the results says *"Results may be incomplete"* and after how many candidates the search
+> stopped; the count is then a lower bound (for example *12+*) and a match beyond the window is not shown.
+> Narrow the filters with a region, a gene panel or a gene until the warning is gone.
+
 ### The phenotype ranking
 
 With *Phenotype priority* on, a **Score** column appears and the rows come ranked, best first. The score
@@ -44,8 +50,9 @@ compatible inheritance modes and the matched phenotypes.
   affected. Look further down for strong variants, or untick **Phenotype prioritization**.
 - Without HPO terms on the affected members, the ranking uses the variant evidence only.
 - The score orders candidates within the family; it is not a probability of pathogenicity.
-- A warning that *"this ranking is incomplete"* means more candidates matched than CoGA ranks at once:
-  narrow the filters (frequency, impact, a panel or an inheritance mode).
+- A warning that *"Ranking may be incomplete"* means more candidates matched than CoGA ranks at once
+  (it says how many were ranked), so the best one may be missing: narrow the filters (a region, a panel,
+  a gene, or a tighter frequency or impact).
 
 **Why the ranking can be instant.** CoGA keeps the ranking once it is computed; a later open shows
 *⚡ Prioritised ranking served from cache* and when it was computed. It is recomputed automatically when
