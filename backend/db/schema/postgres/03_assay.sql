@@ -398,10 +398,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_reviews_family_variant_key O
 -- ---------------------------------------------------------------------------
 -- small_variant_filter_presets
 -- ---------------------------------------------------------------------------
+-- A small-variant preset is its owner's, reusable in every family they can open.
 CREATE TABLE IF NOT EXISTS small_variant_filter_presets (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    family_id uuid,
-    scope text NOT NULL,
     owner text NOT NULL,
     name text NOT NULL,
     description text,
@@ -410,12 +409,10 @@ CREATE TABLE IF NOT EXISTS small_variant_filter_presets (
     sample_templates jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    CONSTRAINT small_variant_filter_presets_pkey PRIMARY KEY (id),
-    CONSTRAINT small_variant_filter_presets_scope_check CHECK ((scope = ANY (ARRAY['family'::text, 'global'::text]))),
-    CONSTRAINT small_variant_filter_presets_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
+    CONSTRAINT small_variant_filter_presets_pkey PRIMARY KEY (id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_filter_presets_unique ON small_variant_filter_presets USING btree (COALESCE(family_id, '00000000-0000-0000-0000-000000000000'::uuid), scope, owner, name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_filter_presets_unique ON small_variant_filter_presets USING btree (owner, name);
 
 -- ---------------------------------------------------------------------------
 -- small_variant_tag_definitions (folds scope/project cols from 006)

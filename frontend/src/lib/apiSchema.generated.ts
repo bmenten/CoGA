@@ -1126,7 +1126,6 @@ export interface GithubReleaseOut {
 export interface GlobalVariantPageOut {
   total: number;
   total_is_estimated: boolean;
-  page: number;
   page_size: number;
   next_cursor: string | null;
   assembly_id: string | null;
@@ -2536,7 +2535,6 @@ export interface SmallVariantCompoundHetReviewUpdate {
 
 export interface SmallVariantFilterPresetCreate {
   name: string;
-  scope?: "family" | "global";
   description?: string | null;
   filters?: Record<string, unknown>;
   sample_filters?: Record<string, unknown>;
@@ -2545,8 +2543,6 @@ export interface SmallVariantFilterPresetCreate {
 
 export interface SmallVariantFilterPresetOut {
   _id: string;
-  family_id: string | null;
-  scope: "family" | "global";
   owner: string;
   name: string;
   description: string | null;

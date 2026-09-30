@@ -193,7 +193,6 @@ const FamilySmallVariantsPage: React.FC = () => {
       }
       const res = await api.post(apiPath`/families/${familyId}/small-variant-filter-presets`, {
         ...payload,
-        scope: 'global',
         ...buildPresetPayload({
           filters,
           members,

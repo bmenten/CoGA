@@ -84,7 +84,14 @@ export interface StructuralVariantAnnotationExtra {
 
 export type StructuralVariantFamilyMember = ApiFamilyMember;
 export type StructuralVariantFamily = Pick<ApiFamilyRecord, 'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata'>;
-export type StructuralVariantFilterPreset = SmallVariantFilterPreset;
+// An SV preset is saved for one family or, reusable, for all of its owner's families.
+export interface StructuralVariantFilterPreset extends SmallVariantFilterPreset {
+  family_id?: string | null;
+  scope: 'family' | 'global';
+}
+
+export const getPresetScopeLabel = (scope: StructuralVariantFilterPreset['scope']) =>
+  scope === 'family' ? 'Family' : 'Reusable';
 export type StructuralVariantTagDefinition = SmallVariantTagDefinition;
 export type StructuralVariantReview = SmallVariantReview;
 export type StructuralVariantReviewSavePayload = SmallVariantReviewSavePayload;

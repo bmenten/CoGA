@@ -286,6 +286,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   jobs an old index let through, with that index's `DROP`. A fresh database gets the same schema
   (compared column by column, with every constraint, index, trigger, function and grant), and a
   database from an older schema is reset, not migrated (#697).
+- **Vestigial API fields, aliases and routes (#681)** — the explorer page's `page` field (unused
+  since keyset paging, #274); five deprecated S3-named aliases in `object_storage`; family-scoped
+  small-variant presets, which no screen created since presets became reusable (a preset is now
+  its owner's, one per name, and the preset tables lose their *Scope* column; structural-variant
+  presets keep their family or reusable choice); and the frontend redirects `/family-intake`,
+  `/families` and `/admin/operations/variants`. The NIPT page's back link goes to the dashboard
+  (#698).
 
 ### Fixed
 

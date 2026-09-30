@@ -133,11 +133,9 @@ describe('smallVariantSearch preset helpers', () => {
   it('merges shared, role, status, and exact preset sample filters in order', () => {
     const preset: SmallVariantFilterPreset = {
       _id: 'preset-1',
-      scope: 'global',
       owner: 'reviewer',
       name: 'Layered preset',
       description: null,
-      family_id: null,
       filters: {},
       sample_filters: {
         S1: {

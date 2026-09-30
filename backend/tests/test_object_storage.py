@@ -113,16 +113,6 @@ def test_invalid_storage_backend_rejected():
         Settings(_env_file=None, APP_ENV="development", STORAGE_BACKEND="azure")
 
 
-# --- Backward-compatible S3-named aliases -----------------------------------
-
-def test_deprecated_s3_aliases_still_resolve():
-    assert s.is_s3_uri is s.is_remote_uri
-    assert s.parse_s3_uri is s.parse_remote_uri
-    assert s.join_s3_uri is s.join_remote_uri
-    assert s.list_s3_package_candidates is s.list_remote_package_candidates
-    assert s.S3Location is s.RemoteLocation
-
-
 # --- GCS backend (clients mocked: google-cloud-storage not exercised) --------
 
 def _use_gcs(monkeypatch, bucket="phi-bucket"):

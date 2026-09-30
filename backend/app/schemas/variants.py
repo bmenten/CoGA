@@ -296,7 +296,6 @@ class GlobalVariantRowOut(BaseModel):
 class GlobalVariantPageOut(BaseModel):
     total: int
     total_is_estimated: bool = False
-    page: int = 1  # vestigial (keyset pagination); kept for response back-compat
     page_size: int = 50
     # Opaque keyset cursor (#274) for the NEXT page; null when this is the last page.
     next_cursor: Optional[str] = None
