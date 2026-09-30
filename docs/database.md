@@ -168,7 +168,7 @@ Their names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SNV_INDEL/family_variant_summary`, `SNV_INDEL/family_sample_variant_summary` | variant counts per family and per sample |
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
 | `SV/variants/details` | one row per structural variant: type, span, the full annotation |
-| `SV/key_lookup` | maps a family's variant ids to their internal keys |
+| `SV/key_lookup` | maps a family's variant ids, per source, to their internal keys |
 | `SV/entries` | the structural-variant calls per family and sample |
 | `SV/family_data_version` | one token per change to a family's structural variants (below) |
 | `INTERVAL/entries` | the interval-track rows: coverage, segments, APCAD, PCF segments and haplotype blocks |
@@ -186,8 +186,8 @@ Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
 The `source` column on both `entries` tables scopes deletes and re-imports, so one family can
 hold several callsets side by side. Small variants: `clair3` (the primary callset, whatever
 caller made it), `glimpse2` (imputed; hidden from the diagnostic lists by default) and `mito`
-(chrM). Structural variants: `needlr` and `hificnv` from packages, and `manual`, `sniffles` or
-`spectre` from a direct upload.
+(chrM). Structural variants: `needlr` and `hificnv` from packages, and `manual_upload`,
+`sniffles` or `spectre` from a direct upload.
 
 Deleting a sample (`DELETE /admin/samples/{sample_id}`) rewrites the family's
 `SNV_INDEL/entries` from the stored rows: every callset, project and column comes back as
@@ -204,6 +204,57 @@ an earlier value.
 `SV/family_data_version` does the same for structural variants: every SV insert and delete, and
 a snapshot restore, appends a token. The SV→gene index stores the version it was built from in
 `family_sv_gene_index_status.sv_data_version` and is rebuilt when the family's version has moved.
+
+### Row identity
+
+A stored row is one callset's call of one variant, in one family and one project. When
+ClickHouse merges a table's parts it keeps one row per sort key, so the sort key of each of
+these tables ends with the callset (`source`):
+
+| Table | Sort key |
+| --- | --- |
+| `SNV_INDEL/entries` | `project_guid, family_guid, xpos, key, source` |
+| `SV/entries` | `project_guid, family_guid, svType, chrom, start, key, source` |
+| `SV/key_lookup` | `family_guid, variantId, source` |
+
+- A small variant's `key` is a hash of the assembly and the variant id. It is the same for
+  every family and callset, so the shared annotation tables (`variants/details`,
+  `annotations`, `annotation_index`, `gene_index`) serve them all. A clair3 call and a GLIMPSE2
+  imputation of one variant are two `entries` rows with one key.
+- An SV's `key` is a hash of the assembly, the family, the variant id and the source. A
+  per-sample upload names an SV `chrom-start-end-type---`, without its caller, so a Sniffles and
+  a Spectre call at the same breakpoints have one id but two keys. Each has its own `entries`,
+  `variants/details` and `key_lookup` row.
+- The variant id does not depend on the callset. Reviews, classification evidence snapshots,
+  the ranking cache and the SV→gene index attach by it, so they cover every callset's row of a
+  variant.
+
+When several callsets hold one small variant, the diagnostic lists show the direct call; an
+imputed callset shows only when it is asked for. Reviews and the drift check read the direct
+call, and among several direct callsets the one first in name order. The SV list shows an SV
+once per caller, each row with that caller's calls.
+
+#### Tables with a different row identity
+
+A table's sort key is fixed when ClickHouse creates it. At startup, and before it creates an
+assembly's tables, the backend compares the sort key of each table above with the one in the
+list. If a table has another key, the backend refuses to start. The message names the table,
+its sort key and the one it needs. The rows are not copied into a new table: under the other
+key, merges may already have dropped calls, and only a re-import brings them back.
+
+To recover, for each assembly the message names:
+
+1. Stop the backend.
+2. Drop the assembly's small-variant and SV tables. List them with
+   `SELECT name FROM system.tables WHERE database = 'coga' AND match(name, '^GRCh38/(SNV_INDEL|SV)/')`
+   (with your database and assembly), then drop each one with ``DROP TABLE coga.`<name>` SYNC``.
+   The interval tracks (`INTERVAL/entries`) stay.
+3. Start the backend. It creates the tables with the sort keys above.
+4. Re-import every family of the assembly. Reviews, classifications and signed reports are in
+   Postgres, and attach again by variant id.
+
+Locally, `docker compose down -v` and loading the demo data again does the same
+([development.md](development.md#stop-and-reset)).
 
 ## Identifier Rules
 
@@ -227,7 +278,8 @@ a snapshot restore, appends a token. The SV→gene index stores the version it w
 On every start the backend re-applies the five Postgres baseline files and makes sure the
 admin user exists, when `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default).
 With the restricted runtime role a separate migration step (`backend/app/db_migrate.py`)
-does this instead, as the table owner. In ClickHouse, startup only creates the database; each
-assembly's tables are created on first use. The full startup order is in
+does this instead, as the table owner. In ClickHouse, startup creates the database and refuses
+to go on when an assembly's tables have a different row identity
+([Row identity](#row-identity)); each assembly's tables are created on first use. The full startup order is in
 [application-scheme.md](application-scheme.md), "Startup and background work"; the reference
 data it loads is listed in [data-import.md](data-import.md), section 1.

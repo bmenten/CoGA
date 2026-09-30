@@ -15,9 +15,10 @@ import {
   normalizeReviewClassification,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
-import type {
-  StructuralVariant,
-  StructuralVariantFamilyMember,
+import {
+  structuralVariantRowKey,
+  type StructuralVariant,
+  type StructuralVariantFamilyMember,
 } from './structuralVariantSearch';
 import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
@@ -145,7 +146,7 @@ export default function StructuralVariantCards({
 
         return (
           <article
-            key={variant._id}
+            key={structuralVariantRowKey(variant)}
             className={`variant-card${isExcluded ? ' variant-card--excluded' : ''}`}
           >
             <div className="variant-card-head">

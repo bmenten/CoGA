@@ -6,6 +6,7 @@ import {
   buildStructuralPresetPayload,
   cloneSingleSampleFilter,
   structuralLocationProblem,
+  structuralVariantRowKey,
   useStructuralVariantSearchState,
 } from '../structuralVariantSearch';
 
@@ -126,5 +127,18 @@ describe('a location that cannot be read', () => {
     expect(result.current.draftLocationProblem).toBe("Location '1:-200' is not a gene or chr:start-end.");
     expect(result.current.filters.locus).toBe('');
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('structuralVariantRowKey', () => {
+  it('tells two callers of one SV id apart and keeps one caller stable', () => {
+    const id = '1-30000-31000-DEL---';
+    expect(structuralVariantRowKey({ _id: id, source: 'sniffles' })).not.toBe(
+      structuralVariantRowKey({ _id: id, source: 'spectre' }),
+    );
+    expect(structuralVariantRowKey({ _id: id, source: 'sniffles' })).toBe(
+      structuralVariantRowKey({ _id: id, source: 'sniffles' }),
+    );
+    expect(structuralVariantRowKey({ _id: id })).toBe(`${id}|`);
   });
 });

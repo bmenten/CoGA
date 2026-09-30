@@ -38,13 +38,14 @@ Het ClickHouse-schemabestand `backend/db/schema/clickhouse/001_coga_variant_stor
 | `SV/variants/details`, `SV/key_lookup`, `SV/entries`, `…/family_data_version` | Hetzelfde voor structurele varianten, met een eigen versie die bij elke wijziging van de SV's van een familie verandert (de SV-index voor de tweede hit gebruikt die, hoofdstuk 8) |
 | `INTERVAL/entries` | Interval-tracks: dekking, CNV-segmenten, APCAD en haplotypeblokken, met per rij de bron en de bestandsnaam |
 
-Voor een reviewer zijn drie dingen belangrijk:
+Voor een reviewer zijn vier dingen belangrijk:
 
 - De `entries`-tabellen trekken een rij bij een nieuwe import logisch in met een `sign`-kolom (+1/−1). Correcte tellingen vragen dus altijd `sign = 1`.
 - De `entries`-tabellen zijn verdeeld per project (`PARTITION BY project_guid`). Dat maakt de projectfilter goedkoop en houdt vragen over projecten heen afgebakend.
+- Een rij in `entries` is de call van één callset (`source`) voor één variant, in één familie en één project. Wanneer ClickHouse de onderdelen van een tabel samenvoegt, houdt het één rij per sorteersleutel over; daarom eindigt de sorteersleutel op `key, source`. Zo blijven de rechtstreekse call (clair3) en de geïmputeerde call (GLIMPSE2) van één variant twee rijen, en de diagnostische lijsten tonen de rechtstreekse. Bij een SV bevat ook de sleutel zelf de bron, omdat de id van een SV uit een upload per sample de caller niet noemt: twee callers op dezelfde breekpunten blijven twee rijen. De variant-id hangt niet van de callset af, en reviews, classificatiesnapshots, de ranking-cache en de SV-index voor de tweede hit hangen eraan vast.
 - Er is geen aparte, vooraf berekende telling over het cohort: de Variant Explorer telt dragers rechtstreeks uit `entries`, met `sign = 1` en de projectfilter (hoofdstuk 14).
 
-**Waar in de code:** `ensure_clickhouse_variant_tables(assembly_name)` in `backend/app/services/clickhouse_variant_storage.py`, `ensure_clickhouse_interval_table(assembly_name)` in `backend/app/services/clickhouse_interval_tracks.py`, en `clickhouse_dataset_key` in `backend/app/core/clickhouse.py`.
+**Waar in de code:** `ensure_clickhouse_variant_tables(assembly_name)` in `backend/app/services/clickhouse_variant_storage.py`, `ensure_clickhouse_interval_table(assembly_name)` in `backend/app/services/clickhouse_interval_tracks.py`, en `clickhouse_dataset_key` in `backend/app/core/clickhouse.py`. De sleutels worden gebouwd in `backend/app/services/clickhouse_variant_ids.py`.
 
 ## Hoe een ClickHouse-rij aan Postgres gekoppeld wordt
 
@@ -62,9 +63,11 @@ De toegangsbeslissing valt dus altijd eerst in Postgres; ClickHouse ziet alleen 
 
 CoGA houdt geen migratiegrootboek bij (zoals Alembic met een versietabel). Telkens wanneer het schema wordt toegepast (standaard bij elke start van de backend), worden **alle** Postgres-bestanden opnieuw uitgevoerd, in naamvolgorde en binnen één transactie. Daarom is elk statement idempotent geschreven (`CREATE TABLE IF NOT EXISTS`, `ON CONFLICT DO NOTHING` voor startgegevens, `GRANT`/`REVOKE`). Een destructieve `UPDATE` hoort daardoor nooit in een schemabestand thuis: ze zou bij elke herstart opnieuw draaien.
 
+De ClickHouse-tabellen maakt de backend met `CREATE TABLE IF NOT EXISTS` aan; een ontbrekende kolom komt er met `ADD COLUMN IF NOT EXISTS` bij. De sorteersleutel van een tabel ligt echter vast zodra ClickHouse de tabel aanmaakt. Daarom vergelijkt de backend bij het opstarten, en telkens voordat hij de tabellen van een assembly aanmaakt, de sorteersleutel van `SNV_INDEL/entries`, `SV/entries` en `SV/key_lookup` met de verwachte. Heeft een tabel een andere sleutel, dan weigert de backend te starten; de melding noemt de tabel, haar sleutel en de sleutel die nodig is. De rijen worden niet naar een nieuwe tabel gekopieerd: onder de andere sleutel kunnen samenvoegingen al calls hebben laten vallen, en alleen een nieuwe import brengt ze terug. Het herstel (de small-variant- en SV-tabellen van die assembly verwijderen, opnieuw starten en elke familie van de assembly opnieuw importeren) staat in `docs/database.md`, onder "Row identity".
+
 Wie het schema toepast (de app zelf als eigenaar, of een aparte migratiestap) en in welke volgorde de backend opstart, staat in [hoofdstuk 4](04-deployment-en-seeding.md).
 
-**Waar in de code:** `init_postgres_schema` in `backend/app/core/postgres.py` en `init_clickhouse_schema` in `backend/app/core/clickhouse.py`.
+**Waar in de code:** `init_postgres_schema` in `backend/app/core/postgres.py`, `init_clickhouse_schema` in `backend/app/core/clickhouse.py` en `verify_clickhouse_variant_storage_identity` in `backend/app/services/clickhouse_variant_storage.py`.
 
 ## Garanties in de databanklaag
 

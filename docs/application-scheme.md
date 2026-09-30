@@ -55,8 +55,20 @@ payloads.
   the database. An assembly's tables are created the first time it is used, by
   `clickhouse_variant_storage.py` and `clickhouse_interval_tracks.py`.
 
-[database.md](database.md) lists every table and the file that defines it. Variant IDs in
-the API are storage-agnostic strings; metadata IDs are UUIDs.
+[database.md](database.md) lists every table and the file that defines it. Metadata IDs are
+UUIDs.
+
+### Storage identity
+
+A variant is known everywhere by its variant ID, a string that depends neither on the storage
+nor on the callset. Reviews, classification evidence snapshots, the ranking cache and the
+SV→gene index attach by it. A row in ClickHouse is one callset's call of one variant, in one
+family and one project: its sort key ends with the callset (`source`). So a direct call and an
+imputed call of one variant, or two callers' calls of one SV, are separate rows, and a part
+merge keeps both. The diagnostic lists show the direct call, and the SV list shows an SV once
+per caller. The backend refuses to start on a table whose sort key leaves the callset out. The
+sort keys, how the storage keys are built and the recovery steps are in
+[database.md](database.md#row-identity).
 
 ## Runtime flow
 
@@ -95,8 +107,9 @@ On start the backend (`backend/app/main.py`):
    none is loaded; seeds the built-in reference tracks (clinical CNVs, segmental
    duplications); and queues the first gene-reference sync when the local dbNSFP gene file is
    present and no gene information is cached;
-4. waits for ClickHouse, creates the database, and starts the scheduled ClickHouse integrity
-   check;
+4. waits for ClickHouse and creates the database; refuses to start when a variant table's sort
+   key leaves the callset out ([Storage identity](#storage-identity)); and starts the scheduled
+   ClickHouse integrity check;
 5. starts the gene-reference refresh worker and the family-package import workers
    (`FAMILY_IMPORT_WORKER_COUNT`).
 

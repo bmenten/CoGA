@@ -38,6 +38,30 @@ _SMALL_VARIANT_GENE_INDEX_INSERT_ROWS = 10_000
 _ensured_variant_table_assemblies: set[str] = set()
 _ensure_variant_tables_lock = asyncio.Lock()
 
+# The row identity of each family-scoped table whose rows belong to one callset: its sort
+# key, which ends with the callset (``source``). When ClickHouse merges parts, a
+# CollapsingMergeTree or ReplacingMergeTree keeps one row per sort key. Without the source a
+# clair3 call and a GLIMPSE2 imputation of one variant, or a Sniffles and a Spectre call of
+# one SV, became one row, and one callset's calls were lost. The tables are created with
+# these keys; an existing table with any other key is refused, at startup
+# (verify_clickhouse_variant_storage_identity) and before any table is ensured.
+_SMALL_VARIANT_ENTRY_SORT_KEY: tuple[str, ...] = ("project_guid", "family_guid", "xpos", "key", "source")
+_STRUCTURAL_VARIANT_ENTRY_SORT_KEY: tuple[str, ...] = (
+    "project_guid",
+    "family_guid",
+    "svType",
+    "chrom",
+    "start",
+    "key",
+    "source",
+)
+_STRUCTURAL_VARIANT_KEY_LOOKUP_SORT_KEY: tuple[str, ...] = ("family_guid", "variantId", "source")
+_CALLSET_SORT_KEYS: dict[str, tuple[str, ...]] = {
+    "SNV_INDEL/entries": _SMALL_VARIANT_ENTRY_SORT_KEY,
+    "SV/entries": _STRUCTURAL_VARIANT_ENTRY_SORT_KEY,
+    "SV/key_lookup": _STRUCTURAL_VARIANT_KEY_LOOKUP_SORT_KEY,
+}
+
 
 async def _execute(query: str, params: dict[str, Any] | None = None, data: Sequence[tuple[Any, ...]] | None = None) -> Any:
     if data is not None:
@@ -270,7 +294,7 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         )
         ENGINE = CollapsingMergeTree(sign)
         PARTITION BY project_guid
-        ORDER BY (project_guid, family_guid, xpos, key)
+        ORDER BY ({', '.join(_SMALL_VARIANT_ENTRY_SORT_KEY)})
         """,
         f"""
         ALTER TABLE {database}.`{dataset}/SNV_INDEL/entries`
@@ -352,11 +376,12 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         (
             `family_guid` String,
             `variantId` String,
+            `source` LowCardinality(String),
             `key` UInt64
         )
         ENGINE = ReplacingMergeTree
-        PRIMARY KEY (family_guid, variantId)
-        ORDER BY (family_guid, variantId)
+        PRIMARY KEY ({', '.join(_STRUCTURAL_VARIANT_KEY_LOOKUP_SORT_KEY)})
+        ORDER BY ({', '.join(_STRUCTURAL_VARIANT_KEY_LOOKUP_SORT_KEY)})
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SV/entries`
@@ -384,7 +409,7 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         )
         ENGINE = CollapsingMergeTree(sign)
         PARTITION BY project_guid
-        ORDER BY (project_guid, family_guid, svType, chrom, start, key)
+        ORDER BY ({', '.join(_STRUCTURAL_VARIANT_ENTRY_SORT_KEY)})
         """,
         f"""
         ALTER TABLE {database}.`{dataset}/SV/entries`
@@ -413,11 +438,93 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
     async with _ensure_variant_tables_lock:
         if dataset in _ensured_variant_table_assemblies:
             return
+        # Before anything is created or altered: a table with an older row identity is
+        # refused, and the assembly is not marked ready, so every later call refuses too.
+        mismatches = await _storage_identity_mismatches([dataset])
+        if mismatches:
+            raise _storage_identity_error(mismatches)
         await _migrate_legacy_family_sample_variant_summary(database, dataset)
         await _drop_legacy_gt_stats_aggregates(database, dataset)
         for statement in statements:
             await _execute(statement)
         _ensured_variant_table_assemblies.add(dataset)
+
+
+class ClickHouseStorageIdentityError(RuntimeError):
+    """A variant table on the ClickHouse server identifies its rows without their callset."""
+
+
+def _sort_key_columns(sorting_key: Any) -> tuple[str, ...]:
+    """The columns of a ``system.tables.sorting_key`` value (``a, b, c``; names may be quoted)."""
+    return tuple(
+        column.strip().strip("`")
+        for column in str(sorting_key or "").split(",")
+        if column.strip()
+    )
+
+
+async def _storage_identity_mismatches(datasets: Sequence[str]) -> list[tuple[str, str, str]]:
+    """``(table, its sort key, the sort key it needs)`` for every existing family-scoped
+    table of these assemblies whose sort key is not the one ``_CALLSET_SORT_KEYS`` gives.
+
+    One bound query over ``system.tables``. A table that does not exist yet is created with
+    the right key, and an import's backup copy (``<assembly>/SNAPSHOT/…``) is never served,
+    so neither is listed.
+    """
+    expected = {
+        f"{dataset}/{suffix}": sort_key
+        for dataset in datasets
+        for suffix, sort_key in _CALLSET_SORT_KEYS.items()
+    }
+    if not expected:
+        return []
+    rows = await _execute(
+        """
+        SELECT name, sorting_key
+        FROM system.tables
+        WHERE database = %(database)s AND name IN %(names)s
+        """,
+        {"database": settings.clickhouse_database, "names": tuple(sorted(expected))},
+    )
+    mismatches: list[tuple[str, str, str]] = []
+    for name, sorting_key in rows or []:
+        wanted = expected.get(str(name))
+        actual = _sort_key_columns(sorting_key)
+        if wanted is not None and actual != wanted:
+            mismatches.append((str(name), ", ".join(actual), ", ".join(wanted)))
+    return sorted(mismatches)
+
+
+def _storage_identity_error(
+    mismatches: Sequence[tuple[str, str, str]],
+) -> ClickHouseStorageIdentityError:
+    tables = "; ".join(
+        f"{settings.clickhouse_database}.`{name}` is sorted by ({actual}), "
+        f"this version needs ({wanted})"
+        for name, actual, wanted in mismatches
+    )
+    return ClickHouseStorageIdentityError(
+        "Refusing to use ClickHouse variant tables whose rows are not identified by their "
+        f"callset: {tables}. Under that key a part merge keeps one of two callsets' rows of a "
+        "variant and the other callset's calls are lost. Drop the assembly's SNV_INDEL and SV "
+        "tables, start again and re-import its families: see docs/database.md, "
+        '"Row identity".'
+    )
+
+
+async def verify_clickhouse_variant_storage_identity() -> None:
+    """Refuse to start on variant tables created with an older row identity.
+
+    Startup calls this once ClickHouse is reachable, before the API serves or a worker
+    writes; it checks every assembly's family-scoped tables in one query. Such a table
+    cannot be changed in place, because a MergeTree's sort key is fixed when the table is
+    created. It is not copied into a new table either: its merges may already have dropped
+    calls, which only a re-import brings back. So it is refused, and the message says to
+    recreate the tables and re-import (docs/database.md, "Row identity").
+    """
+    mismatches = await _storage_identity_mismatches(await list_clickhouse_variant_assemblies())
+    if mismatches:
+        raise _storage_identity_error(mismatches)
 
 
 async def _migrate_legacy_family_sample_variant_summary(database: str, dataset: str) -> None:
@@ -1042,7 +1149,7 @@ async def insert_structural_variant_records(
         )
     if lookup_rows:
         await _execute(
-            f"INSERT INTO {_structural_table_name(assembly_name, 'key_lookup')} (family_guid, variantId, key) VALUES",
+            f"INSERT INTO {_structural_table_name(assembly_name, 'key_lookup')} (family_guid, variantId, source, key) VALUES",
             data=lookup_rows,
         )
     if entry_rows:

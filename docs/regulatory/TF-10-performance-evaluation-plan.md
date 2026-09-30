@@ -184,6 +184,7 @@ candidate. One line per change: what changed, its pull request, and the proposed
 - Every small-variant list serves the review's ACMG record, so reopening a classified variant shows its saved criteria and a re-save keeps them (#662; proposed Major)
 - SV/CNV classifications freeze their evidence, and sign-out gates on its drift (#661; proposed Major)
 - A signed case shows and prints its frozen record, and the live report says it is not the signed version (#659; proposed Major)
+- A variant's calls from two small-variant callsets, or an SV's calls from two sources, are both kept; the variant stores are recreated and every family re-imported (#658; proposed Major)
 - PGT embryo calls no longer reassure without the data to support them (#652; proposed Major)
 - Sign-out refuses a partly imported family unless the signer acknowledges it (#650; proposed Major)
 - Monogenic NIPT: one fetal fraction, fetal states the father allows, confident paternity and a protected artifact list (#646; proposed Major)

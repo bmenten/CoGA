@@ -66,8 +66,9 @@ def build_structural_variant_id(
     ``source`` and ``discriminator`` are optional suffixes that keep distinct calls
     apart when coordinates and type alone are not unique. Both default to absent so
     every id built before they existed (the whole NeedlR callset) is byte-identical --
-    the id is the ReplacingMergeTree sort key, so changing it for existing sources
-    would orphan already-stored rows.
+    reviews and the SV gene index attach by the id, so changing it for existing sources
+    would orphan them. The storage key names the source whatever the id holds
+    (:func:`structural_variant_key`), so two callers' rows never collide in storage.
 
     * ``source`` separates callers that legitimately call the same event: a depth-based
       CNV DEL and an alignment-based SV DEL at the same coordinates are two independent
@@ -93,11 +94,28 @@ def build_structural_variant_id(
 
 
 def small_variant_key(assembly_name: str, variant_id: str) -> int:
+    """The storage key of a small variant: the same for every family and callset.
+
+    The shared tables (``variants/details``, the annotations and their indexes) are keyed
+    by it, so every family and callset finds the one annotation of a variant. A family's
+    ``entries`` rows add the callset to the row identity (their sort key ends with
+    ``key, source``), so a clair3 call and a GLIMPSE2 imputation of one variant are two rows.
+    """
     return _stable_uint64("small", assembly_name, variant_id)
 
 
-def structural_variant_key(assembly_name: str, family_uuid: str, variant_id: str) -> int:
-    return _stable_uint64("structural", assembly_name, family_uuid, variant_id)
+def structural_variant_key(
+    assembly_name: str, family_uuid: str, variant_id: str, *, source: str
+) -> int:
+    """The storage key of one caller's call of an SV in one family.
+
+    It hashes the source because the variant id need not name the caller: a per-sample
+    upload's id is ``chrom-start-end-type---``, so a Sniffles and a Spectre call at the same
+    coordinates share it. Keyed on the id alone, the two calls shared one ``entries`` row
+    identity, one ``variants/details`` row and one ``key_lookup`` row, and a part merge kept
+    only one of them. The id stays as it is: reviews and the SV gene index attach by it.
+    """
+    return _stable_uint64("structural", assembly_name, family_uuid, variant_id, source)
 
 
 def _xpos(chrom: str, pos: int) -> int:

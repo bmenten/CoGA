@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import StructuralVariantCards from '../StructuralVariantCards';
 import type { StructuralVariant } from '../structuralVariantSearch';
@@ -81,5 +81,29 @@ describe('StructuralVariantCards HPO link', () => {
     expect(params.getAll('term')).toEqual(['HP:0001250', 'HP:0000707']);
     expect(params.get('family_id')).toBe('F1');
     expect(params.get('from')).toBe('/families/F1/structural-variants?project_id=P1&type=DEL');
+  });
+});
+
+describe('StructuralVariantCards per caller', () => {
+  it('shows one card per caller when two callers share an SV id', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(
+      <MemoryRouter>
+        <StructuralVariantCards
+          familyId="F1"
+          projectId="P1"
+          linkSearch=""
+          members={[]}
+          variants={[
+            { ...variant, source: 'sniffles' },
+            { ...variant, source: 'spectre' },
+          ]}
+          tags={[]}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getAllByRole('article')).toHaveLength(2);
+    expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
+    errors.mockRestore();
   });
 });

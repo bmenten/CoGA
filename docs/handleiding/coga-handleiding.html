@@ -709,13 +709,14 @@ python docs/handleiding/build_site.py
 </tr>
 </tbody>
 </table></div>
-<p>Voor een reviewer zijn drie dingen belangrijk:</p>
+<p>Voor een reviewer zijn vier dingen belangrijk:</p>
 <ul>
 <li>De <code>entries</code>-tabellen trekken een rij bij een nieuwe import logisch in met een <code>sign</code>-kolom (+1/−1). Correcte tellingen vragen dus altijd <code>sign = 1</code>.</li>
 <li>De <code>entries</code>-tabellen zijn verdeeld per project (<code>PARTITION BY project_guid</code>). Dat maakt de projectfilter goedkoop en houdt vragen over projecten heen afgebakend.</li>
+<li>Een rij in <code>entries</code> is de call van één callset (<code>source</code>) voor één variant, in één familie en één project. Wanneer ClickHouse de onderdelen van een tabel samenvoegt, houdt het één rij per sorteersleutel over; daarom eindigt de sorteersleutel op <code>key, source</code>. Zo blijven de rechtstreekse call (clair3) en de geïmputeerde call (GLIMPSE2) van één variant twee rijen, en de diagnostische lijsten tonen de rechtstreekse. Bij een SV bevat ook de sleutel zelf de bron, omdat de id van een SV uit een upload per sample de caller niet noemt: twee callers op dezelfde breekpunten blijven twee rijen. De variant-id hangt niet van de callset af, en reviews, classificatiesnapshots, de ranking-cache en de SV-index voor de tweede hit hangen eraan vast.</li>
 <li>Er is geen aparte, vooraf berekende telling over het cohort: de Variant Explorer telt dragers rechtstreeks uit <code>entries</code>, met <code>sign = 1</code> en de projectfilter (hoofdstuk 14).</li>
 </ul>
-<p class="waar"><strong>Waar in de code:</strong> <code>ensure_clickhouse_variant_tables(assembly_name)</code> in <code>backend/app/services/clickhouse_variant_storage.py</code>, <code>ensure_clickhouse_interval_table(assembly_name)</code> in <code>backend/app/services/clickhouse_interval_tracks.py</code>, en <code>clickhouse_dataset_key</code> in <code>backend/app/core/clickhouse.py</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>ensure_clickhouse_variant_tables(assembly_name)</code> in <code>backend/app/services/clickhouse_variant_storage.py</code>, <code>ensure_clickhouse_interval_table(assembly_name)</code> in <code>backend/app/services/clickhouse_interval_tracks.py</code>, en <code>clickhouse_dataset_key</code> in <code>backend/app/core/clickhouse.py</code>. De sleutels worden gebouwd in <code>backend/app/services/clickhouse_variant_ids.py</code>.</p>
 <h2>Hoe een ClickHouse-rij aan Postgres gekoppeld wordt</h2>
 <p>De twee databanken delen geen fysieke join; de koppeling gebeurt in de applicatie via gedeelde sleutels. De ClickHouse-kolom <code>project_guid</code> bevat de Postgres-project-UUID (<code>projects.id</code>) als tekst, en <code>family_guid</code> de familie-UUID (<code>families.id</code>).</p>
 <ol>
@@ -727,8 +728,9 @@ python docs/handleiding/build_site.py
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/clickhouse_family_variants.py</code> (familievarianten) en <code>backend/app/services/variant_explorer_service.py</code> (varianten over projecten heen).</p>
 <h2>Hoe de schema's worden toegepast</h2>
 <p>CoGA houdt geen migratiegrootboek bij (zoals Alembic met een versietabel). Telkens wanneer het schema wordt toegepast (standaard bij elke start van de backend), worden <strong>alle</strong> Postgres-bestanden opnieuw uitgevoerd, in naamvolgorde en binnen één transactie. Daarom is elk statement idempotent geschreven (<code>CREATE TABLE IF NOT EXISTS</code>, <code>ON CONFLICT DO NOTHING</code> voor startgegevens, <code>GRANT</code>/<code>REVOKE</code>). Een destructieve <code>UPDATE</code> hoort daardoor nooit in een schemabestand thuis: ze zou bij elke herstart opnieuw draaien.</p>
+<p>De ClickHouse-tabellen maakt de backend met <code>CREATE TABLE IF NOT EXISTS</code> aan; een ontbrekende kolom komt er met <code>ADD COLUMN IF NOT EXISTS</code> bij. De sorteersleutel van een tabel ligt echter vast zodra ClickHouse de tabel aanmaakt. Daarom vergelijkt de backend bij het opstarten, en telkens voordat hij de tabellen van een assembly aanmaakt, de sorteersleutel van <code>SNV_INDEL/entries</code>, <code>SV/entries</code> en <code>SV/key_lookup</code> met de verwachte. Heeft een tabel een andere sleutel, dan weigert de backend te starten; de melding noemt de tabel, haar sleutel en de sleutel die nodig is. De rijen worden niet naar een nieuwe tabel gekopieerd: onder de andere sleutel kunnen samenvoegingen al calls hebben laten vallen, en alleen een nieuwe import brengt ze terug. Het herstel (de small-variant- en SV-tabellen van die assembly verwijderen, opnieuw starten en elke familie van de assembly opnieuw importeren) staat in <code>docs/database.md</code>, onder "Row identity".</p>
 <p>Wie het schema toepast (de app zelf als eigenaar, of een aparte migratiestap) en in welke volgorde de backend opstart, staat in <a href="#hs-4">hoofdstuk 4</a>.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>init_postgres_schema</code> in <code>backend/app/core/postgres.py</code> en <code>init_clickhouse_schema</code> in <code>backend/app/core/clickhouse.py</code>.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>init_postgres_schema</code> in <code>backend/app/core/postgres.py</code>, <code>init_clickhouse_schema</code> in <code>backend/app/core/clickhouse.py</code> en <code>verify_clickhouse_variant_storage_identity</code> in <code>backend/app/services/clickhouse_variant_storage.py</code>.</p>
 <h2>Garanties in de databanklaag</h2>
 <p>Veel IVDR-garanties zijn in de databank zelf afgedwongen, zodat ook een fout in de applicatie of een misbruikt API-verzoek ze niet kan omzeilen.</p>
 <ul>
@@ -862,7 +864,7 @@ python docs/handleiding/build_site.py
 <li><strong>Alleen als</strong> <code>POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP</code> aanstaat: het Postgres-schema toepassen en de eerste beheerder aanmaken.</li>
 <li>De achtergrondschrijvers voor de auditlog en de UI-events starten, zodat alles daarna al gelogd wordt.</li>
 <li>In één Postgres-sessie: de repeatcatalogus seeden, GRCh38 verzekeren, optioneel T2T-CHM13 importeren, de HPO-ontologie laden, de ingebouwde tracks seeden en zo nodig de eerste gen-referentiejob in de wachtrij zetten.</li>
-<li>Wachten tot ClickHouse bereikbaar is en het ClickHouse-schema toepassen.</li>
+<li>Wachten tot ClickHouse bereikbaar is en het ClickHouse-schema toepassen. Heeft een varianttabel een sorteersleutel zonder de callset, dan start de backend niet (hoofdstuk 3).</li>
 <li>De integriteitsbewaking van ClickHouse starten: kort na het opstarten en daarna op een vast interval controleert die de varianttabellen, en bij beschadiging logt ze een fout (hoofdstuk 11).</li>
 <li>De worker voor de gen-referentie en de workers voor de pakketimport starten (aantal via <code>FAMILY_IMPORT_WORKER_COUNT</code>).</li>
 </ol>

@@ -492,10 +492,14 @@ def _structural_variant_entry_rows(
             remote_start=record.remote_start,
             remote_end=record.remote_end,
         )
+        source = record.source or ""
+        # A row written back from storage keeps its stored key; a new one gets a key that
+        # names its caller, since the id may not (see structural_variant_key).
         variant_key = record.variant_key or structural_variant_key(
             assembly_name,
             family_uuid,
             variant_id,
+            source=source,
         )
         gene_symbols = _string_list(record.gene_symbols or _annotation_gene_symbols(record.annotations))
         filters = _string_list(record.filters)
@@ -508,7 +512,7 @@ def _structural_variant_entry_rows(
                 int(record.start),
                 int(record.end),
                 record.sv_type,
-                record.source or "",
+                source,
                 normalize_chromosome(record.remote_chr) if record.remote_chr else None,
                 None if record.remote_start is None else int(record.remote_start),
                 None if record.remote_end is None else int(record.remote_end),
@@ -517,7 +521,7 @@ def _structural_variant_entry_rows(
                 _json_payload(record.annotations),
             )
         )
-        lookup_rows.append((family_uuid, variant_id, variant_key))
+        lookup_rows.append((family_uuid, variant_id, source, variant_key))
         sample_ids = [call.sample for call in record.calls]
         sample_gts = [call.gt for call in record.calls]
         sample_quals = [_structural_call_qual(call) for call in record.calls]
@@ -541,7 +545,7 @@ def _structural_variant_entry_rows(
                     int(record.start),
                     int(record.end),
                     record.sv_type,
-                    record.source or "",
+                    source,
                     gene_symbols,
                     sample_ids,
                     sample_gts,

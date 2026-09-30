@@ -194,6 +194,9 @@ calls apart:
   they are.
 - The caller and its version, as the file's header names them, are added to the family's annotation
   versions.
+- Uploads from two callers that report an SV with the same type and breakpoints each keep their own
+  call: the SV list shows the SV once per caller, with that caller's genotypes, and both rows share
+  the SV's review, tags and note.
 
 Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
 source. The upload and this delete leave every other call as it was, with its phase, including the calls
