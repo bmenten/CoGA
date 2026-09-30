@@ -46,7 +46,7 @@ Replacing this ontology is a **TF-18 controlled change**:
    loaded. Apply the new file under Administration → HPO Terminology
    (`/admin/reference/hpo`): preview, then apply, with the path
    `/data/ref-data/hpo/hp.obo`.
-4. Record it: a `CHANGELOG.md` entry and, because a new release changes phenotype
-   matching, a TF-10 §8 line with its proposed level (a TF-18 §8 change record from the
-   first release candidate on). If you rely on the download fallback, set `HPO_ONTOLOGY_SHA256` to the new
+4. Record it: before the first release candidate the pull request is the record (TF-10 §8
+   already lists HPO releases in the validation scope); from the release candidate on, a
+   `CHANGELOG.md` entry and a TF-18 §8 change record. If you rely on the download fallback, set `HPO_ONTOLOGY_SHA256` to the new
    file's digest so the download is checked against it.

@@ -128,8 +128,8 @@ the technical file references rather than duplicates them:
 
 Each document carries a control header: ID, version, status, owner, approver, date. Until the
 CMGG QMS assigns formal IDs and revision control, these drafts carry `v0.1 DRAFT`. **The date in
-a header is that of the first draft; later revisions are tracked in git and `CHANGELOG.md`, and
-from the first release candidate in the change log
+a header is that of the first draft; later revisions are tracked in git, and
+from the first release candidate also in `CHANGELOG.md` and the change log
 ([TF-18 §8](TF-18-change-configuration-management.md)).** Approval, periodic review cadence, and
 storage of the controlled master copy are governed by the CMGG QMS (ISO 15189 clause 8.3
 document control).
