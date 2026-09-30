@@ -9,6 +9,9 @@ import: version-tolerant discovery, sample-name resolution, and the new dataset 
 from pathlib import Path
 
 import gzip
+import tempfile
+
+import pytest
 
 from app.services.family_package_common import (
     CNV_SOURCE,
@@ -34,7 +37,7 @@ from app.services.family_package_qc import (
 )
 from app.services.clickhouse_variant_ids import build_small_variant_id
 from app.services.family_package_common import ManifestDataset
-from app.services.annotation_table_parser import parse_mutserve_annotation_path
+from app.services.annotation_table_parser import parse_mutserve_annotation_lines, parse_mutserve_annotation_path
 
 
 PACBIO_SNV_PATTERNS = NAMING_SCHEMES["standard_v1"]["datasets"]["snv"]
@@ -507,3 +510,22 @@ def test_empty_mutserve_annotation_file_yields_no_lookup(tmp_path: Path) -> None
 
 def test_missing_mutserve_annotation_file_yields_no_lookup(tmp_path: Path) -> None:
     assert parse_mutserve_annotation_path(tmp_path / "absent.txt") is None
+
+
+def test_a_mutserve_parse_that_fails_leaves_no_temporary_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The lookup is an SQLite file in the temporary directory, which on Cloud Run is memory.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    lookup = parse_mutserve_annotation_lines(MUTSERVE_TSV.splitlines(keepends=True))
+    assert len(list(tmp_path.iterdir())) == 1
+    lookup.close()
+    assert list(tmp_path.iterdir()) == []
+
+    def unreadable():
+        yield from MUTSERVE_TSV.splitlines(keepends=True)
+        raise OSError("read failed")
+
+    with pytest.raises(OSError, match="read failed"):
+        parse_mutserve_annotation_lines(unreadable())
+    assert list(tmp_path.iterdir()) == []

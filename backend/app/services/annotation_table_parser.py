@@ -13,7 +13,7 @@ import os
 import sqlite3
 import tempfile
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import HTTPException
 
@@ -158,6 +158,20 @@ def _sqlite_annotation_lookup() -> VepAnnotationLookup:
     )
 
 
+def _indexed_lookup(
+    index_lines: Callable[[VepAnnotationLookup, Any], None], lines: Any
+) -> VepAnnotationLookup:
+    """A new lookup filled from ``lines`` by ``index_lines``. A parse that fails closes it:
+    its SQLite file is in the temporary directory, which on Cloud Run is memory."""
+    lookup = _sqlite_annotation_lookup()
+    try:
+        index_lines(lookup, lines)
+    except BaseException:
+        lookup.close()
+        raise
+    return lookup
+
+
 def _store_vep_annotation(
     lookup: VepAnnotationLookup,
     *,
@@ -174,8 +188,11 @@ def _store_vep_annotation(
 
 
 def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
+    return _indexed_lookup(_index_vep_tsv_lines, lines)
+
+
+def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
     header: list[str] | None = None
-    lookup = _sqlite_annotation_lookup()
     row_count = 0
     # VEP states its tool/database versions in the leading ``## … version …`` block
     # (before "## Column descriptions:"); buffer it for provenance capture.
@@ -241,13 +258,11 @@ def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
                 )
 
     if header is None:
-        lookup.close()
         raise HTTPException(status_code=400, detail="VEP TSV annotation file is missing a header row")
     lookup.row_count = row_count
     lookup.provenance_modules = extract_vep_tab_provenance(provenance_header) or None
     if lookup.conn is not None:
         lookup.conn.commit()
-    return lookup
 
 
 # mutserve's mtDNA annotation columns, mapped onto the annotation keys the mtDNA
@@ -310,7 +325,10 @@ def parse_mutserve_annotation_lines(lines: Any) -> VepAnnotationLookup:
     VEP parser's ``rsid`` alias list would otherwise store as every variant's rsid. The
     join key here is built from ``Pos``/``Ref``/``Variant`` against the chrM contig.
     """
-    lookup = _sqlite_annotation_lookup()
+    return _indexed_lookup(_index_mutserve_lines, lines)
+
+
+def _index_mutserve_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
     header: list[str] | None = None
     row_count = 0
     for raw_line in lines:
@@ -341,7 +359,6 @@ def parse_mutserve_annotation_lines(lines: Any) -> VepAnnotationLookup:
     lookup.row_count = row_count
     if lookup.conn is not None:
         lookup.conn.commit()
-    return lookup
 
 
 def parse_mutserve_annotation_path(path) -> VepAnnotationLookup | None:
