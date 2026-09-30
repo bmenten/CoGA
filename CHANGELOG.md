@@ -882,6 +882,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   now passes the method and URL as `%s` arguments with line breaks deleted (#704). The app shell is read
   once at start-up and served from memory, so no page request reaches the file system (CodeQL
   found both once #694 scanned the server) (#703).
+- **urllib3 2.8.0** — the HTTP library under the ClickHouse client, requests and botocore moves from
+  2.7.0, which GHSA-8988-9cw3-xx77 and GHSA-vxq7-64xx-v4gw affect, to 2.8.0, which fixes both. The
+  blocking dependency audit failed every open PR on them. The unit suite and the integration and e2e
+  suites against Postgres and ClickHouse pass on 2.8.0 (#719).
 
 ### Documentation
 
