@@ -733,6 +733,16 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **Deployment notes and the traceability matrix corrected; an unused ACMG flag removed** —
+  `terraform/secrets.tf` said the Cloud SQL user and the Cloud Run revisions resolve `latest` at
+  apply time. Terraform reads the Postgres password through a data source when it plans or
+  applies; Cloud Run resolves each `latest` env-var secret when an instance starts, and the
+  ClickHouse VM fetches its password when it boots. The Google Cloud guide's sizing note says what
+  a package import from a bucket stages in `/tmp` (every object except the aligned reads and their
+  indexes) and that the copy is deleted when the import ends; **Validate package** is a dry-run
+  import job, not an extra copy held for one request. TF-09b cites the tests from #666 for
+  REQ-DATA-009. The ACMG criteria no longer carry `autoEvaluable`, a flag nothing read whose values
+  no longer matched what the pre-evaluation assesses (#667).
 - **Handleiding: the notes on secrets and the Terraform state corrected** — chapter 4 said the
   Secret Manager values are added separately so that they never end up in the Terraform state.
   `coga-postgres-password` does: Terraform reads it to set the owner's password in Cloud SQL, as
