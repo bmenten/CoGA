@@ -689,6 +689,10 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Security
 
+- **Log forging** — the warning logged when a failed small-variant rewrite cannot restore
+  the rows it read now scrubs the source label and family id of control characters, and
+  `scrub_log` strips line feeds in the form CodeQL recognizes as a sanitizer, so its call
+  sites stop being reported (CodeQL py/log-injection).
 - **Hardening sweep (2026-07)** — authentication (proxy-aware client IP, signup enumeration,
   login timing, override audit, CORS regex) (#361); infrastructure and CI (workflow
   permissions, digest pins, non-root backend container, checksum verification, injection)

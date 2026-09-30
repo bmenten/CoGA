@@ -13,8 +13,12 @@ _LOG_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 def scrub_log(value: Any, *, max_len: int = 512) -> str:
     """Neutralize control characters before a value is interpolated into a log message,
-    defeating log forging. Returns a plain ``str``; oversized values are truncated."""
-    scrubbed = _LOG_CONTROL_RE.sub(" ", str(value))
+    defeating log forging. Returns a plain ``str``; oversized values are truncated.
+
+    The explicit ``replace("\\n", ...)`` changes nothing the regex would not, but it is the
+    form CodeQL's py/log-injection query recognizes as a sanitizer; the regex alone is not,
+    so without it every call site stays flagged."""
+    scrubbed = _LOG_CONTROL_RE.sub(" ", str(value).replace("\n", " "))
     return scrubbed if len(scrubbed) <= max_len else scrubbed[: max_len - 3] + "..."
 
 
