@@ -4,9 +4,9 @@
 // The snapshot is the JSON `report_signout_service.build_report_snapshot` builds and
 // `sign_out_report` completes; its shape is not in the API schema (the endpoint serves it
 // as stored, so its content hash can be re-checked). Nothing here reads live data. A
-// section a record predates is `null`, never an empty value, so the page says it is not in
-// the record instead of showing "none". An entry that cannot be read is kept and marked,
-// never dropped.
+// section a record does not hold is `null`, never an empty value, so the page says it is
+// not in the record instead of showing "none". An entry that cannot be read is kept and
+// marked, never dropped.
 
 import { importIncompleteFromMetadata, type FamilyImportIncomplete } from '../../components/ImportIncompleteBanner';
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
@@ -33,7 +33,7 @@ const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 const has = (record: Json, key: string): boolean => Object.prototype.hasOwnProperty.call(record, key);
 
-/** An override of a sign-out gate, as frozen: `null` when the record predates the gate. */
+/** An override of a sign-out gate, as frozen: `null` when the record holds none. */
 export interface SignedAcknowledgement {
   acknowledged: boolean | null;
   reason: string | null;
@@ -169,17 +169,17 @@ export interface SignedReport {
   modules: SignedModule[] | null;
   software: { version: string; gitSha: string | null } | null;
   drift: SignedDrift | null;
-  /** The SV/CNV classifications' evidence drift; null: signed before CoGA froze their evidence. */
+  /** The SV/CNV classifications' evidence drift; null: not in the record. */
   structuralDrift: SignedStructuralDrift | null;
   driftAcknowledgement: SignedAcknowledgement;
   sampleQc: SignedSampleQc | null;
   qcAcknowledgement: SignedAcknowledgement;
   sequencingQc: SignedSequencingQc | null;
-  /** `absent`: signed before CoGA recorded import completeness; else null when complete. */
+  /** `absent`: the record holds no import state; null: the import was complete. */
   importIncomplete: FamilyImportIncomplete | null | 'absent';
   importAcknowledgement: SignedAcknowledgement;
   reportedVariants: SignedSmallVariant[] | null;
-  /** Null: signed before CoGA froze reported SVs, so the record holds none. */
+  /** Null: the record holds no list of reported SVs. */
   reportedStructuralVariants: SignedStructuralVariant[] | null;
 }
 
@@ -601,7 +601,7 @@ export const describeStructuralEvidenceChange = (
 export const describeSignedStructuralDrift = (item: SignedStructuralDriftItem): string => {
   if (item.status === 'variant_missing') return 'no longer present in the data';
   if (item.status === 'no_snapshot') {
-    return 'no frozen evidence (no CNV scoring saved, or saved before CoGA froze its evidence)';
+    return 'no frozen evidence (no CNV scoring saved)';
   }
   if (item.status === 'unknown') return 'its evidence could not be compared';
   return (

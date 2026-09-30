@@ -315,6 +315,13 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   `external_ff` parameter no screen sent. It could replace the computed fetal fraction when too few
   informative sites gave one; the fetal fraction is now always CoGA's own estimate. Its disagreement
   flag and REQ-NIPT-005 go with it (#700).
+- **Pre-release signed-record formats (#681)** — the sign-out check, the signed view and the docs no
+  longer carry special readings for records signed by earlier development builds: the assumed module
+  list of a record without one, the "signed before CoGA froze it" gap and the uncompared evidence of
+  a record without SV/CNV drift, and the empty SV list assumed for a record without one. The release
+  candidate's snapshot format is the first CoGA reads. The mechanism for later formats stays: a module
+  or section a record does not hold is not compared and reads as not in the record. Old records still
+  verify (#705).
 
 ### Fixed
 
