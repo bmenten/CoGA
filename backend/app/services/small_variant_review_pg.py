@@ -5,7 +5,7 @@ from typing import Any, Sequence
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
@@ -37,6 +37,7 @@ from .small_variant_review_acmg import (
 )
 from .small_variant_review_repository import (
     _fetch_review_row,
+    _fetch_review_rows_for_variants,
     _insert_review_row,
     _update_review_row,
     _delete_review_row,
@@ -134,6 +135,8 @@ async def get_small_variant_review_summary(
     *,
     family_uuid: str,
 ) -> SmallVariantReviewSummaryOut:
+    # Every column _review_document_has_any_content reads: a review that holds only an ACMG
+    # record, or only a compound-het pairing, is a reviewed variant too.
     result = await session.execute(
         text(
             """
@@ -142,7 +145,9 @@ async def get_small_variant_review_summary(
                 classification,
                 tags,
                 note,
+                acmg,
                 compound_het_group_id,
+                compound_het_partner_variant_ids,
                 compound_het_tags,
                 compound_het_note,
                 compound_het_classification
@@ -249,38 +254,15 @@ async def get_small_variant_review_map(
     ]
     if not normalized_variant_ids:
         return {}
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                variant_id,
-                classification,
-                tags,
-                tag_metadata,
-                note,
-                compound_het_group_id,
-                compound_het_partner_variant_ids,
-                compound_het_gene,
-                compound_het_gene_id,
-                compound_het_classification,
-                compound_het_tags,
-                compound_het_tag_metadata,
-                compound_het_note,
-                compound_het_phase_status,
-                compound_het_updated_by,
-                compound_het_updated_at,
-                updated_by,
-                updated_at
-            FROM small_variant_reviews
-            WHERE family_id = CAST(:family_id AS uuid)
-              AND variant_id IN :variant_ids
-            """
-        ).bindparams(bindparam("variant_ids", expanding=True)),
-        {"family_id": family_uuid, "variant_ids": normalized_variant_ids},
+    # The same columns as a single-review read, the ACMG record included: every list of
+    # small variants (the tables, the report, NIPT, mtDNA) carries its reviews from here,
+    # and the ACMG dialog opened from a list is seeded with what it carries.
+    rows = await _fetch_review_rows_for_variants(
+        session, family_uuid=family_uuid, variant_ids=normalized_variant_ids
     )
     return {
         str(document["variant_id"]): _serialize_review(document)
-        for document in (dict(row) for row in result.mappings().all())
+        for document in rows
         if document.get("variant_id") is not None
     }
 

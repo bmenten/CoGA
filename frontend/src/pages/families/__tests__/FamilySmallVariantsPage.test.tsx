@@ -1368,6 +1368,110 @@ describe('FamilySmallVariantsPage', () => {
     await waitFor(() => expect(variantFetches()).toBeGreaterThan(fetchesBeforeSave));
   });
 
+  describe('the ACMG dialog opened from the list', () => {
+    // A classified variant's ACMG record as the save stored it, with an analyst's own
+    // criterion (PS3) that the evaluator never suggests, and a strength they lowered.
+    const SAVED_ACMG = {
+      criteria: [
+        {
+          code: 'PS3',
+          strength: 'strong',
+          accepted: true,
+          evidence: 'RNA assay shows exon skipping',
+          auto_suggested: false,
+        },
+        { code: 'PM2', strength: 'supporting', accepted: true, evidence: null, auto_suggested: true },
+      ],
+      point_total: 5,
+      classification: 'VUS - class 3',
+      vus_tier: 'hot',
+    };
+
+    /** The list's review of v1, with these fields as the backend serves them. */
+    const serveListReview = (fields: Record<string, unknown>) => {
+      const base = apiMock.get.getMockImplementation()!;
+      apiMock.get.mockImplementation(async (url: string, config?: unknown) => {
+        // The dialog reads the family's HPO terms for PP4: none here.
+        if (url === '/families/F1/hpo') return { data: [] };
+        const response = await base(url, config);
+        if (!url.startsWith('/families/F1/small-variants?page=1&page_size=100')) return response;
+        const page = response.data as { variants: Array<Record<string, unknown>> };
+        return {
+          data: {
+            ...page,
+            variants: page.variants.map((variant) =>
+              variant._id === 'v1'
+                ? { ...variant, review: { ...(variant.review as object), ...fields } }
+                : variant,
+            ),
+          },
+        };
+      });
+    };
+
+    const openAcmgFromTheList = async () => {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+            <Routes>
+              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
+      await screen.findByRole('columnheader', { name: /Chr/i });
+      const brca2Row = screen.getAllByRole('row').find((row) => within(row).queryByText('BRCA2'));
+      fireEvent.click(within(brca2Row as HTMLElement).getByRole('button', { name: 'ACMG classify' }));
+      return screen.findByRole('dialog');
+    };
+
+    const resave = async (dialog: HTMLElement) => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save classification' }));
+      await waitFor(() =>
+        expect(apiMock.put).toHaveBeenCalledWith('/families/F1/small-variants/v1/review', expect.anything()),
+      );
+      const payload = apiMock.put.mock.calls.at(-1)?.[1] as {
+        acmg?: { criteria: Array<Record<string, unknown>> };
+      };
+      return payload.acmg?.criteria ?? [];
+    };
+
+    it('shows the saved criteria, and an unchanged re-save keeps them', async () => {
+      serveListReview({ acmg: SAVED_ACMG, acmg_unreadable: false });
+      const dialog = await openAcmgFromTheList();
+
+      expect(await within(dialog).findByRole('checkbox', { name: /^PS3:/ })).toBeChecked();
+      expect(within(dialog).getByRole('combobox', { name: 'PS3 strength' })).toHaveValue('strong');
+      expect(within(dialog).getByRole('checkbox', { name: /^PM2:/ })).toBeChecked();
+      expect(within(dialog).getByRole('combobox', { name: 'PM2 strength' })).toHaveValue('supporting');
+
+      const criteria = await resave(dialog);
+      expect(criteria).toContainEqual({
+        code: 'PS3',
+        strength: 'strong',
+        accepted: true,
+        evidence: 'RNA assay shows exon skipping',
+        auto_suggested: false,
+      });
+      expect(criteria).toContainEqual(
+        expect.objectContaining({ code: 'PM2', strength: 'supporting', accepted: true }),
+      );
+    });
+
+    it('is seeded from the suggestions alone when the list leaves the ACMG record out', async () => {
+      // How the list served a classified variant before it carried the record: acmg null,
+      // not marked unreadable. The dialog then showed no saved decision, and an unchanged
+      // re-save sent the suggestions, which the server stores in place of the record.
+      serveListReview({ acmg: null, acmg_unreadable: false });
+      const dialog = await openAcmgFromTheList();
+
+      expect(await within(dialog).findByRole('checkbox', { name: /^PS3:/ })).not.toBeChecked();
+      const criteria = await resave(dialog);
+      expect(criteria.some((criterion) => criterion.code === 'PS3' && criterion.accepted)).toBe(false);
+    });
+  });
+
   it('shows a loading indicator while a filtered/paginated refetch is in flight', async () => {
     localStorage.setItem('role', 'admin');
 

@@ -77,7 +77,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-CLASS-002 | `services/acmg_points.py` | `test_acmg_classification.py::test_ba1_forces_benign_regardless_of_points` | H3 | ✅ |
 | REQ-CLASS-003 | `services/acmg_points.py::selection_points` | `test_acmg_classification.py` (unaccepted-criteria exclusion) | H3 | ✅ |
 | REQ-CLASS-004 | `services/acmg_points.py` (vus tier) | `test_acmg_classification.py::test_vus_sub_tier_bands` | — | ✅ |
-| REQ-CLASS-005 | `services/small_variant_review_pg.py::upsert_small_variant_review` | `test_acmg_classification.py` (normalize); `AcmgClassificationModal.test.tsx` | H3 | ✅ |
+| REQ-CLASS-005 | `services/small_variant_review_pg.py::upsert_small_variant_review`; `get_small_variant_review_map` (every list serves the stored record, so the dialog reopens with it) | `test_acmg_classification.py` (normalize); `AcmgClassificationModal.test.tsx`; `test_small_variant_review_pg.py::test_a_review_list_selects_every_field_a_review_is_served_with`; `integration/test_review_list_acmg_integration.py` (saved criteria come back through the list, and an unchanged re-save keeps them); `e2e/test_e2e_review_audit.py::test_a_variant_list_serves_the_review_with_its_acmg_criteria`; `FamilySmallVariantsPage.test.tsx` (the dialog opened from the list shows and keeps the saved criteria) | H3 | ✅ |
 | REQ-CLASS-006 | `services/cnv_acmg_points.py::compute_classification`; `CnvAcmgClassificationModal.tsx` | `test_cnv_acmg_points.py`; `CnvAcmgClassificationModal.test.tsx` (kind toggle, overridable criteria, recompute→save); `cnvAcmg.test.ts` | H3 | ✅ |
 
 ### Clinical traceability & integrity

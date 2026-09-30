@@ -76,6 +76,128 @@ async def test_get_small_variant_review_map_binds_variant_ids_expanding() -> Non
     assert result["var-1"].tags == ["validated"]
 
 
+# A stored review as a single-review read returns it: an ACMG record with an analyst's
+# own criterion, and a compound-het pairing, so every field the serializer reads is set.
+_STORED_REVIEW = {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "family_id": "family-uuid",
+    "variant_key": 7,
+    "variant_id": "var-1",
+    "classification": "Likely Pathogenic - class 4",
+    "tags": ["acmg_class_4", "report"],
+    "tag_metadata": {"report": {"updated_by": "admin", "updated_at": "2026-09-01T10:00:00+00:00"}},
+    "note": "kept",
+    "compound_het_group_id": "group-1",
+    "compound_het_partner_variant_ids": ["var-2"],
+    "compound_het_gene": "GENE1",
+    "compound_het_gene_id": "ENSG1",
+    "compound_het_classification": "Pathogenic - class 5",
+    "compound_het_tags": ["report"],
+    "compound_het_tag_metadata": {},
+    "compound_het_note": "pair",
+    "compound_het_phase_status": "trans",
+    "compound_het_updated_by": "admin",
+    "compound_het_updated_at": datetime(2026, 9, 1, tzinfo=timezone.utc),
+    "acmg": {
+        "criteria": [
+            {"code": "PS3", "strength": "strong", "accepted": True, "evidence": "RNA assay", "auto_suggested": False},
+            {"code": "PM2", "strength": "supporting", "accepted": True, "evidence": None, "auto_suggested": True},
+        ],
+        "point_total": 5,
+        "classification": "VUS - class 3",
+        "vus_tier": "hot",
+    },
+    "acmg_point_total": 5,
+    "acmg_class": "acmg_class_3",
+    "acmg_evidence_snapshot": {"annotation_set_hash": "h"},
+    "updated_by": "admin",
+    "created_at": datetime(2026, 9, 1, tzinfo=timezone.utc),
+    "updated_at": datetime(2026, 9, 2, tzinfo=timezone.utc),
+}
+
+
+class _ReadRecording(dict):
+    """A review row that records which fields are read from it."""
+
+    def __init__(self, row: dict) -> None:
+        super().__init__(row)
+        self.read: set[str] = set()
+
+    def get(self, key, default=None):
+        self.read.add(key)
+        return super().get(key, default)
+
+    def __getitem__(self, key):
+        self.read.add(key)
+        return super().__getitem__(key)
+
+
+def _selected_columns(sql: str) -> set[str]:
+    select_list = sql.split("SELECT", 1)[1].split("FROM", 1)[0]
+    columns = set()
+    for item in (part.strip() for part in select_list.split(",")):
+        columns.add(item.rsplit(" AS ", 1)[-1].strip() if " AS " in item else item)
+    return columns
+
+
+@pytest.mark.asyncio
+async def test_a_review_list_selects_every_field_a_review_is_served_with() -> None:
+    # A list serves each review as a read of that one review does. Its query once left out
+    # the ACMG record, so every list served a classified variant with acmg = None, and the
+    # ACMG dialog opened from a list was seeded without the saved criteria.
+    session = _RecordingSession([_STORED_REVIEW])
+
+    served = await small_variant_review_pg.get_small_variant_review_map(
+        session, family_uuid="family-uuid", variant_ids=["var-1"]
+    )
+
+    recording = _ReadRecording(_STORED_REVIEW)
+    small_variant_review_pg._serialize_review(recording)
+    assert recording.read - _selected_columns(session.sql) == set()
+    assert served["var-1"] == small_variant_review_pg._serialize_review(dict(_STORED_REVIEW))
+    assert served["var-1"].acmg is not None
+    assert [(c.code, c.strength, c.accepted, c.evidence) for c in served["var-1"].acmg.criteria] == [
+        ("PS3", "strong", True, "RNA assay"),
+        ("PM2", "supporting", True, None),
+    ]
+    assert served["var-1"].acmg_unreadable is False
+
+
+class _ProjectingSession:
+    """Answers a query as Postgres would: the stored rows, cut down to the selected columns."""
+
+    def __init__(self, rows) -> None:
+        self.rows = rows
+        self.sql: str | None = None
+
+    async def execute(self, statement, params=None):
+        self.sql = str(statement)
+        selected = _selected_columns(self.sql)
+        return _FakeResult([{key: value for key, value in row.items() if key in selected} for row in self.rows])
+
+
+@pytest.mark.asyncio
+async def test_a_review_holding_only_an_acmg_record_counts_as_reviewed() -> None:
+    # A classification saved with no tag, class label or note is still a review. The
+    # summary's query once selected neither the ACMG record nor the compound-het partners,
+    # so such a review was not counted.
+    acmg_only = {
+        **{key: None for key in _STORED_REVIEW},
+        "variant_id": "var-1",
+        "tags": [],
+        "compound_het_tags": [],
+        "compound_het_partner_variant_ids": [],
+        "acmg": _STORED_REVIEW["acmg"],
+    }
+    paired_only = {**acmg_only, "variant_id": "var-2", "acmg": None, "compound_het_partner_variant_ids": ["var-9"]}
+
+    summary = await small_variant_review_pg.get_small_variant_review_summary(
+        _ProjectingSession([acmg_only, paired_only]), family_uuid="family-uuid"
+    )
+
+    assert summary.reviewed_variant_count == 2
+
+
 def test_report_tag_registered_as_default_collaboration_tag() -> None:
     report = next(
         (tag for tag in small_variant_review_tags.DEFAULT_SMALL_VARIANT_TAGS if tag["key"] == "report"),
