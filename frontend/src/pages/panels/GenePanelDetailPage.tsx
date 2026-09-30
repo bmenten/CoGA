@@ -5,7 +5,7 @@ import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
-import { getErrorMessage } from '../../lib/errorMessage';
+import { getErrorMessage, type ApiErrorLike } from '../../lib/errorMessage';
 import type {
   GeneLocation,
   GenePanel,
@@ -86,8 +86,8 @@ const GenePanelDetailPage: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['panel', panelId, 'versions'] }),
         queryClient.invalidateQueries({ queryKey: ['panels'] }),
       ]);
-    } catch (err: any) {
-      const detail = err.response?.data?.detail;
+    } catch (err) {
+      const detail = (err as ApiErrorLike).response?.data?.detail;
       setEditStatus(typeof detail === 'string' ? detail : 'Error updating panel');
     } finally {
       setSaving(false);

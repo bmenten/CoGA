@@ -21,7 +21,7 @@ vi.mock('../../../lib/api', () => ({
 }));
 
 vi.mock('../../../components/visualizations/CircosPlot', () => ({
-  default: (props: any) => {
+  default: (props: { chromData: Array<{ chr: string; bands?: unknown[] }> }) => {
     circosSpy(props);
     const firstChrom = props.chromData[0];
     return (

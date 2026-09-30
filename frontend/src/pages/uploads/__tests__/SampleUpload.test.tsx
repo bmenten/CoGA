@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, it, vi, type Mock } from 'vitest';
 
 import SampleUpload from '../SampleUpload';
 import api from '../../../lib/api';
@@ -56,7 +56,7 @@ describe('SampleUpload', () => {
   });
 
   it('uploads family small variants with parser selection', async () => {
-    (api.post as any).mockResolvedValue({
+    (api.post as unknown as Mock).mockResolvedValue({
       data: {
         inserted: 12,
         haplotypes_inserted: 4,
@@ -136,7 +136,7 @@ describe('SampleUpload', () => {
   });
 
   it('uploads structural variants with explicit parser selection', async () => {
-    (api.post as any).mockResolvedValue({
+    (api.post as unknown as Mock).mockResolvedValue({
       data: {
         processed: 8,
         created: 7,
@@ -181,7 +181,7 @@ describe('SampleUpload', () => {
   });
 
   it('uploads TRGT repeat expansions for one sample', async () => {
-    (api.post as any).mockResolvedValue({
+    (api.post as unknown as Mock).mockResolvedValue({
       data: {
         inserted: 21,
         processed: 21,

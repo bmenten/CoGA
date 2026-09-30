@@ -85,7 +85,7 @@ const renderPage = () => {
 describe('PackageImportPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (api.post as any).mockReset();
+    (api.post as unknown as Mock).mockReset();
     storage.clear();
     storage.setItem(AUTH_STORAGE_KEYS.role, 'admin');
   });
@@ -102,7 +102,7 @@ describe('PackageImportPage', () => {
   });
 
   it('starts an admin package dry run from a folder path', async () => {
-    (api.post as any).mockResolvedValue({
+    (api.post as unknown as Mock).mockResolvedValue({
       data: {
         _id: 'job-1',
         submitted_path: '/data/FAM-100',
@@ -187,7 +187,7 @@ describe('PackageImportPage', () => {
   });
 
   it('discovers and writes a manifest draft for admins', async () => {
-    (api.post as any).mockImplementation((url: string, payload: any) => {
+    (api.post as unknown as Mock).mockImplementation((url: string, payload: unknown) => {
       if (url === '/family-imports/manifest/discover') {
         return Promise.resolve({
           data: {

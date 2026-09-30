@@ -34,7 +34,7 @@ describe('GeneInfoPage', () => {
     localStorage.setItem('role', 'admin');
 
     (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (url: string, config?: any) => {
+      (url: string, config?: { params?: Record<string, unknown> }) => {
         if (url === '/genes/search') {
           return Promise.resolve({
             data: [

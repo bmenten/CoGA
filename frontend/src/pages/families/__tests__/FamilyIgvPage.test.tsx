@@ -50,7 +50,7 @@ vi.mock('../../../lib/api', () => ({
 }));
 
 vi.mock('../../../components/IgvViewer', () => ({
-  default: (props: any) => (
+  default: (props: { genome: string; sampleIds: string[]; locus?: string | null }) => (
     <div data-testid="igv-viewer">
       {props.genome}|{props.sampleIds.join(',')}|{props.locus ?? ''}
     </div>

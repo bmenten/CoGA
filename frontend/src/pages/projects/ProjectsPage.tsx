@@ -117,7 +117,7 @@ const ProjectsPage: React.FC = () => {
     queryKey: ['projects'],
     queryFn: async () => {
       const res = await api.get('/projects');
-      return (res.data as any[]).map((project) => withEntityId(project)) as Project[];
+      return (res.data as Project[]).map((project) => withEntityId(project));
     },
   });
 
@@ -125,7 +125,7 @@ const ProjectsPage: React.FC = () => {
     queryKey: ['species'],
     queryFn: async () => {
       const res = await api.get('/species');
-      return (res.data as any[]).map((entry) => withEntityId(entry)) as Species[];
+      return (res.data as Species[]).map((entry) => withEntityId(entry));
     },
   });
 
@@ -133,7 +133,7 @@ const ProjectsPage: React.FC = () => {
     queryKey: ['assemblies', 'all'],
     queryFn: async () => {
       const res = await api.get('/assemblies');
-      return (res.data as any[]).map((entry) => withEntityId(entry)) as Assembly[];
+      return (res.data as Assembly[]).map((entry) => withEntityId(entry));
     },
   });
 
@@ -141,7 +141,7 @@ const ProjectsPage: React.FC = () => {
     queryKey: ['admin', 'users'],
     queryFn: async () => {
       const res = await api.get('/auth/users');
-      return (res.data as any[]).map((entry) => withEntityId(entry)) as User[];
+      return (res.data as User[]).map((entry) => withEntityId(entry));
     },
     enabled: userIsAdmin,
   });

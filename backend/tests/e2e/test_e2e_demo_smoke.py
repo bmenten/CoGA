@@ -189,7 +189,7 @@ def smoke(tmp_path_factory, request) -> dict:
     from backend.tests.e2e import _harness
 
     if not (_NIPT_BUNDLE / "manifest.yaml").exists() or not (_QUARTET_BUNDLE / "metadata").exists():
-        pytest.skip("demo bundles missing")
+        pytest.fail("demo bundles missing: they are committed under demo/, so restore them")
 
     base = tmp_path_factory.mktemp("demo_smoke")
     nipt_root = base / "nipt_family"

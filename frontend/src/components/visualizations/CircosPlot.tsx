@@ -312,6 +312,16 @@ interface ChromLayout {
   outlinePath: string;
 }
 
+interface RadialNode {
+  angle: number;
+  radius: number;
+}
+
+interface RadialLink {
+  source: RadialNode;
+  target: RadialNode;
+}
+
 interface VariantRender {
   key: string;
   d: string | null;
@@ -662,9 +672,9 @@ const CircosPlot: FC<CircosPlotProps> = ({
 
     // --- variant links (computed once, then keyed-joined) ---
     const link = d3
-      .linkRadial<any, any>()
-      .angle((d: any) => d.angle)
-      .radius((d: any) => d.radius);
+      .linkRadial<RadialLink, RadialNode>()
+      .angle((d) => d.angle)
+      .radius((d) => d.radius);
     const getScale = (chr?: string) => {
       if (!chr) return undefined;
       return angleScales[chr] || angleScales[chr.replace(/^chr/i, '')];
@@ -698,7 +708,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
           d = link({
             source: { angle: sourceAngle, radius: insertionOuter },
             target: { angle: sourceAngle, radius: insertionInner },
-          } as any);
+          });
         } else if (type === 'INV') {
           const invRadius = innerRadius - 45;
           const midAngle = (sourceAngle + targetAngle) / 2;
@@ -730,7 +740,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
           d = link({
             source: { angle: sourceAngle, radius },
             target: { angle: targetAngle, radius },
-          } as any);
+          });
           if (type === 'DEL' || type === 'DUP') {
             strokeWidth = 15;
           }

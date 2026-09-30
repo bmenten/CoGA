@@ -32,7 +32,7 @@ export function useProjectCatalog(enabled = true) {
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const response = await api.get('/projects');
-      return (response.data as any[]).map((entry) => withEntityId(entry)) as ProjectReference[];
+      return (response.data as ProjectReference[]).map((entry) => withEntityId(entry));
     },
   });
 }

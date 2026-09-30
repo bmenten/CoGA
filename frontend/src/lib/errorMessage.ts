@@ -7,7 +7,7 @@ type ErrorMessageOptions = {
   networkFallback?: string;
 };
 
-type ApiErrorLike = {
+export type ApiErrorLike = {
   response?: { status?: number; data?: { detail?: unknown } };
   request?: unknown;
   code?: string;

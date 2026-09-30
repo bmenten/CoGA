@@ -34,8 +34,11 @@ vi.mock('../../../lib/useMeasuredWidth', () => ({
   useMeasuredWidth: () => [{ current: null }, 1400] as const,
 }));
 
+// What the mocked sidebar and workspace read of their props.
+type MemberProp = { sample_id: string };
+
 vi.mock('../GenomeOverviewSidebar', () => ({
-  default: (props: any) => {
+  default: (props: { members: MemberProp[]; chromSelected: Record<string, boolean> }) => {
     sidebarSpy(props);
     const selectedChroms = Object.entries(props.chromSelected)
       .filter(([, enabled]) => Boolean(enabled))
@@ -43,19 +46,23 @@ vi.mock('../GenomeOverviewSidebar', () => ({
       .join(',');
     return (
       <div data-testid="genome-sidebar">
-        {props.members.map((member: any) => member.sample_id).join(',')}|{selectedChroms}
+        {props.members.map((member) => member.sample_id).join(',')}|{selectedChroms}
       </div>
     );
   },
 }));
 
 vi.mock('../GenomeOverviewWorkspace', () => ({
-  default: (props: any) => {
+  default: (props: {
+    visibleMembers: MemberProp[];
+    visibleRoi?: { label?: string } | null;
+    navigateToChromosome: (chrom: string, region?: { start: number; end: number }) => void;
+  }) => {
     workspaceSpy(props);
     return (
       <>
         <div data-testid="genome-workspace">
-          {props.visibleMembers.map((member: any) => member.sample_id).join(',')}|{props.visibleRoi?.label || 'no-roi'}
+          {props.visibleMembers.map((member) => member.sample_id).join(',')}|{props.visibleRoi?.label || 'no-roi'}
         </div>
         <button type="button" onClick={() => props.navigateToChromosome('X')}>
           Open chromosome
@@ -175,7 +182,7 @@ describe('GenomeOverviewPage', () => {
     expect(availabilityCall).toContain('sample_filter=PROBAND%3Ahom');
 
     const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
-    expect(lastWorkspaceProps.visibleMembers.map((member: any) => member.sample_id)).toEqual([
+    expect(lastWorkspaceProps.visibleMembers.map((member: MemberProp) => member.sample_id)).toEqual([
       'SIB',
     ]);
     expect(lastWorkspaceProps.backDest).toBe(

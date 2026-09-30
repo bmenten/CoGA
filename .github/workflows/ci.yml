@@ -53,7 +53,7 @@ jobs:
           --cov=backend/app
           --cov-report=term-missing:skip-covered
           --cov-report=json:coverage.json
-          --cov-fail-under=63
+          --cov-fail-under=70
       - name: Enforce clinical-critical coverage floors
         run: python scripts/check-coverage-floor.py coverage.json
       - name: Upload coverage report
