@@ -274,6 +274,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   only added prefixes for Firefox and Opera releases from before 2019) and the direct
   `@typescript-eslint/eslint-plugin` and `/parser` entries, which `typescript-eslint` brings in.
   `python-dotenv` stays: it reads the `.env` file (#689).
+- **ClickHouse schema upgrades (#679)** — the code that brought older ClickHouse tables up to date:
+  the migration that dropped the per-sample summary without `project_guid`, the drop of the retired
+  `gt_stats` aggregates, the read path's tolerance for that old summary, and four `ALTER`s that
+  added or dropped columns the `CREATE TABLE` statements already define. The data is synthetic, so
+  the tables are created from their final definition only; a local database with an older schema
+  is reset (`docker compose down -v`). A table with an older row identity is still refused (#696).
 
 ### Fixed
 

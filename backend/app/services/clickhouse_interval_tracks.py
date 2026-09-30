@@ -337,7 +337,7 @@ async def fetch_apcad_downsampled(
       would silently blank the whole track. Where phased markers do exist they still
       win, so a trio's APCAD track is unaffected.
     - Quality gate: keep VCF ``filter = PASS`` (plus markers with no recorded filter,
-      so older uploads without provenance are not dropped); drop the low-quality
+      which a source without VCF provenance, such as the bigWig track, never has); drop the low-quality
       VQSR-tranche markers. The per-marker ``qual`` score is also available in
       ``metadata_json`` if a stricter numeric threshold is ever wanted.
     - Band-aware, quality-ranked budget: keep the heterozygous (BAF mid-band)
