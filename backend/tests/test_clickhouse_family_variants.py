@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import types
+
 import pytest
 from clickhouse_connect.driver.binding import bind_query
 from clickhouse_connect.driver.exceptions import DatabaseError
@@ -10,6 +12,8 @@ from backend.app.services.clickhouse_family_variants import (
     _fetch_small_variant_rows,
     _prioritized_small_variants_page,
     _prioritized_structural_variants_page,
+    export_family_small_variants,
+    export_family_structural_variants,
     get_family_compound_het_candidates,
     get_family_small_variants_page,
     get_family_structural_variants_page,
@@ -947,6 +951,7 @@ async def _run_non_native_structural_page(
     *,
     returned_rows: int,
     queries: list[tuple[str, dict[str, object]]] | None = None,
+    runner=get_family_structural_variants_page,
     **page_kwargs,
 ):
     async def fake_execute_clickhouse(query: str, params: dict[str, object]):
@@ -986,7 +991,11 @@ async def _run_non_native_structural_page(
         "type": "DEL",  # any of these filters forces the non-native fetch-all path
     }
     kwargs.update(page_kwargs)
-    return await get_family_structural_variants_page(
+    if runner is not get_family_structural_variants_page:
+        # An export asks for its own single large page.
+        kwargs.pop("page")
+        kwargs.pop("page_size")
+    return await runner(
         None,  # type: ignore[arg-type]
         context=_family_context(),
         **kwargs,  # type: ignore[arg-type]
@@ -2438,3 +2447,225 @@ def test_clamp_small_variant_page_bounds_deep_offset() -> None:
     assert _clamp_small_variant_page(0, 100) == 1
     assert _clamp_small_variant_page(10_000_000, 0) == 10_000_000
     assert _page_offset(_clamp_small_variant_page(10_000_000, 0), 0) == 0
+
+
+# --- A capped candidate read must mark the export truncated -------------------------
+#
+# Compound-het / recessive pairing and expanded carrier screening run in Python over a
+# candidate window of at most _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS rows, however large the
+# export cap. A match beyond the window is absent from the CSV; before this fix the export
+# still reported itself complete because it only looked at its own row cap.
+
+
+def _patch_small_candidate_path(monkeypatch: pytest.MonkeyPatch, *, candidates: int) -> list[int | None]:
+    pair = [
+        _small_variant("v1", "GENE1", calls=_COMPOUND_HET_PAIR_CALLS_A, start=100),
+        _small_variant("v2", "GENE1", calls=_COMPOUND_HET_PAIR_CALLS_B, start=200),
+    ]
+    filler_calls = [
+        _small_call("PROBAND", "0/0"),
+        _small_call("MOM", "0/1"),
+        _small_call("DAD", "0/0"),
+        _small_call("SIB", "0/0"),
+    ]
+    limits: list[int | None] = []
+
+    async def fake_fetch(_context, _filters, **kwargs):
+        limit = kwargs.get("limit")
+        limits.append(limit)
+        wanted = candidates if limit is None else min(candidates, limit)
+        fillers = [
+            _small_variant(f"f{i}", f"FILL{i}", calls=filler_calls, start=1_000 + i)
+            for i in range(max(wanted - len(pair), 0))
+        ]
+        return [*pair, *fillers][:wanted]
+
+    async def _empty_list(*_a, **_k):
+        return []
+
+    async def _empty(*_a, **_k):
+        return {}
+
+    m = "backend.app.services.clickhouse_family_variants."
+    monkeypatch.setattr(m + "_fetch_small_variant_rows", fake_fetch)
+    monkeypatch.setattr(m + "list_matching_small_variant_review_ids", _empty_list)
+    monkeypatch.setattr(m + "get_small_variant_review_map", _empty)
+    monkeypatch.setattr(m + "_fetch_gene_constraint_metric_map", _empty)
+    return limits
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"inheritance": "compound_het"},
+        {"inheritance": "recessive"},
+        {"expanded_carrier_screening": True},
+    ],
+)
+async def test_small_export_over_a_capped_candidate_read_is_truncated(
+    monkeypatch: pytest.MonkeyPatch, filters: dict[str, object]
+) -> None:
+    # The window is full: more candidates exist than were read.
+    limits = _patch_small_candidate_path(monkeypatch, candidates=_SMALL_INHERITANCE_MAX_CANDIDATE_ROWS + 50)
+    export = await export_family_small_variants(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        **filters,
+    )
+    assert limits == [_SMALL_INHERITANCE_MAX_CANDIDATE_ROWS + 1]
+    # Far fewer rows than the 50,000-row export cap, yet the file is incomplete.
+    assert len(export.rows) < export.limit
+    assert export.truncated is True
+    assert export.truncated_reason == "candidate-limit"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"inheritance": "compound_het"},
+        {"expanded_carrier_screening": True},
+    ],
+)
+async def test_small_export_within_the_candidate_window_is_complete(
+    monkeypatch: pytest.MonkeyPatch, filters: dict[str, object]
+) -> None:
+    _patch_small_candidate_path(monkeypatch, candidates=40)
+    export = await export_family_small_variants(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        **filters,
+    )
+    assert export.truncated is False
+    assert export.truncated_reason is None
+
+
+@pytest.mark.asyncio
+async def test_small_candidate_page_flags_the_capped_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The table view carries the same signal, so a consumer of the page can tell too.
+    _patch_small_candidate_path(monkeypatch, candidates=_SMALL_INHERITANCE_MAX_CANDIDATE_ROWS + 50)
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=500,
+        inheritance="compound_het",
+    )
+    assert page.candidates_capped is True
+    assert [str(v.id) for v in page.variant_groups[0].variants] == ["v1", "v2"]
+
+
+@pytest.mark.asyncio
+async def test_structural_export_over_the_candidate_cap_is_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP",
+        2,
+    )
+    # 3 rows for a cap of 2: the Python-filtered read missed at least one SV, while the
+    # export (2 rows) is nowhere near its own row cap.
+    export = await _run_non_native_structural_page(
+        monkeypatch, returned_rows=3, runner=export_family_structural_variants
+    )
+    assert len(export.rows) == 2
+    assert export.truncated is True
+    assert export.truncated_reason == "candidate-limit"
+
+    complete = await _run_non_native_structural_page(
+        monkeypatch, returned_rows=2, runner=export_family_structural_variants
+    )
+    assert complete.truncated is False
+
+
+@pytest.mark.asyncio
+async def test_prioritized_small_ranking_that_filters_to_nothing_still_flags_the_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The candidate window overflowed and none of it survived the Python-side filters: the
+    # empty ranking covers only the window, so a matching variant may lie beyond it. The
+    # early return used to drop ranking_truncated, and the prioritised export said "complete".
+    from backend.app.services.clickhouse_family_variants import _PRIORITIZE_CANDIDATE_LIMIT
+
+    calls = [_small_call("PROBAND", "0/1")]
+    records = [
+        _small_variant(f"1-{i}-A-G", "GENE1", calls=calls, start=i)
+        for i in range(1, _PRIORITIZE_CANDIDATE_LIMIT + 2)
+    ]
+    m = "backend.app.services.clickhouse_family_variants."
+
+    async def _no_hpo(*_a, **_k):
+        return (set(), {})
+
+    async def _hashes(*_a, **_k):
+        return ("inputs-hash", "base-hash")
+
+    async def _none(*_a, **_k):
+        return None
+
+    async def _version(*_a, **_k):
+        return "1:1"
+
+    async def _fetch(*_a, **_k):
+        return list(records)
+
+    monkeypatch.setattr(m + "_affected_present_hpo", _no_hpo)
+    monkeypatch.setattr(m + "_family_small_variant_data_version", _version)
+    monkeypatch.setattr(m + "compute_ranking_hashes", _hashes)
+    monkeypatch.setattr(m + "get_cached_ranking", _none)
+    monkeypatch.setattr(m + "_serve_subpanel_from_superset", _none)
+    monkeypatch.setattr(m + "_fetch_small_variant_rows", _fetch)
+    monkeypatch.setattr(m + "canonical_filters", lambda *a, **k: {})
+    monkeypatch.setattr(m + "store_ranking", _none)
+    monkeypatch.setattr(m + "_small_record_matches", lambda *a, **k: False)
+    page = await _prioritized_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        filters=SmallVariantQueryFilters(page=1, page_size=50),
+        page=1,
+        page_size=50,
+        panel_constraints=PanelFilterConstraints(),
+        review_variant_ids=None,
+        excluded_review_variant_ids=set(),
+        include_review_filter_active=False,
+        include_regions=[],
+        exclude_regions=[],
+        exclude_gene_regions=[],
+        exclude_gene_terms=[],
+        small_variant_summary=None,
+    )
+    assert page.variants == []
+    assert page.ranking_truncated is True
+    assert page.total_is_estimated is True
+
+
+@pytest.mark.asyncio
+async def test_prioritized_structural_ranking_that_filters_to_nothing_still_flags_the_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP",
+        2,
+    )
+    m = "backend.app.services.clickhouse_family_variants."
+
+    async def _empty_set(*_a, **_k):
+        return set()
+
+    async def _fetch(*_a, **_k):
+        # cap + 1: the read overflowed
+        return [types.SimpleNamespace(variant_id=f"sv{i}") for i in range(3)]
+
+    monkeypatch.setattr(m + "_fetch_structural_variant_rows", _fetch)
+    monkeypatch.setattr(m + "_structural_record_matches", lambda *a, **k: False)
+    monkeypatch.setattr(m + "list_matching_structural_variant_review_ids", _empty_set)
+    page = await _prioritized_structural_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        filters=StructuralVariantQueryFilters(page=1, page_size=50),
+        page=1,
+        page_size=50,
+        selected_samples=["PROBAND"],
+    )
+    assert page.variants == []
+    assert page.ranking_truncated is True
+    assert page.total_is_estimated is True
