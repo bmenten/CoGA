@@ -1,14 +1,8 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import * as d3 from 'd3';
+import { countOf } from '../../lib/countOf';
+import type { PedRow } from '../../lib/pedigree';
 
-interface PedRow {
-  fid: string;
-  iid: string;
-  pid: string;
-  mid: string;
-  sex: string;
-  phen: string;
-}
 
 interface PedigreeMember {
   sample_id: string;
@@ -1021,9 +1015,6 @@ const isAffectedMember = (row: PedRow, member?: PedigreeMember): boolean =>
   isAffectedPhenotype(row.phen) ||
   member?.clinical_status === 'affected' ||
   member?.affected === true;
-
-const countOf = (count: number, one: string, many = `${one}s`): string =>
-  `${count.toLocaleString()} ${count === 1 ? one : many}`;
 
 /**
  * The pedigree's accessible name. `role="img"` hides the per-symbol tooltips from

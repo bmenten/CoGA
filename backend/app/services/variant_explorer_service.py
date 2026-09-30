@@ -38,8 +38,7 @@ from typing import Any, Sequence
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
-from ..core.config import settings
+from ..core.clickhouse import execute_clickhouse
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
     GlobalVariantPageOut,
@@ -49,6 +48,7 @@ from ..schemas import (
     VariantCarriersOut,
     VariantExplorerAssemblyOut,
 )
+from .clickhouse_variant_ids import _small_table_name
 from .clickhouse_variant_records import CLINVAR_FREQUENCY_RESCUE_TERMS, _status_filter_terms
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
@@ -187,11 +187,6 @@ _CLINVAR_RANK = {
 }
 
 _MAX_TAG_FILTER_VARIANT_IDS = 200_000
-
-
-def _small_table_name(assembly_name: str, suffix: str) -> str:
-    dataset = clickhouse_dataset_key(assembly_name)
-    return f"{settings.clickhouse_database}.`{dataset}/SNV_INDEL/{suffix}`"
 
 
 def _split_terms(value: str | None) -> list[str]:

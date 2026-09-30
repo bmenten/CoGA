@@ -265,6 +265,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   combined, global and per module) are raised to 3 points under what CI measured. The frontend's 67
   explicit `any`s are typed, so ESLint now allows no warnings at all. The package-validation command
   has a test (#695).
+- **Shared helpers (#684)** — the PED parser and its row type (four and six copies), the count-with-noun
+  formatter of four charts, and the ClickHouse table-name and UUID-check helpers (three copies each)
+  each live once now (`lib/pedigree.ts`, `lib/countOf.ts`, `clickhouse_variant_ids`, `core/sql.require_uuid`).
+  The APCAD and coverage-segment charts use the shared chromosome normaliser, so a `chrx` or `chr01` in
+  the data now reaches the X or 1 panel, as on the other tracks. The `formatBp` variants stay: each
+  formats for its own scale (#701).
 
 ### Removed
 

@@ -204,6 +204,7 @@ candidate. One line per change: what changed, its pull request, and the proposed
 
 ### Proposed minor
 
+- The APCAD and coverage-segment charts read a chromosome however the data spells it (lower case, a leading zero), as the other tracks do (#701; proposed Minor)
 - Monogenic NIPT: the fetal fraction takes no external value (the API-only `external_ff` and its disagreement flag are removed), and every change to the artifact list is a clinical audit event (#700; proposed Minor)
 - A per-sample filter minimum (GQ, DP, AF, AD alt, SV QUAL) that is not a number fails the search with a 422 naming it; an unreadable AF or AD-alt minimum used to be dropped, widening the result without saying so (#690; proposed Minor)
 - A package import records each sample's mtDNA haplogroup, so the mtDNA workspace shows it for the maternal-lineage check of the Sample QC review (#671; proposed Minor)
