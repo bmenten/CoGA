@@ -16,7 +16,7 @@ import pandas as pd
 import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / "scripts"))
-import clinical_cnv_knowledgebase as kb_script  # noqa: E402
+import clinical_cnv_knowledgebase as kb_script
 
 WBS = "GRCh38/hg38 7q11.23(chr7:73330452-74799773)"
 

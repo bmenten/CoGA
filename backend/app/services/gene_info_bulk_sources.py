@@ -1265,7 +1265,7 @@ async def _load_csv_dataset(
             consulted_symbols=consulted,
             release=release,
         )
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:  # noqa: BLE001 - recorded as the source's error status  # pragma: no cover
         return GeneBulkSourceDataset(
             name=name,
             source_url=url,
@@ -1385,7 +1385,7 @@ def _load_dbnsfp_gene_dataset(
             payload={"symbols_with_records": len(records_by_symbol)},
             release=release,
         )
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:  # noqa: BLE001 - recorded as the source's error status  # pragma: no cover
         return GeneBulkSourceDataset(
             name="dbNSFP gene",
             source_url=str(existing_path),

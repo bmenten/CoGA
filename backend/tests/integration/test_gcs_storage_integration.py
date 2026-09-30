@@ -35,10 +35,10 @@ import pytest
 
 pytest.importorskip("google.cloud.storage")
 
-from google.auth.credentials import AnonymousCredentials  # noqa: E402
-from google.cloud import storage  # noqa: E402
+from google.auth.credentials import AnonymousCredentials
+from google.cloud import storage
 
-from app.core import object_storage as s  # noqa: E402
+from app.core import object_storage as s
 
 pytestmark = pytest.mark.integration
 
@@ -69,7 +69,7 @@ def _wait_ready(endpoint: str, timeout: float = 30.0) -> bool:
             with urllib.request.urlopen(url, timeout=2) as resp:
                 if resp.status < 500:
                     return True
-        except Exception:
+        except Exception:  # noqa: BLE001 - keep polling until the emulator answers
             time.sleep(0.5)
     return False
 
@@ -134,7 +134,7 @@ def gcs_backend(gcs_endpoint):
     )
     try:
         bucket = admin.create_bucket(_BUCKET)
-    except Exception:
+    except Exception:  # noqa: BLE001 - the bucket already exists on a re-run
         bucket = admin.bucket(_BUCKET)
     for key, body in {
         "F1/S1.cram": b"CRAMDATA",

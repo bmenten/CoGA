@@ -123,13 +123,13 @@ def _parse_request_body(request: Request, body_bytes: bytes) -> Any | None:
     if "application/x-www-form-urlencoded" in content_type:
         try:
             form_items = parse_qsl(body_bytes.decode("utf-8"), keep_blank_values=True)
-        except Exception:
+        except Exception:  # noqa: BLE001 - an unparseable form body is recorded as a placeholder
             return {"_captured": False, "_reason": "unparsed_body", "_bytes": len(body_bytes)}
         return _sanitize_for_logging({key: value for key, value in form_items})
 
     try:
         parsed = json.loads(body_bytes.decode("utf-8"))
-    except Exception:
+    except Exception:  # noqa: BLE001 - fail closed: record a placeholder, never the raw bytes
         # Unknown/unparseable body: do not persist raw bytes, which may carry
         # credentials or other secrets we cannot key-mask. Record a placeholder
         # instead so the audit trail stays useful without leaking (fail closed).
@@ -222,7 +222,7 @@ async def log_request_response(request: Request, call_next) -> Response:
     if _should_capture_body(request):
         try:
             raw_body = await request.body()
-        except Exception:
+        except Exception:  # noqa: BLE001 - a body that cannot be read is recorded as empty
             raw_body = b""
         request_body = _parse_request_body(request, raw_body)
     elif request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
@@ -309,7 +309,7 @@ async def log_request_response(request: Request, call_next) -> Response:
                     error=error_message,
                 )
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a lost audit row is logged; it never fails the request
             logger.warning(
                 f"Failed to persist audit log: {exc}",
                 user=user,

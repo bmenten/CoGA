@@ -169,7 +169,7 @@ def _collection_alias_paths() -> frozenset[str]:
     if _api_collection_alias_paths is None:
         try:
             openapi_paths = app.openapi().get("paths", {})
-        except Exception:  # never let schema generation break request handling
+        except Exception:  # noqa: BLE001 - never let schema generation break request handling
             return frozenset()
         _api_collection_alias_paths = frozenset(
             path[:-1]

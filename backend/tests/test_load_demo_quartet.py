@@ -4,8 +4,8 @@ import sys
 import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / "scripts"))
-import load_demo_quartet as script  # noqa: E402
-from backend.app.schemas import ManualPedMemberCreate  # noqa: E402
+import load_demo_quartet as script
+from backend.app.schemas import ManualPedMemberCreate
 
 
 def test_load_demo_bundle_reads_manifest_and_family_definition() -> None:

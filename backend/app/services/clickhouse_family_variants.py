@@ -691,7 +691,7 @@ async def _attach_sv_second_hits(
                         "gene": matched_gene,
                     }
                 )
-    except Exception:  # noqa: BLE001 - the second-hit overlay must never break the page
+    except Exception:  # the second-hit overlay must never break the page
         logger.warning("SV second-hit overlay failed for family %s", context.family_id, exc_info=True)
 
 
@@ -717,7 +717,7 @@ async def _hydrate_small_variant_outs(
         internal_map = await _fetch_internal_cohort_map(
             context, [str(variant.id) for variant in variants]
         )
-    except Exception:  # pragma: no cover - internal frequency is best-effort
+    except Exception:  # noqa: BLE001  # pragma: no cover - internal frequency is best-effort
         internal_map = {}
     for variant in variants:
         variant.internal_cohort = internal_map.get(str(variant.id))
@@ -741,7 +741,7 @@ async def _hydrate_small_variant_outs(
                 for variant in variants
             ],
         )
-    except Exception:  # pragma: no cover - the band is decoration, never the page
+    except Exception:  # noqa: BLE001  # pragma: no cover - the band is decoration, never the page
         cytoband_map = {}
     for variant in variants:
         variant.cytoband = cytoband_map.get(str(variant.id))

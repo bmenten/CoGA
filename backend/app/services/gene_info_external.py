@@ -138,7 +138,7 @@ async def fetch_external_gene_bundle(
             payload=ncbi_payload,
             message=None if ncbi_payload else "No NCBI Gene record returned",
         )
-    except Exception as error:  # pragma: no cover
+    except Exception as error:  # noqa: BLE001 - recorded as the source's error status  # pragma: no cover
         source_status_map["ncbi"] = source_status(
             status="error",
             source_url="https://www.ncbi.nlm.nih.gov/home/develop/api/",

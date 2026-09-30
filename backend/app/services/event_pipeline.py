@@ -130,7 +130,7 @@ async def write_event_batch_with_retry(
         try:
             await write_batch(list(batch))
             return
-        except Exception:  # noqa: BLE001 — retried below; final loss is recorded
+        except Exception:  # retried below; final loss is recorded
             if attempt >= attempts:
                 logger.exception(
                     "Audit pipeline %s: batch of %d events failed after %d attempts",

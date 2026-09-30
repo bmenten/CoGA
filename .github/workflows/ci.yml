@@ -31,10 +31,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/requirements-dev.txt
       - name: Lint (ruff)
-        # Pyflakes plus the bugbear checks for real defects (ruff.toml, #526).
+        # Pyflakes plus the checks for real defects ([tool.ruff] in pyproject.toml, #526).
         run: ruff check .
       - name: Type-check the clinical-critical modules (mypy)
-        # The modules listed in mypy.ini (#526).
+        # The modules listed under [tool.mypy] in pyproject.toml (#526).
         run: mypy
       - name: Frontend API types match the backend's schema
         # frontend/src/lib/apiSchema.generated.ts is generated from the OpenAPI schema;
@@ -43,7 +43,7 @@ jobs:
         run: python scripts/generate-api-types.py --check
       - name: Run tests with coverage
         # The suite is self-contained (Postgres/ClickHouse access is mocked), so
-        # no service containers are required. Honours pytest.ini testpaths
+        # no service containers are required. Honours the pytest testpaths in pyproject.toml
         # (backend/tests). --cov-fail-under is the global floor (P2-7). The data
         # file is kept for the combined report in the `coverage` job (#526).
         env:

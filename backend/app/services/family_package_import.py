@@ -280,7 +280,7 @@ async def _import_family_datasets(
             logs.append(
                 "Snapshotted the family's existing data for atomic restore on failure."
             )
-        except Exception:  # noqa: BLE001 - degrade to the incomplete flag on snapshot failure
+        except Exception:  # degrade to the incomplete flag on snapshot failure
             logger.warning(
                 "Failed to snapshot family %s before overwrite; a failed import will fall "
                 "back to the import-incomplete flag",
@@ -318,7 +318,7 @@ async def _import_family_datasets(
                 progress=dataset_progress,
             )
             logs.append(f"Dataset {summary.dataset_type}: {datasets[index].status}.")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the dataset is recorded as failed and fails the import
             await session.rollback()
             datasets[index] = summary.model_copy(
                 update={
@@ -371,7 +371,7 @@ async def _import_family_datasets(
             logs.append(
                 "Import failed; atomically restored the family's data to its pre-import state."
             )
-        except Exception:  # noqa: BLE001 - restore failed; fall back to the flag
+        except Exception:  # restore failed; fall back to the flag
             logger.warning(
                 "Failed to restore family %s after a failed overwrite; flagging "
                 "import-incomplete",
@@ -440,7 +440,7 @@ async def _import_family_datasets(
             # The SV→gene index (the small-variant "also hit by an SV" flag) depends on the
             # imported SVs — drop it so it rebuilds lazily after a re-import.
             await clear_family_sv_gene_index(session, family_context.family_uuid)
-        except Exception:  # noqa: BLE001 - best-effort cache invalidation
+        except Exception:  # best-effort cache invalidation
             logger.warning(
                 "Failed to clear caches after import for family %s",
                 family_context.family_id,

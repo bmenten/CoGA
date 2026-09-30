@@ -17,7 +17,7 @@ from ..schemas import (
 from .access_control import CurrentUser, is_admin_user
 
 from .family_package_source import package_folder_path
-from .family_package_common import _dataset_summary_list, _issue_list, _json_dict, _json_list, _model_list_json  # noqa: F401
+from .family_package_common import _dataset_summary_list, _issue_list, _json_dict, _json_list, _model_list_json
 
 
 logger = logging.getLogger(__name__)

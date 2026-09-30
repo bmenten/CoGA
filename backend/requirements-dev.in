@@ -8,6 +8,6 @@
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-# Lint and type-check gates (#526); configuration in ruff.toml and mypy.ini.
+# Lint and type-check gates (#526); configuration in the repository's pyproject.toml.
 ruff==0.16.9
 mypy==2.3.1

@@ -408,7 +408,7 @@ async def _canonical_sequencing_qc(
 
     try:
         resolved = await resolve_family_qc_thresholds(session, family_uuid=context.family_uuid)
-    except Exception:  # noqa: BLE001 — see the docstring
+    except Exception:  # see the docstring
         logger.exception("Could not resolve QC thresholds for the report snapshot")
         # Frozen as explicitly unavailable, so the signed record does not read like a
         # family imported without QC outputs (#514). The marker appears only on failure,

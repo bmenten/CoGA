@@ -145,7 +145,7 @@ async def discard_family_clickhouse_snapshot(
     for _source, backup in snapshot.specs:
         try:
             await execute_clickhouse(f"DROP TABLE IF EXISTS {backup} SYNC")
-        except Exception:  # noqa: BLE001 - cleanup must not mask the import outcome
+        except Exception:  # cleanup must not mask the import outcome
             logger.warning(
                 "Failed to drop import snapshot backup table %s", backup, exc_info=True
             )

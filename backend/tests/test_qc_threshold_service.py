@@ -67,7 +67,7 @@ def test_unmeasured_or_unconfigured_metrics_are_skip_not_pass() -> None:
 
 
 def test_lower_is_worse_boundaries() -> None:
-    verdict = lambda value: evaluate_metric(  # noqa: E731
+    verdict = lambda value: evaluate_metric(
         value, direction="lower_is_worse", warn_value=20.0, error_value=10.0
     )
     assert verdict(25.0) == "pass"
@@ -79,7 +79,7 @@ def test_lower_is_worse_boundaries() -> None:
 
 
 def test_higher_is_worse_boundaries() -> None:
-    verdict = lambda value: evaluate_metric(  # noqa: E731
+    verdict = lambda value: evaluate_metric(
         value, direction="higher_is_worse", warn_value=6000.0, error_value=8000.0
     )
     assert verdict(5000.0) == "pass"
@@ -243,7 +243,7 @@ class _FakeProfileSession:
         self.existing_label = existing_label
         self.committed = False
 
-    async def execute(self, statement, params=None):  # noqa: ANN001
+    async def execute(self, statement, params=None):
         existing = self.existing_label
         bound = params or {}
 
@@ -368,7 +368,7 @@ class _RecordingThresholdSession:
         self.statements: list[tuple[str, dict]] = []
         self.commits = 0
 
-    async def execute(self, statement, params=None):  # noqa: ANN001
+    async def execute(self, statement, params=None):
         self.statements.append((" ".join(str(statement).split()), dict(params or {})))
         previous = self.previous
 
