@@ -181,6 +181,8 @@ without chrM variants removes that sample's calls.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete* until an import completes it, and its report can be signed out only
   with an acknowledgement ([Report traceability & sign-out](/docs/reference/clinical-traceability)).
+- **While an import is queued or runs**, the family's report cannot be signed out: the data is not yet
+  complete. Sign out once the job has finished.
 
 ---
 

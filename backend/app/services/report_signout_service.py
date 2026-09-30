@@ -15,6 +15,10 @@ drift. It is also
 gated on the Sample-integrity QC and on an incomplete import (a family-package import
 that partly failed); each gate is acknowledged separately, with a reason that is frozen
 into the snapshot and recorded in the audit event.
+
+A family whose data is being written is not signed out at all: not while a package import
+of it is queued or runs, nor while another write of its variants holds their lock, and no
+such write can start while the snapshot is read (:func:`_refuse_while_family_is_written`).
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ from .assembly_scope import is_validated_assembly, off_scope_message, validated_
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
+from .family_variant_write_lock import try_share_family_variant_writes
 from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
 from .access_control import CurrentUser
 from .sample_integrity_qc import (
@@ -311,6 +316,95 @@ def _import_gate_message(state: Mapping[str, Any]) -> str:
         f"This family's data is incomplete: {what}. The report may lack data from what "
         f"failed.{job} Re-run the import to complete it, or acknowledge with a reason to "
         "sign out anyway."
+    )
+
+
+# The family's package import that is queued, or is validating or writing its data. A job
+# names its family once its validation read the package (``family_id``), or from the
+# request when one named it (``metadata.requested_family_id``, which the import requires
+# the package to match). A job whose worker stopped keeps its status until a worker claims
+# it again, and counts: the family it left behind may be half imported, with no
+# import-incomplete flag. A dry run writes nothing.
+_ACTIVE_IMPORT_JOB = text(
+    """
+    SELECT id::text AS id, status
+    FROM family_import_jobs
+    WHERE status IN ('queued', 'validating', 'running')
+      AND NOT dry_run
+      AND (family_id = :family_identifier
+           OR metadata ->> 'requested_family_id' = :family_identifier)
+    ORDER BY requested_at
+    LIMIT 1
+    """
+)
+
+
+async def _active_import_job(session: AsyncSession, family_identifier: str) -> dict[str, Any] | None:
+    row = (
+        await session.execute(_ACTIVE_IMPORT_JOB, {"family_identifier": family_identifier})
+    ).mappings().first()
+    return dict(row) if row is not None else None
+
+
+async def _refuse_while_family_is_written(
+    session: AsyncSession, context: FamilyMetadataContext
+) -> None:
+    """Refuse (409) a sign-out of a family whose data is being written, and keep every
+    writer of its variants out until the sign-out's transaction ends.
+
+    A package import writes a family over minutes: its pedigree and samples, then dataset
+    after dataset, committing as it goes, and on a failure it restores or flags the
+    family. It holds the family's variant-write locks from its first dataset to its end,
+    and its job reads ``running`` from before its first write to its end. A snapshot read
+    in between would freeze a half-imported family, with no import-incomplete flag yet, as
+    a complete signed record. So a sign-out is refused while the family has an import job
+    queued or running, or while any writer holds the family's variant-write locks; shares
+    those locks for the rest of its transaction, so no write of the family's variants
+    starts while the snapshot is read; and checks the import jobs once more after the
+    snapshot (:func:`_refuse_if_import_started`). Nothing waits: a sign-out refused here
+    can be retried once the write has finished.
+    """
+    await _refuse_if_import_started(session, context)
+    if not await try_share_family_variant_writes(session, context.family_uuid):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "gate": "variant_writes_in_progress",
+                "message": (
+                    "This family's variants are being written (by an import, an upload or a "
+                    "deletion), so the report would be signed out from data that is "
+                    "changing. Sign out once the write has finished."
+                ),
+            },
+        )
+
+
+async def _refuse_if_import_started(
+    session: AsyncSession, context: FamilyMetadataContext
+) -> None:
+    """Refuse (409) while a package import of the family is queued or running.
+
+    Run before the snapshot and again after it: an import whose job was claimed while the
+    snapshot was read may already have rewritten the pedigree or samples it read (it
+    writes those before it takes the variant-write locks). Its job reads ``running``
+    before it writes anything, and each statement reads what is committed, so the check
+    after the snapshot sees every import that wrote during it.
+    """
+    job = await _active_import_job(session, context.family_id)
+    if job is None:
+        return
+    state = "queued" if job["status"] == "queued" else "in progress"
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "gate": "import_in_progress",
+            "message": (
+                f"An import of this family's data is {state} (import job {job['id']}), so "
+                "the report would be signed out from data that is incomplete or changing. "
+                "Sign out once the import has finished."
+            ),
+            "import_job": {"id": job["id"], "status": job["status"]},
+        },
     )
 
 
@@ -684,9 +778,16 @@ async def sign_out_report(
                 "validated_assemblies": validated_assemblies(),
             },
         )
+    # Nothing of the family is being written, and no write of its variants starts before
+    # this transaction ends (TF-06 H16). Not acknowledgeable: the data is not yet what it
+    # will be. Before the snapshot, so a refused sign-out costs nothing, and before the
+    # sign-out chain's lock below, as every variant-write lock comes first.
+    await _refuse_while_family_is_written(session, context)
     snapshot_body = await build_report_snapshot(
         session, family_id=family_id, user=user, project_id=project_id
     )
+    # An import claimed while the snapshot was read may have written part of what it read.
+    await _refuse_if_import_started(session, context)
 
     # One gate, one acknowledgement: the small-variant and the SV/CNV drift together.
     structural_drifted_count = snapshot_body[STRUCTURAL_DRIFT_SECTION]["drifted_count"]

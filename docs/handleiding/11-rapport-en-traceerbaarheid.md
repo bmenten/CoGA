@@ -1,6 +1,6 @@
 # 11. Rapport & volledige traceerbaarheid
 
-In dit hoofdstuk komt alles samen. Het beschrijft hoe een casus wordt *ondertekend* (sign-out) tot een **bevroren, geversioneerd en gehasht snapshot** van het rapport, gebonden aan de software-, annotatie- en referentieversies die het maakten. Aan bod komen de **poorten** die eerst vervuld moeten zijn (de referentie binnen de gevalideerde scope, geen onverklaarde classificatiedrift, geen onverklaarde sample-QC-fout, geen onverklaarde onvolledige import), het **append-only, hash-geketende** auditspoor en de externe **integriteitsankers**. De rode draad is de volledige keten: van het ruwe bestand met zijn hash, via het annotatiemanifest en de variant, tot het ondertekende rapport.
+In dit hoofdstuk komt alles samen. Het beschrijft hoe een casus wordt *ondertekend* (sign-out) tot een **bevroren, geversioneerd en gehasht snapshot** van het rapport, gebonden aan de software-, annotatie- en referentieversies die het maakten. Aan bod komen de **poorten** die eerst vervuld moeten zijn (de referentie binnen de gevalideerde scope, geen import of andere schrijfactie op de familie bezig, geen onverklaarde classificatiedrift, geen onverklaarde sample-QC-fout, geen onverklaarde onvolledige import), het **append-only, hash-geketende** auditspoor en de externe **integriteitsankers**. De rode draad is de volledige keten: van het ruwe bestand met zijn hash, via het annotatiemanifest en de variant, tot het ondertekende rapport.
 
 Wat de gebruiker op de rapportpagina ziet (de kleuren van het ondertekeningsrecord, de meldingen bij een mislukte vraag), staat in de app: *Docs → Report traceability & sign-out* (`frontend/src/content/docs/clinical-traceability.md`). Het ontwerp staat in `docs/clinical-traceability.md`; de risico's en eisen in de technical file (`TF-06`, `TF-09b`).
 
@@ -38,19 +38,31 @@ De versies en de driftstatus worden bij het ondertekenen bevroren. Het auditspoo
 Ondertekenen gaat via **`POST /api/families/{id}/report/sign-out`**. De service `sign_out_report` doet, in volgorde:
 
 0. **Poort 0 — de referentie is gevalideerd.** Staat de assembly van de familie niet in `VALIDATED_ASSEMBLIES` (standaard alleen `GRCh38`), of is er geen, dan weigert de backend (`409`, `gate = "assembly_scope"`). Die weigering kan niet worden erkend of omzeild. De pagina's tonen zo'n familie als *Not validated for clinical use*, en het rapport biedt dan geen ondertekenknop aan (`TF-06`, gevaar H12).
-1. **Het snapshot samenstellen:** de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, de importstatus, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags, notitie en bevroren bewijs.
-2. **Poort 1 — drift** (hieronder).
-3. **Poort 2 — sample-QC** (hieronder).
-4. **Poort 3 — onvolledige import** (hieronder).
-5. **Versie en keten vastleggen** onder een slot per familie, zodat twee gelijktijdige ondertekeningen elkaar niet kunnen storen.
-6. **De hashes berekenen** en de nieuwe rij **toevoegen** aan `report_signouts` als volgende versie.
-7. **Een klinisch auditevent schrijven** (`sign_out`), in dezelfde transactie.
+1. **Poort 0b — er wordt niet naar de familie geschreven** (hieronder). Ook deze weigering kan niet worden erkend.
+2. **Het snapshot samenstellen:** de familiecontext, het annotatiemanifest, de driftcontrole, de sample-QC, de sequencing-QC met de gebruikte grenzen, de importstatus, en alle gerapporteerde reviews: de small variants met klasse, criteria, notitie en bevroren bewijs, en de structurele varianten en CNV's met classificatie, CNV-criteria, tags, notitie en bevroren bewijs. Daarna worden de importjobs nog eens nagekeken (poort 0b).
+3. **Poort 1 — drift** (hieronder).
+4. **Poort 2 — sample-QC** (hieronder).
+5. **Poort 3 — onvolledige import** (hieronder).
+6. **Versie en keten vastleggen** onder een slot per familie, zodat twee gelijktijdige ondertekeningen elkaar niet kunnen storen.
+7. **De hashes berekenen** en de nieuwe rij **toevoegen** aan `report_signouts` als volgende versie.
+8. **Een klinisch auditevent schrijven** (`sign_out`), in dezelfde transactie.
 
 **Wie mag ondertekenen.** Alleen wie het labo als ondertekenaar machtigt. Dat is een procedurele maatregel, geen controle in de software: CoGA laat elk lid van het project (ook een `viewer`) ondertekenen (`TF-06`, gevaar H15). Ondertekenen vraagt wel een login en projecttoegang. De ondertekenaar wordt vastgelegd als verwijzing naar het account én als tekst, zodat hij herkenbaar blijft als het account later verdwijnt.
 
 **Wijzigingen.** Elke ondertekening is een nieuwe versie; een ondertekende versie wordt nooit gewijzigd. In het live rapport heet de knop dan *Amend sign-out*.
 
 **Waar in de code:** `backend/app/services/report_signout_service.py` (`sign_out_report`, `build_report_snapshot`).
+
+### Poort 0b — er wordt niet naar de familie geschreven
+
+Een pakketimport schrijft een familie over enkele minuten: eerst de stamboom en de samples, dan dataset na dataset, met een commit na elke stap (hoofdstuk 6). De vlag `import_incomplete` komt pas als de import mislukt is. Een snapshot dat tijdens de import gelezen wordt, kan dus een half geïmporteerde familie als volledig bevriezen (`TF-06`, gevaar H16). Daarom weigert de backend (`409`, niet te erkennen, zonder te wachten):
+
+- zolang voor de familie een importjob (geen dry run) `queued` (met de familie in de aanvraag), `validating` of `running` is: `gate = "import_in_progress"`, met het id en de status van de job. Een job waarvan de worker stopte, blijft weigeren tot een worker hem opnieuw oppakt;
+- zolang een schrijver de schrijfsloten van de varianten van de familie houdt (een import, een upload, een verwijdering door een admin; `family_variant_write_lock.py`, hoofdstuk 6): `gate = "variant_writes_in_progress"`.
+
+Wie de poort passeert, deelt die sloten tot het einde van de transactie (`pg_try_advisory_xact_lock_shared`): ondertekeningen houden elkaar niet tegen, maar een schrijver van de varianten wacht tot de ondertekening klaar is. De sloten worden genomen vóór het slot van de sign-outketen, zoals elke schrijver ze als eerste neemt. Na het snapshot kijkt de ondertekening de importjobs opnieuw na: een import die intussen werd opgepakt, zet zijn job op `running` vóór hij iets schrijft, en weigert dan de ondertekening. De rapportpagina toont beide weigeringen als *Not signed out.*, zonder dialoog.
+
+**Waar in de code:** `_refuse_while_family_is_written` en `_refuse_if_import_started` in `report_signout_service.py`; `try_share_family_variant_writes` in `family_variant_write_lock.py`.
 
 ### Poort 1 — geen onverklaarde drift
 

@@ -511,6 +511,15 @@ const LiveFamilyReport: React.FC = () => {
         );
         return;
       }
+      // The family's data is being written: an import queued or running, or another write
+      // of its variants. No override either; the reviewer signs out once it has finished.
+      if (gate === 'import_in_progress' || gate === 'variant_writes_in_progress') {
+        setSignOutError(
+          (detail as { message?: string }).message ||
+            'This family’s data is being written. Sign out once that has finished.',
+        );
+        return;
+      }
       // A failing Sample QC returns a structured detail (gate discriminator + a failure
       // summary); it needs an acknowledge-WITH-REASON override, so open the dialog.
       if (gate === 'sample_qc') {
@@ -543,6 +552,13 @@ const LiveFamilyReport: React.FC = () => {
           jobId: incomplete.import_incomplete?.job_id ?? null,
           vars,
         });
+        return;
+      }
+      // A gate this page does not know is a refusal, never the drift override below.
+      if (gate !== undefined) {
+        setSignOutError(
+          (detail as { message?: string }).message || 'The report could not be signed out.',
+        );
         return;
       }
       // Evidence-drift gate (plain string detail): acknowledge WITH a reason, like QC.

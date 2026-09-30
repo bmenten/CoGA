@@ -20,7 +20,9 @@ writes against Postgres and ClickHouse.
 Then each writer's lock is pinned: which of the family's locks it takes, that it takes them
 before its first read and holds them until its commit, that a writer which waited for a
 delete of its family or sample writes nothing, and that the package import holds both from
-its snapshot until its restore while its own dataset loaders take none of their own.
+its snapshot until its restore while its own dataset loaders take none of their own. Last,
+the report sign-out's share of the locks: a write started while a sign-out reads the family
+waits for it, and a sign-out is refused at once, without waiting, while a writer holds them.
 """
 
 from __future__ import annotations
@@ -102,15 +104,23 @@ class _Result:
     def fetchall(self) -> list[tuple[Any, ...]]:
         return list(self._rows)
 
+    def scalar_one(self) -> Any:
+        assert len(self._rows) == 1
+        return self._rows[0][0]
+
 
 class _Postgres:
     """The stored families and samples, and the transaction-scoped advisory locks as the
-    server keeps them: one holder per key, until its transaction ends. ``log`` records, in
-    order, each lock granted, each transaction's end and each storage call made."""
+    server keeps them: one exclusive holder per key, or any number of shared holders, until
+    their transaction ends. An exclusive request waits for the shared holders; a shared
+    try-lock is refused while the key is held or waited for exclusively, as Postgres queues
+    it behind the waiting request. ``log`` records, in order, each lock granted or refused,
+    each transaction's end and each storage call made."""
 
     def __init__(self) -> None:
         self.samples: dict[str, set[str]] = {_FAMILY: set(_SAMPLES.values())}
         self._locks: dict[str, asyncio.Lock] = {}
+        self.shared: dict[str, int] = {}
         self.log: list[tuple[str, ...]] = []
         self.lock_statements: list[tuple[str, dict[str, Any]]] = []
 
@@ -136,6 +146,7 @@ class _Session:
         self.postgres = postgres
         self.name = name
         self.held: list[str] = []
+        self.shared: list[str] = []
 
     async def __aenter__(self) -> "_Session":
         return self
@@ -146,12 +157,24 @@ class _Session:
     async def execute(self, statement: Any, params: Any = None) -> _Result:
         sql = " ".join(str(statement).split())
         params = params if isinstance(params, dict) else {}
+        if "pg_try_advisory_xact_lock_shared" in sql:
+            self.postgres.lock_statements.append((sql, dict(params)))
+            key = str(params["k"])
+            if self.postgres.lock(key).locked():
+                self.postgres.log.append((self.name, "share refused", key))
+                return _Result([(False,)])
+            self.postgres.shared[key] = self.postgres.shared.get(key, 0) + 1
+            self.shared.append(key)
+            self.postgres.log.append((self.name, "share", key))
+            return _Result([(True,)])
         if "pg_advisory_xact_lock" in sql:
             self.postgres.lock_statements.append((sql, dict(params)))
             key = str(params["k"])
             if key not in self.held:  # a key the session holds is granted again at once
                 await self.postgres.lock(key).acquire()
                 self.held.append(key)
+                while self.postgres.shared.get(key):  # wait for the shared holders
+                    await asyncio.sleep(0.001)
             self.postgres.log.append((self.name, "lock", key))
             return _Result()
         if "FROM families f" in sql and "family_uuid" in params:
@@ -178,6 +201,9 @@ class _Session:
         for key in self.held:
             self.postgres.lock(key).release()
         self.held.clear()
+        for key in self.shared:
+            self.postgres.shared[key] -= 1
+        self.shared.clear()
         self.postgres.log.append((self.name, how))
 
 
@@ -1154,3 +1180,96 @@ async def test_a_hold_whose_connection_is_lost_keeps_the_blocks_outcome(
     # took its locks with it (here: the session's close).
     assert "Could not end the variant-write lock transaction" in caplog.text
     assert lost.held == []
+
+
+# --- The sign-out, the one reader that shares the locks -------------------------------
+
+_SHARE_SQL = "SELECT pg_try_advisory_xact_lock_shared(hashtext(:k))"
+
+
+@pytest.mark.asyncio
+async def test_a_write_started_during_a_sign_out_waits_for_the_sign_out_to_end() -> None:
+    postgres = _Postgres()
+    share = family_variant_write_lock.try_share_family_variant_writes
+    signout = postgres.session("sign-out")
+
+    assert await share(signout, _FAMILY) is True  # type: ignore[arg-type]
+    # Sign-outs do not keep each other out.
+    other_signout = postgres.session("other sign-out")
+    assert await share(other_signout, _FAMILY) is True  # type: ignore[arg-type]
+    await other_signout.rollback()
+    upload = asyncio.create_task(
+        lock_family_variant_writes(postgres.session("upload"), _FAMILY, [STRUCTURAL_VARIANTS])  # type: ignore[arg-type]
+    )
+    await asyncio.sleep(0.05)
+    assert not upload.done(), "a write must not start while a sign-out reads the family"
+    # Another family's writes are not held up.
+    await asyncio.wait_for(
+        lock_family_variant_writes(postgres.session("elsewhere"), "other-family", VARIANT_TYPES),  # type: ignore[arg-type]
+        timeout=1,
+    )
+
+    await signout.commit()
+    await asyncio.wait_for(upload, timeout=1)
+    assert postgres.trace("sign-out", "upload") == [
+        f"share {_key(SMALL_VARIANTS)}",
+        f"share {_key(STRUCTURAL_VARIANTS)}",
+        "commit",
+        f"lock {_key(STRUCTURAL_VARIANTS)}",
+    ]
+    # Shared and without waiting, one statement per key, small variants first.
+    assert [(sql, params["k"]) for sql, params in postgres.lock_statements if "shared" in sql] == [
+        (_SHARE_SQL, _key(SMALL_VARIANTS)),
+        (_SHARE_SQL, _key(STRUCTURAL_VARIANTS)),
+    ] * 2
+
+
+@pytest.mark.asyncio
+async def test_a_sign_out_is_refused_while_the_import_holds_the_familys_locks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    postgres = _Postgres()
+    monkeypatch.setattr(
+        family_variant_write_lock, "get_postgres_sessionmaker", lambda: lambda: postgres.session("import lock")
+    )
+    share = family_variant_write_lock.try_share_family_variant_writes
+
+    async with hold_family_variant_writes(_FAMILY):
+        refused = postgres.session("sign-out")
+        async with asyncio.timeout(1):  # refused at once, never waiting for the import
+            assert await share(refused, _FAMILY) is False  # type: ignore[arg-type]
+        await refused.rollback()
+
+    after = postgres.session("sign-out after")
+    assert await share(after, _FAMILY) is True  # type: ignore[arg-type]
+    assert postgres.trace("sign-out", "sign-out after") == [
+        f"share refused {_key(SMALL_VARIANTS)}",
+        "rollback",
+        f"share {_key(SMALL_VARIANTS)}",
+        f"share {_key(STRUCTURAL_VARIANTS)}",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_sign_out_refused_on_one_lock_keeps_the_other_until_its_transaction_ends() -> None:
+    postgres = _Postgres()
+    share = family_variant_write_lock.try_share_family_variant_writes
+    upload = postgres.session("SV upload")
+    await lock_family_variant_writes(upload, _FAMILY, [STRUCTURAL_VARIANTS])  # type: ignore[arg-type]
+
+    signout = postgres.session("sign-out")
+    assert await share(signout, _FAMILY) is False  # type: ignore[arg-type]
+    small = asyncio.create_task(
+        lock_family_variant_writes(postgres.session("small upload"), _FAMILY, [SMALL_VARIANTS])  # type: ignore[arg-type]
+    )
+    await asyncio.sleep(0.05)
+    assert not small.done()
+    await signout.rollback()  # the caller ends its transaction with the refusal
+    await asyncio.wait_for(small, timeout=1)
+    await upload.commit()
+    assert postgres.trace("sign-out", "small upload") == [
+        f"share {_key(SMALL_VARIANTS)}",
+        f"share refused {_key(STRUCTURAL_VARIANTS)}",
+        "rollback",
+        f"lock {_key(SMALL_VARIANTS)}",
+    ]
