@@ -254,6 +254,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   scans the production frontend server, proxy and CSP (`frontend/*.mjs`) and `scripts/`, one of
   which the knowledgebase rebuild runs; the `master` branch triggers are gone; and the Playwright
   step says it serves the production bundle, not the Vite dev server (#694).
+- **Test gates (#678)** — the 13 e2e modules that skipped when their committed fixture was missing
+  now fail, since a missing fixture is a broken checkout. Every module the type-check gate lists has
+  a coverage floor, and the floor script fails when one is added without; the floors (unit and
+  combined, global and per module) are raised to 3 points under what CI measured. The frontend's 67
+  explicit `any`s are typed, so ESLint now allows no warnings at all. The package-validation command
+  has a test (#695).
 
 ### Removed
 

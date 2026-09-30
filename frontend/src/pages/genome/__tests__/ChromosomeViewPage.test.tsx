@@ -38,24 +38,32 @@ vi.mock('../../../lib/useMeasuredWidth', () => ({
   useMeasuredWidth: () => [{ current: null }, 1400] as const,
 }));
 
+// What the mocked sidebar and workspace read of their props.
+type MemberProp = { sample_id: string };
+
 vi.mock('../ChromosomeViewSidebar', () => ({
-  default: (props: any) => {
+  default: (props: { members: MemberProp[] }) => {
     sidebarSpy(props);
     return (
       <div data-testid="chromosome-sidebar">
-        {props.members.map((member: any) => member.sample_id).join(',')}
+        {props.members.map((member) => member.sample_id).join(',')}
       </div>
     );
   },
 }));
 
 vi.mock('../ChromosomeViewWorkspace', () => ({
-  default: (props: any) => {
+  default: (props: {
+    region: { start: number; end: number };
+    visibleMembers: MemberProp[];
+    visibleRoi?: { label?: string } | null;
+    onRegionSelect: (start: number, end: number) => void;
+  }) => {
     workspaceSpy(props);
     return (
       <>
         <div data-testid="chromosome-workspace">
-          {props.region.start}:{props.region.end}|{props.visibleMembers.map((member: any) => member.sample_id).join(',')}|
+          {props.region.start}:{props.region.end}|{props.visibleMembers.map((member) => member.sample_id).join(',')}|
           {props.visibleRoi?.label || 'no-roi'}
         </div>
         <button type="button" onClick={() => props.onRegionSelect(120, 180)}>
@@ -168,7 +176,7 @@ describe('ChromosomeViewPage', () => {
     expect(availabilityCall).toContain('sample_filter=PROBAND%3Ahet');
 
     const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
-    expect(lastWorkspaceProps.visibleMembers.map((member: any) => member.sample_id)).toEqual([
+    expect(lastWorkspaceProps.visibleMembers.map((member: MemberProp) => member.sample_id)).toEqual([
       'PROBAND',
       'FATHER',
       'MOTHER',
@@ -396,7 +404,7 @@ describe('ChromosomeViewPage', () => {
     );
 
     const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
-    expect(lastWorkspaceProps.visibleMembers.map((member: any) => member.sample_id)).toEqual([
+    expect(lastWorkspaceProps.visibleMembers.map((member: MemberProp) => member.sample_id)).toEqual([
       'PROBAND',
       'FATHER',
     ]);
@@ -579,7 +587,7 @@ describe('ChromosomeViewPage', () => {
 
     // No ?sample= filter → all three members start selected.
     await waitFor(() =>
-      expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: any) => m.sample_id)).toEqual([
+      expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: MemberProp) => m.sample_id)).toEqual([
         'PROBAND',
         'FATHER',
         'MOTHER',
@@ -592,7 +600,7 @@ describe('ChromosomeViewPage', () => {
       toggleSample('MOTHER');
     });
     await waitFor(() =>
-      expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: any) => m.sample_id)).toEqual([
+      expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: MemberProp) => m.sample_id)).toEqual([
         'PROBAND',
         'FATHER',
       ]),
@@ -603,7 +611,7 @@ describe('ChromosomeViewPage', () => {
     await waitFor(() => expect(screen.getByTestId('chromosome-workspace')).toHaveTextContent('120:180'));
 
     // MOTHER must stay unselected (regression: it used to be re-selected here).
-    expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: any) => m.sample_id)).toEqual([
+    expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: MemberProp) => m.sample_id)).toEqual([
       'PROBAND',
       'FATHER',
     ]);

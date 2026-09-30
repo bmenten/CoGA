@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import api from '../../../lib/api';
 import { storage } from '../../../lib/storage';
@@ -43,7 +43,7 @@ const renderPage = () => {
 describe('FamilyBuilderPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (api.post as any).mockReset();
+    (api.post as unknown as Mock).mockReset();
     storage.clear();
   });
 
@@ -58,7 +58,7 @@ describe('FamilyBuilderPage', () => {
   });
 
   it('submits the manual family builder and renders the pedigree sketch', async () => {
-    (api.post as any).mockResolvedValue({
+    (api.post as unknown as Mock).mockResolvedValue({
       data: {
         families: [{ family_id: 'FAM-100', samples: ['PROB-1'] }],
       },
@@ -118,7 +118,7 @@ describe('FamilyBuilderPage', () => {
   });
 
   it('submits explicit partner relationships from the manual builder', async () => {
-    (api.post as any).mockResolvedValue({
+    (api.post as unknown as Mock).mockResolvedValue({
       data: {
         families: [{ family_id: 'FAM-COUPLE', samples: ['PARTNER-F', 'PARTNER-M'] }],
       },
@@ -191,7 +191,7 @@ describe('FamilyBuilderPage', () => {
   });
 
   it('tags a monogenic NIPT family and its cfDNA sample', async () => {
-    (api.post as any).mockResolvedValue({
+    (api.post as unknown as Mock).mockResolvedValue({
       data: { families: [{ family_id: 'FAM-NIPT', samples: ['CFDNA-1'] }] },
     });
 

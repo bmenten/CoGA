@@ -2,7 +2,7 @@ import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-librar
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import type { ReactElement } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, it, vi, type Mock } from 'vitest';
 import LoginPage from '../LoginPage';
 import api from '../../../lib/api';
 import { clearSession } from '../../../lib/auth';
@@ -50,7 +50,7 @@ describe('LoginPage', () => {
   });
 
   it('shows error message on failed login', async () => {
-    (api.post as any).mockRejectedValue({
+    (api.post as unknown as Mock).mockRejectedValue({
       response: { data: { detail: 'Incorrect email or password' } },
     });
     render(
@@ -71,7 +71,7 @@ describe('LoginPage', () => {
   });
 
   it('shows formatted validation errors from the API', async () => {
-    (api.post as any).mockRejectedValue({
+    (api.post as unknown as Mock).mockRejectedValue({
       response: {
         data: {
           detail: [
@@ -104,7 +104,7 @@ describe('LoginPage', () => {
   });
 
   it('shows an explicit API unavailable message on transport failure', async () => {
-    (api.post as any).mockRejectedValue({
+    (api.post as unknown as Mock).mockRejectedValue({
       request: {},
       message: 'Network Error',
     });
@@ -131,13 +131,13 @@ describe('LoginPage', () => {
   });
 
   it('uses the fresh access token when loading the current user after login', async () => {
-    (api.post as any).mockResolvedValue({
+    (api.post as unknown as Mock).mockResolvedValue({
       data: {
         access_token: 'token-123',
         role: 'admin',
       },
     });
-    (api.get as any).mockResolvedValue({
+    (api.get as unknown as Mock).mockResolvedValue({
       data: {
         email: 'admin@example.com',
         role: 'admin',
@@ -172,8 +172,8 @@ describe('LoginPage', () => {
   it('starts the new session with an empty query cache (#521)', async () => {
     // Data an earlier session loaded in this tab must not be shown to the next user.
     queryClient.setQueryData(['family', 'F1'], { family_id: 'F1', members: ['someone else'] });
-    (api.post as any).mockResolvedValue({ data: { access_token: 'token-456' } });
-    (api.get as any).mockResolvedValue({ data: { email: 'next@example.com', role: 'viewer' } });
+    (api.post as unknown as Mock).mockResolvedValue({ data: { access_token: 'token-456' } });
+    (api.get as unknown as Mock).mockResolvedValue({ data: { email: 'next@example.com', role: 'viewer' } });
 
     render(
       <MemoryRouter>
@@ -189,13 +189,13 @@ describe('LoginPage', () => {
   });
 
   it('continues to the requested protected page after login', async () => {
-    (api.post as any).mockResolvedValue({
+    (api.post as unknown as Mock).mockResolvedValue({
       data: {
         access_token: 'token-123',
         role: 'viewer',
       },
     });
-    (api.get as any).mockResolvedValue({
+    (api.get as unknown as Mock).mockResolvedValue({
       data: {
         email: 'viewer@example.com',
         role: 'viewer',

@@ -217,7 +217,7 @@ const SmallVariantTrack: React.FC<Props> = ({
       requestFilters,
     ],
     queryFn: async () => {
-      const params: Record<string, any> = {
+      const params: Record<string, unknown> = {
         chr: chrom,
         start: regionStart,
         end: regionEnd,

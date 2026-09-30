@@ -79,9 +79,10 @@ The rules these gates enforce, and the ones they cannot:
 - **API paths are encoded.** Build every frontend API path with ``apiPath`…` ``
   (`frontend/src/lib/apiPath.ts`), so an identifier from imported data cannot change which
   endpoint is called.
-- **Lint warnings only go down.** `npm run lint` fails when ESLint's warnings exceed the
-  `--max-warnings` budget in `frontend/package.json`. When you fix one, lower the budget to
-  match.
+- **No lint warnings.** `npm run lint` fails on any ESLint warning (`--max-warnings 0` in
+  `frontend/package.json`); type what you would have typed `any`.
+- **Clinical-critical modules keep their coverage.** A module listed under `[tool.mypy]` in
+  `pyproject.toml` needs a floor in `scripts/check-coverage-floor.py`, or CI fails.
 - **The change is recorded.** Add an entry under `[Unreleased]` in
   [CHANGELOG.md](CHANGELOG.md). Until the first release candidate that is the whole record
   ([TF-18 §3a](docs/regulatory/TF-18-change-configuration-management.md)), except that a change

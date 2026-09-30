@@ -2,8 +2,9 @@
 """Enforce per-module coverage floors on clinical-critical backend modules.
 
 Reads a coverage.json (``pytest --cov-report=json:coverage.json``) and fails if any listed
-module — or overall — has dropped below its floor. Floors are set just below the measured
-baseline (2026-06-28) so they RATCHET against regression without churning on minor edits.
+module — or overall — has dropped below its floor, or if a module the type-check gate lists
+has no floor. Floors sit a few points under the measured coverage so they RATCHET against
+regression without churning on minor edits; raise them when coverage rises.
 
 Modules whose bulk coverage comes from integration tests (skipped in the unit ``backend``
 job — e.g. integrity_anchor_service) are floored on the *combined* report instead: the
@@ -16,53 +17,71 @@ from __future__ import annotations
 
 import json
 import sys
+import tomllib
 
-# Global floor for the whole backend/app package (66.0% measured for #526). Keep in step
-# with --cov-fail-under in ci.yml.
-GLOBAL_FLOOR = 63.0
+# Floors are set 3 points under the coverage CI measured at 92bb6d1e (in brackets), rounded
+# down: the unit job's coverage.json and the `coverage` job's combined report (#678).
 
-# Per-module floors (percent of lines covered) for clinical-critical modules.
+# Global floor for the whole backend/app package. Keep in step with --cov-fail-under in ci.yml.
+GLOBAL_FLOOR = 70.0  # (73.0)
+
+# Per-module floors (percent of lines covered) for clinical-critical modules. Every module
+# the type-check gate lists ([tool.mypy] files in pyproject.toml) needs a floor here or in
+# COMBINED_FLOORS; main() fails when one has neither.
 MODULE_FLOORS: dict[str, float] = {
-    "backend/app/services/acmg_points.py": 95.0,
-    "backend/app/services/cnv_acmg_points.py": 90.0,
-    "backend/app/services/classification_drift_service.py": 90.0,
-    "backend/app/services/clinical_audit_service.py": 85.0,
-    "backend/app/services/hash_chain.py": 90.0,
-    "backend/app/services/haplotype_lineage_service.py": 85.0,
-    "backend/app/services/nipt_analysis.py": 88.0,
-    "backend/app/services/sample_integrity_qc.py": 82.0,
-    # Raised with #526 (86.0% measured); the unit tests now cover the sign-out gates.
-    "backend/app/services/report_signout_service.py": 83.0,
-    # Added with #526, a few points under the measured unit coverage (in brackets).
-    "backend/app/services/sample_integrity_service.py": 84.0,  # (87.3) feeds the sign-out gate
-    "backend/app/services/variant_ranking_cache.py": 57.0,  # (60.3)
-    "backend/app/services/annotation_manifest_service.py": 71.0,  # (74.6)
-    "backend/app/services/qc_threshold_service.py": 69.0,  # (72.4)
-    # Added with #526 part 2, under the coverage the new unit tests reach (in brackets).
-    "backend/app/services/structural_variant_review_pg.py": 53.0,  # (56.8) CNV ACMG persistence
-    "backend/app/services/small_variant_review_tags.py": 57.0,  # (60.6)
-    "backend/app/services/clinical_cnv_kb_jobs.py": 85.0,  # (89.3)
-    # Added with #670: one write at a time to a family's variants.
-    "backend/app/services/family_variant_write_lock.py": 95.0,  # (100.0)
+    "backend/app/services/acmg_points.py": 97.0,  # (100.0)
+    "backend/app/services/annotation_manifest_service.py": 90.0,  # (93.4)
+    "backend/app/services/assembly_scope.py": 97.0,  # (100.0)
+    "backend/app/services/classification_drift_service.py": 95.0,  # (98.4)
+    "backend/app/services/clinical_audit_service.py": 92.0,  # (95.8)
+    "backend/app/services/clinical_cnv_kb_jobs.py": 93.0,  # (96.9)
+    "backend/app/services/cnv_acmg_points.py": 94.0,  # (97.7)
+    "backend/app/services/compound_het_phase.py": 95.0,  # (98.7)
+    "backend/app/services/family_variant_filters.py": 88.0,  # (91.7)
+    "backend/app/services/family_variant_write_lock.py": 97.0,  # (100.0)
+    "backend/app/services/genotypes.py": 97.0,  # (100.0)
+    "backend/app/services/haplotype_lineage_service.py": 89.0,  # (92.5)
+    "backend/app/services/hash_chain.py": 94.0,  # (97.7)
+    "backend/app/services/mitochondrial_analysis.py": 68.0,  # (71.5)
+    "backend/app/services/monarch_semsim.py": 65.0,  # (68.8)
+    "backend/app/services/nipt_analysis.py": 92.0,  # (95.5)
+    "backend/app/services/nipt_service.py": 88.0,  # (91.7)
+    "backend/app/services/qc_threshold_service.py": 83.0,  # (86.2)
+    "backend/app/services/report_signout_service.py": 91.0,  # (94.8)
+    "backend/app/services/review_pg_utils.py": 87.0,  # (90.2)
+    "backend/app/services/sample_integrity_qc.py": 87.0,  # (90.5)
+    "backend/app/services/sample_integrity_service.py": 87.0,  # (90.2) feeds the sign-out gate
+    "backend/app/services/small_variant_review_tags.py": 63.0,  # (66.5)
+    "backend/app/services/structural_variant_evidence.py": 74.0,  # (77.6)
+    "backend/app/services/structural_variant_review_pg.py": 59.0,  # (62.2) CNV ACMG persistence
+    "backend/app/services/sv_gene_index_service.py": 82.0,  # (85.0)
+    "backend/app/services/variant_ranking_cache.py": 63.0,  # (66.7)
 }
 
-# The combined unit + smoke + e2e report (the ``coverage`` CI job). Floors a few points
-# under the combined coverage measured for #526 (in brackets), for the modules the unit
+# The combined unit + smoke + e2e report (the ``coverage`` CI job), for the modules the unit
 # job alone under-reports because real datastores exercise them.
-COMBINED_GLOBAL_FLOOR = 69.0  # (72.6)
+COMBINED_GLOBAL_FLOOR = 75.0  # (78.6)
 COMBINED_FLOORS: dict[str, float] = {
-    "backend/app/services/family_package_import.py": 85.0,  # (89.2)
-    "backend/app/services/family_package_jobs.py": 83.0,  # (87.8)
-    "backend/app/services/family_package_registration.py": 72.0,  # (76.0)
-    "backend/app/services/family_package_datasets.py": 37.0,  # (41.0) thin; see #526
-    "backend/app/services/integrity_anchor_service.py": 78.0,  # (82.3)
-    "backend/app/services/report_signout_service.py": 90.0,  # (94.9)
-    "backend/app/services/clinical_audit_service.py": 92.0,  # (96.1)
-    "backend/app/services/annotation_manifest_service.py": 80.0,  # (84.4)
-    "backend/app/services/clickhouse_variant_storage.py": 88.0,  # (92.1)
-    "backend/app/services/clickhouse_family_variants.py": 75.0,  # (79.9)
-    "backend/app/services/variant_ranking_cache.py": 69.0,  # (73.0)
+    "backend/app/services/annotation_manifest_service.py": 91.0,  # (94.5)
+    "backend/app/services/clickhouse_family_variants.py": 80.0,  # (83.1)
+    "backend/app/services/clickhouse_variant_storage.py": 92.0,  # (95.4)
+    "backend/app/services/clinical_audit_service.py": 94.0,  # (97.4)
+    "backend/app/services/family_package_datasets.py": 60.0,  # (63.1)
+    "backend/app/services/family_package_import.py": 87.0,  # (90.0)
+    "backend/app/services/family_package_jobs.py": 94.0,  # (97.6)
+    "backend/app/services/family_package_registration.py": 76.0,  # (79.9)
+    "backend/app/services/integrity_anchor_service.py": 79.0,  # (82.3)
+    "backend/app/services/report_signout_service.py": 96.0,  # (99.0)
+    "backend/app/services/structural_variant_evidence.py": 92.0,  # (95.9)
+    "backend/app/services/sv_gene_index_service.py": 92.0,  # (95.5)
+    "backend/app/services/variant_ranking_cache.py": 74.0,  # (77.8)
 }
+
+
+def type_checked_modules(pyproject: str = "pyproject.toml") -> list[str]:
+    """The modules the type-check gate lists: the clinical-critical set (AGENTS.md)."""
+    with open(pyproject, "rb") as handle:
+        return list(tomllib.load(handle)["tool"]["mypy"]["files"])
 
 
 def main(path: str, *, combined: bool = False) -> int:
@@ -78,6 +97,11 @@ def main(path: str, *, combined: bool = False) -> int:
     print(f"[{status}] overall {overall:5.1f}%  (floor {global_floor:.0f}%)")
     if overall < global_floor:
         failures.append(f"overall {overall:.1f}% < {global_floor:.0f}%")
+
+    unfloored = sorted(set(type_checked_modules()) - set(MODULE_FLOORS) - set(COMBINED_FLOORS))
+    for module in unfloored:
+        failures.append(f"{module}: type-checked as clinical-critical but has no coverage floor")
+        print(f"[ERR] {module}: no coverage floor")
 
     for module, floor in sorted(module_floors.items()):
         info = files.get(module)

@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, type Mock } from 'vitest';
 import GenePanelsPage from '../GenePanelsPage';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
@@ -76,7 +76,7 @@ describe('GenePanelsPage', () => {
 
   it('gives the panel size per assembly, not summed across them (#515)', async () => {
     localStorage.setItem('role', 'viewer');
-    (api.get as any).mockResolvedValueOnce({
+    (api.get as unknown as Mock).mockResolvedValueOnce({
       data: [
         {
           _id: '2',
@@ -109,7 +109,7 @@ describe('GenePanelsPage', () => {
 
   it('shows server message when creation returns warning', async () => {
     localStorage.setItem('role', 'admin');
-    (api.post as any).mockResolvedValueOnce({
+    (api.post as unknown as Mock).mockResolvedValueOnce({
       data: {
         message:
           'Panel created with 0 of 2 genes; missing or ambiguous genes: BAD1, BAD2',
@@ -141,7 +141,7 @@ describe('GenePanelsPage', () => {
 
   it('imports a selected PanelApp panel for admins', async () => {
     localStorage.setItem('role', 'admin');
-    (api.get as any).mockImplementation((url: string) => {
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
       if (url === '/panels/panelapp/search') {
         return Promise.resolve({
           data: {
@@ -183,7 +183,7 @@ describe('GenePanelsPage', () => {
         ],
       });
     });
-    (api.post as any).mockResolvedValueOnce({
+    (api.post as unknown as Mock).mockResolvedValueOnce({
       data: {
         message: 'PanelApp panel imported with 168 genes and 185 regions',
       },
@@ -223,8 +223,8 @@ describe('GenePanelsPage', () => {
 
   it('lets an admin generate the Mendeliome from Monarch', async () => {
     localStorage.setItem('role', 'admin');
-    (api.get as any).mockResolvedValue({ data: [] }); // no panels yet
-    (api.post as any).mockResolvedValueOnce({
+    (api.get as unknown as Mock).mockResolvedValue({ data: [] }); // no panels yet
+    (api.post as unknown as Mock).mockResolvedValueOnce({
       data: { message: 'Mendeliome created with 5298 genes (Monarch 2026-06-08).' },
     });
     const queryClient = createTestQueryClient();

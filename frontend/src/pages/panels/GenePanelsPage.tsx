@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
 import type { GeneLocation, GenePanel } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
+import type { ApiErrorLike } from '../../lib/errorMessage';
 import QueryFailure from '../../components/QueryFailure';
 
 interface PanelAppPanelSummary {
@@ -23,8 +24,18 @@ interface PanelAppPanelSummary {
   url: string;
 }
 
-const apiErrorMessage = (err: any, fallback: string) => {
-  const detail = err.response?.data?.detail;
+// A panel request's error detail: a message, a validation list, or a message naming genes.
+type PanelErrorDetail =
+  | string
+  | Array<string | { msg?: unknown } | null>
+  | { message?: string; genes?: unknown }
+  | undefined;
+
+const panelErrorDetail = (err: unknown): PanelErrorDetail =>
+  (err as ApiErrorLike).response?.data?.detail as PanelErrorDetail;
+
+const apiErrorMessage = (err: unknown, fallback: string) => {
+  const detail = panelErrorDetail(err);
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail)) {
     const messages = detail
@@ -104,7 +115,7 @@ const GenePanelsPage: React.FC = () => {
       const res = await api.post('/panels/mendeliome/regenerate');
       setStatus(res.data?.message || 'Mendeliome updated');
       await refetch();
-    } catch (err: any) {
+    } catch (err) {
       setStatus(apiErrorMessage(err, 'Error generating the Mendeliome'));
     } finally {
       setMendeliomeBusy(false);
@@ -116,11 +127,11 @@ const GenePanelsPage: React.FC = () => {
       await api.delete(apiPath`/panels/${id}`);
       setStatus('Panel deleted');
       refetch();
-    } catch (err: any) {
-      const detail = err.response?.data?.detail;
+    } catch (err) {
+      const detail = panelErrorDetail(err);
       if (typeof detail === 'string') {
         setStatus(detail);
-      } else if (detail?.message) {
+      } else if (detail && !Array.isArray(detail) && detail.message) {
         const genes = Array.isArray(detail.genes)
           ? `: ${detail.genes.join(', ')}`
           : '';
@@ -164,7 +175,7 @@ const GenePanelsPage: React.FC = () => {
       });
       setStatus(res.data?.message || 'PanelApp panel imported');
       await refetch();
-    } catch (err: any) {
+    } catch (err) {
       setStatus(apiErrorMessage(err, 'Error importing PanelApp panel'));
     } finally {
       setPanelAppImporting(null);
@@ -192,11 +203,11 @@ const GenePanelsPage: React.FC = () => {
       const msg = res.data?.message ?? 'Panel created';
       setStatus(msg);
       refetch();
-    } catch (err: any) {
-      const detail = err.response?.data?.detail;
+    } catch (err) {
+      const detail = panelErrorDetail(err);
       if (typeof detail === 'string') {
         setStatus(detail);
-      } else if (detail?.message) {
+      } else if (detail && !Array.isArray(detail) && detail.message) {
         const genes = Array.isArray(detail.genes)
           ? `: ${detail.genes.join(', ')}`
           : '';

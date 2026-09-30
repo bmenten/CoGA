@@ -166,7 +166,7 @@ def run(tmp_path_factory, request) -> dict:
     from backend.tests.e2e import _harness
 
     if not (_FIXTURE / "manifest.yaml").exists():
-        pytest.skip("golden_trio fixture missing; run scripts/generate_golden_trio.py")
+        pytest.fail("golden_trio fixture missing: it is committed, so restore it (scripts/generate_golden_trio.py rebuilds it)")
 
     base = tmp_path_factory.mktemp("golden_sv_upload")
     root = base / "FAM_TRIO"

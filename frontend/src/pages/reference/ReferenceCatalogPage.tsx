@@ -216,7 +216,7 @@ const ReferenceCatalogPage: React.FC = () => {
     queryKey: ['species'],
     queryFn: async () => {
       const res = await api.get('/species');
-      return (res.data as any[]).map((entry) => withEntityId(entry)) as Species[];
+      return (res.data as Species[]).map((entry) => withEntityId(entry));
     },
   });
 
@@ -224,7 +224,7 @@ const ReferenceCatalogPage: React.FC = () => {
     queryKey: ['assemblies', 'all'],
     queryFn: async () => {
       const res = await api.get('/assemblies');
-      return (res.data as any[]).map((entry) => withEntityId(entry)) as Assembly[];
+      return (res.data as Assembly[]).map((entry) => withEntityId(entry));
     },
   });
 
@@ -357,8 +357,8 @@ const ReferenceCatalogPage: React.FC = () => {
       setSpeciesForm({ name: '', common_name: '', tax_id: '' });
       setSuccess('Species added.');
       await queryClient.invalidateQueries({ queryKey: ['species'] });
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Failed to add species');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to add species'));
     }
   };
 
@@ -377,8 +377,8 @@ const ReferenceCatalogPage: React.FC = () => {
       setSuccess('Assembly added.');
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'all'] });
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Failed to add assembly');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to add assembly'));
     }
   };
 

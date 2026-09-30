@@ -51,7 +51,7 @@ const DataManagementPage: React.FC = () => {
     queryKey: ['projects'],
     queryFn: async () => {
       const response = await api.get('/projects');
-      return (response.data as any[]).map((entry) => withEntityId(entry)) as ProjectOption[];
+      return (response.data as ProjectOption[]).map((entry) => withEntityId(entry));
     },
     retry: false,
   });
