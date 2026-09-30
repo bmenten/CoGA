@@ -3,7 +3,6 @@ import * as d3 from 'd3';
 import { countOf } from '../../lib/countOf';
 import type { PedRow } from '../../lib/pedigree';
 
-
 interface PedigreeMember {
   sample_id: string;
   role?: string | null;
