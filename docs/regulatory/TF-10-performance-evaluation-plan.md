@@ -204,6 +204,7 @@ candidate. One line per change: what changed, its pull request, and the proposed
 
 ### Proposed minor
 
+- The NIPT report says when it lists fewer candidates than its scope holds, and names its scope (#656; proposed Minor)
 - Deleting a sample keeps every other small-variant call as stored (#655; proposed Minor)
 - A per-sample SV upload or delete writes every other call back as stored; SV uploads record their caller (#654; proposed Minor)
 - A package imported from a bucket works, and is traceable, in cloud mode (#653; proposed Minor)

@@ -42,11 +42,12 @@ const niptVariant = (
   gene: string,
   category: number,
   categoryLabel: string,
+  { chr = '1', start = 100 }: { chr?: string; start?: number } = {},
 ) => ({
   _id: id,
-  chr: '1',
-  start: 100,
-  end: 100,
+  chr,
+  start,
+  end: start,
   type: 'SNV',
   ref: 'A',
   alt: 'G',
@@ -64,11 +65,11 @@ const niptVariant = (
   },
 });
 
-const renderPage = () => {
+const renderPage = (search = '?panel_id=panel-1') => {
   const queryClient = createTestQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/families/NIPT001/nipt/report?panel_id=panel-1']}>
+      <MemoryRouter initialEntries={[`/families/NIPT001/nipt/report${search}`]}>
         <Routes>
           <Route path="/families/:familyId/nipt/report" element={<FamilyNiptReportPage />} />
         </Routes>
@@ -136,6 +137,9 @@ describe('FamilyNiptReportPage', () => {
           },
         });
       }
+      if (url === '/panels/panel-1') {
+        return Promise.resolve({ data: { _id: 'panel-1', name: 'Neurodevelopmental', version: 2 } });
+      }
       return Promise.resolve({ data: {} });
     });
 
@@ -147,6 +151,16 @@ describe('FamilyNiptReportPage', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/12\.0%/)).toBeInTheDocument();
     expect(screen.getByText(/95% CI 10\.0%–14\.0%/)).toBeInTheDocument();
+
+    // The scope names the panel it was run on, and says no other filter applies.
+    expect(screen.getByText('Gene panel Neurodevelopmental (version 2).')).toBeInTheDocument();
+    expect(screen.getByText(/No other filter of the NIPT page applies/)).toBeInTheDocument();
+    // Every candidate in the scope is listed, so nothing says otherwise.
+    expect(screen.getByText(/the 4 classified candidate variants in its scope/)).toBeInTheDocument();
+    expect(screen.queryByText('This list is incomplete.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/The candidate list is incomplete/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Incomplete —/)).not.toBeInTheDocument();
+    expect(screen.getByText('De novo in fetus (1)')).toBeInTheDocument();
 
     // Coverage QC flags the low-depth panel gene.
     expect(screen.getByText('Coverage QC')).toBeInTheDocument();
@@ -274,5 +288,161 @@ describe('FamilyNiptReportPage', () => {
       'Manufacturer: Center for Medical Genetics, Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent',
     );
     expect(screen.queryByText(/so this printout does not show the whole report/)).not.toBeInTheDocument();
+  });
+
+  // A NIPT family whose candidate list answers with `variants`, and whose gene panel 1 is
+  // `panel`; the URLs in `failing` answer with a server error.
+  const serveReport = ({
+    variants = {},
+    panel = { _id: 'panel-1', name: 'Cardiomyopathy', version: 3 },
+    failing = [],
+  }: {
+    variants?: Record<string, unknown>;
+    panel?: Record<string, unknown>;
+    failing?: string[];
+  }) =>
+    apiMock.get.mockImplementation((url: string) => {
+      if (failing.includes(url)) {
+        return Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
+      }
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: { family_id: 'NIPT001', members: [], metadata: { analysis_type: 'monogenic_nipt' } },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({ data: { family_id: 'NIPT001', total: 0, variants: [], ...variants } });
+      }
+      if (url === '/panels/panel-1') {
+        return Promise.resolve({ data: panel });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+  // The report asks for one page of candidates, and the list behind it classifies only the
+  // first variants of the scope: it printed the part it had as the whole.
+  describe('when it lists fewer candidates than its scope holds', () => {
+    const inGenomicOrder = [
+      niptVariant('v1', 'SCN1A', 7, 'Paternal, transmitted', { chr: '2', start: 166_000_000 }),
+      niptVariant('v2', 'ARID1B', 1, 'De novo in fetus', { chr: '6', start: 157_100_000 }),
+      niptVariant('v3', 'CFTR', 2, 'Maternal het, not inherited', { chr: '7', start: 117_559_590 }),
+    ];
+    const statementParagraph = async () =>
+      (await screen.findByText('This list is incomplete.')).closest('p') as HTMLElement;
+
+    it('says how many it lists of how many, where the list stops and why, on screen and in print', async () => {
+      serveReport({ variants: { total: 1234, variants: inGenomicOrder } });
+      renderPage();
+
+      expect(await statementParagraph()).toHaveTextContent(
+        'This list is incomplete. It shows 3 of the 1,234 candidate variants in this scope: a report ' +
+          'lists at most 500, in genomic order. The list stops at chr7:117,559,590. Narrow the scope ' +
+          'with a gene panel or a gene on the NIPT page, then open the report again.',
+      );
+      expect(
+        screen.getByText(
+          'Incomplete — this report lists 3 of the 1,234 candidate variants in its scope, so this ' +
+            'printout does not show every candidate.',
+        ),
+      ).toHaveClass('print-only');
+      expect(screen.getByText(/The candidate list is incomplete/).closest('section')).toHaveAttribute(
+        'role',
+        'alert',
+      );
+      expect(screen.getByText(/3 of the 1,234 classified candidate variants in its scope/)).toBeInTheDocument();
+      // A group counts what it lists; an empty group does not say the scope has none.
+      expect(screen.getByText('De novo in fetus (1 listed)')).toBeInTheDocument();
+      expect(screen.getByText('Recessive / biallelic risk (0 listed)')).toBeInTheDocument();
+      expect(screen.getByText('Other categories (1 listed)')).toBeInTheDocument();
+      expect(screen.getByText('None among the listed variants.')).toBeInTheDocument();
+      expect(screen.queryByText('No candidates in this group.')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      [
+        'more of them than one report lists',
+        { total: 812, total_is_estimated: true, count_limit: 5000 },
+        'More than 5,000 variants matched this scope, and CoGA classifies at most 5,000 at once, in ' +
+          'genomic order, so this scope holds at least 812 candidate variants. It shows 3 of them: a ' +
+          'report lists at most 500.',
+        'Incomplete — this report lists 3 of at least 812 candidate variants in its scope, so this ' +
+          'printout does not show every candidate.',
+      ],
+      [
+        'every one it classified listed',
+        { total: 3, total_is_estimated: true, count_limit: 5000 },
+        'More than 5,000 variants matched this scope, and CoGA classifies at most 5,000 at once, in ' +
+          'genomic order.',
+        'Incomplete — more variants matched the scope of this report than CoGA classifies at once, so ' +
+          'this printout does not show every candidate.',
+      ],
+    ])('says when more variants matched than CoGA classifies, with %s', async (_case, page, why, printed) => {
+      serveReport({ variants: { ...page, variants: inGenomicOrder } });
+      renderPage();
+
+      const statement = await statementParagraph();
+      expect(statement).toHaveTextContent(why);
+      expect(statement).toHaveTextContent('The list stops at chr7:117,559,590.');
+      expect(screen.getByText(printed)).toHaveClass('print-only');
+    });
+  });
+
+  // The report applies only the gene panel and the gene of the NIPT page's search; it did
+  // not say so, nor name them.
+  describe('its scope', () => {
+    it.each([
+      ['?panel_id=panel-1', 'Gene panel Cardiomyopathy (version 3).'],
+      ['?gene=MYH7,TNNT2', 'Genes MYH7 and TNNT2.'],
+      [
+        '?panel_id=panel-1&gene=MYH7',
+        'Gene panel Cardiomyopathy (version 3) and gene MYH7: a variant is listed when it matches both.',
+      ],
+      ['', 'No gene panel or gene was chosen: the report covers every variant of the family.'],
+    ])('names the gene panel and the genes it applies (%s)', async (search, scope) => {
+      serveReport({});
+      renderPage(search);
+
+      expect(await screen.findByText(scope)).toBeInTheDocument();
+      expect(screen.getByText(/No other filter of the NIPT page applies/)).toHaveTextContent(
+        'except the sites on the recurrent-artifact list of the assay',
+      );
+      if (!search.includes('panel_id')) {
+        expect(apiMock.get.mock.calls.some(([url]) => String(url).startsWith('/panels'))).toBe(false);
+      }
+    });
+
+    it('asks for the candidates with the gene panel and the gene, and no other filter', async () => {
+      serveReport({});
+      renderPage('?panel_id=panel-1&gene=MYH7&project_id=P1&category=1&max_gnomad_af=0.01');
+
+      await screen.findByText(/No other filter of the NIPT page applies/);
+      const variantRequests = apiMock.get.mock.calls.filter(
+        ([url]) => url === '/families/NIPT001/nipt/variants',
+      );
+      expect(variantRequests.map(([, config]) => config.params)).toEqual([
+        { page: 1, page_size: 500, panel_id: 'panel-1', gene: 'MYH7' },
+      ]);
+    });
+
+    it('says the name of the gene panel could not be loaded, on screen and in print, and retries it', async () => {
+      serveReport({ failing: ['/panels/panel-1'] });
+      renderPage();
+
+      expect(await screen.findByText('Gene panel panel-1 (its name could not be loaded).')).toBeInTheDocument();
+      expect(
+        screen.getByText(/^Incomplete — the name of the gene panel could not be loaded/),
+      ).toHaveClass('print-only');
+
+      serveReport({});
+      fireEvent.click(
+        within(screen.getByText(/Parts of this report could not be loaded/).closest('section')!).getByRole(
+          'button',
+          { name: 'Retry' },
+        ),
+      );
+
+      expect(await screen.findByText('Gene panel Cardiomyopathy (version 3).')).toBeInTheDocument();
+      expect(screen.queryByText(/its name could not be loaded/)).not.toBeInTheDocument();
+    });
   });
 });

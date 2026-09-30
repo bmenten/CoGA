@@ -191,6 +191,8 @@ describe('FamilyNiptPage', () => {
     expect(screen.getByText(/paternal, transmitted to fetus/)).toBeInTheDocument();
     expect(screen.getByText('Category 7')).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 1')).toBeInTheDocument();
+    // Every variant of the search was classified, so nothing says the list stops short.
+    expect(screen.queryByText(/than CoGA classifies at once/)).not.toBeInTheDocument();
 
     // Picking an inheritance preset ticks its matching category checkbox
     // (paternal dominant → category 7).
@@ -207,6 +209,63 @@ describe('FamilyNiptPage', () => {
     await waitFor(() =>
       expect(screen.getByRole('checkbox', { name: /7 — Paternal, transmitted/ })).toBeChecked(),
     );
+  });
+
+  // The list classifies the first variants of the search, in genomic order, up to a limit.
+  // Past it, the list stopped part-way through the genome and read as complete.
+  it('says when the list stops at the classification limit', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: { family_id: 'NIPT001', members: [], metadata: { analysis_type: 'monogenic_nipt' } },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            total: 1,
+            total_is_estimated: true,
+            count_limit: 5000,
+            fetal_fraction: FETAL_FRACTION,
+            variants: [
+              {
+                _id: '1-100-A-G',
+                chr: '1',
+                start: 100,
+                end: 100,
+                type: 'SNV',
+                ref: 'A',
+                alt: 'G',
+                gene: 'BRCA1',
+                genotypes: [],
+                nipt: {
+                  category: 7,
+                  category_label: 'paternal, transmitted to fetus',
+                  maternal_state: 'hom_ref',
+                  fetal_inheritance: 'paternal_transmitted',
+                  expected_vaf: 0.05,
+                  observed_vaf: 0.05,
+                  confidence: 0.97,
+                  flags: [],
+                },
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderPage('NIPT001');
+
+    expect(
+      await screen.findByText(
+        'More variants matched this search than CoGA classifies at once (5,000), so the list ' +
+          'stops part-way through the genome and its count is a lower bound. Narrow the search ' +
+          'with a gene panel, a gene or a region.',
+      ),
+    ).toHaveAttribute('role', 'status');
   });
 
   it('shows a not-configured message for a non-NIPT family', async () => {

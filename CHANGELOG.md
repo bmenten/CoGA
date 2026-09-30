@@ -613,6 +613,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   ids are unchanged. The backend refuses to start on variant tables with the older sort key: recreate the
   assembly's small-variant and SV tables and re-import its families (docs/database.md, "Row identity")
   (#658).
+- **NIPT report no longer cut short without a trace** — the report listed the first 500 candidates of its
+  scope as if they were all, and the variant list behind it stopped at 5,000 classified variants with a
+  total that looked exact. The report now says how many it lists of how many, where the list stops and
+  why, on screen and at the top of the printout, and each group counts what it lists; the NIPT page says
+  when its list stops at the limit. A *Scope* section names the gene panel (with its version) and the
+  genes, and says no other filter of the NIPT page applies (#656).
 
 ### Security
 

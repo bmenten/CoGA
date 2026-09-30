@@ -188,6 +188,8 @@ async def get_family_nipt_variants_page(
     return NiptVariantPage(
         family_id=family_id,
         total=result.total,
+        total_is_estimated=result.total_is_estimated,
+        count_limit=result.count_limit,
         fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
         variants=[_nipt_variant_out(item) for item in result.variants],
     )

@@ -35,8 +35,10 @@ a quality signal.
 **Report** on the NIPT page opens a printable summary: the fetal fraction, the coverage check of the
 panel genes, and the classified variants grouped as *De novo in fetus*, *Dominant, transmitted*,
 *Recessive / biallelic risk* and *Other categories*. Its footer names when it was made and the CoGA
-version that made it. It uses the panel or genes you selected, not your other filters, and lists up to
-500 variants. **Print report** prints it. A NIPT report has no sign-out.
+version that made it. Its *Scope* names the panel and genes you selected; your other filters do not
+apply. It lists up to 500 variants. When there are more, it says how many it lists of how many and
+where the list stops, on screen and in print: narrow the scope with a panel or a gene. **Print report**
+prints it. A NIPT report has no sign-out.
 
 > **Screening, not diagnosis.** A NIPT call must be confirmed by an invasive diagnostic test. Check the
 > fetal fraction and its interval before you read any category, and a de novo call's VAF against

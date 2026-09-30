@@ -56,6 +56,11 @@ class NiptVariantPage(BaseModel):
 
     family_id: str
     total: int
+    # True when more variants matched the scope than the list classifies at once
+    # (``count_limit``, the first ones in genomic order): ``total`` is then a lower bound,
+    # and the list stops part-way through the genome.
+    total_is_estimated: bool = False
+    count_limit: Optional[int] = None
     fetal_fraction: NiptFetalFractionOut
     # NiptVariantOut subclasses VariantOut, which is defined later in this module.
     variants: List["NiptVariantOut"]

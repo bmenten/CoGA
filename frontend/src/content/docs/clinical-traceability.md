@@ -221,4 +221,4 @@ says it is not known whether the case is signed. Until that record is known, sig
 Any other part that failed (a gene description, the HPO terms, the drift check, the audit trail, the
 annotation versions, the CoGA version) is marked where it belongs, and a printout starts with
 *Incomplete — … could not be loaded*. The NIPT report does the same for the fetal fraction, the coverage
-check and the CoGA version.
+check, the name of its gene panel and the CoGA version.

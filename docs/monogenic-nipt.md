@@ -78,9 +78,10 @@ DP and QUAL) and the artifact list, then the estimate.
   filtered sites, the category and filter counts, fetal sex, and `paternal_evidence` (the category-7
   and -8 sites with a usable father call, which the Sample QC paternity check reads instead of the raw
   counts). Serves the FF badge, the funnel and the counts, and the Sample QC NIPT checks.
-- **Variant list** — `get_family_nipt_variants`: that FF, then the filtered records (at most 5,000),
-  classified without the quality filter and skipping artifact-list sites, then `min_confidence`, the
-  category filter or inheritance preset, and paging. `recessive_at_risk` keeps every carrier variant in
+- **Variant list** — `get_family_nipt_variants`: that FF, then the filtered records (at most 5,000, in
+  genomic order; one more row is fetched, and past the limit the page sets `total_is_estimated` and
+  `count_limit`), classified without the quality filter and skipping artifact-list sites, then
+  `min_confidence`, the category filter or inheritance preset, and paging. `recessive_at_risk` keeps every carrier variant in
   genes with a maternal carrier (categories 2–6) and a paternal carrier (het or hom-alt GT).
 
 Endpoints (`routers/families_nipt.py`, under `/api`): `GET /families/{id}/nipt/summary`,

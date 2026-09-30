@@ -12539,6 +12539,13 @@ a.button-danger:hover {
   background: #fffbeb;
   color: #92400e;
 }
+/* A candidate list that shows fewer variants than its scope holds says so, in print too. */
+.report-incomplete-list {
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid #d97706;
+  background: #fffbeb;
+  color: #92400e;
+}
 .report-signout-gaps {
   margin: 0;
   font-size: 0.86rem;

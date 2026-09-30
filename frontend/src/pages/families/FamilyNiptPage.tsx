@@ -558,6 +558,19 @@ const FamilyNiptPage: React.FC = () => {
       ) : null}
 
       <div className="variant-results-region">
+        {/* The list classifies the first variants of the search, in genomic order, up to a
+            limit. Past it the list stops part-way through the genome: said, not shown as
+            complete. */}
+        {!variantsFailed && variantPage?.total_is_estimated ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--warning mb-4" role="status">
+            More variants matched this search than CoGA classifies at once
+            {typeof variantPage.count_limit === 'number'
+              ? ` (${variantPage.count_limit.toLocaleString()})`
+              : ''}
+            , so the list stops part-way through the genome and its count is a lower bound. Narrow
+            the search with a gene panel, a gene or a region.
+          </div>
+        ) : null}
         {/* A failed search is said as such: it read "No variants match the current
             search" (#606). */}
         {variantsFailed ? (
