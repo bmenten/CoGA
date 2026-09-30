@@ -828,6 +828,16 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   now and then while the reference sync ran. Compose then marked the backend unhealthy and left the
   frontend `Created`, reporting *dependency backend failed*. The start period is now 10 minutes, and
   probes run every 5 s during it, so the backend turns healthy as soon as it answers (#713).
+- **The footer names the version in `VERSION`** — a local `docker compose up --build` stamped no
+  `APP_VERSION`, so the app and report footers, `/api/version` and every record signed on that
+  build said `0.0.0+unknown` while `VERSION` read 0.1.0. TF-18 §2 says the build stamps the
+  version from `VERSION`; only CI did. The image now carries `VERSION` and reports it when no
+  `APP_VERSION` is stamped, so every build names the version it was built from. The commit still
+  needs `GIT_SHA` (the build context has no `.git`), and stays `unknown` without it, so an
+  unstamped build is still told apart from a released one. `0.0.0+unknown` remains only for a
+  build without `VERSION`. `frontend/package.json` said 1.0.0, so the frontend SBOM named a version
+  CoGA never had. It now carries `VERSION`, and the release check, which also runs in the backend
+  tests, fails when the two differ (#723).
 
 ### Security
 

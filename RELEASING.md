@@ -29,9 +29,11 @@ truth and the tag mirrors it** as `v<VERSION>`. Pre-releases take a SemVer suffi
 `0.1.0-beta.1`, `0.1.0-rc.2`.
 
 ```bash
-# 1a. Bump VERSION, and rebuild the handleiding, whose version chip reads it
+# 1a. Bump VERSION, give the frontend package the same version (its SBOM names the
+#     frontend by it), and rebuild the handleiding, whose version chip reads VERSION
 #     (CI's handleiding check fails until the rebuilt HTML is committed).
 printf '0.1.0-beta.1\n' > VERSION
+(cd frontend && npm version --no-git-tag-version 0.1.0-beta.1)
 python docs/handleiding/build_site.py
 
 # 1b. Move the CHANGELOG's [Unreleased] heading to the new version, dated.
@@ -42,8 +44,8 @@ python docs/handleiding/build_site.py
 ./scripts/check-release-version.sh v0.1.0-beta.1
 ```
 
-That last command is the same guard CI runs. It fails if the tag and `VERSION` disagree, or
-if `VERSION` is not valid SemVer — **run it locally so you find out now, not after pushing a
+That last command is the same guard CI runs. It fails if the tag and `VERSION` disagree,
+if `frontend/package.json` does not carry `VERSION`, or if `VERSION` is not valid SemVer — **run it locally so you find out now, not after pushing a
 tag you then have to delete.**
 
 Open a PR with the bump, let the required checks pass, and merge it.
@@ -105,9 +107,9 @@ Then verify the deployed build really is the one you released:
 ```bash
 curl -s https://<host>/api/version
 # -> {"version":"0.1.0-beta.1","git_sha":"<12-char sha>"}
-# `version` must equal VERSION, `git_sha` the tagged commit. A response of
-# {"version":"0.0.0+unknown","git_sha":"unknown"} means the image was built without
-# APP_VERSION/GIT_SHA build args — the deploy did not ship a stamped build.
+# `version` must equal VERSION, `git_sha` the tagged commit. A `git_sha` of "unknown"
+# means the image was built without the GIT_SHA build arg — the deploy did not ship a
+# stamped build. (Without APP_VERSION the image still reports VERSION's version.)
 ```
 
 ## 5. File the release record
