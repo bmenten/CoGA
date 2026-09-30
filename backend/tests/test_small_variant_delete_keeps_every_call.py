@@ -237,7 +237,7 @@ async def test_whole_sample_delete_rewrites_from_the_stored_rows(monkeypatch) ->
     async def rewrite_entries(_assembly, _family, entries):
         rewrites.append(list(entries))
 
-    async def no_structural_rows(contexts, _sample_name):
+    async def no_structural_rows(contexts, _sample_row):
         return [(context, []) for context in contexts]
 
     async def nothing(*_args, **_kwargs):
@@ -249,8 +249,8 @@ async def test_whole_sample_delete_rewrites_from_the_stored_rows(monkeypatch) ->
         "_family_assembly_contexts": contexts,
         "fetch_family_small_variant_entries": fetch_entries,
         "rewrite_family_small_variant_entries": rewrite_entries,
-        "_structural_variant_records_without_sample": no_structural_rows,
-        "replace_family_structural_variants": nothing,
+        "_structural_variant_rows_without_sample": no_structural_rows,
+        "rewrite_family_structural_variants": nothing,
         "delete_interval_tracks": nothing,
         "delete_interval_track_sources": nothing,
         "count_family_small_variants": nothing,
