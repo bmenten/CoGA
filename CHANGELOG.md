@@ -281,6 +281,14 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   the three uses without a fallback say what they render (`inherit`, `unset`). Nothing renders
   differently. The stylesheet test now also fails on a custom property that neither the stylesheet nor
   a component defines (#715).
+- **CSS duplicates (#709)** — five selector lists that `theme.css` spelled out in two rules each are
+  one rule now (`.surface-card`, `.gene-profile-stat`, the assemblies-table cells, the embedded catalog
+  toolbar), a `max-width` that a later rule always overrode is gone, and three pairs of neighbouring
+  rules with the same declarations share one. Each merge was checked against the cascade: no rule in
+  between sets a related property at the same specificity on an element both could match. Nothing
+  renders differently. The rest of the apparent duplication is the shared-base-then-override pattern
+  (`button, .form-button {…}` then `.button-secondary {…}`) or coincidences between unrelated components,
+  and stays (#716).
 
 ### Removed
 

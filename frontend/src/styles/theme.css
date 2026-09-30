@@ -723,11 +723,7 @@ tbody tr:hover {
   color: var(--color-text);
 }
 
-.content-prose ul {
-  margin: 0;
-  padding-left: 1.25rem;
-}
-
+.content-prose ul,
 .content-prose ol {
   margin: 0;
   padding-left: 1.25rem;
@@ -1165,9 +1161,6 @@ tbody tr:hover {
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.98);
   box-shadow: var(--shadow-card);
-}
-
-.surface-card {
   padding: 1.45rem;
 }
 
@@ -2436,6 +2429,10 @@ tbody tr:hover {
 .reference-catalog-assembly-table td {
   padding-top: 0.58rem;
   padding-bottom: 0.58rem;
+  /* Keep every column in the nested assemblies table left-aligned, and vertically
+     centre cell content so the count+icon cells line up with the plain-text ones. */
+  text-align: left;
+  vertical-align: middle;
 }
 
 .reference-catalog-assembly-main {
@@ -2450,14 +2447,6 @@ tbody tr:hover {
   align-items: center;
   justify-content: flex-start;
   gap: 0.3rem;
-}
-
-/* Keep every column in the nested assemblies table left-aligned, and vertically
-   centre cell content so the count+icon cells line up with the plain-text ones. */
-.reference-catalog-assembly-table th,
-.reference-catalog-assembly-table td {
-  text-align: left;
-  vertical-align: middle;
 }
 
 .reference-refresh-icon {
@@ -5114,18 +5103,12 @@ button.sv-second-hit-badge--del:hover {
   border: 1px solid rgba(10, 11, 12, 0.06);
   border-radius: 4px;
   padding: 0.9rem;
-}
-
-.gene-profile-stat {
   min-width: 0;
   background: rgba(255, 255, 255, 0.7);
 }
 
 .gene-profile-stat strong {
   overflow-wrap: anywhere;
-}
-
-.gene-profile-stat strong {
   color: var(--color-heading);
 }
 
@@ -8443,6 +8426,13 @@ a.button-danger:hover {
 
 .family-catalog-toolbar--embedded {
   margin-top: 0.95rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.9rem;
 }
 
 .family-catalog-summary {
@@ -8597,16 +8587,6 @@ a.button-danger:hover {
   gap: 0.35rem;
 }
 
-.family-catalog-toolbar--embedded {
-  padding-top: 0;
-  padding-bottom: 0;
-  border-top: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.9rem;
-}
-
 .project-page .page-header {
   gap: 1rem;
 }
@@ -8637,17 +8617,14 @@ a.button-danger:hover {
   color: var(--color-text-muted);
 }
 
-.project-form-grid {
+.project-form-grid,
+.project-access-grid {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .project-form-actions {
   display: flex;
   justify-content: flex-start;
-}
-
-.project-access-grid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .project-catalog-table th,
@@ -8841,7 +8818,6 @@ a.button-danger:hover {
      fit the phenotype list. VariantScoreCell measures it and flips it to stay
      on-screen. */
   width: min(340px, 90vw);
-  max-width: min(340px, 90vw);
   border: 1px solid rgba(10, 11, 12, 0.12);
   border-radius: 10px;
   background: #ffffff;
@@ -10639,11 +10615,8 @@ a.button-danger:hover {
   margin: 0;
   font-weight: 600;
 }
-.report-footer-versions {
-  margin: 0;
-  line-height: 1.5;
-}
-/* The build that rendered the report and the device label (TF-15 §1). */
+/* The report's versions, the build that rendered it and the device label (TF-15 §1). */
+.report-footer-versions,
 .report-footer-software,
 .report-footer-device {
   margin: 0;
