@@ -286,6 +286,7 @@ def _run(
     claim_error: Exception | None = None,
     update_errors: dict[str, Exception] | None = None,
     still_ours: Callable[[str], bool] = lambda assignments: True,
+    stderr: bytes | None = None,
 ) -> SimpleNamespace:
     """Run one job against stand-ins; each write is recorded with the worker it is guarded by."""
     run = SimpleNamespace(updates=[], commands=[], applied=[], claims=[], processes=[])
@@ -308,8 +309,10 @@ def _run(
         out = Path(cmd[cmd.index("--out") + 1])
         if returncode == 0:
             out.write_text(tsv, encoding="utf-8")
-        stderr = b"downloading ClinGen\nbuild step failed\n" if returncode else b"built 1 region\n"
-        run.processes.append(_Process(returncode, stderr, runtime))
+        said = stderr if stderr is not None else (
+            b"downloading ClinGen\nbuild step failed\n" if returncode else b"built 1 region\n"
+        )
+        run.processes.append(_Process(returncode, said, runtime))
         return run.processes[-1]
 
     async def apply_text(session, **kwargs):
@@ -359,8 +362,37 @@ def test_a_failed_build_leaves_the_knowledgebase_untouched(script: Path, monkeyp
     assert run.applied == []
     assignments, params, worker = run.updates[-1]
     assert assignments.startswith("status = 'failed'") and worker == run.claims[0]
-    assert params["error"] == "Knowledgebase build failed (exit 2)."
+    assert params["error"] == "Knowledgebase build failed (exit 2): build step failed"
     assert "build step failed" in params["log"]
+
+
+def test_a_build_stopped_for_a_missing_source_says_which(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The job's error is what the admin sees; the log is not shown. A progress bar's
+    # carriage-return updates come before the script's last word.
+    url = "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg37.bed"
+    stderr = (
+        b"[build-cnv-kb] Loading ClinGen recurrent CNV regions (named syndromes).\n"
+        b"ClinVar overlaps:  31%\rClinVar overlaps: 100%\r"
+        b"[build-cnv-kb] Build stopped: The ClinGen recurrent CNV regions could not be downloaded from "
+        + url.encode()
+        + b": 404 Client Error\n"
+    )
+    run = _run(monkeypatch, returncode=1, stderr=stderr)
+
+    assert run.applied == []
+    _assignments, params, _worker = run.updates[-1]
+    assert params["error"] == (
+        "Knowledgebase build failed (exit 1): Build stopped: The ClinGen recurrent CNV regions could "
+        f"not be downloaded from {url}: 404 Client Error"
+    )
+
+
+def test_a_failed_build_that_said_nothing_keeps_the_plain_error(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    run = _run(monkeypatch, returncode=1, stderr=b"")
+
+    _assignments, params, _worker = run.updates[-1]
+    assert params["error"] == "Knowledgebase build failed (exit 1)."
+
 
 
 def test_a_job_that_is_no_longer_queued_is_not_run(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:

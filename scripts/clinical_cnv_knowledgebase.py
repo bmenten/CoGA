@@ -7,7 +7,7 @@ Main output:
 
 Sources:
     - ClinGen Dosage Sensitivity curated regions
-    - ClinGen recurrent CNV regions, when available from downloads page
+    - ClinGen recurrent CNV regions (the named syndromes)
     - UCSC cytobands
     - ClinVar structural/copy-number variants
     - Optional OMIM API enrichment
@@ -25,6 +25,10 @@ Usage:
 Optional:
     export OMIM_API_KEY=your_key
     python build_clinical_cnv_kb.py --orphanet-xml en_product6.xml --decipher-map decipher_map.tsv
+
+The ClinGen dosage curation and the recurrent CNV regions are the knowledgebase's backbone: when
+either cannot be loaded the build stops with a non-zero exit, rather than write a knowledgebase
+that lacks them (SourceUnavailable). The optional enrichments are skipped with a log line.
 """
 
 from __future__ import annotations
@@ -51,11 +55,11 @@ import xml.etree.ElementTree as ET
 
 CLINGEN_DOWNLOADS = "https://search.clinicalgenome.org/kb/downloads"
 
-# Authoritative recurrent-CNV regions with inline syndrome names
-# (TAR, Williams-Beuren, DiGeorge, ...). Complements the region curation list.
+# Authoritative recurrent-CNV regions with inline names (1q21.1 TAR, 7q11.23 Williams-Beuren,
+# 15q11.2q13 PWS/AS, 22q11.2, ...). Complements the region curation list.
 CLINGEN_RECURRENT_CNV = {
     "GRCh38": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg38.bed",
-    "GRCh37": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg19.bed",
+    "GRCh37": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg37.bed",
 }
 
 UCSC_CYTO = {
@@ -74,6 +78,15 @@ OMIM_API = "https://api.omim.org/api"
 ORPHANET_NOMENCLATURE_URL = "https://www.orphadata.com/data/xml/en_product1.xml"
 
 
+class SourceUnavailable(RuntimeError):
+    """A source the knowledgebase cannot do without could not be loaded.
+
+    The build stops rather than write a knowledgebase without it: the admin rebuild would
+    otherwise replace a complete knowledgebase with one that silently lacks, say, every named
+    recurrent syndrome.
+    """
+
+
 def log(msg: str) -> None:
     print(f"[build-cnv-kb] {msg}", file=sys.stderr)
 
@@ -85,14 +98,15 @@ def safe_get(url: str, timeout: int = 60) -> bytes:
 
 
 def clean_chr(chrom: str) -> str:
-    chrom = str(chrom).strip()
-    chrom = chrom.replace("chr", "")
-    chrom = chrom.replace("CHR", "")
-    if chrom == "23":
+    # Case-insensitive: ClinGen's GRCh38 recurrent-CNV BED writes "chrx", which must reach
+    # the X of every other source (and of the cytobands).
+    chrom = re.sub(r"^chr", "", str(chrom).strip(), flags=re.IGNORECASE)
+    upper = chrom.upper()
+    if upper in {"X", "23"}:
         return "X"
-    if chrom == "24":
+    if upper in {"Y", "24"}:
         return "Y"
-    if chrom in {"M", "MT"}:
+    if upper in {"M", "MT"}:
         return "MT"
     return chrom
 
@@ -166,7 +180,10 @@ def discover_clingen_tsv_urls(assembly: str) -> List[str]:
     Scrape the ClinGen downloads page and keep likely region/recurrent CNV TSVs.
     This avoids hard-coding URLs that occasionally change.
     """
-    html = safe_get(CLINGEN_DOWNLOADS).decode("utf-8", errors="replace")
+    try:
+        html = safe_get(CLINGEN_DOWNLOADS).decode("utf-8", errors="replace")
+    except Exception as e:
+        raise SourceUnavailable(f"The ClinGen downloads page {CLINGEN_DOWNLOADS} could not be read: {e}") from e
     soup = BeautifulSoup(html, "html.parser")
 
     urls = []
@@ -883,21 +900,14 @@ def collapse_duplicate_regions(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def load_clingen_recurrent_regions(assembly: str) -> pd.DataFrame:
-    """ClinGen recurrent-CNV regions with authoritative inline syndrome names.
+def parse_recurrent_cnv_bed(text: str, *, assembly: str, source_url: str) -> pd.DataFrame:
+    """The named recurrent-CNV regions of a ClinGen recurrent-CNV BED.
 
-    These carry the recognizable names (TAR syndrome, Williams-Beuren, DiGeorge,
-    etc.) with exact coordinates, so no fuzzy name matching is required.
+    ClinGen writes the header two ways: the GRCh38 file has a `track` line and a separate
+    `#chrom start end ...` line, the GRCh37 file puts `#chrom ...` on the `track` line after a
+    run of tabs. Both are skipped, as are the breakpoint markers (BP1, BP2, ...), which name no
+    syndrome region.
     """
-    url = CLINGEN_RECURRENT_CNV.get(assembly)
-    if not url:
-        return pd.DataFrame()
-    try:
-        text = safe_get(url).decode("utf-8", errors="replace")
-    except Exception as e:  # noqa: BLE001 - logged; the build continues without this source
-        log(f"  skipped recurrent CNV bed: {e}")
-        return pd.DataFrame()
-
     records = []
     for line in text.splitlines():
         if not line or line.startswith("track") or line.startswith("#"):
@@ -941,14 +951,36 @@ def load_clingen_recurrent_regions(assembly: str) -> pd.DataFrame:
             "phenotypes": "",
             "references": "",
             "clingen_url": "",
-            "source_url": url,
+            "source_url": source_url,
             "clinvar_pathogenic_loss_count": "",
             "clinvar_pathogenic_gain_count": "",
             "clinvar_pathogenic_accessions": "",
         })
-    if records:
-        log(f"  retained {len(records)} recurrent CNV regions")
     return pd.DataFrame(records)
+
+
+def load_clingen_recurrent_regions(assembly: str) -> pd.DataFrame:
+    """ClinGen recurrent-CNV regions with authoritative inline syndrome names.
+
+    These carry the recognizable names (TAR syndrome, Williams-Beuren, PWS/AS, 22q11.2,
+    etc.) with exact coordinates, so no fuzzy name matching is required. They are the only
+    source of those names, so a file that cannot be downloaded, or holds no regions, stops
+    the build (SourceUnavailable).
+    """
+    url = CLINGEN_RECURRENT_CNV.get(assembly)
+    if not url:
+        raise SourceUnavailable(f"No ClinGen recurrent CNV file is known for {assembly}.")
+    try:
+        text = safe_get(url).decode("utf-8", errors="replace")
+    except Exception as e:
+        raise SourceUnavailable(f"The ClinGen recurrent CNV regions could not be downloaded from {url}: {e}") from e
+    regions = parse_recurrent_cnv_bed(text, assembly=assembly, source_url=url)
+    if regions.empty:
+        raise SourceUnavailable(
+            f"The ClinGen recurrent CNV file {url} holds no recurrent regions; its format may have changed."
+        )
+    log(f"  retained {len(regions)} recurrent CNV regions")
+    return regions
 
 
 def clean_syndrome_name(name: str) -> str:
@@ -979,7 +1011,7 @@ def build_kb(
     urls = discover_clingen_tsv_urls(assembly)
 
     if not urls:
-        raise RuntimeError(
+        raise SourceUnavailable(
             "Could not discover ClinGen TSV/BED files. "
             "Check ClinGen downloads page or pass fixed URLs by editing the script."
         )
@@ -987,24 +1019,23 @@ def build_kb(
     log(f"Found {len(urls)} candidate ClinGen files.")
     tables = []
 
+    # The dosage curation is the backbone: a file the downloads page lists but that cannot be
+    # loaded stops the build, where it used to be skipped and the build went on without it.
     for url in urls:
+        log(f"Loading {url}")
         try:
-            log(f"Loading {url}")
-            raw = load_table_from_url(url)
-            norm = normalize_clingen_table(raw, url, assembly)
-            if not norm.empty:
-                tables.append(norm)
-                log(f"  retained {len(norm)} interval records")
-        except Exception as e:  # noqa: BLE001 - logged; the build continues without this source
-            log(f"  skipped {url}: {e}")
-
-    log("Loading ClinGen recurrent CNV regions (named syndromes).")
-    recurrent = load_clingen_recurrent_regions(assembly)
-    if not recurrent.empty:
-        tables.append(recurrent)
+            norm = normalize_clingen_table(load_table_from_url(url), url, assembly)
+        except Exception as e:
+            raise SourceUnavailable(f"The ClinGen curation file {url} could not be loaded: {e}") from e
+        if not norm.empty:
+            tables.append(norm)
+            log(f"  retained {len(norm)} interval records")
 
     if not tables:
-        raise RuntimeError("No usable ClinGen interval records found.")
+        raise SourceUnavailable("No usable ClinGen dosage-curation records found.")
+
+    log("Loading ClinGen recurrent CNV regions (named syndromes).")
+    tables.append(load_clingen_recurrent_regions(assembly))
 
     kb = pd.concat(tables, ignore_index=True)
     kb["syndrome_name"] = kb["syndrome_name"].map(clean_syndrome_name)
@@ -1119,12 +1150,17 @@ def main():
 
     args = parser.parse_args()
 
-    kb = build_kb(
-        assembly=args.assembly,
-        orphanet_xml=args.orphanet_xml,
-        decipher_map=args.decipher_map,
-        skip_clinvar=args.skip_clinvar,
-    )
+    try:
+        kb = build_kb(
+            assembly=args.assembly,
+            orphanet_xml=args.orphanet_xml,
+            decipher_map=args.decipher_map,
+            skip_clinvar=args.skip_clinvar,
+        )
+    except SourceUnavailable as e:
+        # The last line of stderr: the admin rebuild shows it as the job's error.
+        log(f"Build stopped: {e}")
+        sys.exit(1)
     kb.to_csv(args.out, sep="\t", index=False)
 
     log(f"Wrote {len(kb):,} CNV records to {args.out}")
