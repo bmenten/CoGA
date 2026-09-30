@@ -5,6 +5,7 @@ import PageState from '../../components/PageState';
 import api from '../../lib/api';
 import type { HpoAdminSummaryOut } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { formatDate, formatDateTime } from '../../lib/format';
 
 type HpoRelation = {
   hpo_id: string;
@@ -46,25 +47,6 @@ type HpoSyncResult = {
 
 const formatNumber = (value?: number | null) =>
   typeof value === 'number' ? value.toLocaleString() : '0';
-
-// `missing` is what an absent date means: nothing installed, or an ontology imported from a
-// file that recorded no release.
-const formatDate = (value?: string | null, missing = 'Not installed') => {
-  if (!value) return missing;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  // A date-only value is parsed as UTC midnight: shown in local time it fell a day early
-  // west of UTC (2026-06-06 as 6/5/2026), so show it in UTC (#526).
-  return /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? date.toLocaleDateString(undefined, { timeZone: 'UTC' })
-    : date.toLocaleDateString();
-};
-
-const formatDateTime = (value?: string | null) => {
-  if (!value) return 'Not synced';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-};
 
 const previewLabels: Record<string, string> = {
   terms: 'Terms in release',
@@ -270,7 +252,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
         </div>
         <div className="admin-data-summary-item">
           <span className="admin-data-summary-label">Last sync</span>
-          <strong className="admin-data-summary-value">{formatDateTime(summary?.last_sync_date)}</strong>
+          <strong className="admin-data-summary-value">{formatDateTime(summary?.last_sync_date, 'Not synced')}</strong>
         </div>
       </section>
 

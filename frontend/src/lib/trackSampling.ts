@@ -1,5 +1,4 @@
-const clamp = (value: number, min: number, max: number): number =>
-  Math.min(Math.max(value, min), max);
+import { clamp } from './number';
 
 export const SMALL_VARIANT_TRACK_RESULT_LIMIT = 10000;
 

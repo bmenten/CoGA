@@ -2,7 +2,6 @@ import React from 'react';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import {
-  formatCount,
   formatStorageBytes,
   type ClickHouseVariantAssemblyStatus,
   type ClickHouseVariantIntegrity,
@@ -12,6 +11,7 @@ import type {
   ClickHouseIntegrityMonitorOut,
   ClickHouseIntegrityMonitorResultOut,
 } from '../../lib/apiSchema.generated';
+import { formatCount } from '../../lib/format';
 
 const INTEGRITY_LABELS: Record<ClickHouseVariantIntegrity['status'], string> = {
   ok: 'Healthy',

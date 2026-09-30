@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
-import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
+import { NUCLEAR_CHROMOSOMES, formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
 import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
@@ -9,12 +9,7 @@ import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
 import { countOf } from '../../lib/countOf';
-
-const DEFAULT_CHROMS = [
-  ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
-  'X',
-  'Y',
-];
+import { deriveLayoutFromBins, splitKey, type GenomeLayout } from './genomeBinLayout';
 
 interface ApcadBin {
   chr: string;
@@ -25,12 +20,6 @@ interface ApcadBin {
 }
 
 type ApcadSegment = ApcadBin;
-
-interface Layout {
-  offsets: Record<string, number>;
-  lengths: Record<string, number>;
-  total: number;
-}
 
 interface ApcadTrackData {
   bins: ApcadBin[];
@@ -48,8 +37,6 @@ interface BedRecordPayload<T> {
   items: T[];
 }
 
-const splitKey = (key: string): string[] => (key ? key.split('\n').filter(Boolean) : []);
-
 /** Where the chart is looking, for its accessible name. */
 const describeView = (chroms: string[], regionStart?: number, regionEnd?: number): string => {
   if (chroms.length === 1) {
@@ -58,39 +45,6 @@ const describeView = (chroms: string[], regionStart?: number, regionEnd?: number
       : `on ${formatChromosomeLabel(chroms[0])}`;
   }
   return chroms.length > 1 ? `across ${chroms.length} chromosomes` : '';
-};
-
-const deriveLayoutFromBins = (
-  bins: ApcadBin[],
-  chroms: string[],
-  regionStart?: number,
-  regionEnd?: number,
-): Layout => {
-  const lengths: Record<string, number> = Object.create(null);
-  chroms.forEach((chrom) => {
-    lengths[chrom] = 0;
-  });
-
-  bins.forEach((bin) => {
-    lengths[bin.chr] = Math.max(lengths[bin.chr] ?? 0, bin.end);
-  });
-
-  const offsets: Record<string, number> = Object.create(null);
-  let total = 0;
-  chroms.forEach((chrom) => {
-    offsets[chrom] = total;
-    total += lengths[chrom] ?? 0;
-  });
-
-  if (
-    regionStart !== undefined &&
-    regionEnd !== undefined &&
-    chroms.length === 1
-  ) {
-    total = regionEnd - regionStart;
-  }
-
-  return { offsets, lengths, total };
 };
 
 interface Props {
@@ -102,8 +56,8 @@ interface Props {
   regionStart?: number;
   regionEnd?: number;
   onChromosomeClick?: (chrom: string) => void;
-  onLayout?: (layout: Layout & { chroms: string[] }) => void;
-  layout?: Layout;
+  onLayout?: (layout: GenomeLayout & { chroms: string[] }) => void;
+  layout?: GenomeLayout;
   /**
    * Top of the y-axis. 1 for a parent-of-origin track, whose markers run the full
    * B-allele range; 0.5 for a *folded* minor allele fraction, where the caller has
@@ -123,7 +77,7 @@ const ApcadChart: React.FC<Props> = ({
   pcfUrls = [],
   width = 800,
   height = 120,
-  chroms = DEFAULT_CHROMS,
+  chroms = NUCLEAR_CHROMOSOMES,
   regionStart,
   regionEnd,
   onChromosomeClick,
@@ -136,7 +90,7 @@ const ApcadChart: React.FC<Props> = ({
     y: number;
     segment: ApcadSegment;
   } | null>(null);
-  const layoutRef = useRef<Layout>({ offsets: {}, lengths: {}, total: 0 });
+  const layoutRef = useRef<GenomeLayout>({ offsets: {}, lengths: {}, total: 0 });
   const segmentHitboxesRef = useRef<SegmentHitbox[]>([]);
 
   const apcadUrlKey = apcadUrls.join('\n');

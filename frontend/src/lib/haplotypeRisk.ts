@@ -1,3 +1,5 @@
+import { isAffectedMember, isCarrierStatus } from './familyMembers';
+
 export type HaplotypeLane = 'hap1' | 'hap2';
 export type HaplotypeOrigin = 'paternal' | 'maternal';
 export type HaplotypeInheritanceMode =
@@ -101,14 +103,8 @@ export const resolveHaplotypeInheritanceModel = (
   return members.some((member) => isCarrierStatus(member.carrier_status)) ? 'AR' : 'AD';
 };
 
-export const isCarrierStatus = (status: HaplotypeMemberLike['carrier_status']): boolean =>
-  status === true || status === 'carrier';
-
 const isKnownNonCarrier = (member: HaplotypeMemberLike): boolean =>
   member.carrier_status === 'not_carrier' || member.carrier_status === false;
-
-const isAffectedMember = (member: HaplotypeMemberLike): boolean =>
-  Boolean(member.affected) || member.clinical_status === 'affected';
 
 const normalizeRole = (role?: string | null): string =>
   String(role || '')

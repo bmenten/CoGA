@@ -40,3 +40,22 @@ export function sortFamilyMembersProbandFirst<T extends FamilyMemberLike>(member
     });
   });
 }
+
+/** A member as the reports name one: "proband (S1)", or the sample id when the role is blank. */
+export const memberLabel = (member: { sample_id: string; role?: string | null }): string => {
+  const role = (member.role || '').trim();
+  return role ? `${role} (${member.sample_id})` : member.sample_id;
+};
+
+/** A carrier: `carrier_status` is "carrier", or `true` as a boolean flag. */
+export const isCarrierStatus = (status?: string | boolean | null): boolean =>
+  status === true || status === 'carrier';
+
+/**
+ * An affected member: flagged affected, or with the clinical status "affected". The pedigree
+ * also counts a PED row whose phenotype is 2; the haplotype risk model sees members only.
+ */
+export const isAffectedMember = (member: {
+  affected?: boolean | null;
+  clinical_status?: string | null;
+}): boolean => Boolean(member.affected) || member.clinical_status === 'affected';

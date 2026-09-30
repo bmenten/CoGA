@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import PageState from '../../components/PageState';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
-import { formatCount } from './dataManagementTypes';
+import { formatCount, formatTimestamp } from '../../lib/format';
 
 interface MonarchStatus {
   release_version?: string | null;
@@ -88,12 +88,6 @@ const matchTypeLabels: Record<MonarchMatchType, string> = {
   disease: 'Disease name',
   phenotype: 'Phenotype',
   both: 'Disease & phenotype',
-};
-
-const formatTimestamp = (value?: string | null) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 };
 
 // One empty list, so the memo and effect below see a stable value before data arrive.

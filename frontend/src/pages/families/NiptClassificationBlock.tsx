@@ -1,8 +1,6 @@
 import React from 'react';
 import type { NiptClassification } from './smallVariantSearch';
-
-const pct = (value?: number | null): string =>
-  value == null ? '—' : `${(value * 100).toFixed(1)}%`;
+import { pct } from './niptClassification';
 
 interface NiptClassificationBlockProps {
   nipt: NiptClassification;

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import { apiPath } from '../../lib/apiPath';
+import { getErrorMessage } from '../../lib/errorMessage';
 
 interface User {
   id: string;
@@ -19,14 +20,6 @@ interface Project {
   id: string;
   name: string;
 }
-
-const getErrorMessage = (error: unknown, fallback: string): string => {
-  if (typeof error !== 'object' || error === null) return fallback;
-  const responseDetail = (
-    error as { response?: { data?: { detail?: string } } }
-  )?.response?.data?.detail;
-  return responseDetail || (error as { message?: string }).message || fallback;
-};
 
 const UserListPage: React.FC = () => {
   const queryClient = useQueryClient();

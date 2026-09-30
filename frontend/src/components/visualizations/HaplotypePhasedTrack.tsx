@@ -24,6 +24,7 @@ import VizTooltip from './VizTooltip';
 import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { apiPath } from '../../lib/apiPath';
+import { NUCLEOTIDE_COLORS, alleleBase, isDeletedHaplotype } from '../../lib/phasedMarkers';
 
 interface Segment {
   start: number;
@@ -87,28 +88,10 @@ interface PhasedMarkerResponse {
   covered?: number[] | null;
 }
 
-const isDeletedHaplotype = (value: string): boolean => value === '.';
-
 const regionLabel = (chrom: string, start: number, end: number): string =>
   `${formatChromosomeLabel(chrom)}:${start.toLocaleString()}–${end.toLocaleString()}`;
 
 const laneValue = (value: number | null): string => (value === null ? '.' : String(value));
-
-// IGV-style nucleotide colours for the hover tooltip's phased genotypes.
-const NUCLEOTIDE_COLORS: Record<string, string> = {
-  A: '#2e9e4f',
-  C: '#2f6fe0',
-  G: '#e8a33d',
-  T: '#d6453d',
-};
-
-/** The allele a phased index refers to: 0 = ref, n = nth alt; '.' = missing. */
-const alleleBase = (index: string, ref: string, alt: string): string => {
-  if (index === '0') return ref;
-  const n = parseInt(index, 10);
-  if (Number.isNaN(n)) return '·';
-  return alt.split(',')[n - 1] ?? '?';
-};
 
 const baseSpan = (base: string, key: number): React.ReactNode => (
   <span

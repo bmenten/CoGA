@@ -11,6 +11,7 @@ import VizLoadingOverlay from './VizLoadingOverlay';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import VizTooltip from './VizTooltip';
 import { apiPath } from '../../lib/apiPath';
+import { SV_TYPE_ORDER, describeSvTypes, type SvTypeKey } from './svTypes';
 
 interface Genotype {
   sample: string;
@@ -44,9 +45,7 @@ interface Props {
   filters?: Record<string, string>;
 }
 
-const TYPE_ORDER = ['DEL', 'DUP', 'INV', 'INS', 'BND'] as const;
-
-type VariantType = (typeof TYPE_ORDER)[number];
+type VariantType = SvTypeKey;
 
 interface PositionedVariant extends Variant {
   x1: number;
@@ -57,18 +56,7 @@ interface PositionedVariant extends Variant {
 }
 
 const isSupportedVariantType = (value: string): value is VariantType =>
-  TYPE_ORDER.includes(value as VariantType);
-
-/** The drawn SVs in words, for the chart's accessible name (#529): "3 (2 DEL, 1 DUP)". */
-const describeTypes = (items: PositionedVariant[]): string => {
-  const byType = TYPE_ORDER.map((typeKey) => ({
-    typeKey,
-    count: items.filter((item) => item.typeKey === typeKey).length,
-  }))
-    .filter(({ count }) => count > 0)
-    .map(({ typeKey, count }) => `${count.toLocaleString()} ${typeKey}`);
-  return `${items.length.toLocaleString()} (${byType.join(', ')})`;
-};
+  SV_TYPE_ORDER.includes(value as VariantType);
 
 const VariantTrack: React.FC<Props> = ({
   familyId,
@@ -154,12 +142,12 @@ const VariantTrack: React.FC<Props> = ({
     [data?.variants, sampleId, tooManyVariants],
   );
   const span = regionEnd - regionStart || 1;
-  const rowHeight = React.useMemo(() => height / TYPE_ORDER.length, [height]);
+  const rowHeight = React.useMemo(() => height / SV_TYPE_ORDER.length, [height]);
   const items = React.useMemo<PositionedVariant[]>(() => {
     return variants
       .map((v) => {
         const typeKey = v.type.toUpperCase() as VariantType;
-        const row = TYPE_ORDER.indexOf(typeKey);
+        const row = SV_TYPE_ORDER.indexOf(typeKey);
         const x1 = ((v.start - regionStart) / span) * width;
         const x2 = ((v.end - regionStart) / span) * width;
         const y1 = row * rowHeight + 2;
@@ -171,7 +159,7 @@ const VariantTrack: React.FC<Props> = ({
 
   // The chart's accessible name (#529): what it shows now. A failure or a load is said
   // as such, never as zero SVs (#510).
-  const typeSummary = React.useMemo(() => describeTypes(items), [items]);
+  const typeSummary = React.useMemo(() => describeSvTypes(items), [items]);
   // A view with no width asks for nothing: it is not "none" (#602).
   const chartRegion = describeTrackRegion(chrom, regionStart, regionEnd);
   const chartState = isError
@@ -207,7 +195,7 @@ const VariantTrack: React.FC<Props> = ({
   return (
     <div className="relative" style={{ width, height }}>
       <svg width={width} height={height} role="img" aria-label={chartLabel}>
-        {TYPE_ORDER.map((typeKey, index) => {
+        {SV_TYPE_ORDER.map((typeKey, index) => {
           const rowTop = index * rowHeight;
           const rowFill = typeColors[typeKey] || fallbackColors.default;
           return (

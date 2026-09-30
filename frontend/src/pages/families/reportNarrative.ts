@@ -9,6 +9,8 @@ import type {
   StructuralVariant,
   StructuralVariantFamilyMember,
 } from './structuralVariantSearch';
+import { memberLabel } from '../../lib/familyMembers';
+import { joinWithAnd } from '../../lib/format';
 
 export type Zygosity =
   | 'homozygous'
@@ -118,14 +120,6 @@ export const describeClinvar = (variant: SmallVariant): string | null => {
   const clinvar = variant.clinvar?.trim();
   if (!clinvar) return null;
   return `ClinVar reports this variant as ${clinvar.replace(/_/g, ' ')}.`;
-};
-
-const memberLabel = (member: FamilyMember): string => {
-  const role = (member.role || '').trim();
-  if (role) {
-    return `${role} (${member.sample_id})`;
-  }
-  return member.sample_id;
 };
 
 const isAffected = (member: FamilyMember): boolean =>
@@ -281,12 +275,3 @@ export const buildStructuralSegregationSentence = (
     : '';
   return `The call is annotated as ${inheritance.replace(/_/g, ' ')}${affectedClause}.`;
 };
-
-// Joins ["a", "b", "c"] → "a, b and c"; ["a", "b"] → "a and b".
-export function joinWithAnd(items: string[]): string {
-  const filtered = items.filter(Boolean);
-  if (filtered.length === 0) return '';
-  if (filtered.length === 1) return filtered[0];
-  if (filtered.length === 2) return `${filtered[0]} and ${filtered[1]}`;
-  return `${filtered.slice(0, -1).join(', ')} and ${filtered[filtered.length - 1]}`;
-}

@@ -8,6 +8,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { useProjectCatalog } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import QueryFailure from '../../components/QueryFailure';
+import { formatTimestamp } from '../../lib/format';
 
 type ImportStatus = 'queued' | 'validating' | 'running' | 'completed' | 'failed';
 type PackageTargetMode = 'new' | 'existing';
@@ -100,12 +101,6 @@ type FamilyImportJob = {
 };
 
 const activeStatuses = new Set<ImportStatus>(['queued', 'validating', 'running']);
-
-const formatTimestamp = (value?: string | null) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-};
 
 const issueLabel = (issue: ValidationIssue) =>
   [issue.dataset, issue.sample_id, issue.path].filter(Boolean).join(' · ');

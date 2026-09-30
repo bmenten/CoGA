@@ -8,7 +8,6 @@ import {
   describeGnomadFrequency,
   describeZygosity,
   humanizeEffect,
-  joinWithAnd,
 } from '../reportNarrative';
 
 const makeVariant = (overrides: Partial<SmallVariant> = {}): SmallVariant => ({
@@ -69,14 +68,6 @@ describe('describeGnomadFrequency', () => {
     const text = describeGnomadFrequency(makeVariant({ gnomad_af: 0.00005, gnomad_hom_count: 2 }));
     expect(text).toContain('extremely rare');
     expect(text).toContain('2 homozygotes');
-  });
-});
-
-describe('joinWithAnd', () => {
-  it('joins lists in prose form', () => {
-    expect(joinWithAnd(['a'])).toBe('a');
-    expect(joinWithAnd(['a', 'b'])).toBe('a and b');
-    expect(joinWithAnd(['a', 'b', 'c'])).toBe('a, b and c');
   });
 });
 

@@ -7,6 +7,7 @@ import type { GeneLocation, GenePanel } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
 import type { ApiErrorLike } from '../../lib/errorMessage';
 import QueryFailure from '../../components/QueryFailure';
+import { formatDateTime } from '../../lib/format';
 
 interface PanelAppPanelSummary {
   panelapp_id: number;
@@ -73,14 +74,6 @@ const GenePanelsPage: React.FC = () => {
   const [includePanelAppRegions, setIncludePanelAppRegions] = useState(true);
   const [includePanelAppStrs, setIncludePanelAppStrs] = useState(true);
   const userIsAdmin = isAdmin();
-
-  const formatDateTime = (value: string) => {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return value;
-    }
-    return parsed.toLocaleString();
-  };
 
   const formatSpan = (total: number) =>
     total >= 1_000_000 ? `${(total / 1_000_000).toFixed(2)} Mb` : `${(total / 1000).toFixed(2)} kb`;

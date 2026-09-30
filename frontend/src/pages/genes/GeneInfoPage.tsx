@@ -8,6 +8,7 @@ import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
+import { formatDateTime } from '../../lib/format';
 
 interface GeneSuggestion {
   symbol: string;
@@ -365,12 +366,6 @@ const formatLocus = (profile: Pick<GeneProfile, 'chr' | 'start' | 'end'>) => {
 const formatAssemblyLabel = (
   location: Pick<GeneAssemblyLocation, 'assembly_name' | 'assembly_version'>,
 ) => `${location.assembly_name}${location.assembly_version ? ` ${location.assembly_version}` : ''}`;
-
-const formatTimestamp = (value?: string | null) => {
-  if (!value) return 'Not yet refreshed';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-};
 
 const formatPercent = (value?: number | null, digits = 1) =>
   typeof value === 'number' ? `${value.toFixed(digits)}%` : '—';
@@ -1903,7 +1898,7 @@ const GeneInfoPage: React.FC = () => {
           </section>
 
           <footer className="gene-compact-footer">
-            <span>Latest refresh: {formatTimestamp(profile.updated_at)}</span>
+            <span>Latest refresh: {formatDateTime(profile.updated_at, 'Not yet refreshed')}</span>
             {/* Which release of each source produced what is on this page. A source that
                 answered without stating a release shows its status instead, rather than
                 an invented version. */}
@@ -1912,7 +1907,7 @@ const GeneInfoPage: React.FC = () => {
                 className="gene-compact-source gene-compact-source--success"
                 title={
                   profile.gene_annotation_imported_at
-                    ? `Gene loci and transcripts imported ${formatTimestamp(profile.gene_annotation_imported_at)}`
+                    ? `Gene loci and transcripts imported ${formatDateTime(profile.gene_annotation_imported_at, 'Not yet refreshed')}`
                     : undefined
                 }
               >
@@ -1927,7 +1922,7 @@ const GeneInfoPage: React.FC = () => {
                     source.release_detail?.checksum
                       ? `sha256 ${source.release_detail.checksum.slice(0, 12)}…`
                       : null,
-                    `fetched ${formatTimestamp(source.fetched_at)}`,
+                    `fetched ${formatDateTime(source.fetched_at, 'Not yet refreshed')}`,
                   ]
                     .filter(Boolean)
                     .join(' · ')}

@@ -12,6 +12,7 @@ import { getStainColor } from "../../lib/stainColors";
 import VizTooltip from "./VizTooltip";
 import VizErrorOverlay from "./VizErrorOverlay";
 import { apiPath } from '../../lib/apiPath';
+import { clamp } from '../../lib/number';
 
 interface IdeogramBand {
   name: string;
@@ -43,9 +44,6 @@ interface Props {
 
 const AXIS_HEIGHT = 20;
 const BAND_STROKE = 0.5;
-
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
 
 const buildChromosomeOutlinePath = ({
   width,

@@ -10,7 +10,8 @@ import {
   SYSTEM_TAG_GROUP_LABELS,
   type SmallVariantTagDefinition,
 } from '../families/smallVariantSearch';
-import { formatCount, type StatusTone } from './dataManagementTypes';
+import type { StatusTone } from './dataManagementTypes';
+import { formatCount } from '../../lib/format';
 import { apiPath } from '../../lib/apiPath';
 
 type EditableTagDraft = {

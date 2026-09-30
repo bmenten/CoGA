@@ -1,3 +1,10 @@
+/** The nuclear chromosomes in karyotype order, 1–22, X and Y, as the genome-wide views draw them. */
+export const NUCLEAR_CHROMOSOMES: string[] = [
+  ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
+  'X',
+  'Y',
+];
+
 export function compareChromosomes(a: string, b: string): number {
   const rank = (chr: string): number => {
     const cleaned = chr.replace(/^chr/i, '').toUpperCase();

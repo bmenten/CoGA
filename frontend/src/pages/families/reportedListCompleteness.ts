@@ -1,4 +1,4 @@
-import { joinWithAnd } from './reportNarrative';
+import { joinWithAnd } from '../../lib/format';
 
 /**
  * How many variants of one kind the report asks for: the API's page maximum

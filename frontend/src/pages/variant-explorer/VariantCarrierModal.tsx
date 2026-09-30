@@ -21,7 +21,7 @@ const MODE_TITLE: Record<CarrierModalMode, string> = {
   families: 'Families',
 };
 
-const formatLocus = (variant: GlobalVariantRow) =>
+const formatVariantLabel = (variant: GlobalVariantRow) =>
   `${variant.chr}:${variant.pos} ${variant.ref || ''}>${variant.alt || ''}`.trim();
 
 const VariantCarrierModal = ({
@@ -71,7 +71,7 @@ const VariantCarrierModal = ({
             {variant.gene || 'Intergenic variant'}
           </h2>
           <p className="variant-review-modal-subtitle">
-            {formatLocus(variant)}
+            {formatVariantLabel(variant)}
             {variant.hgvsc ? ` · ${variant.hgvsc}` : ''}
           </p>
         </div>

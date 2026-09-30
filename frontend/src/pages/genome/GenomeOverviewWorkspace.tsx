@@ -18,6 +18,7 @@ import type { GenomeTrackVisibility } from './GenomeOverviewSidebar';
 import ViewerMemberSection from './ViewerMemberSection';
 import ViewerTrackBlock from './ViewerTrackBlock';
 import { buildTrackFilterSummary, formatRoiCoordinates } from './viewerShared';
+import { clamp } from '../../lib/number';
 
 interface Layout {
   offsets: Record<string, number>;
@@ -96,8 +97,6 @@ interface GenomeOverviewWorkspaceProps {
 
 const MIN_REGION_SELECT_WIDTH_PX = 5;
 const GENOME_HAPLOTYPE_TRACK_HEIGHT = 15;
-
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const getGenomePointAtX = (layout: Layout, width: number, x: number): { chrom: string; position: number } | null => {
   if (width <= 0 || layout.total <= 0) return null;
