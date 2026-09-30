@@ -934,6 +934,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
 
 ### Documentation
 
+- **TF-04 cites the renewed BELAC certificate** — accreditation 351-MED certificate version 9, valid
+  2026-09-11 → 2031-09-10, with scope annex BELAC 351-MED V. 21, replaces version 8, whose validity
+  ended on 2026-09-10 (#518). It is still issued to Universiteit Gent, with the CMGG as an activity
+  site, so which legal person declares remains an open RA decision. A dated copy of both is to be
+  filed in the CMGG QMS. TF-07 §3 and INPUTS A3 spell the quality role's holder as the owner
+  confirmed: Greta Van der Cruyssen, the CMGG's QC-verantwoordelijke (#724).
 - **Retired workplan IDs and roadmap (#676)** — the ~70 references to the retired improvement
   workplan's IDs (P0-1 … P3-5) in code comments, tests, the schema, Terraform and the docs now say
   what they meant or cite the pull request that did it. The roadmap drops its two finished items (the

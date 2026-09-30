@@ -72,7 +72,7 @@ Per H11.1-OP5 (CMGG roles):
 | **Developer(s)** | **Björn Menten** | Implementation, unit/integration tests, SOUP monitoring; works via the project lead for cross-team input. |
 | **Independent reviewer** | **Tom Sante** (CMGG bio-IT) | Code review / 4-eye approval before merge — a second (bio-)IT team member, and necessarily **not** the author of the change. |
 | **Business contactpersoon** ("Klinisch coördinator") | ‹per application — see KHB› | Clinical requirements and coordinates the **clinical validation per method** ([TF-10](TF-10-performance-evaluation-plan.md)); co-approves major releases. |
-| **Kwaliteitscel / labokwaliteitsverantwoordelijke** | **Greta Vandercruyssen** | QMS compliance, document control (KHB), and sign-off on in-production-taking. |
+| **Kwaliteitscel / labokwaliteitsverantwoordelijke** | **Greta Van der Cruyssen**, QC-verantwoordelijke of the CMGG | QMS compliance, document control (KHB), and sign-off on in-production-taking. |
 | **UZ Gent DPO** | ‹to be named at DPO consultation› | Consulted when personal data is processed ([TF-14](TF-14-dpia.md)). |
 | **Head of department** | **Fransiska Malfait** | Departmental accountability for the in-house device. |
 | **Lab director / Head of CMGG** | **Björn Menten** | Release authorization, residual-risk acceptance. |
@@ -80,7 +80,8 @@ Per H11.1-OP5 (CMGG roles):
 The role holders are drawn from the CMGG bio-IT group; the authoritative register is the CMGG
 **kwaliteitshandboek (KHB)** and organigram, of which this table is a project-specific extract.
 
-> **🔲 OWNER:** the role titles are to be confirmed ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)).
+> **🔲 OWNER:** the role titles are to be confirmed ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)). Confirmed
+> 2026-09-30: the quality role is held by Greta Van der Cruyssen, the CMGG's QC-verantwoordelijke.
 
 > **Segregation of duties — recorded, not resolved.** The **developer, project lead and lab
 > director are the same person** (Björn Menten), so implementation and release authorization are
@@ -90,7 +91,7 @@ The role holders are drawn from the CMGG bio-IT group; the authoritative registe
 >    enforcement status is tracked in [TF-18 §6](TF-18-change-configuration-management.md).
 > 2. **The H11.1-F12.2 validation report carries three distinct signatures** —
 >    eindverantwoordelijke (Björn Menten), IT-team coördinator (Tom Sante) and
->    kwaliteitsbeheerder (Greta Vandercruyssen) — so no single person both produces and approves
+>    kwaliteitsbeheerder (Greta Van der Cruyssen) — so no single person both produces and approves
 >    the validation.
 >
 > This concentration should be reviewed by the kwaliteitscel and either accepted as a documented
