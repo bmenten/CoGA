@@ -9,7 +9,7 @@ import itertools
 import json
 import logging
 import math
-from typing import Any, Awaitable, Callable, Literal, Sequence
+from typing import Any, Awaitable, Callable, Collection, Iterable, Literal, Sequence
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
@@ -30,10 +30,15 @@ from .clickhouse_variant_rows import _normalized_project_ids
 from .clickhouse_variant_storage import (
     count_family_small_variants,
     delete_family_small_variants,
+    fetch_family_small_variant_entries,
     fetch_family_structural_variant_rows,
     insert_small_variant_records,
     refresh_family_small_variant_summaries,
+    rewrite_family_small_variant_entries,
     rewrite_family_structural_variants,
+    small_variant_entry_with_calls,
+    small_variant_entry_without_samples,
+    small_variant_record_entries,
 )
 from .clickhouse_interval_tracks import (
     delete_interval_track_sources,
@@ -437,6 +442,120 @@ async def _insert_haplotype_rows(
         )
 
 
+def _sample_call_ids(samples: Iterable[SampleMetadataContext]) -> set[str]:
+    """What a stored call may name these samples by: the sample id or the sample uuid."""
+    return {value for sample in samples for value in (sample.sample_id, sample.sample_uuid) if value}
+
+
+def _entry_with_uploaded_calls(entry: dict[str, Any], uploaded: dict[str, Any]) -> dict[str, Any]:
+    """``entry`` with the uploaded row's calls added. Its own fields are kept, the FILTER
+    values and genes are joined, and the calls are sorted by sample."""
+    merged = small_variant_entry_with_calls(entry, uploaded)
+    merged["filters"] = list(dict.fromkeys([*(entry["filters"] or []), *(uploaded["filters"] or [])]))
+    merged["gene_symbols"] = list(
+        dict.fromkeys([*(entry["gene_symbols"] or []), *(uploaded["gene_symbols"] or [])])
+    )
+    merged["is_annotated_in_any_gene"] = bool(
+        entry["is_annotated_in_any_gene"] or uploaded["is_annotated_in_any_gene"]
+    )
+    return merged
+
+
+def _entries_with_uploaded_calls(
+    stored: Sequence[dict[str, Any]],
+    replaced: Collection[str],
+    uploaded: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """A callset's entry rows after a per-sample upload of the ``replaced`` samples' calls.
+
+    Each stored row keeps its project, its own fields and the other samples' calls as
+    stored, and takes the uploaded calls for its variant. A stored row with no other call is
+    replaced by the uploaded row, or dropped when the upload does not have that variant; an
+    uploaded variant with no stored row in a project keeps its uploaded row. So each variant
+    stays one row per project holding every sample's call: two live rows of one variant
+    share one sort key, the family view reads one of them, and a part merge keeps only one.
+    """
+    uploaded_by_identity = {(row["project_guid"], row["key"]): row for row in uploaded}
+    rows: list[dict[str, Any]] = []
+    covered: set[tuple[Any, Any]] = set()
+    for entry in stored:
+        identity = (entry["project_guid"], entry["key"])
+        new = uploaded_by_identity.get(identity)
+        kept = small_variant_entry_without_samples(entry, replaced)
+        if new is not None:
+            covered.add(identity)
+            rows.append(new if kept is None else _entry_with_uploaded_calls(kept, new))
+        elif kept is not None:
+            rows.append(kept)
+    rows.extend(row for identity, row in uploaded_by_identity.items() if identity not in covered)
+    return rows
+
+
+async def _rewrite_with_sample_calls(
+    context: FamilyMetadataContext,
+    *,
+    source: str,
+    stored: list[dict[str, Any]],
+    replaced: Collection[str],
+    uploaded: Sequence[dict[str, Any]],
+) -> None:
+    """Write ``source``'s rows back with the ``replaced`` samples' calls swapped for the
+    uploaded ones (see :func:`_entries_with_uploaded_calls`).
+
+    ClickHouse writes are not transactional, so when the rewrite fails after its delete the
+    rows as they were read are written back, and the original error is raised.
+    """
+    assembly_name = context.assembly_name or ""
+    rows = _entries_with_uploaded_calls(stored, replaced, uploaded)
+    try:
+        await rewrite_family_small_variant_entries(
+            assembly_name, context.family_uuid, rows, source=source
+        )
+    except Exception:
+        try:
+            await rewrite_family_small_variant_entries(
+                assembly_name, context.family_uuid, stored, source=source
+            )
+        except Exception:  # noqa: BLE001 - the restore must not mask the original error
+            logger.warning(
+                "Failed to restore the %s small-variant rows of family %s after a failed rewrite",
+                source,
+                context.family_id,
+                exc_info=True,
+            )
+        raise
+
+
+async def remove_family_small_variant_sample_calls(
+    context: FamilyMetadataContext,
+    samples: Iterable[SampleMetadataContext],
+    *,
+    source: str,
+) -> int:
+    """Remove these samples' calls from the family's ``source`` rows, every other call as
+    stored, and return how many rows held one.
+
+    For a callset stored one file per sample whose new file holds no call (a mitochondrial
+    run with no chrM variant): the sample then has no call of that callset.
+    """
+    if not context.assembly_name:
+        return 0
+    replaced = _sample_call_ids(samples)
+    stored = await fetch_family_small_variant_entries(
+        context.assembly_name, context.family_uuid, source=source
+    )
+    held = sum(
+        1
+        for entry in stored
+        if any(str(sample) in replaced for sample in entry["calls.sampleId"] or [])
+    )
+    if held:
+        await _rewrite_with_sample_calls(
+            context, source=source, stored=stored, replaced=replaced, uploaded=[]
+        )
+    return held
+
+
 async def upload_family_small_variant_file(
     session: AsyncSession,
     *,
@@ -450,6 +569,7 @@ async def upload_family_small_variant_file(
     sample_aliases: dict[str, str] | None = None,
     exclude_filters: Sequence[str] | None = None,
     vep_annotations: VepAnnotationLookup | None = None,
+    overwrite_scope: Literal["source", "samples"] = "source",
 ) -> dict[str, Any]:
     """Load a family's small-variant VCF into ClickHouse.
 
@@ -466,6 +586,14 @@ async def upload_family_small_variant_file(
     ``vep_annotations`` supplies an already-parsed annotation lookup, for callers whose
     annotation file is not a VEP TSV (the mitochondrial callset is annotated by
     mutserve). It is mutually exclusive with ``annotation_file``, which parses one.
+
+    ``overwrite_scope`` says what the upload replaces. ``"source"``, the default, is the
+    family's rows of the upload's callset: a family VCF holds every sample's calls.
+    ``"samples"`` is for a callset stored one file per sample (the mitochondrial calls):
+    only the calls of the samples the file's ``#CHROM`` line names are replaced, every
+    other call of the callset is written back as stored, and each variant stays one row
+    holding every sample's call. The conflict (409) is then about those samples' calls,
+    and the file's rows are merged into the stored ones at its end, in one rewrite.
     """
     if not context.assembly_name:
         raise HTTPException(
@@ -489,6 +617,12 @@ async def upload_family_small_variant_file(
     # already exists and not overwrite" 409). Otherwise a non-overwrite conflict would
     # trigger a delete of the very rows the refusal was protecting.
     mutation_started = False
+    samples_scope = overwrite_scope == "samples"
+    # A per-sample upload: the callset's rows as stored, the ids the replaced samples'
+    # calls may be stored under, and the file's own rows, merged at its end.
+    stored_entries: list[dict[str, Any]] = []
+    replaced_call_ids: set[str] = set()
+    uploaded_entries: list[dict[str, Any]] = []
     try:
         resolved_format = _detect_small_variant_format_from_upload(file, format_hint)
         # A family holds more than one small-variant callset at once (annotated
@@ -496,11 +630,26 @@ async def upload_family_small_variant_file(
         # Scope the overwrite to this upload's own source so re-importing one loader
         # never deletes the other's rows. Haplotype blocks belong to glimpse2 only.
         loads_haplotype_blocks = resolved_format == "glimpse2"
-        existing_variants = await count_family_small_variants(
-            context.assembly_name,
-            context.family_uuid,
-            project_ids=context.project_ids,
-            source=resolved_format,
+        if samples_scope:
+            if loads_haplotype_blocks:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Imputed genotypes and their haplotype blocks are replaced per family, not per sample",
+                )
+            # Exactly the rows the rewrite at the end replaces. The conflict check reads
+            # them once the #CHROM line names the file's samples.
+            stored_entries = await fetch_family_small_variant_entries(
+                context.assembly_name, context.family_uuid, source=resolved_format
+            )
+        existing_variants = (
+            0
+            if samples_scope
+            else await count_family_small_variants(
+                context.assembly_name,
+                context.family_uuid,
+                project_ids=context.project_ids,
+                source=resolved_format,
+            )
         )
         existing_haplotypes = (
             len(
@@ -532,7 +681,10 @@ async def upload_family_small_variant_file(
 
         # Past the conflict gate: from here any failure may have flushed rows (or, in
         # overwrite mode, already pre-cleared) so cleaning this source is now correct.
-        mutation_started = True
+        # A per-sample upload writes the callset's rows only at its end, in a rewrite
+        # that puts them back itself when it fails; cleaning the source would delete
+        # every other sample's calls.
+        mutation_started = not samples_scope
         sample_names: list[str] = []
         annotation_state = AnnotationHeaderState()
         provenance_header_lines: list[str] = []
@@ -563,7 +715,18 @@ async def upload_family_small_variant_file(
                 context.project_ids,
                 variant_batch,
                 annotation_version=annotation_version,
+                entries=not samples_scope,
             )
+            if samples_scope:
+                uploaded_entries.extend(
+                    small_variant_record_entries(
+                        context.assembly_name or "",
+                        context.family_uuid,
+                        context.project_ids,
+                        variant_batch,
+                        annotation_version=annotation_version,
+                    )
+                )
             variant_batch.clear()
             if progress is not None and inserted - last_reported >= SMALL_VARIANT_PROGRESS_INTERVAL:
                 last_reported = inserted
@@ -596,12 +759,30 @@ async def upload_family_small_variant_file(
                         raise HTTPException(status_code=400, detail=f"Sample '{name}' not found in family")
                     if haplotype_blocks is not None:
                         haplotype_blocks.add_sample(name)
+                if samples_scope:
+                    replaced_call_ids = _sample_call_ids(
+                        sample_contexts[name] for name in unique_names
+                    )
+                    if not overwrite and any(
+                        str(sample) in replaced_call_ids
+                        for entry in stored_entries
+                        for sample in entry["calls.sampleId"] or []
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Small variants already exist for this file's samples in this callset",
+                        )
                 continue
             if not line or line.startswith("#"):
                 continue
             fields = line.strip().split("\t")
             if len(fields) < 10:
                 continue
+            if samples_scope and not sample_names:
+                # Without the #CHROM line the file names no sample whose calls it replaces.
+                raise HTTPException(
+                    status_code=400, detail="The VCF has no #CHROM line naming its samples"
+                )
 
             chrom, pos, _vid, ref, alt, qual, filt, info_field, fmt = fields[:9]
             # Drop caller-declared non-variant records (DeepVariant RefCall/NoCall)
@@ -699,10 +880,20 @@ async def upload_family_small_variant_file(
             raise HTTPException(status_code=400, detail=detail)
 
         await flush_variant_batch()
-        await refresh_family_small_variant_summaries(
-            context.assembly_name,
-            context.family_uuid,
-        )
+        if samples_scope:
+            # The rewrite also rebuilds the family summaries.
+            await _rewrite_with_sample_calls(
+                context,
+                source=resolved_format,
+                stored=stored_entries,
+                replaced=replaced_call_ids,
+                uploaded=uploaded_entries,
+            )
+        else:
+            await refresh_family_small_variant_summaries(
+                context.assembly_name,
+                context.family_uuid,
+            )
 
         haplotype_rows = haplotype_blocks.finish() if haplotype_blocks is not None else []
 

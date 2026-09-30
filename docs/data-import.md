@@ -360,9 +360,14 @@ The `snv` dataset takes three optional settings:
 
 Each caller's rows carry their own source tag, so re-importing one callset never removes
 another, and two callers' rows of one variant stay two rows in storage
-([database.md](database.md#row-identity)). The track viewers draw one track per caller
-(`GET /families/{family_id}/track-availability` lists them). The three HiFiCNV files are
-also served unchanged to the genome browser (IGV), from the bucket for a package in a bucket.
+([database.md](database.md#row-identity)). The `mito` dataset has one file per sample, and
+each file replaces only that sample's calls. The other samples' mitochondrial calls stay as
+they are, one row per variant with every sample's call, so the mtDNA analysis can set the
+mother's calls beside the children's. A file without chrM variants removes that sample's calls.
+
+The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
+lists them). The three HiFiCNV files are also served unchanged to the genome browser (IGV),
+from the bucket for a package in a bucket.
 
 ### Validation
 
