@@ -17,10 +17,10 @@ toward that baseline is summarised once, below. It is deliberately not labelled
 patch/minor/major: retrofitting levels onto work that predates the baseline they are measured
 against would be inventing evidence, not recording it. The authoritative record of each change
 is its pull request and the git history
-([merged pull requests](https://github.com/bmenten/CoGA/pulls?q=is%3Apr+is%3Amerged)). A
-pre-release change that alters a clinical output is listed, with a **proposed** level that QA
-has yet to confirm, in [TF-10 §8](docs/regulatory/TF-10-performance-evaluation-plan.md), the
-scope of the first validation ([TF-18 §3a](docs/regulatory/TF-18-change-configuration-management.md)).
+([merged pull requests](https://github.com/bmenten/CoGA/pulls?q=is%3Apr+is%3Amerged)). The
+clinical behaviour the first validation must cover is listed by area in
+[TF-10 §8](docs/regulatory/TF-10-performance-evaluation-plan.md)
+([TF-18 §3a](docs/regulatory/TF-18-change-configuration-management.md)).
 
 **From the first release candidate onward** every change gets an entry here carrying its TF-18
 level, and a row in the change-record log of

@@ -86,9 +86,10 @@ The rules these gates enforce, and the ones they cannot:
 - **The change is recorded.** Until the first release candidate the pull request itself is the
   record ([TF-18 §3a](docs/regulatory/TF-18-change-configuration-management.md)):
   [CHANGELOG.md](CHANGELOG.md) holds one summary of the pre-release work and takes no
-  per-change entries, and a change to a clinical output adds one line to
-  [TF-10 §8](docs/regulatory/TF-10-performance-evaluation-plan.md) with the level you propose
-  (see below). From the release candidate on, each change adds an entry under `[Unreleased]` in
+  per-change entries, and
+  [TF-10 §8](docs/regulatory/TF-10-performance-evaluation-plan.md) lists the clinical behaviour
+  the first validation must cover by area, not by change: update it only when your change adds
+  clinical behaviour that no area covers. From the release candidate on, each change adds an entry under `[Unreleased]` in
   CHANGELOG.md carrying its level, and a row to the change-record log of
   [TF-18 §8](docs/regulatory/TF-18-change-configuration-management.md). QA confirms the level.
 

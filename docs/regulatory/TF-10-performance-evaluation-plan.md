@@ -171,83 +171,47 @@ Pre-defined **aanvaardingscriteria** (the §3 "proposed acceptance" rows, confir
 clinical leads) go in the form's acceptance column; **🔲 INPUT NEEDED** items in §2–§3 are the
 fields still to fix before the form is signed.
 
-## 8. Behaviour changed during development that the first validation must cover
+## 8. Clinical behaviour developed before the release candidate
 
-These changes were made before the first release candidate ([TF-18 §3a](TF-18-change-configuration-management.md)).
-Each was proposed as a minor or major change when it was made: it alters a clinical output, what a
-user sees or what the signed record holds, or it replaces a component those rest on. The first
-validation must exercise each one, and QA confirms the list and the levels at the release
-candidate. One line per change: what changed, its pull request, and the proposed level.
+Before the first release candidate no change is recorded one by one
+([TF-18 §3a](TF-18-change-configuration-management.md)): the pull request and the git history
+are the record. This section lists, by area, the clinical behaviour built during development
+that the first validation must exercise beyond the per-application protocols of §3. At the
+release candidate QA confirms the list as the validation scope; from then on each change is
+assessed and recorded in [TF-18 §8](TF-18-change-configuration-management.md). A pre-release
+pull request updates this list only when it adds clinical behaviour that no area below covers.
 
-### Proposed major
-
-- Every small-variant list serves the review's ACMG record, so reopening a classified variant shows its saved criteria and a re-save keeps them (#662; proposed Major)
-- SV/CNV classifications freeze their evidence, and sign-out gates on its drift (#661; proposed Major)
-- A signed case shows and prints its frozen record, and the live report says it is not the signed version (#659; proposed Major)
-- A variant's calls from two small-variant callsets, or an SV's calls from two sources, are both kept; the variant stores are recreated and every family re-imported (#658; proposed Major)
-- PGT embryo calls no longer reassure without the data to support them (#652; proposed Major)
-- Sign-out refuses a partly imported family unless the signer acknowledges it (#650; proposed Major)
-- Monogenic NIPT: one fetal fraction, fetal states the father allows, confident paternity and a protected artifact list (#646; proposed Major)
-- Compound-het phase comes from informative relatives only, and the SV second-hit index follows every SV change (#645; proposed Major)
-- ACMG suggestions read a conflicting ClinVar record as neither pathogenic nor benign, and take the parents from the pedigree links (#644; proposed Major)
-- The ACMG dialog applies the sex-aware de novo rule for PM6/PS2 (#622; proposed Major)
-- A son's hemizygous de novo call on chrX or chrY is a de novo candidate (#620; proposed Major)
-- Repeat status: an unclassifiable allele surfaces for review; monotonic boundaries read conservatively; deterministic catalogue match (#540; proposed Major)
-- ClinVar P/LP frequency override applied in the ClickHouse query (#537; proposed Major)
-- Repeat-expansion status at contraction loci (#474; proposed Major)
-- SV gene/panel filters applied before the candidate cap; SV second-hit badge leads to its SVs (#468; proposed Major)
-- Frequency presets bound popmax at the same ceiling as the global AF (#466; proposed Major)
-- Compound-het pairing uses read-backed phasing (#465; proposed Major)
-- T2T-CHM13v2.0 importable as a second human assembly (off by default) (#452; proposed Major)
-- Gene reference rebuilt: HGNC as the gene register, every source for every gene, per-source releases, and gene loci from GENCODE (#443; proposed Major)
-- dbNSFP gene table pinned to release 5.4 (#435; proposed Major)
-
-### Proposed minor
-
-- A small-variant or SV CSV export drawn from a capped candidate read (compound-het, recessive or expanded carrier screening; a Python-filtered SV search) is marked truncated, named `…-TRUNCATED-partial-search.csv` and announced as a partial search; it used to report itself complete while matches beyond the candidate window were missing. A prioritised search whose overflowing window filters to nothing flags its ranking as truncated (#725; proposed Minor)
-- An unstamped build (no `APP_VERSION`, as a local compose build) reports the version in `VERSION` instead of `0.0.0+unknown` in the app and report footers, `/api/version` and the software identity of the records it signs; its commit stays `unknown` without `GIT_SHA`. A stamped build reports what it was stamped with, as before (#723; proposed Minor)
-- The clinical CNV knowledgebase: a GRCh37 build reads ClinGen's recurrent-CNV regions from the file ClinGen publishes (they were missing: 57 regions added, 29 curated regions gain them as a source); GRCh38's four X-linked recurrent regions reach chromosome X, with their cytobands (stored as `x`, no query for X found them); and a rebuild whose ClinGen dosage curation or recurrent regions cannot be loaded fails with the reason, keeping the knowledgebase it would have replaced (#721; proposed Minor)
-- A signed record is read in the release candidate's format only: the special readings of records from earlier development builds go (a missing list of looked-up reference modules names every module as missing; an absent SV list or SV/CNV drift section is not compared, its reported SVs compared whole) (#705; proposed Minor)
-- The APCAD and coverage-segment charts read a chromosome however the data spells it (lower case, a leading zero), as the other tracks do (#701; proposed Minor)
-- Monogenic NIPT: the fetal fraction takes no external value (the API-only `external_ff` and its disagreement flag are removed), and every change to the artifact list is a clinical audit event (#700; proposed Minor)
-- A per-sample filter minimum (GQ, DP, AF, AD alt, SV QUAL) that is not a number fails the search with a 422 naming it; an unreadable AF or AD-alt minimum used to be dropped, widening the result without saying so (#690; proposed Minor)
-- A package import records each sample's mtDNA haplogroup, so the mtDNA workspace shows it for the maternal-lineage check of the Sample QC review (#671; proposed Minor)
-- The writes of one family's variants run one at a time: uploads, deletes and package imports of a family started together keep every call, and a write that waited for the deletion of its sample or family writes nothing (#670; proposed Minor)
-- Importing one sample's mitochondrial calls replaces only that sample's calls; every member's chrM calls stay for the maternal transmission (#666; proposed Minor)
-- The NIPT report says when it lists fewer candidates than its scope holds, and names its scope (#656; proposed Minor)
-- Deleting a sample keeps every other small-variant call as stored (#655; proposed Minor)
-- A per-sample SV upload or delete writes every other call back as stored; SV uploads record their caller (#654; proposed Minor)
-- A package imported from a bucket works, and is traceable, in cloud mode (#653; proposed Minor)
-- The audit log cannot be switched off in production, the two signing keys must differ, and only an admin can replace a family's annotation manifest, on the audit trail (#651; proposed Minor)
-- SV/CNV review changes, and a cleared review, are recorded in the clinical audit trail (#649; proposed Minor)
-- The app and every report name the running build and carry the device label; problems go to the CMGG route (#648; proposed Minor)
-- A signed report names the HPO release; the admin summary and the ranking cache name the one that is loaded (#647; proposed Minor)
-- A per-sample SV upload checks, merges and replaces only its own source (#643; proposed Minor)
-- A review edit no longer erases a stored CNV classification or its label (#639; proposed Minor)
-- The Clinical CNV Explorer shows the knowledgebase's ClinVar loss/gain support (#625; proposed Minor)
-- A location filter that cannot be read is refused, not dropped, and the NIPT search applies its location filters (#615; proposed Minor)
-- The Circos page shows a failure as a failure, and a capped SV list as capped (#593; proposed Minor)
-- The genome overview draws the risk haplotype only where it means something (#592; proposed Minor)
-- The SV tracks say when a view holds more SVs than they can draw (#590; proposed Minor)
-- The variant explorer applies what it offers, and offers only what it applies (#580; proposed Minor)
-- ClickHouse moved to the 26.8 LTS line (#563; proposed Minor)
-- Backend runtime moved to Python 3.12 (#555; proposed Minor)
-- Concurrent review saves: a stale save is refused instead of silently overwriting (#546; proposed Minor)
-- One genotype classification for every filter, inheritance check, count and presence check (#544; proposed Minor)
-- Gene-panel coordinates scoped per assembly (#543; proposed Minor)
-- Off-scope assembly guard: sign-out refused and the family labelled outside the validated assembly scope (#542; proposed Minor)
-- Sign-out and review fallbacks made explicit instead of silently empty (#541; proposed Minor)
-- CSV exports no longer cut silently at 10,000 rows (#538; proposed Minor)
-- Viewer tracks show a failed request as a failure, never as an empty region (#533; proposed Minor)
-- The report is presented as signed only while it matches the signed record; reported SVs frozen; drift override needs a reason (#532; proposed Minor)
-- Prioritised-ranking cache keyed on the family's variant data and on the reference data the scores read (#531; proposed Minor)
-- Small-variant card: HGVS.g headline, cytoband, gene–disease context, CCDS/RefSeq per transcript, AlphaMissense shown, parsed variant IDs (#457; proposed Minor)
-- Gene Explorer: transcript designations from GENCODE, identifiers and links by accession, and the release behind each source (#447; proposed Minor)
-- Traceability for QC cut-off changes (recorded 2026-07-30; proposed Minor)
-- QC threshold profiles for NIPT and PGT; admin-managed profiles; two settings surfaces condensed (recorded 2026-07-30; proposed Minor)
-- CNV caller signal files in the genome browser (recorded 2026-07-30; proposed Minor)
-- Per-caller coverage tracks on a shared axis (recorded 2026-07-30; proposed Minor)
-- WisecondorX and QDNAseq ingestion for the long-read package layout (recorded 2026-07-30; proposed Minor)
-- HiFiCNV signal tracks (read depth, copy number, minor allele fraction) (recorded 2026-07-30; proposed Minor)
-- Admin-configurable sequencing-QC acceptance limits (recorded 2026-07-30; proposed Minor)
-- Long-read (nf-core/lrsvar) family-package ingestion (recorded 2026-07-29; proposed Minor)
+- **Variant filtering and genotypes** — one genotype classification for every filter,
+  inheritance check and count, including haploid and multi-allelic calls; frequency presets
+  that also bound popmax; the ClinVar P/LP frequency override; unreadable filter values and
+  location filters refused, not dropped; gene-panel regions per assembly.
+- **Inheritance** — de novo and hemizygous calls on a son's X and Y, and the sex-aware
+  PM6/PS2 rule; compound-heterozygote pairing with read-backed phasing and informative
+  relatives; the SV second-hit index.
+- **Structural variants, CNVs and repeats** — SV gene and panel filters before the candidate
+  cap; the clinical CNV knowledge base (ClinGen curation and recurrent regions, ClinVar
+  support, GRCh37 and GRCh38 builds); repeat-expansion status, including contraction loci and
+  unclassifiable alleles; CNV caller ingestion (HiFiCNV, WisecondorX, QDNAseq) and their
+  signal tracks.
+- **Interpretation** — the ACMG suggestions (conflicting ClinVar, parents from the pedigree),
+  classifications that reopen with their saved criteria, CNV classifications preserved by
+  review edits, and the prioritised ranking and its cache keys.
+- **Application logic** — monogenic NIPT (one fetal fraction, paternally allowed fetal
+  states, paternity confidence, the audited artifact list, a report that says when it is
+  incomplete); PGT embryo calls that are uninformative without supporting data, and the
+  risk-haplotype display; the mtDNA haplogroup and per-sample mitochondrial imports.
+- **Data integrity** — package imports (long-read layout, bucket sources, snapshot/restore);
+  serialised per-family variant writes; per-sample and per-source rewrites and deletes that
+  keep every other call; calls from two callsets or sources both kept; concurrent review
+  saves refused when stale.
+- **Sign-out and the signed record** — the frozen snapshot and its drift gates (small
+  variants, SVs and CNVs), sample-integrity, sample-QC, incomplete-import and assembly-scope
+  gates; the signed view rendered from its record in the release-candidate format; the
+  software, annotation, reference, HPO and QC-limit versions it binds; the device label and
+  the build identity; every review and classification change on the clinical audit trail.
+- **Reference data** — the gene reference (HGNC register, GENCODE loci, per-source releases),
+  dbNSFP 5.4, HPO releases, and T2T-CHM13v2.0 as an optional assembly outside the validated
+  scope.
+- **Failures shown as failures** — viewers, tracks, reports, searches and exports that show a
+  failed or capped request as such, never as empty or complete data.
+- **Platform** — Python 3.12 and ClickHouse 26.8 LTS under the validated build.
