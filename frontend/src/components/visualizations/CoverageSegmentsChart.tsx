@@ -13,15 +13,13 @@ import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
+import { normalizeChrom } from '../../lib/chromosomes';
 
 const DEFAULT_CHROMS = [
   ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
   'X',
   'Y',
 ];
-
-const normalizeChrom = (value: string): string =>
-  value.toLowerCase().startsWith('chr') ? value.slice(3) : value;
 
 interface CoverageBin {
   chr: string;

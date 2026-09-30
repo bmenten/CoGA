@@ -83,14 +83,12 @@ def _ff(ff: float = 0.10, *, low_confidence: bool = False) -> FetalFractionEstim
     return FetalFractionEstimate(
         ff=ff,
         ff_computed=ff,
-        ff_external=None,
         ff_median=ff,
         ci_low=max(0.0, ff - 0.005),
         ci_high=ff + 0.005,
         n_sites=50,
         method="category7_pooled",
         low_confidence=low_confidence,
-        disagreement=False,
     )
 
 
@@ -143,35 +141,7 @@ def test_fetal_fraction_excludes_father_hom_ref_and_high_vaf_sites() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 2. External-FF reconciliation
-# --------------------------------------------------------------------------- #
-
-def test_external_ff_agreement_and_disagreement() -> None:
-    qc = NiptQualityThresholds()
-    sites = [_site(f"cat7-{i}", father_state="het", dp=400, alt=20) for i in range(40)]  # FF 0.10
-
-    agree = estimate_fetal_fraction(sites, qc, external_ff=0.10)
-    assert not agree.disagreement
-    assert agree.method == "category7_pooled+external"
-    assert agree.ff == pytest.approx(0.10, abs=1e-6)
-
-    disagree = estimate_fetal_fraction(sites, qc, external_ff=0.30)
-    assert disagree.disagreement
-    assert disagree.ff == pytest.approx(0.10, abs=1e-6)  # computed stays the default
-
-    prefer = estimate_fetal_fraction(sites, qc, external_ff=0.30, prefer_external=True)
-    assert prefer.ff == pytest.approx(0.30, abs=1e-6)
-
-
-def test_external_only_when_no_sites() -> None:
-    est = estimate_fetal_fraction([], NiptQualityThresholds(), external_ff=0.12)
-    assert est.ff_computed is None
-    assert est.method == "external"
-    assert est.ff == pytest.approx(0.12)
-
-
-# --------------------------------------------------------------------------- #
-# 3. Per-category assignment
+# 2. Per-category assignment
 # --------------------------------------------------------------------------- #
 
 def test_category_7_paternal_transmitted() -> None:
@@ -221,7 +191,7 @@ def test_de_novo_below_alt_threshold_is_not_called() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 4. Confidence honesty
+# 3. Confidence honesty
 # --------------------------------------------------------------------------- #
 
 def test_ff_too_low_suppresses_fetal_inheritance() -> None:
@@ -247,7 +217,7 @@ def test_low_ff_low_depth_around_half_is_ambiguous() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 5. Absence logic
+# 4. Absence logic
 # --------------------------------------------------------------------------- #
 
 def test_category_8_false_negative_when_detectable() -> None:
@@ -279,7 +249,7 @@ def test_absent_father_het_is_not_transmitted() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 6. Edge flags
+# 5. Edge flags
 # --------------------------------------------------------------------------- #
 
 def test_sex_chromosome_unsupported() -> None:
@@ -297,7 +267,7 @@ def test_father_no_coverage_flag() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 6b. The father's genotype bounds the fetal state
+# 5b. The father's genotype bounds the fetal state
 # --------------------------------------------------------------------------- #
 # The fetus carries one maternal and one paternal allele. A hom-ref father passes
 # no alt, so the fetus is not hom-alt (categories 4 and 6) and nothing is paternal
@@ -384,7 +354,7 @@ def test_fetal_sex_needs_a_trusted_paternal_x_call() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 7. Orchestration and filter counts
+# 6. Orchestration and filter counts
 # --------------------------------------------------------------------------- #
 
 def test_run_nipt_analysis_filter_counts() -> None:
@@ -445,47 +415,6 @@ def test_run_nipt_analysis_end_to_end_recovers_ff_and_categories() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# External fetal-fraction reconciliation (REQ-NIPT-005, risk H6)
-# --------------------------------------------------------------------------- #
-# An externally-supplied FF is recorded and a disagreement with the computed
-# estimate is flagged, but the computed estimate stays the default unless the
-# caller explicitly prefers the external value.
-
-
-def _cat7_sites(ff_true: float = 0.10, *, dp: int = 400, n: int = 40):
-    alt = round(dp * ff_true / 2)
-    return [_site(f"cat7-{i}", father_state="het", dp=dp, alt=alt) for i in range(n)]
-
-
-def test_external_ff_agreement_is_recorded_without_disagreement() -> None:
-    est = estimate_fetal_fraction(_cat7_sites(0.10), NiptQualityThresholds(), external_ff=0.10)
-
-    assert est.ff_external == 0.10
-    assert est.disagreement is False
-    assert est.ff == est.ff_computed  # computed estimate is the headline value
-    assert est.method == "category7_pooled+external"
-
-
-def test_external_ff_disagreement_is_flagged_but_does_not_override() -> None:
-    est = estimate_fetal_fraction(_cat7_sites(0.10), NiptQualityThresholds(), external_ff=0.30)
-
-    assert est.ff_external == 0.30
-    assert est.disagreement is True
-    # The disagreement is surfaced, but the computed estimate remains the default.
-    assert est.ff == est.ff_computed
-    assert est.ff_computed is not None and abs(est.ff_computed - 0.10) < 0.02
-
-
-def test_prefer_external_overrides_the_computed_estimate_and_still_flags() -> None:
-    est = estimate_fetal_fraction(
-        _cat7_sites(0.10), NiptQualityThresholds(), external_ff=0.30, prefer_external=True
-    )
-
-    assert est.ff == 0.30  # external value is used as the headline
-    assert est.disagreement is True  # disagreement still flagged
-
-
-# --------------------------------------------------------------------------- #
 # Degraded / incomplete input fails safe (REQ-PERF-003, risk H6)
 # --------------------------------------------------------------------------- #
 
@@ -497,7 +426,6 @@ def test_estimate_fetal_fraction_fails_safe_on_empty_input() -> None:
     assert est.ff_computed is None  # no spurious estimate from no evidence
     assert est.ff == 0.0
     assert est.low_confidence is True
-    assert est.disagreement is False
 
 
 def test_run_nipt_analysis_fails_safe_on_empty_input() -> None:

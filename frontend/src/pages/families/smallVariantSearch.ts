@@ -316,15 +316,6 @@ export type SmallVariantFamily = Pick<
   'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata'
 >;
 
-export interface PedRow {
-  fid: string;
-  iid: string;
-  pid: string;
-  mid: string;
-  sex: string;
-  phen: string;
-}
-
 export interface GenePanel {
   _id: string;
   name: string;
@@ -776,17 +767,6 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   category: '',
   min_confidence: '',
 });
-
-export const parsePedigree = (pedigree?: string | null): PedRow[] => {
-  if (!pedigree) return [];
-  return pedigree
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [fid, iid, pid, mid, sex, phen] = line.trim().split(/\s+/);
-      return { fid, iid, pid, mid, sex, phen };
-    });
-};
 
 const buildDefaultSampleFilters = (
   members: FamilyMember[],

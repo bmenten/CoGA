@@ -45,9 +45,9 @@ from .clickhouse_variant_queries import (
     _string_list,
     _structural_info_text,
     _structural_pli,
-    _structural_table_name,
     _structural_variant_where_clauses,
 )
+from .clickhouse_variant_ids import _structural_table_name
 from .clickhouse_variant_records import StructuralVariantRecord, _coerce_int
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext

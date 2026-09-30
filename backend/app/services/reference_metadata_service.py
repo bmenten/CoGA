@@ -8,7 +8,6 @@ import logging
 from datetime import date
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping
-from uuid import UUID
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
@@ -16,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
 from ..core.html_sanitize import sanitize_reference_html
+from ..core.sql import require_uuid
 from ..schemas import (
     AssemblyReferenceStatusOut,
     BlacklistRegionOut,
@@ -225,18 +225,11 @@ def _select_preferred_gene_rows(rows: Iterable[dict[str, object]]) -> list[dict[
     )
 
 
-def _require_uuid(value: str, detail: str) -> None:
-    try:
-        UUID(value)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=detail) from exc
-
-
 async def _get_assembly_by_id(
     session: AsyncSession,
     assembly_id: str,
 ) -> dict[str, str]:
-    _require_uuid(assembly_id, "Invalid assembly id")
+    require_uuid(assembly_id, "Invalid assembly id")
     result = await session.execute(
         text(
             """
@@ -1703,7 +1696,7 @@ async def get_clinical_cnv_by_id_data(
     *,
     cnv_id: str,
 ) -> ClinicalCnvOut:
-    _require_uuid(cnv_id, "Invalid clinical CNV id")
+    require_uuid(cnv_id, "Invalid clinical CNV id")
     result = await session.execute(
         text(
             f"""

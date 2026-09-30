@@ -1,22 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
-import { formatChromosomeLabel } from '../../lib/chromosomes';
+import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
 import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
+import { countOf } from '../../lib/countOf';
 
 const DEFAULT_CHROMS = [
   ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
   'X',
   'Y',
 ];
-
-const normalizeChrom = (value: string): string =>
-  value.toLowerCase().startsWith('chr') ? value.slice(3) : value;
 
 interface ApcadBin {
   chr: string;
@@ -51,9 +49,6 @@ interface BedRecordPayload<T> {
 }
 
 const splitKey = (key: string): string[] => (key ? key.split('\n').filter(Boolean) : []);
-
-const countOf = (count: number, one: string, many = `${one}s`): string =>
-  `${count.toLocaleString()} ${count === 1 ? one : many}`;
 
 /** Where the chart is looking, for its accessible name. */
 const describeView = (chroms: string[], regionStart?: number, regionEnd?: number): string => {

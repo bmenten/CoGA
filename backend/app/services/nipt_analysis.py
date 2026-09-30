@@ -98,14 +98,12 @@ class NiptQualityThresholds:
 class FetalFractionEstimate:
     ff: float
     ff_computed: float | None
-    ff_external: float | None
     ff_median: float | None
     ci_low: float | None
     ci_high: float | None
     n_sites: int
     method: str
     low_confidence: bool
-    disagreement: bool
 
 
 @dataclass(slots=True)
@@ -279,20 +277,15 @@ def estimate_fetal_fraction(
     sites: Iterable[NiptSiteObservation],
     qc: NiptQualityThresholds,
     *,
-    external_ff: float | None = None,
     vaf_ceiling: float = 0.25,
     min_sites: int = 30,
     hard_floor: int = 5,
     max_ci_halfwidth: float = 0.03,
-    disagreement_tol: float = 0.03,
-    prefer_external: bool = False,
 ) -> FetalFractionEstimate:
-    """Estimate FF from category-7 sites, reconciling any external value.
+    """Estimate FF from category-7 sites.
 
     The headline estimate is the depth-pooled ``2 * sum(alt)/sum(dp)`` with a
-    Wilson CI; the per-site median is reported as a robustness cross-check. An
-    external FF is recorded and flagged on disagreement but does not override
-    the computed estimate unless ``prefer_external`` is set.
+    Wilson CI; the per-site median is reported as a robustness cross-check.
     """
     cat7 = [site for site in sites if _is_ff_site(site, qc, vaf_ceiling)]
     n_sites = len(cat7)
@@ -316,39 +309,17 @@ def estimate_fetal_fraction(
     if ci_low is not None and ci_high is not None and (ci_high - ci_low) / 2.0 > max_ci_halfwidth:
         low_confidence = True
 
-    disagreement = False
-    if external_ff is not None and ff_computed is not None:
-        halfwidth = (ci_high - ci_low) / 2.0 if (ci_low is not None and ci_high is not None) else 0.0
-        if abs(external_ff - ff_computed) > max(disagreement_tol, halfwidth):
-            disagreement = True
-
-    if prefer_external and external_ff is not None:
-        ff = external_ff
-    elif ff_computed is not None:
-        ff = ff_computed
-    elif external_ff is not None:
-        ff = external_ff
-    else:
-        ff = 0.0
-
-    if ff_computed is not None and external_ff is not None:
-        method = "category7_pooled+external"
-    elif ff_computed is None and external_ff is not None:
-        method = "external"
-    else:
-        method = "category7_pooled"
+    ff = ff_computed if ff_computed is not None else 0.0
 
     return FetalFractionEstimate(
         ff=ff,
         ff_computed=ff_computed,
-        ff_external=external_ff,
         ff_median=ff_median,
         ci_low=ci_low,
         ci_high=ci_high,
         n_sites=n_sites,
-        method=method,
+        method="category7_pooled",
         low_confidence=low_confidence,
-        disagreement=disagreement,
     )
 
 
@@ -587,7 +558,6 @@ def filter_sites_and_estimate_ff(
     qc: NiptQualityThresholds,
     *,
     artifact_lookup: Callable[[str], bool] = lambda _variant_id: False,
-    external_ff: float | None = None,
 ) -> NiptFilteredSites:
     """Apply the quality and artifact filters, then estimate FF over what passes.
 
@@ -617,7 +587,7 @@ def filter_sites_and_estimate_ff(
             "failed_quality": failed_quality,
             "failed_artifact": failed_artifact,
         },
-        fetal_fraction=estimate_fetal_fraction(passed, qc, external_ff=external_ff),
+        fetal_fraction=estimate_fetal_fraction(passed, qc),
     )
 
 
@@ -626,13 +596,10 @@ def run_nipt_analysis(
     qc: NiptQualityThresholds,
     *,
     artifact_lookup: Callable[[str], bool] = lambda _variant_id: False,
-    external_ff: float | None = None,
     overdispersion: float = 0.005,
 ) -> NiptAnalysisResult:
     """Filter, estimate FF, classify, and tally."""
-    filtered = filter_sites_and_estimate_ff(
-        sites, qc, artifact_lookup=artifact_lookup, external_ff=external_ff
-    )
+    filtered = filter_sites_and_estimate_ff(sites, qc, artifact_lookup=artifact_lookup)
     ff_estimate = filtered.fetal_fraction
     classifications = [
         classify_site(site, ff_estimate, qc, overdispersion=overdispersion)

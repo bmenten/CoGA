@@ -230,7 +230,21 @@ def test_service_nipt_paternity_ignores_sites_without_a_confident_father_call(mo
         _nipt_site(f"absent-{i}", father_state="hom_alt", father_dp=50, present=False)
         for i in range(12)
     ]
-    analysis = run_nipt_analysis(sites, NiptQualityThresholds(), external_ff=0.10)
+    # These sites alone give no fetal fraction; impose the 0.10 that informative sites
+    # elsewhere in the callset would give, so the no-call sites are classified.
+    import dataclasses
+
+    from backend.app.services import nipt_analysis
+
+    estimate = nipt_analysis.estimate_fetal_fraction
+    monkeypatch.setattr(
+        nipt_analysis,
+        "estimate_fetal_fraction",
+        lambda sites, qc, **kwargs: dataclasses.replace(
+            estimate(sites, qc, **kwargs), ff=0.10, ff_computed=0.10
+        ),
+    )
+    analysis = run_nipt_analysis(sites, NiptQualityThresholds())
     assert analysis.category_counts[7] == 40 and analysis.category_counts[8] == 12
 
     async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):

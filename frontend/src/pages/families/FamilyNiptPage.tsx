@@ -14,11 +14,11 @@ import {
   pct,
 } from './niptClassification';
 import { parseCommaSeparatedValues } from '../../lib/sampleFilterState';
+import { parsePedigree } from '../../lib/pedigree';
 import {
   buildPresetPayload,
   NIPT_BUILT_IN_PRESETS,
   normalizeReviewClassification,
-  parsePedigree,
   useSmallVariantSearchState,
   type GenePanel,
   type SmallFilterState,
@@ -436,8 +436,8 @@ const FamilyNiptPage: React.FC = () => {
                 <div className="variant-sample-summary">
                   <div className="variant-summary-row">
                     {summaryFailed ? (
-                      // Not "—": a failed estimate also hides its low-confidence and
-                      // disagreement warnings (#606, TF-12 U1).
+                      // Not "—": a failed estimate also hides its low-confidence warning
+                      // (#606, TF-12 U1).
                       <span className="badge-chip badge-chip--signature" role="alert">
                         Fetal fraction could not be loaded
                       </span>
@@ -453,10 +453,6 @@ const FamilyNiptPage: React.FC = () => {
                       </span>
                     ) : null}
                     {ff?.low_confidence ? <span className="badge-chip">Low-confidence FF</span> : null}
-                    {ff?.ff_external != null ? (
-                      <span className="badge-chip">External FF {pct(ff.ff_external)}</span>
-                    ) : null}
-                    {ff?.disagreement ? <span className="badge-chip">FF disagreement</span> : null}
                   </div>
                   <div className="variant-summary-row">
                     {FILTER_STEPS.map((step) => (
@@ -544,7 +540,7 @@ const FamilyNiptPage: React.FC = () => {
           what="the fetal-fraction estimate"
           error={summaryError}
           onRetry={() => void refetchSummary()}
-          consequence="Its low-confidence and disagreement warnings, and the filter and category counts, are unknown. Do not interpret the category calls without it."
+          consequence="Its low-confidence warning, and the filter and category counts, are unknown. Do not interpret the category calls without it."
         />
       ) : null}
       {panelsFailed ? (

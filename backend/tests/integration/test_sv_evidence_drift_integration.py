@@ -322,17 +322,17 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
             # The versions of the SV callset, not of its SNVs.
             assert frozen["versions"] == {"gencode": "45", "needlr": "0.4.2"}
 
-            # (a) The record signed before SV evidence was frozen still verifies, and the
-            # check does not compare what it predates.
+            # (a) The record signed before SV evidence was frozen still verifies. The check
+            # does not compare the SV/CNV drift section it lacks, but compares its reported
+            # CNV whole: the evidence frozen since reads as a change (#681).
             async with sm() as s:
                 v1 = await rss.get_report_signout(s, family_id=label, version=1, user=user)
                 assert v1["verified"] is True
                 check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
                 assert "structural_drift" in check["not_compared"]
-                assert "reported_structural_variants.evidence_snapshot" in check["not_compared"]
                 assert "structural_drift" not in check["changed_sections"]
-                # The page is told the record holds no evidence for its reported CNV.
-                assert [gap["section"] for gap in check["not_captured"]] == ["reported_structural_variants"]
+                assert "reported_structural_variants" in check["changed_sections"]
+                assert check["not_captured"] == []
 
             # (b) Evidence unchanged: sign-out needs no acknowledgement.
             async with sm() as s:

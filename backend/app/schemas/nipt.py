@@ -15,14 +15,12 @@ class NiptFetalFractionOut(BaseModel):
 
     ff: float
     ff_computed: Optional[float] = None
-    ff_external: Optional[float] = None
     ff_median: Optional[float] = None
     ci_low: Optional[float] = None
     ci_high: Optional[float] = None
     n_sites: int
     method: str
     low_confidence: bool
-    disagreement: bool
 
 
 class NiptSummaryOut(BaseModel):

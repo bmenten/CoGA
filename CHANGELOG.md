@@ -123,6 +123,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   ClinVar reads "not recorded", not 0 (#625).
 - **Scheduled ClickHouse integrity result for admins** — an admin endpoint and the ClickHouse page show each
   assembly's last scheduled integrity result and when it ran, or that it could not run (#660).
+- **NIPT artifact list in the clinical audit trail (#683)** — each add, update, removal and
+  auto-seed through the admin API is a hash-chained clinical audit event with the actor, the variant
+  and its state before and after, on a chain of its own (`system:nipt-artifacts`) that
+  `/admin/integrity/verify` checks. The list decides which variants every NIPT analysis of its assay
+  filters out (#700).
 
 ### Changed
 
@@ -260,6 +265,12 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   combined, global and per module) are raised to 3 points under what CI measured. The frontend's 67
   explicit `any`s are typed, so ESLint now allows no warnings at all. The package-validation command
   has a test (#695).
+- **Shared helpers (#684)** — the PED parser and its row type (four and six copies), the count-with-noun
+  formatter of four charts, and the ClickHouse table-name and UUID-check helpers (three copies each)
+  each live once now (`lib/pedigree.ts`, `lib/countOf.ts`, `clickhouse_variant_ids`, `core/sql.require_uuid`).
+  The APCAD and coverage-segment charts use the shared chromosome normaliser, so a `chrx` or `chr01` in
+  the data now reaches the X or 1 panel, as on the other tracks. The `formatBp` variants stay: each
+  formats for its own scale (#701).
 
 ### Removed
 
@@ -300,6 +311,17 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   /admin/hpo/sync`, behind *Admin → HPO Terminology*, does the same with a preview) and `GET
   /families/{id}/members/{sample_id}/impact` (a member delete without `confirm` answers with the impact).
   `GET /panels/{id}/versions/{version}` stays, to look up the panel version a report names (#699).
+- **External fetal fraction (#683)** — the NIPT summary and variant list no longer accept the
+  `external_ff` parameter no screen sent. It could replace the computed fetal fraction when too few
+  informative sites gave one; the fetal fraction is now always CoGA's own estimate. Its disagreement
+  flag and REQ-NIPT-005 go with it (#700).
+- **Pre-release signed-record formats (#681)** — the sign-out check, the signed view and the docs no
+  longer carry special readings for records signed by earlier development builds: the assumed module
+  list of a record without one, the "signed before CoGA froze it" gap and the uncompared evidence of
+  a record without SV/CNV drift, and the empty SV list assumed for a record without one. The release
+  candidate's snapshot format is the first CoGA reads. The mechanism for later formats stays: a module
+  or section a record does not hold is not compared and reads as not in the record. Old records still
+  verify (#705).
 
 ### Fixed
 
@@ -823,6 +845,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   replace a family's annotation manifest, which is always recorded as manual, with the manifest it
   replaced, on the family's audit trail, and an import can no longer overwrite a replacement
   (#651).
+- **Frontend server (#702)** — the `/api` proxy's error log put the request URL into the console
+  format string, so a `%s` in it was read as a directive and a line break could forge a log line; it
+  now passes the method and URL as `%s` arguments with line breaks deleted (#704). The app shell is read
+  once at start-up and served from memory, so no page request reaches the file system (CodeQL
+  found both once #694 scanned the server) (#703).
 
 ### Documentation
 
