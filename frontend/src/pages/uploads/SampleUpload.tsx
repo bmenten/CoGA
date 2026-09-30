@@ -2,6 +2,7 @@ import { useState, type FC } from 'react';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { apiPath } from '../../lib/apiPath';
+import type { SmallVariantUploadResult } from '../../lib/apiSchema.generated';
 
 const SampleUpload: FC = () => {
   const [familyFile, setFamilyFile] = useState<File | null>(null);
@@ -36,13 +37,17 @@ const SampleUpload: FC = () => {
     setFamilyLoading(true);
 
     const runUpload = async (overwrite: boolean) =>
-      api.post(apiPath`/families/${familyId.trim()}/small-variants/upload`, formData, {
-        params: {
-          overwrite,
-          source_format: familyFormat,
-        },
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      api.post<SmallVariantUploadResult>(
+        apiPath`/families/${familyId.trim()}/small-variants/upload`,
+        formData,
+        {
+          params: {
+            overwrite,
+            source_format: familyFormat,
+          },
+          headers: { 'Content-Type': 'multipart/form-data' },
+        }
+      );
 
     try {
       const { data } = await runUpload(false);

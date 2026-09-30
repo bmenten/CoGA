@@ -1,0 +1,305 @@
+"""Importing one sample's mitochondrial calls replaces only that sample's calls (E2E).
+
+A package's ``mito`` dataset holds one chrM VCF per sample. The calls are stored as small
+variants under the ``mito`` source, one row per variant holding every sample's call:
+the mtDNA workspace reads the mother's and the siblings' calls from those rows for the
+maternal transmission, and the mitochondrial ACMG evaluator reads that transmission
+(PP1, BS4). Each sample's file used to be imported as an overwrite of the family's whole
+``mito`` source, so every sample deleted the calls of the samples imported before it and
+only the last one's remained.
+
+The family here is its own (a new id each run), so the golden trio is never touched:
+
+* the first import brings in the mother's, the proband's and the father's calls; every
+  sample's calls must remain, one live row per variant, also after ClickHouse has merged
+  the parts, and the mtDNA workspace must show the variant the mother and the proband
+  share as maternally shared;
+* a second import in ``overwrite`` mode brings a new proband file and an empty father
+  file: the proband's calls are replaced, the father's are removed (his new callset has
+  none) and the mother's stay exactly as stored.
+
+Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for
+the API (see test_e2e_api_contract.py for why).
+
+Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+
+pytestmark = pytest.mark.integration
+
+_HEADER = (
+    "##fileformat=VCFv4.2\n"
+    "##DeepVariant_version=1.10.0\n"
+    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+    '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">\n'
+    '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">\n'
+    '##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allele depths">\n'
+    '##FORMAT=<ID=VAF,Number=A,Type=Float,Description="Variant allele fraction">\n'
+    # The long-read pipeline names the column after its input file, not the sample; a
+    # single-column file under a per-sample entry belongs to that sample.
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample0\n"
+)
+
+
+def _record(pos: int, ref: str, alt: str, gt: str, depth: int, alt_depth: int, filt: str) -> str:
+    vaf = round(alt_depth / depth, 4)
+    return (
+        f"chrM\t{pos}\t.\t{ref}\t{alt}\t30\t{filt}\t.\tGT:GQ:DP:AD:VAF\t"
+        f"{gt}:30:{depth}:{depth - alt_depth},{alt_depth}:{vaf}\n"
+    )
+
+
+_HOMOPLASMIC_73 = _record(73, "A", "G", "1/1", 500, 500, "GERMLINE")
+
+_MOTHER = _HEADER + (
+    _HOMOPLASMIC_73
+    + _record(3243, "A", "G", "0/1", 500, 75, "PASS")
+    + _record(16519, "T", "C", "1/1", 500, 500, "GERMLINE")
+)
+_PROBAND = _HEADER + (
+    _HOMOPLASMIC_73
+    + _record(3243, "A", "G", "0/1", 500, 225, "PASS")
+    + _record(9000, "C", "T", "0/1", 500, 150, "PASS")
+)
+_FATHER = _HEADER + (
+    _HOMOPLASMIC_73
+    + _record(263, "A", "G", "1/1", 500, 500, "GERMLINE")
+)
+# The re-import: the 3243 heteroplasmy is now 50%, the 9000 call is gone, 10000 is new.
+_PROBAND_V2 = _HEADER + (
+    _HOMOPLASMIC_73
+    + _record(3243, "A", "G", "0/1", 500, 250, "PASS")
+    + _record(10000, "G", "A", "0/1", 500, 100, "PASS")
+)
+_EMPTY = _HEADER
+
+
+def _write_package(root: Path, family_id: str, files: dict[str, str]) -> None:
+    """A package with the trio's PED and a ``mito`` dataset of ``files`` (sample -> VCF)."""
+    father, mother, proband = (f"{role}_{family_id}" for role in ("FATHER", "MOTHER", "PROBAND"))
+    root.mkdir(parents=True)
+    (root / "family.ped").write_text(
+        f"{family_id}\t{father}\t0\t0\t1\t1\n"
+        f"{family_id}\t{mother}\t0\t0\t2\t1\n"
+        f"{family_id}\t{proband}\t{father}\t{mother}\t1\t2\n",
+        encoding="utf-8",
+    )
+    (root / "mito").mkdir()
+    lines = [
+        "schema_version: 1",
+        f"family_id: {family_id}",
+        "ped: family.ped",
+        "datasets:",
+        "  mito:",
+        "    per_sample:",
+    ]
+    for sample_id, vcf in files.items():
+        (root / "mito" / f"{sample_id}.vcf").write_text(vcf, encoding="utf-8")
+        lines.append(f"      {sample_id}: {{vcf: mito/{sample_id}.vcf}}")
+    (root / "manifest.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+async def _mito_rows(family_uuid: str) -> list[dict]:
+    """The family's live ``mito`` entry rows as stored, one dict per row (not grouped)."""
+    from backend.app.core.clickhouse import execute_clickhouse
+    from backend.app.services.clickhouse_variant_ids import _small_table_name
+    from backend.tests.e2e import _harness
+
+    rows = await execute_clickhouse(
+        f"SELECT variantId, key, `calls.sampleId`, `calls.gt`, `calls.af` "
+        f"FROM {_small_table_name(_harness.ASSEMBLY, 'entries')} "
+        "WHERE family_guid = %(family_guid)s AND source = 'mito' AND sign = 1 "
+        "ORDER BY variantId",
+        {"family_guid": family_uuid},
+    )
+    return [
+        {
+            "variant_id": str(variant_id),
+            "key": int(key),
+            "calls": {
+                str(sample): (str(gt), round(float(af[0]), 2) if af else None)
+                for sample, gt, af in zip(sample_ids, gts, afs)
+            },
+        }
+        for variant_id, key, sample_ids, gts, afs in rows
+    ]
+
+
+async def _merge_parts() -> None:
+    """Force the part merges ClickHouse would otherwise run in the background."""
+    from backend.app.core.clickhouse import execute_clickhouse
+    from backend.app.services.clickhouse_variant_ids import _small_table_name
+    from backend.tests.e2e import _harness
+
+    await execute_clickhouse(
+        f"OPTIMIZE TABLE {_small_table_name(_harness.ASSEMBLY, 'entries')} FINAL"
+    )
+
+
+async def _exercise(base: Path, family_id: str) -> dict:
+    from httpx import ASGITransport, AsyncClient
+
+    from backend.app.core.clickhouse import init_clickhouse_schema
+    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.main import app
+    from backend.app.services import family_package_import as package_import
+    from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
+    from backend.tests.e2e import _harness
+    from sqlalchemy import text
+
+    await init_postgres_schema()
+    await init_clickhouse_schema()
+    await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
+    sessionmaker = get_postgres_sessionmaker()
+    async with sessionmaker() as session:
+        admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
+
+    father, mother, proband = (f"{role}_{family_id}" for role in ("FATHER", "MOTHER", "PROBAND"))
+
+    async def run_import(folder: Path, conflict_mode: str) -> dict:
+        async with sessionmaker() as session:
+            result = await package_import.execute_family_package_import(
+                session,
+                folder_path=str(folder),
+                project_id=project_id,
+                dry_run=False,
+                user=admin,
+                conflict_mode=conflict_mode,
+            )
+        mito = next((d for d in result.datasets if d.dataset_type == "mito"), None)
+        return {
+            "completed": result.completed,
+            "error": result.error,
+            "mito_status": mito.status if mito else None,
+            "mito_summary": mito.summary if mito else None,
+        }
+
+    out: dict = {"samples": {"father": father, "mother": mother, "proband": proband}}
+
+    first = base / "first" / family_id
+    _write_package(first, family_id, {mother: _MOTHER, proband: _PROBAND, father: _FATHER})
+    out["first"] = await run_import(first, "cancel")
+
+    async with sessionmaker() as session:
+        family_uuid = (
+            await session.execute(
+                text("SELECT id::text FROM families WHERE family_id = :f"), {"f": family_id}
+            )
+        ).scalar_one()
+    out["rows_after_first"] = await _mito_rows(family_uuid)
+    await _merge_parts()
+    out["rows_after_first_merge"] = await _mito_rows(family_uuid)
+
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
+        token = await _harness.login_admin_token(ac)
+        ac.headers["Authorization"] = f"Bearer {token}"
+        response = await ac.get(f"/api/families/{family_id}/mitochondrial-dna")
+        out["mtdna"] = {"status": response.status_code, "text": response.text}
+        if response.status_code == 200:
+            out["mtdna"]["json"] = response.json()
+
+    second = base / "second" / family_id
+    _write_package(second, family_id, {proband: _PROBAND_V2, father: _EMPTY})
+    out["second"] = await run_import(second, "overwrite")
+    out["rows_after_second"] = await _mito_rows(family_uuid)
+    await _merge_parts()
+    out["rows_after_second_merge"] = await _mito_rows(family_uuid)
+    return out
+
+
+@pytest.fixture(scope="module")
+def run(tmp_path_factory) -> dict:
+    from backend.app.core.config import settings
+    from backend.tests.e2e import _harness
+
+    base = tmp_path_factory.mktemp("mito_import")
+    mp = pytest.MonkeyPatch()
+    mp.setattr(settings, "family_import_roots", [str(base / "first"), str(base / "second")])
+    try:
+        return _harness.run_async(lambda: _exercise(base, f"MITO_{uuid4().hex[:8].upper()}"))
+    finally:
+        mp.undo()
+
+
+def _calls(rows: list[dict]) -> dict[str, dict[str, tuple[str, float | None]]]:
+    return {row["variant_id"]: row["calls"] for row in rows}
+
+
+def _duplicate_keys(rows: list[dict]) -> list[int]:
+    return [key for key, count in Counter(row["key"] for row in rows).items() if count > 1]
+
+
+def _after_first(samples: dict[str, str]) -> dict[str, dict[str, tuple[str, float | None]]]:
+    mother, proband, father = samples["mother"], samples["proband"], samples["father"]
+    return {
+        "M-73-A-G": {mother: ("1/1", 1.0), proband: ("1/1", 1.0), father: ("1/1", 1.0)},
+        "M-263-A-G": {father: ("1/1", 1.0)},
+        "M-3243-A-G": {mother: ("0/1", 0.15), proband: ("0/1", 0.45)},
+        "M-9000-C-T": {proband: ("0/1", 0.3)},
+        "M-16519-T-C": {mother: ("1/1", 1.0)},
+    }
+
+
+def test_first_import_completes(run) -> None:
+    first = run["first"]
+    assert first["completed"] is True, first
+    assert first["mito_status"] == "imported", first
+
+
+def test_every_samples_calls_remain_after_the_first_import(run) -> None:
+    rows = run["rows_after_first"]
+    # Before the fix only the father's calls (the last file imported) were left.
+    assert _duplicate_keys(rows) == []
+    assert _calls(rows) == _after_first(run["samples"])
+
+
+def test_every_samples_calls_survive_part_merges(run) -> None:
+    rows = run["rows_after_first_merge"]
+    assert _duplicate_keys(rows) == []
+    assert _calls(rows) == _after_first(run["samples"])
+
+
+def test_mtdna_workspace_shows_the_maternally_shared_heteroplasmy(run) -> None:
+    mtdna = run["mtdna"]
+    assert mtdna["status"] == 200, mtdna["text"]
+    mother, proband = run["samples"]["mother"], run["samples"]["proband"]
+    variants = {variant["variant_id"]: variant for variant in mtdna["json"]["variants"]}
+    shared = variants["M-3243-A-G"]
+    # Stored as Float32, so read back to two decimals.
+    assert {sample: round(call["allele_fraction"], 2) for sample, call in shared["calls"].items()} == {
+        mother: 0.15,
+        proband: 0.45,
+    }
+    assert shared["maternal_transmission"] == "maternal_shared"
+    assert variants["M-16519-T-C"]["maternal_transmission"] == "maternal_only"
+    assert variants["M-9000-C-T"]["maternal_transmission"] == "maternal_not_observed"
+
+
+def test_reimport_replaces_only_the_imported_samples_calls(run) -> None:
+    second = run["second"]
+    assert second["completed"] is True, second
+    assert second["mito_status"] == "imported", second
+    mother, proband, father = (run["samples"][role] for role in ("mother", "proband", "father"))
+    # The father's new file holds no call: his two stored calls are removed.
+    assert second["mito_summary"][father] == {
+        "inserted": 0,
+        "removed": 2,
+        "message": "No chrM variants called",
+    }
+    expected = {
+        "M-73-A-G": {mother: ("1/1", 1.0), proband: ("1/1", 1.0)},
+        "M-3243-A-G": {mother: ("0/1", 0.15), proband: ("0/1", 0.5)},
+        "M-10000-G-A": {proband: ("0/1", 0.2)},
+        "M-16519-T-C": {mother: ("1/1", 1.0)},
+    }
+    for rows in (run["rows_after_second"], run["rows_after_second_merge"]):
+        assert _duplicate_keys(rows) == []
+        assert _calls(rows) == expected

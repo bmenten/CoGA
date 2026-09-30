@@ -724,7 +724,12 @@ async def insert_small_variant_records(
     records: Sequence[SmallVariantRecord],
     *,
     annotation_version: str | None = None,
+    entries: bool = True,
 ) -> None:
+    """Write ``records``: the shared variant details, annotations and their indexes, and the
+    family's ``entries`` rows. With ``entries=False`` only the shared rows are written, for
+    a caller that writes the family's rows itself (a per-sample rewrite, which merges them
+    into the stored rows: see :func:`small_variant_record_entries`)."""
     await ensure_clickhouse_variant_tables(assembly_name)
     detail_rows, entry_rows, annotation_rows, annotation_index_rows, annotation_gene_index_rows = _small_variant_entry_rows(
         assembly_name,
@@ -733,6 +738,8 @@ async def insert_small_variant_records(
         records,
         annotation_version=annotation_version,
     )
+    if not entries:
+        entry_rows = []
     if detail_rows:
         await _execute_insert_chunks(
             f"""
@@ -952,26 +959,34 @@ def _call_value(entry: dict[str, Any], column: str, index: int) -> Any:
 async def fetch_family_small_variant_entries(
     assembly_name: str,
     family_uuid: str,
+    *,
+    source: str | None = None,
 ) -> list[dict[str, Any]]:
     """The family's live ``SNV_INDEL/entries`` rows exactly as stored, every column, for a
     write path that rewrites them.
 
-    The scope is the one :func:`delete_family_small_variants` deletes without a source: the
-    family in every project, every callset (the imputed ones the family view never reads
-    included) and every sample, with nothing normalised. Two live rows of one variant in
-    one project and callset, which a merge would collapse to one, come back as one row with
-    the calls of both, taking a sample's call from the row with more calls.
+    The scope is the one :func:`delete_family_small_variants` deletes: the family in every
+    project, exactly ``source``'s rows when it is given and every callset otherwise (the
+    imputed ones the family view never reads included), and every sample, with nothing
+    normalised. Two live rows of one variant in one project and callset, which a merge would
+    collapse to one, come back as one row with the calls of both, taking a sample's call
+    from the row with more calls.
     """
     await ensure_clickhouse_variant_tables(assembly_name)
     columns = ", ".join(f"`{column}`" for column in SMALL_VARIANT_ENTRY_COLUMNS)
+    params: dict[str, Any] = {"family_guid": family_uuid}
+    source_clause = ""
+    if source is not None:
+        source_clause = " AND source = %(source)s"
+        params["source"] = source
     rows = await _execute(
         f"""
         SELECT {columns}
         FROM {_small_table_name(assembly_name, 'entries')}
-        WHERE family_guid = %(family_guid)s AND sign = 1
+        WHERE family_guid = %(family_guid)s AND sign = 1{source_clause}
         ORDER BY project_guid, source, key, length(`calls.sampleId`) DESC
         """,
-        {"family_guid": family_uuid},
+        params,
     )
     entries: list[dict[str, Any]] = []
     by_identity: dict[tuple[Any, Any, Any], dict[str, Any]] = {}
@@ -1010,30 +1025,66 @@ def small_variant_entry_without_samples(
     return kept
 
 
+def small_variant_entry_with_calls(entry: dict[str, Any], other: dict[str, Any]) -> dict[str, Any]:
+    """``entry`` with ``other``'s calls added, every other value of ``entry`` as stored; the
+    calls are sorted by sample."""
+    calls = [(entry, index) for index in range(len(entry["calls.sampleId"] or []))]
+    calls += [(other, index) for index in range(len(other["calls.sampleId"] or []))]
+    calls.sort(key=lambda call: str(_call_value(call[0], "calls.sampleId", call[1])))
+    merged = dict(entry)
+    for column in _SMALL_VARIANT_CALL_DEFAULTS:
+        merged[column] = [_call_value(row, column, index) for row, index in calls]
+    return merged
+
+
+def small_variant_record_entries(
+    assembly_name: str,
+    family_uuid: str,
+    project_ids: Sequence[str],
+    records: Sequence[SmallVariantRecord],
+    *,
+    annotation_version: str | None = None,
+) -> list[dict[str, Any]]:
+    """The ``entries`` rows :func:`insert_small_variant_records` writes for ``records`` (one
+    per record and project), as the column dicts a rewrite reads and writes."""
+    _details, entry_rows, _annotations, _index, _gene_index = _small_variant_entry_rows(
+        assembly_name,
+        family_uuid,
+        project_ids,
+        records,
+        annotation_version=annotation_version,
+    )
+    return [dict(zip(SMALL_VARIANT_ENTRY_COLUMNS, row)) for row in entry_rows]
+
+
 async def rewrite_family_small_variant_entries(
     assembly_name: str,
     family_uuid: str,
     entries: Sequence[dict[str, Any]],
+    *,
+    source: str | None = None,
 ) -> None:
-    """Replace the family's small-variant entry rows with ``entries``, written back column
-    for column: the write side of :func:`fetch_family_small_variant_entries`.
+    """Replace the family's small-variant entry rows (exactly ``source``'s, or all) with
+    ``entries``, written back column for column: the write side of
+    :func:`fetch_family_small_variant_entries`.
 
     Only ``entries`` and the family summaries built from it are family-scoped. The variant
     details, annotations and their indexes are shared by every family and keyed by what each
     entry row names (its key, annotation version and annotation-set hash), so they stay as
     they are and every rewritten row still finds its own annotation.
     """
-    await delete_family_small_variants(assembly_name, family_uuid)
-    if not entries:
-        return
-    columns = ", ".join(f"`{column}`" for column in SMALL_VARIANT_ENTRY_COLUMNS)
-    await _execute_insert_chunks(
-        f"INSERT INTO {_small_table_name(assembly_name, 'entries')} ({columns}) VALUES",
-        [tuple(entry[column] for column in SMALL_VARIANT_ENTRY_COLUMNS) for entry in entries],
-        chunk_size=_SMALL_VARIANT_ENTRY_INSERT_ROWS,
-    )
-    # The refresh also moves the family's data version (it stands for every re-insert).
-    await refresh_family_small_variant_summaries(assembly_name, family_uuid)
+    await delete_family_small_variants(assembly_name, family_uuid, source=source)
+    if entries:
+        columns = ", ".join(f"`{column}`" for column in SMALL_VARIANT_ENTRY_COLUMNS)
+        await _execute_insert_chunks(
+            f"INSERT INTO {_small_table_name(assembly_name, 'entries')} ({columns}) VALUES",
+            [tuple(entry[column] for column in SMALL_VARIANT_ENTRY_COLUMNS) for entry in entries],
+            chunk_size=_SMALL_VARIANT_ENTRY_INSERT_ROWS,
+        )
+    # A family-wide delete cleared the summaries; a source-scoped one leaves them to be
+    # rebuilt from the rows that remain. The refresh also moves the family's data version.
+    if entries or source is not None:
+        await refresh_family_small_variant_summaries(assembly_name, family_uuid)
 
 
 async def refresh_family_small_variant_summaries(

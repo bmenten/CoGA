@@ -18,6 +18,7 @@ from ..schemas import (
     SmallVariantTagDefinitionCreate,
     SmallVariantTagDefinitionOut,
     SmallVariantTagDefinitionUpdate,
+    SmallVariantUploadResult,
     VariantOut,
     VariantPage,
 )
@@ -45,7 +46,7 @@ from ..services.small_variant_review_presets import (
     list_small_variant_filter_presets as list_small_variant_filter_preset_records,
     save_small_variant_filter_preset as save_small_variant_filter_preset_record,
 )
-from ..services.variant_upload_service import upload_family_small_variant_file
+from ..services.variant_upload_service import SmallVariantFormat, upload_family_small_variant_file
 
 
 router = APIRouter()
@@ -87,15 +88,18 @@ async def get_family_small_variant_review_summary(
     )
 
 
-@router.post("/{family_id}/small-variants/upload")
+@router.post("/{family_id}/small-variants/upload", response_model=SmallVariantUploadResult)
 async def upload_family_small_variants(
     family_id: str,
     file: UploadFile = File(...),
     overwrite: bool = False,
-    source_format: str = "auto",
+    # The callsets the upload stores rows under. Anything else is refused (422) before
+    # a row is written: the value becomes the rows' source, which scopes every later
+    # overwrite and delete.
+    source_format: SmallVariantFormat = "auto",
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
-) -> Dict[str, int | str]:
+) -> SmallVariantUploadResult:
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,
@@ -107,7 +111,7 @@ async def upload_family_small_variants(
         sample_contexts=_family_sample_contexts(context),
         file=file,
         overwrite=overwrite,
-        format_hint=source_format,  # type: ignore[arg-type]
+        format_hint=source_format,
     )
     await record_upload_file_obj(
         session,
@@ -118,7 +122,7 @@ async def upload_family_small_variants(
         scope="family",
         dataset="small_variants",
     )
-    return result
+    return SmallVariantUploadResult.model_validate(result)
 
 
 def _family_small_variant_filters(

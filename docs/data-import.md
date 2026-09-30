@@ -360,9 +360,14 @@ The `snv` dataset takes three optional settings:
 
 Each caller's rows carry their own source tag, so re-importing one callset never removes
 another, and two callers' rows of one variant stay two rows in storage
-([database.md](database.md#row-identity)). The track viewers draw one track per caller
-(`GET /families/{family_id}/track-availability` lists them). The three HiFiCNV files are
-also served unchanged to the genome browser (IGV), from the bucket for a package in a bucket.
+([database.md](database.md#row-identity)). The `mito` dataset has one file per sample, and
+each file replaces only that sample's calls. The other samples' mitochondrial calls stay as
+they are, one row per variant with every sample's call, so the mtDNA analysis can set the
+mother's calls beside the children's. A file without chrM variants removes that sample's calls.
+
+The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
+lists them). The three HiFiCNV files are also served unchanged to the genome browser (IGV),
+from the bucket for a package in a bucket.
 
 ### Validation
 
@@ -430,6 +435,18 @@ page asks before it sends that.
 `bed_type` is `coverage`, `segments`, `apcad` or `apcad_pcf`. Haplotype blocks cannot be
 uploaded as a BED; they come from a GLIMPSE2 small-variant upload (`source_format=glimpse2`)
 or package.
+
+A family small-variant upload is one family VCF from one callset:
+
+- `source_format` is `clair3` (a directly called callset), `glimpse2` (imputed genotypes, which
+  also make the haplotype blocks), `mito` (chrM calls) or `auto`, the default, which tells
+  `clair3` and `glimpse2` apart from the first record. Any other value is refused (422) before
+  anything is stored.
+- The upload is refused (409) when the family already has calls from that callset.
+  `overwrite=true` replaces them; every other callset stays as it is.
+- The answer says what was stored: the records loaded and skipped, the callset, the haplotype
+  blocks made, and the tool versions the VCF header names, which also go into the family's
+  annotation manifest.
 
 A structural-variant upload loads one sample's calls from one caller, and only that caller's
 calls are checked and replaced:

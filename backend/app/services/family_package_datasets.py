@@ -44,7 +44,7 @@ from .repeat_expansion_pg import (
 )
 from .upload_safety import read_path_text_bounded
 from .annotation_table_parser import parse_mutserve_annotation_path
-from .variant_upload_service import upload_family_small_variant_file
+from .variant_upload_service import remove_family_small_variant_sample_calls, upload_family_small_variant_file
 
 from .family_package_bigwig import autosomal_median, open_bigwig
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map  # noqa: F401
@@ -1283,6 +1283,10 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     source, which is what the existing mtDNA workspace reads (it queries by
     chromosome, not source) and what keeps a nuclear re-import from deleting them.
     The mutserve annotation TSV supplies heteroplasmy and haplogroup context.
+
+    Each sample's file replaces that sample's calls only: every other sample's stay as
+    stored, one row per variant holding every sample's call, which is what the maternal
+    transmission reads. A file with no chrM variant removes the sample's earlier calls.
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
@@ -1320,8 +1324,9 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
         mutserve_annotations = (
             parse_mutserve_annotation_path(annotation_path) if annotation_path is not None else None
         )
+        vcf_columns = read_vcf_sample_columns(vcf_path)
         aliases, unresolved = vcf_sample_alias_map(
-            read_vcf_sample_columns(vcf_path),
+            vcf_columns,
             set(sample_contexts),
             declared=raw_entry.get("vcf_sample") or raw_entry.get("sample_name"),
             target_sample_id=sample_id,
@@ -1341,11 +1346,23 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                     format_hint=MITO_SOURCE,  # type: ignore[arg-type]
                     sample_aliases=aliases,
                     vep_annotations=mutserve_annotations,
+                    overwrite_scope="samples",
                 )
         except HTTPException as exc:
-            # A run with no chrM variant is a normal outcome, not a dataset failure.
+            # A run with no chrM variant is a normal outcome, not a dataset failure. The
+            # file's samples then have no mitochondrial call: their earlier ones go.
             if exc.status_code == 400 and "No valid small-variant records" in str(exc.detail):
-                sample_results[sample_id] = {"inserted": 0, "message": "No chrM variants called"}
+                file_samples = dict.fromkeys(aliases.get(column, column) for column in vcf_columns)
+                removed = await remove_family_small_variant_sample_calls(
+                    family_context,
+                    [sample_contexts[name] for name in file_samples if name in sample_contexts],
+                    source=MITO_SOURCE,
+                )
+                sample_results[sample_id] = {
+                    "inserted": 0,
+                    "removed": removed,
+                    "message": "No chrM variants called",
+                }
                 continue
             raise
         imported_any = True
