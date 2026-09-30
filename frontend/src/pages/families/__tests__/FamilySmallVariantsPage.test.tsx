@@ -41,8 +41,6 @@ describe('FamilySmallVariantsPage', () => {
           data: [
             {
               _id: 'preset-1',
-              family_id: 'F1',
-              scope: 'global',
               owner: 'reviewer',
               name: 'Dominant shortlist',
               description: 'Saved family search',
@@ -191,8 +189,6 @@ describe('FamilySmallVariantsPage', () => {
           url === '/families/F1/small-variant-filter-presets'
             ? {
                 _id: 'preset-created',
-                family_id: 'F1',
-                scope: 'global',
                 owner: 'reviewer',
                 name: 'Saved',
                 description: null,
@@ -1046,7 +1042,6 @@ describe('FamilySmallVariantsPage', () => {
         '/families/F1/small-variant-filter-presets',
         expect.objectContaining({
           name: 'Active search preset',
-          scope: 'global',
           filters: expect.objectContaining({
             impact: ['HIGH'],
           }),

@@ -20,8 +20,6 @@ describe('AdminPresetFiltersPage', () => {
           data: [
             {
               _id: 'preset-1',
-              family_id: null,
-              scope: 'global',
               owner: 'reviewer',
               name: 'Dominant shortlist',
               description: 'Reusable dominant review filter',

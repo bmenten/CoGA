@@ -108,8 +108,8 @@ class SmallVariantReviewSummaryOut(BaseModel):
 
 
 class SmallVariantFilterPresetCreate(BaseModel):
+    # A small-variant preset is its owner's, reusable in every family they can open.
     name: str = Field(min_length=1, max_length=80)
-    scope: Literal["family", "global"] = "family"
     description: Optional[str] = Field(default=None, max_length=240)
     filters: Dict[str, Any] = Field(default_factory=dict)
     sample_filters: Dict[str, Any] = Field(default_factory=dict)
@@ -117,8 +117,6 @@ class SmallVariantFilterPresetCreate(BaseModel):
 
 
 class SmallVariantFilterPresetOut(ApiDocumentModel):
-    family_id: Optional[str] = None
-    scope: Literal["family", "global"]
     owner: str
     name: str
     description: Optional[str] = None

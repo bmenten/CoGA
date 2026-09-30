@@ -262,7 +262,6 @@ const FamilyNiptPage: React.FC = () => {
       }
       const res = await api.post(apiPath`/families/${familyId}/small-variant-filter-presets`, {
         ...payload,
-        scope: 'global',
         ...buildPresetPayload({ filters, members, sampleFilters }),
       });
       return res.data as SmallVariantFilterPreset;
@@ -381,7 +380,7 @@ const FamilyNiptPage: React.FC = () => {
         error={familyError}
         notFoundMessage="This family could not be found."
         onRetry={() => void refetchFamily()}
-        action={<Link className="button-secondary" to="/families">Back to families</Link>}
+        action={<Link className="button-secondary" to="/dashboard">Back to the dashboard</Link>}
       />
     );
   }
@@ -391,7 +390,7 @@ const FamilyNiptPage: React.FC = () => {
         kicker="Monogenic NIPT"
         title="Family not found"
         message="This family could not be found."
-        action={<Link className="button-secondary" to="/families">Back to families</Link>}
+        action={<Link className="button-secondary" to="/dashboard">Back to the dashboard</Link>}
       />
     );
   }

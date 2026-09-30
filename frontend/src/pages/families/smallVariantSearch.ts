@@ -284,10 +284,9 @@ export type SmallVariantReviewSavePayload = {
   cnv_acmg?: CnvAcmgReviewPayload;
 };
 
+// A small-variant preset is its owner's, reusable in every family they can open.
 export interface SmallVariantFilterPreset {
   _id: string;
-  family_id?: string | null;
-  scope: 'family' | 'global';
   owner: string;
   name: string;
   description?: string | null;
@@ -1898,9 +1897,6 @@ export const countPresetRules = (preset: SmallVariantFilterPreset) => {
   const templateCount = Object.keys(preset.sample_templates || {}).length;
   return filterCount + sampleCount + templateCount;
 };
-
-export const getPresetScopeLabel = (scope: SmallVariantFilterPreset['scope']) =>
-  scope === 'family' ? 'Family' : 'Reusable';
 
 export const getTagDefinitionMap = (tags: SmallVariantTagDefinition[]) =>
   Object.fromEntries(tags.map((tag) => [tag.key, tag]));

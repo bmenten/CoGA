@@ -101,7 +101,6 @@ const TP53 = makeVariant({
 const page = (overrides: Partial<GlobalVariantPage> = {}): GlobalVariantPage => ({
   total: 2,
   total_is_estimated: false,
-  page: 1,
   page_size: 50,
   next_cursor: null,
   assembly_id: 'asm-38',

@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
+import { BrowserRouter, Routes, Route } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import Layout from './components/Layout';
 import RequireAuth from './components/RequireAuth';
@@ -22,7 +22,6 @@ const FamilyBuilderPage = lazy(
 const PackageImportPage = lazy(
   () => import('./pages/dashboard/PackageImportPage')
 );
-const FamiliesPage = lazy(() => import('./pages/families/FamiliesPage'));
 const FamilyDetailPage = lazy(
   () => import('./pages/families/FamilyDetailPage')
 );
@@ -160,14 +159,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               <Route
                 path="/family-builder"
                 element={routeElement(<FamilyBuilderPage />)}
-              />
-              <Route
-                path="/family-intake"
-                element={<Navigate to="/family-builder" replace />}
-              />
-              <Route
-                path="/families"
-                element={routeElement(<FamiliesPage />)}
               />
               <Route
                 path="/families/:familyId"
@@ -333,10 +324,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 <Route
                   path="/admin/operations/clickhouse"
                   element={routeElement(<AdminClickhouseManagementPage />)}
-                />
-                <Route
-                  path="/admin/operations/variants"
-                  element={<Navigate to="/admin/operations/clickhouse" replace />}
                 />
                 <Route
                   path="/admin/monitoring/audit-logs"

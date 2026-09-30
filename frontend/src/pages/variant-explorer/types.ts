@@ -38,7 +38,6 @@ export interface GlobalVariantRow {
 export interface GlobalVariantPage {
   total: number;
   total_is_estimated: boolean;
-  page: number;
   page_size: number;
   // Keyset cursor for the next page; null on the last page.
   next_cursor?: string | null;

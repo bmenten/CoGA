@@ -351,7 +351,7 @@ describe('FamilyNiptPage', () => {
       expect(await screen.findByRole('heading', { name: 'Family could not be loaded' })).toBeInTheDocument();
       expect(screen.queryByText('Family not found')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: 'Back to families' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Back to the dashboard' })).toHaveAttribute('href', '/dashboard');
     });
   });
 });

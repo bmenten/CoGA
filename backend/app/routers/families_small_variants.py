@@ -42,8 +42,8 @@ from ..services.small_variant_review_tags import (
     update_small_variant_tag_definition,
 )
 from ..services.small_variant_review_presets import (
-    delete_small_variant_filter_preset as delete_small_variant_filter_preset_record,
-    list_small_variant_filter_presets as list_small_variant_filter_preset_records,
+    delete_small_variant_filter_preset_for_owner,
+    list_small_variant_filter_presets_for_owner,
     save_small_variant_filter_preset as save_small_variant_filter_preset_record,
 )
 from ..services.variant_upload_service import SmallVariantFormat, upload_family_small_variant_file
@@ -396,16 +396,13 @@ async def list_small_variant_filter_presets(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> List[SmallVariantFilterPresetOut]:
-    context = await build_family_metadata_context(
+    # The family route checks the user may open the family; the presets are theirs.
+    await build_family_metadata_context(
         session,
         family_identifier=family_id,
         user=user,
     )
-    return await list_small_variant_filter_preset_records(
-        session,
-        family_uuid=context.family_uuid,
-        user=user,
-    )
+    return await list_small_variant_filter_presets_for_owner(session, user=user)
 
 
 @router.post(
@@ -418,17 +415,12 @@ async def save_small_variant_filter_preset(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> SmallVariantFilterPresetOut:
-    context = await build_family_metadata_context(
+    await build_family_metadata_context(
         session,
         family_identifier=family_id,
         user=user,
     )
-    return await save_small_variant_filter_preset_record(
-        session,
-        family_uuid=context.family_uuid,
-        payload=payload,
-        user=user,
-    )
+    return await save_small_variant_filter_preset_record(session, payload=payload, user=user)
 
 
 @router.delete("/{family_id}/small-variant-filter-presets/{preset_id}", status_code=204)
@@ -438,17 +430,12 @@ async def delete_small_variant_filter_preset(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> Response:
-    context = await build_family_metadata_context(
+    await build_family_metadata_context(
         session,
         family_identifier=family_id,
         user=user,
     )
-    await delete_small_variant_filter_preset_record(
-        session,
-        family_uuid=context.family_uuid,
-        preset_id=preset_id,
-        user=user,
-    )
+    await delete_small_variant_filter_preset_for_owner(session, preset_id=preset_id, user=user)
     return Response(status_code=204)
 
 
