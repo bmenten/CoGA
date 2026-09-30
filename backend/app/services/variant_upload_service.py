@@ -48,6 +48,11 @@ from .clickhouse_interval_tracks import (
 )
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from .family_variant_write_lock import (
+    SMALL_VARIANTS,
+    STRUCTURAL_VARIANTS,
+    lock_family_variant_writes,
+)
 from .haplotype_block_builder import HaplotypeBlockBuilder
 from .structural_variant_ingest import (
     ParsedStructuralVariant,
@@ -527,6 +532,7 @@ async def _rewrite_with_sample_calls(
 
 
 async def remove_family_small_variant_sample_calls(
+    session: AsyncSession,
     context: FamilyMetadataContext,
     samples: Iterable[SampleMetadataContext],
     *,
@@ -536,10 +542,12 @@ async def remove_family_small_variant_sample_calls(
     stored, and return how many rows held one.
 
     For a callset stored one file per sample whose new file holds no call (a mitochondrial
-    run with no chrM variant): the sample then has no call of that callset.
+    run with no chrM variant): the sample then has no call of that callset. The family's
+    small-variant write lock is held from the read until ``session``'s transaction ends.
     """
     if not context.assembly_name:
         return 0
+    await lock_family_variant_writes(session, context.family_uuid, [SMALL_VARIANTS])
     replaced = _sample_call_ids(samples)
     stored = await fetch_family_small_variant_entries(
         context.assembly_name, context.family_uuid, source=source
@@ -630,12 +638,21 @@ async def upload_family_small_variant_file(
         # Scope the overwrite to this upload's own source so re-importing one loader
         # never deletes the other's rows. Haplotype blocks belong to glimpse2 only.
         loads_haplotype_blocks = resolved_format == "glimpse2"
+        if samples_scope and loads_haplotype_blocks:
+            raise HTTPException(
+                status_code=400,
+                detail="Imputed genotypes and their haplotype blocks are replaced per family, not per sample",
+            )
+        # One write of the family's small variants at a time, from the first read below
+        # until the commit at the end: no other write's read, delete or insert falls in
+        # between. The family's samples must still be stored once it is this upload's turn.
+        await lock_family_variant_writes(
+            session,
+            context.family_uuid,
+            [SMALL_VARIANTS],
+            samples=[sample.sample_uuid for sample in sample_contexts.values()],
+        )
         if samples_scope:
-            if loads_haplotype_blocks:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Imputed genotypes and their haplotype blocks are replaced per family, not per sample",
-                )
             # Exactly the rows the rewrite at the end replaces. The conflict check reads
             # them once the #CHROM line names the file's samples.
             stored_entries = await fetch_family_small_variant_entries(
@@ -1132,6 +1149,15 @@ async def upload_structural_variant_file(
     text_value = await _decode_upload_text(file, kind="Structural variant")
     resolved_format = _detect_structural_variant_format(text_value, file.filename, format_hint)
     source_label = STRUCTURAL_VARIANT_SOURCE_LABELS[resolved_format]
+    # One write of the family's SVs at a time, from the read below until the commit at the
+    # end: no other write's read, delete or insert falls in between. The sample must still
+    # be stored once it is this upload's turn.
+    await lock_family_variant_writes(
+        session,
+        family_context.family_uuid,
+        [STRUCTURAL_VARIANTS],
+        samples=[sample_context.sample_uuid],
+    )
     # A stored call names its sample by id or by uuid.
     sample_ids = {value for value in (sample_context.sample_id, sample_context.sample_uuid) if value}
     # This source's rows as stored, in every project and with every call: the conflict

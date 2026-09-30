@@ -192,6 +192,8 @@ async def _blocks(
     monkeypatch.setattr(
         "backend.app.services.annotation_manifest_service.merge_vcf_header_provenance", nothing
     )
+    # The family's write lock is Postgres's; test_family_variant_writes_serialized has it.
+    monkeypatch.setattr(variant_upload_service, "lock_family_variant_writes", nothing)
     if unit_thresholds:
         monkeypatch.setattr(haplotype_block_builder, "SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS", 1)
         monkeypatch.setattr(haplotype_block_builder, "SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN", 0)

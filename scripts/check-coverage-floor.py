@@ -42,6 +42,8 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/structural_variant_review_pg.py": 53.0,  # (56.8) CNV ACMG persistence
     "backend/app/services/small_variant_review_tags.py": 57.0,  # (60.6)
     "backend/app/services/clinical_cnv_kb_jobs.py": 85.0,  # (89.3)
+    # Added with #670: one write at a time to a family's variants.
+    "backend/app/services/family_variant_write_lock.py": 95.0,  # (100.0)
 }
 
 # The combined unit + smoke + e2e report (the ``coverage`` CI job). Floors a few points

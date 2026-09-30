@@ -163,6 +163,11 @@ def store(monkeypatch: pytest.MonkeyPatch):
 
         monkeypatch.setattr(variant_upload_service, "_fetch_genes_for_chroms", no_genes)
         monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", no_provenance)
+        async def no_lock(*_args, **_kwargs):
+            return None
+
+        # The family's write lock is Postgres's; test_family_variant_writes_serialized has it.
+        monkeypatch.setattr(variant_upload_service, "lock_family_variant_writes", no_lock)
         return fake
 
     return install

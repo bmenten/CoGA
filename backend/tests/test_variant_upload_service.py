@@ -25,6 +25,16 @@ from backend.app.services.variant_upload_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_family_write_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The family's write lock is Postgres's; test_family_variant_writes_serialized has it."""
+
+    async def no_lock(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(variant_upload_service, "lock_family_variant_writes", no_lock)
+
+
 def test_coerce_int_tolerates_floats_and_junk() -> None:
     assert _coerce_int("42") == 42
     assert _coerce_int("42.0") == 42

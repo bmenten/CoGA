@@ -33,6 +33,7 @@ from .family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
 )
+from .family_variant_write_lock import STRUCTURAL_VARIANTS, lock_family_variant_writes
 from .hpo_service import (
     import_family_hpo_annotations,
 )
@@ -534,6 +535,13 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
     )
     if not records:
         raise RuntimeError("No Needlr structural variants with PED sample calls were found")
+    # Held until the commit that records the SV file (the import holds it for its whole run).
+    await lock_family_variant_writes(
+        session,
+        family_context.family_uuid,
+        [STRUCTURAL_VARIANTS],
+        samples=[sample.sample_uuid for sample in sample_contexts.values()],
+    )
     await replace_family_structural_variants(
         family_context.assembly_name,
         family_context.family_uuid,
@@ -1250,6 +1258,13 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
 
     if not records:
         return await _register_only(summary, "Registered only; no CNV calls were parsed")
+    # Held until the commit that records the SV files (the import holds it for its whole run).
+    await lock_family_variant_writes(
+        session,
+        family_context.family_uuid,
+        [STRUCTURAL_VARIANTS],
+        samples=[sample.sample_uuid for sample in sample_contexts.values()],
+    )
     # Replace only this source: a family can carry NeedlR SVs and HiFiCNV calls at once.
     await replace_family_structural_variants(
         family_context.assembly_name,
@@ -1354,6 +1369,7 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
             if exc.status_code == 400 and "No valid small-variant records" in str(exc.detail):
                 file_samples = dict.fromkeys(aliases.get(column, column) for column in vcf_columns)
                 removed = await remove_family_small_variant_sample_calls(
+                    session,
                     family_context,
                     [sample_contexts[name] for name in file_samples if name in sample_contexts],
                     source=MITO_SOURCE,
