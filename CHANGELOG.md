@@ -838,6 +838,11 @@ First release candidate. The device boundary is _annotated VCF → signed clinic
   replace a family's annotation manifest, which is always recorded as manual, with the manifest it
   replaced, on the family's audit trail, and an import can no longer overwrite a replacement
   (#651).
+- **Frontend server (#702)** — the `/api` proxy's error log put the request URL into the console
+  format string, so a `%s` in it was read as a directive and a line break could forge a log line; it
+  now passes the method and URL as `%s` arguments with line breaks removed. The app shell is read
+  once at start-up and served from memory, so no page request reaches the file system (CodeQL
+  found both once #694 scanned the server) (#703).
 
 ### Documentation
 
