@@ -26,7 +26,7 @@ pipeline, report sign-out, deployment code), reproduction steps, and the impact 
 it has.
 
 If you would rather not use GitHub, or the issue needs institutional escalation, contact
-the project owner directly: **Björn Menten — <bjorn.menten@ugent.be>**.
+the project lead and developer directly: **<bjorn.menten@ugent.be>**.
 
 We aim to acknowledge a report within **five working days**. Formal response and remediation
 targets are being aligned with the CMGG vigilance process

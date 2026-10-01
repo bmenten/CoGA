@@ -30,7 +30,7 @@ def test_canonical_hash_is_stable_and_order_independent() -> None:
 
 
 def _user():
-    return types.SimpleNamespace(username="bjorn", email="b@x.org", id=None)
+    return types.SimpleNamespace(username="lab-signer", email="b@x.org", id=None)
 
 
 # What evaluate_classification_drift reports for a family with no SV/CNV classification.
@@ -1519,12 +1519,12 @@ _PRE_GATE_SNAPSHOT = {
         "sex_checks": [],
     },
     "sequencing_qc": {"profile_key": "wgs", "profile_label": "WGS", "samples": {}, "thresholds": {}},
-    "signed_out_by": "bjorn",
+    "signed_out_by": "lab-signer",
     "software": {"git_sha": "0123abc", "version": "1.4.0"},
     "version": 1,
 }
-_PRE_GATE_CONTENT_HASH = "327b79f5eb7a2822cb54a0ad05a92b0898d40046b09c130da2cb2888ba2ea7fc"
-_PRE_GATE_ROW_HASH = "368ac39365bd791b1a0d93ad4dd26b680b46566f22a948c7a9c014a2c2bc9493"
+_PRE_GATE_CONTENT_HASH = "7ccf7e25e4773927e95ec18d35fcb52f565c97e16f3c8d49872a3f950557634b"
+_PRE_GATE_ROW_HASH = "e19cb1bbe92d6dfed10002412d70424b36b50502a1696dd1b2063f6877d53c45"
 
 
 class _RowsSession:
@@ -1546,7 +1546,7 @@ def _pre_gate_row() -> dict:
     return {
         "version": 1,
         "id": "1",
-        "signed_out_by": "bjorn",
+        "signed_out_by": "lab-signer",
         "signed_out_at": datetime.fromisoformat(_PRE_GATE_SIGNED_AT),
         "content_hash": _PRE_GATE_CONTENT_HASH,
         "family_identifier": "FAM1",
@@ -1724,7 +1724,7 @@ def test_the_sign_out_endpoint_passes_the_import_acknowledgement_on(monkeypatch)
         captured.update(kwargs)
         return {
             "version": 1,
-            "signed_out_by": "bjorn",
+            "signed_out_by": "lab-signer",
             "signed_out_at": datetime.fromisoformat(_PRE_GATE_SIGNED_AT),
             "content_hash": "h" * 64,
         }
@@ -2157,12 +2157,12 @@ _PRE_SV_EVIDENCE_SNAPSHOT = {
         "sex_checks": [],
     },
     "sequencing_qc": {"profile_key": "wgs", "profile_label": "WGS", "samples": {}, "thresholds": {}},
-    "signed_out_by": "bjorn",
+    "signed_out_by": "lab-signer",
     "software": {"git_sha": "0633db8", "version": "1.5.0"},
     "version": 1,
 }
-_PRE_SV_EVIDENCE_CONTENT_HASH = "6156d04eb0c40c35c459890a1da9c365ad6f0639ca055e96e12bd44349da383b"
-_PRE_SV_EVIDENCE_ROW_HASH = "ac4958a8d570a1702d62c384ceb6aeaf833bc8f338e89435f0c623b5f1333af7"
+_PRE_SV_EVIDENCE_CONTENT_HASH = "fa6dc209662121586420b9033d34cfe02595d4b58767cf3abeb5ca6dbec04c8a"
+_PRE_SV_EVIDENCE_ROW_HASH = "10e45f07187d1b45ea15190d2dbf775ef708e6a95604855da48b6a51a3971c50"
 
 
 def _pre_sv_evidence_row() -> dict:

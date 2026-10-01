@@ -707,7 +707,7 @@ describe('FamilyReportPage', () => {
   // signed version, even when its content matches.
   const SIGNED_ENTRY = {
     version: 2,
-    signed_out_by: 'bjorn',
+    signed_out_by: 'lab-signer',
     signed_out_at: '2026-06-25T10:00:00Z',
     content_hash: 'abc123def456',
     software_version: '0.1.0',
@@ -818,7 +818,7 @@ describe('FamilyReportPage', () => {
     ],
     version: 2,
     generated_at: '2026-06-25T10:00:00+00:00',
-    signed_out_by: 'bjorn',
+    signed_out_by: 'lab-signer',
     acknowledged_drift: false,
     drift_acknowledgement_reason: null,
     acknowledged_qc: false,
@@ -884,7 +884,7 @@ describe('FamilyReportPage', () => {
       const { container } = renderPage();
 
       const card = await signedRecordCard();
-      expect(card).toHaveTextContent('Signed version 2 — signed out by bjorn on 2026-06-25 10:00 UTC');
+      expect(card).toHaveTextContent('Signed version 2 — signed out by lab-signer on 2026-06-25 10:00 UTC');
       expect(card).toHaveTextContent('Content hash abc123def456');
       expect(card).toHaveTextContent('The stored record matches its content hash.');
       expect(card).toHaveTextContent('Signed with CoGA 0.1.0 (abc1234)');
@@ -1210,7 +1210,7 @@ describe('FamilyReportPage', () => {
       const card = await signedRecordCard(1);
       expect(card).toHaveTextContent('Signed version 1 — signed out by alice on 2026-06-20 09:00 UTC');
       expect(within(card).getByText('Superseded.').closest('p')).toHaveTextContent(
-        'Superseded. Signed version 2, signed out by bjorn on 2026-06-25 10:00 UTC, is the latest.',
+        'Superseded. Signed version 2, signed out by lab-signer on 2026-06-25 10:00 UTC, is the latest.',
       );
       expect(container.querySelector('.report-print-notice')?.textContent).toBe(
         'Superseded — signed version 2 replaces signed version 1.',
@@ -1426,7 +1426,7 @@ describe('FamilyReportPage', () => {
     expect(await screen.findByText('Clinical report — draft, not signed')).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
 
-    expect(await signedRecordCard(1)).toHaveTextContent('Signed version 1 — signed out by bjorn on 2026-06-25 10:00 UTC');
+    expect(await signedRecordCard(1)).toHaveTextContent('Signed version 1 — signed out by lab-signer on 2026-06-25 10:00 UTC');
     expect(await screen.findByText('The family’s current data still matches this signed version.')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /BRCA1/ })).not.toBeInTheDocument();
   });
