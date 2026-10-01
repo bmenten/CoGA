@@ -97,7 +97,7 @@ Het endpoint is `GET /api/families/{family_id}/structural-variants`; de SV's van
 
 | Aspect | Small variants | Structurele varianten |
 | --- | --- | --- |
-| Filteren | Vooral in ClickHouse, met annotatie-indexen | Deels in ClickHouse; anders eerst ophalen en in Python filteren, met een harde grens (50.000 SV's). Boven die grens is het totaal een ondergrens (`candidates_capped`, `candidate_limit`) en toont de pagina dezelfde waarschuwing als bij small variants; het rapport zegt het ook, op het scherm en op de afdruk, als zijn lijst van gerapporteerde SV's zo begrensd was |
+| Filteren | Vooral in ClickHouse, met annotatie-indexen | Deels in ClickHouse; anders eerst ophalen en in Python filteren, met een harde grens (50.000 SV's). Boven die grens is het totaal een ondergrens (`candidates_capped`, `candidate_limit`) en toont de pagina dezelfde waarschuwing als bij small variants. Een reviewselectie (tag, classificatie, notitie), zoals de lijst van gerapporteerde SV's van het rapport, gaat als variant-id's mee in de SQL (`_structural_variant_where_clauses`), vóór de grens: die kan een gerapporteerde SV dus niet afsnijden |
 | Cytoband | — | Uit de Postgres-tabel `chromosomes` |
 | Review | `small_variant_review_pg.py` | `structural_variant_review_pg.py` |
 | Track-modus | Ja | Ja, zonder review en cytoband |

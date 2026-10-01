@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Iterable, Sequence
+from typing import Any, Collection, Iterable, Sequence
 
 from fastapi import HTTPException
 
@@ -2753,6 +2753,8 @@ def _structural_variant_where_clauses(
     context: FamilyMetadataContext,
     filters: StructuralVariantQueryFilters,
     include_regions: Sequence[Region] = (),
+    include_variant_ids: Collection[str] | None = None,
+    exclude_variant_ids: Collection[str] = (),
 ) -> tuple[list[str], dict[str, Any]]:
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
@@ -2787,6 +2789,26 @@ def _structural_variant_where_clauses(
     )
     if region_condition:
         where_clauses.append(region_condition)
+    # A review selection (the report's "report" tag, a classification, notes) resolves to
+    # variant ids in Postgres. In SQL, like the regions, it narrows the rows before the
+    # candidate cap, so the cap cannot decide which reviewed SVs the search sees: a
+    # reported SV beyond the first 50,000 rows of the callset was missing from the report.
+    # ``None`` means no selection; an empty selection matches nothing.
+    if include_variant_ids is not None:
+        normalized_include_ids = sorted(
+            {str(variant_id).strip() for variant_id in include_variant_ids if str(variant_id).strip()}
+        )
+        if normalized_include_ids:
+            where_clauses.append("e.variantId IN %(sv_include_variant_ids)s")
+            params["sv_include_variant_ids"] = tuple(normalized_include_ids)
+        else:
+            where_clauses.append("0")
+    normalized_exclude_ids = sorted(
+        {str(variant_id).strip() for variant_id in exclude_variant_ids if str(variant_id).strip()}
+    )
+    if normalized_exclude_ids:
+        where_clauses.append("e.variantId NOT IN %(sv_exclude_variant_ids)s")
+        params["sv_exclude_variant_ids"] = tuple(normalized_exclude_ids)
     return where_clauses, params
 
 

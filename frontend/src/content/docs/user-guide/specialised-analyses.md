@@ -15,8 +15,8 @@ the same phenotype score as small variants. **Clear all filters** removes the de
 
 A filtered search reads at most 50,000 SVs of the callset before it applies the filters. When it reads
 that many, a warning says *"Results may be incomplete"*, the count shows a `+`, and an SV beyond the cap
-is not shown: narrow the search with a region, a gene panel or a gene. The clinical report says so too
-when its list of reported SVs comes from such a search.
+is not shown: narrow the search with a region, a gene panel or a gene. The clinical report's list of
+reported SVs is not cut by this cap: it reads the reported SVs themselves, not the first 50,000.
 
 **ACMG (CNV)** on a row opens the ClinGen copy-number classifier (Riggs et al. 2020): choose
 *Copy-number loss* or *Copy-number gain*, check the pre-selected criteria and add the rest.

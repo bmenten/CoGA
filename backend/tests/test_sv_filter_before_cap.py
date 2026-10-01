@@ -6,6 +6,7 @@ sat outside the window — indistinguishable, in the UI, from "this gene has no 
 """
 
 import pytest
+from clickhouse_connect.driver.binding import bind_query
 
 from backend.app.services.clickhouse_variant_queries import (
     _structural_region_filter_condition,
@@ -89,6 +90,50 @@ class TestWhereClauses:
         where, _params = _clauses(context, [Region(chr="1", start=1, end=2)])
         assert "e.family_guid = %(family_guid)s" in where
         assert "e.sign = 1" in where
+
+
+def _review_clauses(context, include=None, exclude=()):
+    return _structural_variant_where_clauses(
+        context,
+        StructuralVariantQueryFilters(page=1, page_size=10),
+        include_variant_ids=include,
+        exclude_variant_ids=exclude,
+    )
+
+
+class TestReviewSelectionInSql:
+    """The report lists its SVs with a review-tag search. The review selection resolves to
+    variant ids in Postgres; like the gene and panel regions it has to narrow the rows in
+    SQL, or the candidate cap decides which reported SVs the search gets to see."""
+
+    def test_a_review_selection_reaches_the_sql(self, context) -> None:
+        where, params = _review_clauses(context, include={"sv-b", "sv-a", " "})
+        assert "e.variantId IN %(sv_include_variant_ids)s" in where
+        # Blank ids are dropped; the rest are bound in a stable order.
+        assert params["sv_include_variant_ids"] == ("sv-a", "sv-b")
+
+    def test_an_empty_review_selection_matches_nothing(self, context) -> None:
+        where, params = _review_clauses(context, include=set())
+        assert "0" in where
+        assert "sv_include_variant_ids" not in params
+
+    def test_excluded_reviews_are_left_out_in_sql(self, context) -> None:
+        where, params = _review_clauses(context, exclude=["sv-x", "sv-x"])
+        assert "e.variantId NOT IN %(sv_exclude_variant_ids)s" in where
+        assert params["sv_exclude_variant_ids"] == ("sv-x",)
+
+    def test_no_review_selection_leaves_the_query_untouched(self, context) -> None:
+        where, params = _review_clauses(context)
+        assert not any("variantId" in clause for clause in where)
+        assert not any(key.startswith(("sv_include_variant", "sv_exclude_variant")) for key in params)
+
+    def test_the_ids_are_bound_as_parameters_never_spliced(self, context) -> None:
+        hostile = "1-100-200-DEL') OR 1=1 --"
+        where, params = _review_clauses(context, include=[hostile])
+        assert hostile not in " AND ".join(where)
+        rendered, _ = bind_query("SELECT 1 FROM t AS e WHERE " + " AND ".join(where), params)
+        # The id arrives as one quoted literal, its quote escaped.
+        assert "e.variantId IN ('1-100-200-DEL\\') OR 1=1 --')" in rendered
 
 
 class TestSecondHitBoundingLocus:

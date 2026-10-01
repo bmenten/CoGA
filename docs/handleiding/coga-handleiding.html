@@ -1855,7 +1855,7 @@ python docs/handleiding/build_site.py
 <tr>
 <td>Filteren</td>
 <td>Vooral in ClickHouse, met annotatie-indexen</td>
-<td>Deels in ClickHouse; anders eerst ophalen en in Python filteren, met een harde grens (50.000 SV's). Boven die grens is het totaal een ondergrens (<code>candidates_capped</code>, <code>candidate_limit</code>) en toont de pagina dezelfde waarschuwing als bij small variants; het rapport zegt het ook, op het scherm en op de afdruk, als zijn lijst van gerapporteerde SV's zo begrensd was</td>
+<td>Deels in ClickHouse; anders eerst ophalen en in Python filteren, met een harde grens (50.000 SV's). Boven die grens is het totaal een ondergrens (<code>candidates_capped</code>, <code>candidate_limit</code>) en toont de pagina dezelfde waarschuwing als bij small variants. Een reviewselectie (tag, classificatie, notitie), zoals de lijst van gerapporteerde SV's van het rapport, gaat als variant-id's mee in de SQL (<code>_structural_variant_where_clauses</code>), vóór de grens: die kan een gerapporteerde SV dus niet afsnijden</td>
 </tr>
 <tr>
 <td>Cytoband</td>
@@ -2384,7 +2384,7 @@ python docs/handleiding/build_site.py
 <h2>Het rapport</h2>
 <p>Er zijn twee rapportpagina's:</p>
 <ul>
-<li><strong><code>FamilyReportPage.tsx</code></strong> — het familierapport. Het live rapport toont de varianten met de reviewtag <strong><code>report</code></strong> (small variants en structurele varianten), met per gerapporteerd gen het genprofiel en de HPO-termen van de familie. De zinnen van het rapport bouwen hulpfuncties die apart getest worden (<code>reportNarrative.ts</code>). Een ondertekende versie tekent <code>SignedFamilyReport.tsx</code> uit het bevroren snapshot (zie verder).</li>
+<li><strong><code>FamilyReportPage.tsx</code></strong> — het familierapport. Het live rapport toont de varianten met de reviewtag <strong><code>report</code></strong> (small variants en structurele varianten), met per gerapporteerd gen het genprofiel en de HPO-termen van de familie. Het vraagt per soort tot 10.000 gerapporteerde varianten, het maximum van de API, en zegt op het scherm en op de afdruk wanneer een lijst niet volledig is: meer gerapporteerde varianten dan die pagina, of een begrensde zoekopdracht (<code>reportedListCompleteness.ts</code>). Het ondertekende snapshot leest de gerapporteerde reviews rechtstreeks uit Postgres en heeft die grens niet. De zinnen van het rapport bouwen hulpfuncties die apart getest worden (<code>reportNarrative.ts</code>). Een ondertekende versie tekent <code>SignedFamilyReport.tsx</code> uit het bevroren snapshot (zie verder).</li>
 <li><strong><code>FamilyNiptReportPage.tsx</code></strong> — het rapport voor monogene NIPT, met de foetale fractie, de dekking en de kandidaatvarianten (hoofdstuk 8).</li>
 </ul>
 <p>Wat elke variantsectie bevat, beschrijft <code>docs/report-template.md</code>. Exporteren gebeurt via de printfunctie van de browser. <strong>Beide pagina's dragen een disclaimer</strong> dat het rapport beslissingsondersteuning is die een gekwalificeerd klinisch wetenschapper moet bevestigen; het NIPT-rapport vraagt ook bevestiging met een invasieve diagnostische test.</p>
