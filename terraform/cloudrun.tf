@@ -41,10 +41,12 @@ resource "google_cloud_run_v2_service" "backend" {
     }
 
     containers {
+      # Named, because the revision also runs the metrics collector (monitoring.tf).
+      name  = "backend"
       image = var.backend_image
 
       ports {
-        container_port = 8000
+        container_port = local.backend_port
       }
 
       resources {
@@ -67,7 +69,7 @@ resource "google_cloud_run_v2_service" "backend" {
       startup_probe {
         http_get {
           path = "/api/health"
-          port = 8000
+          port = local.backend_port
         }
         initial_delay_seconds = 10
         timeout_seconds       = 5
@@ -284,6 +286,72 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "AZURE_CLIENT_ID"
         value = var.azure_ad_client_id
       }
+      # Turns GET /metrics on, for the collector below (monitoring.tf, docs/monitoring.md).
+      dynamic "env" {
+        for_each = var.metrics_collection_enabled ? [1] : []
+        content {
+          name = "METRICS_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.metrics_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+
+    # The metrics collector (monitoring.tf): it scrapes the backend's GET /metrics over the
+    # instance's loopback with the metrics token, and writes to Managed Service for
+    # Prometheus. It serves no traffic of its own. Its CPU is always allocated, like the
+    # backend's, so it keeps scraping between requests.
+    dynamic "containers" {
+      for_each = var.metrics_collection_enabled ? [1] : []
+      content {
+        name  = "metrics-collector"
+        image = var.metrics_collector_image
+        args  = ["--config=env:OTELCOL_CONFIG"]
+
+        resources {
+          limits = {
+            cpu    = var.metrics_collector_cpu
+            memory = var.metrics_collector_memory
+          }
+          cpu_idle = false
+        }
+
+        env {
+          name  = "OTELCOL_CONFIG"
+          value = local.metrics_collector_config
+        }
+        env {
+          name = "METRICS_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.metrics_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        startup_probe {
+          http_get {
+            path = "/"
+            port = local.metrics_collector_health_port
+          }
+          timeout_seconds   = 5
+          period_seconds    = 10
+          failure_threshold = 6
+        }
+        liveness_probe {
+          http_get {
+            path = "/"
+            port = local.metrics_collector_health_port
+          }
+          timeout_seconds = 5
+          period_seconds  = 30
+        }
+      }
     }
 
     # Read-only, like the image and compose treat reference data (#520): it is loaded
@@ -300,6 +368,7 @@ resource "google_cloud_run_v2_service" "backend" {
 
   depends_on = [
     google_secret_manager_secret_iam_member.backend,
+    google_secret_manager_secret_iam_member.backend_metrics_token,
     # With the restricted DB role, a new image serves only after its schema is applied.
     terraform_data.db_migrate,
   ]

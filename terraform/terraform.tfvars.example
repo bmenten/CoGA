@@ -28,6 +28,14 @@ clickhouse_data_disk_gb = 200
 azure_ad_tenant_id = ""
 azure_ad_client_id = ""
 
+# Who the alert policies email (monitoring.tf, docs/monitoring.md). Empty, incidents open in
+# Cloud Monitoring but nobody is told.
+# alert_notification_emails = ["coga-ops@your-institution.example"]
+# The metrics collector beside the backend needs a version in coga-metrics-token (5.5).
+# metrics_collection_enabled = true
+# With allowed_ingress_cidrs set, allow the uptime checkers' ranges or turn the check off.
+# uptime_check_enabled = true
+
 # ---- Go-live hardening (each off by default; switch on as a change-controlled deploy) ----
 # In CI these belong in the gcp-deploy environment's COGA_TFVARS variable.
 

@@ -30,6 +30,7 @@ from prometheus_client import (
     Info,
     PlatformCollector,
     ProcessCollector,
+    disable_created_metrics,
     generate_latest,
 )
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric
@@ -54,6 +55,10 @@ _KNOWN_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OP
 INTEGRITY_OUTCOMES = ("ok", "degraded", "corrupt", "missing", "check_failed")
 ACTIVE_IMPORT_STATUSES = ("queued", "validating", "running")
 _AUDIT_PIPELINES = (("audit_log", audit_log_queue_depth), ("ui_event", ui_event_queue_depth))
+
+# A counter's `_created` series (when it was first incremented) says nothing an alert reads,
+# and Managed Service for Prometheus bills every series it stores.
+disable_created_metrics()
 
 REGISTRY = CollectorRegistry()
 ProcessCollector(registry=REGISTRY)

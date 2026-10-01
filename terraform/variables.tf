@@ -271,6 +271,56 @@ variable "storage_backend" {
 }
 
 # ---------------------------------------------------------------------------
+# Monitoring and alerting (monitoring.tf, docs/monitoring.md)
+# ---------------------------------------------------------------------------
+
+variable "metrics_collection_enabled" {
+  description = "Run the metrics collector beside the backend: it scrapes GET /metrics with the metrics token and writes to Managed Service for Prometheus, which the alert policies read. Needs a version in the coga-metrics-token secret (docs/deployment-gcp.md 5.5). Off, the backend gets no METRICS_TOKEN and its /metrics endpoint is off; the uptime check still runs."
+  type        = bool
+  default     = true
+}
+
+variable "metrics_collector_image" {
+  description = "The Google-Built OpenTelemetry Collector, pinned by digest (the tag is for reading). Updated by hand, like the ClickHouse image."
+  type        = string
+  default     = "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.160.0@sha256:2bebb885ef33c00e1d999dc0b0dd13b089f8ddb1734b62c0a0524b2cf20c515e"
+
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.metrics_collector_image))
+    error_message = "metrics_collector_image must be pinned by digest (…@sha256:<64 hex>)."
+  }
+}
+
+variable "metrics_collector_cpu" {
+  description = "CPU limit for the collector sidecar. The backend's CPU is always allocated, and Cloud Run allows a fraction of a vCPU only with request-based billing, so this stays at a whole vCPU."
+  type        = string
+  default     = "1"
+}
+
+variable "metrics_collector_memory" {
+  description = "Memory limit for the collector sidecar."
+  type        = string
+  default     = "512Mi"
+}
+
+variable "alert_notification_emails" {
+  description = "Email addresses the alert policies notify. Empty, incidents open in Cloud Monitoring but nobody is told (Terraform warns)."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for email in var.alert_notification_emails : can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", email))])
+    error_message = "Every alert_notification_emails entry must be an email address."
+  }
+}
+
+variable "uptime_check_enabled" {
+  description = "Check https://<app_domain>/api/health from Google's uptime checkers every minute, and alert when it fails. The checkers come from Google's own address ranges: with allowed_ingress_cidrs set, Cloud Armor denies them unless those ranges are allowed (gcloud monitoring uptime list-ips), so turn this off or allow them (Terraform warns)."
+  type        = bool
+  default     = true
+}
+
+# ---------------------------------------------------------------------------
 # Labels
 # ---------------------------------------------------------------------------
 

@@ -278,8 +278,8 @@ terraform init \
   -backend-config="bucket=${STATE_BUCKET}" \
   -backend-config="prefix=coga/dev"
 
-# Create ONLY the app secret containers first.
-terraform apply -target='google_secret_manager_secret.app' \
+# Create ONLY the secret containers first.
+terraform apply -target='google_secret_manager_secret.app' -target='google_secret_manager_secret.metrics_token' \
   -var="project_id=${PROJECT}" \
   -var="cmek_key_self_link=${CMEK_KEY}" \
   -var="backend_image=placeholder" -var="frontend_image=placeholder"
@@ -292,12 +292,16 @@ openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-postgres
 openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-clickhouse-password    --data-file=-
 # Only before switching to the restricted database role (12.8); printable ASCII.
 openssl rand -base64 36 | tr -d '\n' | gcloud secrets versions add coga-postgres-app-password  --data-file=-
+# The token the metrics collector sends to the backend's /metrics (12.6); needed unless
+# metrics_collection_enabled = false.
+openssl rand -base64 48 | tr -d '\n' | gcloud secrets versions add coga-metrics-token          --data-file=-
 ```
 
 Notes:
 
 - `coga-secret-key` and `coga-integrity-anchor-key` **must be different** values; the backend
-  refuses to start when they are the same.
+  refuses to start when they are the same. So must `coga-metrics-token`, which also needs at
+  least 32 characters.
 - `coga-integrity-anchor-key` must be the base64 of exactly 32 random bytes (an Ed25519
   seed), which is what `openssl rand -base64 32` prints. Any other length and the backend
   refuses to start.
@@ -352,6 +356,9 @@ The variables you'll most likely set:
 | `enable_cloud_armor` | Edge WAF/DDoS | `true` |
 | `cloud_armor_waf_enforce` | Block (vs log-only) WAF matches | `false` (log-only first) |
 | `azure_ad_tenant_id` / `azure_ad_client_id` | Institutional login | empty |
+| `alert_notification_emails` | Who the alert policies email (12.6) | `[]` — set it, or nobody is told (Terraform warns) |
+| `metrics_collection_enabled` | Run the metrics collector beside the backend, and the metric alerts | `true` |
+| `uptime_check_enabled` | Check `https://<app_domain>/api/health` every minute and alert when it fails | `true` (see 12.6 with `allowed_ingress_cidrs`) |
 
 The go-live switches (`cloud_armor_waf_enforce`, `db_runtime_role`,
 `allowed_ingress_cidrs`, `clickhouse_restrict_egress`) are described in 12.7–12.10.
@@ -661,15 +668,27 @@ gcloud logging read 'resource.type="http_load_balancer" jsonPayload.enforcedSecu
 gcloud logging read 'protoPayload.serviceName="storage.googleapis.com" protoPayload.methodName="storage.objects.get"' --limit 50
 ```
 
-**Metrics.** The backend serves Prometheus metrics at `/metrics`
-([monitoring.md](monitoring.md)): request errors and latency per route, the ClickHouse
-integrity check per assembly, the audit pipelines' backlog and lost events, stuck imports.
-Terraform does not wire it up yet. To turn it on, store a token of 32+ characters in Secret
-Manager, pass it to `coga-backend` as `METRICS_TOKEN`, and run a collector beside the backend
-(a Cloud Run sidecar, such as the Managed Service for Prometheus one) that scrapes
-`localhost:8000/metrics` with `Authorization: Bearer <token>`. The load balancer never routes
-`/metrics`, so the endpoint stays inside the service. [monitoring.md](monitoring.md) has alert
-rules to start from.
+**Metrics and alerts** (`terraform/monitoring.tf`, [monitoring.md](monitoring.md)). The
+backend serves Prometheus metrics at `/metrics`: request errors and latency per route, the
+ClickHouse integrity check per assembly, the audit pipelines' backlog and lost events, stuck
+imports. A collector, the Google-Built OpenTelemetry Collector, runs as a second container of
+`coga-backend` (`metrics-collector`). It scrapes `localhost:8000/metrics` every minute with the
+token from `coga-metrics-token` and writes to Managed Service for Prometheus. The load balancer
+never routes `/metrics`, so the endpoint stays inside the service. Alert policies read the series
+with PromQL and email `alert_notification_emails`; an uptime check fetches
+`https://<app_domain>/api/health` every minute from several regions.
+
+After the first apply, check that metrics arrive: in Cloud Monitoring, *Metrics Explorer*, PromQL,
+query `coga_build_info`; it should show the running version. *Alerting* lists the policies, each
+with what to do when it fires.
+
+- **The deploy account** needs the rights to create alert policies, notification channels and
+  uptime checks (`terraform/main-repo-reference/rollout-checklist.md`, Part C).
+- **With `allowed_ingress_cidrs` set,** Cloud Armor denies Google's uptime checkers unless their
+  ranges are allowed (`gcloud monitoring uptime list-ips`); allow them, or set
+  `uptime_check_enabled = false`. Terraform warns about this combination.
+- **Without the collector** (`metrics_collection_enabled = false`), the backend gets no
+  `METRICS_TOKEN`, its `/metrics` is off, and only the uptime check alerts.
 
 ### 12.7 Cloud Armor: from log-only to enforce
 
@@ -764,6 +783,9 @@ calculator):
 - **Cloud Run** — cheap; backend keeps `min_instance_count = 1` (background workers), the frontend scales to zero when idle + traffic.
 - **Load balancer + Cloud Armor** — small fixed fee + per-request.
 - **Storage + egress** — GCS for CRAM/BAM (can be large) + signed-URL download egress.
+- **Metrics collector** — a second container in each backend instance, 1 vCPU and 512 MiB always
+  allocated (`metrics_collector_cpu`, `metrics_collector_memory`), plus Managed Service for
+  Prometheus ingestion: a few thousand series scraped every minute, a few euros a month.
 - **KMS / Secret Manager / logging** — negligible.
 
 To reduce a **dev** environment's cost: `db_availability_type = "ZONAL"`, a smaller
@@ -781,6 +803,9 @@ To reduce a **dev** environment's cost: `db_availability_type = "ZONAL"`, a smal
 | "Refusing to start outside development/test: INTEGRITY_ANCHOR_SIGNING_KEY is the same value as SECRET_KEY…" | Both secrets hold one value. Add a new anchor key as a version of `coga-integrity-anchor-key` (5.5) and roll the backend (12.2). |
 | "Refusing to start outside development/test with AUDIT_LOG_MODE=off…" | The backend's environment switches the request and UI-event audit logs off. Remove the setting (the default is `async`) and roll the backend (12.2). |
 | "Refusing to start outside development/test with cross-origin access open…" | `CORS_ORIGINS` or `CORS_ORIGIN_REGEX` admits localhost or any site; the development defaults do. The UI is same-origin behind the load balancer: Terraform sets `CORS_ORIGINS` to the app's domain and `CORS_ORIGIN_REGEX` empty. Remove any override and roll the backend (12.2). |
+| A backend revision won't start, and the `metrics-collector` container's log shows its configuration or startup failing | Usually `coga-metrics-token` has no version (5.5): the collector cannot start without its `METRICS_TOKEN`. Add one and roll the backend (12.2), or set `metrics_collection_enabled = false`. |
+| The alert *CoGA: no metrics from the backend* fires, while the app works | The collector cannot scrape (its log shows `Failed to scrape Prometheus endpoint`: a 401 means the two containers hold different tokens, so roll the backend after a token change) or cannot write (the backend account lacks `roles/monitoring.metricWriter`). |
+| The uptime check fails although users can reach the app | With `allowed_ingress_cidrs` set, Cloud Armor denies the uptime checkers. Allow `gcloud monitoring uptime list-ips` ranges, or set `uptime_check_enabled = false`. |
 | "Refusing to start outside development/test without the commit this build was made from…" | The image was built without `GIT_SHA`, so the reports it signs could not name their commit. Rebuild through `build.yml` or `ci/cloudbuild.backend.yaml`, which stamp it, and deploy that image. |
 | `terraform apply` fails reading the Postgres password | The `coga-postgres-password` secret version doesn't exist yet — complete the secret bootstrap (5.5) before the full apply. |
 | ClickHouse VM has no data / won't start the container | No Cloud NAT egress to pull the image, or the data disk didn't mount. With the egress lockdown (12.10): the image is not in Artifact Registry, or the VM's account cannot read it. Check the VM serial console: `gcloud compute instances get-serial-port-output coga-clickhouse-vm --zone "$REGION-b"`. |
