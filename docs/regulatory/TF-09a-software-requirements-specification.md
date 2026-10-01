@@ -54,7 +54,7 @@
 | ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-CARR-001 | Filter and present carrier variants scoped to a defined gene panel (BeGECS gene set). | C | H1, H12 |
-| REQ-CARR-002 | Support couple-level at-risk determination (both partners carrying a variant in the same recessive gene / relevant X-linked finding). | C | H2 |
+| REQ-CARR-002 | Support couple-level at-risk determination (both partners carrying a variant in the same recessive gene / relevant X-linked finding). An X-linked finding is a variant a female partner carries on chrX outside the pseudo-autosomal regions, on its own; a partner without a recorded sex counts as female, and X-linked dominant genes are included (both confirmed by QA, the kwaliteitsbeheerder, on 2026-10-01; recorded by the owner). | C | H2 |
 | REQ-CARR-003 | Capture and track the gene-panel version used for a screen. | B | H8, H12 |
 | REQ-CARR-004 | Apply a gene panel to a family with coordinates of the family's own reference assembly only: store panel coordinates per assembly, never apply another assembly's, and narrow by gene alone when no assembly is resolved. | C | H12 |
 
