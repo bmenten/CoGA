@@ -2,7 +2,9 @@
 
 A couple is at risk for a recessive condition when both partners carry a variant in the
 same gene. The search keeps, for such a gene, every variant either partner carries; a gene
-only one partner carries in is left out. These tests pin the pure rule
+only one partner carries in is left out. For an X-linked condition the female partner's
+carrier status alone puts a son at risk, so on chrX outside the pseudo-autosomal regions a
+variant she carries is kept on its own. These tests pin the pure rule
 (``_filter_expanded_carrier_screening``) and how the couple is found
 (``_carrier_partner_names``); the search applies the rule after its SQL prefilter
 (``test_clickhouse_family_variants.py::test_fetch_small_variant_rows_prefilters_expanded_carrier_candidates``).
@@ -58,10 +60,12 @@ def _variant(
     )
 
 
-def _kept(records, sample_rows=_COUPLE, relationship_rows=None) -> list[str]:
+def _kept(records, sample_rows=_COUPLE, relationship_rows=None, *, assembly_name=None) -> list[str]:
     return [
         record.variant_id
-        for record in _filter_expanded_carrier_screening(records, sample_rows, relationship_rows)
+        for record in _filter_expanded_carrier_screening(
+            records, sample_rows, relationship_rows, assembly_name=assembly_name
+        )
     ]
 
 
@@ -107,6 +111,82 @@ class TestCoupleRule:
             _variant("a", "CFTR", woman="0/1", start=100),
         ]
         assert _kept(records) == ["b", "a"]
+
+
+# GRCh38: PAR1 is chrX:10,001-2,781,479; DMD lies far outside it.
+_DMD = 31_000_000
+_PAR1 = 1_500_000
+
+
+class TestXLinked:
+    def test_a_female_partners_x_linked_variant_is_kept_on_its_own(self) -> None:
+        records = [_variant("dmd-1", "DMD", woman="0/1", chr="X", start=_DMD)]
+        assert _kept(records, assembly_name="GRCh38") == ["dmd-1"]
+
+    def test_the_chromosome_is_recognised_under_its_other_names(self) -> None:
+        records = [
+            _variant("dmd-chr", "DMD", woman="0/1", chr="chrX", start=_DMD),
+            _variant("dmd-23", "DMD", woman="0/1", chr="23", start=_DMD + 10),
+        ]
+        assert _kept(records, assembly_name="GRCh38") == ["dmd-chr", "dmd-23"]
+
+    def test_a_male_partners_x_linked_variant_alone_is_not_a_finding(self) -> None:
+        # He has one X: he does not carry an X-linked condition for his sons.
+        records = [_variant("dmd-1", "DMD", man="1", chr="X", start=_DMD)]
+        assert _kept(records, assembly_name="GRCh38") == []
+
+    def test_a_partner_without_a_recorded_sex_counts_as_female(self) -> None:
+        rows = [
+            {"sample_id": "WOMAN", "role": "mother", "sex": ""},
+            {"sample_id": "MAN", "role": "father", "sex": "male"},
+        ]
+        records = [_variant("otc-1", "OTC", woman="0/1", chr="X", start=38_400_000)]
+        assert _kept(records, rows, assembly_name="GRCh38") == ["otc-1"]
+
+    def test_each_female_partner_of_a_couple_counts(self) -> None:
+        rows = [
+            {"sample_id": "WOMAN", "role": "other", "sex": "female"},
+            {"sample_id": "MAN", "role": "other", "sex": "F"},
+        ]
+        records = [_variant("dmd-1", "DMD", man="0/1", chr="X", start=_DMD)]
+        assert _kept(records, rows, assembly_name="GRCh38") == ["dmd-1"]
+
+    def test_the_pseudo_autosomal_region_follows_the_both_partners_rule(self) -> None:
+        # In PAR1 X and Y pair like an autosome: one partner's variant is not enough.
+        alone = [_variant("shox-1", "SHOX", woman="0/1", chr="X", start=_PAR1)]
+        assert _kept(alone, assembly_name="GRCh38") == []
+        both = [*alone, _variant("shox-2", "SHOX", man="0/1", chr="X", start=_PAR1 + 10)]
+        assert _kept(both, assembly_name="GRCh38") == ["shox-1", "shox-2"]
+
+    def test_an_assembly_without_known_pars_keeps_the_both_partners_rule(self) -> None:
+        records = [_variant("dmd-1", "DMD", woman="0/1", chr="X", start=_DMD)]
+        assert _kept(records, assembly_name="T2T-CHM13v2.0") == []
+        assert _kept(records) == []
+
+    def test_grch37_reads_its_own_boundaries(self) -> None:
+        # GRCh37's PAR1 ends at 2,699,520: 2,700,000 lies outside it there, though inside
+        # GRCh38's (which ends at 2,781,479).
+        records = [_variant("x-1", "GENEX", woman="0/1", chr="X", start=2_700_000)]
+        assert _kept(records, assembly_name="GRCh37") == ["x-1"]
+        assert _kept(records, assembly_name="GRCh38") == []
+
+    def test_a_y_variant_is_never_kept_on_its_own(self) -> None:
+        records = [_variant("y-1", "GENEY", man="1", chr="Y", start=10_000_000)]
+        assert _kept(records, assembly_name="GRCh38") == []
+
+    def test_an_x_linked_variant_without_a_gene_is_not_a_finding(self) -> None:
+        records = [_variant("x-intergenic", None, woman="0/1", chr="X", start=_DMD)]
+        assert _kept(records, assembly_name="GRCh38") == []
+
+    def test_both_rules_together_keep_each_variant_once_in_order(self) -> None:
+        records = [
+            _variant("cftr-1", "CFTR", man="0/1", chr="7", start=117_500_000),
+            _variant("dmd-1", "DMD", woman="0/1", chr="X", start=_DMD),
+            _variant("cftr-2", "CFTR", woman="0/1", chr="7", start=117_600_000),
+            _variant("dmd-2", "DMD", woman="0/1", man="1", chr="X", start=_DMD + 100),
+            _variant("gaa-1", "GAA", woman="0/1", chr="17", start=80_100_000),
+        ]
+        assert _kept(records, assembly_name="GRCh38") == ["cftr-1", "dmd-1", "cftr-2", "dmd-2"]
 
 
 class TestWhoTheCoupleIs:

@@ -1595,10 +1595,26 @@ def _filter_expanded_carrier_screening(
     records: Sequence[SmallVariantRecord],
     sample_rows: Sequence[dict[str, Any]],
     relationship_rows: Sequence[dict[str, Any]] | None = None,
+    *,
+    assembly_name: str | None = None,
 ) -> list[SmallVariantRecord]:
+    """The couple's at-risk findings (REQ-CARR-002), in the order given.
+
+    A gene in which both partners carry a variant: every variant either of them carries
+    in it (a recessive condition needs a variant from each). On chrX outside the
+    pseudo-autosomal regions, also every variant a female partner carries on her own:
+    for an X-linked condition her carrier status alone puts a son at risk, whatever the
+    other partner carries. A partner not recorded as male counts as female here, as the
+    rest of CoGA reads such a sample as diploid on chrX; on an assembly whose
+    pseudo-autosomal regions are not known (``hemizygous_chromosome``) only the
+    both-partners rule applies. A variant without a gene is never a finding.
+    """
     partners = _carrier_partner_names(sample_rows, relationship_rows)
     if partners is None:
         return []
+    sample_sex = _sample_sex_map(sample_rows)
+    x_carrier_partners = [partner for partner in partners if not _is_male_sex(sample_sex.get(partner, ""))]
+    qualifying_ids: set[str] = set()
     carrier_variants: dict[tuple[str, str], list[SmallVariantRecord]] = {}
     carrier_sets: dict[tuple[str, str], set[str]] = {}
     for record in records:
@@ -1614,10 +1630,13 @@ def _filter_expanded_carrier_screening(
         carriers = {partner for partner in partners if _has_alt_allele(call_map.get(partner, "./."))}
         if not carriers:
             continue
+        if any(partner in carriers for partner in x_carrier_partners) and (
+            hemizygous_chromosome(assembly_name, record.chr, record.start) == "X"
+        ):
+            qualifying_ids.add(record.variant_id)
         for key in keys:
             carrier_sets.setdefault(key, set()).update(carriers)
             carrier_variants.setdefault(key, []).append(record)
-    qualifying_ids: set[str] = set()
     for key, carriers in carrier_sets.items():
         if all(partner in carriers for partner in partners):
             qualifying_ids.update(record.variant_id for record in carrier_variants.get(key, []))

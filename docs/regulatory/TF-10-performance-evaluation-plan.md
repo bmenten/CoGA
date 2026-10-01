@@ -187,7 +187,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   location filters refused, not dropped; gene-panel regions per assembly.
 - **Inheritance** — de novo and hemizygous calls on a son's X and Y, and the sex-aware
   PM6/PS2 rule; compound-heterozygote pairing with read-backed phasing and informative
-  relatives; the SV second-hit index.
+  relatives; the SV second-hit index; expanded carrier screening, which keeps the genes in
+  which both partners carry a variant and, on chrX outside the pseudo-autosomal regions, a
+  female partner's variant on its own.
 - **Structural variants, CNVs and repeats** — SV gene and panel filters before the candidate
   cap; the clinical CNV knowledge base (ClinGen curation and recurrent regions, ClinVar
   support, GRCh37 and GRCh38 builds); repeat-expansion status, including contraction loci and
