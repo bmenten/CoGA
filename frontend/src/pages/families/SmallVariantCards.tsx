@@ -33,6 +33,7 @@ import {
   getReviewTagStyle,
   parseVariantIds,
   sortReviewTagKeys,
+  visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import SvSecondHitBadge from './SvSecondHitBadge';
@@ -653,12 +654,7 @@ export default function SmallVariantCards({
         const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
         const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
         const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-        const visibleReviewTags = sortedReviewTags.filter(
-          (tagKey) =>
-            tagKey !== COLLABORATION_QUICK_TAGS.review &&
-            tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
-            tagKey !== COLLABORATION_QUICK_TAGS.report,
-        );
+        const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
 
         const consequenceLabel = formatTokenLabel(variant.effect);
         // Replaces the locus that used to sit in the headline: it carries the same

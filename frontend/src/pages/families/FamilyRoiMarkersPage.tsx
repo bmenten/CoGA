@@ -9,7 +9,7 @@ import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import VizTooltip from '../../components/visualizations/VizTooltip';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
-import { NUCLEOTIDE_COLORS, alleleBase } from '../../lib/phasedMarkers';
+import { alleleBase, nucleotideColor } from '../../lib/phasedMarkers';
 
 // Floor on the zoomed-in window so the view can't collapse to nothing.
 const MIN_SPAN = 2_000;
@@ -80,8 +80,6 @@ const laneMatchesBlock = (
   return laneColor(rawSeg, lane) === laneColor(seg, lane);
 };
 
-const nucleotideColor = (base: string): string =>
-  (base.length === 1 ? NUCLEOTIDE_COLORS[base.toUpperCase()] : undefined) ?? '#cbd5e1';
 // Uninformative alleles (lane not resolved for this member) are a light grey so the
 // eye lands on the nucleotides that actually carry segregation signal.
 const UNINFORMATIVE_COLOR = '#cbd5e1';

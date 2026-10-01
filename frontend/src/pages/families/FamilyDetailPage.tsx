@@ -32,6 +32,7 @@ import {
 } from '../../lib/reference';
 import { getTagDefinitionMap, type SmallVariantTagDefinition } from './smallVariantSearch';
 import { getReviewTagStyle } from './smallVariantResultUtils';
+import { MONOGENIC_NIPT_ANALYSIS_TYPE } from './niptClassification';
 import type {
   CarrierStatus,
   ClinicalStatus,
@@ -306,7 +307,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     (paraphaseTable !== undefined || paraphasePresenceFailed) &&
     (mitoTable !== undefined || mitoPresenceFailed);
   // Monogenic NIPT families surface a dedicated analysis tab (see docs/monogenic-nipt.md).
-  const isMonogenicNipt = data?.metadata?.analysis_type === 'monogenic_nipt';
+  const isMonogenicNipt = data?.metadata?.analysis_type === MONOGENIC_NIPT_ANALYSIS_TYPE;
   const { data: projects = [] } = useProjectCatalog();
   const assemblyLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion, isError: referenceFailed },

@@ -8,6 +8,7 @@ import {
   getReviewClassificationTone,
   getReviewTagStyle,
   sortReviewTagKeys,
+  visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -115,12 +116,7 @@ export default function StructuralVariantCards({
         const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
         const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
         const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-        const visibleReviewTags = sortedReviewTags.filter(
-          (tagKey) =>
-            tagKey !== COLLABORATION_QUICK_TAGS.review &&
-            tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
-            tagKey !== COLLABORATION_QUICK_TAGS.report,
-        );
+        const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
         const normalizedClassification = normalizeReviewClassification(
           variant.review?.classification,
           variant.review?.tags,

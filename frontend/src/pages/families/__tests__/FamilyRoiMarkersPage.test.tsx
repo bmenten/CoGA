@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import FamilyRoiMarkersPage from '../FamilyRoiMarkersPage';
 import api from '../../../lib/api';
+import { NUCLEOTIDE_FALLBACK_COLOR } from '../../../lib/phasedMarkers';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn() } }));
@@ -218,6 +219,39 @@ describe('FamilyRoiMarkersPage', () => {
 
     // It is clearly framed as derived, not user-entered.
     expect(screen.getByText(/derived from the phased imputed data/i)).toBeTruthy();
+  });
+
+  it('draws an informative allele that is not a single base in the shared grey, not the uninformative one', async () => {
+    // The informative site's alt is a two-base allele.
+    const working = (api.get as Mock).getMockImplementation()!;
+    (api.get as Mock).mockImplementation((url: string, config?: { params?: { start?: number; end?: number } }) => {
+      if (!url.endsWith('/phased-markers')) return working(url, config);
+      const { start = 0, end = 0 } = config?.params ?? {};
+      const data = phasedFor(start, end);
+      const sites = data.sites.map((site) => (site.pos === 1_000_500 ? { ...site, alt: 'GT' } : site));
+      return Promise.resolve({ data: { ...data, sites } });
+    });
+    renderPage();
+    await waitFor(() => expect(bandCell('FATHER', 2, 1_000_500)).toBeTruthy());
+
+    // jsdom reports an inline colour as rgb(); write the expected ones the same way.
+    const asRendered = (color: string) => {
+      const probe = document.createElement('span');
+      probe.style.color = color;
+      return probe.style.color;
+    };
+    const alleleColor = (sample: string, lane: number) =>
+      bandCell(sample, lane, 1_000_500)?.querySelector<HTMLElement>('.roi-markers-allele')?.style.color;
+
+    // The father's informative GT allele was drawn #cbd5e1, the colour of an uninformative
+    // allele; it is now the grey the haplotype tooltip uses for it.
+    expect(bandCell('FATHER', 2, 1_000_500)?.dataset.base).toBe('GT');
+    expect(bandCell('FATHER', 2, 1_000_500)?.dataset.informative).toBe('1');
+    expect(alleleColor('FATHER', 2)).toBe(asRendered(NUCLEOTIDE_FALLBACK_COLOR));
+    // The embryo's unresolved lane keeps the lighter uninformative grey.
+    expect(bandCell('EMBRYO', 2, 1_000_500)?.dataset.informative).toBe('0');
+    expect(alleleColor('EMBRYO', 2)).toBe(asRendered('#cbd5e1'));
+    expect(alleleColor('FATHER', 2)).not.toBe(alleleColor('EMBRYO', 2));
   });
 
   it('zooms out to reveal — and dim — the flanking markers, then resets to the ROI', async () => {

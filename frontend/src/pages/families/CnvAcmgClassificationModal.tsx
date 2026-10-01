@@ -9,6 +9,7 @@ import {
   CNV_SECTION_TITLES,
   computeCnvClassification,
   evaluateCnv,
+  formatCnvPoints,
   type CnvKind,
   type CnvSelection,
 } from '../../lib/cnvAcmg';
@@ -25,9 +26,6 @@ type CnvAcmgClassificationModalProps = {
   isPending?: boolean;
   errorMessage?: string | null;
 };
-
-const formatPoints = (value: number): string =>
-  (value > 0 ? '+' : '') + value.toFixed(2).replace(/\.?0+$/, (m) => (m === '.00' ? '' : m));
 
 export default function CnvAcmgClassificationModal({
   variant,
@@ -195,8 +193,8 @@ export default function CnvAcmgClassificationModal({
                   if (!selection) return null;
                   const adjustable = def.minPoints !== def.maxPoints;
                   const rangeLabel = adjustable
-                    ? `allowed ${formatPoints(def.minPoints)} … ${formatPoints(def.maxPoints)}`
-                    : `fixed ${formatPoints(def.defaultPoints)}`;
+                    ? `allowed ${formatCnvPoints(def.minPoints)} … ${formatCnvPoints(def.maxPoints)}`
+                    : `fixed ${formatCnvPoints(def.defaultPoints)}`;
                   const tipText = `${def.code} — ${def.name} (${rangeLabel})`;
                   return (
                     <div

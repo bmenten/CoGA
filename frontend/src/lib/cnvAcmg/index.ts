@@ -13,6 +13,7 @@ export {
   cnvCriterionMap,
 } from './criteria';
 export { computeCnvClassification, classKeyForPoints } from './score';
+export { formatCnvPoints } from './format';
 export {
   evaluateCnv,
   cnvKindForType,

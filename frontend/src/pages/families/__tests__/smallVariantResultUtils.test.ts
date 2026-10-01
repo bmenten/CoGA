@@ -7,6 +7,7 @@ import {
   formatPredictionScore,
   formatVariantTotal,
   parseVariantIds,
+  visibleReviewTagKeys,
 } from '../smallVariantResultUtils';
 
 const variant = (chr: string, start: number, ref: string, alt: string) =>
@@ -315,5 +316,26 @@ describe('formatVariantTotal', () => {
     expect(formatVariantTotal(12, true, 10000)).toBe('12+');
     // Nothing in a capped window is not "no matches".
     expect(formatVariantTotal(0, true, 10000)).toBe('0+');
+  });
+});
+
+describe('visibleReviewTagKeys', () => {
+  it('leaves out the review, excluded and report quick tags, which have their own toggles', () => {
+    expect(
+      visibleReviewTagKeys(['review', 'acmg_class_4', 'excluded', 'needs_sanger', 'report']),
+    ).toEqual(['acmg_class_4', 'needs_sanger']);
+  });
+
+  it('keeps the order it is given, as the cards and tables sort it', () => {
+    expect(visibleReviewTagKeys(['zeta', 'report', 'alpha'])).toEqual(['zeta', 'alpha']);
+  });
+
+  it('matches the quick tags by their exact key', () => {
+    expect(visibleReviewTagKeys(['Review', 'reported', 'not_excluded'])).toEqual([
+      'Review',
+      'reported',
+      'not_excluded',
+    ]);
+    expect(visibleReviewTagKeys([])).toEqual([]);
   });
 });

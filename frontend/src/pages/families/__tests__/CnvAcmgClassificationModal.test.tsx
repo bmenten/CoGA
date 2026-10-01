@@ -68,6 +68,35 @@ describe('CnvAcmgClassificationModal', () => {
     expect(saved?.classification).toBe(acmg?.classification);
   });
 
+  it('writes the criteria ranges and the point total in one format, to two decimals', () => {
+    render(
+      <CnvAcmgClassificationModal
+        variant={{
+          ...variant,
+          review: {
+            variant_id: variant._id,
+            tags: [],
+            tag_metadata: {},
+            cnv_acmg: {
+              kind: 'loss',
+              criteria: [{ code: '2C-1', points: 0.9, accepted: true, auto_suggested: false }],
+            },
+          },
+        }}
+        onClose={vi.fn()}
+        onSave={noop}
+      />,
+    );
+
+    // The saved 2C-1 (0.90) plus the suggested 1A and 3A (0 each): the scale bar's total.
+    expect(screen.getByText('+0.90 pts')).toBeInTheDocument();
+    // Each criterion's allowed range, on its points field, carries the same two decimals.
+    expect(screen.getByTitle('fixed +1.00')).toBeInTheDocument(); // 2A
+    expect(screen.getByTitle('fixed -0.60')).toBeInTheDocument(); // 1B
+    expect(screen.getByTitle('allowed -0.45 … +0.90')).toBeInTheDocument(); // 2E
+    expect(screen.getAllByTitle('fixed 0.00').length).toBeGreaterThan(0); // 1A, 2G, 3A, 5F
+  });
+
   it('warns before an unreadable stored CNV classification is overwritten (#514)', () => {
     render(
       <CnvAcmgClassificationModal

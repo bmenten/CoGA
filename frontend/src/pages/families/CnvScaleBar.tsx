@@ -1,4 +1,4 @@
-import type { CnvClassification } from '../../lib/cnvAcmg';
+import { formatCnvPoints, type CnvClassification } from '../../lib/cnvAcmg';
 
 type CnvScaleBarProps = {
   classification: CnvClassification;
@@ -15,8 +15,6 @@ const positionPct = (points: number): number => {
   return ((clamped - DOMAIN_MIN) / (DOMAIN_MAX - DOMAIN_MIN)) * 100;
 };
 
-const formatPoints = (points: number): string => (points > 0 ? `+${points}` : `${points}`);
-
 export default function CnvScaleBar({ classification }: CnvScaleBarProps) {
   const { pointTotal, classLabel } = classification;
   const arrowPct = positionPct(pointTotal);
@@ -25,11 +23,11 @@ export default function CnvScaleBar({ classification }: CnvScaleBarProps) {
     <div
       className="acmg-scalebar"
       role="img"
-      aria-label={`ClinGen CNV classification: ${classLabel}, ${formatPoints(pointTotal)} points`}
+      aria-label={`ClinGen CNV classification: ${classLabel}, ${formatCnvPoints(pointTotal)} points`}
     >
       <div className="acmg-scalebar-readout">
         <span className="acmg-scalebar-class">{classLabel}</span>
-        <span className="acmg-scalebar-points">{formatPoints(pointTotal)} pts</span>
+        <span className="acmg-scalebar-points">{formatCnvPoints(pointTotal)} pts</span>
       </div>
       <div className="acmg-scalebar-track">
         <div className="acmg-scalebar-gradient" />

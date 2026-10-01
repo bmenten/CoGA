@@ -25,6 +25,7 @@ const mockApiState = vi.hoisted(() => ({
   structuralVariantTotal: 1,
   hpoAnnotations: [] as unknown[],
   members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male' }] as unknown[],
+  analysisType: null as string | null,
 }));
 
 vi.mock('../../../lib/api', () => ({
@@ -38,7 +39,10 @@ vi.mock('../../../lib/api', () => ({
             members: mockApiState.members,
             pedigree: null,
             projects: ['p1'],
-            metadata: { pipeline: { genome: 'GRCh38', snv_caller: 'deepvariant' } },
+            metadata: {
+              pipeline: { genome: 'GRCh38', snv_caller: 'deepvariant' },
+              ...(mockApiState.analysisType ? { analysis_type: mockApiState.analysisType } : {}),
+            },
             status: { key: 'analysis_in_progress', label: 'Analysis in progress', color: '#2f6fb0' },
             assigned_to: {
               id: 'u1',
@@ -223,6 +227,7 @@ describe('FamilyDetailPage', () => {
     mockApiState.members = [
       { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
     ];
+    mockApiState.analysisType = null;
     vi.mocked(api.put).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.delete).mockReset();
@@ -400,11 +405,38 @@ describe('FamilyDetailPage', () => {
       /repeat expansions/i,
       /paraphase/i,
       /mtDNA analysis/i,
+      /monogenic nipt/i,
       /variant summary/i,
     ]) {
       expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
+  });
+
+  it('offers the monogenic NIPT analysis to a family whose analysis type is monogenic_nipt', async () => {
+    mockApiState.smallVariantTotal = 0;
+    mockApiState.structuralVariantTotal = 0;
+    mockApiState.analysisType = 'monogenic_nipt';
+    localStorage.setItem('role', 'viewer');
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    await waitForVariantWorkspaceReady();
+    expect(screen.getByRole('link', { name: /monogenic nipt/i })).toHaveAttribute(
+      'href',
+      expect.stringContaining('/families/F1/nipt'),
+    );
+    // Its data is the NIPT analysis, so it is not told that no variant data is loaded.
+    expect(screen.queryByText(/No variant data is loaded for this family yet/i)).not.toBeInTheDocument();
   });
 
   it('shows only the variant workspaces backed by data and omits the rest', async () => {
