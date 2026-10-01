@@ -74,7 +74,7 @@ built-in reference file is recorded under its file name.
 | `family_projects`, `sample_projects` | which projects can see a family or a sample |
 | `family_relationships` | explicit links between two samples: `parent_child` (with the role at each end) or `couple`; `source` says whether a PED import or an edit made it, `active = false` retires it |
 | `family_structure_versions` | one row per pedigree or phenotype change: the version, a `structure_hash` over roles, parentage and affected status, and the full snapshot |
-| `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset |
+| `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset. `family_id` is the family a job imports, committed with status `running` before the import writes anything of it (an import that cannot record it writes nothing); the report sign-out refuses a family while a job of it is queued, validating or running |
 | `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown` |
 | `repeat_expansions` | TRGT repeat calls per sample |
 | `sample_paraphase_results` | Paraphase copy-number and haplotype results per sample |

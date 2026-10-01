@@ -126,8 +126,14 @@ Five gates run first, in this order:
    this gate the sign-out shares the family's variant-write locks
    (`pg_try_advisory_xact_lock_shared`) until it commits, so no write of the family's variants
    starts while it reads, and it checks the import jobs once more after the snapshot: an
-   import claimed meanwhile commits its job as `running` before it writes, and refuses the
-   sign-out. A job whose worker stopped keeps refusing until a worker claims it again.
+   import claimed meanwhile commits its job as `running` on the family before it writes
+   anything of it, and refuses the sign-out. That record is not best-effort: an import whose
+   job cannot record it (a database error, or another worker has claimed the job) stops
+   without writing anything of the family, and its job ends `failed` with the reason while it
+   is still this worker's and can be updated (#736). The job's later updates (its logs,
+   dataset summaries and heartbeat) are informational: one that fails leaves the status and
+   the family as they are. A job whose worker stopped keeps refusing until a worker claims it
+   again.
 3. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
    variant or of a structural variant or CNV, gives 409, unless the request sets
    `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason). One

@@ -36,12 +36,20 @@ from .postgres_family_snapshot import (
     restore_family_postgres_state,
     snapshot_family_postgres_state,
 )
-from .family_package_common import FamilyPackageBundle, PackageExecutionResult, ProgressCallback, _issue, _json_dict
+from .family_package_common import (
+    FamilyPackageBundle,
+    FamilyRecordCallback,
+    PackageExecutionResult,
+    ProgressCallback,
+    _issue,
+    _json_dict,
+)
 from .family_package_source import package_folder_path, staged_package_source_async
 from .family_package_validation import load_validated_family_package
-from .family_package_jobs import claim_next_family_import_job, _update_job_progress
+from .family_package_jobs import claim_next_family_import_job, _record_job_family, _update_job_progress
 from .family_package_registration import (
     _family_sample_contexts,
+    _package_family_id,
     _ensure_family_from_ped,
     _delete_family_shell,
     _flag_family_import_incomplete,
@@ -57,6 +65,11 @@ from .family_package_datasets import _import_dataset
 logger = logging.getLogger(__name__)
 
 FAMILY_IMPORT_WORKER_POLL_SECONDS = 2.0
+
+
+class FamilyImportNotRecorded(RuntimeError):
+    """The import job could not record the family it imports, so the import stopped
+    before writing anything of it."""
 
 
 async def db_pedigree_fallback(
@@ -85,10 +98,15 @@ async def execute_family_package_import(
     conflict_mode: str = "cancel",
     progress: ProgressCallback | None = None,
     job_id: str | None = None,
+    record_family: FamilyRecordCallback | None = None,
 ) -> PackageExecutionResult:
     """Run an import, staging the package to a temp dir first when the source is a
     gs:// or s3:// URI (cleaned up afterwards; its alignments stay in the store).
-    ``job_id`` is the import job running it, if any: an incomplete-import flag names it."""
+    ``job_id`` is the import job running it, if any: an incomplete-import flag names it.
+    ``record_family``, if given, is awaited with the family's identifier before anything
+    of the family is written; if it raises, the import writes nothing. The job's runner
+    records there the family a report sign-out finds the import by. ``progress`` is
+    informational: what it fails to record changes nothing a sign-out reads."""
     async with staged_package_source_async(folder_path) as staged:
         return await _execute_family_package_import_local(
             session,
@@ -102,6 +120,7 @@ async def execute_family_package_import(
             conflict_mode=conflict_mode,
             progress=progress,
             job_id=job_id,
+            record_family=record_family,
         )
 
 
@@ -118,6 +137,7 @@ async def _execute_family_package_import_local(
     progress: ProgressCallback | None = None,
     job_id: str | None = None,
     remote_only_files: frozenset[str] = frozenset(),
+    record_family: FamilyRecordCallback | None = None,
 ) -> PackageExecutionResult:
     fallback_ped_text = await db_pedigree_fallback(session, requested_family_id)
     validation, bundle = load_validated_family_package(
@@ -197,6 +217,13 @@ async def _execute_family_package_import_local(
     if session is None or user is None or bundle is None:
         raise RuntimeError("A database session and user are required for non-dry-run imports")
 
+    # A report sign-out finds a running import by the family its job records, and the
+    # pedigree, samples and provenance below are written before the variant-write locks
+    # are taken: until then the job is all that keeps a sign-out out (TF-06 H16). So the
+    # family is recorded, committed, before anything of it is written, and an import that
+    # cannot record it stops here, having written nothing.
+    if record_family is not None:
+        await record_family(_package_family_id(validation, bundle))
     logs.append("Registering family metadata and package provenance.")
     family_context, family_created = await _ensure_family_from_ped(
         session,
@@ -486,32 +513,55 @@ async def run_family_import_job(
         if job_row is None:
             return
 
+        async def record_family(family_id: str) -> None:
+            # The job reads `running` on the family, committed, before the import writes
+            # anything of it: a report sign-out finds the import by that, and nothing else
+            # keeps a sign-out out until the import holds the family's variant-write locks.
+            # If it cannot be recorded the import stops, having written nothing, and the job
+            # is ended failed (the except below); a job that cannot be ended either stays
+            # claimed, until a worker claims it again and runs it from the start.
+            try:
+                async with session_factory() as job_session:
+                    recorded = await _record_job_family(
+                        job_session, job_id=job_id, worker_id=worker_id, family_id=family_id
+                    )
+            except Exception as exc:
+                raise FamilyImportNotRecorded(
+                    f"Stopped before writing family {family_id}: the import job could not "
+                    f"record it as the family it imports ({type(exc).__name__}), so nothing "
+                    "of it was written. Re-run the import."
+                ) from exc
+            if not recorded:
+                # Another worker claimed the job once its heartbeat went stale: the job is
+                # that worker's, and this one neither runs nor ends it.
+                raise FamilyImportNotRecorded(
+                    f"Stopped before writing family {family_id}: the import job is no "
+                    "longer this worker's (another worker claimed it), so nothing of it "
+                    "was written."
+                )
+
         async def progress(
             validation: FamilyPackageValidationOut | None,
             datasets: list[FamilyImportDatasetSummary],
             logs: list[str],
             family_id: str | None,
         ) -> None:
-            next_status = (
-                "running"
-                if validation is not None
-                and not validation.errors
-                and not bool(job_row["dry_run"])
-                else None
-            )
+            # Informational, so best-effort: the validation findings, the logs, the dataset
+            # summaries and the heartbeat. A sign-out reads the job's status and family,
+            # which only record_family sets before the import writes anything, and this
+            # leaves as they are.
             try:
                 async with session_factory() as progress_session:
                     await _update_job_progress(
                         progress_session,
                         job_id=job_id,
                         worker_id=worker_id,
-                        status=next_status,
                         family_id=family_id,
                         validation=validation,
                         datasets=datasets,
                         logs=logs,
                     )
-            except Exception:  # pragma: no cover
+            except Exception:
                 logger.exception("Family package import progress update failed")
 
         try:
@@ -529,6 +579,7 @@ async def run_family_import_job(
                 conflict_mode=str(job_metadata.get("conflict_mode") or "cancel"),
                 progress=progress,
                 job_id=job_id,
+                record_family=record_family,
             )
             if result.error:
                 await _update_job_progress(
@@ -579,6 +630,7 @@ async def run_family_import_job(
         except Exception as exc:
             logger.exception("Family package import job failed")
             await session.rollback()
+            # Ends the job only while it is this worker's: the update names the worker.
             await _update_job_progress(
                 session,
                 job_id=job_id,

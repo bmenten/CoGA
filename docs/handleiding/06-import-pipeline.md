@@ -102,6 +102,8 @@ De **runparameters** van de pipeline (genoombuild, welke caller welke variantkla
 
 Elke import is een rij in `family_import_jobs`, met een status die de databank bewaakt: `queued → validating → running → completed | failed`. De rij bewaart ook de validatiefouten en -waarschuwingen, de logregels, een samenvatting per dataset en de tijdstippen.
 
+Een job gaat pas naar `running` als hij de familie heeft vastgelegd die hij importeert (`family_id`), en dat gebeurt vóór de import iets van die familie schrijft: daaraan herkent een ondertekening een lopende import (hoofdstuk 11, poort 0b). Lukt dat niet, dan stopt de import zonder te schrijven en eindigt de job op `failed`, met de reden. De latere updates van de job (logregels, samenvatting per dataset, heartbeat) zijn informatief: mislukt er een, dan loopt de import gewoon door, want de status en de familie blijven staan.
+
 Een worker neemt een job atomair (`FOR UPDATE SKIP LOCKED`), zodat meerdere workers elkaar niet hinderen. Een job waarvan het levensteken (*heartbeat*) te oud is, geldt als vastgelopen en wordt opnieuw opgepakt.
 
 De foutafhandeling is zo gebouwd dat er nooit ongemerkt een half-geïmporteerde familie achterblijft ("fail-clean"):

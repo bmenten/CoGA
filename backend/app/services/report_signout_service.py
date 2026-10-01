@@ -320,11 +320,12 @@ def _import_gate_message(state: Mapping[str, Any]) -> str:
 
 
 # The family's package import that is queued, or is validating or writing its data. A job
-# names its family once its validation read the package (``family_id``), or from the
-# request when one named it (``metadata.requested_family_id``, which the import requires
-# the package to match). A job whose worker stopped keeps its status until a worker claims
-# it again, and counts: the family it left behind may be half imported, with no
-# import-incomplete flag. A dry run writes nothing.
+# names its family (``family_id``, committed with ``running``) before its import writes
+# anything of it, and an import whose job cannot record that stops without writing
+# (family_package_import); or the request named it (``metadata.requested_family_id``,
+# which the import requires the package to match). A job whose worker stopped keeps its
+# status until a worker claims it again, and counts: the family it left behind may be half
+# imported, with no import-incomplete flag. A dry run writes nothing.
 _ACTIVE_IMPORT_JOB = text(
     """
     SELECT id::text AS id, status
@@ -386,9 +387,10 @@ async def _refuse_if_import_started(
 
     Run before the snapshot and again after it: an import whose job was claimed while the
     snapshot was read may already have rewritten the pedigree or samples it read (it
-    writes those before it takes the variant-write locks). Its job reads ``running``
-    before it writes anything, and each statement reads what is committed, so the check
-    after the snapshot sees every import that wrote during it.
+    writes those before it takes the variant-write locks). Its job reads ``running`` on
+    the family before it writes anything (an import whose job cannot record that writes
+    nothing), and each statement reads what is committed, so the check after the snapshot
+    sees every import that wrote during it.
     """
     job = await _active_import_job(session, context.family_id)
     if job is None:

@@ -165,6 +165,12 @@ ProgressCallback = Callable[
 DatasetProgressCallback = Callable[[FamilyImportDatasetSummary], Awaitable[None]]
 
 
+# Awaited with the identifier of the family an import is about to write, once its package
+# has validated and before anything of that family is written. It raises when it cannot
+# record that, and the import then stops, having written nothing of the family.
+FamilyRecordCallback = Callable[[str], Awaitable[None]]
+
+
 async def _run_with_periodic_progress(
     work: Awaitable[Any],
     *,
