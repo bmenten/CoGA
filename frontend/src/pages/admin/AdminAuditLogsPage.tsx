@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { formatDateTime } from '../../lib/format';
 
 type AuditLogEvent = {
   id: string;
@@ -59,12 +60,6 @@ type UserOption = {
 type AuditView = 'requests' | 'interactions';
 
 const DEFAULT_PAGE_SIZE = 50;
-
-const formatDateTime = (iso: string) => {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString();
-};
 
 const summarizeDbUpdate = (dbUpdate?: Record<string, unknown> | null) => {
   if (!dbUpdate) return 'n/a';

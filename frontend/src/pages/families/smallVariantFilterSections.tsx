@@ -14,6 +14,12 @@ import {
   type SmallVariantSearchState,
 } from './smallVariantSearch';
 import { GENOTYPE_GROUP_HINTS } from '../../lib/genotypes';
+import {
+  countNonEmpty,
+  formatPercentFilterValue,
+  normalizePercentValue,
+  stopSummaryInteraction,
+} from './variantFilterFormUtils';
 
 const TYPE_OPTIONS = ['', 'SNV', 'INDEL', 'MNV'];
 const REVIEW_QUICK_CLASSIFICATION_VALUES = [
@@ -62,8 +68,6 @@ const CONSEQUENCE_BY_IMPACT: Record<string, string[]> = {
   ],
 };
 
-const countNonEmpty = (...values: string[]) => values.filter((value) => value.trim()).length;
-
 const countTextAreaEntries = (value: string) =>
   value
     .split(/\n|,|;/)
@@ -93,12 +97,6 @@ export const GT_GROUP_OPTIONS = [
 ] as const;
 
 export type GtGroupId = (typeof GT_GROUP_OPTIONS)[number]['id'];
-
-// Keeps a click on a quick control in a section's summary bar from also toggling the
-// section open or closed.
-const stopSummaryInteraction = (event: SyntheticEvent<HTMLElement>) => {
-  event.stopPropagation();
-};
 
 /**
  * One of the form's collapsible filter sections (#528): its title, a one-line summary of
@@ -1133,17 +1131,6 @@ export const FrequencyFilterSection = ({ form }: { form: FilterSectionForm }) =>
     draftFilters.max_gnomad_hom_count,
     draftFilters.max_gnomad_hemi_count,
   );
-  const normalizePercentValue = (value: string) => {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed < 0) return 0;
-    return Math.min(10, parsed);
-  };
-
-  const formatPercentFilterValue = (value: string) => {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) return 'Any';
-    return `${(parsed * 100).toFixed(2).replace(/\.?0+$/, '')}%`;
-  };
 
   const setFrequencyFromPercent = (key: keyof SmallFilterState, percentValue: number) => {
     if (!Number.isFinite(percentValue) || percentValue <= 0) {

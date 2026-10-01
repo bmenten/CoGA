@@ -7,17 +7,12 @@ import type { ApiAssemblyRecord, ApiClinicalCnv } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { CLINVAR_SUPPORT_NOT_RECORDED, clinvarSupportSummary } from '../../lib/clinicalCnvSupport';
+import { formatRegionSize } from '../../lib/format';
 
 // The catalogue request's page size; reaching it means there may be more (#526).
 const CATALOG_LIMIT = 1000;
 
 const formatBp = (bp: number) => bp.toLocaleString();
-
-const formatSize = (size: number) => {
-  if (size >= 1_000_000) return `${(size / 1_000_000).toFixed(2)} Mb`;
-  if (size >= 1_000) return `${(size / 1_000).toFixed(1)} kb`;
-  return `${size} bp`;
-};
 
 const ClinicalCnvExplorerPage = () => {
   const [assembly, setAssembly] = useState('');
@@ -188,7 +183,7 @@ const ClinicalCnvExplorerPage = () => {
                     <td className="table-mono">
                       {cnv.chr}:{formatBp(cnv.start)}–{formatBp(cnv.end)}
                     </td>
-                    <td className="table-mono">{formatSize(Math.max(cnv.end - cnv.start, 0))}</td>
+                    <td className="table-mono">{formatRegionSize(Math.max(cnv.end - cnv.start, 0))}</td>
                     <td className="table-mono">
                       {clinvarSupportSummary(cnv) ?? (
                         <span className="table-empty" title={CLINVAR_SUPPORT_NOT_RECORDED}>

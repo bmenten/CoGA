@@ -22,6 +22,13 @@ import {
   sortTagDefinitions,
 } from './smallVariantSearch';
 import { GENOTYPE_GROUP_HINTS } from '../../lib/genotypes';
+import { parseCommaSeparatedValues } from '../../lib/sampleFilterState';
+import {
+  countNonEmpty,
+  formatPercentFilterValue,
+  normalizePercentValue,
+  stopSummaryInteraction,
+} from './variantFilterFormUtils';
 
 type StructuralVariantFilterFormProps = Pick<
   StructuralVariantSearchState,
@@ -95,26 +102,6 @@ const toggleCommaValue = (value: string, item: string) => {
   return Array.from(selected).join(', ');
 };
 
-const countNonEmpty = (...values: string[]) => values.filter((value) => value.trim()).length;
-
-const splitSelectedValues = (value: string) =>
-  value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-const normalizePercentValue = (value: string) => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return 0;
-  return Math.min(10, parsed);
-};
-
-const formatPercentFilterValue = (value: string) => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 'Any';
-  return `${(parsed * 100).toFixed(2).replace(/\.?0+$/, '')}%`;
-};
-
 const StructuralVariantFilterForm = ({
   activeFilterChips,
   applyPreset,
@@ -160,10 +147,6 @@ const StructuralVariantFilterForm = ({
       setOpenSections((prev) => ({ ...prev, [section]: nextOpen }));
     };
 
-  const stopSummaryInteraction = (event: SyntheticEvent<HTMLElement>) => {
-    event.stopPropagation();
-  };
-
   const getActiveChipLabel = (chip: ActiveStructuralFilterChip) => {
     if (chip.kind === 'top' && chip.key === 'panel_id') {
       const panel = panels.find((entry) => entry._id === draftFilters.panel_id);
@@ -189,7 +172,7 @@ const StructuralVariantFilterForm = ({
     draftFilters.end,
   );
   const classFilterCount =
-    splitSelectedValues(draftFilters.type).length +
+    parseCommaSeparatedValues(draftFilters.type).length +
     countNonEmpty(
       draftFilters.source,
       draftFilters.minLength,
@@ -206,11 +189,11 @@ const StructuralVariantFilterForm = ({
       draftFilters.max_control_af,
       draftFilters.max_population_af,
       draftFilters.min_pli,
-    ) + splitSelectedValues(draftFilters.region_flags).length;
+    ) + parseCommaSeparatedValues(draftFilters.region_flags).length;
   const reviewFilterCount =
-    splitSelectedValues(draftFilters.classification).length +
-    splitSelectedValues(draftFilters.review_tags).length +
-    splitSelectedValues(draftFilters.exclude_review_tags).length +
+    parseCommaSeparatedValues(draftFilters.classification).length +
+    parseCommaSeparatedValues(draftFilters.review_tags).length +
+    parseCommaSeparatedValues(draftFilters.exclude_review_tags).length +
     (draftFilters.has_notes === 'true' ? 1 : 0);
   const sortedTags = sortTagDefinitions(tags);
   const nonClassificationTags = sortedTags.filter(
@@ -602,7 +585,7 @@ const StructuralVariantFilterForm = ({
                     <label key={option.value} className="analysis-checkbox variant-compact-checkbox">
                       <input
                         type="checkbox"
-                        checked={splitSelectedValues(draftFilters.type).includes(option.value)}
+                        checked={parseCommaSeparatedValues(draftFilters.type).includes(option.value)}
                         onChange={() => toggleDraftFilterListValue('type', option.value)}
                       />
                       {option.label}
@@ -733,7 +716,7 @@ const StructuralVariantFilterForm = ({
               </div>
               <div className="variant-checkbox-grid variant-checkbox-grid--small">
                 {REGION_FLAG_OPTIONS.map((flag) => {
-                  const selectedFlags = splitSelectedValues(draftFilters.region_flags);
+                  const selectedFlags = parseCommaSeparatedValues(draftFilters.region_flags);
                   const checked = selectedFlags.includes(flag);
                   return (
                     <label key={flag} className="analysis-checkbox variant-compact-checkbox">
@@ -777,7 +760,7 @@ const StructuralVariantFilterForm = ({
                     <label key={option.key} className="analysis-checkbox variant-compact-checkbox">
                       <input
                         type="checkbox"
-                        checked={splitSelectedValues(draftFilters.classification).includes(option.label)}
+                        checked={parseCommaSeparatedValues(draftFilters.classification).includes(option.label)}
                         onChange={() => toggleDraftFilterListValue('classification', option.label)}
                       />
                       {option.label}
@@ -792,7 +775,7 @@ const StructuralVariantFilterForm = ({
                     <label key={tag.key} className="analysis-checkbox variant-compact-checkbox">
                       <input
                         type="checkbox"
-                        checked={splitSelectedValues(draftFilters.review_tags).includes(tag.key)}
+                        checked={parseCommaSeparatedValues(draftFilters.review_tags).includes(tag.key)}
                         onChange={() => toggleDraftFilterListValue('review_tags', tag.key)}
                       />
                       {tag.label}
@@ -807,7 +790,7 @@ const StructuralVariantFilterForm = ({
                     <label key={tag.key} className="analysis-checkbox variant-compact-checkbox">
                       <input
                         type="checkbox"
-                        checked={splitSelectedValues(draftFilters.exclude_review_tags).includes(tag.key)}
+                        checked={parseCommaSeparatedValues(draftFilters.exclude_review_tags).includes(tag.key)}
                         onChange={() => toggleDraftFilterListValue('exclude_review_tags', tag.key)}
                       />
                       {tag.label}

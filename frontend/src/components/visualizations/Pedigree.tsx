@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import * as d3 from 'd3';
 import { countOf } from '../../lib/countOf';
 import type { PedRow } from '../../lib/pedigree';
+import { isAffectedMember, isCarrierStatus } from '../../lib/familyMembers';
 
 interface PedigreeMember {
   sample_id: string;
@@ -162,9 +163,6 @@ const addUnique = (values: string[], value?: string | null) => {
     values.push(cleaned);
   }
 };
-
-const isCarrierStatus = (status: PedigreeMember['carrier_status']): boolean =>
-  status === true || status === 'carrier';
 
 const carrierFillFor = (
   carrierType?: PedigreeMember['carrier_type']
@@ -1010,10 +1008,8 @@ const isConsanguineous = (
   return context.includes('consanguin') || context.includes('related');
 };
 
-const isAffectedMember = (row: PedRow, member?: PedigreeMember): boolean =>
-  isAffectedPhenotype(row.phen) ||
-  member?.clinical_status === 'affected' ||
-  member?.affected === true;
+const isAffectedRow = (row: PedRow, member?: PedigreeMember): boolean =>
+  isAffectedPhenotype(row.phen) || (member !== undefined && isAffectedMember(member));
 
 /**
  * The pedigree's accessible name. `role="img"` hides the per-symbol tooltips from
@@ -1034,7 +1030,7 @@ const describePedigree = (
   const qcCounts: Record<PedigreeQcStatus['status'], number> = { fail: 0, warn: 0, pass: 0 };
   layout.rows.forEach((row) => {
     const member = layout.memberMap.get(row.iid);
-    const isAffected = isAffectedMember(row, member);
+    const isAffected = isAffectedRow(row, member);
     if (isAffected) affected += 1;
     else if (isCarrierStatus(member?.carrier_status)) carriers += 1;
     if (phenotypeSampleSet.has(row.iid)) withPhenotypes += 1;
@@ -1237,7 +1233,7 @@ const Pedigree: React.FC<Props> = ({
       if (!position) return;
       const member = layout.memberMap.get(row.iid);
       const rowSex = normalizedSexFor(row, member);
-      const affected = isAffectedMember(row, member);
+      const affected = isAffectedRow(row, member);
       const carrier = isCarrierStatus(member?.carrier_status);
       const hasPhenotypeAnnotation = phenotypeSampleSet.has(row.iid);
       const highlighted = highlightedSampleSet.has(row.iid);

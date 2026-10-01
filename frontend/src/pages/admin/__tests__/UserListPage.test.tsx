@@ -289,6 +289,14 @@ describe('UserListPage', () => {
     ['the error message when there is no detail', new Error('Request timed out'), 'Request timed out'],
     ['a generic sentence for an empty error', {}, 'The user list could not be loaded.'],
     ['a generic sentence for a non-object failure', 'boom', 'The user list could not be loaded.'],
+    // The page used its own reader, which showed a structured detail as "[object Object]"
+    // and a dropped connection as axios's bare "Network Error".
+    ['a structured detail’s message', { response: { status: 409, data: { detail: { message: 'Busy' } } } }, 'Busy'],
+    [
+      'the API-unreachable sentence for a network failure',
+      { message: 'Network Error', code: 'ERR_NETWORK' },
+      /Unable to reach the API/,
+    ],
   ])('says the users could not be loaded, giving %s', async (_case, failure, message) => {
     mockedGet.mockImplementation((url: string) =>
       url === '/auth/users' ? Promise.reject(failure) : Promise.resolve({ data: PROJECTS }),

@@ -7,11 +7,11 @@ import {
   FAMILY_TRACK_ORDER,
   SAMPLE_TRACK_ORDER,
   TRACK_LABELS,
-  formatCount,
   phenotypeLabel,
   roleLabel,
 } from './dataManagementTypes';
 import { apiPath } from '../../lib/apiPath';
+import { formatCount } from '../../lib/format';
 
 interface DataInventoryDetailProps {
   selectedFamilyId: string;

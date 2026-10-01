@@ -8,6 +8,7 @@ import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { apiPath } from '../../lib/apiPath';
 import QueryFailure from '../../components/QueryFailure';
+import { formatDate, formatDateTime } from '../../lib/format';
 
 interface Species {
   id: string;
@@ -126,16 +127,6 @@ interface ReferenceAutoImportResult {
 }
 
 const formatCatalogCount = (value: number | undefined) => (value ?? 0).toLocaleString();
-
-const formatDate = (value: string) => {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
-};
-
-const formatDateTime = (value: string) => {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
-};
 
 // Static copy table — hoisted to module scope so it is not reallocated on every
 // render (two 3 s polling queries re-render this page while jobs run).

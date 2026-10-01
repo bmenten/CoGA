@@ -13,13 +13,8 @@ import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
-import { normalizeChrom } from '../../lib/chromosomes';
-
-const DEFAULT_CHROMS = [
-  ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
-  'X',
-  'Y',
-];
+import { NUCLEAR_CHROMOSOMES, normalizeChrom } from '../../lib/chromosomes';
+import { deriveLayoutFromBins, splitKey, type GenomeLayout } from './genomeBinLayout';
 
 interface CoverageBin {
   chr: string;
@@ -39,12 +34,6 @@ interface SegmentPointerState {
   index: number;
 }
 
-interface Layout {
-  offsets: Record<string, number>;
-  lengths: Record<string, number>;
-  total: number;
-}
-
 interface CoverageTrackData {
   bins: CoverageBin[];
   segments: Segment[];
@@ -56,8 +45,6 @@ interface BedRecordPayload<T> {
 
 type BedRecordResponse<T> = BedRecordPayload<T> | T[];
 
-const splitKey = (key: string): string[] => (key ? key.split('\n').filter(Boolean) : []);
-
 const payloadItems = <T,>(payload: BedRecordResponse<T> | null): T[] => {
   if (!payload) {
     return [];
@@ -66,39 +53,6 @@ const payloadItems = <T,>(payload: BedRecordResponse<T> | null): T[] => {
     return payload;
   }
   return Array.isArray(payload.items) ? payload.items : [];
-};
-
-const deriveLayoutFromBins = (
-  bins: CoverageBin[],
-  chroms: string[],
-  regionStart?: number,
-  regionEnd?: number,
-): Layout => {
-  const lengths: Record<string, number> = Object.create(null);
-  chroms.forEach((chrom) => {
-    lengths[chrom] = 0;
-  });
-
-  bins.forEach((bin) => {
-    lengths[bin.chr] = Math.max(lengths[bin.chr] ?? 0, bin.end);
-  });
-
-  const offsets: Record<string, number> = Object.create(null);
-  let total = 0;
-  chroms.forEach((chrom) => {
-    offsets[chrom] = total;
-    total += lengths[chrom] ?? 0;
-  });
-
-  if (
-    regionStart !== undefined &&
-    regionEnd !== undefined &&
-    chroms.length === 1
-  ) {
-    total = regionEnd - regionStart;
-  }
-
-  return { offsets, lengths, total };
 };
 
 interface Props {
@@ -111,8 +65,8 @@ interface Props {
   regionEnd?: number;
   onRegionSelect?: (start: number, end: number) => void;
   onChromosomeClick?: (chrom: string) => void;
-  onLayout?: (layout: Layout & { chroms: string[] }) => void;
-  layout?: Layout;
+  onLayout?: (layout: GenomeLayout & { chroms: string[] }) => void;
+  layout?: GenomeLayout;
 }
 
 const CoverageSegmentsChart: React.FC<Props> = ({
@@ -120,7 +74,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   segmentsUrls,
   width = 800,
   height = 120,
-  chroms = DEFAULT_CHROMS,
+  chroms = NUCLEAR_CHROMOSOMES,
   regionStart,
   regionEnd,
   onRegionSelect,
@@ -131,7 +85,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragStart = useRef<number | null>(null);
   const [dragCurrent, setDragCurrent] = useState<number | null>(null);
-  const layoutRef = useRef<Layout>({ offsets: {}, lengths: {}, total: 0 });
+  const layoutRef = useRef<GenomeLayout>({ offsets: {}, lengths: {}, total: 0 });
 
   const coverageUrlKey = coverageUrls.join('\n');
   const segmentUrlKey = (segmentsUrls ?? []).join('\n');

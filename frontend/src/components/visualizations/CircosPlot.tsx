@@ -9,6 +9,7 @@ import {
 import { getStainColor } from '../../lib/stainColors';
 import { escapeHtml } from '../../lib/escapeHtml';
 import { countOf } from '../../lib/countOf';
+import { NUCLEAR_CHROMOSOMES } from '../../lib/chromosomes';
 
 interface IdeogramBand {
   name: string;
@@ -32,11 +33,7 @@ export interface Variant {
   remote_start?: number;
 }
 
-export const CHROMS = [
-  ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
-  'X',
-  'Y',
-];
+export const CHROMS = NUCLEAR_CHROMOSOMES;
 
 interface CircosPlotProps {
   chromData: Chromosome[];

@@ -12,14 +12,9 @@ import {
   clinvarRecordHref,
   clinvarSupportSummary,
 } from '../../lib/clinicalCnvSupport';
+import { formatRegionSize } from '../../lib/format';
 
 const formatBp = (bp: number) => bp.toLocaleString();
-
-const formatSize = (size: number) => {
-  if (size >= 1_000_000) return `${(size / 1_000_000).toFixed(2)} Mb`;
-  if (size >= 1_000) return `${(size / 1_000).toFixed(1)} kb`;
-  return `${size} bp`;
-};
 
 const chromNumber = (chr: string) => chr.replace(/^chr/i, '');
 
@@ -138,7 +133,7 @@ const CnvDetailsPage: React.FC = () => {
           <div>
             <dt>Location</dt>
             <dd>
-              {cnv.chr}:{formatBp(cnv.start)}–{formatBp(cnv.end)} ({formatSize(size)})
+              {cnv.chr}:{formatBp(cnv.start)}–{formatBp(cnv.end)} ({formatRegionSize(size)})
             </dd>
           </div>
           <div>

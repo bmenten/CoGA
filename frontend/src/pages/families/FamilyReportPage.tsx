@@ -53,9 +53,10 @@ import {
   describeGnomadFrequency,
   describeInSilico,
   describeStructuralFrequency,
-  joinWithAnd,
 } from './reportNarrative';
 import { apiPath, raw } from '../../lib/apiPath';
+import { memberLabel } from '../../lib/familyMembers';
+import { joinWithAnd } from '../../lib/format';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
 
 // The report's SV list: its variants, and what the page says about its completeness.
@@ -90,9 +91,6 @@ interface FamilyHpoAnnotation {
   label: string;
   status: 'present' | 'absent' | 'unknown';
 }
-
-const memberName = (member: FamilyMember): string =>
-  member.role?.trim() ? `${member.role} (${member.sample_id})` : member.sample_id;
 
 const STRUCTURAL_TYPE_HEADINGS: Record<string, string> = {
   DEL: 'Deletion',
@@ -1054,7 +1052,7 @@ const LiveFamilyReport: React.FC = () => {
           {variants.length === 1 ? '' : 's'} and {structuralVariants.length} structural variant
           {structuralVariants.length === 1 ? '' : 's'} selected for reporting (tagged{' '}
           <strong>report</strong>) in family <strong>{familyId}</strong>
-          {members.length ? `, comprising ${members.map(memberName).join(', ')}` : ''}. Each variant
+          {members.length ? `, comprising ${members.map(memberLabel).join(', ')}` : ''}. Each variant
           is described together with its consequence and the ACMG/AMP criteria that motivated its
           selection.
         </p>

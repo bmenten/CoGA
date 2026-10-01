@@ -21,9 +21,8 @@ import {
 } from '../../lib/haplotypeRisk';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
-import { formatChromosomeLabel } from '../../lib/chromosomes';
-
-const DEFAULT_CHROMS = [...Array.from({ length: 22 }, (_, i) => String(i + 1)), 'X', 'Y'];
+import { NUCLEAR_CHROMOSOMES, formatChromosomeLabel } from '../../lib/chromosomes';
+import { isDeletedHaplotype } from '../../lib/phasedMarkers';
 
 // Stable fallback for the optional familyMembers prop. An inline `= []` default
 // is a fresh array every render, which would defeat the memos that depend on it.
@@ -78,8 +77,6 @@ interface Props {
   chroms?: string[];
 }
 
-const isDeletedHaplotype = (value: string): boolean => value === '.';
-
 const GenomeHaplotypeTrack: React.FC<Props> = ({
   urls,
   sampleId,
@@ -96,7 +93,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
   inheritanceModel,
   familyMembers = EMPTY_MEMBERS,
   riskRegion,
-  chroms = DEFAULT_CHROMS,
+  chroms = NUCLEAR_CHROMOSOMES,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const {

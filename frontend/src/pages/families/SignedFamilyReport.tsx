@@ -10,7 +10,7 @@ import { isNotFoundError } from '../../lib/errorMessage';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
-import { joinWithAnd } from './reportNarrative';
+import { joinWithAnd } from '../../lib/format';
 import {
   useReportSignoutCheck,
   useReportSignouts,

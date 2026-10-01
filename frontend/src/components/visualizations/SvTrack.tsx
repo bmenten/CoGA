@@ -6,6 +6,7 @@ import { fetchTrackJson } from '../../lib/trackFetch';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
+import { SV_TYPE_ORDER, describeSvTypes, type SvTypeKey } from './svTypes';
 
 interface Genotype {
   sample: string;
@@ -35,9 +36,7 @@ interface Props {
   height?: number;
 }
 
-const TYPE_ORDER = ['DEL', 'DUP', 'INV', 'INS', 'BND'] as const;
-
-type VariantType = (typeof TYPE_ORDER)[number];
+type VariantType = SvTypeKey;
 
 interface PositionedVariant extends Variant {
   x1: number;
@@ -47,17 +46,6 @@ interface PositionedVariant extends Variant {
   y2: number;
   typeKey: VariantType;
 }
-
-/** The drawn SVs in words, for the chart's accessible name (#529): "3 (2 DEL, 1 DUP)". */
-const describeTypes = (items: PositionedVariant[]): string => {
-  const byType = TYPE_ORDER.map((typeKey) => ({
-    typeKey,
-    count: items.filter((item) => item.typeKey === typeKey).length,
-  }))
-    .filter(({ count }) => count > 0)
-    .map(({ typeKey, count }) => `${count.toLocaleString()} ${typeKey}`);
-  return `${items.length.toLocaleString()} (${byType.join(', ')})`;
-};
 
 const SvTrack: React.FC<Props> = ({
   url,
@@ -115,14 +103,14 @@ const SvTrack: React.FC<Props> = ({
   );
   const loading = isLoading && canRequest;
 
-  const rowHeight = useMemo(() => height / TYPE_ORDER.length, [height]);
+  const rowHeight = useMemo(() => height / SV_TYPE_ORDER.length, [height]);
 
   const items = useMemo<PositionedVariant[]>(() => {
     if (!layout) return [];
     return variants
       .map((v) => {
         const typeKey = v.type?.toUpperCase() as VariantType;
-        const row = TYPE_ORDER.indexOf(typeKey);
+        const row = SV_TYPE_ORDER.indexOf(typeKey);
         if (row < 0) return null;
         const chr =
           layout.offsets[v.chr] !== undefined ? v.chr : v.chr.replace(/^chr/i, '');
@@ -139,7 +127,7 @@ const SvTrack: React.FC<Props> = ({
 
   // The chart's accessible name (#529): what it shows now. A failure or a load is said
   // as such, never as zero SVs (#510).
-  const typeSummary = useMemo(() => describeTypes(items), [items]);
+  const typeSummary = useMemo(() => describeSvTypes(items), [items]);
   const chartState = isError
     ? 'failed to load'
     : loading || !layout
@@ -165,7 +153,7 @@ const SvTrack: React.FC<Props> = ({
     const mutedColor = cssVar('--color-text-muted');
     const whiteColor = cssVar('--color-white');
 
-    TYPE_ORDER.forEach((typeKey, index) => {
+    SV_TYPE_ORDER.forEach((typeKey, index) => {
       const rowTop = index * rowHeight;
       const rowFill = typeColors[typeKey] || defaultColor;
       ctx.globalAlpha = 0.06;

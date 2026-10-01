@@ -179,8 +179,6 @@ export const phenotypeLabel = (affected: boolean): string =>
 export const roleLabel = (role: string): string =>
   role === 'proband' ? 'Proband' : role.charAt(0).toUpperCase() + role.slice(1);
 
-export const formatCount = (value: number): string => new Intl.NumberFormat().format(value);
-
 export const formatStorageBytes = (value: number): string => {
   if (value <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];

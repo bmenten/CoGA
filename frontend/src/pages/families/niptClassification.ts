@@ -4,6 +4,9 @@ import type { ApiNiptCoverageLowRegion, NiptLowCoverageReason } from '../../lib/
 // and the clinical report). Kept separate from the filter-state presets in
 // smallVariantSearch so both surfaces format categories / coverage identically.
 
+/** The family metadata `analysis_type` that marks a monogenic NIPT family. */
+export const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
+
 export const CATEGORY_LABELS: Record<number, string> = {
   1: 'De novo in fetus',
   2: 'Maternal het, not inherited',

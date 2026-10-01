@@ -12,6 +12,7 @@ import type {
   GenePanelVersionList,
 } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
+import { formatDateTime } from '../../lib/format';
 
 const GenePanelDetailPage: React.FC = () => {
   const { panelId } = useParams();
@@ -56,13 +57,6 @@ const GenePanelDetailPage: React.FC = () => {
     start: '',
     end: '',
   });
-  const formatDateTime = (value: string) => {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return value;
-    }
-    return parsed.toLocaleString();
-  };
   const startEdit = () => {
     setEditGenes((panel?.genes ?? []).join(', '));
     setEditStatus('');

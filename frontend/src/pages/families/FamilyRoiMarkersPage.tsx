@@ -9,6 +9,7 @@ import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import VizTooltip from '../../components/visualizations/VizTooltip';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
+import { NUCLEOTIDE_COLORS, alleleBase } from '../../lib/phasedMarkers';
 
 // Floor on the zoomed-in window so the view can't collapse to nothing.
 const MIN_SPAN = 2_000;
@@ -79,13 +80,6 @@ const laneMatchesBlock = (
   return laneColor(rawSeg, lane) === laneColor(seg, lane);
 };
 
-// IGV-style nucleotide colours for the allele letters (match the haplotype track tooltip).
-const NUCLEOTIDE_COLORS: Record<string, string> = {
-  A: '#2e9e4f',
-  C: '#2f6fe0',
-  G: '#e8a33d',
-  T: '#d6453d',
-};
 const nucleotideColor = (base: string): string =>
   (base.length === 1 ? NUCLEOTIDE_COLORS[base.toUpperCase()] : undefined) ?? '#cbd5e1';
 // Uninformative alleles (lane not resolved for this member) are a light grey so the
@@ -108,14 +102,7 @@ const coveringSegment = (segments: HapSegment[], pos: number): HapSegment | null
   return found && pos < found.end ? found : null;
 };
 
-const alleleBase = (index: string, ref: string, alt: string): string => {
-  if (index === '0') return ref;
-  const n = parseInt(index, 10);
-  if (Number.isNaN(n)) return '·';
-  return alt.split(',')[n - 1] ?? '?';
-};
-
-const parseAlleles = (gt: string): number[] | null => {
+const parseAlleleIndices = (gt: string): number[] | null => {
   const sep = gt.includes('|') ? '|' : gt.includes('/') ? '/' : null;
   if (!sep) return null;
   const alleles = gt.split(sep).map((part) => parseInt(part, 10));
@@ -287,10 +274,10 @@ const FamilyRoiMarkersPage: React.FC = () => {
       if (childIdx === undefined || parentIdxs.length === 0) return;
       const errors = new Set<number>();
       shownSites.forEach((site) => {
-        const childAlleles = parseAlleles(site.gts[childIdx] ?? '');
+        const childAlleles = parseAlleleIndices(site.gts[childIdx] ?? '');
         if (!childAlleles) return;
         const parentAlleles = parentIdxs
-          .map((i) => parseAlleles(site.gts[i] ?? ''))
+          .map((i) => parseAlleleIndices(site.gts[i] ?? ''))
           .filter((a): a is number[] => a !== null);
         if (parentAlleles.length < parentIdxs.length) return; // need every parent genotyped
         if (!mendelianConsistent(parentAlleles, childAlleles)) errors.add(site.pos);

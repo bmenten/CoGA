@@ -1,12 +1,7 @@
 import type { ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
-import { formatChromosomeLabel } from '../../lib/chromosomes';
+import { NUCLEAR_CHROMOSOMES, formatChromosomeLabel } from '../../lib/chromosomes';
 
-export const CHROMS = [
-  ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
-  'X',
-  'Y',
-  'MT',
-];
+export const CHROMS = [...NUCLEAR_CHROMOSOMES, 'MT'];
 
 export const DEFAULT_TRACK_WIDTH = 1200;
 export const TRACK_WIDTH_PADDING = 32;

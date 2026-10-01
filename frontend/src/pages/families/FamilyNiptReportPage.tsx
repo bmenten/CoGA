@@ -10,9 +10,9 @@ import type { ApiNiptCoverageSummary, ApiNiptSummary, GenePanel } from '../../li
 import { useReportBuild } from '../../lib/appVersion';
 import NiptClassificationBlock from './NiptClassificationBlock';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
-import { joinWithAnd } from './reportNarrative';
 import {
   CATEGORY_LABELS,
+  MONOGENIC_NIPT_ANALYSIS_TYPE,
   NIPT_INHERITANCE_GROUPS,
   depth,
   lowCoverageDetail,
@@ -26,17 +26,13 @@ import {
   type SmallVariantPage,
 } from './smallVariantSearch';
 import { apiPath } from '../../lib/apiPath';
+import { memberLabel } from '../../lib/familyMembers';
+import { formatCount, joinWithAnd } from '../../lib/format';
 
-const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
 // A report lists one page of candidates, the first ones in genomic order.
 const REPORT_PAGE_SIZE = 500;
 // The gene query splits into terms as the backend splits it.
 const GENE_TERM_SPLIT = /[\s,;]+/;
-
-const memberName = (member: FamilyMember): string =>
-  member.role?.trim() ? `${member.role} (${member.sample_id})` : member.sample_id;
-
-const formatCount = (value: number): string => value.toLocaleString();
 
 // Where a list in genomic order stops: the chromosome and position of its last variant.
 const stopLocus = (variant: Pick<SmallVariant, 'chr' | 'start'>): string =>
@@ -466,7 +462,7 @@ const FamilyNiptReportPage: React.FC = () => {
       <section className="surface-card report-intro">
         <p className="report-paragraph">
           This report summarises the monogenic NIPT analysis for family <strong>{familyId}</strong>
-          {members.length ? `, comprising ${members.map(memberName).join(', ')}` : ''}. It reports
+          {members.length ? `, comprising ${members.map(memberLabel).join(', ')}` : ''}. It reports
           the estimated fetal fraction, the on-target coverage QC for the interrogated panel, and{' '}
           {candidateCountPhrase} grouped by inferred inheritance.
         </p>

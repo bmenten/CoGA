@@ -8,6 +8,7 @@ import { useFamilyReference } from '../../lib/reference';
 import type { ApiNiptCoverageSummary, ApiNiptSummary } from '../../lib/apiTypes';
 import {
   CATEGORY_LABELS,
+  MONOGENIC_NIPT_ANALYSIS_TYPE,
   depth,
   lowCoverageChipClass,
   lowCoverageDetail,
@@ -44,7 +45,6 @@ import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 import { apiPath } from '../../lib/apiPath';
 
-const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
 const PAGE_SIZE = 50;
 
 // `categories` is ticked in the category checkboxes when the preset is picked.

@@ -1,4 +1,5 @@
 import React from 'react';
+import { joinWithAnd } from '../lib/format';
 
 /** What a partly failed family-package import left out, as the family's metadata records it. */
 export interface FamilyImportIncomplete {
@@ -35,9 +36,6 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
     jobId: typeof record.job_id === 'string' && record.job_id ? record.job_id : null,
   };
 };
-
-const joinWithAnd = (items: string[]): string =>
-  items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 
 /**
  * "Import incomplete" — shown on every family page while the family's data only partly

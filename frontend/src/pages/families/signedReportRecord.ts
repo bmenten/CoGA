@@ -13,7 +13,7 @@ import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../..
 import { CNV_CLASS_LABELS, cnvCriterionMap } from '../../lib/cnvAcmg';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import type { ApiStructuralEvidence, QcStatus } from '../../lib/apiTypes';
-import { joinWithAnd } from './reportNarrative';
+import { joinWithAnd } from '../../lib/format';
 import { formatLocus } from './smallVariantResultUtils';
 import {
   getClassificationLabelFromTagKey,

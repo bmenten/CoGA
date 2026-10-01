@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { compareChromosomes, formatChromosomeLabel, normalizeChrom } from '../chromosomes';
+import {
+  NUCLEAR_CHROMOSOMES,
+  compareChromosomes,
+  formatChromosomeLabel,
+  normalizeChrom,
+} from '../chromosomes';
+
+describe('NUCLEAR_CHROMOSOMES', () => {
+  it('lists 1–22, X and Y in karyotype order, without the mitochondrion', () => {
+    expect(NUCLEAR_CHROMOSOMES).toHaveLength(24);
+    expect(NUCLEAR_CHROMOSOMES.slice(0, 3)).toEqual(['1', '2', '3']);
+    expect(NUCLEAR_CHROMOSOMES.slice(-3)).toEqual(['22', 'X', 'Y']);
+    expect(NUCLEAR_CHROMOSOMES).not.toContain('MT');
+  });
+});
 
 describe('compareChromosomes', () => {
   it('sorts chromosomes in natural order', () => {
