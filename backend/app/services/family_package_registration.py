@@ -610,6 +610,12 @@ async def _apply_manifest_roi(
     await session.commit()
 
 
+def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPackageBundle) -> str:
+    """The family a validated package writes: the manifest's family (by default its
+    folder's), which every PED row matches."""
+    return validation.family_id or bundle.ped.family_ids[0]
+
+
 async def _ensure_family_from_ped(
     session: AsyncSession,
     *,
@@ -620,7 +626,7 @@ async def _ensure_family_from_ped(
     conflict_mode: str = "cancel",
 ) -> FamilyMetadataContext:
     resolved_project_id = await ped_service._resolve_accessible_project_id(session, user, project_id)
-    family_id = validation.family_id or bundle.ped.family_ids[0]
+    family_id = _package_family_id(validation, bundle)
     existing = await _fetch_existing_family(session, family_id=family_id)
     created = existing is None
     if existing is None:

@@ -270,6 +270,47 @@ async def claim_next_family_import_job(
     return dict(row)
 
 
+async def _record_job_family(
+    session: AsyncSession,
+    *,
+    job_id: str,
+    worker_id: str,
+    family_id: str,
+) -> bool:
+    """Record, committed, that the job now writes ``family_id``: ``status = running``.
+
+    The report sign-out refuses a family while a package-import job of it is queued,
+    validating or running, and finds the job by the family it records
+    (``report_signout_service._ACTIVE_IMPORT_JOB``). So an import records its family here
+    before it writes anything of it, and writes nothing if this fails. False when no row
+    changed: the job is no longer this worker's to run (another worker claimed it once its
+    heartbeat went stale) or has ended.
+    """
+    if not family_id:
+        raise ValueError("An import job records the family it writes, and none was given")
+    result = await session.execute(
+        text(
+            """
+            UPDATE family_import_jobs
+            SET status = 'running',
+                family_id = :family_id,
+                heartbeat_at = :heartbeat_at
+            WHERE id = CAST(:job_id AS uuid)
+              AND worker_id = :worker_id
+              AND status IN ('validating', 'running')
+            """
+        ),
+        {
+            "job_id": job_id,
+            "worker_id": worker_id,
+            "family_id": family_id,
+            "heartbeat_at": datetime.now(timezone.utc),
+        },
+    )
+    await session.commit()
+    return result.rowcount == 1
+
+
 async def _update_job_progress(
     session: AsyncSession,
     *,
