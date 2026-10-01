@@ -25,7 +25,6 @@ from ..schemas import (
 from ..services.clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
     export_family_small_variants,
-    get_family_compound_het_candidates as get_family_compound_het_candidates_clickhouse,
     get_family_small_variants_page as get_family_small_variants_clickhouse,
 )
 from ..services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext, build_family_metadata_context
@@ -361,32 +360,6 @@ async def export_family_small_variants_csv(
             limit=export.limit,
             reason=export.truncated_reason,
         ),
-    )
-
-
-@router.get(
-    "/{family_id}/small-variants/{variant_id}/compound-het-candidates",
-    response_model=VariantPage,
-)
-async def get_family_small_variant_compound_het_candidates(
-    family_id: str,
-    variant_id: str,
-    limit: int = 50,
-    project_id: str | None = None,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> VariantPage:
-    context = await build_family_metadata_context(
-        session,
-        family_identifier=family_id,
-        user=user,
-        project_id=project_id,
-    )
-    return await get_family_compound_het_candidates_clickhouse(
-        session,
-        context=context,
-        variant_id=variant_id,
-        limit=max(1, min(limit, 200)),
     )
 
 
