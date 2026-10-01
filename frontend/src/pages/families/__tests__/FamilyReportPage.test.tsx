@@ -904,8 +904,8 @@ describe('FamilyReportPage', () => {
       expect(variant).toHaveTextContent('Tags: acmg_class_4, report');
 
       const sv = screen.getByRole('heading', { name: 'Structural variant 2-1000-50000-DEL---' }).closest('article')!;
-      expect(sv).toHaveTextContent('Pathogenic - class 5 · 1 pts');
-      expect(sv).toHaveTextContent('2A1 pts');
+      expect(sv).toHaveTextContent('Pathogenic - class 5 · +1.00 pts');
+      expect(sv).toHaveTextContent('2A+1.00 pts');
       expect(sv).toHaveTextContent('Evidence: Covers the HI region.');
 
       // The checks frozen at sign-out.
@@ -941,6 +941,49 @@ describe('FamilyReportPage', () => {
       );
       // The latest intact signed version prints without a notice.
       expect(container.querySelector('.report-print-notice')).toBeNull();
+    });
+
+    // ClinGen CNV points as the classifier writes them (#735): signed and to two decimals, since
+    // the class thresholds (0.99 / 0.90 / -0.90 / -0.99) differ in the second one.
+    it('writes a CNV classification’s points to two decimals, as the classifier does', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          reported_structural_variants: [
+            {
+              variant_id: '2-1000-50000-DEL---',
+              variant_key: 123,
+              classification: 'Uncertain significance - class 3',
+              cnv_class: 'cnv_class_3',
+              cnv_point_total: 0.6,
+              cnv_acmg: {
+                kind: 'loss',
+                criteria: [
+                  { code: '1A', points: 0, accepted: true, evidence: null, auto_suggested: false },
+                  { code: '2C-1', points: 0.9, accepted: true, evidence: null, auto_suggested: false },
+                  { code: '4L', points: -0.3, accepted: true, evidence: null, auto_suggested: false },
+                ],
+                point_total: 0.6,
+                classification: 'Uncertain significance - class 3',
+              },
+              tags: ['report'],
+              note: null,
+            },
+          ],
+        },
+      });
+      renderPage();
+
+      const sv = (await screen.findByRole('heading', { name: 'Structural variant 2-1000-50000-DEL---' })).closest(
+        'article',
+      )!;
+      expect(sv).toHaveTextContent('Uncertain significance - class 3 · +0.60 pts');
+      expect(sv).toHaveTextContent('1A0.00 pts');
+      expect(sv).toHaveTextContent('2C-1+0.90 pts');
+      expect(sv).toHaveTextContent('4L-0.30 pts');
+      // A small variant's ACMG points are whole and keep their own format.
+      const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
+      expect(variant).toHaveTextContent('Likely Pathogenic - class 4 · 7 pts');
     });
 
     it('says what the signed record does not hold, for the report and for each variant', async () => {
