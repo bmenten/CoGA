@@ -6,6 +6,7 @@ import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
 import type { ReportSignoutDetail } from '../../lib/apiSchema.generated';
 import { formatSoftwareVersion, useReportBuild } from '../../lib/appVersion';
+import { formatCnvPoints } from '../../lib/cnvAcmg/format';
 import { isNotFoundError } from '../../lib/errorMessage';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
@@ -156,7 +157,7 @@ const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant }> = ({
         {variant.classification ? (
           <span className="table-chip report-classification-chip">
             {variant.classification}
-            {variant.pointTotal !== null ? ` · ${variant.pointTotal} pts` : ''}
+            {variant.pointTotal !== null ? ` · ${formatCnvPoints(variant.pointTotal)} pts` : ''}
           </span>
         ) : (
           <span className="table-chip report-classification-chip report-classification-chip--none">
@@ -185,7 +186,7 @@ const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant }> = ({
                     <li key={criterion.code} className="report-criterion">
                       <span className="report-criterion-code">{criterion.code}</span>
                       <span className="report-criterion-strength">
-                        {criterion.points !== null ? `${criterion.points} pts` : 'points not recorded'}
+                        {criterion.points !== null ? `${formatCnvPoints(criterion.points)} pts` : 'points not recorded'}
                       </span>
                       <span className="report-criterion-text">
                         <strong>{criterion.name}.</strong>
