@@ -2385,6 +2385,7 @@ async def _small_variants_candidate_page(
             filtered,
             context.sample_rows,
             context.relationship_rows,
+            assembly_name=context.assembly_name,
         )
     if track_mode:
         unfiltered_total = None

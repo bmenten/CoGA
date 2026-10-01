@@ -2427,6 +2427,49 @@ def _patch_small_candidate_path(monkeypatch: pytest.MonkeyPatch, *, candidates: 
 
 
 @pytest.mark.asyncio
+async def test_expanded_carrier_screening_keeps_a_female_partners_x_linked_variant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The search hands the family's assembly to the couple rule, so it can tell chrX
+    # outside the pseudo-autosomal regions: MOM's DMD variant is a finding on its own
+    # (REQ-CARR-002), DAD's chrX variant and MOM's autosomal one are not.
+    def _calls(**gts: str) -> list[SmallVariantCall]:
+        return [_small_call(sample, gts.get(sample, "0/0")) for sample in ("PROBAND", "MOM", "DAD", "SIB")]
+
+    records = [
+        _small_variant("x-mom", "DMD", calls=_calls(MOM="0/1"), chr="X", start=31_000_000),
+        _small_variant("x-dad", "OTC", calls=_calls(DAD="1"), chr="X", start=38_400_000),
+        _small_variant("auto-mom", "CFTR", calls=_calls(MOM="0/1"), chr="7", start=117_500_000),
+    ]
+
+    async def fake_fetch(_context, _filters, **_kwargs):
+        return list(records)
+
+    async def _empty_list(*_a, **_k):
+        return []
+
+    async def _empty(*_a, **_k):
+        return {}
+
+    m = "backend.app.services.clickhouse_family_variants."
+    monkeypatch.setattr(m + "_fetch_small_variant_rows", fake_fetch)
+    monkeypatch.setattr(m + "list_matching_small_variant_review_ids", _empty_list)
+    monkeypatch.setattr(m + "get_small_variant_review_map", _empty)
+    monkeypatch.setattr(m + "_fetch_gene_constraint_metric_map", _empty)
+
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=50,
+        expanded_carrier_screening=True,
+    )
+
+    assert [str(variant.id) for variant in page.variants] == ["x-mom"]
+    assert page.total == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "filters",
     [

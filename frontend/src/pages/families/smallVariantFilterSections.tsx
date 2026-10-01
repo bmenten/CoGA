@@ -500,7 +500,9 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
         {carrierScreeningCouple ? (
           <p className="table-subtle">
             Restricts results to genes where both {carrierScreeningCouple.left.sample_id} and{' '}
-            {carrierScreeningCouple.right.sample_id} carry a variant.
+            {carrierScreeningCouple.right.sample_id} carry a variant, and to variants a female partner
+            carries on chrX outside the pseudo-autosomal regions: for an X-linked condition her carrier
+            status alone puts a son at risk. A partner whose sex is not recorded counts as female.
           </p>
         ) : null}
 

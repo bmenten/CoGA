@@ -520,7 +520,7 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'expanded_carrier_screening',
     label: 'Expanded carrier screening',
     description:
-      'Couple-only screen for genes where both partners carry a rare variant in the same gene.',
+      'Couple-only screen for genes where both partners carry a rare variant, and for X-linked variants a female partner carries.',
   },
   {
     value: 'compound_het',

@@ -27,7 +27,9 @@ searched until you fix it. A per-sample minimum (GQ, DP, AF or AD alt) that is n
 search, and the message names it.
 
 The built-in presets are *Phenotype priority*, *Dominant strict*, *Dominant relaxed*, *Expanded carrier
-screening* (couples only: genes where both partners carry a rare variant), *Compound het*, *Recessive
+screening* (couples only: genes where both partners carry a rare variant, and the variants a female
+partner carries on chrX outside the pseudo-autosomal regions, which put a son at risk on their own;
+a partner whose sex is not recorded counts as female), *Compound het*, *Recessive
 hom*, *Recessive broad*, *Any affected* and *ClinVar review*. A preset saves the recipe, not the result;
 save your own to standardise a search. Compound-heterozygous candidates are shown as pairs. Up to 100
 matches show as cards, more as a table.
