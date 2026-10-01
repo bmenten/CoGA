@@ -2958,6 +2958,7 @@ export interface VariantPage {
   count_limit: number | null;
   ranking_truncated: boolean;
   candidates_capped: boolean;
+  candidate_limit: number | null;
   ranking_cached: boolean;
   ranking_computed_at: string | null;
   variants: VariantOut[];

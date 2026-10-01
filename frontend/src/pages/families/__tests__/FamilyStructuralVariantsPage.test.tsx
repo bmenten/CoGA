@@ -175,6 +175,62 @@ describe('FamilyStructuralVariantsPage', () => {
     expect(JSON.parse(JSON.stringify(body))).not.toHaveProperty('cnv_acmg');
   });
 
+  // #725 follow-up — a search that read only part of the callset says so above the table.
+  describe('when the search read only part of the callset', () => {
+    const get = api.get as unknown as Mock;
+    let workingGet: ((url: string) => Promise<unknown>) | undefined;
+
+    beforeEach(() => {
+      workingGet = get.getMockImplementation();
+    });
+    afterEach(() => {
+      get.mockImplementation(workingGet!);
+    });
+
+    const renderWithSearch = (flags: Record<string, unknown>) => {
+      get.mockImplementation((url: string) =>
+        url.startsWith('/families/F1/structural-variants?page=1&page_size=100')
+          ? (workingGet!(url) as Promise<{ data: Record<string, unknown> }>).then((res) => ({
+              data: { ...res.data, ...flags },
+            }))
+          : workingGet!(url),
+      );
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
+            <Routes>
+              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    };
+
+    it('says the search stopped after the candidate cap and marks the total a lower bound', async () => {
+      renderWithSearch({ total_is_estimated: true, candidates_capped: true, candidate_limit: 50000 });
+      const notice = await screen.findByTestId('candidate-cap-notice');
+      expect(notice).toHaveTextContent(
+        'Results may be incomplete: the search stopped after the first 50,000 candidate SVs',
+      );
+      expect(notice).toHaveTextContent('Narrow the filters (a region, a gene panel or a gene)');
+      expect(screen.getByText('Showing 1+')).toBeInTheDocument();
+      expect(screen.getByText(/Filtered 1\+ of 5 imported SVs/)).toBeInTheDocument();
+    });
+
+    it('says a prioritised ranking covered only its window', async () => {
+      renderWithSearch({ total_is_estimated: true, ranking_truncated: true, candidate_limit: 5000 });
+      expect(await screen.findByTestId('candidate-cap-notice')).toHaveTextContent(
+        'Ranking may be incomplete: the prioritizer ranked only the first 5,000 candidate SVs',
+      );
+    });
+
+    it('shows no notice for a complete search', async () => {
+      renderWithSearch({});
+      await waitFor(() => expect(screen.getByText('Showing 1')).toBeInTheDocument());
+      expect(screen.queryByTestId('candidate-cap-notice')).not.toBeInTheDocument();
+    });
+  });
+
   // #606 — a failed request is said as such: the search read as a family without SVs.
   describe('when a request fails', () => {
     const get = api.get as unknown as Mock;

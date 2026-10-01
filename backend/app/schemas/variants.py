@@ -222,6 +222,10 @@ class VariantPage(BaseModel):
     # the candidate window is absent from this result, however few rows it holds. A CSV
     # export over such a page is reported truncated.
     candidates_capped: bool = False
+    # How many candidates the capped read or ranking window held, when ranking_truncated
+    # or candidates_capped is set (None otherwise), so the UI can say where the search
+    # stopped. The compound-het / recessive / carrier window grows with the page asked for.
+    candidate_limit: Optional[int] = None
     # Provenance of a prioritized ranking: whether it was served from the cache and when
     # the ranking was computed (so the UI can show a "from cache · N min ago" indicator).
     ranking_cached: bool = False

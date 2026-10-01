@@ -1645,6 +1645,7 @@ async def _serve_ranking_from_cache(
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
         ranking_truncated=ranking_truncated,
+        candidate_limit=_PRIORITIZE_CANDIDATE_LIMIT if ranking_truncated else None,
         ranking_cached=True,
         ranking_computed_at=cached.get("computed_at"),
         variants=page_variants,
@@ -1886,6 +1887,7 @@ async def _prioritized_small_variants_page(
             total_is_estimated=capped,
             count_limit=_SMALL_COUNT_LIMIT - 1,
             ranking_truncated=capped,
+            candidate_limit=_PRIORITIZE_CANDIDATE_LIMIT if capped else None,
             variants=[],
             small_variant_summary=small_variant_summary,
         )
@@ -2034,6 +2036,7 @@ async def _prioritized_small_variants_page(
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
         ranking_truncated=capped,
+        candidate_limit=_PRIORITIZE_CANDIDATE_LIMIT if capped else None,
         ranking_cached=False,
         ranking_computed_at=datetime.now(timezone.utc),
         variants=page_variants,
@@ -2349,6 +2352,12 @@ async def _small_variants_candidate_page(
         inheritance_candidate_limit is not None
         and len(records) >= inheritance_candidate_limit
     )
+    # The window read, reported when it was full: the limit asks for one row more.
+    inheritance_candidate_rows = (
+        inheritance_candidate_limit - 1
+        if inheritance_candidates_capped and inheritance_candidate_limit is not None
+        else None
+    )
     if inheritance_candidates_capped:
         records = records[: inheritance_candidate_limit - 1]
     filtered = [
@@ -2388,6 +2397,7 @@ async def _small_variants_candidate_page(
             page_size=page_size,
             track_mode=track_mode,
             candidates_capped=inheritance_candidates_capped,
+            candidate_limit=inheritance_candidate_rows,
             unfiltered_total=unfiltered_total,
             small_variant_summary=small_variant_summary,
         )
@@ -2412,6 +2422,7 @@ async def _small_variants_candidate_page(
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
         candidates_capped=inheritance_candidates_capped,
+        candidate_limit=inheritance_candidate_rows,
         variants=variants,
         small_variant_summary=small_variant_summary,
     )
@@ -2427,6 +2438,7 @@ async def _small_variants_inheritance_page(
     page_size: int,
     track_mode: bool,
     candidates_capped: bool,
+    candidate_limit: int | None,
     unfiltered_total: int | None,
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage:
@@ -2483,6 +2495,7 @@ async def _small_variants_inheritance_page(
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
         candidates_capped=candidates_capped,
+        candidate_limit=candidate_limit if candidates_capped else None,
         variants=page_single_variants,
         variant_groups=page_variant_groups,
         small_variant_summary=small_variant_summary,
@@ -2882,12 +2895,20 @@ async def _prioritized_structural_variants_page(
             total=0,
             total_is_estimated=fetch_overflowed,
             ranking_truncated=fetch_overflowed,
+            candidate_limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP if fetch_overflowed else None,
             variants=[],
             summary={},
         )
     # The cap now bounds the ranking work over the filtered set, which is what it was
     # for; scoring every SV in a large callset is the expensive part.
     capped = fetch_overflowed or len(filtered) > _PRIORITIZE_CANDIDATE_LIMIT
+    # The window that cut the ranking: the ranked set when more matched than it holds,
+    # else the candidate read that overflowed.
+    ranked_window = (
+        _PRIORITIZE_CANDIDATE_LIMIT
+        if len(filtered) > _PRIORITIZE_CANDIDATE_LIMIT
+        else _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
+    )
     filtered = filtered[:_PRIORITIZE_CANDIDATE_LIMIT]
 
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
@@ -3000,6 +3021,7 @@ async def _prioritized_structural_variants_page(
         total_is_estimated=capped,
         count_limit=_PRIORITIZE_CANDIDATE_LIMIT if capped else None,
         ranking_truncated=capped,
+        candidate_limit=ranked_window if capped else None,
         variants=variants,
         summary=summary,
     )
@@ -3241,6 +3263,7 @@ async def get_family_structural_variants_page(
         count_limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP if total_is_estimated else None,
         # total_is_estimated here means exactly that the candidate read overflowed.
         candidates_capped=total_is_estimated,
+        candidate_limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP if total_is_estimated else None,
         variants=variants,
         summary=None if track_mode else summary,
     )

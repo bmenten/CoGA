@@ -235,6 +235,10 @@ export interface SmallVariantPage {
   unfiltered_total_is_estimated?: boolean;
   count_limit?: number | null;
   ranking_truncated?: boolean;
+  /** The search read a capped candidate window: matches beyond it are missing. */
+  candidates_capped?: boolean;
+  /** How many candidates that window held, when either flag is set. */
+  candidate_limit?: number | null;
   ranking_cached?: boolean;
   ranking_computed_at?: string | null;
   small_variant_summary?: SmallVariantSummary | null;

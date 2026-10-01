@@ -509,6 +509,72 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getByText('45')).toBeInTheDocument();
   });
 
+  describe('a search that read only part of the callset (#725 follow-up)', () => {
+    const renderWithPage = (page: Record<string, unknown>) => {
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === '/families/F1') {
+          return Promise.resolve({ data: { members: [], projects: [] } });
+        }
+        if (
+          url === '/panels' ||
+          url === '/families/F1/small-variant-filter-presets' ||
+          url === '/families/F1/small-variant-tags'
+        ) {
+          return Promise.resolve({ data: [] });
+        }
+        if (url.startsWith('/families/F1/small-variants?page=1&page_size=100')) {
+          return Promise.resolve({ data: { variants: [], ...page } });
+        }
+        return Promise.resolve({ data: {} });
+      });
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+            <Routes>
+              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    };
+
+    it('says where a capped candidate read stopped, and counts what it read', async () => {
+      renderWithPage({
+        total: 12,
+        total_is_estimated: true,
+        count_limit: 10000,
+        candidates_capped: true,
+        candidate_limit: 1250,
+      });
+      const notice = await screen.findByTestId('candidate-cap-notice');
+      expect(notice).toHaveTextContent(
+        'Results may be incomplete: the search stopped after the first 1,250 candidate variants',
+      );
+      expect(notice).toHaveTextContent('Narrow the filters (a region, a gene panel or a gene)');
+      // The 12 rows read are counted as 12, a lower bound; it read "11+".
+      expect(screen.getByText('Showing 12+')).toBeInTheDocument();
+    });
+
+    it('says how many candidates a truncated ranking covered', async () => {
+      renderWithPage({
+        total: 0,
+        total_is_estimated: true,
+        count_limit: 10000,
+        ranking_truncated: true,
+        candidate_limit: 5000,
+      });
+      expect(await screen.findByTestId('candidate-cap-notice')).toHaveTextContent(
+        'Ranking may be incomplete: the prioritizer ranked only the first 5,000 candidate variants',
+      );
+    });
+
+    it('shows no notice for a complete search', async () => {
+      renderWithPage({ total: 3, total_is_estimated: false });
+      expect(await screen.findByText('Showing 3')).toBeInTheDocument();
+      expect(screen.queryByTestId('candidate-cap-notice')).not.toBeInTheDocument();
+    });
+  });
+
   it('separates an exact total and makes the family title the only way back', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {

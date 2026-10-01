@@ -762,7 +762,7 @@
   "title": "Small-variant prioritisation",
   "summary": "The small-variant page: the default view, the filters and presets, the phenotype-driven ranking, and genes also hit by a structural variant.",
   "quickLinks": [],
-  "text": "TheSmallvariantspageiswheremostcandidatesarefound.Thefilterstakeagenomedowntoashortlist;thePhenotypeprioritypresetputsthatlistinorder.ThedefaultviewThepageopenswiththePhenotypepriority(Exomiser-style)presetontheMendeliomepanel:HIGHorMODERATEimpact;gnomADexome,genomeandpopmaxfrequency1%orbelow,andatmost10homozygotesand10hemizygotes—aClinVarpathogenicorlikelypathogenicrecordoverridesthesecut-offs;ClinVarbenignandlikelybenignleftout;carried(hetorhom)byeachaffectedmember,withQUAL20,depth10,allelefraction0.2and4altreadsormore.Thedefaultviewhidesvariants.AvariantoutsidetheMendeliome,acommonvariant,alow-qualitycall,oravariantanaffectedmemberdoesnotcarryisnotshown.PressClearallfiltersbeforeyouconcludethatavariantisnotinthedata.FiltersandpresetsThefiltersaregroupedasonthescreen:Phenotype,Structuralsecondhit,Inheritance,Pathogenicity,Annotations(withCanonicalonly,MANEonlyandLoFonly),InSilico,Frequency,Locations,ExcludeandReviewandcuration.Fordenovoanddominant,amale'scallonchrXorchrYoutsidethepseudo-autosomalregions(1or1/1)countsasonecopy.Alocationentrythatcannotberead(forexampleanendbeforeitsstart)isnamedunderitsfield,andnothingissearcheduntilyoufixit.Aper-sampleminimum(GQ,DP,AForADalt)thatisnotanumberfailsthesearch,andthemessagenamesit.Thebuilt-inpresetsarePhenotypepriority,Dominantstrict,Dominantrelaxed,Expandedcarrierscreening(couplesonly:geneswherebothpartnerscarryararevariant),Compoundhet,Recessivehom,Recessivebroad,AnyaffectedandClinVarreview.Apresetsavestherecipe,nottheresult;saveyourowntostandardiseasearch.Compound-heterozygouscandidatesareshownaspairs.Upto100matchesshowascards,moreasatable.ThephenotyperankingWithPhenotypepriorityon,aScorecolumnappearsandtherowscomeranked,bestfirst.Thescorecombinesthevariant'sownevidence(impactandpredictors,ClinVar,rarity,fitwiththepedigree)withhowwellitsgenematchestheaffectedmembers'HPOterms.A✦marksagenethatmatches.Hoverthescore,orreadthecard,forthebreakdown:Variant,Pathogenicity,RarityandPhenotype,thecompatibleinheritancemodesandthematchedphenotypes.AgenewithoutMonarchdatagetsnophenotypecreditandrankslower;itsVariantscoreisnotaffected.Lookfurtherdownforstrongvariants,oruntickPhenotypeprioritization.WithoutHPOtermsontheaffectedmembers,therankingusesthevariantevidenceonly.Thescoreorderscandidateswithinthefamily;itisnotaprobabilityofpathogenicity.Awarningthat\"thisrankingisincomplete\"meansmorecandidatesmatchedthanCoGAranksatonce:narrowthefilters(frequency,impact,apaneloraninheritancemode).Whytherankingcanbeinstant.CoGAkeepstherankingonceitiscomputed;alateropenshows⚡Prioritisedrankingservedfromcacheandwhenitwascomputed.Itisrecomputedautomaticallywhenanythingitdependsonchanges:thephenotypes,thepedigree,thepanel,thefilters(includingreview-tagfilters),thefamily'svariantdata,orthereferencedata(theMonarchrelease,eachimportoftheHPOontology,geneconstraint).NarrowingfromtheMendeliometoasmallerpanelisservedfromthebroaderranking.DownloadCSVexportsthelist,withPriorityandRankcolumnswhentherankingison.AlsohitbyastructuralvariantAsmallvariantwhosegeneisalsohitbyanSVcarriesanSVbadge(forexampleSV:DEL),withatransorcischipwhenaphasewasdecided.AlsohitbyanSVunderStructuralsecondhitkeepsonlythesegenes.Thephasecomesfromreadphasingorfromtheparents'genotypes,bythesameruleasforcompound-hetpairs;thereferencegivestherule.In-depthreferenceSNV+SVcompoundheterozygosityreference(thebadge,transorcis)→",
+  "text": "TheSmallvariantspageiswheremostcandidatesarefound.Thefilterstakeagenomedowntoashortlist;thePhenotypeprioritypresetputsthatlistinorder.ThedefaultviewThepageopenswiththePhenotypepriority(Exomiser-style)presetontheMendeliomepanel:HIGHorMODERATEimpact;gnomADexome,genomeandpopmaxfrequency1%orbelow,andatmost10homozygotesand10hemizygotes—aClinVarpathogenicorlikelypathogenicrecordoverridesthesecut-offs;ClinVarbenignandlikelybenignleftout;carried(hetorhom)byeachaffectedmember,withQUAL20,depth10,allelefraction0.2and4altreadsormore.Thedefaultviewhidesvariants.AvariantoutsidetheMendeliome,acommonvariant,alow-qualitycall,oravariantanaffectedmemberdoesnotcarryisnotshown.PressClearallfiltersbeforeyouconcludethatavariantisnotinthedata.FiltersandpresetsThefiltersaregroupedasonthescreen:Phenotype,Structuralsecondhit,Inheritance,Pathogenicity,Annotations(withCanonicalonly,MANEonlyandLoFonly),InSilico,Frequency,Locations,ExcludeandReviewandcuration.Fordenovoanddominant,amale'scallonchrXorchrYoutsidethepseudo-autosomalregions(1or1/1)countsasonecopy.Alocationentrythatcannotberead(forexampleanendbeforeitsstart)isnamedunderitsfield,andnothingissearcheduntilyoufixit.Aper-sampleminimum(GQ,DP,AForADalt)thatisnotanumberfailsthesearch,andthemessagenamesit.Thebuilt-inpresetsarePhenotypepriority,Dominantstrict,Dominantrelaxed,Expandedcarrierscreening(couplesonly:geneswherebothpartnerscarryararevariant),Compoundhet,Recessivehom,Recessivebroad,AnyaffectedandClinVarreview.Apresetsavestherecipe,nottheresult;saveyourowntostandardiseasearch.Compound-heterozygouscandidatesareshownaspairs.Upto100matchesshowascards,moreasatable.Asearchcanstoppart-way.Compound-hetandrecessivepairingandExpandedcarrierscreeningreadalimitednumberofcandidates(upto5,000)beforetheyfilter.Whenasearchfillsthatwindow,awarningabovetheresultssays\"Resultsmaybeincomplete\"andafterhowmanycandidatesthesearchstopped;thecountisthenalowerbound(forexample12+)andamatchbeyondthewindowisnotshown.Narrowthefilterswitharegion,agenepanelorageneuntilthewarningisgone.ThephenotyperankingWithPhenotypepriorityon,aScorecolumnappearsandtherowscomeranked,bestfirst.Thescorecombinesthevariant'sownevidence(impactandpredictors,ClinVar,rarity,fitwiththepedigree)withhowwellitsgenematchestheaffectedmembers'HPOterms.A✦marksagenethatmatches.Hoverthescore,orreadthecard,forthebreakdown:Variant,Pathogenicity,RarityandPhenotype,thecompatibleinheritancemodesandthematchedphenotypes.AgenewithoutMonarchdatagetsnophenotypecreditandrankslower;itsVariantscoreisnotaffected.Lookfurtherdownforstrongvariants,oruntickPhenotypeprioritization.WithoutHPOtermsontheaffectedmembers,therankingusesthevariantevidenceonly.Thescoreorderscandidateswithinthefamily;itisnotaprobabilityofpathogenicity.Awarningthat\"Rankingmaybeincomplete\"meansmorecandidatesmatchedthanCoGAranksatonce(itsayshowmanywereranked),sothebestonemaybemissing:narrowthefilters(aregion,apanel,agene,oratighterfrequencyorimpact).Whytherankingcanbeinstant.CoGAkeepstherankingonceitiscomputed;alateropenshows⚡Prioritisedrankingservedfromcacheandwhenitwascomputed.Itisrecomputedautomaticallywhenanythingitdependsonchanges:thephenotypes,thepedigree,thepanel,thefilters(includingreview-tagfilters),thefamily'svariantdata,orthereferencedata(theMonarchrelease,eachimportoftheHPOontology,geneconstraint).NarrowingfromtheMendeliometoasmallerpanelisservedfromthebroaderranking.DownloadCSVexportsthelist,withPriorityandRankcolumnswhentherankingison.AlsohitbyastructuralvariantAsmallvariantwhosegeneisalsohitbyanSVcarriesanSVbadge(forexampleSV:DEL),withatransorcischipwhenaphasewasdecided.AlsohitbyanSVunderStructuralsecondhitkeepsonlythesegenes.Thephasecomesfromreadphasingorfromtheparents'genotypes,bythesameruleasforcompound-hetpairs;thereferencegivestherule.In-depthreferenceSNV+SVcompoundheterozygosityreference(thebadge,transorcis)→",
   "paragraphs": [
    "The Small variants page is where most candidates are found. The filters take a genome down to a short list; the Phenotype priority preset puts that list in order.",
    "The page opens with the Phenotype priority (Exomiser-style) preset on the Mendeliome panel:",
@@ -803,6 +803,10 @@
     "Filters and presets"
    ],
    [
+    "callout",
+    "A search can stop part-way. Compound-het and recessive pairing and Expanded carrier screening read a limited number of candidates (up to 5,000) before they filter. When a search fills that window, a warning above the results says \"Results may be incomplete\" and after how many candidates the search stopped; the count is then a lower bound (for example 12+) and a match beyond the window is not shown. Narrow the filters with a region, a gene panel or a gene until the warning is gone."
+   ],
+   [
     "h3",
     "The phenotype ranking"
    ],
@@ -820,7 +824,7 @@
    ],
    [
     "li",
-    "A warning that \"this ranking is incomplete\" means more candidates matched than CoGA ranks at once: narrow the filters (frequency, impact, a panel or an inheritance mode)."
+    "A warning that \"Ranking may be incomplete\" means more candidates matched than CoGA ranks at once (it says how many were ranked), so the best one may be missing: narrow the filters (a region, a panel, a gene, or a tighter frequency or impact)."
    ],
    [
     "h3",
@@ -949,6 +953,22 @@
     "ClinVar review"
    ],
    [
+    "strong",
+    "A search can stop part-way."
+   ],
+   [
+    "em",
+    "Expanded carrier screening"
+   ],
+   [
+    "em",
+    "\"Results may be incomplete\""
+   ],
+   [
+    "em",
+    "12+"
+   ],
+   [
     "em",
     "Phenotype priority"
    ],
@@ -982,7 +1002,7 @@
    ],
    [
     "em",
-    "\"this ranking is incomplete\""
+    "\"Ranking may be incomplete\""
    ],
    [
     "strong",
@@ -1455,9 +1475,10 @@
   "title": "Structural variants, repeats, Paraphase and mtDNA",
   "summary": "The analyses beyond small variants, including the CNV classifier and the variant summary.",
   "quickLinks": [],
-  "text": "StructuralvariantsFilterandreviewCNVsandotherSVswiththeirgenotypes,rankthembyphenotype,classifycopy-numberchanges,andtagthemforthereport.Repeatexpansions(TRGT)Per-samplerepeatcalls,scoredagainsttheSTRchivecatalogueofdiseaseloci.ParaphaseGenesinparalogousorduplicatedregions,wherestandardvariantcallingisunreliable.MitochondrialDNAmtDNAvariantswiththeirheteroplasmy,andeachsample'smtDNAcoverage.StructuralvariantsTheStructuralvariantspageopensontheMendeliomepanel,withapopulationfrequencybelow1%andtheaffectedmembersascarriers.ItsfiltersarePhenotype,InheritanceandSupport,Locations,ClassandBreakpoints,NeedlrAnnotationsandReview;thepresetsareMendeliome,Dominant,Recessive-likeandAnyaffected.PhenotypeprioritizationranksSVsbythesamephenotypescoreassmallvariants.Clearallfiltersremovesthedefault.ACMG(CNV)onarowopenstheClinGencopy-numberclassifier(Riggsetal.2020):chooseCopy-numberlossorCopy-numbergain,checkthepre-selectedcriteriaandaddtherest.Variantsummaryonthefamilypagesummarisesthestructuralvariantsofeverycaller,HiFiCNV'scopy-numbercallsincluded:countsperchromosomeandtype,sharingbetweenmembers,andsizedistributions.Thebuttonappearswhenthefamilyhasstructuralvariants.Smallvariantsarenotinit,noraretheWisecondorXandQDNAseqsegments,whicharecoveragetracksratherthanvariants.mtDNAACMGclassifyonavariantfromthemtDNAanalysispageusesthemitochondrialruleset.In-depthreferenceACMGclassificationreference(includingtheCNVclassifier)→",
+  "text": "StructuralvariantsFilterandreviewCNVsandotherSVswiththeirgenotypes,rankthembyphenotype,classifycopy-numberchanges,andtagthemforthereport.Repeatexpansions(TRGT)Per-samplerepeatcalls,scoredagainsttheSTRchivecatalogueofdiseaseloci.ParaphaseGenesinparalogousorduplicatedregions,wherestandardvariantcallingisunreliable.MitochondrialDNAmtDNAvariantswiththeirheteroplasmy,andeachsample'smtDNAcoverage.StructuralvariantsTheStructuralvariantspageopensontheMendeliomepanel,withapopulationfrequencybelow1%andtheaffectedmembersascarriers.ItsfiltersarePhenotype,InheritanceandSupport,Locations,ClassandBreakpoints,NeedlrAnnotationsandReview;thepresetsareMendeliome,Dominant,Recessive-likeandAnyaffected.PhenotypeprioritizationranksSVsbythesamephenotypescoreassmallvariants.Clearallfiltersremovesthedefault.Afilteredsearchreadsatmost50,000SVsofthecallsetbeforeitappliesthefilters.Whenitreadsthatmany,awarningsays\"Resultsmaybeincomplete\",thecountshowsa+,andanSVbeyondthecapisnotshown:narrowthesearchwitharegion,agenepaneloragene.TheclinicalreportsayssotoowhenitslistofreportedSVscomesfromsuchasearch.ACMG(CNV)onarowopenstheClinGencopy-numberclassifier(Riggsetal.2020):chooseCopy-numberlossorCopy-numbergain,checkthepre-selectedcriteriaandaddtherest.Variantsummaryonthefamilypagesummarisesthestructuralvariantsofeverycaller,HiFiCNV'scopy-numbercallsincluded:countsperchromosomeandtype,sharingbetweenmembers,andsizedistributions.Thebuttonappearswhenthefamilyhasstructuralvariants.Smallvariantsarenotinit,noraretheWisecondorXandQDNAseqsegments,whicharecoveragetracksratherthanvariants.mtDNAACMGclassifyonavariantfromthemtDNAanalysispageusesthemitochondrialruleset.In-depthreferenceACMGclassificationreference(includingtheCNVclassifier)→",
   "paragraphs": [
    "The Structural variants page opens on the Mendeliome panel, with a population frequency below 1% and the affected members as carriers. Its filters are Phenotype, Inheritance and Support, Locations, Class and Breakpoints, Needlr Annotations and Review; the presets are Mendeliome, Dominant, Recessive-like and Any affected. Phenotype prioritization ranks SVs by the same phenotype score as small variants. Clear all filters removes the default.",
+   "A filtered search reads at most 50,000 SVs of the callset before it applies the filters. When it reads that many, a warning says \"Results may be incomplete\", the count shows a +, and an SV beyond the cap is not shown: narrow the search with a region, a gene panel or a gene. The clinical report says so too when its list of reported SVs comes from such a search.",
    "ACMG (CNV) on a row opens the ClinGen copy-number classifier (Riggs et al. 2020): choose Copy-number loss or Copy-number gain, check the pre-selected criteria and add the rest.",
    "Variant summary on the family page summarises the structural variants of every caller, HiFiCNV's copy-number calls included: counts per chromosome and type, sharing between members, and size distributions. The button appears when the family has structural variants. Small variants are not in it, nor are the WisecondorX and QDNAseq segments, which are coverage tracks rather than variants.",
    "ACMG classify on a variant from the mtDNA analysis page uses the mitochondrial rule set."
@@ -1556,6 +1577,14 @@
    [
     "strong",
     "Clear all filters"
+   ],
+   [
+    "em",
+    "\"Results may be incomplete\""
+   ],
+   [
+    "code",
+    "+"
    ],
    [
     "strong",

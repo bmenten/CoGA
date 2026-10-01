@@ -30,10 +30,12 @@ import {
   normalizeReviewClassification,
 } from './smallVariantSearch';
 import { apiPath, raw } from '../../lib/apiPath';
+import type { CandidateCapFlags } from './CandidateCapNotice';
 
-type StructuralVariantPage = {
+type StructuralVariantPage = CandidateCapFlags & {
   variants: StructuralVariant[];
   total: number;
+  total_is_estimated?: boolean;
   summary?: StructuralSummary;
 };
 
@@ -215,6 +217,8 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   });
 
   const filteredTotal = data?.total ?? 0;
+  // A capped read counts only what it read: a lower bound, marked as one.
+  const filteredTotalLabel = `${filteredTotal.toLocaleString()}${data?.total_is_estimated ? '+' : ''}`;
   // A failed total is unknown, not the filtered count (#606).
   const overallTotal = allDataFailed ? null : (allData?.total ?? filteredTotal);
   const totalPages = Math.max(1, Math.ceil(filteredTotal / 100));
@@ -394,7 +398,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         <p className="catalog-card-copy">{referenceLabel}</p>
         <div className="variant-summary-row">
           {/* A failed search counts nothing: its count is unknown, not 0 (#606). */}
-          <span className="badge-chip">Showing {isError ? '—' : filteredTotal}</span>
+          <span className="badge-chip">Showing {isError ? '—' : filteredTotalLabel}</span>
           <span className="badge-chip">All variants {overallTotal ?? '—'}</span>
           <span className="badge-chip">Active filters {activeFilterCount}</span>
           <span className="badge-chip">Tag library {tags.length}</span>
@@ -446,7 +450,9 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         speciesName={speciesName}
         assemblyName={assemblyName}
         assemblyVersion={assemblyVersion}
+        candidateCap={data}
         filteredTotal={filteredTotal}
+        filteredTotalIsEstimated={Boolean(data?.total_is_estimated)}
         linkSearch={linkSearch}
         members={orderedMembers}
         onPageChange={goToPage}

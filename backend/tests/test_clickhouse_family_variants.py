@@ -1014,6 +1014,9 @@ async def test_structural_page_non_native_caps_and_flags_estimated(monkeypatch: 
     assert page.count_limit == 2
     assert page.total == 2
     assert len(page.variants) == 2
+    # The table says where the search stopped (#725 follow-up).
+    assert page.candidates_capped is True
+    assert page.candidate_limit == 2
 
 
 @pytest.mark.asyncio
@@ -1027,6 +1030,8 @@ async def test_structural_page_non_native_exact_total_under_cap(monkeypatch: pyt
     assert page.total_is_estimated is False
     assert page.count_limit is None
     assert page.total == 2
+    assert page.candidates_capped is False
+    assert page.candidate_limit is None
 
 
 @pytest.mark.asyncio
@@ -2553,7 +2558,51 @@ async def test_small_candidate_page_flags_the_capped_read(monkeypatch: pytest.Mo
         inheritance="compound_het",
     )
     assert page.candidates_capped is True
+    # page_size 500 asks for 12,500 candidates; the window stops at the maximum.
+    assert page.candidate_limit == _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS
     assert [str(v.id) for v in page.variant_groups[0].variants] == ["v1", "v2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("filters", "expected_limit"),
+    [
+        # page 1 x 50 rows x 25 = 1,250 candidates read.
+        ({"inheritance": "compound_het"}, 1_250),
+        ({"inheritance": "recessive"}, 1_250),
+        ({"expanded_carrier_screening": True}, 1_250),
+    ],
+)
+async def test_small_candidate_page_reports_the_window_it_read(
+    monkeypatch: pytest.MonkeyPatch, filters: dict[str, object], expected_limit: int
+) -> None:
+    # The window grows with the page asked for, so the UI cannot know it: the page says.
+    _patch_small_candidate_path(monkeypatch, candidates=_SMALL_INHERITANCE_MAX_CANDIDATE_ROWS + 50)
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=50,
+        **filters,  # type: ignore[arg-type]
+    )
+    assert page.candidates_capped is True
+    assert page.candidate_limit == expected_limit
+
+
+@pytest.mark.asyncio
+async def test_small_candidate_page_within_the_window_reports_no_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_small_candidate_path(monkeypatch, candidates=40)
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=50,
+        inheritance="compound_het",
+    )
+    assert page.candidates_capped is False
+    assert page.candidate_limit is None
 
 
 @pytest.mark.asyncio
@@ -2636,6 +2685,7 @@ async def test_prioritized_small_ranking_that_filters_to_nothing_still_flags_the
     assert page.variants == []
     assert page.ranking_truncated is True
     assert page.total_is_estimated is True
+    assert page.candidate_limit == _PRIORITIZE_CANDIDATE_LIMIT
 
 
 @pytest.mark.asyncio
@@ -2669,3 +2719,5 @@ async def test_prioritized_structural_ranking_that_filters_to_nothing_still_flag
     assert page.variants == []
     assert page.ranking_truncated is True
     assert page.total_is_estimated is True
+    # The candidate read (cap 2 here) is what overflowed.
+    assert page.candidate_limit == 2

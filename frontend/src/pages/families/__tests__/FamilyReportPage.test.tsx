@@ -202,6 +202,37 @@ describe('FamilyReportPage', () => {
     expect(screen.queryByText(/so this printout does not show the whole report/)).not.toBeInTheDocument();
   });
 
+  // #725 follow-up — the report's SV list is a review-tag search over a capped candidate
+  // read: past the cap, a tagged SV is missing from the page, which must say so.
+  it('says, on screen and in print, when a list of reported variants came from a capped read', async () => {
+    mockApi();
+    const base = apiMock.get.getMockImplementation()!;
+    apiMock.get.mockImplementation((url: string, config?: unknown) =>
+      url.startsWith('/families/F1/structural-variants')
+        ? Promise.resolve({
+            data: { variants: [], total: 0, total_is_estimated: true, candidates_capped: true, candidate_limit: 50000 },
+          })
+        : base(url, config),
+    );
+    renderPage();
+
+    const expected =
+      /Incomplete — the list of reported structural variants may miss a variant: the search behind it stopped after the first 50,000 candidates of the callset, so a reported variant beyond that point is not shown\./;
+    const alert = (await screen.findAllByRole('alert')).find((node) => expected.test(node.textContent ?? ''));
+    expect(alert).toBeDefined();
+    expect(alert).toHaveClass('no-print');
+    // The printout carries it too, so a printed report cannot pass for the whole list.
+    const printNotice = document.querySelector('.report-print-notice');
+    expect(printNotice?.textContent).toMatch(expected);
+  });
+
+  it('shows no capped-list notice when the reported lists are complete', async () => {
+    mockApi();
+    renderPage();
+    expect(await screen.findByRole('heading', { name: /BRCA1 c\.123A>G/ })).toBeInTheDocument();
+    expect(screen.queryByText(/may miss a variant/)).not.toBeInTheDocument();
+  });
+
   it('asks for the running build each time the report is opened, never showing the cached one', async () => {
     mockApi();
     let answer: (value: unknown) => void = () => undefined;

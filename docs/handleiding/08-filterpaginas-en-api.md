@@ -77,7 +77,7 @@ Voor elke pagina worden de rijen aangevuld met:
 
 ### De weergave
 
-`SmallVariantResults.tsx` toont de teller, de keuze tussen tabel en kaarten ("Auto" kiest kaarten voor een klein aantal, anders een tabel), de CSV-export met dezelfde querystring, een waarschuwing als er te veel kandidaten waren om volledig te rangschikken, en een melding als de rangschikking uit de cache komt. Compound-heterozygote paren verschijnen bovenaan als paarkaarten. De tabel (`SmallVariantTable.tsx`) is in de browser sorteerbaar op positie, gen, impact en, bij prioritering, de score.
+`SmallVariantResults.tsx` toont de teller, de keuze tussen tabel en kaarten ("Auto" kiest kaarten voor een klein aantal, anders een tabel), de CSV-export met dezelfde querystring, een waarschuwing als de zoekopdracht maar een deel van de callset las, en een melding als de rangschikking uit de cache komt. Die waarschuwing (`CandidateCapNotice.tsx`) komt uit twee vlaggen van het antwoord: `candidates_capped` (compound-het, recessief of dragerscreening las een begrensd kandidatenvenster, tussen 1.000 en 5.000 rijen naargelang de gevraagde pagina) en `ranking_truncated` (de prioritering rangschikte alleen haar venster). `candidate_limit` zegt na hoeveel kandidaten de zoekopdracht stopte; de teller is dan een ondergrens en de waarschuwing vraagt de filters te verfijnen met een regio, een genpanel of een gen. Compound-heterozygote paren verschijnen bovenaan als paarkaarten. De tabel (`SmallVariantTable.tsx`) is in de browser sorteerbaar op positie, gen, impact en, bij prioritering, de score.
 
 ### Compound heterozygoot, tweede hit en dragerscreening
 
@@ -97,7 +97,7 @@ Het endpoint is `GET /api/families/{family_id}/structural-variants`; de SV's van
 
 | Aspect | Small variants | Structurele varianten |
 | --- | --- | --- |
-| Filteren | Vooral in ClickHouse, met annotatie-indexen | Deels in ClickHouse; anders eerst ophalen en in Python filteren, met een harde grens. Boven die grens is het totaal een schatting |
+| Filteren | Vooral in ClickHouse, met annotatie-indexen | Deels in ClickHouse; anders eerst ophalen en in Python filteren, met een harde grens (50.000 SV's). Boven die grens is het totaal een ondergrens (`candidates_capped`, `candidate_limit`) en toont de pagina dezelfde waarschuwing als bij small variants; het rapport zegt het ook, op het scherm en op de afdruk, als zijn lijst van gerapporteerde SV's zo begrensd was |
 | Cytoband | — | Uit de Postgres-tabel `chromosomes` |
 | Review | `small_variant_review_pg.py` | `structural_variant_review_pg.py` |
 | Track-modus | Ja | Ja, zonder review en cytoband |

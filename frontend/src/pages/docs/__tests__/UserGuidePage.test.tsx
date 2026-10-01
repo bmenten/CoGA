@@ -56,7 +56,7 @@ describe('UserGuidePage', () => {
 
     // A blockquote is a callout, a cards fence a card grid, a table sits in its wrapper.
     expect(container.querySelectorAll('.user-guide-section-prose blockquote')).toHaveLength(0);
-    expect(container.querySelectorAll('.user-guide-callout')).toHaveLength(12);
+    expect(container.querySelectorAll('.user-guide-callout')).toHaveLength(13);
     expect(container.querySelectorAll('.user-guide-mini-grid > .user-guide-mini-card')).toHaveLength(6);
     expect(container.querySelector('.user-guide-section-prose pre')).toBeNull();
     expect(container.querySelectorAll('.user-guide-section-prose .content-table-wrap > table')).toHaveLength(1);

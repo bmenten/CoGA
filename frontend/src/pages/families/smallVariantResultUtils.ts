@@ -7,6 +7,23 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 
+/**
+ * A variant total as the page shows it. An estimated total is a lower bound, marked `+`.
+ * The backend counts one past its count limit to tell "more" from "exactly the limit", so
+ * a total above `countLimit` reads as the limit; a total from a capped candidate read is
+ * the true count of what was read, so it is shown as it is (it read "11+" for 12 rows).
+ */
+export const formatVariantTotal = (
+  total: number | undefined,
+  estimated?: boolean,
+  countLimit?: number | null,
+): string => {
+  const safeTotal = Math.max(total ?? 0, 0);
+  if (!estimated) return safeTotal.toLocaleString();
+  const shown = typeof countLimit === 'number' ? Math.min(safeTotal, countLimit) : Math.max(safeTotal - 1, 0);
+  return `${shown.toLocaleString()}+`;
+};
+
 export type TableSortKey = 'position' | 'gene' | 'impact' | 'priority';
 
 export const SEGREGATION_MODE_LABELS: Record<string, string> = {

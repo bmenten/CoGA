@@ -10,11 +10,13 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import AcmgClassificationModal from './AcmgClassificationModal';
+import CandidateCapNotice from './CandidateCapNotice';
 import ResultsPagination from './ResultsPagination';
 import SmallVariantCards from './SmallVariantCards';
 import SmallVariantPairCards from './SmallVariantPairCards';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import SmallVariantTable from './SmallVariantTable';
+import { formatVariantTotal } from './smallVariantResultUtils';
 import { apiPath, raw } from '../../lib/apiPath';
 import type { ApiFamilyRelationship } from '../../lib/apiTypes';
 
@@ -130,8 +132,7 @@ export default function SmallVariantResults({
               Variants
               {typeof data?.total === 'number' ? (
                 <span className="variant-results-count">
-                  {data.total.toLocaleString()}
-                  {data.total_is_estimated ? '+' : ''}
+                  {formatVariantTotal(data.total, data.total_is_estimated, data.count_limit)}
                 </span>
               ) : null}
             </h2>
@@ -185,13 +186,7 @@ export default function SmallVariantResults({
           </div>
         ) : null}
 
-        {data?.ranking_truncated ? (
-          <div className="variant-workspace-feedback variant-workspace-feedback--warning">
-            More candidates matched than the prioritizer ranks at once, so this ranking is
-            incomplete — the top variant may not be shown. Narrow the filters (tighter
-            frequency/impact, a gene panel, or an inheritance mode) to rank the full set.
-          </div>
-        ) : null}
+        <CandidateCapNotice page={data} noun="variants" />
 
         {data?.ranking_cached ? (
           <p className="ranking-cache-note" title="The ranking refreshes automatically when phenotypes, the pedigree, the gene panel, or annotations change.">
