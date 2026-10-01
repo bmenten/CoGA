@@ -661,6 +661,16 @@ gcloud logging read 'resource.type="http_load_balancer" jsonPayload.enforcedSecu
 gcloud logging read 'protoPayload.serviceName="storage.googleapis.com" protoPayload.methodName="storage.objects.get"' --limit 50
 ```
 
+**Metrics.** The backend serves Prometheus metrics at `/metrics`
+([monitoring.md](monitoring.md)): request errors and latency per route, the ClickHouse
+integrity check per assembly, the audit pipelines' backlog and lost events, stuck imports.
+Terraform does not wire it up yet. To turn it on, store a token of 32+ characters in Secret
+Manager, pass it to `coga-backend` as `METRICS_TOKEN`, and run a collector beside the backend
+(a Cloud Run sidecar, such as the Managed Service for Prometheus one) that scrapes
+`localhost:8000/metrics` with `Authorization: Bearer <token>`. The load balancer never routes
+`/metrics`, so the endpoint stays inside the service. [monitoring.md](monitoring.md) has alert
+rules to start from.
+
 ### 12.7 Cloud Armor: from log-only to enforce
 
 The WAF ships in **preview (log-only)** so it can't false-positive-block the

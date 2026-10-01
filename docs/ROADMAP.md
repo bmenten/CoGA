@@ -14,7 +14,7 @@ The open work, in one list. Items that need an owner or QA decision are tracked 
 ## Engineering
 
 - **Sessions**: there is no server-side logout or token revocation; a token stays valid until it expires.
-- **Operations**: no `/metrics` endpoint (the ClickHouse integrity check reports through the log and the admin page), and no migration ledger (every schema file is re-applied on each start).
+- **Operations**: `/metrics` exists ([monitoring.md](monitoring.md)), but the deployment does not scrape it yet and no alert policy is defined; no migration ledger (every schema file is re-applied on each start).
 - **Imports and scaling**: a stuck import job is picked up again only when a worker next looks for work. Sign-out refuses a family flagged as partly imported unless the signer acknowledges it (#650), but the flag is set only when an import fails, so a family whose import is queued, running or stuck can still be signed out. Each backend container runs one uvicorn process whose event loop the API shares with the import and refresh workers.
 - **Regression truth set**: no GIAB or GeT-RM truth set with a concordance harness for minor-release validation.
 - **Frozen evidence**: a small-variant classification's evidence snapshot keeps the annotation-set hash and the ClinVar significance, not the frequencies or in-silico scores.

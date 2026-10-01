@@ -24,6 +24,7 @@ from .middleware.client_ip import TrustedProxyClientMiddleware
 from .middleware.request_logging import log_request_response
 from .middleware.security_headers import security_headers_middleware
 from .routers import all_routers
+from .routers.metrics import router as metrics_router
 from .services.gene_info_jobs_pg import (
     gene_reference_refresh_worker,
     queue_startup_gene_reference_refresh_if_needed,
@@ -154,6 +155,9 @@ for router in all_routers:
     api_router.include_router(router)
 
 app.include_router(api_router)
+# /metrics sits outside /api on purpose: the load balancer routes only /api/* to the
+# backend, so a scraper reaches it inside the deployment and the internet never does.
+app.include_router(metrics_router)
 
 
 async def _refuse_unreadable_sample_filter(request: Request, exc: Exception) -> JSONResponse:

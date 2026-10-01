@@ -14,6 +14,7 @@ every document.
 - [development.md](development.md) — run CoGA locally, reset it, troubleshoot.
 - [data-import.md](data-import.md) — load reference data and family data.
 - [deployment-gcp.md](deployment-gcp.md) — deploy to Google Cloud with Terraform, and run it day to day.
+- [monitoring.md](monitoring.md) — the backend's `/metrics` endpoint, what it exposes, and alert rules.
 - [db-runtime-role-runbook.md](db-runtime-role-runbook.md) — switch the API to the restricted database role.
 - [RELEASING.md](../RELEASING.md) and [release-record-template.md](release-record-template.md) — cut a release and record it.
 - [scripts/](../scripts/README.md) — the helper scripts.

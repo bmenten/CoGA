@@ -308,3 +308,33 @@ def test_development_keeps_the_local_cors_defaults_and_an_unstamped_build(monkey
     assert "http://localhost:5173" in settings.cors_origins
     assert settings.cors_origin_regex
     assert settings.git_sha == "unknown"
+
+
+# --- the metrics endpoint's token, outside development/test ---
+# Optional: unset, GET /metrics is off. When set it guards the endpoint, so it must be a real
+# secret, and not one that also mints session tokens or signs integrity anchors.
+
+
+@pytest.mark.parametrize("token", ["short-token", "change-me", "secret"])
+def test_production_refuses_a_weak_metrics_token(token) -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{**_VALID_PRODUCTION, "METRICS_TOKEN": token})
+    assert "METRICS_TOKEN" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("same_as", ["SECRET_KEY", "INTEGRITY_ANCHOR_SIGNING_KEY"])
+def test_production_refuses_a_metrics_token_shared_with_another_secret(same_as) -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{**_VALID_PRODUCTION, "METRICS_TOKEN": _VALID_PRODUCTION[same_as]})
+    assert "METRICS_TOKEN is the same value" in str(excinfo.value)
+
+
+def test_production_starts_with_a_separate_metrics_token_or_none(monkeypatch) -> None:
+    monkeypatch.delenv("METRICS_TOKEN", raising=False)
+    assert Settings(_env_file=None, **_VALID_PRODUCTION).metrics_token == ""
+    token = "m" * 48
+    assert Settings(_env_file=None, **{**_VALID_PRODUCTION, "METRICS_TOKEN": token}).metrics_token == token
+
+
+def test_development_takes_any_metrics_token() -> None:
+    assert Settings(_env_file=None, APP_ENV="development", METRICS_TOKEN="dev").metrics_token == "dev"

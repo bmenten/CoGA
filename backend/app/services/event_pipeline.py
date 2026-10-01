@@ -16,7 +16,8 @@ accountability trail (TF-13 S-5) is never silently lost:
   settings validator): a full queue drops with a WARN, preserving the original
   low-overhead dev/test behaviour.
 
-``dropped_event_count`` exposes the per-pipeline drop tally for monitoring/alerting.
+``dropped_event_count`` exposes the per-pipeline drop tally for monitoring/alerting; ``GET
+/metrics`` serves it as ``coga_audit_events_not_persisted_total``.
 """
 
 from __future__ import annotations

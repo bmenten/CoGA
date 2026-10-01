@@ -16,6 +16,7 @@ from ..services.audit_log_pg import (
     log_model_update,
     write_audit_log_event,
 )
+from ..services.operational_metrics import record_request
 
 logger = CoGALogger(__name__)
 
@@ -243,11 +244,14 @@ async def log_request_response(request: Request, call_next) -> Response:
         tb_text = traceback.format_exc()
         raise
     finally:
-        duration_ms = int((time.perf_counter() - start) * 1000)
+        elapsed = time.perf_counter() - start
+        duration_ms = int(elapsed * 1000)
         user = _get_request_user(request)
         db_update = _derive_db_update(request, request_body)
         route = request.scope.get("route")
         route_path = getattr(route, "path", None)
+        # Labelled by the route template, never the path: no identifier reaches a metric.
+        record_request(request.method, route_path, status_code, elapsed)
         query_string = _query_string_for_logging(request)
 
         http_request_json = {
