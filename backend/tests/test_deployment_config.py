@@ -284,6 +284,33 @@ def test_an_unstamped_image_reports_the_version_file() -> None:
     assert args["GIT_SHA"] == "${GIT_SHA:-unknown}"
 
 
+def test_the_backend_image_ships_only_the_scripts_it_runs() -> None:
+    # The image carries the knowledgebase build the admin rebuild runs and the DGV import an
+    # operator runs in the container; never the test seeders (one creates a sign-in with a
+    # default password), the demo loaders or the CI checks.
+    dockerfile = (REPO / "backend" / "Dockerfile").read_text()
+    copies = [line.split()[1:] for line in dockerfile.splitlines() if line.startswith("COPY ")]
+    shipped = {source for args in copies for source in args[:-1] if source.startswith("scripts")}
+    assert shipped == {"scripts/clinical_cnv_knowledgebase.py", "scripts/import_dgv.py"}
+    for source in shipped:
+        assert (REPO / source).is_file(), source
+    # The admin rebuild runs the script where the image puts it.
+    from app.core.config import Settings
+
+    assert Settings(_env_file=None).clinical_cnv_kb_script_path == "/app/scripts/clinical_cnv_knowledgebase.py"
+
+
+def test_terraform_gives_the_backend_no_cross_origin_access() -> None:
+    # Same-origin behind the load balancer: the app's own origin only, and no origin pattern
+    # (the backend refuses to start outside development with the localhost default).
+    cloudrun = (REPO / "terraform" / "cloudrun.tf").read_text()
+    assert re.search(
+        r'name\s*=\s*"CORS_ORIGINS"\s*\n\s*value\s*=\s*jsonencode\(\["https://\$\{var\.app_domain\}"\]\)',
+        cloudrun,
+    )
+    assert re.search(r'name\s*=\s*"CORS_ORIGIN_REGEX"\s*\n\s*value\s*=\s*""', cloudrun)
+
+
 def test_the_repository_carries_one_version() -> None:
     # build.yml runs the release check only after a merge; running it here fails a pull
     # request that bumps VERSION without the frontend package, or makes VERSION malformed.

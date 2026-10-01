@@ -41,7 +41,7 @@ Voorbeeld: een analist opent de small variants van een familie.
 
 Frontend en backend zijn aparte processen die alleen via HTTP en JSON met elkaar praten. Die scheiding is bewust: álle toegangscontrole gebeurt op de server, niet in de browser.
 
-**CORS** (*Cross-Origin Resource Sharing*: welke websites de API mogen aanroepen) staat streng ingesteld. Een origin-patroon moet volledig verankerd zijn (beginnen met `^` en eindigen met `$`); anders weigert de configuratie het, omdat een te breed patroon samen met meegestuurde credentials een omweg zou openen.
+**CORS** (*Cross-Origin Resource Sharing*: welke websites de API mogen aanroepen) staat streng ingesteld. Een origin-patroon moet volledig verankerd zijn (beginnen met `^` en eindigen met `$`); anders weigert de configuratie het, omdat een te breed patroon samen met meegestuurde credentials een omweg zou openen. Buiten ontwikkeling start de backend niet zolang `CORS_ORIGINS` of `CORS_ORIGIN_REGEX` een lokale origin (`localhost`, `127.0.0.1`, `::1`, `0.0.0.0`) of eender welke site toelaat: de ontwikkelinstellingen laten localhost toe, en een pagina op de eigen machine van de gebruiker zou dan als die aangemelde gebruiker de API kunnen aanroepen. Een deployment bedient de interface vanaf zijn eigen origin en heeft geen cross-origin toegang nodig; Terraform zet de eigen origin en een leeg patroon.
 
 **Waar in de code:** de `CORSMiddleware` in `backend/app/main.py` en `validate_cors_origin_regex` in `backend/app/core/config.py`.
 

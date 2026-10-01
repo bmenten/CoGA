@@ -107,9 +107,9 @@ Then verify the deployed build really is the one you released:
 ```bash
 curl -s https://<host>/api/version
 # -> {"version":"0.1.0-beta.1","git_sha":"<12-char sha>"}
-# `version` must equal VERSION, `git_sha` the tagged commit. A `git_sha` of "unknown"
-# means the image was built without the GIT_SHA build arg — the deploy did not ship a
-# stamped build. (Without APP_VERSION the image still reports VERSION's version.)
+# `version` must equal VERSION, `git_sha` the tagged commit. An image built without the
+# GIT_SHA build arg does not start outside development, so a deploy of one never goes
+# healthy. (Without APP_VERSION the image still reports VERSION's version.)
 ```
 
 ## 5. File the release record

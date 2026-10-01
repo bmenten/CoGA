@@ -32,9 +32,13 @@ RUN set -eux; \
 
 COPY backend/db ./db
 COPY backend/app ./app
-# Ship the clinical CNV knowledgebase build script so the admin "rebuild
-# knowledgebase" action can invoke it (see CLINICAL_CNV_KB_SCRIPT_PATH).
-COPY scripts ./scripts
+# Ship only the scripts the running backend uses: the clinical CNV knowledgebase build,
+# which the admin "rebuild knowledgebase" action invokes (CLINICAL_CNV_KB_SCRIPT_PATH),
+# and the DGV import an operator runs in the container (docs/data-import.md). The rest
+# of scripts/ (the test seeders, one of which creates a sign-in with a default password,
+# the demo loaders, the CI checks) runs from the repository root and stays out of the
+# image (TF-13). The dev stack mounts the whole folder over /app/scripts.
+COPY scripts/clinical_cnv_knowledgebase.py scripts/import_dgv.py ./scripts/
 
 # The version the image is built from (TF-18 §2). Settings reports it when no APP_VERSION
 # is stamped; it sits at /VERSION, outside /app, so the dev stack's bind mount of backend/
