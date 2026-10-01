@@ -86,29 +86,6 @@ describe('FamilySmallVariantsPage', () => {
           ],
         });
       }
-      if (url.startsWith('/families/F1/small-variants/v1/compound-het-candidates?limit=100')) {
-        return Promise.resolve({
-          data: {
-            variants: [
-              {
-                _id: 'partner-1',
-                chr: '2',
-                start: 180,
-                end: 180,
-                type: 'SNV',
-                gene: 'BRCA2',
-                ref: 'G',
-                alt: 'A',
-                impact: 'HIGH',
-                effect: 'missense_variant',
-                hgvsc: 'c.5408G>A',
-                genotypes: [],
-              },
-            ],
-            total: 1,
-          },
-        });
-      }
       if (url.startsWith('/families/F1/small-variants?page=1&page_size=100')) {
         return Promise.resolve({
           data: {

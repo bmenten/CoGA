@@ -75,7 +75,6 @@ from .clickhouse_variant_queries import (
     IMPUTED_SMALL_VARIANT_SOURCES,
     _PANEL_REGION_INLINE_LIMIT,
     _SMALL_COUNT_LIMIT,
-    _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS,
     _append_limit_offset,
     _append_unique,
     _band_name_for_position,
@@ -84,7 +83,6 @@ from .clickhouse_variant_queries import (
     _clamp_small_variant_page,
     _clickhouse_ids_for_sample,
     _collect_annotations,
-    _compound_het_partner_map,
     _decode_json_payload,
     _dedupe_regions,
     _display_sample_name,
@@ -103,7 +101,6 @@ from .clickhouse_variant_queries import (
     _normalize_small_variant_inheritance,
     _page_offset,
     _parse_interval_regions,
-    _primary_gene_keys,
     _sample_small_track_records,
     _segregation_modes_by_variant,
     _selected_structural_samples,
@@ -3279,70 +3276,3 @@ async def get_family_structural_variants_page(
         variants=variants,
         summary=None if track_mode else summary,
     )
-
-
-async def get_family_compound_het_candidates(
-    session: AsyncSession,
-    *,
-    context: FamilyMetadataContext,
-    variant_id: str,
-    limit: int = 50,
-) -> VariantPage:
-    # Compound-het partners are always within the source variant's gene, so look
-    # up the source variant first to learn its gene, then scope the partner scan
-    # to that gene instead of pulling the whole family's small-variant set. The
-    # gene filter matches a superset of records sharing the source's primary gene
-    # key, and _compound_het_partner_map below recomputes the exact partners, so
-    # the result is identical to scanning every variant.
-    source_matches = await _fetch_small_variant_rows(
-        context,
-        SmallVariantQueryFilters(page=1, page_size=1),
-        include_variant_ids=[variant_id],
-        limit=1,
-    )
-    source_record = next(
-        (record for record in source_matches if record.variant_id == variant_id), None
-    )
-    if source_record is None:
-        return VariantPage(total=0, variants=[])
-    source_gene, _source_gene_id = _primary_gene_keys(source_record)
-    if source_gene:
-        # Gene-scoped scan: a single gene holds at most a few hundred variants, so cap
-        # it defensively well above any realistic count (the cap never bites in
-        # practice; partners are recomputed identically below it).
-        records = await _fetch_small_variant_rows(
-            context,
-            SmallVariantQueryFilters(page=1, page_size=1, gene=source_gene),
-            limit=_SMALL_INHERITANCE_MAX_CANDIDATE_ROWS + 1,
-        )
-    else:
-        # No gene SYMBOL to scope by (the partner key is a bare gene_id, which the fetch
-        # cannot filter on), so the whole-family scan is required to find the same-gene_id
-        # partner. It is intentionally left UNBOUNDED: a blind row cap here (rows are
-        # ORDER BY genomic position) could silently drop a genuine partner that sorts
-        # beyond the cap, producing a missed-partner clinical result. Bounding this safely
-        # needs gene_id-scoped fetching (a follow-up), not a blind LIMIT.
-        records = await _fetch_small_variant_rows(
-            context, SmallVariantQueryFilters(page=1, page_size=1)
-        )
-    affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
-    partner_ids = _compound_het_partner_map(
-        records,
-        affected_samples=affected_sample_names,
-        unaffected_samples=unaffected_sample_names,
-        pedigree=_family_pedigree(context),
-    ).get(source_record.variant_id, set())
-    if not partner_ids:
-        return VariantPage(total=0, variants=[])
-    candidates = [
-        record
-        for record in records
-        if record.variant_id in partner_ids and record.variant_id != source_record.variant_id
-    ][:limit]
-    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in candidates]
-    await _hydrate_small_variant_outs(
-        session,
-        context=context,
-        variants=variants,
-    )
-    return VariantPage(total=len(variants), variants=variants)

@@ -1549,25 +1549,6 @@ def _compound_het_pairs(
     )
 
 
-def _compound_het_partner_map(
-    records: Sequence[SmallVariantRecord],
-    *,
-    affected_samples: Sequence[str],
-    unaffected_samples: Sequence[str],
-    pedigree: FamilyPedigree | None = None,
-) -> dict[str, set[str]]:
-    partner_map: dict[str, set[str]] = {}
-    for pair in _compound_het_pairs(
-        records,
-        affected_samples=affected_samples,
-        unaffected_samples=unaffected_samples,
-        pedigree=pedigree,
-    ):
-        partner_map.setdefault(pair.left.variant_id, set()).add(pair.right.variant_id)
-        partner_map.setdefault(pair.right.variant_id, set()).add(pair.left.variant_id)
-    return partner_map
-
-
 def _normalize_small_variant_inheritance(value: str | None) -> str | None:
     normalized = _casefold(value).replace("-", "_").replace(" ", "_").replace("/", "_")
     if not normalized:
