@@ -32,6 +32,33 @@ describe('CnvScaleBar', () => {
     };
     render(<CnvScaleBar classification={classification} />);
 
-    expect(screen.getByText('-0.9 pts')).toBeInTheDocument();
+    expect(screen.getByText('-0.90 pts')).toBeInTheDocument();
+  });
+
+  it('writes the total to two decimals, as the classification modal writes its points', () => {
+    // A Likely-pathogenic 0.90 must not read "+0.9" beside a Pathogenic "+0.99".
+    const { unmount } = render(
+      <CnvScaleBar
+        classification={{ pointTotal: 0.9, classKey: 'cnv_class_4', classLabel: 'Likely Pathogenic' }}
+      />,
+    );
+    expect(screen.getByText('+0.90 pts')).toBeInTheDocument();
+    expect(screen.getByRole('img')).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Likely Pathogenic, +0.90 points'),
+    );
+    unmount();
+
+    render(
+      <CnvScaleBar classification={{ pointTotal: 1, classKey: 'cnv_class_5', classLabel: 'Pathogenic' }} />,
+    );
+    expect(screen.getByText('+1.00 pts')).toBeInTheDocument();
+  });
+
+  it('writes a zero total as 0.00, without a sign', () => {
+    render(
+      <CnvScaleBar classification={{ pointTotal: 0, classKey: 'cnv_class_3', classLabel: 'VUS' }} />,
+    );
+    expect(screen.getByText('0.00 pts')).toBeInTheDocument();
   });
 });

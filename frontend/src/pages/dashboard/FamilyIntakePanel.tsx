@@ -7,6 +7,7 @@ import { isAdmin } from '../../lib/auth';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useProjectCatalog } from '../../lib/reference';
 import type { PedRow } from '../../lib/pedigree';
+import { MONOGENIC_NIPT_ANALYSIS_TYPE } from '../families/niptClassification';
 
 type IntakeMode = 'manual' | 'upload';
 type Sex = 'male' | 'female' | 'und';
@@ -576,7 +577,7 @@ const FamilyIntakePanel: React.FC = () => {
       project_id: selectedProjectId,
       // Monogenic NIPT families are tagged so the workspace surfaces the NIPT tab
       // and resolve_nipt_trio can find the cfDNA sample (see docs/monogenic-nipt.md).
-      ...(monogenicNipt ? { metadata: { analysis_type: 'monogenic_nipt' } } : {}),
+      ...(monogenicNipt ? { metadata: { analysis_type: MONOGENIC_NIPT_ANALYSIS_TYPE } } : {}),
       members: members.map((member) => ({
         sample_id: member.sampleId.trim(),
         father_id: member.fatherId.trim() || null,

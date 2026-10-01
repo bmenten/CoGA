@@ -3,6 +3,7 @@ import * as d3 from 'd3';
 import { countOf } from '../../lib/countOf';
 import type { PedRow } from '../../lib/pedigree';
 import { isAffectedMember, isCarrierStatus } from '../../lib/familyMembers';
+import { isFiniteNumber } from '../../lib/number';
 
 interface PedigreeMember {
   sample_id: string;
@@ -129,9 +130,6 @@ const average = (values: number[]): number | undefined => {
   if (!values.length) return undefined;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 };
-
-const isFiniteNumber = (value: number | undefined): value is number =>
-  value !== undefined && Number.isFinite(value);
 
 const sexCodeFromMember = (member?: PedigreeMember): string => {
   if (member?.sex === 'male' || member?.sex === '1') return '1';

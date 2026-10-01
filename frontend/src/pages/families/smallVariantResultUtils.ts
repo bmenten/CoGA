@@ -1,6 +1,7 @@
 import { compareChromosomes } from '../../lib/chromosomes';
 import type { StructuralVariant } from './structuralVariantSearch';
 import {
+  COLLABORATION_QUICK_TAGS,
   COMPOUND_HET_PHASE_STATUS_LABELS,
   type SmallVariant,
   type SmallVariantReviewTagMetadata,
@@ -339,6 +340,18 @@ export const sortReviewTagKeys = (
       sensitivity: 'base',
     });
   });
+
+/**
+ * The review tags a small-variant or SV card or table row shows as chips, in the order given:
+ * all but the review, excluded and report quick tags, which have their own toggle buttons.
+ */
+export const visibleReviewTagKeys = (tagKeys: string[]): string[] =>
+  tagKeys.filter(
+    (tagKey) =>
+      tagKey !== COLLABORATION_QUICK_TAGS.review &&
+      tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
+      tagKey !== COLLABORATION_QUICK_TAGS.report,
+  );
 
 export const buildReviewTagTooltip = ({
   tagKey,

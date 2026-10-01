@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { formatGt } from '../../lib/genotypes';
+import { isFiniteNumber } from '../../lib/number';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import {
   buildReviewTagTooltip,
@@ -7,6 +8,7 @@ import {
   getReviewClassificationTone,
   getReviewTagStyle,
   sortReviewTagKeys,
+  visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -74,9 +76,6 @@ const phenotypeSummary = (variant: StructuralVariant) =>
 
 const compactText = (value: string, maxLength = 96) =>
   value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
-
-const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value);
 
 // Up to 1 kb in bp, like the report narrative. In kb with one decimal from 100 bp on, a
 // 150 bp SV read "0.1 kb" here while its report sentence said "150 bp".
@@ -225,12 +224,7 @@ export default function StructuralVariantTable({
               const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
               const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
               const hasReportTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-              const visibleReviewTags = sortedReviewTags.filter(
-                (tagKey) =>
-                  tagKey !== COLLABORATION_QUICK_TAGS.review &&
-                  tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
-                  tagKey !== COLLABORATION_QUICK_TAGS.report,
-              );
+              const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
               const normalizedClassification = normalizeReviewClassification(
                 variant.review?.classification,
                 variant.review?.tags,

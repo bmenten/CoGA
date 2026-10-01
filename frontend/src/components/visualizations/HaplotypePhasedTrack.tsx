@@ -24,7 +24,7 @@ import VizTooltip from './VizTooltip';
 import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { apiPath } from '../../lib/apiPath';
-import { NUCLEOTIDE_COLORS, alleleBase, isDeletedHaplotype } from '../../lib/phasedMarkers';
+import { alleleBase, isDeletedHaplotype, nucleotideColor } from '../../lib/phasedMarkers';
 
 interface Segment {
   start: number;
@@ -94,10 +94,7 @@ const regionLabel = (chrom: string, start: number, end: number): string =>
 const laneValue = (value: number | null): string => (value === null ? '.' : String(value));
 
 const baseSpan = (base: string, key: number): React.ReactNode => (
-  <span
-    key={key}
-    style={{ color: base.length === 1 ? NUCLEOTIDE_COLORS[base.toUpperCase()] ?? '#9ca3af' : '#cbd5e1', fontWeight: 700 }}
-  >
+  <span key={key} style={{ color: nucleotideColor(base), fontWeight: 700 }}>
     {base}
   </span>
 );

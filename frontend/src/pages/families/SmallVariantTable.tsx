@@ -19,11 +19,13 @@ import {
   getReviewTagStyle,
   sortReviewTagKeys,
   sortSmallVariants,
+  visibleReviewTagKeys,
   type TableSortKey,
 } from './smallVariantResultUtils';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import VariantScoreCell from './VariantScoreCell';
 import SvSecondHitBadge from './SvSecondHitBadge';
+import { pct } from './niptClassification';
 
 interface SmallVariantTableProps {
   variants: SmallVariant[];
@@ -39,9 +41,6 @@ interface SmallVariantTableProps {
 }
 
 const MAX_ALLELE_DISPLAY_LENGTH = 48;
-
-const formatNiptPct = (value?: number | null): string =>
-  value == null ? '—' : `${(value * 100).toFixed(1)}%`;
 
 const formatAlleleDisplay = (value?: string) => {
   const allele = String(value || '').trim();
@@ -176,12 +175,7 @@ export default function SmallVariantTable({
             const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
             const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
             const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
-            const visibleReviewTags = sortedReviewTags.filter(
-              (tagKey) =>
-                tagKey !== COLLABORATION_QUICK_TAGS.review &&
-                tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
-                tagKey !== COLLABORATION_QUICK_TAGS.report,
-            );
+            const visibleReviewTags = visibleReviewTagKeys(sortedReviewTags);
 
             return (
               <tr
@@ -203,8 +197,8 @@ export default function SmallVariantTable({
                           {variant.nipt.maternal_state} → {variant.nipt.fetal_inheritance}
                         </span>
                         <span className="nipt-table-detail">
-                          VAF {formatNiptPct(variant.nipt.observed_vaf)} /{' '}
-                          {formatNiptPct(variant.nipt.expected_vaf)} · conf{' '}
+                          VAF {pct(variant.nipt.observed_vaf)} /{' '}
+                          {pct(variant.nipt.expected_vaf)} · conf{' '}
                           {variant.nipt.confidence.toFixed(2)}
                         </span>
                       </div>

@@ -7,6 +7,7 @@ vi.mock('@tanstack/react-query', () => ({ useQuery: useQueryMock, keepPreviousDa
 vi.mock('../../lib/api', () => ({ default: { get: vi.fn() } }));
 
 import HaplotypePhasedTrack from '../visualizations/HaplotypePhasedTrack';
+import { NUCLEOTIDE_FALLBACK_COLOR } from '../../lib/phasedMarkers';
 
 const members = [
   { sample_id: 'FATHER', role: 'father' },
@@ -36,7 +37,9 @@ const motherMarkers = [
   { pos: 300, hap1: 0, hap2: 0 },
 ];
 
-const mockData = (opts: { segments?: typeof segments; truncated?: boolean }) => {
+type Site = { pos: number; ref: string; alt: string; gts: string[] };
+
+const mockData = (opts: { segments?: typeof segments; truncated?: boolean; sites?: Site[] }) => {
   useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
     if (queryKey[0] === 'phased-markers') {
       // A truncated fetch returns no markers/sites (the server suppresses the
@@ -66,7 +69,7 @@ const mockData = (opts: { segments?: typeof segments; truncated?: boolean }) => 
             { sample: 'RELATIVE', markers: [] },
           ],
           // gts aligned to samples order [FATHER, MOTHER, CHILD, RELATIVE]; ref G / alt A.
-          sites: [
+          sites: opts.sites ?? [
             { pos: 100, ref: 'G', alt: 'A', gts: ['0|1', '0|0', '0|0', '1|0'] },
             { pos: 300, ref: 'C', alt: 'T', gts: ['0|1', '0|0', '0|1', '0|1'] },
           ],
@@ -139,6 +142,33 @@ test('marker tooltip shows colour-coded nucleotide genotypes for all members', (
   expect(tooltip?.textContent).toContain('G | G'); // mother 0|0
   // The child's raw marker (hap1 = 0) agrees with its block (hap1 = '0') here.
   expect(tooltip?.textContent).toContain('✓');
+});
+
+test('marker tooltip draws an allele that is not a single base in the shared grey', () => {
+  mockData({
+    segments,
+    sites: [
+      { pos: 100, ref: 'N', alt: 'GTT', gts: ['0|1', '0|0', '0|0', '1|0'] },
+      { pos: 300, ref: 'C', alt: 'T', gts: ['0|1', '0|0', '0|1', '0|1'] },
+    ],
+  });
+  const { container } = renderTrack(true);
+  fireEvent.mouseMove(container.querySelector('canvas') as Element, { clientX: 50, clientY: 10 });
+  const tooltip = document.body.querySelector('.viz-tooltip') as HTMLElement;
+  expect(tooltip.textContent).toContain('N›GTT');
+
+  // jsdom reports an inline colour as rgb(); write the expected one the same way.
+  const probe = document.createElement('span');
+  probe.style.color = NUCLEOTIDE_FALLBACK_COLOR;
+  const letterColors = (text: string) =>
+    [...tooltip.querySelectorAll<HTMLElement>('span')]
+      .filter((span) => span.textContent === text && span.children.length === 0)
+      .map((span) => span.style.color);
+  // A multi-base allele was drawn #cbd5e1 and an N #9ca3af: both are now the one grey,
+  // the grey the ROI marker table uses.
+  expect(letterColors('GTT').length).toBeGreaterThan(0);
+  expect(new Set(letterColors('GTT'))).toEqual(new Set([probe.style.color]));
+  expect(new Set(letterColors('N'))).toEqual(new Set([probe.style.color]));
 });
 
 test('relative track with no own markers still shows the tooltip on hover near a site', () => {

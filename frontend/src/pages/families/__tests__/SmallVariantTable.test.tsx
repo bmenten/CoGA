@@ -190,6 +190,52 @@ describe('SmallVariantTable', () => {
     expect(view).toHaveAttribute('rel', 'noopener noreferrer');
     expect(view).toHaveAttribute('href', expect.stringContaining('/families/F1/chromosome/1'));
   });
+
+  it('writes the NIPT VAFs as the NIPT pages do: a percentage, a dash when missing', () => {
+    const niptVariant = (id: string, observedVaf: number | null) => ({
+      _id: id,
+      chr: '1',
+      start: 100,
+      end: 100,
+      type: 'SNV',
+      gene: 'GENE1',
+      ref: 'A',
+      alt: 'G',
+      impact: 'HIGH',
+      effect: 'stop_gained',
+      genotypes: [],
+      nipt: {
+        category: 7,
+        category_label: 'Paternal, transmitted',
+        maternal_state: 'hom_ref',
+        fetal_inheritance: 'paternal',
+        expected_vaf: 0.05,
+        observed_vaf: observedVaf,
+        confidence: 0.873,
+        flags: [],
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <SmallVariantTable
+          variants={[niptVariant('seen', 0.123), niptVariant('unseen', null)]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('columnheader', { name: 'NIPT' })).toBeInTheDocument();
+    expect(screen.getByText('VAF 12.3% / 5.0% · conf 0.87')).toBeInTheDocument();
+    expect(screen.getByText('VAF — / 5.0% · conf 0.87')).toBeInTheDocument();
+  });
 });
 
 describe('SmallVariantTable SV second hit', () => {

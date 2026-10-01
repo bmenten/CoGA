@@ -8,6 +8,7 @@ import {
   cnvKindForType,
   computeCnvClassification,
   evaluateCnv,
+  formatCnvPoints,
 } from '../cnvAcmg';
 
 describe('cnvAcmg score', () => {
@@ -27,6 +28,33 @@ describe('cnvAcmg score', () => {
     ]);
     expect(result.pointTotal).toBe(1.15);
     expect(result.classKey).toBe('cnv_class_5');
+  });
+});
+
+describe('formatCnvPoints', () => {
+  it('writes a value signed and to two decimals, so the class thresholds read apart', () => {
+    // 0.90 is Likely pathogenic and 0.99 Pathogenic: one decimal ("+0.9") hid the difference.
+    expect(classKeyForPoints(0.9)).toBe('cnv_class_4');
+    expect(formatCnvPoints(0.9)).toBe('+0.90');
+    expect(classKeyForPoints(0.99)).toBe('cnv_class_5');
+    expect(formatCnvPoints(0.99)).toBe('+0.99');
+    expect(formatCnvPoints(-0.9)).toBe('-0.90');
+    expect(formatCnvPoints(-0.99)).toBe('-0.99');
+    expect(formatCnvPoints(0.45)).toBe('+0.45');
+    expect(formatCnvPoints(-0.6)).toBe('-0.60');
+    expect(formatCnvPoints(1.15)).toBe('+1.15');
+  });
+
+  it('keeps both decimals on a whole number', () => {
+    expect(formatCnvPoints(1)).toBe('+1.00');
+    expect(formatCnvPoints(-1)).toBe('-1.00');
+  });
+
+  it('writes zero as 0.00 without a sign, also when a sum leaves floating-point noise', () => {
+    expect(formatCnvPoints(0)).toBe('0.00');
+    expect(formatCnvPoints(-0)).toBe('0.00');
+    expect(formatCnvPoints(0.1 + 0.2 - 0.3)).toBe('0.00'); // 5.6e-17
+    expect(formatCnvPoints(0.3 - 0.1 - 0.2)).toBe('0.00'); // -2.8e-17, not "-0.00"
   });
 });
 
