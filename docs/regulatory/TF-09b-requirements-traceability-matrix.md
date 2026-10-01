@@ -181,7 +181,7 @@ TF-18).
 | Req | Status | Gap | Action |
 | --- | --- | --- | --- |
 | REQ-CARR-001 | ◐ | Carrier panel scoping is unit-tested; its clinical performance is not yet established | Establish in TF-10 (BeGECS couples). |
-| REQ-CARR-002 | ◐ | The both-partners rule (#731) and the female partner's X-linked finding (#732) are unit-tested; the couple-level clinical performance is not yet established | Establish in TF-10 (BeGECS couples). |
+| REQ-CARR-002 | ◐ | The both-partners rule (#731) and the female partner's X-linked finding (#732) are unit-tested, and QA confirmed the two choices in the X-linked rule on 2026-10-01 (TF-09a); the couple-level clinical performance is not yet established | Establish in TF-10 (BeGECS couples). |
 | REQ-PGT-007 | ◐ | > 10 Mb SV detection-limit claim unproven by test | Verify the size threshold in TF-10 (PGT embryos). |
 | REQ-PGT-008 | ⚠ | Aneuploidy detection has no dedicated unit test — the one gap a unit test can close | Add a detection unit test; validate in TF-10. |
 | REQ-TRACE-007 | ◐ | A signed version renders from its frozen record alone, but the record holds no variant description (gene, HGVS, consequence, genotypes, frequencies, predictions) and no gene or phenotype context, so a signed report names each variant by its ID and says what it lacks. | **🔲 OWNER:** decide whether the snapshot is to freeze the variant description and the gene and phenotype context. That changes what is hashed and what the sign-out check compares — [clinical-traceability.md](../clinical-traceability.md). |
