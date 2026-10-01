@@ -194,6 +194,11 @@ async def stop_ui_event_worker() -> None:
         _ui_event_shutdown_event = None
 
 
+def ui_event_queue_depth() -> int:
+    """UI events waiting for the database (0 when the worker is not running)."""
+    return _ui_event_queue.qsize() if _ui_event_queue is not None else 0
+
+
 async def write_ui_event(payload: UiEventPayload) -> None:
     if settings.audit_log_mode == "off":
         return

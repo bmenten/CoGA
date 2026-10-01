@@ -11,8 +11,8 @@ report, or that the check could not run. A failed check replaces the assembly's 
 result, so a stale "ok" is never the latest word. The state belongs to this server process
 and starts empty with it.
 
-(Emitting the result as a ``/metrics`` gauge is deferred until a metrics endpoint exists —
-see docs/ROADMAP.md; the structured ERROR log is the alert hook in the meantime.)
+``GET /metrics`` exposes the same state as ``coga_clickhouse_integrity_status`` per assembly
+and outcome (services/operational_metrics.py), beside the structured ERROR log.
 """
 
 from __future__ import annotations

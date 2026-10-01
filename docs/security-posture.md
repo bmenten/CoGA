@@ -52,6 +52,12 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 - ✅ **Every running build names its commit.** Outside development the backend refuses to
   start without a `GIT_SHA` (7–40 hex characters), which every signed report records
   (TF-18 §2). `build.yml` and `ci/cloudbuild.backend.yaml` stamp it.
+- ✅ **Metrics without identifiers, behind a token.** `GET /metrics` is off unless
+  `METRICS_TOKEN` is set, then answers only that bearer token (32+ characters outside
+  development, distinct from the other secrets). It sits outside `/api`, which is all the load
+  balancer and the frontend server pass to the backend, so it is never served to the internet.
+  Requests are labelled by route template, never by path, so no family, sample or variant
+  identifier reaches a metric ([monitoring.md](monitoring.md)).
 - ✅ **The image ships only the scripts it runs.** `clinical_cnv_knowledgebase.py` (the admin
   rebuild) and `import_dgv.py` (an operator import); the test seeders, one of which creates a
   sign-in with a default password, the demo loaders and the CI checks stay out of it.

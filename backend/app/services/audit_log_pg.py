@@ -217,6 +217,11 @@ async def stop_audit_log_worker() -> None:
         _audit_log_shutdown_event = None
 
 
+def audit_log_queue_depth() -> int:
+    """Request audit events waiting for the database (0 when the worker is not running)."""
+    return _audit_log_queue.qsize() if _audit_log_queue is not None else 0
+
+
 async def write_audit_log_event(payload: AuditLogEventPayload) -> None:
     if settings.audit_log_mode == "off":
         return

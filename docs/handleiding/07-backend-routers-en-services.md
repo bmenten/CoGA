@@ -125,6 +125,12 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | Traceerbaarheid | `audit_log_pg.py`, `clinical_audit_service.py`, `report_signout_service.py`, `hash_chain.py`, `integrity_anchor_service.py`, `event_pipeline.py` | Auditlog, klinische audit, ondertekening, hash-ketens, ankers (hoofdstuk 11) |
 | Robuustheid | `upload_safety.py`, `bounded_download.py`, `auth_rate_limit_pg.py` | Begrensde uploads en downloads, rate limiting |
 
+## Metrics voor de monitoring
+
+`GET /metrics` geeft de operationele cijfers van de backend in het Prometheus-formaat: verzoeken, fouten en duur per route, de laatste geplande integriteitscontrole van ClickHouse per assembly, de wachtrij en de niet-opgeslagen gebeurtenissen van de auditpijplijnen, de actieve importjobs en hoelang die geen teken van leven gaven, en de draaiende build. Er zitten geen klinische gegevens in: een verzoek krijgt het sjabloon van zijn route als label (`/families/{family_id}`, zoals ook de auditlog het bewaart), nooit het pad met zijn identificaties. Het endpoint staat uit zolang `METRICS_TOKEN` niet gezet is, en antwoordt dan alleen een verzoek met dat token als bearer-token. Het ligt buiten `/api`, en de load balancer en de frontendserver sturen alleen `/api` naar de backend door, dus het internet bereikt het nooit; een collector naast de backend leest het. `docs/monitoring.md` beschrijft de metrics en voorgestelde alarmregels.
+
+**Waar in de code:** `backend/app/services/operational_metrics.py` en `backend/app/routers/metrics.py`; het tellen van elk verzoek in de request-logging-middleware.
+
 ## Request-logging: elk verzoek laat een spoor na
 
 Twee onderdelen zorgen dat elk HTTP-verzoek wordt gelogd en geaudit.

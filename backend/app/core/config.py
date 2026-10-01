@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     # outside the DB. Unset ⇒ anchors are written 'unsigned' (a non-owner-only
     # checkpoint; see integrity_anchor_service.py).
     integrity_anchor_signing_key: str = Field(default="", alias="INTEGRITY_ANCHOR_SIGNING_KEY")
+    # The bearer token a scraper sends to GET /metrics (services/operational_metrics.py).
+    # Unset, the endpoint is off (404). Outside development it needs at least 32 characters
+    # and must differ from SECRET_KEY and INTEGRITY_ANCHOR_SIGNING_KEY.
+    metrics_token: str = Field(default="", alias="METRICS_TOKEN")
     algorithm: str = "HS256"
     # Session token lifetime. Kept short (2h) to bound the blast radius of a leaked
     # token, since tokens live in localStorage (no HttpOnly cookie); see
@@ -652,6 +656,12 @@ class Settings(BaseSettings):
             insecure_fields.append("ADMIN_PASSWORD")
         if self.admin_username.strip().lower() == "admin" and self.admin_password.strip() in _INSECURE_PASSWORD_VALUES:
             insecure_fields.append("ADMIN_USERNAME")
+        # Optional; when it is given it guards the metrics endpoint, so not a short one.
+        metrics_token = self.metrics_token.strip()
+        if metrics_token and (
+            metrics_token in _INSECURE_SECRET_VALUES or len(metrics_token) < _MIN_SECRET_KEY_LENGTH
+        ):
+            insecure_fields.append("METRICS_TOKEN")
         if insecure_fields:
             raise ValueError(
                 "Refusing to start outside development/test with missing or weak secrets: "
@@ -660,7 +670,8 @@ class Settings(BaseSettings):
                 "(python -c 'import secrets; print(secrets.token_urlsafe(48))'); "
                 "CLICKHOUSE_PASSWORD must be set; INTEGRITY_ANCHOR_SIGNING_KEY must be the "
                 "base64 of a 32-byte Ed25519 seed (python -c 'import base64, os; "
-                "print(base64.b64encode(os.urandom(32)).decode())'). "
+                "print(base64.b64encode(os.urandom(32)).decode())'); METRICS_TOKEN, when set, "
+                f"needs at least {_MIN_SECRET_KEY_LENGTH} characters. "
                 "Set APP_ENV=development for local-only work."
             )
         # The anchor key must be a separate secret: with the same value, whoever can mint
@@ -673,6 +684,15 @@ class Settings(BaseSettings):
                 "integrity anchors. Generate a new one (python -c 'import base64, os; "
                 "print(base64.b64encode(os.urandom(32)).decode())'). "
                 "Set APP_ENV=development for local-only work."
+            )
+        # A scraper holds the metrics token: it must not also be able to mint session
+        # tokens or sign integrity anchors.
+        if metrics_token and metrics_token in {secret_key, self.integrity_anchor_signing_key.strip()}:
+            raise ValueError(
+                "Refusing to start outside development/test: METRICS_TOKEN is the same value as "
+                "SECRET_KEY or INTEGRITY_ANCHOR_SIGNING_KEY. The token a metrics scraper holds "
+                "must be a separate secret (python -c 'import secrets; "
+                "print(secrets.token_urlsafe(48))'). Set APP_ENV=development for local-only work."
             )
         # A deployment serves the UI from the API's own origin (the load balancer routes
         # /api to the backend), so it needs no cross-origin access. The development

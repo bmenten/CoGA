@@ -1670,6 +1670,9 @@ python docs/handleiding/build_site.py
 </tr>
 </tbody>
 </table></div>
+<h2>Metrics voor de monitoring</h2>
+<p><code>GET /metrics</code> geeft de operationele cijfers van de backend in het Prometheus-formaat: verzoeken, fouten en duur per route, de laatste geplande integriteitscontrole van ClickHouse per assembly, de wachtrij en de niet-opgeslagen gebeurtenissen van de auditpijplijnen, de actieve importjobs en hoelang die geen teken van leven gaven, en de draaiende build. Er zitten geen klinische gegevens in: een verzoek krijgt het sjabloon van zijn route als label (<code>/families/{family_id}</code>, zoals ook de auditlog het bewaart), nooit het pad met zijn identificaties. Het endpoint staat uit zolang <code>METRICS_TOKEN</code> niet gezet is, en antwoordt dan alleen een verzoek met dat token als bearer-token. Het ligt buiten <code>/api</code>, en de load balancer en de frontendserver sturen alleen <code>/api</code> naar de backend door, dus het internet bereikt het nooit; een collector naast de backend leest het. <code>docs/monitoring.md</code> beschrijft de metrics en voorgestelde alarmregels.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/operational_metrics.py</code> en <code>backend/app/routers/metrics.py</code>; het tellen van elk verzoek in de request-logging-middleware.</p>
 <h2>Request-logging: elk verzoek laat een spoor na</h2>
 <p>Twee onderdelen zorgen dat elk HTTP-verzoek wordt gelogd en geaudit.</p>
 <p><strong>Gestructureerde logging.</strong> Alle backendlogs verschijnen als JSON-regels. Stuurtekens (ook regeleinden) in waarden worden vervangen voordat ze in een logregel komen, zodat niemand valse logregels kan invoegen (<em>log forging</em>).</p>
