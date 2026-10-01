@@ -1,7 +1,8 @@
 # Scripts
 
 Helper scripts, run from the repository root. Application data is loaded through the API
-flows in [docs/data-import.md](../docs/data-import.md), not with these scripts. The Python
+flows in [docs/data-import.md](../docs/data-import.md), not with these scripts. The backend
+image ships two of them, the ones it runs: `clinical_cnv_knowledgebase.py` and `import_dgv.py`. The Python
 scripts that import backend code need the backend's environment, installed from
 `backend/requirements-dev.txt`.
 

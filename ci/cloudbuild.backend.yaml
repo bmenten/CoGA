@@ -1,6 +1,6 @@
 # Build the backend image from the REPO ROOT context so backend/Dockerfile's
-# `COPY backend/db`, `COPY backend/app`, and `COPY scripts ./scripts` all resolve
-# (the clinical-CNV knowledgebase script lives at repo-root scripts/). Build
+# `COPY backend/db`, `COPY backend/app`, and the `COPY scripts/...` of the two scripts
+# the image runs all resolve (they live at repo-root scripts/). Build
 # identity (APP_VERSION/GIT_SHA) is injected as build-args and baked into the image
 # — these are frozen into signed-report content hashes, so they must be real.
 #

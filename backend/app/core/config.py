@@ -1,8 +1,10 @@
 from pathlib import Path
 import base64
 import binascii
+import ipaddress
 import json
 import re
+from urllib.parse import urlsplit
 from typing import Annotated
 from pydantic import Field
 from pydantic import field_validator
@@ -30,6 +32,20 @@ _INSECURE_PASSWORD_VALUES = {"admin", "change-me"}
 _MIN_SECRET_KEY_LENGTH = 32
 # libpq/asyncpg SSL modes for the Postgres connection (TF-13 S-2).
 _POSTGRES_SSLMODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+# Origins tried against CORS_ORIGIN_REGEX outside development: a loopback origin in each
+# form a browser sends, and an arbitrary site. A deployment admits none of them.
+_CORS_PROBE_ORIGINS = (
+    "http://localhost",
+    "https://localhost:3000",
+    "http://app.localhost",
+    "http://127.0.0.1:8000",
+    "http://0.0.0.0:5173",
+    "http://[::1]:3000",
+    "https://unrelated-site.example",
+)
+# The commit a build was made from, as build.yml and ci/cloudbuild.backend.yaml stamp it
+# (`git rev-parse --short=12 HEAD`); a full 40-character hash is accepted too.
+_GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{7,40}")
 
 
 def _read_version_file() -> str:
@@ -39,6 +55,36 @@ def _read_version_file() -> str:
     except (OSError, UnicodeDecodeError):
         return _UNKNOWN_APP_VERSION
     return version or _UNKNOWN_APP_VERSION
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    """Does this host name the user's own machine (localhost, 127.0.0.0/8, ::1, 0.0.0.0)?"""
+    if not host:
+        return False
+    name = host.strip("[]").lower()
+    if name == "localhost" or name.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(name)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_unspecified
+
+
+def _cross_origin_exposures(origins: list[str], origin_regex: str) -> list[str]:
+    """The CORS settings that let a loopback origin, or any origin, make credentialed
+    requests: each described for the start-up error, or none."""
+    exposures: list[str] = []
+    for origin in origins:
+        value = origin.strip()
+        if value == "*" or _is_loopback_host(urlsplit(value).hostname):
+            exposures.append(f"CORS_ORIGINS entry {value!r}")
+    if origin_regex:
+        pattern = re.compile(origin_regex)
+        matched = [probe for probe in _CORS_PROBE_ORIGINS if pattern.fullmatch(probe)]
+        if matched:
+            exposures.append("CORS_ORIGIN_REGEX, which matches " + ", ".join(matched))
+    return exposures
 
 
 def _is_ed25519_seed(value: str) -> bool:
@@ -627,6 +673,32 @@ class Settings(BaseSettings):
                 "integrity anchors. Generate a new one (python -c 'import base64, os; "
                 "print(base64.b64encode(os.urandom(32)).decode())'). "
                 "Set APP_ENV=development for local-only work."
+            )
+        # A deployment serves the UI from the API's own origin (the load balancer routes
+        # /api to the backend), so it needs no cross-origin access. The development
+        # defaults admit localhost origins with credentials: left in place, a page served
+        # on the user's own machine could call the API as the signed-in user and read
+        # the answers.
+        exposures = _cross_origin_exposures(self.cors_origins, self.cors_origin_regex)
+        if exposures:
+            raise ValueError(
+                "Refusing to start outside development/test with cross-origin access open "
+                "to the user's own machine or to any site: "
+                + "; ".join(exposures)
+                + ". A deployment serves the UI from its own origin and needs none: set "
+                "CORS_ORIGINS to that origin (or []) and CORS_ORIGIN_REGEX to an empty value. "
+                "Set APP_ENV=development for local-only work."
+            )
+        # Every report this instance signs names the commit it ran (TF-18 §2). An
+        # unstamped build ("unknown") cannot be traced to its source.
+        if not _GIT_SHA_PATTERN.fullmatch(self.git_sha.strip().lower()):
+            raise ValueError(
+                "Refusing to start outside development/test without the commit this build "
+                f"was made from: GIT_SHA is {self.git_sha!r}. Every report this instance "
+                "signs names that commit (TF-18 §2), so build the image with "
+                '--build-arg GIT_SHA="$(git rev-parse --short=12 HEAD)", as build.yml and '
+                "ci/cloudbuild.backend.yaml do (for docker compose, export GIT_SHA before "
+                "building). Set APP_ENV=development for local-only work."
             )
         return self
 

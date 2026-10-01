@@ -15,7 +15,7 @@ CoGA bestaat uit vier containers: Postgres (metadata en reviewtoestand), ClickHo
 - **Vastgezette images.** De databank-images zijn niet alleen met een tag maar met een **digest** (`@sha256:…`) vastgelegd, zodat elke machine exact hetzelfde image gebruikt.
 - **Gezondheid en volgorde.** De backend start pas als Postgres en ClickHouse gezond zijn, de frontend pas als de backend gezond is. De backend krijgt ruim de tijd, omdat hij bij het opstarten het schema toepast en referentiedata laadt.
 - **Rustig afsluiten.** ClickHouse krijgt een ruime afsluittermijn. Wordt het midden in een schrijfactie afgebroken, dan kunnen dataonderdelen beschadigd raken.
-- **Build-identiteit.** De backend-image krijgt `APP_VERSION` en `GIT_SHA` mee bij het bouwen. `.env.example` waarschuwt dat je die niet in `.env` zet: anders overschrijft de runtime de ingebakken waarde en vervalst hij de versie die in elk ondertekend rapport wordt bevroren.
+- **Build-identiteit.** De backend-image krijgt `APP_VERSION` en `GIT_SHA` mee bij het bouwen. `.env.example` waarschuwt dat je die niet in `.env` zet: anders overschrijft de runtime de ingebakken waarde en vervalst hij de versie die in elk ondertekend rapport wordt bevroren. Buiten ontwikkeling start de backend niet zonder `GIT_SHA` (7 tot 40 hexadecimale tekens), omdat elk ondertekend rapport die commit vermeldt. De image bevat van `scripts/` alleen wat de backend zelf draait: `clinical_cnv_knowledgebase.py` (de heropbouw vanuit Admin) en `import_dgv.py` (een import door de beheerder); de testseeders, waarvan er één een aanmelding met een standaardwachtwoord aanmaakt, blijven erbuiten.
 
 **Waar in de code:** `docker-compose.yml`; de waarschuwing in `.env.example`.
 

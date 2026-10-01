@@ -270,6 +270,12 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "CORS_ORIGINS"
         value = jsonencode(["https://${var.app_domain}"])
       }
+      # Same-origin behind the load balancer, so no origin pattern either: the backend
+      # refuses to start outside development with the default one, which admits localhost.
+      env {
+        name  = "CORS_ORIGIN_REGEX"
+        value = ""
+      }
       env {
         name  = "AZURE_TENANT_ID"
         value = var.azure_ad_tenant_id

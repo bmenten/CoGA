@@ -43,6 +43,18 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   of a 32-byte Ed25519 seed or is the same value as `SECRET_KEY` (then whoever can mint a
   session token could also sign an integrity anchor). An unsigned integrity anchor is refused
   as well. Passwords are stored as bcrypt hashes.
+- ✅ **No cross-origin access outside development.** The deployed UI is served from the API's
+  own origin, so the backend refuses to start while `CORS_ORIGINS` or `CORS_ORIGIN_REGEX`
+  admits a loopback origin (`localhost`, `127.0.0.1`, `::1`, `0.0.0.0`) or any site (`*`, or a
+  pattern matching an unrelated origin). The development defaults admit localhost with
+  credentials, which would let a page served on the user's own machine call the API as the
+  signed-in user. Terraform sets the app's origin and an empty pattern.
+- ✅ **Every running build names its commit.** Outside development the backend refuses to
+  start without a `GIT_SHA` (7–40 hex characters), which every signed report records
+  (TF-18 §2). `build.yml` and `ci/cloudbuild.backend.yaml` stamp it.
+- ✅ **The image ships only the scripts it runs.** `clinical_cnv_knowledgebase.py` (the admin
+  rebuild) and `import_dgv.py` (an operator import); the test seeders, one of which creates a
+  sign-in with a default password, the demo loaders and the CI checks stay out of it.
 - ✅ **Passwords at sign-up** need at least 15 characters (`SIGNUP_PASSWORD_MIN_LENGTH`,
   following NIST SP 800-63B-4 for a single-factor password); a shorter one gets a 422 before
   any throttling or hashing. The device owner confirmed this policy (#626).

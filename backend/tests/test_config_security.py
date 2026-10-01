@@ -122,6 +122,11 @@ _VALID_PRODUCTION = {
     # base64 of a 32-byte seed, built here rather than written out: a literal key-shaped
     # value is exactly what the secret scan is there to catch.
     "INTEGRITY_ANCHOR_SIGNING_KEY": base64.b64encode(bytes(range(32))).decode(),
+    # A deployment is same-origin and stamped with its commit, as Terraform and build.yml
+    # set it up.
+    "CORS_ORIGINS": ["https://coga.example.org"],
+    "CORS_ORIGIN_REGEX": "",
+    "GIT_SHA": "0123456789ab",
 }
 
 
@@ -209,3 +214,97 @@ def test_development_does_not_require_separate_keys() -> None:
         INTEGRITY_ANCHOR_SIGNING_KEY=_ANCHOR_KEY,
     )
     assert settings.is_development is True
+
+
+# --- cross-origin access and the build's commit, outside development/test ---
+# A deployment serves the UI from the API's own origin, so it needs no cross-origin access;
+# the development defaults admit localhost with credentials. Every signed report names the
+# commit the instance ran, so an unstamped build must not serve.
+
+
+@pytest.mark.parametrize(
+    "origins",
+    [
+        ["http://localhost:3000"],
+        ["https://coga.example.org", "http://127.0.0.1:5173"],
+        ["http://[::1]:3000"],
+        ["http://0.0.0.0"],
+        ["http://app.localhost"],
+        ["*"],
+    ],
+)
+def test_production_refuses_cors_origins_for_the_users_own_machine_or_any_site(origins) -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{**_VALID_PRODUCTION, "CORS_ORIGINS": origins})
+    message = str(excinfo.value)
+    assert "CORS_ORIGINS entry" in message
+    assert next(origin for origin in origins if origin != "https://coga.example.org") in message
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$",  # the default
+        r"^http://127\.0\.0\.1:\d+$",
+        r"^https?://.*$",
+    ],
+)
+def test_production_refuses_a_cors_pattern_matching_them(pattern) -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{**_VALID_PRODUCTION, "CORS_ORIGIN_REGEX": pattern})
+    assert "CORS_ORIGIN_REGEX, which matches" in str(excinfo.value)
+
+
+def test_production_refuses_the_default_cors_pattern_when_none_is_set(monkeypatch) -> None:
+    # Terraform used to set CORS_ORIGINS only, which left the localhost default pattern live.
+    monkeypatch.delenv("CORS_ORIGIN_REGEX", raising=False)
+    without_pattern = {key: value for key, value in _VALID_PRODUCTION.items() if key != "CORS_ORIGIN_REGEX"}
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **without_pattern)
+    assert "http://localhost" in str(excinfo.value)
+
+
+def test_production_accepts_its_own_origins() -> None:
+    settings = Settings(
+        _env_file=None,
+        **{
+            **_VALID_PRODUCTION,
+            "CORS_ORIGINS": ["https://coga.example.org", "https://review.example.org"],
+            "CORS_ORIGIN_REGEX": r"^https://([a-z0-9-]+\.)?example\.org$",
+        },
+    )
+    assert settings.cors_origins == ["https://coga.example.org", "https://review.example.org"]
+    no_origins = Settings(_env_file=None, **{**_VALID_PRODUCTION, "CORS_ORIGINS": []})
+    assert no_origins.cors_origins == []
+
+
+@pytest.mark.parametrize("git_sha", ["unknown", "", "   ", "dev", "0123456789xy", "12345", "a" * 41])
+def test_production_refuses_a_build_without_its_commit(monkeypatch, git_sha) -> None:
+    monkeypatch.delenv("GIT_SHA", raising=False)
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **{**_VALID_PRODUCTION, "GIT_SHA": git_sha})
+    assert "GIT_SHA" in str(excinfo.value)
+
+
+def test_production_refuses_the_unstamped_default(monkeypatch) -> None:
+    monkeypatch.delenv("GIT_SHA", raising=False)
+    without_sha = {key: value for key, value in _VALID_PRODUCTION.items() if key != "GIT_SHA"}
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None, **without_sha)
+    assert "GIT_SHA is 'unknown'" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("git_sha", ["0123456789ab", "0123456", "0123456789ABCDEF", "f" * 40])
+def test_production_accepts_a_stamped_build(git_sha) -> None:
+    settings = Settings(_env_file=None, **{**_VALID_PRODUCTION, "GIT_SHA": git_sha})
+    assert settings.git_sha == git_sha
+
+
+@pytest.mark.parametrize("app_env", ["development", "test"])
+def test_development_keeps_the_local_cors_defaults_and_an_unstamped_build(monkeypatch, app_env) -> None:
+    for name in ("CORS_ORIGINS", "CORS_ORIGIN_REGEX", "GIT_SHA"):
+        monkeypatch.delenv(name, raising=False)
+    settings = Settings(_env_file=None, APP_ENV=app_env)
+    assert "http://localhost:5173" in settings.cors_origins
+    assert settings.cors_origin_regex
+    assert settings.git_sha == "unknown"
