@@ -67,32 +67,34 @@ Per H11.1-OP5 (CMGG roles):
 | Role (H11.1-OP5) | Holder | Responsibility |
 | --- | --- | --- |
 | **bio-IT SPOC** | ‹CMGG bio-IT group — see KHB organigram› | Single point of contact; triages project requests with the IT coördinator (and Sequencing Core); intake governance. |
-| **CMGG IT coördinator** | **Tom Sante** | Project prioritization/planning; co-approves minor/major releases into production. |
-| **Projectverantwoordelijke** (project lead) | **Björn Menten** | Owns design quality, implementation, the bio-IT ingangsvalidatie (incl. risk analysis), and release. |
-| **Developer(s)** | **Björn Menten** | Implementation, unit/integration tests, SOUP monitoring; works via the project lead for cross-team input. |
-| **Independent reviewer** | **Tom Sante** (CMGG bio-IT) | Code review / 4-eye approval before merge — a second (bio-)IT team member, and necessarily **not** the author of the change. |
+| **CMGG IT coördinator** | ‹named in the KHB› | Project prioritization/planning; co-approves minor/major releases into production. |
+| **Projectverantwoordelijke** (project lead) | ‹named in the KHB› | Owns design quality, implementation, the bio-IT ingangsvalidatie (incl. risk analysis), and release. |
+| **Developer(s)** | The project lead | Implementation, unit/integration tests, SOUP monitoring; works via the project lead for cross-team input. |
+| **Independent reviewer** | The IT coördinator (CMGG bio-IT) | Code review / 4-eye approval before merge — a second (bio-)IT team member, and necessarily **not** the author of the change. |
 | **Business contactpersoon** ("Klinisch coördinator") | ‹per application — see KHB› | Clinical requirements and coordinates the **clinical validation per method** ([TF-10](TF-10-performance-evaluation-plan.md)); co-approves major releases. |
-| **Kwaliteitscel / labokwaliteitsverantwoordelijke** | **Greta Van der Cruyssen**, QC-verantwoordelijke of the CMGG | QMS compliance, document control (KHB), and sign-off on in-production-taking. |
+| **Kwaliteitscel / labokwaliteitsverantwoordelijke** | The CMGG's QC-verantwoordelijke (kwaliteitsbeheerder), ‹named in the KHB› | QMS compliance, document control (KHB), and sign-off on in-production-taking. |
 | **UZ Gent DPO** | ‹to be named at DPO consultation› | Consulted when personal data is processed ([TF-14](TF-14-dpia.md)). |
-| **Head of department** | **Fransiska Malfait** | Departmental accountability for the in-house device. |
-| **Lab director / Head of CMGG** | **Björn Menten** | Release authorization, residual-risk acceptance. |
+| **Head of department** | ‹named in the KHB› | Departmental accountability for the in-house device. |
+| **Lab director / Head of CMGG** | The project lead | Release authorization, residual-risk acceptance. |
 
 The role holders are drawn from the CMGG bio-IT group; the authoritative register is the CMGG
-**kwaliteitshandboek (KHB)** and organigram, of which this table is a project-specific extract.
+**kwaliteitshandboek (KHB)** and organigram, of which this table is a project-specific extract. It
+names roles, not people: the repository is public, so the holders' names stay in the KHB. Where
+one person holds several roles, the table says so, because the segregation of duties below turns
+on it.
 
 > **🔲 OWNER:** the role titles are to be confirmed ([INPUTS A3](INPUTS-QUESTIONNAIRE.md)). Confirmed
-> 2026-09-30: the quality role is held by Greta Van der Cruyssen, the CMGG's QC-verantwoordelijke.
+> 2026-09-30: the quality role is held by the CMGG's QC-verantwoordelijke (kwaliteitsbeheerder).
 
 > **Segregation of duties — recorded, not resolved.** The **developer, project lead and lab
-> director are the same person** (Björn Menten), so implementation and release authorization are
-> not independent. Two controls compensate and must therefore hold:
-> 1. **Independent review is performed by the IT coördinator** (Tom Sante), who is not the author.
+> director are the same person**, so implementation and release authorization are not
+> independent. Two controls compensate and must therefore hold:
+> 1. **Independent review is performed by the IT coördinator**, who is not the author.
 >    This is the 4-eye control of [TF-18 §4](TF-18-change-configuration-management.md); its
 >    enforcement status is tracked in [TF-18 §6](TF-18-change-configuration-management.md).
 > 2. **The H11.1-F12.2 validation report carries three distinct signatures** —
->    eindverantwoordelijke (Björn Menten), IT-team coördinator (Tom Sante) and
->    kwaliteitsbeheerder (Greta Van der Cruyssen) — so no single person both produces and approves
->    the validation.
+>    eindverantwoordelijke (the lab director), IT-team coördinator and kwaliteitsbeheerder, three
+>    different people, so no single person both produces and approves the validation.
 >
 > This concentration should be reviewed by the kwaliteitscel and either accepted as a documented
 > residual or resolved by appointing a separate release authorizer.
