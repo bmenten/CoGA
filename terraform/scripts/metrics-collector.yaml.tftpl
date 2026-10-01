@@ -1,0 +1,64 @@
+# The OpenTelemetry Collector that runs beside the CoGA backend on Cloud Run (monitoring.tf).
+#
+# It scrapes the backend's GET /metrics over the instance's loopback, with the metrics token
+# as bearer token, and writes the series to Google Cloud Managed Service for Prometheus,
+# where the alert policies in monitoring.tf read them with PromQL. The token is not in this
+# file: the collector container gets it as METRICS_TOKEN from Secret Manager, and the
+# collector expands it when it loads the configuration ($${env:...} below).
+#
+# Rendered by Terraform's templatefile(): $${...} is a literal for the collector, and the
+# plain interpolations are Terraform's.
+
+receivers:
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: ${job}
+          scrape_interval: ${scrape_interval}
+          scrape_timeout: 10s
+          metrics_path: /metrics
+          authorization:
+            type: Bearer
+            credentials: $${env:METRICS_TOKEN}
+          static_configs:
+            - targets: ["localhost:${backend_port}"]
+
+processors:
+  # Cloud Run's region, from the metadata server.
+  resourcedetection:
+    detectors: [gcp]
+    timeout: 10s
+  # Managed Service for Prometheus outside GKE: name the target the way its own Cloud Run
+  # sidecar does (cluster __run__, namespace = the service), so a query can select it.
+  resource:
+    attributes:
+      - key: cluster
+        value: __run__
+        action: upsert
+      - key: namespace
+        value: ${namespace}
+        action: upsert
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 65
+    spike_limit_percentage: 20
+  batch:
+    send_batch_max_size: 200
+    send_batch_size: 200
+    timeout: 5s
+
+exporters:
+  googlemanagedprometheus:
+    project: ${project}
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:${health_port}
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [memory_limiter, resourcedetection, resource, batch]
+      exporters: [googlemanagedprometheus]

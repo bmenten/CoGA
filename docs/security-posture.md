@@ -57,7 +57,13 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   development, distinct from the other secrets). It sits outside `/api`, which is all the load
   balancer and the frontend server pass to the backend, so it is never served to the internet.
   Requests are labelled by route template, never by path, so no family, sample or variant
-  identifier reaches a metric ([monitoring.md](monitoring.md)).
+  identifier reaches a metric ([monitoring.md](monitoring.md)). In the deployment a collector
+  in the backend's own Cloud Run service scrapes it over the instance's loopback, with the token
+  from Secret Manager, which only the backend's account may read (`terraform/monitoring.tf`).
+- 🟡 **Alerts on what matters, pending the first apply.** Cloud Monitoring policies page on a
+  damaged variant store, lost accountability events and an unreachable app, and warn on a stalled
+  integrity check, a backed-up audit queue, server errors, a stuck import and missing metrics; an
+  uptime check fetches `/api/health` through the load balancer ([monitoring.md](monitoring.md)).
 - ✅ **The image ships only the scripts it runs.** `clinical_cnv_knowledgebase.py` (the admin
   rebuild) and `import_dgv.py` (an operator import); the test seeders, one of which creates a
   sign-in with a default password, the demo loaders and the CI checks stay out of it.

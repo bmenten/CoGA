@@ -14,7 +14,7 @@ The open work, in one list. Items that need an owner or QA decision are tracked 
 ## Engineering
 
 - **Sessions**: there is no server-side logout or token revocation; a token stays valid until it expires.
-- **Operations**: `/metrics` exists ([monitoring.md](monitoring.md)), but the deployment does not scrape it yet and no alert policy is defined; no migration ledger (every schema file is re-applied on each start).
+- **Operations**: `/metrics`, its collector and the alert policies exist ([monitoring.md](monitoring.md)), but nothing is deployed until Terraform is first applied; no migration ledger (every schema file is re-applied on each start).
 - **Imports and scaling**: a stuck import job is picked up again only when a worker next looks for work, once its heartbeat is ten minutes old, and until it has run again its family's report cannot be signed out: sign-out is refused while a family's import job is queued, validating or running (#727), and an import whose job cannot record the family it imports writes nothing of it (#736). Each backend container runs one uvicorn process whose event loop the API shares with the import and refresh workers.
 - **Regression truth set**: no GIAB or GeT-RM truth set with a concordance harness for minor-release validation.
 - **Frozen evidence**: a small-variant classification's evidence snapshot keeps the annotation-set hash and the ClinVar significance, not the frequencies or in-silico scores.

@@ -82,7 +82,11 @@ resource "google_service_account_iam_member" "deploy_actas_backend" {
 ```
 
 Also give `DEPLOY_SA` a Cloud Run role that includes `run.jobs.run` (`roles/run.developer`
-or `roles/run.admin`), so the apply can run the migration job. If the images live in
+or `roles/run.admin`), so the apply can run the migration job, and the Monitoring roles the
+apply needs for the alerting in `monitoring.tf`: `roles/monitoring.alertPolicyEditor`,
+`roles/monitoring.notificationChannelEditor` and `roles/monitoring.uptimeCheckConfigEditor`.
+The backend's `roles/monitoring.metricWriter`, checked above, is what its metrics collector
+writes with. If the images live in
 another project (the shared registry), give Cloud Run's service agent,
 `service-<project-number>@serverless-robot-prod.iam.gserviceaccount.com`,
 `roles/artifactregistry.reader` on the image repository.
@@ -92,7 +96,9 @@ another project (the shared registry), give Cloud Run's service agent,
 - [ ] Part C passes: APIs, accounts, roles, key grants, audit config, `actAs` and
       `run.jobs.run` all present.
 - [ ] `cmek_key_self_link` set for CoGA (required: CMEK is mandatory), and the secret values
-      added ([deployment-gcp.md §5.5](../../docs/deployment-gcp.md)).
+      added, `coga-metrics-token` included ([deployment-gcp.md §5.5](../../docs/deployment-gcp.md)).
+- [ ] `alert_notification_emails` set to who answers CoGA's alerts
+      ([docs/monitoring.md](../../docs/monitoring.md)).
 - [ ] The deploy job's `terraform plan` shows only creates, and no destroys.
 - [ ] Approve the `gcp-deploy` environment; the apply succeeds; the backend and frontend come
       up healthy under their runtime accounts

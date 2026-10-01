@@ -9,6 +9,7 @@ prometheus_client's own parser, so they check what a scraper would see.
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -259,3 +260,57 @@ def test_neither_the_load_balancer_nor_the_frontend_server_routes_it() -> None:
     server = (REPO / "frontend" / "server.mjs").read_text()
     assert "app.use('/api'," in server
     assert "/metrics" not in server
+
+
+def test_no_created_series_are_exposed(client) -> None:
+    # Managed Service for Prometheus bills every series; a counter's _created says nothing an
+    # alert reads.
+    _scrape(client)
+    response = client.get("/metrics", headers={"Authorization": f"Bearer {TOKEN}"})
+    assert "_created" not in response.text
+
+
+# --- the deployment's alert policies read what the backend exposes -------------------
+
+
+def _exposable_names(body: str) -> set[str]:
+    """Every sample name a family of the exposition can carry, with or without samples yet."""
+    names: set[str] = set()
+    for family in text_string_to_metric_families(body):
+        names.update(sample.name for sample in family.samples)
+        suffixes = {"counter": ("_total",), "histogram": ("_bucket", "_sum", "_count"), "info": ("_info",)}
+        names.update(family.name + suffix for suffix in suffixes.get(family.type, ("",)))
+    return names
+
+
+def test_every_alert_query_reads_a_series_the_backend_exposes(client, monkeypatch) -> None:
+    checked = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        clickhouse_integrity_monitor,
+        "_last_results",
+        {"GRCh38": {"assembly_name": "GRCh38", "checked_at": checked, "report": {"status": "ok"}, "error": None}},
+    )
+    monkeypatch.setattr(clickhouse_integrity_monitor, "_last_sweep", {"at": checked, "error": None})
+
+    async def jobs():
+        return [("running", 1, 5.0)]
+
+    monkeypatch.setattr(operational_metrics, "_fetch_active_import_jobs", jobs)
+    client.get("/api/health")
+    exposed = _exposable_names(client.get("/metrics", headers={"Authorization": f"Bearer {TOKEN}"}).text)
+
+    monitoring = (REPO / "terraform" / "monitoring.tf").read_text()
+    queries = re.findall(r'^\s*query\s*=\s*"(.*)"\s*$', monitoring, re.M)
+    assert len(queries) == 8, "one query per metric alert policy"
+    referenced = {name for query in queries for name in re.findall(r"\bcoga_[a-z0-9_]+", query)}
+    assert referenced, "no coga_ series in the alert queries"
+    assert referenced <= exposed, f"alert queries read series the backend does not expose: {sorted(referenced - exposed)}"
+
+
+def test_the_uptime_check_matches_what_the_health_endpoint_answers(client) -> None:
+    monitoring = (REPO / "terraform" / "monitoring.tf").read_text()
+    assert 'path           = "/api/health"' in monitoring
+    matcher = re.search(r'content\s*=\s*"((?:[^"\\]|\\.)*)"', monitoring)
+    assert matcher, "no content matcher"
+    expected = matcher.group(1).encode().decode("unicode_escape")
+    assert expected in client.get("/api/health").text

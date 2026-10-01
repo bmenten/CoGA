@@ -311,6 +311,81 @@ def test_terraform_gives_the_backend_no_cross_origin_access() -> None:
     assert re.search(r'name\s*=\s*"CORS_ORIGIN_REGEX"\s*\n\s*value\s*=\s*""', cloudrun)
 
 
+def _rendered_collector_config() -> dict:
+    """The collector config as Terraform's templatefile() renders it, from monitoring.tf's own
+    arguments ($${ is a literal ${ for the collector)."""
+    monitoring = _terraform("monitoring.tf")
+    call = re.search(r'templatefile\("\$\{path\.module\}/scripts/metrics-collector\.yaml\.tftpl", \{(.*?)\}\)', monitoring, re.S)
+    assert call, "monitoring.tf renders no metrics-collector template"
+    local_values = {
+        "local.backend_service_name": "coga-backend",
+        "local.backend_port": "8000",
+        "local.metrics_collector_health_port": "13133",
+        "var.project_id": "coga-test-project",
+    }
+    arguments = {}
+    for name, value in re.findall(r"^\s*(\w+)\s*=\s*(.+?)\s*$", call.group(1), re.M):
+        arguments[name] = value.strip('"') if value.startswith('"') else local_values[value]
+    template = (REPO / "terraform" / "scripts" / "metrics-collector.yaml.tftpl").read_text()
+    rendered = re.sub(r"(?<!\$)\$\{(\w+)\}", lambda match: arguments[match.group(1)], template).replace("$${", "${")
+    assert "%{" not in rendered
+    return yaml.safe_load(rendered)
+
+
+def test_the_metrics_collector_scrapes_the_backend_with_the_token() -> None:
+    # Over the instance's loopback, the backend's own port, the endpoint outside /api, and the
+    # token from the environment (never in the config, which Terraform puts in plain sight).
+    config = _rendered_collector_config()
+    scrape = config["receivers"]["prometheus"]["config"]["scrape_configs"]
+    assert len(scrape) == 1
+    assert scrape[0]["metrics_path"] == "/metrics"
+    assert scrape[0]["static_configs"] == [{"targets": ["localhost:8000"]}]
+    assert scrape[0]["authorization"] == {"type": "Bearer", "credentials": "${env:METRICS_TOKEN}"}
+    assert scrape[0]["scrape_interval"] == "60s"
+    assert config["exporters"] == {"googlemanagedprometheus": {"project": "coga-test-project"}}
+    pipeline = config["service"]["pipelines"]["metrics"]
+    assert pipeline["receivers"] == ["prometheus"] and pipeline["exporters"] == ["googlemanagedprometheus"]
+    assert config["extensions"]["health_check"]["endpoint"] == "0.0.0.0:13133"
+    assert "8000" in _terraform("monitoring.tf").split("backend_port                  =")[1].splitlines()[0]
+
+
+def test_the_metrics_collector_runs_beside_the_backend_with_the_token_from_secret_manager() -> None:
+    cloudrun = _terraform("cloudrun.tf")
+    # Both containers read the same secret; the backend's port is the one the collector scrapes.
+    assert cloudrun.count("secret  = google_secret_manager_secret.metrics_token.secret_id") == 2
+    assert 'name  = "backend"' in cloudrun and "container_port = local.backend_port" in cloudrun
+    assert 'name  = "metrics-collector"' in cloudrun
+    assert 'args  = ["--config=env:OTELCOL_CONFIG"]' in cloudrun
+    assert "value = local.metrics_collector_config" in cloudrun
+    assert cloudrun.count("for_each = var.metrics_collection_enabled ? [1] : []") == 2
+    assert "google_secret_manager_secret_iam_member.backend_metrics_token," in cloudrun
+    monitoring = _terraform("monitoring.tf")
+    assert 'secret_id = "${local.name_prefix}-metrics-token"' in monitoring
+    assert 'member    = "serviceAccount:${local.backend_sa_email}"' in monitoring
+    # The token never reaches the migration job, which does not need it.
+    assert "metrics_token" not in _terraform("migrate.tf")
+    # The operator adds the token's value with the other secrets.
+    assert "coga-metrics-token" in (REPO / "docs" / "deployment-gcp.md").read_text()
+
+
+def test_the_metrics_collector_image_is_pinned_by_digest() -> None:
+    variables = _terraform("variables.tf")
+    default = re.search(r'variable "metrics_collector_image"\s*\{[^}]*default\s*=\s*"([^"]+)"', variables)
+    assert default, "no metrics_collector_image default"
+    assert re.search(r"@sha256:[0-9a-f]{64}$", default.group(1)), default.group(1)
+    assert 'can(regex("@sha256:[0-9a-f]{64}$", var.metrics_collector_image))' in variables
+
+
+def test_the_alerting_warns_when_it_would_be_toothless() -> None:
+    # check blocks warn at plan and apply without failing them.
+    monitoring = _terraform("monitoring.tf")
+    assert 'check "alerts_reach_someone"' in monitoring
+    assert "length(var.alert_notification_emails) > 0" in monitoring
+    assert 'check "uptime_checkers_pass_the_allowlist"' in monitoring
+    assert "!(var.uptime_check_enabled && length(var.allowed_ingress_cidrs) > 0)" in monitoring
+    assert monitoring.count("notification_channels = local.alert_channels") == 2
+
+
 def test_the_repository_carries_one_version() -> None:
     # build.yml runs the release check only after a merge; running it here fails a pull
     # request that bumps VERSION without the frontend package, or makes VERSION malformed.

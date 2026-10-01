@@ -45,6 +45,7 @@ configuration addresses are tracked in [TF-13 §3](../docs/regulatory/TF-13-cybe
 | `secrets.tf`, `tls.tf` | the Secret Manager containers and grants; the private CA and ClickHouse certificate |
 | `storage.tf` | the two buckets and their grants |
 | `egress.tf` | the ClickHouse egress lockdown (below) |
+| `monitoring.tf` | the metrics token, the collector's configuration (`scripts/metrics-collector.yaml.tftpl`; the collector itself is a second container of the backend in `cloudrun.tf`), the alert policies and their email channels, and the uptime check ([docs/monitoring.md](../docs/monitoring.md)) |
 | `scripts/` | the ClickHouse VM's startup, certificate-refresh and shutdown scripts |
 
 ## Boundary with the central infra repo

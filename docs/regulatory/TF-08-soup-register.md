@@ -98,13 +98,14 @@ are not installed in the production image, and the non-blocking dev-tree audit r
 | ClickHouse | 26.8 LTS (26.8.14.3) — compose, CI and the Terraform VM pinned by digest (`clickhouse-server:26.8@sha256:4769eec…`) | Variant & interval-track store | H |
 | Backend base image | `python:3.12-slim@sha256:f77ac9e…` (Python 3.12.14) | Runtime packaging | M |
 | Frontend base image | `node:22-alpine@sha256:0a7108b…` | Runtime packaging | M |
+| Metrics collector | Google-Built OpenTelemetry Collector 0.160.0 — Terraform pinned by digest (`otelcol-google:0.160.0@sha256:2bebb88…`) | Scrapes the backend's `/metrics` beside it on Cloud Run and writes to Managed Service for Prometheus for the alert policies (operations, outside the clinical path) | L |
 
 All container images are pinned by digest in the Dockerfiles, compose, CI and Terraform; the
 digests are the authoritative identity, the tags are for reading. Dependabot proposes a new
 digest when a pinned tag is rebuilt, for the Dockerfiles and compose. It proposes no new
 version line, because a new Python, Node, PostgreSQL or ClickHouse line is a runtime change
-with its own change record (A.4). The CI service images and the Terraform ClickHouse image are
-not covered and are updated by hand alongside.
+with its own change record (A.4). The CI service images, the Terraform ClickHouse image and the
+metrics collector image are not covered and are updated by hand alongside.
 
 ### A.4 Runtime platform support status
 
