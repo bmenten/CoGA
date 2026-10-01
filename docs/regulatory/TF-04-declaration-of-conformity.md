@@ -33,7 +33,7 @@ the relevant general safety and performance requirements of Annex I.
 | Legal entity | Ghent University Hospital (UZ Gent) |
 | Address | Corneel Heymanslaan 10, 9000 Gent, Belgium *(as written in the BELAC scope annex)* |
 | Accreditation | EN ISO 15189:2022 — BELAC accreditation **351-MED**, **certificate version 9**, validity **2026-09-11 → 2031-09-10**; scope annex **BELAC 351-MED V. 21**, with the same validity. Source: [351-MED certificate + scope annex (BELAC)](https://ng3.economie.fgov.be/NI/belac/medilabs/scope_pdf/351-MED.pdf), retrieved 2026-09-30. BELAC replaces the file at that address with each new version, so a dated copy of the cited version belongs in the CMGG QMS. **🔲 QA:** file a dated copy of certificate version 9 and scope annex V. 21 (document control, [TF-07 §3](TF-07-software-lifecycle-plan.md)). |
-| Responsible contact | Björn Menten — Lab director / project lead, <bjorn.menten@ugent.be> |
+| Responsible contact | The project lead and developer, who is also the lab director (named in the KHB), <bjorn.menten@ugent.be> |
 
 > **🔲 RA DECISION REQUIRED — the declaring institution and the accreditation holder are not
 > the same legal person.** Verified against the BELAC source on 2026-09-30: certificate 351-MED
