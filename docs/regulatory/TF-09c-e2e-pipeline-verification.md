@@ -64,6 +64,7 @@ Each suite drives the real stack and asserts against `EXPECTED.yaml`. Skipped un
 | Query/API contracts feeding the UI (small/SV pages, explorer, BED, haplotypes, track-availability) | [test_e2e_api_contract.py](../../backend/tests/e2e/test_e2e_api_contract.py) |
 | Clinical review → ACMG recompute, immutable audit chain, signed report | [test_e2e_review_audit.py](../../backend/tests/e2e/test_e2e_review_audit.py) |
 | Failure/degradation handling + job lifecycle (fail-clean) | [test_e2e_failure_modes.py](../../backend/tests/e2e/test_e2e_failure_modes.py) |
+| A partly failed import's flag stays through an import that completes without the failed dataset, keeps an earlier failure when a later import fails too (each with its job), and goes once the failed datasets are imported again (TF-06 H16) | [test_e2e_import_incomplete_until_reimported.py](../../backend/tests/e2e/test_e2e_import_incomplete_until_reimported.py) |
 | An import whose process stops part-way (inside a dataset, between datasets, or in an overwrite of an existing family): the family stays marked and gates sign-out, the stopped job is ended rather than run again and an overwrite's backup of the family dropped with it, only an overwrite clears the mark (TF-06 H16) | [test_e2e_import_crash_leaves_family_marked.py](../../backend/tests/e2e/test_e2e_import_crash_leaves_family_marked.py) |
 | Realistic demo bundles through their real ingestion paths | [test_e2e_demo_smoke.py](../../backend/tests/e2e/test_e2e_demo_smoke.py) |
 | Haplotype / lineage stage against the real stack (PGT segregation) | [test_e2e_haplotypes.py](../../backend/tests/e2e/test_e2e_haplotypes.py) |
@@ -83,6 +84,9 @@ The verification **passes** when, on clean datastores:
   edit is detected (tamper-**evident**) and the audit table rejects UPDATE/DELETE (append-only);
 - a report signs out, increments version, and its chain verifies;
 - a malformed/failed import is reported **failed** and leaves **no partial family** (fail-clean);
+- a family left partly loaded by a failed import stays **flagged** until its failed datasets
+  are imported again, a later failure keeping the earlier one, and the sign-out refuses it
+  without an acknowledgement meanwhile;
 - an import whose process stops part-way leaves its family **marked**, naming the datasets it had
   not finished, and the sign-out refuses it without an acknowledgement; its job is ended
   `failed` with its log kept, not run again, and an overwrite's backup tables are dropped; an

@@ -61,6 +61,7 @@ from .family_package_jobs import (
     _update_job_progress,
 )
 from .family_package_registration import (
+    FailuresLeft,
     ImportMark,
     _FINISHED_DATASET_STATUSES,
     _end_import_failed_before_datasets,
@@ -117,6 +118,25 @@ def _still_unfinished_message(family_id: str, remaining: Mapping[str, Any]) -> s
         f"part-way ({'; '.join(stopped)}), and what it had not finished may be partly "
         "written. This import did not replace it (an update keeps the data already there); "
         "import those datasets again with overwrite to complete the family."
+    )
+
+
+def _still_failed_message(family_id: str, failures: FailuresLeft) -> str:
+    """The log line of an import that completed while the family stays flagged by an
+    earlier import's failure it did not import again."""
+    if failures.unreadable:
+        return (
+            f"Family {family_id} stays flagged import-incomplete: its flag is not in the shape "
+            "an import writes, so nothing shows what would complete it."
+        )
+    by_job: dict[str, list[str]] = {}
+    for name, job_id in sorted(failures.failed.items()):
+        by_job.setdefault(f"import job {job_id}" if job_id else "an import", []).append(name)
+    failed = "; ".join(f"{', '.join(names)} in {job}" for job, names in sorted(by_job.items()))
+    return (
+        f"Family {family_id} stays flagged import-incomplete: an earlier import failed for "
+        f"datasets this import did not import again ({failed}). Import them again to "
+        "complete the family."
     )
 
 
@@ -461,6 +481,10 @@ async def _import_family_datasets(
 
     failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
     imported_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "imported"]
+    # What each imported dataset replaced (dataset_scopes): an earlier import's failure or
+    # unfinished entry for the same scope is completed by it.
+    mark_scopes: Mapping[str, Any] = import_mark.scopes if import_mark is not None else {}
+    imported_scopes = {name: mark_scopes.get(name) for name in imported_datasets}
 
     # Fail-clean. A failed import must not leave a silently-partial family behind:
     #   * NEW family, and NOTHING imported -> compensate by deleting the freshly-created
@@ -519,6 +543,8 @@ async def _import_family_datasets(
             # clear it so the flag write below can run.
             with suppress(Exception):
                 await session.rollback()
+            # What the restore left of the datasets this import wrote is not known, so
+            # none of them counts as imported again for an earlier failure.
             await _flag_family_import_incomplete(
                 session,
                 family_context,
@@ -526,6 +552,8 @@ async def _import_family_datasets(
                 imported_datasets=imported_datasets,
                 job_id=job_id,
                 import_key=import_key,
+                scopes=mark_scopes,
+                imported_scopes={},
             )
             logs.append(
                 "Import failed and the snapshot restore also failed; flagged the family "
@@ -539,6 +567,8 @@ async def _import_family_datasets(
             imported_datasets=imported_datasets,
             job_id=job_id,
             import_key=import_key,
+            scopes=mark_scopes,
+            imported_scopes=imported_scopes,
         )
         logs.append(
             "Import left the family partially populated (some datasets failed); flagged "
@@ -564,31 +594,29 @@ async def _import_family_datasets(
     else:
         error = None
         logs.append("Family package import completed.")
-        # A fully-successful (re)import clears any stale incompleteness flag left by a
-        # prior failed update/overwrite so a now-complete family isn't misreported, and its
-        # own unfinished-import entry. An earlier import that stopped part-way keeps its
-        # entry unless this one imported again, replacing them, the datasets it had not
-        # finished: only an overwrite replaces what is there.
+        # A fully-successful (re)import removes its own unfinished-import entry, and what
+        # of the family's import-incomplete flag it imported again: a failed dataset stays
+        # flagged until an import imports it again. An earlier import that stopped
+        # part-way keeps its entry unless this one imported again, replacing them, the
+        # datasets it had not finished: only an overwrite replaces what is there.
         if not compensated and session is not None:
-            rewritten = (
-                {
-                    dataset.dataset_type: import_mark.scopes.get(dataset.dataset_type)
-                    for dataset in datasets
-                    if dataset.status == "imported"
-                }
-                if conflict_mode == "overwrite" and import_mark is not None
-                else {}
+            left = await _clear_family_import_incomplete(
+                session,
+                family_context,
+                import_key=import_key,
+                rewritten=imported_scopes if conflict_mode == "overwrite" else {},
+                imported=imported_scopes,
             )
-            remaining = await _clear_family_import_incomplete(
-                session, family_context, import_key=import_key, rewritten=rewritten
-            )
-            if remaining is None:
+            if left is None:
                 logs.append(
                     "The family's import-incomplete marks could not be cleared, so it stays "
                     "marked import-incomplete; an import that completes clears them."
                 )
-            elif remaining:
-                logs.append(_still_unfinished_message(family_context.family_id, remaining))
+            else:
+                if left.failures.failed or left.failures.unreadable:
+                    logs.append(_still_failed_message(family_context.family_id, left.failures))
+                if left.unfinished:
+                    logs.append(_still_unfinished_message(family_context.family_id, left.unfinished))
 
     # (Re)importing variant data changes the prioritised ranking. The cache's input hash
     # covers the family's storage-level data version, so an outdated ranking is already

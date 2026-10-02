@@ -2,7 +2,8 @@
 
 A family-package import that partly fails leaves the family in place and stamps
 ``families.metadata.import_incomplete`` (``_flag_family_import_incomplete``); a later
-fully successful import clears it (``_clear_family_import_incomplete``). Sign-out reads
+import that completes having imported the failed datasets again clears it
+(``_clear_family_import_incomplete``). Sign-out reads
 the flag from the same row. This drives the REAL flag writers, the sign-out writer and
 the sign-out readers against the real schema:
 
@@ -272,11 +273,17 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                 assert after["acknowledged_import_incomplete"] is True
                 assert after["import_incomplete_acknowledgement_reason"] == _REASON
 
-            # (d) A clean re-import clears the flag (the real helper). The page check sees
+            # (d) A re-import that imports the failed datasets again clears the flag (the
+            # real helper); one that completes without them leaves it. The page check sees
             # the import state differ from the acknowledged record, through the JSONB
             # round-trip; sign-out then needs no acknowledgement.
             async with sm() as s:
-                await _clear_family_import_incomplete(s, _context())
+                left = await _clear_family_import_incomplete(
+                    s, _context(), imported={"coverage": None}
+                )
+                assert left is not None and set(left.failures.failed) == {"snv", "sv"}
+            async with sm() as s:
+                await _clear_family_import_incomplete(s, _context(), imported={"snv": None, "sv": None})
             async with sm() as s:
                 check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
                 assert check["version"] == 2

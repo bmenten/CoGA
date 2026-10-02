@@ -12,7 +12,11 @@ import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { joinWithAnd } from '../../lib/format';
-import { pendingDatasets, type FamilyImportUnfinished } from '../../components/ImportIncompleteBanner';
+import {
+  failuresByJob,
+  pendingDatasets,
+  type FamilyImportUnfinished,
+} from '../../components/ImportIncompleteBanner';
 import {
   useReportSignoutCheck,
   useReportSignouts,
@@ -327,7 +331,13 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
                   ? `; ${joinWithAnd(failedImport.importedDatasets)} did import`
                   : ''}
                 {failedImport.at ? ` (import of ${formatReportTime(failedImport.at)})` : ''}.
-                {failedImport.jobId ? ` Import job ${failedImport.jobId}.` : ''}{' '}
+                {failuresByJob(failedImport)
+                  ? ` Import jobs: ${failuresByJob(failedImport)!
+                      .map(([job, names]) => `${joinWithAnd(names)} in ${job}`)
+                      .join('; ')}.`
+                  : failedImport.jobId
+                    ? ` Import job ${failedImport.jobId}.`
+                    : ''}{' '}
               </>
             ) : null}
             {unfinished.map((entry) => (

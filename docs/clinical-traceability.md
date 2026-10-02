@@ -156,10 +156,11 @@ Five gates run first, in this order:
    `metadata.import_unfinished` before its first write of the family gates the same way, in
    the same 409 (`import_unfinished`, naming the job and the datasets it had not finished,
    which may be partly written or missing), and the one acknowledgement covers both. Every
-   family page shows *Import incomplete* while either is set. A later import that completes
-   clears the flag; only one that completes with `overwrite` and imports again the datasets
-   a stopped import had not finished, for the same samples and small-variant source,
-   removes its entry.
+   family page shows *Import incomplete* while either is set. The flag clears only once an
+   import has imported each failed dataset again (in any mode, for the same samples and
+   small-variant source; a later failure keeps an earlier one's failed datasets, each with its
+   job, `failed_jobs`); only one that completes with `overwrite` and imports again the
+   datasets a stopped import had not finished, for that scope, removes its entry.
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 

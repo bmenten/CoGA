@@ -74,9 +74,9 @@ class _Family:
 
     ``unfinished`` is ``metadata.import_unfinished`` and ``incomplete`` is
     ``metadata.import_incomplete``. A statement is told apart by what it binds: the
-    mark binds an ``entry``, the failure flag a ``payload``, the success path's clear the
-    ``remaining`` map it computed under the row's lock, and the end of a put-back import
-    only its ``import_key``.
+    mark binds an ``entry``, an import's failure the merged flag as a ``payload``, the
+    success path's clear the ``flag`` and ``unfinished`` it computed under the row's lock,
+    and the end of a put-back import only its ``import_key``.
     """
 
     def __init__(self) -> None:
@@ -96,27 +96,27 @@ class _FamilySession:
         sql = " ".join(str(statement).split())
         params = params or {}
         family = self.family
-        if sql.startswith("SELECT metadata -> 'import_unfinished'"):
-            stored = json.loads(json.dumps(family.unfinished)) or None
-            return SimpleNamespace(scalar_one_or_none=lambda: stored)
+        if sql.startswith("SELECT"):
+            # The row's import state, read under its lock.
+            row = {
+                "family_uuid": "family-uuid",
+                "flag": json.loads(json.dumps(family.incomplete)),
+                "unfinished": json.loads(json.dumps(family.unfinished)) or None,
+            }
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
         assert sql.startswith("UPDATE families"), f"unmodelled statement: {sql}"
         if "entry" in params:
             family.unfinished[params["import_key"]] = json.loads(params["entry"])
             family.events.append(("marked", sorted(family.unfinished[params["import_key"]]["finished_datasets"])))
-        elif "payload" in params and "family_id" in params:
-            # An import that failed before its first dataset: only where its entry is.
-            if params["import_key"] not in family.unfinished:
-                return SimpleNamespace(rowcount=0)
-            family.unfinished.pop(params["import_key"])
-            family.incomplete = json.loads(params["payload"])
-            family.events.append(("failed before its datasets",))
         elif "payload" in params:
+            # An import's failure: the merged flag, and its own entry removed.
             family.unfinished.pop(params.get("import_key"), None)
             family.incomplete = json.loads(params["payload"])
             family.events.append(("flagged",))
-        elif "remaining" in params:
-            family.unfinished = json.loads(params["remaining"])
-            family.incomplete = None
+        elif "flag" in params:
+            # A completed import's clear: what is left of the flag and of the entries.
+            family.incomplete = json.loads(params["flag"])
+            family.unfinished = json.loads(params["unfinished"]) or {}
             family.events.append(("cleared",))
         else:
             family.unfinished.pop(params["import_key"], None)
@@ -488,6 +488,78 @@ async def test_an_overwrite_that_imports_what_the_stopped_import_had_not_finishe
     assert result.completed is True
     assert family.unfinished == {} and family.incomplete is None
     assert not any("stays marked" in line for line in result.logs)
+
+
+# --- the import_incomplete flag stays until what failed is imported again ----------------
+
+
+@pytest.mark.asyncio
+async def test_a_failed_dataset_stays_flagged_until_an_import_imports_it_again(family, monkeypatch) -> None:
+    _datasets(monkeypatch, {"snv": "imported", "coverage": RuntimeError("bad BED")})
+    await _import(family, job_id="job-1")
+    assert family.incomplete["failed_datasets"] == ["coverage"]
+
+    # An update of snv alone completes; coverage is still missing, so the flag stays.
+    _datasets(monkeypatch, {"snv": "imported"})
+    result = await _import(family, job_id="job-2")
+    assert result.completed is True
+    # Before: any import that completed cleared it.
+    assert family.incomplete["failed_datasets"] == ["coverage"]
+    assert family.incomplete["failed_jobs"] == {"coverage": "job-1"}
+    note = next(line for line in result.logs if "stays flagged import-incomplete" in line)
+    assert "coverage in import job job-1" in note
+
+    # One that imports coverage again -- an update will do -- clears it.
+    _datasets(monkeypatch, {"coverage": "imported"})
+    await _import(family, job_id="job-3")
+    assert family.incomplete is None
+
+
+@pytest.mark.asyncio
+async def test_a_later_failure_keeps_the_earlier_failed_dataset(family, monkeypatch) -> None:
+    _datasets(monkeypatch, {"snv": "imported", "coverage": RuntimeError("bad BED")})
+    await _import(family, job_id="job-1")
+
+    _datasets(monkeypatch, {"sv_needlr": RuntimeError("bad VCF")})
+    await _import(family, job_id="job-2")
+
+    # Before: the second failure's flag replaced the first; coverage was forgotten.
+    assert family.incomplete["failed_datasets"] == ["coverage", "sv_needlr"]
+    assert family.incomplete["failed_jobs"] == {"coverage": "job-1", "sv_needlr": "job-2"}
+
+
+@pytest.mark.asyncio
+async def test_after_a_failed_restore_nothing_the_import_wrote_counts_as_imported_again(
+    family, monkeypatch
+) -> None:
+    _datasets(monkeypatch, {"snv": RuntimeError("ClickHouse insert failed"), "coverage": "imported"})
+    await _import(family, job_id="job-1")
+    assert family.incomplete["failed_datasets"] == ["snv"]
+
+    # An overwrite imports snv, fails coverage, and cannot put the family back: what it
+    # wrote of snv is not known any more.
+    _datasets(monkeypatch, {"snv": "imported", "coverage": RuntimeError("bad BED")})
+
+    async def snapshot(*_args: Any, **_kwargs: Any) -> str:
+        return "snapshot"
+
+    async def restore_fails(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("restore failed")
+
+    async def discard(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    for name, value in {
+        "snapshot_family_postgres_state": snapshot,
+        "snapshot_family_clickhouse_state": snapshot,
+        "restore_family_clickhouse_state": restore_fails,
+        "discard_family_clickhouse_snapshot": discard,
+    }.items():
+        monkeypatch.setattr(package_import, name, value)
+    await _import(family, conflict_mode="overwrite", job_id="job-2")
+
+    assert family.incomplete["failed_datasets"] == ["coverage", "snv"]
+    assert family.incomplete["failed_jobs"] == {"coverage": "job-2", "snv": "job-1"}
 
 
 # --- the job: its heartbeat, its record, and a worker that finds it stopped -------------

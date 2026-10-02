@@ -1432,9 +1432,13 @@ class _ScalarSession:
         return types.SimpleNamespace(scalar_one_or_none=lambda: value)
 
 
+# As the reader freezes a flag that names one job: that job holds each dataset's error.
+_INCOMPLETE_READ = {**_INCOMPLETE, "failed_jobs": {"snv": _IMPORT_JOB_ID, "sv": _IMPORT_JOB_ID}}
+
+
 def test_the_import_flag_is_read_from_the_family_metadata() -> None:
     session = _ScalarSession(dict(_INCOMPLETE))
-    assert asyncio.run(rss._import_incomplete_state(session, "u1")) == _INCOMPLETE
+    assert asyncio.run(rss._import_incomplete_state(session, "u1")) == _INCOMPLETE_READ
     sql, params = session.executed[0]
     assert "import_incomplete" in sql and "families" in sql
     assert params == {"family_uuid": "u1"}  # bound, never interpolated
@@ -1447,13 +1451,16 @@ def test_the_import_flag_reader_is_deterministic_and_fails_safe() -> None:
     # No flag: a complete import.
     assert read(None) is None
     # A driver that hands jsonb back as text reads the same.
-    assert read(json.dumps(_INCOMPLETE)) == _INCOMPLETE
+    assert read(json.dumps(_INCOMPLETE)) == _INCOMPLETE_READ
     # Dataset lists are frozen sorted and de-duplicated, so the hash is stable.
     messy = {"at": _INCOMPLETE["at"], "failed_datasets": ["sv", "snv", "sv"], "imported_datasets": []}
     assert read(messy)["failed_datasets"] == ["snv", "sv"]
+    # Each failed dataset's job: the one the flag names for it, else the flag's own.
+    kept = {**_INCOMPLETE, "failed_jobs": {"sv": "job-earlier", "snv": 7}}
+    assert read(kept)["failed_jobs"] == {"snv": _IMPORT_JOB_ID, "sv": "job-earlier"}
     # Set, but not in the shape the import writes: still incomplete — it gates, with
     # nothing to name — rather than being taken for a complete import.
-    unknown = {"at": None, "failed_datasets": [], "imported_datasets": [], "job_id": None}
+    unknown = {"at": None, "failed_datasets": [], "imported_datasets": [], "job_id": None, "failed_jobs": {}}
     assert read(True) == unknown
     assert read({}) == unknown
     assert read("not json") == unknown
@@ -1465,7 +1472,7 @@ def test_an_old_flag_without_an_import_job_still_gates(monkeypatch) -> None:
     # Flags written before the job was recorded carry only the datasets. They read and
     # gate the same, with no job to point to.
     state = asyncio.run(rss._import_incomplete_state(_ScalarSession(dict(_OLD_INCOMPLETE)), "u1"))
-    assert state == {**_OLD_INCOMPLETE, "job_id": None}
+    assert state == {**_OLD_INCOMPLETE, "job_id": None, "failed_jobs": {"snv": None, "sv": None}}
     assert "import job" not in rss._import_gate_message(state)
 
     _patch_common(monkeypatch, drifted_count=0, import_incomplete=state)
@@ -1630,6 +1637,20 @@ def test_the_unfinished_import_reader_is_deterministic_and_fails_safe() -> None:
     assert read(["a list"]) == {"unreadable": unknown}
     assert read({"k": "not an entry"}) == {"k": unknown}
     assert read({"k": {**messy["k"], "job_id": 7}})["k"]["job_id"] is None
+
+
+def test_the_gate_message_names_each_failed_datasets_job() -> None:
+    # A later failure keeps an earlier one's failed dataset: each error is in its own job.
+    state = {**_INCOMPLETE, "failed_jobs": {"snv": _IMPORT_JOB_ID, "sv": "job-earlier"}}
+    message = rss._import_gate_message(state)
+    assert (
+        f"Each dataset's error is recorded in its import job: snv in import job {_IMPORT_JOB_ID}; "
+        "sv in import job job-earlier." in message
+    )
+    # One job for all: the sentence it always had.
+    assert f"Each dataset's error is recorded in import job {_IMPORT_JOB_ID}." in rss._import_gate_message(
+        _INCOMPLETE_READ
+    )
 
 
 def test_the_gate_message_of_a_stopped_import_that_recorded_nothing() -> None:

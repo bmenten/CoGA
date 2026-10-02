@@ -83,6 +83,21 @@ describe('ImportIncompleteBanner', () => {
     expect(banner).toHaveTextContent(/Sign-out needs this acknowledged with a reason/);
   });
 
+  it('names the job of each failed dataset when a later failure kept an earlier one', () => {
+    render(
+      <ImportIncompleteBanner
+        metadata={{ import_incomplete: { ...FLAG, failed_jobs: { snv: 'job-earlier', sv: FLAG.job_id } } }}
+      />,
+    );
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(
+      `Each dataset’s error is recorded in its import job: snv in import job job-earlier; sv in import job ${FLAG.job_id}.`,
+    );
+    // Not the import as a whole: what failed is imported again.
+    expect(banner).toHaveTextContent(/Import what failed again to complete it\./);
+  });
+
   it('names a failed import and an unfinished one together', () => {
     render(
       <ImportIncompleteBanner metadata={{ import_incomplete: FLAG, import_unfinished: UNFINISHED }} />,
@@ -167,6 +182,8 @@ describe('importIncompleteFromMetadata', () => {
       failedDatasets: ['snv', 'sv'],
       importedDatasets: ['coverage'],
       jobId: FLAG.job_id,
+      // A flag naming one job: it holds every dataset's error.
+      failedJobs: { snv: FLAG.job_id, sv: FLAG.job_id },
     });
     expect(importIncompleteFromMetadata({ import_incomplete: OLD_FLAG })?.jobId).toBeNull();
     expect(
@@ -176,7 +193,7 @@ describe('importIncompleteFromMetadata', () => {
 
   it('takes a flag of another shape as incomplete, with nothing to name', () => {
     // As sign-out does: a set flag is never read as a complete import.
-    const unknown = { at: null, failedDatasets: [], importedDatasets: [], jobId: null };
+    const unknown = { at: null, failedDatasets: [], importedDatasets: [], jobId: null, failedJobs: {} };
     expect(importIncompleteFromMetadata({ import_incomplete: 'yes' })).toEqual(unknown);
     expect(importIncompleteFromMetadata({ import_incomplete: {} })).toEqual(unknown);
     expect(

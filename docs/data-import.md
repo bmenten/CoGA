@@ -230,9 +230,15 @@ that looks complete:
 - A new family where nothing imported is removed again.
 - A failed `overwrite` of an existing family is put back to its state before the import.
 - In any other case the datasets that did import are kept, and the family is flagged as
-  import-incomplete (`families.metadata.import_incomplete`) until a later import succeeds.
-  The flag holds the datasets that failed and those that imported, the time and the import
-  job's id; the job's record holds each dataset's error, which the flag does not copy.
+  import-incomplete (`families.metadata.import_incomplete`). The flag holds the datasets that
+  failed and those that imported, the time and the import job's id; the job's record holds
+  each dataset's error, which the flag does not copy. It stays until an import has imported
+  each failed dataset again, for the same samples and (for the small variants) the same
+  `source_format`; an import that completes without one leaves it flagged, and says so in its
+  log. An update will do: the failing loader's rows were rolled back or cleaned up, so the
+  update finds none and imports the dataset whole (one whose rows stayed is skipped, and a
+  skipped dataset does not count). A later failure keeps an earlier one's failed datasets in
+  the flag, each with the job that holds its error (`failed_jobs`).
 
 An import whose process stops part-way does none of this: nothing runs in a process that
 has ended. So an import marks the family before it writes anything of it, with an entry in

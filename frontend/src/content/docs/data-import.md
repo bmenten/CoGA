@@ -179,8 +179,10 @@ without chrM variants removes that sample's calls.
   page and in the same section of the clinical report. Tool versions are in the report's provenance
   footer.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
-  page shows *Import incomplete* until an import completes it, and its report can be signed out only
-  with an acknowledgement ([Report traceability & sign-out](/docs/reference/clinical-traceability)).
+  page shows *Import incomplete* until an import has imported each dataset that failed again (an
+  **update** will do), and its report can be signed out only with an acknowledgement
+  ([Report traceability & sign-out](/docs/reference/clinical-traceability)). An import that completes
+  without them leaves the warning, and says so in its log.
 - **An import that stopped part-way** (the server restarted, or ran out of memory, while it ran) is not
   run again: about ten minutes later its job ends as *failed*, interrupted, with its log as the import
   left it. The family shows *Import incomplete*, naming the datasets the import had not finished: they

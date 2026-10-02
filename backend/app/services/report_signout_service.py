@@ -262,6 +262,11 @@ async def _import_incomplete_state(
     Fails safe: a flag that is set but not in the shape the import writes still counts
     as incomplete, with nothing to name. A flag written before the job was recorded
     reads the same, with ``job_id`` None.
+
+    ``failed_jobs`` names, for each failed dataset, the import job whose record holds its
+    error: a later failure keeps an earlier import's failed datasets in the flag
+    (``family_package_registration.merged_import_failure``), so they can come from
+    different jobs. A flag without it names its own job for every dataset.
     """
     raw = (
         await session.execute(
@@ -291,6 +296,14 @@ async def _import_incomplete_state(
         )
     job_id = flag.get("job_id")
     state["job_id"] = job_id if isinstance(job_id, str) and job_id else None
+    jobs = flag.get("failed_jobs")
+    failed_jobs: dict[str, str | None] = {}
+    for name in state["failed_datasets"]:
+        dataset_job = jobs.get(name) if isinstance(jobs, Mapping) else None
+        failed_jobs[name] = (
+            dataset_job if isinstance(dataset_job, str) and dataset_job else state["job_id"]
+        )
+    state["failed_jobs"] = failed_jobs
     return state
 
 
@@ -386,11 +399,22 @@ def _import_gate_message(
                 f"a package import{when} did not complete, and which datasets it left out "
                 "was not recorded"
             )
-        job = (
-            f" Each dataset's error is recorded in import job {state['job_id']}."
-            if state.get("job_id")
-            else ""
-        )
+        jobs = state.get("failed_jobs")
+        by_job: dict[str, list[str]] = {}
+        if isinstance(jobs, Mapping):
+            for name in failed:
+                if jobs.get(name):
+                    by_job.setdefault(str(jobs[name]), []).append(str(name))
+        if len(by_job) > 1:
+            # An earlier import's failure kept with a later one's: name each one's job.
+            job = " Each dataset's error is recorded in its import job: " + "; ".join(
+                f"{', '.join(names)} in import job {job_id}"
+                for job_id, names in sorted(by_job.items(), key=lambda item: item[1])
+            ) + "."
+        elif state.get("job_id"):
+            job = f" Each dataset's error is recorded in import job {state['job_id']}."
+        else:
+            job = ""
         findings.append(f"{what}. The report may lack data from what failed.{job}")
     findings.extend(_unfinished_import_clause(entry) for entry in stopped)
     if stopped:

@@ -58,6 +58,8 @@ import { apiPath, raw } from '../../lib/apiPath';
 import { memberLabel } from '../../lib/familyMembers';
 import { joinWithAnd } from '../../lib/format';
 import {
+  failuresByJob,
+  importIncompleteFromMetadata,
   importUnfinishedFromMetadata,
   pendingDatasets,
   type FamilyImportUnfinished,
@@ -462,6 +464,7 @@ const LiveFamilyReport: React.FC = () => {
     failed: string[];
     imported: string[];
     jobId: string | null;
+    failedByJob: [string, string[]][] | null;
     unfinished: FamilyImportUnfinished[];
   } | null>(null);
   const [importReason, setImportReason] = useState('');
@@ -560,6 +563,7 @@ const LiveFamilyReport: React.FC = () => {
             failed_datasets?: string[];
             imported_datasets?: string[];
             job_id?: string | null;
+            failed_jobs?: Record<string, string | null>;
           } | null;
         };
         setImportGate({
@@ -567,6 +571,16 @@ const LiveFamilyReport: React.FC = () => {
           failed: incomplete.import_incomplete?.failed_datasets ?? [],
           imported: incomplete.import_incomplete?.imported_datasets ?? [],
           jobId: incomplete.import_incomplete?.job_id ?? null,
+          // The jobs that hold the failed datasets' errors, when more than one does.
+          failedByJob: failuresByJob(
+            importIncompleteFromMetadata(detail) ?? {
+              at: null,
+              failedDatasets: [],
+              importedDatasets: [],
+              jobId: null,
+              failedJobs: {},
+            },
+          ),
           // The imports that began writing the family and did not finish (detail.import_unfinished).
           unfinished: importUnfinishedFromMetadata(detail),
           vars,
@@ -932,8 +946,17 @@ const LiveFamilyReport: React.FC = () => {
                 {importGate.imported.length ? (
                   <li>Imported: {importGate.imported.join(', ')}</li>
                 ) : null}
-                {/* Its record holds each dataset's error. */}
-                {importGate.jobId ? <li>Import job: {importGate.jobId}</li> : null}
+                {/* Its record holds each dataset's error; an earlier failure kept with a
+                    later one is in its own job. */}
+                {importGate.failedByJob ? (
+                  importGate.failedByJob.map(([job, names]) => (
+                    <li key={job}>
+                      Import job {job}: {names.join(', ')}
+                    </li>
+                  ))
+                ) : importGate.jobId ? (
+                  <li>Import job: {importGate.jobId}</li>
+                ) : null}
                 {/* An import that stopped part-way: its record shows how far it got. */}
                 {importGate.unfinished.map((entry) => (
                   <li key={entry.key}>
