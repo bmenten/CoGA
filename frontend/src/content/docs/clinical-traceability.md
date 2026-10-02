@@ -117,7 +117,7 @@ Sign-out stops at each of these, in this order:
 | **Data being written** | A data import of the family is queued or running, or its variants are being written (an upload or a deletion). | No override: sign out once it has finished. |
 | **Evidence drift** | A reported classification, of a small variant, a structural variant or a CNV, drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
 | **Sample QC** | Sample QC failed, or a check that confirms the pedigree could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
-| **Incomplete import** | A data import for the family partly failed, so some of its data is missing. The pages carry *Import incomplete* (below). | Re-run the import, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
+| **Incomplete import** | A data import for the family partly failed, or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Re-run the import, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
 so "signed out over a known problem, and why" is part of the permanent record.
@@ -139,6 +139,12 @@ whose record holds each dataset's error. The warning prints with the report.
 Results on such a family can lack whole datasets, for example all its structural variants. Re-run
 the import to complete the family; a complete import removes the warning. Signing out before then
 needs an acknowledgement with a reason, and the signed version records which datasets were missing.
+
+An import also marks the family before it writes anything of it, and removes the mark when it ends.
+While it runs the pages carry *Import incomplete* too. If it stops part-way (the server restarted,
+or ran out of memory), the mark stays: the warning names the import job and the datasets it had not
+finished, which may be partly written. Re-import those with **overwrite**: an update skips data that
+is already there, partly written data too, so only an overwrite removes the warning.
 
 ### Who may sign out
 

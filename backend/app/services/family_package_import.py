@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+from collections.abc import Mapping
+from contextlib import AsyncExitStack, suppress
 import logging
 import os
 from pathlib import Path
@@ -43,33 +44,71 @@ from .family_package_common import (
     ProgressCallback,
     _issue,
     _json_dict,
+    _json_list,
 )
 from .family_package_source import package_folder_path, staged_package_source_async
 from .family_package_validation import load_validated_family_package
-from .family_package_jobs import claim_next_family_import_job, _record_job_family, _update_job_progress
+from .family_package_jobs import (
+    claim_next_family_import_job,
+    _beat_family_import_job,
+    _record_job_family,
+    _update_job_progress,
+)
 from .family_package_registration import (
+    ImportMark,
+    _FINISHED_DATASET_STATUSES,
+    _end_import_failed_before_datasets,
+    _mark_family_import_unfinished,
+    dataset_scopes,
     _family_sample_contexts,
     _package_family_id,
     _ensure_family_from_ped,
     _delete_family_shell,
+    _end_family_import_unfinished,
     _flag_family_import_incomplete,
     _clear_family_import_incomplete,
+    _record_family_import_finished,
     _enabled_dataset_summaries,
     _normalized_conflict_mode,
     _execution_metadata,
     _merge_validation_metadata,
     _existing_package_entity_warnings,
+    pending_datasets,
 )
 from .family_package_datasets import _import_dataset
 
 logger = logging.getLogger(__name__)
 
 FAMILY_IMPORT_WORKER_POLL_SECONDS = 2.0
+# How often a running job's heartbeat is written, whatever its import is doing (waiting
+# for another writer's locks, copying a snapshot): a heartbeat older than
+# FAMILY_IMPORT_STALE_HEARTBEAT means the process running it has stopped.
+FAMILY_IMPORT_HEARTBEAT_SECONDS = 60.0
 
 
 class FamilyImportNotRecorded(RuntimeError):
     """The import job could not record the family it imports, so the import stopped
     before writing anything of it."""
+
+
+def _still_unfinished_message(family_id: str, remaining: Mapping[str, Any]) -> str:
+    """The log line of an import that completed while the family stays marked by an
+    earlier import that stopped part-way (its `import_unfinished` entry)."""
+    stopped: list[str] = []
+    for _key, entry in sorted(remaining.items()):
+        job_id = entry.get("job_id") if isinstance(entry, Mapping) else None
+        pending = pending_datasets(entry)
+        name = f"import job {job_id}" if isinstance(job_id, str) and job_id else "an import"
+        if pending:
+            stopped.append(f"{name}, which had not finished {', '.join(sorted(pending))}")
+        else:
+            stopped.append(f"{name}, which did not record what it had not finished")
+    return (
+        f"Family {family_id} stays marked import-incomplete: an earlier import stopped "
+        f"part-way ({'; '.join(stopped)}), and what it had not finished may be partly "
+        "written. This import did not replace it (an update keeps the data already there); "
+        "import those datasets again with overwrite to complete the family."
+    )
 
 
 async def db_pedigree_fallback(
@@ -224,15 +263,35 @@ async def _execute_family_package_import_local(
     # cannot record it stops here, having written nothing.
     if record_family is not None:
         await record_family(_package_family_id(validation, bundle))
-    logs.append("Registering family metadata and package provenance.")
-    family_context, family_created = await _ensure_family_from_ped(
-        session,
-        bundle=bundle,
-        project_id=project_id,
-        user=user,
-        validation=validation,
-        conflict_mode=conflict_mode,
+    # The family carries this import's entry in `import_unfinished` from before its first
+    # write until the import ends, so an import whose process stops part-way (a restart, a
+    # crash, out of memory: nothing below runs then) leaves the family marked, naming what
+    # it had not finished. Registration records it, or the import stops having written
+    # nothing.
+    dataset_types = [summary.dataset_type for summary in _enabled_dataset_summaries(validation)]
+    import_mark = ImportMark.begin(
+        job_id=job_id,
+        datasets=dataset_types,
+        scopes=dataset_scopes(bundle, dataset_types),
     )
+    logs.append("Registering family metadata and package provenance.")
+    try:
+        family_context, family_created = await _ensure_family_from_ped(
+            session,
+            bundle=bundle,
+            project_id=project_id,
+            user=user,
+            validation=validation,
+            conflict_mode=conflict_mode,
+            import_mark=import_mark,
+        )
+    except Exception:
+        # Failed before its first dataset: if it had marked the family, the mark becomes
+        # the import_incomplete flag, naming its datasets as failed (it wrote none).
+        await _end_import_failed_before_datasets(
+            session, family_id=_package_family_id(validation, bundle), mark=import_mark
+        )
+        raise
     sample_contexts = _family_sample_contexts(family_context)
     logs.append(
         f"Family {family_context.family_id} is registered with {len(sample_contexts)} sample(s)."
@@ -246,10 +305,26 @@ async def _execute_family_package_import_local(
     # be undone. The locks are held for the whole run on a connection of their own; the
     # dataset loaders take none of their own for this family. Taken after the family's
     # registration has committed, so this session holds no lock another writer waits for.
-    async with hold_family_variant_writes(
-        family_context.family_uuid,
-        samples=[sample.sample_uuid for sample in sample_contexts.values()],
-    ):
+    async with AsyncExitStack() as stack:
+        try:
+            await stack.enter_async_context(
+                hold_family_variant_writes(
+                    family_context.family_uuid,
+                    samples=[sample.sample_uuid for sample in sample_contexts.values()],
+                )
+            )
+            # The entry is written again now that this import holds the family's variant
+            # writes, before its first dataset: while it waited, another import of the
+            # family may have completed and removed it, its overwrite having replaced what
+            # the entry listed. No other import's ending runs while this one holds them.
+            await _mark_family_import_unfinished(
+                session, family_uuid=family_context.family_uuid, mark=import_mark
+            )
+        except Exception:
+            await _end_import_failed_before_datasets(
+                session, family_id=family_context.family_id, mark=import_mark
+            )
+            raise
         return await _import_family_datasets(
             session,
             bundle=bundle,
@@ -263,6 +338,7 @@ async def _execute_family_package_import_local(
             progress=progress,
             job_id=job_id,
             dry_run=dry_run,
+            import_mark=import_mark,
         )
 
 
@@ -280,9 +356,16 @@ async def _import_family_datasets(
     progress: ProgressCallback | None,
     job_id: str | None,
     dry_run: bool,
+    import_mark: ImportMark | None = None,
 ) -> PackageExecutionResult:
     """Import the package's datasets into the registered family, and leave it complete,
-    restored to its state before the import, or flagged import-incomplete."""
+    restored to its state before the import, or flagged import-incomplete.
+
+    ``import_mark`` is this import's entry in the family's ``import_unfinished``: each
+    dataset it finishes is recorded there as it goes, and the entry is removed when the
+    import ends, whichever way. If the import's process stops first, the entry stays."""
+    import_key = import_mark.key if import_mark is not None else None
+    finished: set[str] = set()
     # Overwrite of a PRE-EXISTING family is delete-then-insert, so a mid-import failure
     # can destroy the family's prior data. Snapshot it first so a failed overwrite is
     # atomically rolled back to the pre-import state (issue #365) instead of only being
@@ -357,6 +440,11 @@ async def _import_family_datasets(
             if progress is not None:
                 await progress(validation, datasets, logs, family_context.family_id)
             continue
+        # Recorded on the family once the dataset has finished, never before: one this
+        # import stops inside, or fails, stays pending in its entry.
+        if import_mark is not None and datasets[index].status in _FINISHED_DATASET_STATUSES:
+            finished.add(summary.dataset_type)
+            await _record_family_import_finished(session, family_context, import_mark, finished)
         if progress is not None:
             await progress(validation, datasets, logs, family_context.family_id)
 
@@ -378,10 +466,17 @@ async def _import_family_datasets(
     #     silently queryable as if complete.
     #   * In every failed case `error` is set -> the job row ends status='failed'
     #     (never a silent "completed").
+    # Whichever way it ends, the import's `import_unfinished` entry goes: with the family
+    # (compensated), once the family is put back (restored), or with the flag or its clear,
+    # in one statement. Only an import whose process stops before this leaves it.
     compensated = False
     restored = False
     if failed_datasets and not imported_datasets and family_created:
         await session.rollback()
+        # Every dataset counts as pending again until the family is gone: a stop in the
+        # middle leaves a family part-removed.
+        if import_mark is not None:
+            await _record_family_import_finished(session, family_context, import_mark, ())
         await _delete_family_shell(session, family_context)
         await session.commit()
         compensated = True
@@ -389,6 +484,10 @@ async def _import_family_datasets(
             "No dataset imported successfully; rolled back the newly-created family shell."
         )
     elif failed_datasets and (clickhouse_snapshot is not None or postgres_snapshot is not None):
+        # The restore rewrites every dataset's rows, table by table: until it has put the
+        # family back, every dataset counts as pending again, the finished ones too.
+        if import_mark is not None:
+            await _record_family_import_finished(session, family_context, import_mark, ())
         try:
             if clickhouse_snapshot is not None:
                 await restore_family_clickhouse_state(clickhouse_snapshot)
@@ -415,6 +514,7 @@ async def _import_family_datasets(
                 failed_datasets=failed_datasets,
                 imported_datasets=imported_datasets,
                 job_id=job_id,
+                import_key=import_key,
             )
             logs.append(
                 "Import failed and the snapshot restore also failed; flagged the family "
@@ -427,12 +527,18 @@ async def _import_family_datasets(
             failed_datasets=failed_datasets,
             imported_datasets=imported_datasets,
             job_id=job_id,
+            import_key=import_key,
         )
         logs.append(
             "Import left the family partially populated (some datasets failed); flagged "
             "the family metadata as import-incomplete. Successfully-imported datasets are "
             "kept; re-run the import to complete it."
         )
+
+    # Put back as it was before the import, so the import's entry goes; an earlier
+    # import's entry stays, with the data it describes.
+    if restored and import_key is not None:
+        await _end_family_import_unfinished(session, family_context, import_key=import_key)
 
     # The snapshot has served its purpose (success kept the new data; failure restored
     # the old) -> drop the backup tables. Best-effort so cleanup never fails the import.
@@ -448,9 +554,30 @@ async def _import_family_datasets(
         error = None
         logs.append("Family package import completed.")
         # A fully-successful (re)import clears any stale incompleteness flag left by a
-        # prior failed update/overwrite so a now-complete family isn't misreported.
+        # prior failed update/overwrite so a now-complete family isn't misreported, and its
+        # own unfinished-import entry. An earlier import that stopped part-way keeps its
+        # entry unless this one imported again, replacing them, the datasets it had not
+        # finished: only an overwrite replaces what is there.
         if not compensated and session is not None:
-            await _clear_family_import_incomplete(session, family_context)
+            rewritten = (
+                {
+                    dataset.dataset_type: import_mark.scopes.get(dataset.dataset_type)
+                    for dataset in datasets
+                    if dataset.status == "imported"
+                }
+                if conflict_mode == "overwrite" and import_mark is not None
+                else {}
+            )
+            remaining = await _clear_family_import_incomplete(
+                session, family_context, import_key=import_key, rewritten=rewritten
+            )
+            if remaining is None:
+                logs.append(
+                    "The family's import-incomplete marks could not be cleared, so it stays "
+                    "marked import-incomplete; an import that completes clears them."
+                )
+            elif remaining:
+                logs.append(_still_unfinished_message(family_context.family_id, remaining))
 
     # (Re)importing variant data changes the prioritised ranking. The cache's input hash
     # covers the family's storage-level data version, so an outdated ranking is already
@@ -500,7 +627,8 @@ async def run_family_import_job(
                     project_id::text AS project_id,
                     dry_run,
                     requested_by,
-                    metadata
+                    metadata,
+                    logs
                 FROM family_import_jobs
                 WHERE id = CAST(:job_id AS uuid)
                   AND worker_id = :worker_id
@@ -512,6 +640,25 @@ async def run_family_import_job(
         job_row = job_result.mappings().first()
         if job_row is None:
             return
+        # A job claimed again after its worker stopped keeps what its earlier attempt
+        # logged: this run's lines follow them rather than replace them.
+        earlier_logs = [str(line) for line in _json_list(job_row.get("logs"))]
+
+        async def keep_alive() -> None:
+            # The heartbeat, whatever the import is doing (waiting for another writer's
+            # locks, copying a snapshot): a stale one means this process has stopped, and
+            # the worker that finds it so ends the job or runs it again. Stops once the job
+            # is no longer this worker's.
+            while True:
+                await asyncio.sleep(FAMILY_IMPORT_HEARTBEAT_SECONDS)
+                try:
+                    async with session_factory() as heartbeat_session:
+                        if not await _beat_family_import_job(
+                            heartbeat_session, job_id=job_id, worker_id=worker_id
+                        ):
+                            return
+                except Exception:
+                    logger.warning("Family package import heartbeat failed", exc_info=True)
 
         async def record_family(family_id: str) -> None:
             # The job reads `running` on the family, committed, before the import writes
@@ -559,11 +706,12 @@ async def run_family_import_job(
                         family_id=family_id,
                         validation=validation,
                         datasets=datasets,
-                        logs=logs,
+                        logs=[*earlier_logs, *logs],
                     )
             except Exception:
                 logger.exception("Family package import progress update failed")
 
+        heartbeat = asyncio.create_task(keep_alive())
         try:
             user = await get_current_user_by_email(session, str(job_row["requested_by"]))
             if user is None:
@@ -590,7 +738,7 @@ async def run_family_import_job(
                     family_id=result.family_id,
                     validation=result.validation,
                     datasets=result.datasets,
-                    logs=result.logs,
+                    logs=[*earlier_logs, *result.logs],
                     error=result.error,
                     completed=True,
                 )
@@ -624,7 +772,7 @@ async def run_family_import_job(
                 family_id=result.family_id,
                 validation=result.validation,
                 datasets=result.datasets,
-                logs=result.logs,
+                logs=[*earlier_logs, *result.logs],
                 completed=True,
             )
         except Exception as exc:
@@ -640,6 +788,10 @@ async def run_family_import_job(
                 completed=True,
             )
             raise
+        finally:
+            heartbeat.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat
 
 
 async def family_package_import_worker(stop_event: asyncio.Event | None = None) -> None:
@@ -653,6 +805,13 @@ async def family_package_import_worker(stop_event: asyncio.Event | None = None) 
                 job_row = await claim_next_family_import_job(session, worker_id=worker_id)
             if job_row is None:
                 await asyncio.sleep(FAMILY_IMPORT_WORKER_POLL_SECONDS)
+                continue
+            if job_row["status"] != "validating":
+                # Its import had stopped part-way, so the claim ended it: nothing to run.
+                logger.warning(
+                    "Family package import job %s stopped part-way; ended it as interrupted",
+                    job_row["id"],
+                )
                 continue
             await run_family_import_job(job_id=job_row["id"], worker_id=worker_id)
         except asyncio.CancelledError:

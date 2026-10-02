@@ -1716,6 +1716,100 @@ describe('FamilyReportPage', () => {
       expect(screen.getByText(/import completeness\. This page shows the current state/)).toBeInTheDocument();
     });
 
+    // An import whose process stopped part-way left no flag: only its entry in
+    // `import_unfinished`, which gates the same way.
+    const STOPPED_JOB_ID = '7a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    const UNFINISHED = {
+      [STOPPED_JOB_ID]: {
+        job_id: STOPPED_JOB_ID,
+        at: '2026-10-02T09:12:00+00:00',
+        datasets: ['apcad', 'haplotypes', 'qdnaseq'],
+        finished_datasets: ['apcad', 'qdnaseq'],
+      },
+    };
+
+    it('lists an import that stopped part-way, and posts the acknowledgement', async () => {
+      mockUnsignedFamily();
+      const stopped409 = {
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              gate: 'import_incomplete',
+              message:
+                "This family's data is incomplete: an import (2026-10-02T09:12:00+00:00) stopped before it finished, so haplotypes may be partly written or missing (apcad, qdnaseq had finished).",
+              import_incomplete: null,
+              import_unfinished: {
+                ...UNFINISHED,
+                // Stopped after its last dataset had finished.
+                'job-2': { job_id: 'job-2', at: null, datasets: ['snv'], finished_datasets: ['snv'] },
+              },
+            },
+          },
+        },
+      };
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        return posts.length === 1 ? Promise.reject(stopped409) : Promise.resolve({ data: { version: 1 } });
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      expect(within(dialog).getByText(/stopped before it finished/)).toBeInTheDocument();
+      expect(
+        within(dialog).getByText(
+          `Not finished (import job ${STOPPED_JOB_ID}): haplotypes may be partly written or missing`,
+        ),
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByText('Not finished (import job job-2): it had finished each of its datasets'),
+      ).toBeInTheDocument();
+      expect(within(dialog).queryByText(/Failed to import/)).not.toBeInTheDocument();
+
+      fireEvent.change(within(dialog).getByLabelText(/despite the incomplete import/), {
+        target: { value: REASON },
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: /Sign out anyway/ }));
+
+      await waitFor(() => expect(posts).toHaveLength(2));
+      expect(posts[1]).toMatchObject({
+        acknowledge_import_incomplete: true,
+        import_incomplete_acknowledgement_reason: REASON,
+      });
+    });
+
+    it('shows on the signed record an import that had not finished', async () => {
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_unfinished: UNFINISHED,
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        `An import (begun 2026-10-02 09:12 UTC), import job ${STOPPED_JOB_ID}, had begun writing the family’s data and had not finished: haplotypes may have been partly written or missing (apcad and qdnaseq had finished). Signed out over it, with the reason: ${REASON}`,
+      );
+      expect(checks).not.toHaveTextContent('imported completely');
+    });
+
+    it('names a change in unfinished imports since sign-out', async () => {
+      mockSignedCase({ check: () => checkResult({ matches: false, changed_sections: ['import_unfinished'] }) });
+      renderPage(undefined, '/families/F1/report?view=live');
+
+      expect(await screen.findByText(/Changed since sign-out/)).toBeInTheDocument();
+      expect(screen.getByText(/unfinished imports\. This page shows the current state/)).toBeInTheDocument();
+    });
+
     it('names a change in the structural variants’ evidence drift since sign-out', async () => {
       mockSignedCase({ check: () => checkResult({ matches: false, changed_sections: ['structural_drift'] }) });
       renderPage(undefined, '/families/F1/report?view=live');

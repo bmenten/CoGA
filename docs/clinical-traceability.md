@@ -102,6 +102,8 @@ At sign-out, a reported classification that has no snapshot counts as drift too
   was judged against;
 - the import state (`import_incomplete`): null when the family's data imported completely,
   otherwise the datasets that failed and those that imported, when, and the import job;
+  and the imports that stopped part-way (`import_unfinished`): empty when there are none,
+  otherwise for each its import job, when it began, its datasets and those it finished;
 - the signer, the time, and any acknowledgement with its reason.
 
 The snapshot is hashed with SHA-256 over a canonical encoding and stored as the next version.
@@ -133,7 +135,11 @@ Five gates run first, in this order:
    is still this worker's and can be updated (#736). The job's later updates (its logs,
    dataset summaries and heartbeat) are informational: one that fails leaves the status and
    the family as they are. A job whose worker stopped keeps refusing until a worker claims it
-   again.
+   again. A running job writes its heartbeat every minute, so a job whose heartbeat is ten
+   minutes old belongs to a process that has stopped. The worker that claims it runs it again
+   only if its import had not begun writing the family (`validating`); one that was
+   `running` it ends `failed`, interrupted, keeping its log, and the family stays marked
+   (gate 5).
 3. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
    variant or of a structural variant or CNV, gives 409, unless the request sets
    `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason). One
@@ -146,7 +152,14 @@ Five gates run first, in this order:
    (`gate: "import_incomplete"`, naming the failed datasets and the import job), unless the
    request sets `acknowledge_import_incomplete` with an
    `import_incomplete_acknowledgement_reason` (422 without). Any set flag counts, whatever its
-   shape. Every family page shows *Import incomplete* while the flag is set.
+   shape. An import whose process stopped part-way sets no flag; the entry it wrote in
+   `metadata.import_unfinished` before its first write of the family gates the same way, in
+   the same 409 (`import_unfinished`, naming the job and the datasets it had not finished,
+   which may be partly written or missing), and the one acknowledgement covers both. Every
+   family page shows *Import incomplete* while either is set. A later import that completes
+   clears the flag; only one that completes with `overwrite` and imports again the datasets
+   a stopped import had not finished, for the same samples and small-variant source,
+   removes its entry.
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 

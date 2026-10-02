@@ -25,6 +25,17 @@ logger = logging.getLogger(__name__)
 
 FAMILY_IMPORT_STALE_HEARTBEAT = timedelta(minutes=10)
 
+# What a job ends with when a worker finds that its import stopped part-way: its heartbeat
+# went stale while it was `running` on its family, the state in which an import writes the
+# family, so the process running it ended once the import may have begun writing.
+FAMILY_IMPORT_INTERRUPTED_ERROR = (
+    "Interrupted: the process running this import stopped (a restart, a crash or running "
+    "out of memory) while the import was running on the family, so it is not run again: a "
+    "run from the start would not undo what it had written. If it wrote any of the family, "
+    "the family stays marked import-incomplete, naming the datasets the import had not "
+    "finished: import them again with overwrite to complete it."
+)
+
 
 def _serialize_job(mapping: dict[str, Any]) -> FamilyPackageImportJobOut:
     return FamilyPackageImportJobOut(
@@ -210,13 +221,26 @@ async def claim_next_family_import_job(
     *,
     worker_id: str,
 ) -> dict[str, Any] | None:
+    """Claim the oldest job to run: a queued one, or one whose worker stopped (its
+    heartbeat is older than FAMILY_IMPORT_STALE_HEARTBEAT). ``claimed_from`` is the
+    status it was claimed from.
+
+    A stopped job is run again only if its import had written nothing: it was still
+    ``validating``. One that was ``running`` had begun writing its family, and a run from
+    the start would not undo that -- an update would skip the datasets it left partly
+    written, a cancel would refuse the family it created. So it is ended here instead,
+    ``failed`` with FAMILY_IMPORT_INTERRUPTED_ERROR, and returned as such: there is
+    nothing to run. Its family keeps the import's ``import_unfinished`` entry. Either way
+    the job keeps its record (logs, dataset summaries) and a line is added to its log.
+    """
     now = datetime.now(timezone.utc)
     stale_before = now - FAMILY_IMPORT_STALE_HEARTBEAT
+    when = now.strftime("%Y-%m-%d %H:%M UTC")
     result = await session.execute(
         text(
             """
             WITH candidate AS (
-                SELECT id
+                SELECT id, status AS claimed_from
                 FROM family_import_jobs
                 WHERE status = 'queued'
                    OR (status IN ('validating', 'running') AND heartbeat_at < :stale_before)
@@ -227,12 +251,31 @@ async def claim_next_family_import_job(
             )
             UPDATE family_import_jobs AS job
             SET
-                status = 'validating',
-                worker_id = :worker_id,
-                started_at = COALESCE(job.started_at, :now),
-                heartbeat_at = :now,
-                completed_at = NULL,
-                error = NULL
+                status = CASE
+                    WHEN candidate.claimed_from = 'running' THEN 'failed'
+                    ELSE 'validating'
+                END,
+                worker_id = CASE
+                    WHEN candidate.claimed_from = 'running' THEN NULL
+                    ELSE CAST(:worker_id AS text)
+                END,
+                started_at = COALESCE(job.started_at, CAST(:now AS timestamptz)),
+                heartbeat_at = CAST(:now AS timestamptz),
+                completed_at = CASE
+                    WHEN candidate.claimed_from = 'running' THEN CAST(:now AS timestamptz)
+                    ELSE NULL
+                END,
+                error = CASE
+                    WHEN candidate.claimed_from = 'running' THEN CAST(:interrupted_error AS text)
+                    ELSE NULL
+                END,
+                logs = CASE candidate.claimed_from
+                    WHEN 'running'
+                        THEN COALESCE(job.logs, '[]'::jsonb) || CAST(:interrupted_log AS jsonb)
+                    WHEN 'validating'
+                        THEN COALESCE(job.logs, '[]'::jsonb) || CAST(:reclaimed_log AS jsonb)
+                    ELSE job.logs
+                END
             FROM candidate
             WHERE job.id = candidate.id
             RETURNING
@@ -253,13 +296,27 @@ async def claim_next_family_import_job(
                 job.logs,
                 job.dataset_summaries,
                 job.metadata,
-                job.error
+                job.error,
+                candidate.claimed_from
             """
         ),
         {
             "worker_id": worker_id,
             "now": now,
             "stale_before": stale_before,
+            "interrupted_error": FAMILY_IMPORT_INTERRUPTED_ERROR,
+            "interrupted_log": json.dumps(
+                [
+                    f"The import stopped part-way: its worker's heartbeat went stale while it "
+                    f"was running on the family. Ended {when} instead of run again."
+                ]
+            ),
+            "reclaimed_log": json.dumps(
+                [
+                    f"The worker running this job stopped before the import wrote anything "
+                    f"of the family. Claimed again {when}; run again from the start."
+                ]
+            ),
         },
     )
     row = result.mappings().first()
@@ -304,6 +361,34 @@ async def _record_job_family(
             "job_id": job_id,
             "worker_id": worker_id,
             "family_id": family_id,
+            "heartbeat_at": datetime.now(timezone.utc),
+        },
+    )
+    await session.commit()
+    return result.rowcount == 1
+
+
+async def _beat_family_import_job(
+    session: AsyncSession,
+    *,
+    job_id: str,
+    worker_id: str,
+) -> bool:
+    """Write the job's heartbeat, while it is this worker's and has not ended. Committed.
+    False when no row changed: another worker has claimed the job, or it has ended."""
+    result = await session.execute(
+        text(
+            """
+            UPDATE family_import_jobs
+            SET heartbeat_at = :heartbeat_at
+            WHERE id = CAST(:job_id AS uuid)
+              AND worker_id = :worker_id
+              AND status IN ('validating', 'running')
+            """
+        ),
+        {
+            "job_id": job_id,
+            "worker_id": worker_id,
             "heartbeat_at": datetime.now(timezone.utc),
         },
     )

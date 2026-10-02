@@ -58,7 +58,12 @@ class _Session:
 
 
 def _patch_common(
-    monkeypatch, *, drifted_count: int, qc_status: str = "pass", import_incomplete=None
+    monkeypatch,
+    *,
+    drifted_count: int,
+    qc_status: str = "pass",
+    import_incomplete=None,
+    import_unfinished=None,
 ):
     async def _ctx(session, *, family_identifier, user, project_id=None):
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
@@ -90,6 +95,11 @@ def _patch_common(
         assert family_uuid == "u1"
         return import_incomplete
 
+    async def _unfinished_state(session, family_uuid):
+        # The imports that stopped part-way (default: none).
+        assert family_uuid == "u1"
+        return dict(import_unfinished or {})
+
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
     monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
     monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
@@ -98,6 +108,7 @@ def _patch_common(
     monkeypatch.setattr(rss, "record_clinical_event", _audit)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
     monkeypatch.setattr(rss, "_import_incomplete_state", _import_state, raising=False)
+    monkeypatch.setattr(rss, "_import_unfinished_state", _unfinished_state, raising=False)
     # No import of the family is queued or running, and no writer holds its variants.
     monkeypatch.setattr(rss, "_active_import_job", _no_import_job, raising=False)
     monkeypatch.setattr(rss, "try_share_family_variant_writes", _variant_writes_shared, raising=False)
@@ -1477,6 +1488,178 @@ def test_an_old_flag_without_an_import_job_still_gates(monkeypatch) -> None:
     assert out["import_incomplete_job_id"] is None
 
 
+# ---------------------------------------------------------------------------
+# An import that stopped part-way: its process ended (a restart, a crash, out of memory),
+# so none of its fail-clean ran and no import_incomplete flag was set. It left its entry in
+# families.metadata.import_unfinished, which gates sign-out the same way.
+# ---------------------------------------------------------------------------
+
+# As family_package_registration.ImportMark records it: stopped inside haplotypes.
+_STOPPED_JOB_ID = "7a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+_UNFINISHED = {
+    _STOPPED_JOB_ID: {
+        "job_id": _STOPPED_JOB_ID,
+        "at": "2026-10-02T09:12:00+00:00",
+        "datasets": ["apcad", "haplotypes", "qdnaseq"],
+        "finished_datasets": ["apcad", "qdnaseq"],
+    }
+}
+
+
+def test_an_import_that_stopped_part_way_blocks_sign_out(monkeypatch) -> None:
+    # Before: no flag was set, the job had ended, and the family signed out as complete.
+    _patch_common(monkeypatch, drifted_count=0, import_unfinished=_UNFINISHED)
+    captured = _capture_audit(monkeypatch)
+    session = _Session()
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
+
+    assert excinfo.value.status_code == 409
+    detail = excinfo.value.detail
+    assert detail["gate"] == "import_incomplete"
+    assert detail["import_incomplete"] is None
+    assert detail["import_unfinished"] == _UNFINISHED
+    message = detail["message"]
+    assert "stopped before it finished" in message
+    assert "haplotypes may be partly written or missing (apcad, qdnaseq had finished)" in message
+    assert f"Import job {_STOPPED_JOB_ID} records how far it got" in message
+    # An update would skip the half-written dataset: the way out is an overwrite.
+    assert "with overwrite" in message
+    assert _inserts(session) == [] and captured == {}
+
+
+def test_an_acknowledged_stopped_import_is_frozen_and_audited(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0, import_unfinished=_UNFINISHED)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_import_incomplete=True,
+            import_incomplete_acknowledgement_reason=_IMPORT_ACK_REASON,
+        )
+    )
+
+    snapshot = out["snapshot"]
+    assert snapshot["import_unfinished"] == _UNFINISHED
+    assert snapshot["import_incomplete"] is None
+    assert snapshot["acknowledged_import_incomplete"] is True
+    assert snapshot["import_incomplete_acknowledgement_reason"] == _IMPORT_ACK_REASON
+    assert out["content_hash"] == rss._canonical_hash(snapshot)
+    assert out["import_incomplete_acknowledged"] is True
+    assert captured["after"]["import_unfinished"] == _UNFINISHED
+    assert captured["after"]["acknowledged_import_incomplete"] is True
+    assert ", incomplete import acknowledged" in captured["summary"]
+
+
+def test_a_complete_family_freezes_no_unfinished_import(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["snapshot"]["import_unfinished"] == {}
+    assert out["snapshot"]["acknowledged_import_incomplete"] is False
+    assert captured["after"]["import_unfinished"] == {}
+
+
+def test_a_failed_and_a_stopped_import_are_one_gate_with_one_acknowledgement(monkeypatch) -> None:
+    _patch_common(
+        monkeypatch, drifted_count=0, import_incomplete=_INCOMPLETE, import_unfinished=_UNFINISHED
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    detail = excinfo.value.detail
+    assert detail["gate"] == "import_incomplete"
+    # The message names both: what failed, and what the stopped import had not finished.
+    assert "failed for snv, sv" in detail["message"]
+    assert "haplotypes may be partly written or missing" in detail["message"]
+    assert f"import job {_IMPORT_JOB_ID}" in detail["message"]
+
+    _patch_common(
+        monkeypatch, drifted_count=0, import_incomplete=_INCOMPLETE, import_unfinished=_UNFINISHED
+    )
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_import_incomplete=True,
+            import_incomplete_acknowledgement_reason=_IMPORT_ACK_REASON,
+        )
+    )
+    assert out["snapshot"]["import_incomplete"] == _INCOMPLETE
+    assert out["snapshot"]["import_unfinished"] == _UNFINISHED
+
+
+def test_the_unfinished_imports_are_bound_into_the_content_hash(monkeypatch) -> None:
+    def _body_hash(unfinished) -> str:
+        _patch_common(monkeypatch, drifted_count=0, import_unfinished=unfinished)
+        body = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+        assert body["import_unfinished"] == (unfinished or {})
+        return rss._canonical_hash(body)
+
+    assert _body_hash(None) == _body_hash({})
+    assert _body_hash(None) != _body_hash(_UNFINISHED)
+    finished_all = {
+        _STOPPED_JOB_ID: {**_UNFINISHED[_STOPPED_JOB_ID], "finished_datasets": ["apcad", "haplotypes", "qdnaseq"]}
+    }
+    assert _body_hash(_UNFINISHED) != _body_hash(finished_all)
+
+
+def test_the_unfinished_import_reader_is_deterministic_and_fails_safe() -> None:
+    def read(value):
+        return asyncio.run(rss._import_unfinished_state(_ScalarSession(value), "u1"))
+
+    session = _ScalarSession(dict(_UNFINISHED))
+    assert asyncio.run(rss._import_unfinished_state(session, "u1")) == _UNFINISHED
+    sql, params = session.executed[0]
+    assert "import_unfinished" in sql and "families" in sql
+    assert params == {"family_uuid": "u1"}  # bound, never interpolated
+
+    # None recorded: nothing unfinished.
+    assert read(None) == {}
+    assert read(False) == {}
+    # A driver that hands jsonb back as text reads the same.
+    assert read(json.dumps(_UNFINISHED)) == _UNFINISHED
+    # Lists are frozen sorted and de-duplicated, so the hash is stable.
+    messy = {"k": {"job_id": "j", "at": "t", "datasets": ["sv", "snv", "sv"], "finished_datasets": ["sv"]}}
+    assert read(messy)["k"]["datasets"] == ["snv", "sv"]
+    # Set, but not in the shape an import writes: still unfinished, with nothing to name.
+    unknown = {"job_id": None, "at": None, "datasets": [], "finished_datasets": []}
+    assert read("not json") == {"unreadable": unknown}
+    assert read(["a list"]) == {"unreadable": unknown}
+    assert read({"k": "not an entry"}) == {"k": unknown}
+    assert read({"k": {**messy["k"], "job_id": 7}})["k"]["job_id"] is None
+
+
+def test_the_gate_message_of_a_stopped_import_that_recorded_nothing() -> None:
+    message = rss._import_gate_message(None, {"unreadable": {"job_id": None, "at": None, "datasets": [], "finished_datasets": []}})
+    assert message.startswith("This family's data is incomplete: an import stopped before it finished.")
+    assert "import job" not in message.lower()
+    # Only a failed import: the message it always had.
+    failed_only = rss._import_gate_message(_INCOMPLETE)
+    assert failed_only == rss._import_gate_message(_INCOMPLETE, {})
+    assert "overwrite" not in failed_only
+
+
+def test_signout_check_flags_an_import_that_stopped_after_signout(monkeypatch) -> None:
+    # Signed complete; an import of the family has since stopped part-way. The page no
+    # longer shows the data that was signed.
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    monkeypatch.setattr(
+        rss, "_import_unfinished_state", lambda _session, _uuid: asyncio.sleep(0, result=dict(_UNFINISHED))
+    )
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(
+            _CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()
+        )
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["import_unfinished"]
+
+
 # A sign-out exactly as the writer stored it before the incomplete-import gate existed,
 # captured from that writer: its snapshot has none of the gate's keys, and the content
 # hash and row hash are the ones it computed then. A signed record is never re-hashed,
@@ -2218,7 +2401,8 @@ def test_signout_check_compares_the_sv_evidence_a_record_does_not_hold(monkeypat
     out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(row), family_id="FAM1", user=_user()))
     assert out["matches"] is False, out
     assert out["changed_sections"] == ["reported_structural_variants"]
-    assert out["not_compared"] == ["structural_drift"]
+    # Nor does it hold the unfinished imports, a section added after it too.
+    assert out["not_compared"] == ["structural_drift", "import_unfinished"]
     assert out["not_captured"] == []
 
 

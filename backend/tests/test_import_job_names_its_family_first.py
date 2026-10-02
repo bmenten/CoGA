@@ -282,6 +282,10 @@ def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
             FamilyImportDatasetSummary(dataset_type="snv", status="valid")
         ],
         "_import_dataset": import_dataset,
+        # The family's import state (test_import_crash_leaves_family_marked.py).
+        "_mark_family_import_unfinished": nothing,
+        "_end_import_failed_before_datasets": nothing,
+        "_record_family_import_finished": nothing,
         "_clear_family_import_incomplete": nothing,
         "build_family_metadata_context": context,
         "precompute_family_haplotype_lineage": nothing,
