@@ -1739,7 +1739,11 @@ describe('FamilyReportPage', () => {
               message:
                 "This family's data is incomplete: an import (2026-10-02T09:12:00+00:00) stopped before it finished, so haplotypes may be partly written or missing (apcad, qdnaseq had finished).",
               import_incomplete: null,
-              import_unfinished: UNFINISHED,
+              import_unfinished: {
+                ...UNFINISHED,
+                // Stopped after its last dataset had finished.
+                'job-2': { job_id: 'job-2', at: null, datasets: ['snv'], finished_datasets: ['snv'] },
+              },
             },
           },
         },
@@ -1760,6 +1764,9 @@ describe('FamilyReportPage', () => {
         within(dialog).getByText(
           `Not finished (import job ${STOPPED_JOB_ID}): haplotypes may be partly written or missing`,
         ),
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByText('Not finished (import job job-2): it had finished each of its datasets'),
       ).toBeInTheDocument();
       expect(within(dialog).queryByText(/Failed to import/)).not.toBeInTheDocument();
 

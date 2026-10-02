@@ -911,6 +911,23 @@ def test_paraphase_rows_store_gene_level_json_payload(tmp_path: Path) -> None:
     assert json.loads(row["payload_json"])["final_haplotypes"] == {"h1": "GBA_hap1"}
 
 
+
+@pytest.fixture(autouse=True)
+def _no_family_import_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests fake the session; the family's import state (its import_unfinished
+    entry) is covered in test_import_crash_leaves_family_marked.py."""
+
+    async def nothing(*_args, **_kwargs) -> None:
+        return None
+
+    for name in (
+        "_mark_family_import_unfinished",
+        "_end_import_failed_before_datasets",
+        "_record_family_import_finished",
+        "_end_family_import_unfinished",
+    ):
+        monkeypatch.setattr(package_import, name, nothing)
+
 @pytest.mark.asyncio
 async def test_dry_run_validates_without_database_session(tmp_path: Path) -> None:
     package_root = tmp_path / "FAM001"

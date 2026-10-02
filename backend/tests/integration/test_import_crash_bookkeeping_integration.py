@@ -66,11 +66,23 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         ImportMark,
         _clear_family_import_incomplete,
         _end_family_import_unfinished,
+        _end_import_failed_before_datasets,
         _flag_family_import_incomplete,
         _mark_family_import_unfinished,
     )
 
     label = f"import-crash-{uuid4()}"
+    # What an overwrite of each dataset replaces (dataset_scopes).
+    scopes = {
+        "snv": {"source": "auto", "samples": None},
+        "coverage": {"source": None, "samples": ["S1"]},
+        "haplotypes": {"source": None, "samples": None},
+    }
+
+    def mark(*datasets: str) -> ImportMark:
+        return ImportMark.begin(
+            job_id=str(uuid4()), datasets=datasets, scopes={name: scopes[name] for name in datasets}
+        )
 
     async def scenario() -> None:
         sm = get_postgres_sessionmaker()
@@ -86,8 +98,8 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
             ).scalar_one()
             await s.commit()
         context = SimpleNamespace(family_uuid=family_uuid, family_id=label)
-        first = ImportMark.begin(job_id=str(uuid4()), datasets=["snv", "coverage"])
-        second = ImportMark.begin(job_id=str(uuid4()), datasets=["haplotypes"])
+        first = mark("snv", "coverage")
+        second = mark("haplotypes")
 
         async with sm() as s:
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=first)
@@ -162,7 +174,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
                 {"f": family_uuid},
             )
             await s.commit()
-            own = ImportMark.begin(job_id=str(uuid4()), datasets=["snv"])
+            own = mark("snv")
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=own)
             metadata = await _metadata(s, family_uuid)
         assert metadata["import_unfinished"] == {"unreadable": "garbage", own.key: own.entry()}
@@ -170,15 +182,18 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         # A completed overwrite of snv and coverage: its own entry goes, and so does the
         # stopped import it completed; one it did not (haplotypes) and the unreadable value
         # stay, and the flag is cleared.
-        covered = ImportMark.begin(job_id=str(uuid4()), datasets=["snv", "coverage"])
-        other = ImportMark.begin(job_id=str(uuid4()), datasets=["haplotypes", "snv"])
+        covered = mark("snv", "coverage")
+        other = mark("haplotypes", "snv")
         async with sm() as s:
             await _mark_family_import_unfinished(
                 s, family_uuid=family_uuid, mark=covered, finished=["snv"]
             )
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=other)
             remaining = await _clear_family_import_incomplete(
-                s, context, import_key=own.key, rewritten=["snv", "coverage"]
+                s,
+                context,
+                import_key=own.key,
+                rewritten={"snv": scopes["snv"], "coverage": scopes["coverage"]},
             )
             metadata = await _metadata(s, family_uuid)
         assert set(remaining or {}) == {"unreadable", other.key}
@@ -189,7 +204,7 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         # that is not an entry stays, as nothing can show it complete.
         async with sm() as s:
             remaining = await _clear_family_import_incomplete(
-                s, context, rewritten=["snv", "haplotypes"]
+                s, context, rewritten={"snv": scopes["snv"], "haplotypes": scopes["haplotypes"]}
             )
             metadata = await _metadata(s, family_uuid)
         assert remaining == {"unreadable": "garbage"}
@@ -211,6 +226,20 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         assert remaining == {}
         assert "import_unfinished" not in metadata and state == {}
         assert metadata["qc_profile"] == "short_read_wgs"
+
+        # An import that failed after marking the family and before its first dataset:
+        # its entry becomes the flag, naming its datasets as failed; one that never marked
+        # the family changes nothing.
+        failed_early = mark("snv", "coverage")
+        async with sm() as s:
+            await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=failed_early)
+            assert await _end_import_failed_before_datasets(s, family_id=label, mark=failed_early)
+            assert not await _end_import_failed_before_datasets(s, family_id=label, mark=mark("snv"))
+            metadata = await _metadata(s, family_uuid)
+        assert "import_unfinished" not in metadata
+        assert metadata["import_incomplete"]["failed_datasets"] == ["coverage", "snv"]
+        assert metadata["import_incomplete"]["imported_datasets"] == []
+        assert metadata["import_incomplete"]["job_id"] == failed_early.job_id
 
         async with sm() as s:
             await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})

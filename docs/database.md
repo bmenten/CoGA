@@ -103,7 +103,7 @@ JSON keys that package import writes into the `metadata` columns:
 | `families.metadata` | `package_import` | the import provenance: folder (a bucket folder's URI), manifest, datasets and the manifest's own `metadata` |
 | `families.metadata` | `pgt`, `analysis_type` | the manifest's PGT context and analysis type |
 | `families.metadata` | `import_incomplete` | set by an import that failed for some datasets and kept the others: the datasets that failed and those that imported, when, and the import job; removed by a later import that completes |
-| `families.metadata` | `import_unfinished` | the imports that have begun writing the family and not finished, by job: when each began, its datasets and those it finished. An import writes its entry before its first write and removes it when it ends, so an entry that stays names one whose process stopped part-way; only an `overwrite` that imports again what it had not finished removes it |
+| `families.metadata` | `import_unfinished` | the imports that have begun writing the family and not finished, by job: when each began, its datasets and those it finished. An import writes its entry before its first write (and again once it holds the family's variant-write locks) and removes it when it ends, so an entry that stays names one whose process stopped part-way. It records each dataset's scope (`scopes`: the small variants' `source_format`, a per-sample dataset's samples), and only an `overwrite` that imports again what it had not finished, for that scope, removes it |
 
 A family's `metadata` also holds `derived_data_status` (which analyses an edit made stale, and
 whether a structure update kept the imported data; see

@@ -26,13 +26,14 @@ logger = logging.getLogger(__name__)
 FAMILY_IMPORT_STALE_HEARTBEAT = timedelta(minutes=10)
 
 # What a job ends with when a worker finds that its import stopped part-way: its heartbeat
-# went stale while it was `running` on its family, so the process running it ended after
-# the import had begun writing the family's data.
+# went stale while it was `running` on its family, the state in which an import writes the
+# family, so the process running it ended once the import may have begun writing.
 FAMILY_IMPORT_INTERRUPTED_ERROR = (
     "Interrupted: the process running this import stopped (a restart, a crash or running "
-    "out of memory) after the import had begun writing the family's data, so it is not run "
-    "again. The family stays marked import-incomplete, naming the datasets the import had "
-    "not finished: import them again with overwrite to complete it."
+    "out of memory) while the import was running on the family, so it is not run again: a "
+    "run from the start would not undo what it had written. If it wrote any of the family, "
+    "the family stays marked import-incomplete, naming the datasets the import had not "
+    "finished: import them again with overwrite to complete it."
 )
 
 
@@ -307,7 +308,7 @@ async def claim_next_family_import_job(
             "interrupted_log": json.dumps(
                 [
                     f"The import stopped part-way: its worker's heartbeat went stale while it "
-                    f"was writing the family's data. Ended {when} instead of run again."
+                    f"was running on the family. Ended {when} instead of run again."
                 ]
             ),
             "reclaimed_log": json.dumps(

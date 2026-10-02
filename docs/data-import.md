@@ -240,8 +240,11 @@ has ended. So an import marks the family before it writes anything of it, with a
 there each dataset it finishes, and removes the entry when it ends. An entry that stays
 names an import that stopped, and the datasets it had not finished, which may be partly
 written or missing. Only an import that completes with `overwrite` and imports those
-datasets again removes it. An `update` cannot: it skips a dataset that already has data,
-partly written data too.
+datasets again, for the same samples and (for the small variants) the same `source_format`,
+removes it: an overwrite replaces only that. An `update` cannot: it skips a dataset that
+already has data, partly written data too. An import that fails after marking the family
+and before its first dataset (while registering it, say) wrote none of its datasets: its
+entry becomes the import-incomplete flag, naming them all as failed.
 
 While the flag or an entry is set, every family page shows *Import incomplete*, and sign-out
 needs the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).

@@ -940,7 +940,9 @@ const LiveFamilyReport: React.FC = () => {
                     Not finished{entry.jobId ? ` (import job ${entry.jobId})` : ''}:{' '}
                     {pendingDatasets(entry).length
                       ? `${pendingDatasets(entry).join(', ')} may be partly written or missing`
-                      : 'what it was importing was not recorded'}
+                      : entry.datasets.length
+                        ? 'it had finished each of its datasets'
+                        : 'what it was importing was not recorded'}
                   </li>
                 ))}
               </ul>

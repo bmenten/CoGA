@@ -103,6 +103,13 @@ class _FamilySession:
         if "entry" in params:
             family.unfinished[params["import_key"]] = json.loads(params["entry"])
             family.events.append(("marked", sorted(family.unfinished[params["import_key"]]["finished_datasets"])))
+        elif "payload" in params and "family_id" in params:
+            # An import that failed before its first dataset: only where its entry is.
+            if params["import_key"] not in family.unfinished:
+                return SimpleNamespace(rowcount=0)
+            family.unfinished.pop(params["import_key"])
+            family.incomplete = json.loads(params["payload"])
+            family.events.append(("failed before its datasets",))
         elif "payload" in params:
             family.unfinished.pop(params.get("import_key"), None)
             family.incomplete = json.loads(params["payload"])
@@ -225,9 +232,10 @@ async def test_the_import_marks_the_family_before_it_writes_anything_of_it(famil
 
     (mark,) = family.marks
     assert (mark.key, mark.job_id, mark.datasets) == ("job-1", "job-1", ("coverage", "snv"))
-    # The mark is the first thing written; each dataset is recorded once it has finished.
-    assert family.events[:2] == [("marked", []), ("registered",)]
-    assert family.events[2:4] == [("marked", ["snv"]), ("marked", ["coverage", "snv"])]
+    # The mark is the first thing written, and written again once the import holds the
+    # family's variant writes; each dataset is recorded once it has finished.
+    assert family.events[:3] == [("marked", []), ("registered",), ("marked", [])]
+    assert family.events[3:5] == [("marked", ["snv"]), ("marked", ["coverage", "snv"])]
 
 
 @pytest.mark.asyncio
@@ -262,6 +270,101 @@ async def test_a_dataset_that_fails_stays_pending_until_the_import_ends(family, 
     # A failed dataset's own clean-up is best-effort, so it is not recorded as finished;
     # a skipped one wrote nothing.
     assert registration.pending_datasets(family.unfinished["job-1"]) == {"coverage", "snv"}
+
+
+@pytest.mark.asyncio
+async def test_an_entry_another_import_removed_while_this_one_waited_is_written_again(
+    family, monkeypatch
+) -> None:
+    # Two imports of the family: while this one waited for the variant-write locks, the
+    # other completed, overwriting everything this one lists, and its clear removed this
+    # one's entry. This one then holds the locks and starts its first dataset.
+    held = asyncio.Event()
+    _datasets(monkeypatch, {"snv": held})
+
+    @asynccontextmanager
+    async def hold_after_the_other_import(_family_uuid: str, **_kwargs: Any):
+        family.unfinished.clear()  # the other import's clear
+        yield
+
+    monkeypatch.setattr(package_import, "hold_family_variant_writes", hold_after_the_other_import)
+
+    await _stopped_in(family, held)
+
+    # Before: written again only once a dataset had finished, so a stop in the first one
+    # left the family with neither an entry nor a flag.
+    assert registration.pending_datasets(family.unfinished["job-1"]) == {"snv"}
+
+
+@pytest.mark.asyncio
+async def test_a_stop_while_a_failed_overwrite_is_put_back_leaves_every_dataset_pending(
+    family, monkeypatch
+) -> None:
+    # snv finished, coverage failed: the restore rewrites every table, snv's included.
+    _datasets(monkeypatch, {"snv": "imported", "coverage": RuntimeError("bad BED")})
+    in_restore = asyncio.Event()
+
+    async def snapshot(*_args: Any, **_kwargs: Any) -> str:
+        return "snapshot"
+
+    async def restore_until_the_process_dies(*_args: Any, **_kwargs: Any) -> None:
+        in_restore.set()
+        await asyncio.Event().wait()
+
+    for name, value in {
+        "snapshot_family_postgres_state": snapshot,
+        "snapshot_family_clickhouse_state": snapshot,
+        "restore_family_clickhouse_state": restore_until_the_process_dies,
+    }.items():
+        monkeypatch.setattr(package_import, name, value)
+
+    await _stopped_in(family, in_restore, conflict_mode="overwrite")
+
+    # Before: the entry still said snv had finished, though the restore had deleted it,
+    # so an overwrite of coverage alone would have cleared it.
+    entry = family.unfinished["job-1"]
+    assert entry["finished_datasets"] == []
+    assert registration.pending_datasets(entry) == {"coverage", "snv"}
+
+
+@pytest.mark.asyncio
+async def test_an_import_that_fails_before_its_first_dataset_leaves_the_failure_flag(
+    family, monkeypatch
+) -> None:
+    from fastapi import HTTPException
+
+    _datasets(monkeypatch, {"snv": "imported", "coverage": "imported"})
+
+    @asynccontextmanager
+    async def hold_a_sample_was_deleted(_family_uuid: str, **_kwargs: Any):
+        raise HTTPException(status_code=404, detail="Sample not found")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(package_import, "hold_family_variant_writes", hold_a_sample_was_deleted)
+
+    with pytest.raises(HTTPException):
+        await _import(family)
+
+    # It wrote none of its datasets: it failed, it did not stop part-way.
+    assert family.unfinished == {}
+    assert family.incomplete is not None
+    assert family.incomplete["failed_datasets"] == ["coverage", "snv"]
+    assert (family.incomplete["imported_datasets"], family.incomplete["job_id"]) == ([], "job-1")
+
+
+@pytest.mark.asyncio
+async def test_an_import_that_fails_before_marking_the_family_leaves_nothing(family, monkeypatch) -> None:
+    _datasets(monkeypatch, {"snv": "imported"})
+
+    async def register_refused(_session: Any, **_kwargs: Any):
+        raise RuntimeError("Family 'FAM001' already exists; choose update or overwrite to import data.")
+
+    monkeypatch.setattr(package_import, "_ensure_family_from_ped", register_refused)
+
+    with pytest.raises(RuntimeError):
+        await _import(family, conflict_mode="cancel")
+
+    assert family.unfinished == {} and family.incomplete is None
 
 
 # --- how an import that runs to its end leaves the family -------------------------------

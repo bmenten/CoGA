@@ -158,7 +158,8 @@ Five gates run first, in this order:
    which may be partly written or missing), and the one acknowledgement covers both. Every
    family page shows *Import incomplete* while either is set. A later import that completes
    clears the flag; only one that completes with `overwrite` and imports again the datasets
-   a stopped import had not finished removes its entry.
+   a stopped import had not finished, for the same samples and small-variant source,
+   removes its entry.
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 

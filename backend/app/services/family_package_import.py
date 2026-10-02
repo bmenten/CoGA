@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from contextlib import suppress
+from contextlib import AsyncExitStack, suppress
 import logging
 import os
 from pathlib import Path
@@ -57,6 +57,9 @@ from .family_package_jobs import (
 from .family_package_registration import (
     ImportMark,
     _FINISHED_DATASET_STATUSES,
+    _end_import_failed_before_datasets,
+    _mark_family_import_unfinished,
+    dataset_scopes,
     _family_sample_contexts,
     _package_family_id,
     _ensure_family_from_ped,
@@ -265,20 +268,30 @@ async def _execute_family_package_import_local(
     # crash, out of memory: nothing below runs then) leaves the family marked, naming what
     # it had not finished. Registration records it, or the import stops having written
     # nothing.
+    dataset_types = [summary.dataset_type for summary in _enabled_dataset_summaries(validation)]
     import_mark = ImportMark.begin(
         job_id=job_id,
-        datasets=[summary.dataset_type for summary in _enabled_dataset_summaries(validation)],
+        datasets=dataset_types,
+        scopes=dataset_scopes(bundle, dataset_types),
     )
     logs.append("Registering family metadata and package provenance.")
-    family_context, family_created = await _ensure_family_from_ped(
-        session,
-        bundle=bundle,
-        project_id=project_id,
-        user=user,
-        validation=validation,
-        conflict_mode=conflict_mode,
-        import_mark=import_mark,
-    )
+    try:
+        family_context, family_created = await _ensure_family_from_ped(
+            session,
+            bundle=bundle,
+            project_id=project_id,
+            user=user,
+            validation=validation,
+            conflict_mode=conflict_mode,
+            import_mark=import_mark,
+        )
+    except Exception:
+        # Failed before its first dataset: if it had marked the family, the mark becomes
+        # the import_incomplete flag, naming its datasets as failed (it wrote none).
+        await _end_import_failed_before_datasets(
+            session, family_id=_package_family_id(validation, bundle), mark=import_mark
+        )
+        raise
     sample_contexts = _family_sample_contexts(family_context)
     logs.append(
         f"Family {family_context.family_id} is registered with {len(sample_contexts)} sample(s)."
@@ -292,10 +305,26 @@ async def _execute_family_package_import_local(
     # be undone. The locks are held for the whole run on a connection of their own; the
     # dataset loaders take none of their own for this family. Taken after the family's
     # registration has committed, so this session holds no lock another writer waits for.
-    async with hold_family_variant_writes(
-        family_context.family_uuid,
-        samples=[sample.sample_uuid for sample in sample_contexts.values()],
-    ):
+    async with AsyncExitStack() as stack:
+        try:
+            await stack.enter_async_context(
+                hold_family_variant_writes(
+                    family_context.family_uuid,
+                    samples=[sample.sample_uuid for sample in sample_contexts.values()],
+                )
+            )
+            # The entry is written again now that this import holds the family's variant
+            # writes, before its first dataset: while it waited, another import of the
+            # family may have completed and removed it, its overwrite having replaced what
+            # the entry listed. No other import's ending runs while this one holds them.
+            await _mark_family_import_unfinished(
+                session, family_uuid=family_context.family_uuid, mark=import_mark
+            )
+        except Exception:
+            await _end_import_failed_before_datasets(
+                session, family_id=family_context.family_id, mark=import_mark
+            )
+            raise
         return await _import_family_datasets(
             session,
             bundle=bundle,
@@ -444,6 +473,10 @@ async def _import_family_datasets(
     restored = False
     if failed_datasets and not imported_datasets and family_created:
         await session.rollback()
+        # Every dataset counts as pending again until the family is gone: a stop in the
+        # middle leaves a family part-removed.
+        if import_mark is not None:
+            await _record_family_import_finished(session, family_context, import_mark, ())
         await _delete_family_shell(session, family_context)
         await session.commit()
         compensated = True
@@ -451,6 +484,10 @@ async def _import_family_datasets(
             "No dataset imported successfully; rolled back the newly-created family shell."
         )
     elif failed_datasets and (clickhouse_snapshot is not None or postgres_snapshot is not None):
+        # The restore rewrites every dataset's rows, table by table: until it has put the
+        # family back, every dataset counts as pending again, the finished ones too.
+        if import_mark is not None:
+            await _record_family_import_finished(session, family_context, import_mark, ())
         try:
             if clickhouse_snapshot is not None:
                 await restore_family_clickhouse_state(clickhouse_snapshot)
@@ -523,9 +560,13 @@ async def _import_family_datasets(
         # finished: only an overwrite replaces what is there.
         if not compensated and session is not None:
             rewritten = (
-                [dataset.dataset_type for dataset in datasets if dataset.status == "imported"]
-                if conflict_mode == "overwrite"
-                else []
+                {
+                    dataset.dataset_type: import_mark.scopes.get(dataset.dataset_type)
+                    for dataset in datasets
+                    if dataset.status == "imported"
+                }
+                if conflict_mode == "overwrite" and import_mark is not None
+                else {}
             )
             remaining = await _clear_family_import_incomplete(
                 session, family_context, import_key=import_key, rewritten=rewritten

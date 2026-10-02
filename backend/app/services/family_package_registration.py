@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import logging
@@ -635,8 +635,9 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
 # to its state before the import. An entry that outlives its import marks one that stopped
 # part-way, its process ended by a restart, a crash or running out of memory: what it was
 # importing may be partly written. Only a later import that completes and imports again,
-# replacing it (`overwrite`), what that import had not finished removes the entry. An
-# `update` cannot: it skips a dataset that already holds data, partial data included.
+# replacing it (`overwrite`), what that import had not finished -- the same SNV source, the
+# same samples -- removes the entry. An `update` cannot: it skips a dataset that already
+# holds data, partial data included.
 IMPORT_UNFINISHED_KEY = "import_unfinished"
 
 # A dataset an import ended with one of these left nothing partly written: it imported
@@ -644,28 +645,77 @@ IMPORT_UNFINISHED_KEY = "import_unfinished"
 _FINISHED_DATASET_STATUSES = frozenset({"imported", "skipped", "registered"})
 
 
+def dataset_scopes(
+    bundle: FamilyPackageBundle, dataset_types: Iterable[str]
+) -> dict[str, dict[str, Any]]:
+    """What an overwrite of each dataset replaces, as its loader replaces it: ``source``,
+    the SNV callset's declared source (its rows of other sources stay; every other dataset
+    has one source of its own), and ``samples``, the samples a per-sample dataset names
+    (its other samples' rows stay), or None for one family-level file."""
+    scopes: dict[str, dict[str, Any]] = {}
+    for dataset_type in dataset_types:
+        dataset = bundle.manifest.datasets.get(dataset_type)
+        samples: list[str] | None = None
+        if dataset is not None and not dataset.family_vcf and dataset.per_sample:
+            samples = sorted(
+                str(sample_id)
+                for sample_id, entry in dataset.per_sample.items()
+                if isinstance(entry, dict)
+            )
+        source: str | None = None
+        if dataset_type == "snv" and dataset is not None:
+            source = str((dataset.model_extra or {}).get("source_format") or "auto")
+        scopes[dataset_type] = {"source": source, "samples": samples}
+    return scopes
+
+
+def _scope_covers(replaced: Any, wanted: Any) -> bool:
+    """Whether an overwrite that replaced ``replaced`` replaced all of ``wanted``: the same
+    source, and every sample of a per-sample dataset (a family-level file covers only a
+    family-level file). Never for a scope not in the shape ``dataset_scopes`` gives."""
+    if not isinstance(replaced, Mapping) or not isinstance(wanted, Mapping):
+        return False
+    if replaced.get("source") != wanted.get("source"):
+        return False
+    have, want = replaced.get("samples"), wanted.get("samples")
+    if have is None or want is None:
+        return have is None and want is None
+    if not isinstance(have, list) or not isinstance(want, list):
+        return False
+    return {str(sample) for sample in want} <= {str(sample) for sample in have}
+
+
 @dataclass(frozen=True)
 class ImportMark:
     """One import's entry in ``families.metadata.import_unfinished``.
 
     Keyed by its job's id, or, run outside a job, by an id of its own run. ``at`` is when
-    it began writing the family, ``datasets`` what it set out to import; the entry also
-    records the datasets it has finished (``finished_datasets``), so after a stop the
-    others (``pending_datasets``) are those that may be partly written or missing.
+    it began writing the family, ``datasets`` what it set out to import and ``scopes``
+    what an overwrite of each replaces (``dataset_scopes``); the entry also records the
+    datasets it has finished (``finished_datasets``), so after a stop the others
+    (``pending_datasets``) are those that may be partly written or missing.
     """
 
     key: str
     job_id: str | None
     at: str
     datasets: tuple[str, ...]
+    scopes: Mapping[str, Mapping[str, Any]] = field(default_factory=dict, hash=False)
 
     @classmethod
-    def begin(cls, *, job_id: str | None, datasets: Iterable[str]) -> "ImportMark":
+    def begin(
+        cls,
+        *,
+        job_id: str | None,
+        datasets: Iterable[str],
+        scopes: Mapping[str, Mapping[str, Any]] | None = None,
+    ) -> "ImportMark":
         return cls(
             key=job_id or f"run-{uuid4().hex}",
             job_id=job_id,
             at=datetime.now(timezone.utc).isoformat(),
             datasets=tuple(sorted(set(datasets))),
+            scopes=dict(scopes or {}),
         )
 
     def entry(self, finished: Iterable[str] = ()) -> dict[str, Any]:
@@ -674,6 +724,7 @@ class ImportMark:
             "at": self.at,
             "datasets": list(self.datasets),
             "finished_datasets": sorted(set(finished)),
+            "scopes": {name: dict(scope) for name, scope in sorted(self.scopes.items())},
         }
 
 
@@ -795,6 +846,53 @@ CASE
     )
 END
 """
+
+
+async def _end_import_failed_before_datasets(
+    session: AsyncSession, *, family_id: str, mark: ImportMark
+) -> bool:
+    """Swap this import's entry for the ``import_incomplete`` flag, naming every dataset it
+    set out to import as failed: it failed after it marked the family and before its first
+    dataset, so it wrote none of them. Only where its entry is -- not when it failed
+    before marking the family -- in one statement. Best-effort: an entry left in place
+    keeps the family marked. True when the swap was made."""
+    payload = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "failed_datasets": list(mark.datasets),
+        "imported_datasets": [],
+        "job_id": mark.job_id,
+    }
+    try:
+        # What failed may have left a failed transaction behind.
+        await session.rollback()
+        result = await session.execute(
+            text(
+                f"""
+                UPDATE families
+                SET metadata = jsonb_set(
+                    {_WITHOUT_IMPORT_ENTRY},
+                    '{{import_incomplete}}',
+                    CAST(:payload AS jsonb),
+                    true
+                )
+                WHERE family_id = :family_id
+                  AND jsonb_typeof(metadata -> 'import_unfinished') = 'object'
+                  AND (metadata -> 'import_unfinished') ? CAST(:import_key AS text)
+                """
+            ),
+            {"family_id": family_id, "payload": json.dumps(payload), "import_key": mark.key},
+        )
+        await session.commit()
+        return bool(getattr(result, "rowcount", 0) == 1)
+    except Exception:  # the entry stays: the family stays marked
+        logger.warning(
+            "Failed to record the failed import of family %s", family_id, exc_info=True
+        )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
+        return False
 
 
 async def _end_family_import_unfinished(
@@ -1058,23 +1156,24 @@ async def _clear_family_import_incomplete(
     family_context: FamilyMetadataContext,
     *,
     import_key: str | None = None,
-    rewritten: Iterable[str] = (),
+    rewritten: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Drop a stale ``import_incomplete`` flag after a fully-successful (re)import, and
     this import's ``import_unfinished`` entry (``import_key``).
 
     An earlier import's entry goes too when this import completed what that one may have
     left partly written: every dataset it had not finished is one this import imported
-    again, replacing what was there (``rewritten``: the datasets an ``overwrite`` imported;
-    an ``update`` replaces nothing, so passes none), or it had finished them all. Any
-    other entry stays. Returns the entries left, so the import can say why the family
-    stays marked, or None when nothing could be cleared.
+    again, replacing all of what that one was writing (``rewritten``: the scope of each
+    dataset an ``overwrite`` imported, as ``dataset_scopes`` gives it, compared with the
+    scope the entry records; an ``update`` replaces nothing, so passes none), or it had
+    finished them all. Any other entry stays. Returns the entries left, so the import can
+    say why the family stays marked, or None when nothing could be cleared.
 
     Read and written under the row's lock, so no other entry written meanwhile is lost.
     Best-effort: leaving the flag would misreport a now-complete family as degraded; an
     entry left in place keeps it marked, the safe side.
     """
-    rewritten_datasets = set(rewritten)
+    replaced = dict(rewritten or {})
     try:
         raw = (
             await session.execute(
@@ -1090,7 +1189,14 @@ async def _clear_family_import_incomplete(
             if key == import_key:
                 continue
             pending = pending_datasets(entry)
-            if pending is not None and pending <= rewritten_datasets:
+            scopes = entry.get("scopes") if isinstance(entry, Mapping) else None
+            if pending is not None and all(
+                _scope_covers(
+                    replaced.get(name),
+                    scopes.get(name) if isinstance(scopes, Mapping) else None,
+                )
+                for name in pending
+            ):
                 continue
             remaining[key] = entry
         await session.execute(

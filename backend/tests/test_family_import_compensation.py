@@ -140,12 +140,22 @@ class _UnfinishedSession(_FakeSession):
         return json.loads(updates[0]["remaining"])
 
 
-def _entry(job_id, datasets, finished=()):
+# What an overwrite of each dataset replaces (registration.dataset_scopes): the SNV
+# callset's source, and a per-sample dataset's samples.
+_SCOPES = {
+    "snv": {"source": "auto", "samples": None},
+    "coverage": {"source": None, "samples": ["S1", "S2"]},
+    "haplotypes": {"source": None, "samples": None},
+}
+
+
+def _entry(job_id, datasets, finished=(), scopes=None):
     return {
         "job_id": job_id,
         "at": "2026-10-02T10:00:00+00:00",
         "datasets": list(datasets),
         "finished_datasets": list(finished),
+        "scopes": {name: (scopes or _SCOPES)[name] for name in datasets if name in (scopes or _SCOPES)},
     }
 
 
@@ -175,10 +185,60 @@ async def test_a_completed_import_removes_its_own_entry_and_those_it_completed()
     }
     session = _UnfinishedSession(stored)
     remaining = await fpi._clear_family_import_incomplete(
-        session, _ctx(), import_key="job-own", rewritten=["snv", "coverage"]
+        session,
+        _ctx(),
+        import_key="job-own",
+        rewritten={"snv": _SCOPES["snv"], "coverage": _SCOPES["coverage"]},
     )
     assert set(remaining) == {"job-other", "unreadable"}
     assert session.written() == {"job-other": stored["job-other"], "unreadable": "garbage"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("case", "replaced"),
+    [
+        # The SNV loader replaces only its own source's rows: the stopped import's
+        # partial callset of another source stays.
+        ("another SNV source", {"snv": {"source": "deepvariant", "samples": None}}),
+        # A per-sample loader replaces only the samples it names.
+        ("fewer samples", {"coverage": {"source": None, "samples": ["S1"]}}),
+        # A family-level file is not the per-sample files it would have to cover.
+        ("a family-level file", {"coverage": {"source": None, "samples": None}}),
+    ],
+)
+async def test_an_overwrite_of_less_than_the_stopped_import_wrote_leaves_its_entry(case, replaced) -> None:
+    pending = next(iter(replaced))
+    stored = {"job-stopped": _entry("job-stopped", [pending])}
+    session = _UnfinishedSession(stored)
+
+    remaining = await fpi._clear_family_import_incomplete(session, _ctx(), rewritten=replaced)
+
+    assert set(remaining) == {"job-stopped"}, case
+
+
+@pytest.mark.asyncio
+async def test_an_overwrite_of_the_same_samples_or_more_completes_the_stopped_import() -> None:
+    stored = {"job-stopped": _entry("job-stopped", ["coverage"])}
+    session = _UnfinishedSession(stored)
+
+    remaining = await fpi._clear_family_import_incomplete(
+        session, _ctx(), rewritten={"coverage": {"source": None, "samples": ["S1", "S2", "S3"]}}
+    )
+
+    assert remaining == {}
+
+
+@pytest.mark.asyncio
+async def test_an_entry_without_the_scope_of_what_it_was_writing_is_never_completed() -> None:
+    stored = {"job-stopped": {**_entry("job-stopped", ["snv"]), "scopes": {}}}
+    session = _UnfinishedSession(stored)
+
+    remaining = await fpi._clear_family_import_incomplete(
+        session, _ctx(), rewritten={"snv": _SCOPES["snv"]}
+    )
+
+    assert set(remaining) == {"job-stopped"}
 
 
 @pytest.mark.asyncio
@@ -191,7 +251,7 @@ async def test_an_update_completes_no_earlier_imports_partial_data() -> None:
     }
     session = _UnfinishedSession(stored)
     remaining = await fpi._clear_family_import_incomplete(
-        session, _ctx(), import_key="job-own", rewritten=[]
+        session, _ctx(), import_key="job-own", rewritten={}
     )
     assert set(remaining) == {"job-stopped"}
 
@@ -215,14 +275,55 @@ def test_pending_datasets_are_those_an_import_had_not_finished() -> None:
 
 
 def test_an_import_mark_is_keyed_by_its_job_or_its_own_run() -> None:
-    mark = registration.ImportMark.begin(job_id="job-1", datasets=["sv", "snv", "sv"])
+    scopes = {"snv": _SCOPES["snv"], "sv": {"source": None, "samples": None}}
+    mark = registration.ImportMark.begin(job_id="job-1", datasets=["sv", "snv", "sv"], scopes=scopes)
     assert mark.key == "job-1"
     assert mark.entry() == {
         "job_id": "job-1",
         "at": mark.at,
         "datasets": ["snv", "sv"],
         "finished_datasets": [],
+        "scopes": scopes,
     }
     assert mark.entry(["sv"])["finished_datasets"] == ["sv"]
     outside = registration.ImportMark.begin(job_id=None, datasets=[])
     assert outside.key.startswith("run-") and outside.job_id is None
+
+
+def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    def dataset(**fields):
+        extra = fields.pop("extra", {})
+        return SimpleNamespace(
+            family_vcf=fields.get("family_vcf"),
+            per_sample=fields.get("per_sample") or {},
+            model_extra=extra,
+        )
+
+    bundle = SimpleNamespace(
+        manifest=SimpleNamespace(
+            datasets={
+                "snv": dataset(family_vcf="snv/family.vcf", extra={"source_format": "deepvariant"}),
+                "haplotypes": dataset(family_vcf="GLIMPSE2/FAM.vcf.gz"),
+                "coverage": dataset(per_sample={"S2": {"bed": "b"}, "S1": {"bed": "a"}, "bad": "x"}),
+                # A family VCF wins over per-sample files, as the TRGT loader reads it.
+                "repeats_trgt": dataset(family_vcf="repeats/fam.vcf", per_sample={"S1": {"file": "r"}}),
+            }
+        )
+    )
+
+    scopes = registration.dataset_scopes(
+        bundle, ["snv", "haplotypes", "coverage", "repeats_trgt", "phenotypes"]
+    )
+
+    assert scopes == {
+        "snv": {"source": "deepvariant", "samples": None},
+        "haplotypes": {"source": None, "samples": None},
+        "coverage": {"source": None, "samples": ["S1", "S2"]},
+        "repeats_trgt": {"source": None, "samples": None},
+        "phenotypes": {"source": None, "samples": None},
+    }
+    # An SNV callset without a declared source is read as "auto".
+    bundle.manifest.datasets["snv"] = dataset(family_vcf="snv/family.vcf")
+    assert registration.dataset_scopes(bundle, ["snv"])["snv"]["source"] == "auto"
