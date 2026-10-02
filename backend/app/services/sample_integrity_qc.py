@@ -29,14 +29,23 @@ Status = Literal["pass", "warn", "fail", "skip"]
 
 # --- Relatedness (KING-robust) thresholds -----------------------------------
 # Standard KING kinship cut-points (Manichaikul et al. 2010): duplicate ~0.5,
-# first-degree ~0.25, second-degree ~0.125, third-degree ~0.0625.
+# first-degree ~0.25, second-degree ~0.125, third-degree ~0.0625. They are
+# genome-wide expectations, so the genotypes are a sample of sites across every
+# autosome (sample_integrity_service). Siblings share 0, 1 or 2 haplotypes in
+# blocks tens of Mb long: over the genome their kinship stays near 0.25 (about
+# 0.19-0.31, Visscher et al. 2006), over a few blocks it can reach either
+# neighbouring band.
 MIN_RELATEDNESS_SITES = 1_000
 KINSHIP_DUPLICATE = 0.354
 KINSHIP_FIRST_DEGREE = 0.177
 KINSHIP_SECOND_DEGREE = 0.0884
 KINSHIP_THIRD_DEGREE = 0.0442
-# Within first-degree, parent-child share an allele at every site so IBS0 ~ 0,
-# whereas full siblings are opposite homozygotes at a few percent of sites.
+# Within first-degree, parent and child share an allele at every site, so their
+# IBS0 is genotype error alone. Full siblings are opposite homozygotes only where
+# they share no haplotype (about a quarter of the genome), at a rate set by the
+# allele frequencies of the sites, so their IBS0 depends on the callset. A sibling
+# pair below the cut reads as parent-child, which a recorded sibling pair accepts
+# as first degree.
 IBS0_PARENT_CHILD_MAX = 0.008
 
 # --- Sex inference (chrX heterozygosity) ------------------------------------

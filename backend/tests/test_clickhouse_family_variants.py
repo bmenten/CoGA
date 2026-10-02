@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import types
 
 import pytest
@@ -14,6 +15,7 @@ from backend.app.services.clickhouse_family_variants import (
     _prioritized_structural_variants_page,
     export_family_small_variants,
     export_family_structural_variants,
+    fetch_genotype_site_sample,
     get_family_small_variants_page,
     get_family_structural_variants_page,
 )
@@ -2691,3 +2693,104 @@ async def test_prioritized_structural_ranking_that_filters_to_nothing_still_flag
     assert page.total_is_estimated is True
     # The candidate read (cap 2 here) is what overflowed.
     assert page.candidate_limit == 2
+
+
+# --- The sample-integrity genotype sample --------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_genotype_site_sample_takes_the_smallest_keys_over_every_autosome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        # A family linked to two projects stores each variant once per project.
+        return [
+            (5, "1", 100, "A", "G", ["PROBAND"], ["0|1"]),
+            (5, "1", 100, "A", "G", ["PROBAND"], ["0|1"]),
+            (9, "17", 200, "C", "T", ["PROBAND", "MOM"], ["1|1", "0|1"]),
+        ]
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    rows = await fetch_genotype_site_sample(
+        _family_context(), scope="autosomes", limit=90_000, source="glimpse2"
+    )
+
+    assert rows == [
+        ("1", 100, "A", "G", ["PROBAND"], ["0|1"]),
+        ("17", 200, "C", "T", ["PROBAND", "MOM"], ["1|1", "0|1"]),
+    ]
+    query, params = queries[0]
+    # A fixed pseudo-random sample over chromosomes 1-22, not the first sites by position.
+    assert "ORDER BY e.key, e.source, e.project_guid" in query
+    assert "ORDER BY e.pos" not in query
+    assert "e.xpos BETWEEN %(sample_xpos_start)s AND %(sample_xpos_end)s" in query
+    assert (params["sample_xpos_start"], params["sample_xpos_end"]) == (1_000_000_000, 22_999_999_999)
+    # The sample's largest key is found from the keys first, so only the sample is sorted.
+    assert "AND e.key <= (" in query and "SELECT max(sample_key)" in query
+    assert query.count("LIMIT %(sample_limit)s") == 2 and params["sample_limit"] == 90_000
+    assert not any(name.startswith("sample_hemizygous") for name in params)
+    # Family-scoped and parameterised like every small-variant read.
+    assert "e.family_guid = %(family_guid)s" in query and params["family_guid"] == "family-uuid"
+    assert "e.sign = 1" in query
+    assert "positionCaseInsensitive(e.source, %(source)s) > 0" in query
+    assert params["source"] == "glimpse2"
+    rendered_query, _ = bind_query(query, params)
+    assert "%(" not in rendered_query
+
+
+@pytest.mark.asyncio
+async def test_genotype_site_sample_reads_chrx_outside_the_pseudoautosomal_regions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        return []
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    await fetch_genotype_site_sample(_family_context(), scope="chrX", limit=20_000, source="clair3")
+    # A male is diploid in the PARs: his heterozygous calls there would read as female.
+    query, params = queries[0]
+    assert (params["sample_xpos_start"], params["sample_xpos_end"]) == (23_000_000_000, 23_999_999_999)
+    assert "NOT (e.pos BETWEEN %(sample_hemizygous_x_par1_start)s AND %(sample_hemizygous_x_par1_end)s)" in query
+    assert "NOT (e.pos BETWEEN %(sample_hemizygous_x_par2_start)s AND %(sample_hemizygous_x_par2_end)s)" in query
+    assert (params["sample_hemizygous_x_par1_start"], params["sample_hemizygous_x_par1_end"]) == (10_001, 2_781_479)
+    assert (params["sample_hemizygous_x_par2_start"], params["sample_hemizygous_x_par2_end"]) == (
+        155_701_383,
+        156_030_895,
+    )
+    assert params["sample_limit"] == 20_000
+
+    # On an assembly whose PARs CoGA does not know, all of chrX is read, as before.
+    t2t = dataclasses.replace(_family_context(), assembly_name="T2T-CHM13v2.0")
+    await fetch_genotype_site_sample(t2t, scope="chrX", limit=20_000, source="clair3")
+    query, params = queries[1]
+    assert not any(name.startswith("sample_hemizygous") for name in params)
+    assert (params["sample_xpos_start"], params["sample_xpos_end"]) == (23_000_000_000, 23_999_999_999)
+
+
+@pytest.mark.asyncio
+async def test_genotype_site_sample_without_an_assembly_reads_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        raise AssertionError("no query without an assembly")
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    context = dataclasses.replace(_family_context(), assembly_name=None)
+    assert await fetch_genotype_site_sample(context, scope="autosomes", limit=10, source=None) == []

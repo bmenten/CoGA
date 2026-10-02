@@ -28,6 +28,20 @@ Any other family shape gets sex, relatedness and Mendelian checks where the data
 The genotypes come from the family's own calls when available, and from the imputed GLIMPSE2 calls
 otherwise; if neither is present, from the first call set the family has.
 
+### Which sites are read
+
+The checks read a fixed sample of that call set's sites:
+
+- **Relatedness and Mendelian errors:** up to **90,000** sites spread over all 22 autosomes.
+- **Sex:** up to **20,000** sites on chromosome X outside the pseudo-autosomal regions, where a man has
+  two copies. On an assembly other than GRCh37 or GRCh38 the whole X is read.
+
+The sample has to cover the whole genome. Siblings share both parental copies over about a quarter of
+the genome, one over half and none over a quarter, in stretches tens of megabases long. Sites from a few
+such stretches measure only what the siblings share there, so two siblings could look like duplicates or
+like second-degree relatives. The sample is pseudo-random but fixed: the same data always gives the same
+sites, so a signed report holds the result the page showed.
+
 ---
 
 ## The checks
@@ -59,6 +73,11 @@ of sites where the two samples are opposite homozygotes). The kinship bands:
 | 0.0884 – 0.177 | second degree |
 | 0.0442 – 0.0884 | third degree |
 | below 0.0442 | unrelated |
+
+Over the whole genome, siblings' kinship stays close to 0.25. Their IBS0 depends on the call set, because
+siblings can be opposite homozygotes only where they share no parental copy: on some data it is below
+0.8%, and the pair is inferred as parent–child. A recorded sibling pair accepts that as first degree. A
+parent and child share a copy everywhere, so their IBS0 comes from genotyping errors alone.
 
 Each pair's inferred relationship is compared with the pedigree:
 
@@ -171,5 +190,7 @@ cards, and the parent-sex rows appear in the per-sample table.
   [traceability reference](/docs/reference/clinical-traceability)).
 - **Missing data gives a warning, not an error.** If the genotypes or the cfDNA analysis cannot be
   loaded, the page says so and shows what it could compute.
-- **A screening check, not an identity test.** Relatedness and Mendelian errors use a sample of sites
-  from a few autosomes, and sex a capped number of X sites.
+- **A screening check, not an identity test.** Relatedness and Mendelian errors use a sample of up to
+  90,000 sites from all autosomes, and sex up to 20,000 X sites (see *Which sites are read*). A call set
+  that covers only part of the genome (a few chromosomes or a region) cannot give a genome-wide sample;
+  there siblings can read as more or less related than first degree.

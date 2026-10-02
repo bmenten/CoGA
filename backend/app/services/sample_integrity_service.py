@@ -18,8 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.coga_logging import scrub_log
 from .clickhouse_family_variants import (
+    GenotypeSampleScope,
     fetch_family_variant_sources,
-    fetch_imputed_phased_genotypes,
+    fetch_genotype_site_sample,
 )
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .genotypes import NO_CALL, classify_genotype
@@ -47,11 +48,14 @@ from .sample_integrity_qc import (
 
 logger = logging.getLogger(__name__)
 
-QC_AUTOSOMES: tuple[str, ...] = ("1", "2", "3")
-QC_SITES_PER_CHROM = 30_000
-QC_X_CHROM = "X"
+# The genotypes the checks read: a fixed sample of up to QC_AUTOSOMAL_SITES sites spread
+# over every autosome, for relatedness and Mendelian errors, and of up to QC_X_SITES on
+# chrX outside the pseudo-autosomal regions, for sex (fetch_genotype_site_sample). The
+# sample must span the genome. Siblings share 0, 1 or 2 haplotypes in blocks tens of Mb
+# long, so the first 30,000 sites of chr1-3, which the checks once read, measured three
+# such blocks, and sibling embryos looked like duplicates.
+QC_AUTOSOMAL_SITES = 90_000
 QC_X_SITES = 20_000
-_WHOLE_CHROM_END = 300_000_000
 
 # Genotype callsets preferred for QC, best first: real SNV calls before imputed.
 _SOURCE_PREFERENCE = ("clair3", "glimpse2")
@@ -88,18 +92,16 @@ def _choose_genotype_source(available: list[str]) -> str | None:
     return available[0] if available else None
 
 
-async def _load_chromosome(
+async def _load_genotype_sample(
     context: FamilyMetadataContext,
-    chrom: str,
+    scope: GenotypeSampleScope,
     limit: int,
     samples: list[str],
     source: str,
 ) -> dict[str, list[Genotype | None]]:
-    rows = await fetch_imputed_phased_genotypes(
-        context, chrom=chrom, start=0, end=_WHOLE_CHROM_END, limit=limit, source=source
-    )
+    rows = await fetch_genotype_site_sample(context, scope=scope, limit=limit, source=source)
     arrays: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
-    for _pos, _ref, _alt, sample_ids, gts in rows:
+    for _chrom, _pos, _ref, _alt, sample_ids, gts in rows:
         gt_by_sample = dict(zip(sample_ids, gts))
         for sample in samples:
             arrays[sample].append(_parse_genotype(gt_by_sample.get(sample)))
@@ -132,7 +134,7 @@ async def _nipt_parent_sex_checks(
         source = _choose_genotype_source(await fetch_family_variant_sources(context))
         if not source:
             return []
-        x_genotypes = await _load_chromosome(context, QC_X_CHROM, QC_X_SITES, present, source)
+        x_genotypes = await _load_genotype_sample(context, "chrX", QC_X_SITES, present, source)
     except Exception:  # noqa: BLE001 — missing/mock genotypes shouldn't fail the page
         return []
     recorded = {
@@ -235,14 +237,11 @@ async def get_family_sample_integrity_qc(
         try:
             genotype_source = _choose_genotype_source(await fetch_family_variant_sources(context))
             if genotype_source:
-                for chrom in QC_AUTOSOMES:
-                    part = await _load_chromosome(
-                        context, chrom, QC_SITES_PER_CHROM, samples, genotype_source
-                    )
-                    for sample in samples:
-                        autosomal[sample].extend(part[sample])
-                x_genotypes = await _load_chromosome(
-                    context, QC_X_CHROM, QC_X_SITES, samples, genotype_source
+                autosomal = await _load_genotype_sample(
+                    context, "autosomes", QC_AUTOSOMAL_SITES, samples, genotype_source
+                )
+                x_genotypes = await _load_genotype_sample(
+                    context, "chrX", QC_X_SITES, samples, genotype_source
                 )
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
             logger.warning("Genotypes could not be loaded for family %s: %s", scrub_log(family_id), scrub_log(exc))
