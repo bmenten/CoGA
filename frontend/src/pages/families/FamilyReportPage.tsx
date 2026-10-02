@@ -57,6 +57,11 @@ import {
 import { apiPath, raw } from '../../lib/apiPath';
 import { memberLabel } from '../../lib/familyMembers';
 import { joinWithAnd } from '../../lib/format';
+import {
+  importUnfinishedFromMetadata,
+  pendingDatasets,
+  type FamilyImportUnfinished,
+} from '../../components/ImportIncompleteBanner';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
 
 // The report's SV list: its variants, and what the page says about its completeness.
@@ -457,6 +462,7 @@ const LiveFamilyReport: React.FC = () => {
     failed: string[];
     imported: string[];
     jobId: string | null;
+    unfinished: FamilyImportUnfinished[];
   } | null>(null);
   const [importReason, setImportReason] = useState('');
   const [signOutError, setSignOutError] = useState<string | null>(null);
@@ -561,6 +567,8 @@ const LiveFamilyReport: React.FC = () => {
           failed: incomplete.import_incomplete?.failed_datasets ?? [],
           imported: incomplete.import_incomplete?.imported_datasets ?? [],
           jobId: incomplete.import_incomplete?.job_id ?? null,
+          // The imports that began writing the family and did not finish (detail.import_unfinished).
+          unfinished: importUnfinishedFromMetadata(detail),
           vars,
         });
         return;
@@ -913,7 +921,10 @@ const LiveFamilyReport: React.FC = () => {
             <p className="report-paragraph">
               To sign out anyway you must record a reason — it is frozen into the signed record.
             </p>
-            {importGate.failed.length || importGate.imported.length || importGate.jobId ? (
+            {importGate.failed.length ||
+            importGate.imported.length ||
+            importGate.jobId ||
+            importGate.unfinished.length ? (
               <ul>
                 {importGate.failed.length ? (
                   <li>Failed to import: {importGate.failed.join(', ')}</li>
@@ -923,6 +934,15 @@ const LiveFamilyReport: React.FC = () => {
                 ) : null}
                 {/* Its record holds each dataset's error. */}
                 {importGate.jobId ? <li>Import job: {importGate.jobId}</li> : null}
+                {/* An import that stopped part-way: its record shows how far it got. */}
+                {importGate.unfinished.map((entry) => (
+                  <li key={entry.key}>
+                    Not finished{entry.jobId ? ` (import job ${entry.jobId})` : ''}:{' '}
+                    {pendingDatasets(entry).length
+                      ? `${pendingDatasets(entry).join(', ')} may be partly written or missing`
+                      : 'what it was importing was not recorded'}
+                  </li>
+                ))}
               </ul>
             ) : null}
             <label className="report-footer-label" htmlFor="import-ack-reason">

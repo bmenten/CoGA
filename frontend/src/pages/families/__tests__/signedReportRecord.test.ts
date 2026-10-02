@@ -75,6 +75,7 @@ const SNAPSHOT = {
     },
   },
   import_incomplete: null,
+  import_unfinished: {},
   reported_variants: [
     {
       variant_id: '17-43000000-A-G',
@@ -166,6 +167,7 @@ describe('parseSignedReport', () => {
       },
     ]);
     expect(record.importIncomplete).toBeNull();
+    expect(record.importUnfinished).toEqual([]);
   });
 
   it('reads a reported small variant as the live report reads its review, from the record alone', () => {
@@ -233,6 +235,7 @@ describe('parseSignedReport', () => {
     expect(record.sampleQc).toBeNull();
     expect(record.sequencingQc).toBeNull();
     expect(record.importIncomplete).toBe('absent');
+    expect(record.importUnfinished).toBe('absent');
     // Signed before CoGA froze the reported SVs: the record holds none.
     expect(record.reportedStructuralVariants).toBeNull();
     expect(record.driftAcknowledgement).toEqual({ acknowledged: null, reason: null });
@@ -256,6 +259,37 @@ describe('parseSignedReport', () => {
     });
     expect(record.importAcknowledgement).toEqual({ acknowledged: true, reason: 'SVs not requested.' });
     expect(record.sequencingQc?.unavailable).toBe('QC thresholds could not be resolved');
+  });
+
+  it('reads an import that had not finished when the version was signed', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      import_unfinished: {
+        'job-2': {
+          job_id: 'job-2',
+          at: '2026-10-02T09:12:00+00:00',
+          datasets: ['haplotypes', 'snv'],
+          finished_datasets: ['snv'],
+        },
+      },
+      acknowledged_import_incomplete: true,
+      import_incomplete_acknowledgement_reason: 'Haplotypes not used for this referral.',
+    })!;
+
+    expect(record.importUnfinished).toEqual([
+      {
+        key: 'job-2',
+        jobId: 'job-2',
+        at: '2026-10-02T09:12:00+00:00',
+        datasets: ['haplotypes', 'snv'],
+        finishedDatasets: ['snv'],
+      },
+    ]);
+    expect(record.importIncomplete).toBeNull();
+    expect(record.importAcknowledgement).toEqual({
+      acknowledged: true,
+      reason: 'Haplotypes not used for this referral.',
+    });
   });
 
   it('has no record to read without a snapshot object', () => {

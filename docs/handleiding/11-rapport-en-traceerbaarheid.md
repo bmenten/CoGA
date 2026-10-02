@@ -57,7 +57,7 @@ Ondertekenen gaat via **`POST /api/families/{id}/report/sign-out`**. De service 
 
 Een pakketimport schrijft een familie over enkele minuten: eerst de stamboom en de samples, dan dataset na dataset, met een commit na elke stap (hoofdstuk 6). De vlag `import_incomplete` komt pas als de import mislukt is. Een snapshot dat tijdens de import gelezen wordt, kan dus een half geïmporteerde familie als volledig bevriezen (`TF-06`, gevaar H16). Daarom weigert de backend (`409`, niet te erkennen, zonder te wachten):
 
-- zolang voor de familie een importjob (geen dry run) `queued` (met de familie in de aanvraag), `validating` of `running` is: `gate = "import_in_progress"`, met het id en de status van de job. Een job waarvan de worker stopte, blijft weigeren tot een worker hem opnieuw oppakt;
+- zolang voor de familie een importjob (geen dry run) `queued` (met de familie in de aanvraag), `validating` of `running` is: `gate = "import_in_progress"`, met het id en de status van de job. Een job waarvan de worker stopte, blijft weigeren tot een worker hem overneemt; was de import al begonnen te schrijven, dan beëindigt die worker de job als onderbroken en blijft de familie gemarkeerd (poort 3);
 - zolang een schrijver de schrijfsloten van de varianten van de familie houdt (een import, een upload, een verwijdering door een admin; `family_variant_write_lock.py`, hoofdstuk 6): `gate = "variant_writes_in_progress"`.
 
 Wie de poort passeert, deelt die sloten tot het einde van de transactie (`pg_try_advisory_xact_lock_shared`): ondertekeningen houden elkaar niet tegen, maar een schrijver van de varianten wacht tot de ondertekening klaar is. De sloten worden genomen vóór het slot van de sign-outketen, zoals elke schrijver ze als eerste neemt. Na het snapshot kijkt de ondertekening de importjobs opnieuw na: een import die intussen werd opgepakt, zet zijn job op `running`, met de familie, vóór hij iets van die familie schrijft, en weigert dan de ondertekening. Dat vastleggen is geen formaliteit: lukt het niet (een databankfout, of een andere worker nam de job over), dan stopt de import zonder iets van de familie te schrijven, en eindigt de job op `failed` met de reden, zolang hij nog van deze worker is en bij te werken valt (#736). De rapportpagina toont beide weigeringen als *Not signed out.*, zonder dialoog.
@@ -85,9 +85,11 @@ Blokkeert de poort en is ze niet erkend, dan volgt `409` met de bevindingen. Erk
 
 Een pakketimport die voor een deel van de datasets faalt en de familie deels geladen achterlaat, zet de vlag `import_incomplete` in de familiemetadata (hoofdstuk 6). De vlag noemt de mislukte en de gelukte datasets, het tijdstip en de importjob waarin de fout per dataset staat. Zo'n familie kan hele datasets missen, bv. alle structurele varianten (`TF-06`, gevaar H16).
 
-Staat de vlag en heeft de ondertekenaar ze niet erkend, dan volgt `409` (`gate = "import_incomplete"`) met de mislukte datasets en de importjob. Erkennen vraagt een reden (anders `422`). De vlag en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen. Elke gezette vlag telt, ook een in een onverwachte vorm. Zolang de vlag staat, toont elke familiepagina *Import incomplete*; een latere volledige import wist ze. De rapportpagina opent een aparte dialoog waarin de reden verplicht is.
+Een import waarvan het proces halverwege stopte (een herstart, een crash, geen geheugen meer), zet die vlag niet: daar draait niets meer. Wat hij achterlaat, is zijn item in `import_unfinished` in de familiemetadata, dat hij vóór zijn eerste schrijfactie zette (hoofdstuk 6). Het noemt de importjob, het begin, de datasets die hij zou importeren en die hij afrondde; de andere kunnen half geschreven zijn of ontbreken. Zo'n item telt voor deze poort als de vlag.
 
-**Waar in de code:** `sign_out_report` en `_import_incomplete_state` in `report_signout_service.py`; de vlag in `_flag_family_import_incomplete` (`family_package_registration.py`); de melding in `frontend/src/components/ImportIncompleteBanner.tsx`.
+Staat de vlag of een item en heeft de ondertekenaar dat niet erkend, dan volgt `409` (`gate = "import_incomplete"`) met de mislukte datasets en de importjob, en elk item (`import_unfinished`). Eén erkenning geldt voor beide en vraagt een reden (anders `422`). De vlag, de items en de reden worden in het snapshot, en dus in de hash, bevroren en in het auditevent opgenomen. Elke gezette vlag of elk item telt, ook in een onverwachte vorm. Zolang er een staat, toont elke familiepagina *Import incomplete*. Een latere volledige import wist de vlag; een item wist alleen een import met `overwrite` die de datasets opnieuw importeert die de gestopte import niet afrondde. De rapportpagina opent een aparte dialoog waarin de reden verplicht is.
+
+**Waar in de code:** `sign_out_report`, `_import_incomplete_state` en `_import_unfinished_state` in `report_signout_service.py`; de vlag in `_flag_family_import_incomplete` en het item in `ImportMark` (`family_package_registration.py`); de melding in `frontend/src/components/ImportIncompleteBanner.tsx`.
 
 ## Het bevroren snapshot
 
@@ -102,6 +104,7 @@ Staat de vlag en heeft de ondertekenaar ze niet erkend, dan volgt `409` (`gate =
 | `sample_qc` | De volledige sample-QC |
 | `sequencing_qc` | De sequencing-QC per sample en de grenzen waartegen ze beoordeeld werd |
 | `import_incomplete` | Leeg (`null`) als de data volledig geïmporteerd is; anders de mislukte en de gelukte datasets, het tijdstip en de importjob |
+| `import_unfinished` | Leeg (`{}`) als geen import halverwege stopte; anders per import de job, het begin, de datasets en welke ervan afgerond waren |
 | `reported_variants` | Elke gerapporteerde small variant met klasse, criteria, tags, notitie en bevroren bewijs |
 | `reported_structural_variants` | Elke gerapporteerde SV of CNV met classificatie, CNV-criteria, tags, notitie en bevroren bewijs |
 

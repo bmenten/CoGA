@@ -935,7 +935,9 @@ async def test_successful_minimal_import_registers_family(monkeypatch: pytest.Mo
     _write_minimal_package(package_root)
     calls: list[tuple[str, str | None]] = []
 
-    async def fake_ensure_family_from_ped(session, *, bundle, project_id, user, validation, conflict_mode="cancel"):
+    async def fake_ensure_family_from_ped(
+        session, *, bundle, project_id, user, validation, conflict_mode="cancel", **_kwargs
+    ):
         calls.append((validation.family_id or "", project_id))
         return (
             FamilyMetadataContext(
@@ -990,7 +992,9 @@ async def test_package_import_continues_after_dataset_failure(
     package_root = tmp_path / "FAM001"
     _write_minimal_package(package_root)
 
-    async def fake_ensure_family_from_ped(session, *, bundle, project_id, user, validation, conflict_mode="cancel"):
+    async def fake_ensure_family_from_ped(
+        session, *, bundle, project_id, user, validation, conflict_mode="cancel", **_kwargs
+    ):
         return (
             FamilyMetadataContext(
                 family_uuid="family-uuid",

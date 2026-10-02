@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
 import re
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -338,17 +341,12 @@ async def _register_package_provenance(
     family_uuid: str,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
-    family_result = await session.execute(
-        text("SELECT metadata FROM families WHERE id = CAST(:family_uuid AS uuid)"),
-        {"family_uuid": family_uuid},
-    )
-    family_metadata = _metadata_dict(family_result.scalar_one_or_none())
+    # The keys this writes, merged into the family's metadata as it is stored rather than
+    # written back whole from a copy read here first: that copy would put back what
+    # another writer changed in between, such as the import-state keys an import of the
+    # family records (`import_unfinished`, `import_incomplete`).
+    family_metadata: dict[str, Any] = {}
     pgt_metadata = _manifest_pgt_metadata(bundle.manifest)
-    if pgt_metadata:
-        family_metadata["pgt"] = {
-            **_metadata_dict(family_metadata.get("pgt")),
-            **pgt_metadata,
-        }
     family_metadata["package_import"] = {
         "source": "family_package",
         # The folder the package was imported from: for a bucket, its gs:// or s3://
@@ -367,11 +365,24 @@ async def _register_package_provenance(
     analysis_type = bundle.manifest.analysis_type
     if isinstance(analysis_type, str) and analysis_type.strip():
         family_metadata["analysis_type"] = analysis_type.strip()
+    # The manifest's PGT context is merged into the family's, key by key.
     await session.execute(
         text(
             """
             UPDATE families
-            SET metadata = CAST(:metadata AS jsonb),
+            SET metadata = COALESCE(metadata, '{}'::jsonb)
+                    || CAST(:metadata AS jsonb)
+                    || CASE
+                        WHEN CAST(:pgt AS jsonb) IS NULL THEN '{}'::jsonb
+                        ELSE jsonb_build_object(
+                            'pgt',
+                            CASE
+                                WHEN jsonb_typeof(metadata -> 'pgt') = 'object'
+                                    THEN metadata -> 'pgt'
+                                ELSE '{}'::jsonb
+                            END || CAST(:pgt AS jsonb)
+                        )
+                    END,
                 pedigree = :pedigree
             WHERE id = CAST(:family_uuid AS uuid)
             """
@@ -379,6 +390,7 @@ async def _register_package_provenance(
         {
             "family_uuid": family_uuid,
             "metadata": json.dumps(family_metadata),
+            "pgt": json.dumps(pgt_metadata) if pgt_metadata else None,
             "pedigree": bundle.ped.text,
         },
     )
@@ -561,23 +573,23 @@ async def _apply_manifest_roi(
         query=roi_query,
     )
     if roi is None:
-        family_result = await session.execute(
-            text("SELECT metadata FROM families WHERE id = CAST(:family_uuid AS uuid)"),
-            {"family_uuid": context.family_uuid},
-        )
-        metadata = _metadata_dict(family_result.scalar_one_or_none())
-        metadata["unresolved_roi"] = {"query": roi_query, "source": "manifest"}
+        # Merged where it is stored, as the provenance is (_register_package_provenance).
         await session.execute(
             text(
                 """
                 UPDATE families
-                SET metadata = CAST(:metadata AS jsonb)
+                SET metadata = jsonb_set(
+                    COALESCE(metadata, '{}'::jsonb),
+                    '{unresolved_roi}',
+                    CAST(:unresolved_roi AS jsonb),
+                    true
+                )
                 WHERE id = CAST(:family_uuid AS uuid)
                 """
             ),
             {
                 "family_uuid": context.family_uuid,
-                "metadata": json.dumps(metadata),
+                "unresolved_roi": json.dumps({"query": roi_query, "source": "manifest"}),
             },
         )
         await session.commit()
@@ -616,6 +628,205 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
     return validation.family_id or bundle.ped.family_ids[0]
 
 
+# `families.metadata.import_unfinished`: the package imports that have begun writing the
+# family and not finished, one entry per import (``ImportMark``). An import records its
+# entry before it writes anything of the family -- a new family is created with it -- and
+# removes it when it ends: completed, failed and flagged `import_incomplete`, or put back
+# to its state before the import. An entry that outlives its import marks one that stopped
+# part-way, its process ended by a restart, a crash or running out of memory: what it was
+# importing may be partly written. Only a later import that completes and imports again,
+# replacing it (`overwrite`), what that import had not finished removes the entry. An
+# `update` cannot: it skips a dataset that already holds data, partial data included.
+IMPORT_UNFINISHED_KEY = "import_unfinished"
+
+# A dataset an import ended with one of these left nothing partly written: it imported
+# completely, skipped (update mode: data was there), or registered its files only.
+_FINISHED_DATASET_STATUSES = frozenset({"imported", "skipped", "registered"})
+
+
+@dataclass(frozen=True)
+class ImportMark:
+    """One import's entry in ``families.metadata.import_unfinished``.
+
+    Keyed by its job's id, or, run outside a job, by an id of its own run. ``at`` is when
+    it began writing the family, ``datasets`` what it set out to import; the entry also
+    records the datasets it has finished (``finished_datasets``), so after a stop the
+    others (``pending_datasets``) are those that may be partly written or missing.
+    """
+
+    key: str
+    job_id: str | None
+    at: str
+    datasets: tuple[str, ...]
+
+    @classmethod
+    def begin(cls, *, job_id: str | None, datasets: Iterable[str]) -> "ImportMark":
+        return cls(
+            key=job_id or f"run-{uuid4().hex}",
+            job_id=job_id,
+            at=datetime.now(timezone.utc).isoformat(),
+            datasets=tuple(sorted(set(datasets))),
+        )
+
+    def entry(self, finished: Iterable[str] = ()) -> dict[str, Any]:
+        return {
+            "job_id": self.job_id,
+            "at": self.at,
+            "datasets": list(self.datasets),
+            "finished_datasets": sorted(set(finished)),
+        }
+
+
+def _dataset_names(value: Any) -> set[str] | None:
+    """The dataset names an entry lists, or None when the list is not one CoGA writes."""
+    if not isinstance(value, list):
+        return None
+    return {str(item) for item in value if item}
+
+
+def pending_datasets(entry: Any) -> set[str] | None:
+    """What an unfinished import had not finished, so may have left partly written or
+    missing: the datasets it set out to import less those it finished. None when the
+    entry does not say (not in the shape an import writes): then nothing is known to be
+    complete, and no later import can show it rewrote what the entry left pending."""
+    if not isinstance(entry, Mapping):
+        return None
+    datasets = _dataset_names(entry.get("datasets"))
+    finished = _dataset_names(entry.get("finished_datasets"))
+    if datasets is None or finished is None:
+        return None
+    return datasets - finished
+
+
+def _unfinished_entries(raw: Any) -> dict[str, Any]:
+    """The `import_unfinished` map as stored; a value that is set but is not a map is
+    kept, under a key of its own, so it still marks the family (it is never dropped)."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            pass
+    if raw is None:
+        return {}
+    if isinstance(raw, Mapping):
+        return {str(key): value for key, value in raw.items()}
+    return {"unreadable": raw}
+
+
+async def _mark_family_import_unfinished(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    mark: ImportMark,
+    finished: Iterable[str] = (),
+) -> None:
+    """Write this import's entry into ``import_unfinished`` (created if the map or the
+    entry is missing), and commit. Raises: the caller decides whether the import may go
+    on without it."""
+    await session.execute(
+        text(
+            """
+            UPDATE families
+            SET metadata = jsonb_set(
+                COALESCE(metadata, '{}'::jsonb),
+                '{import_unfinished}',
+                CASE
+                    WHEN metadata -> 'import_unfinished' IS NULL
+                         OR jsonb_typeof(metadata -> 'import_unfinished') = 'null'
+                        THEN '{}'::jsonb
+                    WHEN jsonb_typeof(metadata -> 'import_unfinished') = 'object'
+                        THEN metadata -> 'import_unfinished'
+                    -- Set, but not a map: kept, so it still marks the family.
+                    ELSE jsonb_build_object('unreadable', metadata -> 'import_unfinished')
+                END || jsonb_build_object(CAST(:import_key AS text), CAST(:entry AS jsonb)),
+                true
+            )
+            WHERE id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        {
+            "family_uuid": family_uuid,
+            "import_key": mark.key,
+            "entry": json.dumps(mark.entry(finished)),
+        },
+    )
+    await session.commit()
+
+
+async def _record_family_import_finished(
+    session: AsyncSession,
+    family_context: FamilyMetadataContext,
+    mark: ImportMark,
+    finished: Iterable[str],
+) -> None:
+    """Record in this import's entry the datasets it has finished. Best-effort: one it
+    fails to record counts as not finished, which only keeps more of the import pending."""
+    try:
+        await _mark_family_import_unfinished(
+            session, family_uuid=family_context.family_uuid, mark=mark, finished=finished
+        )
+    except Exception:  # an unrecorded dataset stays pending: the safe side
+        logger.warning(
+            "Failed to record the finished datasets of the import of family %s",
+            family_context.family_id,
+            exc_info=True,
+        )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
+
+
+# `metadata` without the entry `:import_key` in import_unfinished, and without the map once
+# that empties it; unchanged when there is no such entry (or no key: an import outside
+# the bookkeeping, as a test runs one).
+_WITHOUT_IMPORT_ENTRY = """
+CASE
+    WHEN CAST(:import_key AS text) IS NULL
+         OR jsonb_typeof(metadata -> 'import_unfinished') IS DISTINCT FROM 'object'
+         OR NOT ((metadata -> 'import_unfinished') ? CAST(:import_key AS text))
+        THEN COALESCE(metadata, '{}'::jsonb)
+    WHEN (metadata -> 'import_unfinished') - CAST(:import_key AS text) = '{}'::jsonb
+        THEN metadata - 'import_unfinished'
+    ELSE jsonb_set(
+        metadata,
+        '{import_unfinished}',
+        (metadata -> 'import_unfinished') - CAST(:import_key AS text)
+    )
+END
+"""
+
+
+async def _end_family_import_unfinished(
+    session: AsyncSession, family_context: FamilyMetadataContext, *, import_key: str
+) -> None:
+    """Remove this import's entry: it ended with the family as it was before it (a failed
+    overwrite put back). Best-effort: an entry left in place keeps the family marked,
+    the safe side."""
+    try:
+        await session.execute(
+            text(
+                f"""
+                UPDATE families
+                SET metadata = {_WITHOUT_IMPORT_ENTRY}
+                WHERE id = CAST(:family_uuid AS uuid)
+                """
+            ),
+            {"family_uuid": family_context.family_uuid, "import_key": import_key},
+        )
+        await session.commit()
+    except Exception:  # the entry stays: the family stays marked
+        logger.warning(
+            "Failed to remove the unfinished-import entry of family %s",
+            family_context.family_id,
+            exc_info=True,
+        )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
+
+
 async def _ensure_family_from_ped(
     session: AsyncSession,
     *,
@@ -624,7 +835,14 @@ async def _ensure_family_from_ped(
     user: CurrentUser,
     validation: FamilyPackageValidationOut,
     conflict_mode: str = "cancel",
-) -> FamilyMetadataContext:
+    import_mark: ImportMark | None = None,
+) -> tuple[FamilyMetadataContext, bool]:
+    """Create the package's family, or check the existing one may take the import, then
+    register the package (provenance, ROI). Returns the family and whether it was created.
+
+    ``import_mark``, when given, is recorded before anything of the family is written: a
+    new family is created with it, an existing one marked (committed) once its checks
+    pass. If that cannot be done the import stops here, having written nothing."""
     resolved_project_id = await ped_service._resolve_accessible_project_id(session, user, project_id)
     family_id = _package_family_id(validation, bundle)
     existing = await _fetch_existing_family(session, family_id=family_id)
@@ -665,6 +883,12 @@ async def _ensure_family_from_ped(
             members=members,
             relationships=relationships,
             project_id=resolved_project_id,
+            # Created with the import's entry: the family never exists without it.
+            family_metadata=(
+                {IMPORT_UNFINISHED_KEY: {import_mark.key: import_mark.entry()}}
+                if import_mark is not None
+                else None
+            ),
             created_by=user.id,
         )
         await session.commit()
@@ -679,6 +903,11 @@ async def _ensure_family_from_ped(
             raise RuntimeError(
                 "Existing family has different sample IDs; refusing to attach package import "
                 f"to {family_id}"
+            )
+        if import_mark is not None:
+            # Before the first write of the family.
+            await _mark_family_import_unfinished(
+                session, family_uuid=str(existing["family_uuid"]), mark=import_mark
             )
         if resolved_project_id is not None:
             await session.execute(
@@ -762,6 +991,7 @@ async def _flag_family_import_incomplete(
     failed_datasets: list[str],
     imported_datasets: list[str],
     job_id: str | None = None,
+    import_key: str | None = None,
 ) -> None:
     """Stamp a pre-existing family as import-incomplete after a failed update/overwrite.
 
@@ -776,6 +1006,10 @@ async def _flag_family_import_incomplete(
     the job's record holds each dataset's error. The error texts are not copied here, as
     they can carry file paths and grow long.
 
+    The import has ended, so its ``import_unfinished`` entry (``import_key``) goes in the
+    same statement: the family is never without one or the other. If the statement
+    fails, the entry stays and still marks the family.
+
     Read back by report sign-out (``report_signout_service._import_incomplete_state``),
     which refuses a flagged family unless the signer acknowledges it with a reason, and
     by the family pages, which warn while it is set. Keep the payload's keys in step.
@@ -789,18 +1023,22 @@ async def _flag_family_import_incomplete(
     try:
         await session.execute(
             text(
-                """
+                f"""
                 UPDATE families
                 SET metadata = jsonb_set(
-                    COALESCE(metadata, '{}'::jsonb),
-                    '{import_incomplete}',
+                    {_WITHOUT_IMPORT_ENTRY},
+                    '{{import_incomplete}}',
                     CAST(:payload AS jsonb),
                     true
                 )
                 WHERE id = CAST(:family_uuid AS uuid)
                 """
             ),
-            {"family_uuid": family_context.family_uuid, "payload": json.dumps(payload)},
+            {
+                "family_uuid": family_context.family_uuid,
+                "payload": json.dumps(payload),
+                "import_key": import_key,
+            },
         )
         await session.commit()
     except Exception:  # flag write must not mask the import failure
@@ -816,25 +1054,67 @@ async def _flag_family_import_incomplete(
 
 
 async def _clear_family_import_incomplete(
-    session: AsyncSession, family_context: FamilyMetadataContext
-) -> None:
-    """Drop a stale ``import_incomplete`` flag after a fully-successful (re)import.
+    session: AsyncSession,
+    family_context: FamilyMetadataContext,
+    *,
+    import_key: str | None = None,
+    rewritten: Iterable[str] = (),
+) -> dict[str, Any] | None:
+    """Drop a stale ``import_incomplete`` flag after a fully-successful (re)import, and
+    this import's ``import_unfinished`` entry (``import_key``).
 
-    Best-effort: leaving the flag would misreport a now-complete family as degraded.
+    An earlier import's entry goes too when this import completed what that one may have
+    left partly written: every dataset it had not finished is one this import imported
+    again, replacing what was there (``rewritten``: the datasets an ``overwrite`` imported;
+    an ``update`` replaces nothing, so passes none), or it had finished them all. Any
+    other entry stays. Returns the entries left, so the import can say why the family
+    stays marked, or None when nothing could be cleared.
+
+    Read and written under the row's lock, so no other entry written meanwhile is lost.
+    Best-effort: leaving the flag would misreport a now-complete family as degraded; an
+    entry left in place keeps it marked, the safe side.
     """
+    rewritten_datasets = set(rewritten)
     try:
+        raw = (
+            await session.execute(
+                text(
+                    "SELECT metadata -> 'import_unfinished' FROM families "
+                    "WHERE id = CAST(:family_uuid AS uuid) FOR UPDATE"
+                ),
+                {"family_uuid": family_context.family_uuid},
+            )
+        ).scalar_one_or_none()
+        remaining: dict[str, Any] = {}
+        for key, entry in _unfinished_entries(raw).items():
+            if key == import_key:
+                continue
+            pending = pending_datasets(entry)
+            if pending is not None and pending <= rewritten_datasets:
+                continue
+            remaining[key] = entry
         await session.execute(
             text(
                 """
                 UPDATE families
-                SET metadata = metadata - 'import_incomplete'
+                SET metadata = CASE
+                    WHEN CAST(:remaining AS jsonb) = '{}'::jsonb
+                        THEN COALESCE(metadata, '{}'::jsonb)
+                            - 'import_incomplete' - 'import_unfinished'
+                    ELSE jsonb_set(
+                        COALESCE(metadata, '{}'::jsonb) - 'import_incomplete',
+                        '{import_unfinished}',
+                        CAST(:remaining AS jsonb),
+                        true
+                    )
+                END
                 WHERE id = CAST(:family_uuid AS uuid)
-                  AND metadata ? 'import_incomplete'
                 """
             ),
-            {"family_uuid": family_context.family_uuid},
+            {"family_uuid": family_context.family_uuid, "remaining": json.dumps(remaining)},
         )
         await session.commit()
+        return remaining
     except Exception:  # best-effort flag clear
         logger.warning(
             "Failed to clear import-incomplete flag for family %s",
@@ -845,6 +1125,7 @@ async def _clear_family_import_incomplete(
             await session.rollback()
         except Exception:  # noqa: BLE001 - best-effort; nothing else to do
             pass
+        return None
 
 
 def _enabled_dataset_summaries(validation: FamilyPackageValidationOut) -> list[FamilyImportDatasetSummary]:

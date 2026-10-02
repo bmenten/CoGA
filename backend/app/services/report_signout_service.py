@@ -13,8 +13,8 @@ changed since it was made — a small variant's ACMG classification, or a struct
 variant's / CNV's ClinGen classification — the caller must explicitly acknowledge the
 drift. It is also
 gated on the Sample-integrity QC and on an incomplete import (a family-package import
-that partly failed); each gate is acknowledged separately, with a reason that is frozen
-into the snapshot and recorded in the audit event.
+that partly failed, or that stopped part-way); each gate is acknowledged separately, with
+a reason that is frozen into the snapshot and recorded in the audit event.
 
 A family whose data is being written is not signed out at all: not while a package import
 of it is queued or runs, nor while another write of its variants holds their lock, and no
@@ -294,28 +294,118 @@ async def _import_incomplete_state(
     return state
 
 
-def _import_gate_message(state: Mapping[str, Any]) -> str:
-    failed = list(state.get("failed_datasets") or [])
-    imported = list(state.get("imported_datasets") or [])
-    when = f" ({state['at']})" if state.get("at") else ""
-    if failed:
-        what = f"the package import{when} failed for {', '.join(failed)}"
-        if imported:
-            what += f" ({', '.join(imported)} did import)"
-    else:
-        what = (
-            f"a package import{when} did not complete, and which datasets it left out "
-            "was not recorded"
+def _sorted_names(values: Any) -> list[str]:
+    return sorted({str(value) for value in values if value}) if isinstance(values, list) else []
+
+
+async def _import_unfinished_state(
+    session: AsyncSession, family_uuid: str
+) -> dict[str, dict[str, Any]]:
+    """The family's package imports that began writing it and did not finish, by their
+    key in ``families.metadata.import_unfinished``; empty when there are none.
+
+    An import records its entry there before its first write of the family and removes it
+    when it ends, completed, failed (and flagged import_incomplete) or put back
+    (``family_package_registration.ImportMark``). So an entry outlives only an import whose
+    process stopped part-way -- a restart, a crash, running out of memory -- and the
+    datasets it had not finished may be partly written or missing. A later import removes
+    it only by importing those again with overwrite. Frozen into the snapshot beside
+    ``import_incomplete`` and gating sign-out with it, as one gate.
+
+    Fails safe like that flag: a value that is set but not in the shape an import writes
+    still counts, with nothing to name. Dataset lists are frozen sorted, for a stable hash.
+    """
+    raw = (
+        await session.execute(
+            text(
+                "SELECT metadata -> 'import_unfinished' FROM families "
+                "WHERE id = CAST(:family_uuid AS uuid)"
+            ),
+            {"family_uuid": family_uuid},
         )
+    ).scalar_one_or_none()
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            pass  # set, but not JSON an import wrote: still unfinished
+    if raw is None or raw is False:
+        return {}
+    entries: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {"unreadable": raw}
+    state: dict[str, dict[str, Any]] = {}
+    for key, value in entries.items():
+        entry: Mapping[str, Any] = value if isinstance(value, Mapping) else {}
+        job_id = entry.get("job_id")
+        at = entry.get("at")
+        state[str(key)] = {
+            "job_id": job_id if isinstance(job_id, str) and job_id else None,
+            "at": str(at) if at else None,
+            "datasets": _sorted_names(entry.get("datasets")),
+            "finished_datasets": _sorted_names(entry.get("finished_datasets")),
+        }
+    return state
+
+
+def _unfinished_import_clause(entry: Mapping[str, Any]) -> str:
+    """One unfinished import, as the gate message names it."""
+    when = f" ({entry['at']})" if entry.get("at") else ""
+    finished = list(entry.get("finished_datasets") or [])
+    pending = [name for name in entry.get("datasets") or [] if name not in finished]
+    what = f"an import{when} stopped before it finished"
+    if pending:
+        what += f", so {', '.join(pending)} may be partly written or missing"
+        if finished:
+            what += f" ({', '.join(finished)} had finished)"
     job = (
-        f" Each dataset's error is recorded in import job {state['job_id']}."
-        if state.get("job_id")
+        f" Import job {entry['job_id']} records how far it got."
+        if entry.get("job_id")
         else ""
     )
+    return f"{what}.{job}"
+
+
+def _import_gate_message(
+    state: Mapping[str, Any] | None,
+    unfinished: Mapping[str, Mapping[str, Any]] | None = None,
+) -> str:
+    stopped = sorted(
+        (unfinished or {}).values(),
+        key=lambda entry: (str(entry.get("at") or ""), str(entry.get("job_id") or "")),
+    )
+    findings: list[str] = []
+    if state is not None:
+        failed = list(state.get("failed_datasets") or [])
+        imported = list(state.get("imported_datasets") or [])
+        when = f" ({state['at']})" if state.get("at") else ""
+        if failed:
+            what = f"the package import{when} failed for {', '.join(failed)}"
+            if imported:
+                what += f" ({', '.join(imported)} did import)"
+        else:
+            what = (
+                f"a package import{when} did not complete, and which datasets it left out "
+                "was not recorded"
+            )
+        job = (
+            f" Each dataset's error is recorded in import job {state['job_id']}."
+            if state.get("job_id")
+            else ""
+        )
+        findings.append(f"{what}. The report may lack data from what failed.{job}")
+    findings.extend(_unfinished_import_clause(entry) for entry in stopped)
+    if stopped:
+        # An update skips a dataset that already holds data, partly written data included.
+        complete = (
+            "Import again, with overwrite, what an import that stopped did not finish (an "
+            "update keeps the data already there)"
+        )
+        if state is not None:
+            complete = f"Re-run the import to complete it. {complete}"
+    else:
+        complete = "Re-run the import to complete it"
     return (
-        f"This family's data is incomplete: {what}. The report may lack data from what "
-        f"failed.{job} Re-run the import to complete it, or acknowledge with a reason to "
-        "sign out anyway."
+        f"This family's data is incomplete: {' Also, '.join(findings)} {complete}, or "
+        "acknowledge with a reason to sign out anyway."
     )
 
 
@@ -627,6 +717,7 @@ async def build_report_snapshot(
     reported_structural = await _reported_structural_reviews(session, context.family_uuid)
     sequencing_qc = await _canonical_sequencing_qc(session, context)
     import_incomplete = await _import_incomplete_state(session, context.family_uuid)
+    import_unfinished = await _import_unfinished_state(session, context.family_uuid)
     # A reported classification with no frozen evidence snapshot cannot be drift-verified
     # (evaluate_classification_drift only checks reviews that HAVE a snapshot), so it would
     # otherwise clear the sign-out drift gate unchallenged. Surface each as a "no_snapshot"
@@ -708,6 +799,9 @@ async def build_report_snapshot(
         # package import left out. A report on partly loaded data can lack whole datasets,
         # so the signed record says which were missing when it was signed.
         "import_incomplete": import_incomplete,
+        # The imports that began writing the family and stopped part-way ({}: none), with
+        # the datasets each had not finished, which may be partly written or missing.
+        "import_unfinished": import_unfinished,
         "reported_variants": reported,
         "reported_structural_variants": reported_structural,
     }
@@ -851,18 +945,22 @@ async def sign_out_report(
     # with a reason frozen into the content hash). A family-package import that partly
     # failed keeps the family, and the datasets that did import, flagged import_incomplete.
     # Nothing read that flag before, so a report that could lack whole datasets signed
-    # out with no warning at all.
+    # out with no warning at all. An import that stopped part-way (its process ended) left
+    # no flag, only its import_unfinished entry: the same gate, one acknowledgement.
     import_incomplete: Mapping[str, Any] | None = snapshot_body.get("import_incomplete")
-    if import_incomplete is not None and not acknowledge_import_incomplete:
+    import_unfinished: Mapping[str, Any] = snapshot_body.get("import_unfinished") or {}
+    import_gated = import_incomplete is not None or bool(import_unfinished)
+    if import_gated and not acknowledge_import_incomplete:
         raise HTTPException(
             status_code=409,
             detail={
                 "gate": "import_incomplete",
-                "message": _import_gate_message(import_incomplete),
+                "message": _import_gate_message(import_incomplete, import_unfinished),
                 "import_incomplete": import_incomplete,
+                "import_unfinished": import_unfinished,
             },
         )
-    import_acknowledged = import_incomplete is not None and acknowledge_import_incomplete
+    import_acknowledged = import_gated and acknowledge_import_incomplete
     import_reason = (import_incomplete_acknowledgement_reason or "").strip()
     if import_acknowledged and not import_reason:
         raise HTTPException(
@@ -983,9 +1081,10 @@ async def sign_out_report(
             "acknowledged_qc": snapshot["acknowledged_qc"],
             "qc_acknowledgement_reason": snapshot["qc_acknowledgement_reason"],
             "qc_unverifiable": qc_unverifiable,
-            # What the family's import left out when it was signed (None: nothing), and
-            # the override of that gate.
+            # What the family's import left out when it was signed (None: nothing), the
+            # imports that stopped part-way ({}: none), and the override of that gate.
             "import_incomplete": import_incomplete,
+            "import_unfinished": import_unfinished,
             "acknowledged_import_incomplete": import_acknowledged,
             "import_incomplete_acknowledgement_reason": snapshot[
                 "import_incomplete_acknowledgement_reason"
@@ -1148,6 +1247,7 @@ REPORT_CONTENT_SECTIONS = (
     "sample_qc",
     "sequencing_qc",
     "import_incomplete",
+    "import_unfinished",
 )
 # A section a record does not hold (one CoGA adds after it was signed) cannot be compared
 # and is reported as such.

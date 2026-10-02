@@ -8,7 +8,12 @@
 // not in the record instead of showing "none". An entry that cannot be read is kept and
 // marked, never dropped.
 
-import { importIncompleteFromMetadata, type FamilyImportIncomplete } from '../../components/ImportIncompleteBanner';
+import {
+  importIncompleteFromMetadata,
+  importUnfinishedFromMetadata,
+  type FamilyImportIncomplete,
+  type FamilyImportUnfinished,
+} from '../../components/ImportIncompleteBanner';
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
 import { CNV_CLASS_LABELS, cnvCriterionMap } from '../../lib/cnvAcmg';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
@@ -177,6 +182,8 @@ export interface SignedReport {
   sequencingQc: SignedSequencingQc | null;
   /** `absent`: the record holds no import state; null: the import was complete. */
   importIncomplete: FamilyImportIncomplete | null | 'absent';
+  /** The imports that had begun writing the family and not finished; `absent`: not in the record. */
+  importUnfinished: FamilyImportUnfinished[] | 'absent';
   importAcknowledgement: SignedAcknowledgement;
   reportedVariants: SignedSmallVariant[] | null;
   /** Null: the record holds no list of reported SVs. */
@@ -481,6 +488,9 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     importIncomplete: has(snapshot, 'import_incomplete')
       ? importIncompleteFromMetadata(snapshot)
       : 'absent',
+    importUnfinished: has(snapshot, 'import_unfinished')
+      ? importUnfinishedFromMetadata(snapshot)
+      : 'absent',
     importAcknowledgement: acknowledgement(
       snapshot,
       'acknowledged_import_incomplete',
@@ -543,6 +553,7 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   sample_qc: 'sample-integrity QC',
   sequencing_qc: 'sequencing QC cut-offs',
   import_incomplete: 'import completeness',
+  import_unfinished: 'unfinished imports',
 };
 
 /** The sections the sign-out check names as changed: "reported small variants and …". */

@@ -214,7 +214,15 @@ The API behind the page:
 - `overwrite`: import into the existing family, and replace each imported dataset.
 
 Jobs run on background workers: one job at a time per backend process, or more with
-`FAMILY_IMPORT_WORKER_COUNT` (up to 8).
+`FAMILY_IMPORT_WORKER_COUNT` (up to 8). A running job writes a heartbeat every minute. A job
+whose heartbeat is ten minutes old belongs to a process that has stopped (a restart, a
+crash, running out of memory), and the next worker to look takes it over:
+
+- If the import had not begun writing the family (the job was still `validating`), the
+  worker runs it again from the start. The job keeps the earlier attempt's log lines.
+- If it had (the job was `running`), the job ends as `failed`, interrupted, and is not run
+  again: a run from the start would not undo what it wrote. Its log and dataset summaries
+  stay as the import left them.
 
 If a dataset fails, the job ends as `failed` and CoGA does not leave a half-loaded family
 that looks complete:
@@ -226,8 +234,17 @@ that looks complete:
   The flag holds the datasets that failed and those that imported, the time and the import
   job's id; the job's record holds each dataset's error, which the flag does not copy.
 
-While the flag is set, every family page shows *Import incomplete*, and sign-out needs the
-signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).
+An import whose process stops part-way does none of this: nothing runs in a process that
+has ended. So an import marks the family before it writes anything of it, with an entry in
+`families.metadata.import_unfinished` (its job, when it began, and its datasets), records
+there each dataset it finishes, and removes the entry when it ends. An entry that stays
+names an import that stopped, and the datasets it had not finished, which may be partly
+written or missing. Only an import that completes with `overwrite` and imports those
+datasets again removes it. An `update` cannot: it skips a dataset that already has data,
+partly written data too.
+
+While the flag or an entry is set, every family page shows *Import incomplete*, and sign-out
+needs the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).
 
 ## 4. Package layout and manifest
 

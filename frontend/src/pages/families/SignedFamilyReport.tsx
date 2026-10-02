@@ -12,6 +12,7 @@ import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { joinWithAnd } from '../../lib/format';
+import { pendingDatasets, type FamilyImportUnfinished } from '../../components/ImportIncompleteBanner';
 import {
   useReportSignoutCheck,
   useReportSignouts,
@@ -51,6 +52,20 @@ const acknowledgementLine = (acknowledgement: SignedAcknowledgement) =>
   acknowledgement.acknowledged
     ? `Signed out over it, with the reason: ${acknowledgement.reason || 'no reason recorded'}.`
     : null;
+
+/** An import that had begun writing the family and not finished when the version was signed. */
+const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
+  const pending = pendingDatasets(entry);
+  return `An import${entry.at ? ` (begun ${formatReportTime(entry.at)})` : ''}${
+    entry.jobId ? `, import job ${entry.jobId},` : ''
+  } had begun writing the family’s data and had not finished${
+    pending.length
+      ? `: ${joinWithAnd(pending)} may have been partly written or missing${
+          entry.finishedDatasets.length ? ` (${joinWithAnd(entry.finishedDatasets)} had finished)` : ''
+        }`
+      : ''
+  }.`;
+};
 
 const SmallVariantCard: React.FC<{ variant: SignedSmallVariant }> = ({ variant }) => (
   <article className="surface-card report-variant">
@@ -224,7 +239,9 @@ const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant }> = ({
 
 /** The checks frozen at sign-out: Sample QC, sequencing QC and the import's completeness. */
 const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
-  const { sampleQc, sequencingQc, importIncomplete } = record;
+  const { sampleQc, sequencingQc, importIncomplete, importUnfinished } = record;
+  const failedImport = importIncomplete === 'absent' ? null : importIncomplete;
+  const unfinished = importUnfinished === 'absent' ? [] : importUnfinished;
   return (
     <section className="surface-card report-signed-checks">
       <h2 className="report-audit-heading">Checks at sign-out</h2>
@@ -294,21 +311,28 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
       </div>
       <div className="report-section">
         <h3 className="report-subheading">Data import</h3>
-        {importIncomplete === 'absent' ? (
+        {importIncomplete === 'absent' && importUnfinished === 'absent' ? (
           <p className="report-paragraph">Not in the signed record.</p>
-        ) : importIncomplete === null ? (
+        ) : !failedImport && !unfinished.length ? (
           <p className="report-paragraph">The family’s data had imported completely.</p>
         ) : (
           <p className="report-paragraph">
-            The family’s data was incomplete:{' '}
-            {importIncomplete.failedDatasets.length
-              ? `${joinWithAnd(importIncomplete.failedDatasets)} failed to import`
-              : 'which datasets failed was not recorded'}
-            {importIncomplete.importedDatasets.length
-              ? `; ${joinWithAnd(importIncomplete.importedDatasets)} did import`
-              : ''}
-            {importIncomplete.at ? ` (import of ${formatReportTime(importIncomplete.at)})` : ''}.
-            {importIncomplete.jobId ? ` Import job ${importIncomplete.jobId}.` : ''}{' '}
+            {failedImport ? (
+              <>
+                The family’s data was incomplete:{' '}
+                {failedImport.failedDatasets.length
+                  ? `${joinWithAnd(failedImport.failedDatasets)} failed to import`
+                  : 'which datasets failed was not recorded'}
+                {failedImport.importedDatasets.length
+                  ? `; ${joinWithAnd(failedImport.importedDatasets)} did import`
+                  : ''}
+                {failedImport.at ? ` (import of ${formatReportTime(failedImport.at)})` : ''}.
+                {failedImport.jobId ? ` Import job ${failedImport.jobId}.` : ''}{' '}
+              </>
+            ) : null}
+            {unfinished.map((entry) => (
+              <React.Fragment key={entry.key}>{describeSignedUnfinished(entry)} </React.Fragment>
+            ))}
             {acknowledgementLine(record.importAcknowledgement) ?? 'No acknowledgement is recorded.'}
           </p>
         )}

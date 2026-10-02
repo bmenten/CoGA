@@ -17,9 +17,10 @@ gene context and phenotype overlap — and is where the case is signed out. Once
 - The **Classification audit trail**: who classified, tagged or annotated what, and when. Entries can
   never be changed or deleted.
 - The **Analysis pipeline settings** recorded at import.
-- An **Import incomplete** warning at the top when a data import left the family partly loaded. It
-  names the datasets that failed and the import job that holds their errors. The same warning shows
-  on every family page until an import completes the family.
+- An **Import incomplete** warning at the top when a data import left the family partly loaded, or
+  has not finished: it is still running, or it stopped part-way (for example the server restarted).
+  It names the datasets that failed, or that the import had not finished, and the import job. The
+  same warning shows on every family page until an import completes the family.
 
 ### Signing out
 
@@ -35,7 +36,8 @@ stops for five things:
    re-review, or acknowledge with a reason.
 4. **Sample QC** that failed, or could not confirm the pedigree: acknowledge with a reason.
 5. **An incomplete import** (the page says *Import incomplete*): re-run the import, or acknowledge with
-   a reason.
+   a reason. After an import that stopped part-way, re-run it with **overwrite**: an update skips data
+   that is already there, partly written data too.
 
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
 creates a new version (**Amend sign-out**); earlier versions are never overwritten. After signing out,

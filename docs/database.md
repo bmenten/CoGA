@@ -74,7 +74,7 @@ built-in reference file is recorded under its file name.
 | `family_projects`, `sample_projects` | which projects can see a family or a sample |
 | `family_relationships` | explicit links between two samples: `parent_child` (with the role at each end) or `couple`; `source` says whether a PED import or an edit made it, `active = false` retires it |
 | `family_structure_versions` | one row per pedigree or phenotype change: the version, a `structure_hash` over roles, parentage and affected status, and the full snapshot |
-| `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset. `family_id` is the family a job imports, committed with status `running` before the import writes anything of it (an import that cannot record it writes nothing); the report sign-out refuses a family while a job of it is queued, validating or running |
+| `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset. `family_id` is the family a job imports, committed with status `running` before the import writes anything of it (an import that cannot record it writes nothing); the report sign-out refuses a family while a job of it is queued, validating or running. A running job writes `heartbeat_at` every minute; a worker claims a job whose heartbeat is ten minutes old, runs it again if it was still `validating`, and ends it `failed` (interrupted) if it was `running`, adding a line to its log either way |
 | `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown` |
 | `repeat_expansions` | TRGT repeat calls per sample |
 | `sample_paraphase_results` | Paraphase copy-number and haplotype results per sample |
@@ -102,6 +102,8 @@ JSON keys that package import writes into the `metadata` columns:
 | `families.metadata` | `pipeline` | the Nextflow run parameters (reference build, callers, annotation caches) |
 | `families.metadata` | `package_import` | the import provenance: folder (a bucket folder's URI), manifest, datasets and the manifest's own `metadata` |
 | `families.metadata` | `pgt`, `analysis_type` | the manifest's PGT context and analysis type |
+| `families.metadata` | `import_incomplete` | set by an import that failed for some datasets and kept the others: the datasets that failed and those that imported, when, and the import job; removed by a later import that completes |
+| `families.metadata` | `import_unfinished` | the imports that have begun writing the family and not finished, by job: when each began, its datasets and those it finished. An import writes its entry before its first write and removes it when it ends, so an entry that stays names one whose process stopped part-way; only an `overwrite` that imports again what it had not finished removes it |
 
 A family's `metadata` also holds `derived_data_status` (which analyses an edit made stale, and
 whether a structure update kept the imported data; see

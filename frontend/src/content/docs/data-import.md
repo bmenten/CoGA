@@ -181,6 +181,11 @@ without chrM variants removes that sample's calls.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete* until an import completes it, and its report can be signed out only
   with an acknowledgement ([Report traceability & sign-out](/docs/reference/clinical-traceability)).
+- **An import that stopped part-way** (the server restarted, or ran out of memory, while it ran) is not
+  run again: about ten minutes later its job ends as *failed*, interrupted, with its log as the import
+  left it. The family shows *Import incomplete*, naming the datasets the import had not finished: they
+  may be partly written. Import them again with **overwrite** to complete the family; **update** skips
+  a dataset that already has data, partly written data too.
 - **While an import is queued or runs**, the family's report cannot be signed out: the data is not yet
   complete. Sign out once the job has finished.
 

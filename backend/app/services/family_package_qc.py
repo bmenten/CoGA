@@ -349,21 +349,23 @@ async def record_family_pipeline_metadata(
     family_uuid: str,
     parameters: dict[str, Any],
 ) -> None:
-    """Store the pipeline run parameters under ``families.metadata["pipeline"]``."""
-    result = await session.execute(
-        text("SELECT metadata FROM families WHERE id = CAST(:family_id AS uuid)"),
-        {"family_id": family_uuid},
-    )
-    metadata = _metadata_dict(result.scalar_one_or_none())
-    metadata["pipeline"] = _jsonb_safe(parameters)
+    """Store the pipeline run parameters under ``families.metadata["pipeline"]``.
+
+    Set where it is stored, not written back whole from a copy read first, which would put
+    back what another writer changed in between (the import-state keys among them)."""
     await session.execute(
         text(
             """
             UPDATE families
-            SET metadata = CAST(:metadata_json AS jsonb)
+            SET metadata = jsonb_set(
+                COALESCE(metadata, '{}'::jsonb),
+                '{pipeline}',
+                CAST(:pipeline_json AS jsonb),
+                true
+            )
             WHERE id = CAST(:family_id AS uuid)
             """
         ),
-        {"family_id": family_uuid, "metadata_json": json.dumps(metadata)},
+        {"family_id": family_uuid, "pipeline_json": json.dumps(_jsonb_safe(parameters))},
     )
     await session.commit()

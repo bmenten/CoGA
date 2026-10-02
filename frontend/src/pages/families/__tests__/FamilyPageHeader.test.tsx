@@ -112,6 +112,24 @@ describe('FamilyPageHeader', () => {
     expect(banner).toHaveTextContent(/Import incomplete\. A family-package import failed for snv; sv did import\./);
   });
 
+  it('warns on every family page while an import of the family has not finished', () => {
+    // Its process may have stopped part-way: then nothing flagged the family but this entry.
+    renderHeader({
+      family: {
+        ...family,
+        metadata: {
+          import_unfinished: {
+            'job-1': { job_id: 'job-1', at: null, datasets: ['snv'], finished_datasets: [] },
+          },
+        },
+      },
+    });
+    const card = screen.getByRole('heading', { name: 'Family F1' }).closest('.page-top-card');
+    const banner = within(card as HTMLElement).getByRole('alert');
+    expect(banner).toHaveTextContent(/Import incomplete\. A family-package import, import job job-1, began writing/);
+    expect(banner).toHaveTextContent(/snv may be partly written or missing/);
+  });
+
   it('shows no import warning for a family that imported completely', () => {
     renderHeader();
     expect(screen.queryByText(/Import incomplete/)).not.toBeInTheDocument();
