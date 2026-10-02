@@ -331,13 +331,13 @@ parent or parents KING measures it related to, or, when KING sees no relationshi
 affected parent the run traced. The warning quotes KING and says which link it proposed;
 the link can be changed before the manifest is written, or on the family page after the
 import. Without a link the index's haplotype stays grey and is not used to find the risk
-haplotype. Its clinical status stays unknown until it is recorded: the risk haplotype is
-found from the affected members.
+haplotype.
 
-Discover also sets `roi` to the region of the newest `params_*.json`, and records the parent
-the run traced (`affected_parent`) under `metadata.pgt.affected_parents`. The run does not
-record the inheritance model: set `metadata.pgt.inheritance_model`, and the import records
-that parent as affected or as a proven carrier, as the model asks (see the manifest below).
+Discover also sets `roi` to the region of the newest `params_*.json`, records the parent the
+run traced (`affected_parent`) under `metadata.pgt.affected_parents`, and the samplesheet's
+index under `metadata.pgt.indexes`. The run does not record the inheritance model: set
+`metadata.pgt.inheritance_model`, and the import records that parent and the index as
+affected or as proven carriers, as the model asks (see the manifest below).
 The embryo-only VCFs (`split_trio/extract_embryo/`), the pipeline's HTML plots and the
 `dashboard/` copies are not imported. The PCF segmentation is read from its table only: a
 run that draws it in `apcad/EMBRYO1_pcf_apcad_plot.html` alone gets no PCF track, and
@@ -365,12 +365,13 @@ metadata:
     obligate_carriers: [FATHER]
     proven_carriers: [MOTHER]
     affected_parents: [MOTHER]   # the parent(s) whose condition the PGT tests for
+    indexes: [INDEX1]            # the relative(s) the risk haplotype is read from
 
 family:                    # optional: member states, extra members and relationships
   members:
     FATHER: {clinical_status: unaffected, carrier_status: carrier, carrier_type: proven}
   add_members:             # members the PED lacks, read as extra PED rows
-    - {sample_id: INDEX1, sex: female, role: relative, clinical_status: unknown}
+    - {sample_id: INDEX1, sex: female, role: relative}
     - {sample_id: CHILD1, sex: male, father: FATHER, mother: MOTHER, role: proband}
   relationships:
     couples:
@@ -421,6 +422,15 @@ the PED; where it contradicts the model, validation warns. Without an inheritanc
 parent keeps its status, and validation says the model is missing. Validation also lists
 each status it derives, and the family keeps the list under `metadata.pgt`.
 
+`metadata.pgt.indexes` names the index, the relative whose haplotypes the risk haplotype is
+read from (the samplesheet's `index`, which Discover copies), and gives it the status the
+model asks: affected under AD, XLD and AR (under a recessive model the index is the affected
+child or relative), and under XLR affected if male and a proven carrier if female. Under XLR
+an index of unrecorded sex gets none, as does every index under mitochondrial inheritance;
+validation says so. A status recorded for the index wins, as for the parent, and also where
+`family.add_members` adds it with a `clinical_status`. The index must be a member, and not
+the affected parent.
+
 `family.add_members` adds a member the PED lacks: it becomes one more PED row, with its
 `role` (default `relative`), `sex` (default unknown), `clinical_status` (default unknown) and,
 when given, its `father` and `mother`, so every check and the stored pedigree treat it like
@@ -430,9 +440,11 @@ the PED's members. A member already in the PED is an error; its states go under
 `family.relationships.relatives` links a member to the family through another member by an
 unknown degree: a PGT index known only to be on the mother's side, say, or related to both
 parents. The pedigree draws the link as a dotted arc with a question mark, and the haplotype
-track colours the member only when it turns out to be the linked member's parent or child: when
-it shares one of that member's haplotypes along nearly every chromosome (see
-[haplotype-segregation-analysis.md](haplotype-segregation-analysis.md)). A link of a
+track colours the member along the genome when it turns out to be the linked member's parent
+or child: when it shares one of that member's haplotypes along nearly every chromosome. A more
+distant relative is coloured across the ROI and 3 Mb on each side when the markers on both
+sides show it carrying the same one of the linked member's haplotypes, and is grey elsewhere
+(see [haplotype-segregation-analysis.md](haplotype-segregation-analysis.md)). A link of a
 member to itself, or between two members the PED or the manifest already records as parent
 and child or as a couple (the parents of a child are recorded as one), or that links the same pair
 twice, is an error: the family editor would refuse the family's every later edit.

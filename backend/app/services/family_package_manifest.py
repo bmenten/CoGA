@@ -223,6 +223,7 @@ def _manifest_pgt_metadata(manifest: PackageManifest) -> dict[str, Any]:
         set(_manifest_sample_id_list(_lookup_normalized_key(source, "proven_carriers", "provenCarriers")))
     )
     affected_parents = _manifest_affected_parents(manifest)
+    indexes = _manifest_indexes(manifest)
     metadata: dict[str, Any] = {}
     if inheritance_model:
         metadata["inheritance_model"] = inheritance_model
@@ -232,6 +233,8 @@ def _manifest_pgt_metadata(manifest: PackageManifest) -> dict[str, Any]:
         metadata["proven_carriers"] = proven_carriers
     if affected_parents:
         metadata["affected_parents"] = affected_parents
+    if indexes:
+        metadata["indexes"] = indexes
     return metadata
 
 
@@ -333,6 +336,13 @@ def _manifest_affected_parents(manifest: PackageManifest) -> list[str]:
     return sorted(set(_manifest_sample_id_list(value)))
 
 
+def _manifest_indexes(manifest: PackageManifest) -> list[str]:
+    """The members ``metadata.pgt.indexes`` names: the affected relatives (or, under X-linked
+    recessive inheritance, the carriers) whose haplotypes identify the risk haplotype."""
+    value = _lookup_normalized_key(_manifest_pgt_source(manifest), "indexes")
+    return sorted(set(_manifest_sample_id_list(value)))
+
+
 def _affected_parent_status(inheritance_model: str, *, is_father: bool) -> dict[str, str] | None:
     """The status an affected parent has under an inheritance model, as the haplotype
     analysis reads it: affected under a dominant model, and under X-linked recessive
@@ -346,18 +356,36 @@ def _affected_parent_status(inheritance_model: str, *, is_father: bool) -> dict[
     return None
 
 
-def _manifest_affected_parent_statuses(
+def _index_status(inheritance_model: str, *, sex: str) -> dict[str, str] | None:
+    """The status an index has under an inheritance model: affected, as the relative whose
+    haplotypes the risk haplotype is read from (under a recessive model, the affected child
+    or relative); under X-linked recessive inheritance affected if male and a proven carrier
+    if female, and none while its sex is not recorded. Mitochondrial inheritance gives none."""
+    if inheritance_model in {"AD", "XLD", "AR"}:
+        return {"clinical_status": "affected"}
+    if inheritance_model == "XLR":
+        if sex == "1":
+            return {"clinical_status": "affected"}
+        if sex == "2":
+            return {"carrier_status": "carrier", "carrier_type": "proven"}
+    return None
+
+
+def _manifest_derived_statuses(
     manifest: PackageManifest, ped: ParsedPed
 ) -> tuple[dict[str, dict[str, Any]], list[FamilyImportValidationIssue], list[FamilyImportValidationIssue]]:
-    """The status each parent named under ``metadata.pgt.affected_parents`` gets from
-    ``metadata.pgt.inheritance_model``, with the errors and warnings that explain it.
+    """The status each affected parent (``metadata.pgt.affected_parents``) and each index
+    (``metadata.pgt.indexes``) gets from ``metadata.pgt.inheritance_model``, with the errors
+    and warnings that explain it.
 
-    A status recorded for the parent wins: under ``family.members``, in the carrier
-    lists, or in the PED. A derived value only fills what none of them states, and where
-    a recorded status contradicts the model, a warning says so. Each status derived is
-    reported as a warning too, so the user sees it before the import."""
+    A status recorded for the member wins: under ``family.members`` (or, for an added
+    member, ``family.add_members``), in the carrier lists, or in the PED. A derived value
+    only fills what none of them states, and where a recorded status contradicts the model,
+    a warning says so. Each status derived is reported as a warning too, so the user sees it
+    before the import."""
     parents = _manifest_affected_parents(manifest)
-    if not parents:
+    indexes = _manifest_indexes(manifest)
+    if not parents and not indexes:
         return {}, [], []
     members = {member.iid: member for member in ped.members}
     fathers = {member.pid for member in ped.members if member.pid not in {"", "0"}}
@@ -368,6 +396,59 @@ def _manifest_affected_parent_statuses(
     derived: dict[str, dict[str, Any]] = {}
     errors: list[FamilyImportValidationIssue] = []
     warnings: list[FamilyImportValidationIssue] = []
+
+    def derive(
+        sample_id: str, member: PedMember, status: dict[str, str], *, role: str, code: str, key: str, hint: str = ""
+    ) -> None:
+        override = explicit.get(sample_id, {})
+        kept: dict[str, Any] = {}
+        if "clinical_status" in status:
+            recorded = override.get("clinical_status") or (
+                member.clinical_status if member.clinical_status != "unknown" else None
+            )
+            if recorded is None:
+                kept["clinical_status"] = status["clinical_status"]
+            elif recorded != status["clinical_status"]:
+                warnings.append(
+                    _issue(
+                        f"{code}_status_conflict",
+                        f"{sample_id} is recorded as {recorded}, though the {role} is affected under "
+                        f"{inheritance_model} inheritance; the recorded status is kept.",
+                        sample_id=sample_id,
+                    )
+                )
+        else:
+            recorded_carrier = override.get("carrier_status") or (
+                "carrier"
+                if override.get("carrier_type") or sample_id in listed_carriers or _ped_is_carrier(member)
+                else "not_carrier"
+                if _ped_records_not_carrier(member)
+                else None
+            )
+            if recorded_carrier is None:
+                kept.update(status)
+                kept["carrier_evidence"] = {"derived_from": key, "inheritance_model": inheritance_model}
+            elif recorded_carrier != "carrier":
+                warnings.append(
+                    _issue(
+                        f"{code}_status_conflict",
+                        f"{sample_id} is recorded as {recorded_carrier.replace('_', ' ')}, though the "
+                        f"{role} is a carrier under {inheritance_model} inheritance; the recorded "
+                        "status is kept.",
+                        sample_id=sample_id,
+                    )
+                )
+        if kept:
+            derived[sample_id] = kept
+            description = "affected" if "clinical_status" in kept else "a proven carrier"
+            warnings.append(
+                _issue(
+                    f"{code}_status",
+                    f"{sample_id} is recorded as {description}: the {role} under {inheritance_model} inheritance.{hint}",
+                    sample_id=sample_id,
+                )
+            )
+
     for sample_id in parents:
         member = members.get(sample_id)
         if member is None:
@@ -411,68 +492,77 @@ def _manifest_affected_parent_statuses(
                 )
             )
             continue
-        override = explicit.get(sample_id, {})
-        kept: dict[str, Any] = {}
-        if "clinical_status" in status:
-            recorded = override.get("clinical_status") or (
-                member.clinical_status if member.clinical_status != "unknown" else None
-            )
-            if recorded is None:
-                kept["clinical_status"] = status["clinical_status"]
-            elif recorded != status["clinical_status"]:
-                warnings.append(
-                    _issue(
-                        "pgt_affected_parent_status_conflict",
-                        f"{sample_id} is recorded as {recorded}, though the affected parent is "
-                        f"affected under {inheritance_model} inheritance; the recorded status is kept.",
-                        sample_id=sample_id,
-                    )
-                )
-        else:
-            recorded_carrier = override.get("carrier_status") or (
-                "carrier"
-                if override.get("carrier_type") or sample_id in listed_carriers or _ped_is_carrier(member)
-                else "not_carrier"
-                if _ped_records_not_carrier(member)
-                else None
-            )
-            if recorded_carrier is None:
-                kept.update(status)
-                kept["carrier_evidence"] = {
-                    "derived_from": "metadata.pgt.affected_parents",
-                    "inheritance_model": inheritance_model,
-                }
-            elif recorded_carrier != "carrier":
-                warnings.append(
-                    _issue(
-                        "pgt_affected_parent_status_conflict",
-                        f"{sample_id} is recorded as {recorded_carrier.replace('_', ' ')}, though the "
-                        f"affected parent is a carrier under {inheritance_model} inheritance; the "
-                        "recorded status is kept.",
-                        sample_id=sample_id,
-                    )
-                )
-        if kept:
-            derived[sample_id] = kept
-            description = "affected" if "clinical_status" in kept else "a proven carrier"
-            warnings.append(
+        derive(sample_id, member, status, role="affected parent", code="pgt_affected_parent", key="metadata.pgt.affected_parents")
+
+    for sample_id in indexes:
+        member = members.get(sample_id)
+        if member is None:
+            errors.append(
                 _issue(
-                    "pgt_affected_parent_status",
-                    f"{sample_id} is recorded as {description}: the affected parent under "
-                    f"{inheritance_model} inheritance.",
+                    "manifest_index_unknown",
+                    f"metadata.pgt.indexes names '{sample_id}', which is not a member of the family",
                     sample_id=sample_id,
                 )
             )
+            continue
+        if sample_id in parents:
+            errors.append(
+                _issue(
+                    "manifest_index_is_affected_parent",
+                    f"metadata.pgt.indexes names '{sample_id}', which is also the affected parent",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        if inheritance_model is None:
+            warnings.append(
+                _issue(
+                    "pgt_index_needs_model",
+                    f"{sample_id} is the index, but metadata.pgt.inheritance_model is not set, so its "
+                    "clinical and carrier status stay as recorded. With the model set, the index is "
+                    "recorded as affected (or, under XLR, a female index as a proven carrier).",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        status = _index_status(inheritance_model, sex=member.sex)
+        if status is None:
+            reason = (
+                "its sex is not recorded, and under XLR it decides"
+                if inheritance_model == "XLR"
+                else f"{inheritance_model} inheritance gives none"
+            )
+            warnings.append(
+                _issue(
+                    "pgt_index_no_status",
+                    f"No status is derived for the index {sample_id}: {reason}. Record it under "
+                    "family.members or family.add_members.",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        derive(
+            sample_id,
+            member,
+            status,
+            role="index",
+            code="pgt_index",
+            key="metadata.pgt.indexes",
+            hint=(
+                " If the index is an unaffected relative, record its status under family.members "
+                "(or family.add_members)."
+            ),
+        )
     return derived, errors, warnings
 
 
 def _manifest_member_status_overrides(
     manifest: PackageManifest, ped: ParsedPed
 ) -> dict[str, dict[str, Any]]:
-    """``family.members`` overrides, with the affected parent's derived status beneath
-    them (see :func:`_manifest_affected_parent_statuses`)."""
+    """``family.members`` overrides, with the affected parent's and the index's derived
+    statuses beneath them (see :func:`_manifest_derived_statuses`)."""
     overrides = {sample_id: dict(override) for sample_id, override in _manifest_member_overrides(manifest).items()}
-    derived, _errors, _warnings = _manifest_affected_parent_statuses(manifest, ped)
+    derived, _errors, _warnings = _manifest_derived_statuses(manifest, ped)
     for sample_id, fields in derived.items():
         target = overrides.setdefault(sample_id, {})
         for key, value in fields.items():

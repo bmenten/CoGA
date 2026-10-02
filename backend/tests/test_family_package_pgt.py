@@ -31,7 +31,7 @@ from backend.app.services.family_package_common import FamilyPackageBundle, Mani
 from backend.app.services.family_package_datasets import DatasetImportJob
 from backend.app.services.family_package_manifest import (
     _manifest_added_ped_rows,
-    _manifest_affected_parent_statuses,
+    _manifest_derived_statuses,
     _manifest_member_status_overrides,
     _manifest_pgt_metadata,
     _manifest_relationship_issues,
@@ -236,13 +236,12 @@ def test_discovery_reads_the_copgtm_layout(tmp_path: Path) -> None:
     assert result.sample_ids == [FATHER, MOTHER, *EMBRYOS, INDEX]
     manifest = yaml.safe_load(result.manifest_yaml)
     assert manifest["roi"] == "chr7:1000-2000"
-    # The parent the run traced; the run does not say under which inheritance model.
-    assert manifest["metadata"] == {"pgt": {"affected_parents": [MOTHER]}}
+    # The parent the run traced and its index; the run does not say under which
+    # inheritance model, which decides their statuses.
+    assert manifest["metadata"] == {"pgt": {"affected_parents": [MOTHER], "indexes": [INDEX]}}
     assert manifest["family"] == {
         "members": {"EMB1": {"role": "embryo"}, "EMB2": {"role": "embryo"}},
-        "add_members": [
-            {"sample_id": INDEX, "sex": "female", "role": "relative", "clinical_status": "unknown"}
-        ],
+        "add_members": [{"sample_id": INDEX, "sex": "female", "role": "relative"}],
         # KING measured the index related to the mother only: a relative of unknown degree.
         "relationships": {"relatives": [{"member": INDEX, "related_to": [MOTHER]}]},
     }
@@ -316,6 +315,8 @@ def test_discovery_says_what_the_user_still_has_to_supply(tmp_path: Path) -> Non
     index_warning = warnings["pgt_index_added"]
     assert index_warning.sample_id == INDEX
     assert "family.relationships" in index_warning.message
+    assert "recorded under metadata.pgt.indexes" in index_warning.message
+    assert "around the ROI, where it shares one of them on both sides of it" in index_warning.message
     # What KING measured against the couple, closest first.
     assert (
         f"KING (king/{FAMILY}.kin0) measured {INDEX} as first-degree to {MOTHER} "
@@ -335,6 +336,8 @@ def test_discovery_reads_an_index_in_the_ped_as_the_couples_proband(tmp_path: Pa
     assert manifest["family"] == {
         "members": {"EMB1": {"role": "embryo"}, "EMB2": {"role": "embryo"}, INDEX: {"role": "proband"}}
     }
+    # An index the PED holds is the run's index too.
+    assert manifest["metadata"]["pgt"]["indexes"] == [INDEX]
     assert "pgt_index_added" not in {warning.code for warning in result.warnings}
 
 
@@ -397,7 +400,6 @@ def test_an_index_first_degree_to_both_parents_is_added_as_their_child(tmp_path:
             "father": FATHER,
             "mother": MOTHER,
             "role": "proband",
-            "clinical_status": "unknown",
         }
     ]
     assert "relationships" not in family
@@ -507,7 +509,12 @@ def test_rediscovery_keeps_the_affected_parent_and_model_the_manifest_records(tm
 
     rediscovered = yaml.safe_load(_discover(root).manifest_yaml)
 
-    assert rediscovered["metadata"]["pgt"] == {"inheritance_model": "AD", "affected_parents": [FATHER]}
+    # The run's index, which the manifest did not name, is added beside them.
+    assert rediscovered["metadata"]["pgt"] == {
+        "inheritance_model": "AD",
+        "affected_parents": [FATHER],
+        "indexes": [INDEX],
+    }
 
 
 def test_package_list_finds_a_folder_whose_ped_is_in_its_ped_folder(tmp_path: Path) -> None:
@@ -593,6 +600,7 @@ def test_a_phased_vcf_sample_the_family_lacks_fails_validation_before_anything_i
     manifest = yaml.safe_load(_discover(root).manifest_yaml)
     del manifest["family"]["add_members"]
     del manifest["family"]["relationships"]
+    del manifest["metadata"]["pgt"]["indexes"]
     del manifest["samples"][INDEX]
     for dataset in manifest["datasets"].values():
         dataset.get("per_sample", {}).pop(INDEX, None)
@@ -747,7 +755,7 @@ def test_the_affected_parent_gets_the_status_the_inheritance_model_asks(
 ) -> None:
     manifest = _pgt_manifest({"inheritance_model": inheritance_model, "affected_parents": [parent]})
 
-    derived, errors, warnings = _manifest_affected_parent_statuses(manifest, _couple_ped())
+    derived, errors, warnings = _manifest_derived_statuses(manifest, _couple_ped())
 
     assert errors == []
     assert [(warning.code, warning.sample_id) for warning in warnings] == [("pgt_affected_parent_status", parent)]
@@ -771,7 +779,7 @@ def test_the_affected_parent_gets_the_status_the_inheritance_model_asks(
 
 
 def test_without_an_inheritance_model_the_affected_parent_keeps_its_status() -> None:
-    derived, errors, warnings = _manifest_affected_parent_statuses(
+    derived, errors, warnings = _manifest_derived_statuses(
         _pgt_manifest({"affected_parents": [MOTHER]}), _couple_ped()
     )
 
@@ -781,7 +789,7 @@ def test_without_an_inheritance_model_the_affected_parent_keeps_its_status() -> 
 
 
 def test_mitochondrial_inheritance_gives_the_affected_parent_no_status() -> None:
-    derived, errors, warnings = _manifest_affected_parent_statuses(
+    derived, errors, warnings = _manifest_derived_statuses(
         _pgt_manifest({"inheritance_model": "mitochondrial", "affected_parents": [MOTHER]}), _couple_ped()
     )
 
@@ -810,7 +818,7 @@ def test_a_recorded_status_wins_over_the_derived_one(
         {"inheritance_model": inheritance_model, "affected_parents": [MOTHER], **pgt_extra}, family
     )
 
-    derived, errors, warnings = _manifest_affected_parent_statuses(manifest, _couple_ped(mother_phenotype))
+    derived, errors, warnings = _manifest_derived_statuses(manifest, _couple_ped(mother_phenotype))
 
     assert (derived, errors) == ({}, [])
     assert [warning.code for warning in warnings] == (["pgt_affected_parent_status_conflict"] if conflict else [])
@@ -819,7 +827,7 @@ def test_a_recorded_status_wins_over_the_derived_one(
 def test_a_ped_that_says_not_a_carrier_wins_over_the_derived_carrier_status() -> None:
     manifest = _pgt_manifest({"inheritance_model": "AR", "affected_parents": [MOTHER]})
 
-    derived, errors, warnings = _manifest_affected_parent_statuses(manifest, _couple_ped(mother_columns="carrier=0"))
+    derived, errors, warnings = _manifest_derived_statuses(manifest, _couple_ped(mother_columns="carrier=0"))
 
     assert (derived, errors) == ({}, [])
     assert [warning.code for warning in warnings] == ["pgt_affected_parent_status_conflict"]
@@ -831,7 +839,7 @@ def test_a_ped_that_says_not_a_carrier_wins_over_the_derived_carrier_status() ->
     [("NOBODY", "manifest_affected_parent_unknown"), ("EMB1", "manifest_affected_parent_not_parent")],
 )
 def test_the_affected_parent_must_be_a_parent_in_the_family(parent: str, code: str) -> None:
-    derived, errors, warnings = _manifest_affected_parent_statuses(
+    derived, errors, warnings = _manifest_derived_statuses(
         _pgt_manifest({"inheritance_model": "AD", "affected_parents": [parent]}), _couple_ped()
     )
 
@@ -859,6 +867,155 @@ def test_a_discovered_manifest_with_the_model_set_shows_the_derived_status_befor
     status = [warning for warning in validation.warnings if warning.code.startswith("pgt_affected_parent")]
     assert [(warning.code, warning.sample_id) for warning in status] == [("pgt_affected_parent_status", MOTHER)]
     assert f"{MOTHER} is recorded as affected" in status[0].message
+    # The index is derived as well, and the import records both.
+    index_status = [warning for warning in validation.warnings if warning.code.startswith("pgt_index_")]
+    assert [(warning.code, warning.sample_id) for warning in index_status] == [("pgt_index_status", INDEX)]
+    assert f"{INDEX} is recorded as affected: the index under AD inheritance" in index_status[0].message
+    assert "If the index is an unaffected relative, record its status" in index_status[0].message
+    validated, bundle = family_package_validation.load_validated_family_package(root)
+    assert validated.valid is True and bundle is not None
+    members = {
+        member["sample_id"]: member
+        for member in _ped_members_for_import(
+            bundle.ped, member_overrides=_manifest_member_status_overrides(bundle.manifest, bundle.ped)
+        )
+    }
+    assert (members[MOTHER]["clinical_status"], members[INDEX]["clinical_status"]) == ("affected", "affected")
+
+
+def _index_ped(index_sex: str = "2", index_phenotype: str = "-9") -> ParsedPed:
+    ped, errors = _parse_ped_text_strict(
+        f"{FAMILY} {FATHER} 0 0 1 -9\n"
+        f"{FAMILY} {MOTHER} 0 0 2 -9\n"
+        f"{FAMILY} EMB1 {FATHER} {MOTHER} 1 -9\n"
+        f"{FAMILY} {INDEX} 0 0 {index_sex} {index_phenotype}\n"
+    )
+    assert ped is not None and errors == []
+    return ped
+
+
+@pytest.mark.parametrize(
+    ("inheritance_model", "index_sex", "status"),
+    [
+        ("AD", "2", {"clinical_status": "affected"}),
+        ("XLD", "2", {"clinical_status": "affected"}),
+        # Under a recessive model the index is the affected child or relative.
+        ("AR", "1", {"clinical_status": "affected"}),
+        ("XLR", "1", {"clinical_status": "affected"}),
+        ("XLR", "2", {"carrier_status": "carrier", "carrier_type": "proven"}),
+    ],
+)
+def test_the_index_gets_the_status_the_inheritance_model_asks(
+    inheritance_model: str, index_sex: str, status: dict[str, str]
+) -> None:
+    manifest = _pgt_manifest({"inheritance_model": inheritance_model, "indexes": [INDEX]})
+    ped = _index_ped(index_sex)
+
+    derived, errors, warnings = _manifest_derived_statuses(manifest, ped)
+
+    assert errors == []
+    assert [(warning.code, warning.sample_id) for warning in warnings] == [("pgt_index_status", INDEX)]
+    expected = dict(status)
+    if "carrier_status" in status:
+        expected["carrier_evidence"] = {"derived_from": "metadata.pgt.indexes", "inheritance_model": inheritance_model}
+    assert derived == {INDEX: expected}
+    members = {
+        member["sample_id"]: member
+        for member in _ped_members_for_import(ped, member_overrides=_manifest_member_status_overrides(manifest, ped))
+    }
+    assert {key: members[INDEX][key] for key in expected} == expected
+    assert _manifest_pgt_metadata(manifest)["indexes"] == [INDEX]
+
+
+@pytest.mark.parametrize(
+    ("pgt", "index_sex", "code", "phrase"),
+    [
+        ({"inheritance_model": "XLR"}, "0", "pgt_index_no_status", "its sex is not recorded"),
+        ({"inheritance_model": "mitochondrial"}, "2", "pgt_index_no_status", "mitochondrial inheritance gives none"),
+        ({}, "2", "pgt_index_needs_model", "metadata.pgt.inheritance_model is not set"),
+    ],
+)
+def test_the_index_gets_no_status_where_the_model_does_not_give_one(
+    pgt: dict[str, Any], index_sex: str, code: str, phrase: str
+) -> None:
+    derived, errors, warnings = _manifest_derived_statuses(
+        _pgt_manifest({**pgt, "indexes": [INDEX]}), _index_ped(index_sex)
+    )
+
+    assert (derived, errors) == ({}, [])
+    assert [(warning.code, warning.sample_id) for warning in warnings] == [(code, INDEX)]
+    assert phrase in warnings[0].message
+
+
+@pytest.mark.parametrize(
+    ("inheritance_model", "family", "index_phenotype", "conflict"),
+    [
+        ("AD", {"members": {INDEX: {"clinical_status": "unaffected"}}}, "-9", True),
+        ("AD", None, "1", True),
+        ("AD", {"members": {INDEX: {"clinical_status": "affected"}}}, "-9", False),
+        ("AD", None, "2", False),
+        ("XLR", {"members": {INDEX: {"carrier_status": "not_carrier"}}}, "-9", True),
+    ],
+)
+def test_a_status_recorded_for_the_index_wins_over_the_derived_one(
+    inheritance_model: str, family: dict[str, Any] | None, index_phenotype: str, conflict: bool
+) -> None:
+    manifest = _pgt_manifest({"inheritance_model": inheritance_model, "indexes": [INDEX]}, family)
+
+    derived, errors, warnings = _manifest_derived_statuses(manifest, _index_ped("2", index_phenotype))
+
+    assert (derived, errors) == ({}, [])
+    assert [warning.code for warning in warnings] == (["pgt_index_status_conflict"] if conflict else [])
+
+
+def test_a_status_given_where_the_index_is_added_wins_over_the_derived_one() -> None:
+    manifest = _pgt_manifest(
+        {"inheritance_model": "AD", "indexes": [INDEX]},
+        {"add_members": [{"sample_id": INDEX, "sex": "female", "role": "relative", "clinical_status": "unaffected"}]},
+    )
+    ped, errors = _parse_ped_text_strict(
+        f"{FAMILY} {FATHER} 0 0 1 -9\n{FAMILY} {MOTHER} 0 0 2 -9\n{FAMILY} EMB1 {FATHER} {MOTHER} 1 -9\n"
+    )
+    assert ped is not None and errors == []
+    rows, row_errors = _manifest_added_ped_rows(manifest, family_id=FAMILY, ped_sample_ids=set(ped.sample_ids))
+    assert row_errors == []
+    with_index, errors = _parse_ped_text_strict("\n".join([ped.text, *rows]))
+    assert with_index is not None and errors == []
+
+    derived, errors, warnings = _manifest_derived_statuses(manifest, with_index)
+
+    assert (derived, errors) == ({}, [])
+    assert [warning.code for warning in warnings] == ["pgt_index_status_conflict"]
+    assert f"{INDEX} is recorded as unaffected, though the index is affected under AD" in warnings[0].message
+
+
+@pytest.mark.parametrize(
+    ("indexes", "affected_parents", "code", "sample_id"),
+    [
+        (["NOBODY"], [], "manifest_index_unknown", "NOBODY"),
+        ([MOTHER], [MOTHER], "manifest_index_is_affected_parent", MOTHER),
+    ],
+)
+def test_the_index_must_be_a_member_other_than_the_affected_parent(
+    indexes: list[str], affected_parents: list[str], code: str, sample_id: str
+) -> None:
+    _derived, errors, _warnings = _manifest_derived_statuses(
+        _pgt_manifest({"inheritance_model": "AD", "indexes": indexes, "affected_parents": affected_parents}),
+        _index_ped(),
+    )
+
+    assert [(error.code, error.sample_id) for error in errors] == [(code, sample_id)]
+
+
+def test_discovery_keeps_the_indexes_a_manifest_already_names(tmp_path: Path) -> None:
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    manifest = yaml.safe_load(_discover(root).manifest_yaml)
+    manifest["metadata"]["pgt"]["indexes"] = []
+    (root / "manifest.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+
+    rediscovered = yaml.safe_load(_discover(root).manifest_yaml)
+
+    assert rediscovered["metadata"]["pgt"]["indexes"] == []
 
 
 # ---------------------------------------------------------------------------

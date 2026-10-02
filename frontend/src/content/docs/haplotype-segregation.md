@@ -101,14 +101,21 @@ crossover. A member CoGA cannot place with confidence is shown entirely grey, ne
 ### Relatives of unknown degree
 
 A PGT index is often known only to be on the mother's or the father's side. Linked as **Related to**
-that parent (the dotted arc in the pedigree), it is coloured when it turns out to be that parent's own
-parent or child: when it shares one of the parent's haplotypes along nearly every chromosome, which
-CoGA tests one chromosome at a time over the whole genome. It is then coloured as a parent or child
-is. A more distant relative (a sibling, an aunt, a cousin) stays grey: it shares a haplotype with the
-parent only in stretches, and on imputed low-pass genotypes those stretches cannot be told apart
-reliably from the stretches unrelated people share by chance, nor from places where a sibling shares
-both haplotypes. A grey index does not help find the disease haplotype; record how it is related
-through members that have data, if they are in the family, to have it coloured.
+that parent (the dotted arc in the pedigree), it is coloured along the genome when it turns out to be
+that parent's own parent or child: when it shares one of the parent's haplotypes along nearly every
+chromosome, which CoGA tests one chromosome at a time over the whole genome. It is then coloured as a
+parent or child is.
+
+A more distant relative (a sibling, an aunt, a cousin) shares a haplotype with the parent only in
+stretches, and on imputed low-pass genotypes a stretch cannot be found marker by marker: it looks too
+much like what unrelated people share by chance. CoGA reads such a relative at the ROI only, as PGT-M
+reads a distant reference: from the informative markers on both sides of the ROI. Where the 3 Mb on
+each side both show the relative carrying the same one of the parent's haplotypes, that haplotype is
+coloured on the relative across the ROI and those 3 Mb; the relative's other haplotype and the rest of
+the chromosome stay grey. Where either side does not show it clearly (no haplotype shared, both shared,
+a crossover near the ROI, or too few informative markers), the relative stays grey. A changed ROI is
+read again. A grey index does not help find the disease haplotype; record how it is related through
+members that have data, if they are in the family, to have it coloured.
 
 ### Single-parent (donor) families
 

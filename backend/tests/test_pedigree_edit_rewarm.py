@@ -5,8 +5,9 @@ shows the relatives grey until the lineage is computed again, and nothing comput
 page load. So each edit schedules that precompute, and a warm of the prioritised ranking,
 whose cache key the edit changed. The member edits (single, batch, removal) and a PED
 upload did; `PUT /families/{id}/structure`, the structure editor's save, did not, so its
-relatives stayed grey until some other edit came along. It now schedules both. A request
-that fails schedules nothing.
+relatives stayed grey until some other edit came along. It now schedules both. A change
+of the ROI schedules the lineage too, as a relative of unknown degree is read there. A
+request that fails schedules nothing.
 """
 
 from __future__ import annotations
@@ -124,3 +125,32 @@ def test_a_member_batch_edit_schedules_the_same_two_tasks(admin_client) -> None:
 
     assert response.status_code == 200
     assert scheduled == [("lineage", "FAM1", "admin-1"), ("ranking", "FAM1", "admin-1")]
+
+
+def test_an_roi_change_refreshes_the_lineage(admin_client) -> None:
+    # A relative of unknown degree is coloured where it shares a haplotype around the ROI.
+    client, monkeypatch, scheduled = admin_client
+
+    async def fake_roi(session, *, family_id, update, user):
+        return _family()
+
+    monkeypatch.setattr(families_router, "update_family_roi_for_admin", fake_roi)
+
+    response = client.put("/api/families/FAM1/roi", json={"query": "CFTR"})
+
+    assert response.status_code == 200
+    assert scheduled == [("lineage", "FAM1", "admin-1")]
+
+
+def test_an_roi_change_that_fails_schedules_nothing(admin_client) -> None:
+    client, monkeypatch, scheduled = admin_client
+
+    async def refused(session, *, family_id, update, user):
+        raise HTTPException(status_code=404, detail="Region not found")
+
+    monkeypatch.setattr(families_router, "update_family_roi_for_admin", refused)
+
+    response = client.put("/api/families/FAM1/roi", json={"query": "NOTAGENE"})
+
+    assert response.status_code == 404
+    assert scheduled == []

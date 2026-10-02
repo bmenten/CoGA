@@ -202,8 +202,10 @@ pull request updates this list only when it adds clinical behaviour that no area
   states, paternity confidence, the audited artifact list, a report that says when it is
   incomplete); PGT embryo calls that are uninformative without supporting data, and the
   risk-haplotype display, with a parent's phase switches undone where the embryos switch
-  together, a relative of unknown degree coloured only when it is the linked member's
-  parent or child, and the affected parent's status from the inheritance model; the mtDNA
+  together, a relative of unknown degree coloured along the genome when it is the linked
+  member's parent or child and otherwise at the ROI where both flanks name the haplotype
+  it shares, and the affected parent's and the index's statuses from the inheritance
+  model; the mtDNA
   haplogroup and per-sample mitochondrial imports; the Sample QC read from sites across
   every autosome, so sibling embryos read as siblings, and its sex check from chrX outside
   the pseudo-autosomal regions.

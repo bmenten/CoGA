@@ -755,16 +755,19 @@ def _same_colouring(a: dict[str, Any], b: dict[str, Any]) -> bool:
 #
 # A member linked to the family by a ``relative`` edge -- related through that member by
 # a degree nobody recorded, such as a PGT index known only to be on the mother's side --
-# is coloured only when it turns out to be that member's parent or child: when it shares
-# one of the member's haplotypes along (nearly) every autosome, which the parent-child
-# share test above confirms one chromosome at a time. It is then coloured as a parent or
-# child is. A more distant relative shares a haplotype only in stretches, and on imputed
-# low-pass genotypes those stretches cannot be told apart from the long runs unrelated
-# people share by state, nor from stretches where a sibling shares both haplotypes (in
-# an example family, a model reading such stretches site by site called a share at most
-# sites of an unrelated pair and called both haplotypes shared at a third of a parent
-# and child's sites). Such a relative stays grey. The genome-wide decision is taken in
-# the genome-wide precompute (``bed_service``); the windows read its colours.
+# is coloured along the genome when it turns out to be that member's parent or child: when
+# it shares one of the member's haplotypes along (nearly) every autosome, which the
+# parent-child share test above confirms one chromosome at a time. It is then coloured as
+# a parent or child is. A more distant relative shares a haplotype only in stretches, and
+# on imputed low-pass genotypes a stretch cannot be found site by site: it cannot be told
+# apart from the long runs unrelated people share by state, nor from stretches where a
+# sibling shares both haplotypes (in an example family, a model reading such stretches
+# site by site called a share at most sites of an unrelated pair and called both
+# haplotypes shared at a third of a parent and child's sites). Such a relative is read at
+# the region of interest only, as PGT-M reads a distant reference: from the informative
+# sites on both sides of it, which must name the same haplotype of the member (see
+# ``relative_share_at_locus``); it is grey elsewhere. Both decisions are taken in the
+# genome-wide precompute (``bed_service``); the windows read its colours.
 
 # A relative of unknown degree is read as the linked member's parent or child when it
 # shares one of the member's haplotypes along at least this share of the autosomes the
@@ -816,6 +819,117 @@ def parent_or_child_links(counts: dict[tuple[str, str], tuple[int, int]]) -> set
         if tested >= RELATIVE_PARENT_OR_CHILD_MIN_CHROMOSOMES
         and sharing >= RELATIVE_PARENT_OR_CHILD_MIN_FRACTION * tested
     }
+
+
+# A relative of unknown degree that is not the linked member's parent or child (a sibling,
+# an aunt, a cousin) is read at the region of interest only, the way PGT-M reads a distant
+# reference: from the informative sites on both sides of the region. On each flank of this
+# width, the sites where the member is heterozygous and the relative homozygous (pins) must
+# number at least this many, be at least this share of the member's heterozygous sites (in
+# a stretch where the relative carries both of the member's haplotypes, nearly none are),
+# and name one of the member's haplotypes at least this consistently; both flanks must name
+# the same one. On the phased genotypes of an example family's embryo pairs (siblings, whose
+# sharing the trios give), this read the shared haplotype at 84% of the loci where one was
+# shared, never the other one, and none where none was; it read one at 9 of 5,768 loci
+# where the trios give both shared (likely where their reading is off), and at a single
+# locus of an unrelated pair, likely a stretch shared from distant ancestry.
+RELATIVE_LOCUS_FLANK = 3_000_000
+RELATIVE_LOCUS_MIN_PINS = 100
+RELATIVE_LOCUS_MIN_PIN_FRACTION = 0.15
+RELATIVE_LOCUS_MIN_CONSISTENCY = 0.96
+
+
+def relative_share_at_locus(
+    rel_alleles: dict[int, tuple[int, int]],
+    anc_alleles: dict[int, tuple[int, int]],
+    *,
+    start: int,
+    end: int,
+) -> int | None:
+    """The member's homolog (0 or 1) the relative shares across ``[start, end)``, read
+    from both flanks of it, or ``None`` when either flank does not say so clearly."""
+    homologs: list[int] = []
+    for lo, hi in ((start - RELATIVE_LOCUS_FLANK, start), (end, end + RELATIVE_LOCUS_FLANK)):
+        pins = [0, 0]
+        heterozygous = 0
+        for pos, (a0, a1) in anc_alleles.items():
+            if not lo <= pos < hi or a0 == a1:
+                continue
+            heterozygous += 1
+            relative = rel_alleles.get(pos)
+            if relative is None or relative[0] != relative[1]:
+                continue
+            if relative[0] == a0:
+                pins[0] += 1
+            elif relative[0] == a1:
+                pins[1] += 1
+        total = pins[0] + pins[1]
+        if (
+            total < RELATIVE_LOCUS_MIN_PINS
+            or total < RELATIVE_LOCUS_MIN_PIN_FRACTION * heterozygous
+            or max(pins) < RELATIVE_LOCUS_MIN_CONSISTENCY * total
+        ):
+            return None
+        homologs.append(0 if pins[0] > pins[1] else 1)
+    return homologs[0] if homologs[0] == homologs[1] else None
+
+
+def _colour_across(resolver: HomologResolver, idx: int, start: int, end: int) -> HomologAssignment | None:
+    """The colour homolog ``idx`` has throughout ``[start, end)``, or ``None`` where it
+    changes there (an anchor that is itself a relative may cross over)."""
+    colour = resolver.at(idx, start)
+    for run_start, assignment in resolver.runs.get(idx, []):
+        if start < run_start < end and assignment != colour:
+            return None
+    return colour
+
+
+def _locus_share_blocks(
+    *,
+    chrom: str,
+    rel_alleles: dict[int, tuple[int, int]],
+    anc_alleles: dict[int, tuple[int, int]],
+    anchor_homolog: int,
+    colour: HomologAssignment,
+    window: tuple[int, int],
+    region_start: int,
+    region_end: int,
+) -> list[dict[str, Any]]:
+    """A relative's blocks when it shares the member's homolog ``anchor_homolog`` across
+    ``window`` (the region of interest and its flanks): there, the lane carrying it -- the
+    one holding that homolog's allele at most of the relative's heterozygous sites -- takes
+    the member's colour and the other is grey; elsewhere both are grey (unknown)."""
+    lo = min(max(window[0], region_start), region_end)
+    hi = max(min(window[1], region_end), lo)
+    votes = [0, 0]
+    for pos, (r0, r1) in rel_alleles.items():
+        if not lo <= pos < hi or r0 == r1 or pos not in anc_alleles:
+            continue
+        shared = anc_alleles[pos][anchor_homolog]
+        if r0 == shared:
+            votes[0] += 1
+        elif r1 == shared:
+            votes[1] += 1
+    lane = "hap1" if votes[0] >= votes[1] else "hap2"
+    other = "hap2" if lane == "hap1" else "hap1"
+    blocks: list[dict[str, Any]] = []
+    if region_start < lo:
+        blocks.append(
+            {"chr": chrom, "start": region_start, "end": lo, "ps": None, "hap1": "0", "hap2": "0",
+             "hap1_lineage": UNKNOWN, "hap2_lineage": UNKNOWN}
+        )
+    if lo < hi:
+        blocks.append(
+            {"chr": chrom, "start": lo, "end": hi, "ps": None,
+             lane: str(colour.shade), f"{lane}_lineage": colour.origin,
+             other: "0", f"{other}_lineage": UNTRANSMITTED}
+        )
+    if hi < region_end:
+        blocks.append(
+            {"chr": chrom, "start": hi, "end": region_end, "ps": None, "hap1": "0", "hap2": "0",
+             "hap1_lineage": UNKNOWN, "hap2_lineage": UNKNOWN}
+        )
+    return blocks
 
 
 def _merge_lane_claims(
@@ -925,12 +1039,16 @@ def annotate_lineage(
     region_end: int | None = None,
     genotype_truncated: bool = False,
     parent_or_child: Collection[tuple[str, str]] = (),
+    locus: tuple[int, int] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Return segments with per-lane lineage tags.
 
     ``parent_or_child`` holds the ``relative`` links (member, linked member) whose
     member was found to be the linked member's parent or child genome-wide (see
-    "relatives of unknown degree"); a member of any other such link stays grey.
+    "relatives of unknown degree"). A member of any other such link is read at
+    ``locus``, the region of interest on this chromosome, from its flanks
+    (:func:`relative_share_at_locus`), and is grey elsewhere and where the flanks do not
+    agree.
 
     Nuclear-core members keep their stored blocks, tagged by role. Relatives have
     their stored (meaningless) blocks replaced by lineage-tagged blocks computed
@@ -1076,33 +1194,56 @@ def annotate_lineage(
             rel_alleles = alleles.get(neighbor, {})
             if not rel_alleles:
                 continue
-            anchors = [
+            linked = [
                 name
                 for name in sorted(pedigree.relatives(neighbor))
-                if ((neighbor, name) in parent_or_child or (name, neighbor) in parent_or_child)
-                and name in coloured
-                and coloured[name].alleles
+                if name in coloured and coloured[name].alleles
             ]
-            if not anchors:
+            if not linked:
                 continue
             visited.add(neighbor)
             claims: list[list[dict[str, Any]]] = []
-            for name in anchors:
+            for name in linked:
                 anchor_member = coloured[name]
-                match = match_shared_homolog(rel_alleles, anchor_member.alleles)
-                if match is None:
+                if (neighbor, name) in parent_or_child or (name, neighbor) in parent_or_child:
+                    match = match_shared_homolog(rel_alleles, anchor_member.alleles)
+                    if match is None:
+                        continue
+                    segs, _assignment, _resolver = _segment_relative_blocks(
+                        chrom=chrom,
+                        positions=sorted(pos for pos in rel_alleles if pos in anchor_member.alleles),
+                        rel_alleles=rel_alleles,
+                        anc_alleles=anchor_member.alleles,
+                        anchor_homologs=anchor_member.homolog_resolver(),
+                        match=match,
+                        region_start=eff_start,
+                        region_end=eff_end,
+                    )
+                    claims.append(segs)
                     continue
-                segs, _assignment, _resolver = _segment_relative_blocks(
-                    chrom=chrom,
-                    positions=sorted(pos for pos in rel_alleles if pos in anchor_member.alleles),
-                    rel_alleles=rel_alleles,
-                    anc_alleles=anchor_member.alleles,
-                    anchor_homologs=anchor_member.homolog_resolver(),
-                    match=match,
-                    region_start=eff_start,
-                    region_end=eff_end,
+                if locus is None:
+                    continue
+                shared = relative_share_at_locus(
+                    rel_alleles, anchor_member.alleles, start=locus[0], end=locus[1]
                 )
-                claims.append(segs)
+                if shared is None:
+                    continue
+                window = (locus[0] - RELATIVE_LOCUS_FLANK, locus[1] + RELATIVE_LOCUS_FLANK)
+                colour = _colour_across(anchor_member.homolog_resolver(), shared, *window)
+                if colour is None or not colour.is_founder:
+                    continue
+                claims.append(
+                    _locus_share_blocks(
+                        chrom=chrom,
+                        rel_alleles=rel_alleles,
+                        anc_alleles=anchor_member.alleles,
+                        anchor_homolog=shared,
+                        colour=colour,
+                        window=window,
+                        region_start=eff_start,
+                        region_end=eff_end,
+                    )
+                )
             if not claims:
                 continue
             segs = claims[0] if len(claims) == 1 else _merge_lane_claims(chrom, claims, eff_start, eff_end)

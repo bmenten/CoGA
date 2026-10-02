@@ -40,6 +40,12 @@ PGT_PEDIGREE = "dashboard/pedigree.csv"
 
 _PIPELINE_ROLES = frozenset({"embryo", "father", "mother", "index"})
 
+_INDEX_STATUS_NOTE = (
+    "It is recorded under metadata.pgt.indexes: with metadata.pgt.inheritance_model set, the "
+    "import records it as affected (under XLR, a female index as a proven carrier), as the "
+    "risk haplotype is found from it; a status under family.add_members or family.members wins."
+)
+
 
 def _read_package_file(root: Path, relative_path: str, *, kind: str) -> str | None:
     """A small package file's text, or None when it is absent or unreadable."""
@@ -201,11 +207,13 @@ def pgt_family_block(
     - An index that is in the PED as a child of the couple is its proband; any other
       index in the PED is a relative.
     - An index the PED lacks is added, with the sex ngs-bits read (unknown without it) and
-      an unknown clinical status. None of the pipeline's files says how it is related, so
-      the link is proposed from KING (see :func:`_index_link`): as the couple's child (the
-      proband) when KING measures it first-degree to both, otherwise as a relative of
-      unknown degree (``family.relationships.relatives``) of the parent it is related to,
-      or of the affected parent. The warning says which, and on what.
+      no clinical status: discovery records the run's indexes under
+      ``metadata.pgt.indexes``, and the import derives their status from the inheritance
+      model. None of the pipeline's files says how it is related, so the link is proposed
+      from KING (see :func:`_index_link`): as the couple's child (the proband) when KING
+      measures it first-degree to both, otherwise as a relative of unknown degree
+      (``family.relationships.relatives``) of the parent it is related to, or of the
+      affected parent. The warning says which, and on what.
     """
     members_by_id = {member.iid: member for member in ped.members}
     fathers = {member.pid for member in ped.members if member.pid not in {"", "0"}}
@@ -265,9 +273,10 @@ def pgt_family_block(
                     f"Index {sample_id} ({PGT_SAMPLESHEET}) is not in the PED; it is added under "
                     f"family.add_members as a relative{sex_note}, linked under "
                     f"family.relationships.relatives to {' and '.join(link[1])} by an unknown "
-                    f"degree: {basis}. Its haplotype is coloured if it turns out to be "
-                    f"{' and '.join(link[1])}'s parent or child (sharing one of the haplotypes "
-                    "along nearly every chromosome); a more distant relative stays grey."
+                    f"degree: {basis}. Its haplotype is coloured along the genome if it turns "
+                    f"out to be {' and '.join(link[1])}'s parent or child (sharing one of the "
+                    "haplotypes along nearly every chromosome), and a more distant relative "
+                    "around the ROI, where it shares one of them on both sides of it."
                 )
             else:
                 entry["role"] = "relative"
@@ -278,12 +287,8 @@ def pgt_family_block(
                     "family page after the import: until then its haplotype stays grey and is not "
                     "used to find the risk haplotype."
                 )
-            entry["clinical_status"] = "unknown"
             added.append(entry)
-            message = (
-                f"{message} Its clinical status is unknown: record it under family.add_members, "
-                "as the risk haplotype is found from the affected members."
-            )
+            message = f"{message} {_INDEX_STATUS_NOTE}"
             if link is not None:
                 message = f"{message} Change the link before writing the manifest, or on the family page after the import."
             if evidence:

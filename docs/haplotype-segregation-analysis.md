@@ -37,20 +37,43 @@ briefly grey the relatives, but never shows stale colours.
 | `LINEAGE_SWITCH_MIN_MARKERS` / `LINEAGE_SWITCH_MIN_SPAN` | 50 / 500 kb | a lane switch (crossover) is committed only after a run this long and this wide |
 
 A relative linked by a `relative` edge (related through that member by an unknown degree) is coloured
-only when it turns out to be that member's parent or child: when the parent-child share test above
-(`match_shared_homolog`) finds it sharing one of the member's haplotypes along at least 90% of the
-autosomes it could read, and it could read at least 15 (`RELATIVE_PARENT_OR_CHILD_MIN_FRACTION`,
+along the genome when it turns out to be that member's parent or child: when the parent-child share
+test above (`match_shared_homolog`) finds it sharing one of the member's haplotypes along at least 90%
+of the autosomes it could read, and it could read at least 15 (`RELATIVE_PARENT_OR_CHILD_MIN_FRACTION`,
 `RELATIVE_PARENT_OR_CHILD_MIN_CHROMOSOMES`). It is then coloured as a parent or child is
 (`_segment_relative_blocks`; linked to both parents, a lane from each, `_merge_lane_claims`), and
-nothing is coloured through it. A more distant relative stays grey: a sibling shares no haplotype
-somewhere on most chromosomes, and on low-pass imputed genotypes a share that covers only stretches
-cannot be told from the long runs unrelated people share by state. (In an example family, a model that
-read such stretches site by site called a share at most sites of an unrelated pair, and called both
-haplotypes shared at a third of a parent and child's sites; the whole-chromosome test read the index
-as the mother's parent or child on 22 of 22 autosomes and the unrelated father on none.) The decision
-needs the whole genome, so the precompute takes it (`bed_service._compute_genomewide_lineage`, a first
-pass over every autosome, `relative_link_matches` and `parent_or_child_links`) and a window takes the
-relative's colours from the current precompute, grey while there is none.
+nothing is coloured through it. A more distant relative (a sibling, an aunt, a cousin) shares a
+haplotype only in stretches, and on low-pass imputed genotypes a stretch cannot be found site by site:
+it cannot be told from the long runs unrelated people share by state. (In an example family, a model
+that read such stretches site by site called a share at most sites of an unrelated pair, and called
+both haplotypes shared at a third of a parent and child's sites; the whole-chromosome test read the
+index as the mother's parent or child on 22 of 22 autosomes and the unrelated father on none.)
+
+Such a relative is read at the ROI only, as PGT-M reads a distant reference: from the informative
+sites on both sides of the ROI (`relative_share_at_locus`). On each flank, the sites where the member
+is heterozygous and the relative homozygous (pins) say which of the member's haplotypes the relative
+carries there; in a stretch where it carries both, nearly none are pins. Both flanks must name the
+same haplotype, and the member's colour of it must not change across the window (`_colour_across`,
+for a member that is itself a relative). The relative's lane that carries that haplotype then takes
+its colour across the ROI and both flanks, its other lane is grey, and the rest of the chromosome is
+grey (`_locus_share_blocks`):
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| `RELATIVE_LOCUS_FLANK` | 3 Mb | width of each flank read, and of the colour beyond the ROI |
+| `RELATIVE_LOCUS_MIN_PINS` | 100 | pins a flank needs |
+| `RELATIVE_LOCUS_MIN_PIN_FRACTION` | 0.15 | pins as a share of the member's heterozygous sites on the flank (a relative carrying both haplotypes has nearly none) |
+| `RELATIVE_LOCUS_MIN_CONSISTENCY` | 0.96 | share of the pins that must name the one haplotype |
+
+On the phased genotypes of an example family's embryo pairs (siblings, whose sharing the trios give),
+read at every megabase far from their crossovers, this found the shared haplotype at 84% of the loci
+where one was shared, never the other one, and none where none was; it read one at 9 of 5,768 loci
+where the trios give both shared, and at one locus of an unrelated pair. Both decisions need the
+precompute: the parent-or-child one the whole genome (`bed_service._compute_genomewide_lineage`, a
+first pass over every autosome, `relative_link_matches` and `parent_or_child_links`), the ROI one the
+family's ROI (`FamilyMetadataContext.roi`, in the lineage fingerprint for a family with such a link,
+and read again when the ROI changes). A window takes the relative's colours from the current
+precompute, grey while there is none.
 
 A parent's phase switch (`haplotype_phase_correction.py`) is read from the couple's children
 (`couple_children`: the pedigree's core children) on one chromosome at a time:

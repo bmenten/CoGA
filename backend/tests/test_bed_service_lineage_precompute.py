@@ -51,6 +51,25 @@ def test_lineage_hash_is_deterministic_and_sensitive():
     assert baseline != bed_service._lineage_hash(_ctx(relationship_rows=[]))
 
 
+def test_lineage_hash_holds_the_roi_only_for_a_family_with_a_relative_of_unknown_degree():
+    # A relative of unknown degree is read at the ROI, so moving the ROI makes its
+    # colours stale; a family without one keeps its fingerprint.
+    assert bed_service._lineage_hash(_ctx()) == bed_service._lineage_hash(_ctx(roi=("chr7", 1_000, 2_000)))
+    relative = {
+        "relationship_type": "relative",
+        "sample_id_a": "MOM",
+        "sample_id_b": "KID",
+        "role_a": "relative",
+        "role_b": "relative",
+    }
+    linked = _ctx().relationship_rows + [relative]
+    hashes = {
+        bed_service._lineage_hash(_ctx(relationship_rows=linked, roi=roi))
+        for roi in (None, ("chr7", 1_000, 2_000), ("chr7", 1_000, 3_000))
+    }
+    assert len(hashes) == 3
+
+
 def test_lineage_interval_rows_pack_lineage_into_origin():
     ctx = _ctx()
     segments = {
