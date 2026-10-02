@@ -336,23 +336,23 @@ def test_pgt_ped_accepts_carrier_status_and_embryo_roles() -> None:
 
 def test_ped_numeric_status_uses_gatk_mapping_with_separate_carrier_flags() -> None:
     ped, errors = family_package_manifest._parse_ped_text_strict(
-        "co619 D2316046 D2417382 D2417380 1 2\n"
-        "co619 D2417380 0 0 2 1 carrier=true carrier_type=proven\n"
-        "co619 D2417382 0 0 1 1 carrier=true carrier_type=obligate\n"
-        "co619 K2501446 D2417382 D2417380 0 0\n"
+        "FAM001 INDEX1 FATHER1 MOTHER1 1 2\n"
+        "FAM001 MOTHER1 0 0 2 1 carrier=true carrier_type=proven\n"
+        "FAM001 FATHER1 0 0 1 1 carrier=true carrier_type=obligate\n"
+        "FAM001 EMB1 FATHER1 MOTHER1 0 0\n"
     )
 
     assert errors == []
     assert ped is not None
     by_sample = {member.iid: member for member in ped.members}
-    assert by_sample["D2316046"].clinical_status == "affected"
-    assert by_sample["D2417380"].clinical_status == "unaffected"
+    assert by_sample["INDEX1"].clinical_status == "affected"
+    assert by_sample["MOTHER1"].clinical_status == "unaffected"
     members = family_package_manifest._ped_members_for_import(ped)
     assert [(member["sample_id"], member["role"], member["affected"]) for member in members] == [
-        ("D2316046", "proband", True),
-        ("D2417380", "mother", False),
-        ("D2417382", "father", False),
-        ("K2501446", "embryo", False),
+        ("INDEX1", "proband", True),
+        ("MOTHER1", "mother", False),
+        ("FATHER1", "father", False),
+        ("EMB1", "embryo", False),
     ]
     assert members[1]["metadata"]["carrier_type"] == "proven"
     assert members[2]["metadata"]["carrier_type"] == "obligate"
@@ -458,44 +458,46 @@ def test_pgt_manifest_validates_glimpse2_apcad_and_qdnaseq_files(tmp_path: Path)
     assert qdnaseq.samples == ["EMBRYO1"]
 
 
-def test_pgt_manifest_discovery_detects_co619_style_files(tmp_path: Path) -> None:
-    package_root = tmp_path / "co619"
+def test_pgt_manifest_discovery_detects_older_pgt_layout_files(tmp_path: Path) -> None:
+    """GLIMPSE2/{family}_phased_final.vcf.gz, APCAD/{family}_embryo_filtered_imp_parent.vcf.gz
+    and QDNAseq/{sample}_cnv_results.csv, as the older PGT pipeline writes them."""
+    package_root = tmp_path / "FAM001"
     package_root.mkdir()
     (package_root / "family.ped").write_text(
-        "co619 D2316046 D2417382 D2417380 1 2\n"
-        "co619 D2417380 0 0 2 1 carrier=true carrier_type=proven\n"
-        "co619 D2417382 0 0 1 1 carrier=true carrier_type=proven\n"
-        "co619 K2501446 D2417382 D2417380 0 0\n",
+        "FAM001 INDEX1 FATHER1 MOTHER1 1 2\n"
+        "FAM001 MOTHER1 0 0 2 1 carrier=true carrier_type=proven\n"
+        "FAM001 FATHER1 0 0 1 1 carrier=true carrier_type=proven\n"
+        "FAM001 EMB1 FATHER1 MOTHER1 0 0\n",
         encoding="utf-8",
     )
     glimpse_root = package_root / "GLIMPSE2"
     glimpse_root.mkdir()
-    (glimpse_root / "co619_phased_final.vcf.gz").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
-    (glimpse_root / "co619_phased_final.vcf.gz.tbi").write_text("", encoding="utf-8")
+    (glimpse_root / "FAM001_phased_final.vcf.gz").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    (glimpse_root / "FAM001_phased_final.vcf.gz.tbi").write_text("", encoding="utf-8")
     apcad_root = package_root / "APCAD"
     apcad_root.mkdir()
-    (apcad_root / "co619_embryo_filtered_imp_parent.vcf.gz").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    (apcad_root / "FAM001_embryo_filtered_imp_parent.vcf.gz").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
     qdna_root = package_root / "QDNAseq"
     qdna_root.mkdir()
-    (qdna_root / "K2501446_cnv_results.csv").write_text(
+    (qdna_root / "EMB1_cnv_results.csv").write_text(
         '"","chr","start","end","position","copynumber","segmented"\n'
         '"1:1-500000","1",1,500000,250000.5,0.12,0.08\n',
         encoding="utf-8",
     )
 
     result = family_package_discovery.discover_family_package_manifest(
-        FamilyPackageManifestBuildRequest(folder_path=str(package_root), family_id="co619")
+        FamilyPackageManifestBuildRequest(folder_path=str(package_root), family_id="FAM001")
     )
 
     assert result.valid is True
     assert result.errors == []
     datasets = {item.dataset_type: item for item in result.datasets}
-    assert datasets["qdnaseq"].samples == ["K2501446"]
+    assert datasets["qdnaseq"].samples == ["EMB1"]
     assert datasets["apcad"].complete is True
     assert datasets["haplotypes"].complete is True
-    assert "QDNAseq/K2501446_cnv_results.csv" in result.manifest_yaml
-    assert "APCAD/co619_embryo_filtered_imp_parent.vcf.gz" in result.manifest_yaml
-    assert "GLIMPSE2/co619_phased_final.vcf.gz" in result.manifest_yaml
+    assert "QDNAseq/EMB1_cnv_results.csv" in result.manifest_yaml
+    assert "APCAD/FAM001_embryo_filtered_imp_parent.vcf.gz" in result.manifest_yaml
+    assert "GLIMPSE2/FAM001_phased_final.vcf.gz" in result.manifest_yaml
 
 
 def test_qdnaseq_parser_handles_csv_headers() -> None:
@@ -534,10 +536,10 @@ def test_qdnaseq_parser_prefers_segmented_column_for_segments() -> None:
             "copynumber": 5,
             "segmented": 6,
         },
-        sample_context=_sample_context("K2501446"),
+        sample_context=_sample_context("EMB1"),
         track_type="segments",
         source="qdnaseq",
-        path=Path("K2501446_cnv_results.csv"),
+        path=Path("EMB1_cnv_results.csv"),
         line_no=2,
     )
 
@@ -552,12 +554,12 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
     tmp_path: Path,
 ) -> None:
     root = tmp_path
-    bins_path = root / "D2417384_bins.csv"
+    bins_path = root / "EMB1_bins.csv"
     bins_path.write_text(
         "chr,start,end,position,copynumber,segmented\n1,1,500000,250000.5,0.12,0.08\n",
         encoding="utf-8",
     )
-    segments_path = root / "D2417384_segments.csv"
+    segments_path = root / "EMB1_segments.csv"
     segments_path.write_text(
         "chr,start,end,position,copynumber,segmented\n1,1,500000,250000.5,0.08,0.08\n",
         encoding="utf-8",
@@ -572,7 +574,7 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
     )
     dataset = family_package_common.ManifestDataset(
         per_sample={
-            "D2417384": {
+            "EMB1": {
                 "bins": bins_path.name,
                 "segments": segments_path.name,
             }
@@ -583,7 +585,7 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
         enabled=True,
         status="valid",
     )
-    sample_contexts = {"D2417384": _sample_context("D2417384")}
+    sample_contexts = {"EMB1": _sample_context("EMB1")}
 
     async def fake_interval_track_count(*args, **kwargs) -> int:
         return 0
@@ -613,8 +615,8 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
     )
 
     assert result.message == "Imported QDNAseq bins as coverage and segments as segment interval tracks"
-    assert result.summary["D2417384"]["bins"]["skipped"] == 1
-    assert result.summary["D2417384"]["segments"]["skipped"] == 1
+    assert result.summary["EMB1"]["bins"]["skipped"] == 1
+    assert result.summary["EMB1"]["segments"]["skipped"] == 1
 
 
 def test_apcad_parser_supports_import_tsv_and_vcf_fields() -> None:

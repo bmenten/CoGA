@@ -219,14 +219,14 @@ async def test_mark_family_hpo_annotations_stale_uses_typed_json_parameters() ->
     await hpo_service.mark_family_hpo_annotations_stale(
         _CapturingSession(),
         family_uuid="11111111-1111-1111-1111-111111111111",
-        sample_id="K2501447",
+        sample_id="PROBAND",
         reason="hpo_annotation_created",
     )
 
     assert "reason', CAST(:reason AS text)" in captured["sql"]
     assert "sample_id', CAST(:sample_id AS text)" in captured["sql"]
     assert captured["params"]["reason"] == "hpo_annotation_created"
-    assert captured["params"]["sample_id"] == "K2501447"
+    assert captured["params"]["sample_id"] == "PROBAND"
 
 
 @pytest.mark.asyncio

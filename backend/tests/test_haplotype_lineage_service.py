@@ -1,9 +1,9 @@
 """Tests for pedigree-aware haplotype lineage colouring.
 
-The motivating case is family co620: a dominant disorder where the affected
-paternal grandmother (stored with the overloaded role ``mother``) must show one
-haplotype matching the affected father's shared homolog and the other greyed,
-instead of the old two-green rendering.
+The motivating case is a three-generation family with a dominant disorder: the
+affected paternal grandmother (stored with the overloaded role ``mother``) must
+show one haplotype matching the affected father's shared homolog and the other
+greyed, instead of the old two-green rendering.
 """
 from backend.app.services.haplotype_lineage_service import (
     GREY,
@@ -42,14 +42,14 @@ def _parent_child(parent, child, role_a):
     }
 
 
-# A co620-shaped pedigree: GM -> F -> E1, plus the unaffected mother M.
-CO620_MEMBERS = [
+# A three-generation pedigree: GM -> F -> E1, plus the unaffected mother M.
+THREE_GEN_MEMBERS = [
     _member("F", "father", affected=True),
     _member("M", "mother", affected=False),
     _member("GM", "mother", affected=True),  # paternal grandmother, role overloaded
     _member("E1", "embryo"),
 ]
-CO620_RELATIONSHIPS = [
+THREE_GEN_RELATIONSHIPS = [
     _parent_child("F", "E1", "father"),
     _parent_child("M", "E1", "mother"),
     _parent_child("GM", "F", "mother"),
@@ -77,7 +77,7 @@ _SITES = (
 )
 
 
-def _co620_genotypes():
+def _three_gen_genotypes():
     rows = []
     for i, (g0, g1, f1) in enumerate(_SITES):
         pos = 1000 + i * 100
@@ -96,7 +96,7 @@ def _parent_segments(hap1, hap2, chrom="1", start=1000, end=2100):
 
 
 def test_build_pedigree_edges():
-    ped = build_pedigree(CO620_MEMBERS, CO620_RELATIONSHIPS)
+    ped = build_pedigree(THREE_GEN_MEMBERS, THREE_GEN_RELATIONSHIPS)
     assert ped.parents_of["F"] == {"mother": "GM"}
     assert ped.parents_of["E1"] == {"father": "F", "mother": "M"}
     assert ped.children_of["F"] == {"E1"}
@@ -105,7 +105,7 @@ def test_build_pedigree_edges():
 
 
 def test_identify_core_excludes_grandmother():
-    ped = build_pedigree(CO620_MEMBERS, CO620_RELATIONSHIPS)
+    ped = build_pedigree(THREE_GEN_MEMBERS, THREE_GEN_RELATIONSHIPS)
     core = identify_core(ped)
     assert core.father == "F"
     assert core.mother == "M"  # the co-parent of the embryo, NOT the grandmother
@@ -187,8 +187,8 @@ def test_founder_shade_map_reads_stored_lane_values():
 
 
 def test_match_shared_homolog_identifies_transmitted_pair():
-    gm = {pos: (g0, g1) for (pos, _ids, _gts), (g0, g1, _f1) in zip(_co620_genotypes(), _SITES)}
-    father = {pos: (g0, f1) for (pos, _ids, _gts), (g0, _g1, f1) in zip(_co620_genotypes(), _SITES)}
+    gm = {pos: (g0, g1) for (pos, _ids, _gts), (g0, g1, _f1) in zip(_three_gen_genotypes(), _SITES)}
+    father = {pos: (g0, f1) for (pos, _ids, _gts), (g0, _g1, f1) in zip(_three_gen_genotypes(), _SITES)}
     match = match_shared_homolog(gm, father)
     assert match is not None
     assert match.relative_idx == 0  # grandmother's transmitted homolog
@@ -275,10 +275,10 @@ def test_annotate_lineage_colours_grandmother_one_blue_one_grey():
         "GM": [{"chr": "1", "start": 1, "end": 9999, "hap1": "1", "hap2": "0", "ps": None}],  # stored junk
     }
     out = annotate_lineage(
-        sample_rows=CO620_MEMBERS,
-        relationship_rows=CO620_RELATIONSHIPS,
+        sample_rows=THREE_GEN_MEMBERS,
+        relationship_rows=THREE_GEN_RELATIONSHIPS,
         segments_by_name=segments_by_name,
-        genotype_rows=_co620_genotypes(),
+        genotype_rows=_three_gen_genotypes(),
         chrom="1",
         region_start=1000,
         region_end=2100,
@@ -304,8 +304,8 @@ def test_annotate_lineage_colours_grandmother_one_blue_one_grey():
 def test_annotate_lineage_greys_unplaceable_relative():
     # An extra relative with no informative genotypes cannot be matched -> grey,
     # keeping its stored block geometry rather than being mis-coloured.
-    members = CO620_MEMBERS + [_member("UNREL", "relative")]
-    rels = CO620_RELATIONSHIPS + [_parent_child("UNREL", "GM", "mother")]
+    members = THREE_GEN_MEMBERS + [_member("UNREL", "relative")]
+    rels = THREE_GEN_RELATIONSHIPS + [_parent_child("UNREL", "GM", "mother")]
     segments_by_name = {
         "F": _parent_segments("0", "1"),
         "M": _parent_segments("0", "1"),
@@ -317,7 +317,7 @@ def test_annotate_lineage_greys_unplaceable_relative():
         sample_rows=members,
         relationship_rows=rels,
         segments_by_name=segments_by_name,
-        genotype_rows=_co620_genotypes(),  # no UNREL genotypes
+        genotype_rows=_three_gen_genotypes(),  # no UNREL genotypes
         chrom="1",
         region_start=1000,
         region_end=2100,
@@ -333,19 +333,19 @@ def test_annotate_lineage_greys_relative_past_truncated_genotype_fetch():
     stored block geometry spans the whole chromosome. The coloured block stops at the
     last fetched site; the tail beyond is greyed (mirrors the marker path's M1 guard)."""
     # Stored blocks span a whole chromosome (to 9_000_000), but the genotype fetch only
-    # reached the p-arm (max site < 3000, from _co620_genotypes()).
+    # reached the p-arm (max site < 3000, from _three_gen_genotypes()).
     segments_by_name = {
         "F": _parent_segments("0", "1", end=9_000_000),
         "M": _parent_segments("0", "1", end=9_000_000),
         "E1": [{"chr": "1", "start": 1000, "end": 9_000_000, "hap1": "0", "hap2": "0", "ps": None}],
         "GM": [{"chr": "1", "start": 1, "end": 9_000_000, "hap1": "1", "hap2": "0", "ps": None}],
     }
-    genotypes = _co620_genotypes()
+    genotypes = _three_gen_genotypes()
     max_pos = max(row[0] for row in genotypes)
     # Whole-chromosome path (no explicit region) -> span comes from the stored blocks.
     out = annotate_lineage(
-        sample_rows=CO620_MEMBERS,
-        relationship_rows=CO620_RELATIONSHIPS,
+        sample_rows=THREE_GEN_MEMBERS,
+        relationship_rows=THREE_GEN_RELATIONSHIPS,
         segments_by_name=segments_by_name,
         genotype_rows=genotypes,
         chrom="1",
@@ -375,10 +375,10 @@ def test_annotate_lineage_not_truncated_extends_to_chromosome_end():
         "GM": [{"chr": "1", "start": 1, "end": 9_000_000, "hap1": "1", "hap2": "0", "ps": None}],
     }
     out = annotate_lineage(
-        sample_rows=CO620_MEMBERS,
-        relationship_rows=CO620_RELATIONSHIPS,
+        sample_rows=THREE_GEN_MEMBERS,
+        relationship_rows=THREE_GEN_RELATIONSHIPS,
         segments_by_name=segments_by_name,
-        genotype_rows=_co620_genotypes(),
+        genotype_rows=_three_gen_genotypes(),
         chrom="1",
         genotype_truncated=False,
     )
@@ -412,10 +412,10 @@ def test_annotate_lineage_missing_father_shade_does_not_emit_raw_index_colour():
         "GM": [{"chr": "1", "start": 1, "end": 9999, "hap1": "1", "hap2": "0", "ps": None}],
     }
     out = annotate_lineage(
-        sample_rows=CO620_MEMBERS,
-        relationship_rows=CO620_RELATIONSHIPS,
+        sample_rows=THREE_GEN_MEMBERS,
+        relationship_rows=THREE_GEN_RELATIONSHIPS,
         segments_by_name=segments_by_name,
-        genotype_rows=_co620_genotypes(),
+        genotype_rows=_three_gen_genotypes(),
         chrom="1",
         region_start=1000,
         region_end=3300,
@@ -439,10 +439,10 @@ def test_annotate_lineage_does_not_ibd_colour_x_chromosome():
         "GM": [{"chr": "X", "start": 1, "end": 9999, "hap1": "1", "hap2": "0", "ps": None}],
     }
     # Same informative genotypes, but on chrX.
-    genotype_rows = [(pos, ids, gts) for (pos, ids, gts) in _co620_genotypes()]
+    genotype_rows = [(pos, ids, gts) for (pos, ids, gts) in _three_gen_genotypes()]
     out = annotate_lineage(
-        sample_rows=CO620_MEMBERS,
-        relationship_rows=CO620_RELATIONSHIPS,
+        sample_rows=THREE_GEN_MEMBERS,
+        relationship_rows=THREE_GEN_RELATIONSHIPS,
         segments_by_name=segments_by_name,
         genotype_rows=genotype_rows,
         chrom="X",

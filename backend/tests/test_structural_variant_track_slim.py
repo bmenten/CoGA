@@ -1,7 +1,7 @@
 """The genome SV track (track_mode=True) must serve a slim payload: no annotation_extra
 or population_frequencies (the track only draws a rectangle from chr/start/end/type and
 the per-sample genotype). The SV table (track_mode=False) must keep the full annotation
-enrichment. These guard the slimming that took the f_18.16172 track from 182 MB -> ~8 MB
+enrichment. These guard the slimming that took one family's track from 182 MB -> ~8 MB
 per member."""
 
 from app.services.clickhouse_variant_queries import (
