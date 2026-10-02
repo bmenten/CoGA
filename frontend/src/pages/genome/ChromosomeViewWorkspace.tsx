@@ -22,7 +22,8 @@ import RepeatExpansionTrack from '../../components/visualizations/RepeatExpansio
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
 import QueryFailure from '../../components/QueryFailure';
 import { getErrorMessage } from '../../lib/errorMessage';
-import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
+import { normalizeHaplotypeChrom, resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
+import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import ViewerMemberSection from './ViewerMemberSection';
 import ViewerTrackBlock from './ViewerTrackBlock';
@@ -32,6 +33,7 @@ import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { CHROMS, buildTrackFilterSummary, formatBp, formatRoiCoordinates } from './viewerShared';
 
 const TRACK_HEIGHT = 120;
+const NO_PHASE_CORRECTIONS: HaplotypePhaseCorrection[] = [];
 const VARIANT_TRACK_HEIGHT = 80;
 // Combined haplotype + phased-marker track: two lanes (paternal / maternal),
 // each a thin haplotype line. Taller (room for the marker dots in both lanes)
@@ -87,6 +89,8 @@ interface ChromosomeViewWorkspaceProps {
   chromInfoSize?: number;
   visibleRoi: ApiFamilyRegionOfInterest | null;
   inheritanceModel?: string | null;
+  /** The parents' phase switches the haplotype blocks undid. */
+  phaseCorrections?: HaplotypePhaseCorrection[];
   chromosomeRoiRange: ChromosomeRoiRange | null;
   regionRoiRange: ChromosomeRoiRange | null;
   onChromChange: (chrom: string) => void;
@@ -193,6 +197,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   chromInfoSize,
   visibleRoi,
   inheritanceModel,
+  phaseCorrections = NO_PHASE_CORRECTIONS,
   chromosomeRoiRange,
   regionRoiRange,
   onChromChange,
@@ -246,6 +251,16 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
     : undefined;
   const hasCarrierSegregation = familyMembers.some((member) => member.carrier_status === 'carrier');
   const resolvedHaplotypeInheritanceModel = resolveHaplotypeInheritanceModel(inheritanceModel, familyMembers);
+  // Each parent's phase corrections on this chromosome, for its haplotype track.
+  const phaseCorrectionsBySample = useMemo(() => {
+    const bySample = new Map<string, HaplotypePhaseCorrection[]>();
+    phaseCorrections
+      .filter((correction) => normalizeHaplotypeChrom(correction.chr) === normalizeHaplotypeChrom(chrom))
+      .forEach((correction) => {
+        bySample.set(correction.parent, [...(bySample.get(correction.parent) ?? []), correction]);
+      });
+    return bySample;
+  }, [phaseCorrections, chrom]);
   const haplotypeDisorder = hasCarrierSegregation ? 'recessive' : 'dominant';
   const highlightRiskHaplotype = familyMembers.some(
     (member) => member.affected || member.carrier_status === 'carrier',
@@ -688,6 +703,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                           familyMembers={familyMembers}
                           riskRegion={haplotypeRiskRegion}
                           showMarkers={showMarkers}
+                          phaseCorrections={phaseCorrectionsBySample.get(member.sample_id) ?? NO_PHASE_CORRECTIONS}
                         />
                       </ViewerTrackBlock>
                     );

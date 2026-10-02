@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import api from './api';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from './apiTypes';
 import { classifyEmbryosAtRoi, type EmbryoClassification } from './embryoSegregation';
+import type { HaplotypePhaseCorrection } from './haplotypePhaseCorrections';
 import type { HaplotypeMemberLike, HaplotypeSampleLike } from './haplotypeRisk';
 import { apiPath } from './apiPath';
 
@@ -35,11 +36,14 @@ export const useEmbryoSegregation = ({
   roi,
   members,
   inheritanceModel,
+  phaseCorrections,
 }: {
   familyId: string;
   roi: ApiFamilyRegionOfInterest | null;
   members: ApiFamilyMember[];
   inheritanceModel?: string | null;
+  /** The parents' phase switches the blocks undid, from the family's metadata. */
+  phaseCorrections?: HaplotypePhaseCorrection[];
 }): {
   byEmbryo: Map<string, EmbryoClassification>;
   isLoading: boolean;
@@ -71,9 +75,10 @@ export const useEmbryoSegregation = ({
       samples: data.samples,
       inheritanceModel,
       region: { chr: roi.chr, start: roi.start, end: roi.end },
+      phaseCorrections,
     });
     return new Map(rows.map((r) => [r.sampleId, r]));
-  }, [roi, data?.samples, members, inheritanceModel]);
+  }, [roi, data?.samples, members, inheritanceModel, phaseCorrections]);
 
   return {
     byEmbryo,

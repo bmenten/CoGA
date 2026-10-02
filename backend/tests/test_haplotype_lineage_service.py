@@ -775,3 +775,257 @@ def test_homolog_resolver_position_lookup():
     assert not runs.at(1, 0).is_founder
 
 
+
+
+# --- relatives of unknown degree ---------------------------------------------------
+
+import random  # noqa: E402
+
+from backend.app.services.haplotype_lineage_service import (  # noqa: E402
+    parent_or_child_links,
+    relative_link_matches,
+    relative_links,
+)
+
+_CHROM_LENGTH = 60_000_000
+_SITE_STEP = 5_000
+
+
+def _simulated_relative_rows(
+    *,
+    seed: int,
+    shares: tuple[tuple[int, int, int], ...] = (),
+    ibd2: tuple[tuple[int, int], ...] = (),
+    error_rate: float = 0.01,
+    chrom: str = "1",
+    length: int = _CHROM_LENGTH,
+):
+    """Genotypes of a couple, an embryo and a relative R of the mother's: R carries the
+    mother's homolog ``homolog`` on its first lane over each ``(start, end, homolog)`` of
+    ``shares``, both her homologs over each ``ibd2`` stretch, and alleles of its own
+    elsewhere; its lanes come in either order, and a fraction ``error_rate`` of its alleles
+    is flipped."""
+    rng = random.Random(seed)
+    rows = []
+    for pos in range(_SITE_STEP, length, _SITE_STEP):
+        frequency = rng.uniform(0.05, 0.95)
+
+        def draw(frequency: float = frequency) -> int:
+            return 1 if rng.random() < frequency else 0
+
+        m0, m1, f0, f1, r0, r1 = draw(), draw(), draw(), draw(), draw(), draw()
+        for start, end, homolog in shares:
+            if start <= pos < end:
+                r0 = (m0, m1)[homolog]
+        for start, end in ibd2:
+            if start <= pos < end:
+                r0, r1 = m0, m1
+        if rng.random() < error_rate:
+            if rng.random() < 0.5:
+                r0 = 1 - r0
+            else:
+                r1 = 1 - r1
+        if rng.random() < 0.5:
+            r0, r1 = r1, r0
+        gts = {"F": f"{f0}|{f1}", "M": f"{m0}|{m1}", "E1": f"{f0}|{m0}", "R": f"{r0}|{r1}"}
+        rows.append((pos, list(gts), list(gts.values())))
+    return rows
+
+
+_RELATIVE_MEMBERS = [
+    _member("F", "father"),
+    _member("M", "mother", affected=True),
+    _member("E1", "embryo"),
+    _member("R", "relative", affected=True),
+]
+_RELATIVE_RELATIONSHIPS = [
+    _parent_child("F", "E1", "father"),
+    _parent_child("M", "E1", "mother"),
+    {"relationship_type": "relative", "sample_id_a": "M", "sample_id_b": "R", "role_a": "relative", "role_b": "relative"},
+]
+
+
+def _annotate_relative(rows, parent_or_child=(("R", "M"),), length=_CHROM_LENGTH):
+    whole = {"chr": "1", "start": 0, "end": length, "ps": None}
+    return annotate_lineage(
+        sample_rows=_RELATIVE_MEMBERS,
+        relationship_rows=_RELATIVE_RELATIONSHIPS,
+        segments_by_name={
+            "F": [{**whole, "hap1": "0", "hap2": "1"}],
+            "M": [{**whole, "hap1": "0", "hap2": "1"}],
+            "E1": [{**whole, "hap1": "0", "hap2": "0"}],
+            "R": [{**whole, "hap1": "1", "hap2": "0"}],  # stored junk
+        },
+        genotype_rows=rows,
+        chrom="1",
+        region_start=0,
+        region_end=length,
+        parent_or_child=parent_or_child,
+    )
+
+
+def _coloured_spans(blocks, lane):
+    """``(start, end, shade)`` of the blocks whose ``lane`` carries a founder colour."""
+    return [
+        (block["start"], block["end"], block[lane])
+        for block in blocks
+        if block[f"{lane}_lineage"] in (PATERNAL, MATERNAL)
+    ]
+
+
+def _genome_counts(kind: str, *, seed: int):
+    """``{link: (autosomes sharing, autosomes tested)}`` over 22 short chromosomes for a
+    relative of the mother's that is her ``child``, a ``sibling`` or ``unrelated``."""
+    rng = random.Random(seed)
+    counts: dict = {}
+    for chrom in range(1, 23):
+        length = 6_000_000
+        if kind == "child":
+            shares, ibd2 = ((0, length, rng.randint(0, 1)),), ()
+        elif kind == "sibling":
+            # IBD0, IBD1 and IBD2 in stretches, as siblings share.
+            cut1, cut2 = sorted(rng.sample(range(1_000_000, length - 1_000_000, 100_000), 2))
+            states = rng.sample(["ibd0", "ibd1", "ibd2"], 3)
+            shares, ibd2 = (), ()
+            for (start, end), state in zip(((0, cut1), (cut1, cut2), (cut2, length)), states):
+                if state == "ibd1":
+                    shares = ((start, end, rng.randint(0, 1)),)
+                elif state == "ibd2":
+                    ibd2 = ((start, end),)
+        else:
+            shares, ibd2 = (), ()
+        rows = _simulated_relative_rows(seed=seed * 100 + chrom, shares=shares, ibd2=ibd2, length=length)
+        for link, shared in relative_link_matches(rows, [("R", "M")], chrom=str(chrom)).items():
+            sharing, tested = counts.get(link, (0, 0))
+            counts[link] = (sharing + int(shared), tested + 1)
+    return counts
+
+
+def test_a_relative_of_unknown_degree_is_read_as_a_parent_or_child_only_from_the_whole_genome():
+    # Every autosome shows the parent-child share for a child of the mother; a sibling has
+    # stretches of IBD0 on most, and an unrelated relative on all.
+    assert relative_links(_RELATIVE_RELATIONSHIPS) == [("R", "M")]
+    for seed in range(3):
+        assert parent_or_child_links(_genome_counts("child", seed=seed)) == {("R", "M")}, seed
+        assert parent_or_child_links(_genome_counts("sibling", seed=seed)) == set(), seed
+        assert parent_or_child_links(_genome_counts("unrelated", seed=seed)) == set(), seed
+
+
+def test_too_few_autosomes_cannot_tell():
+    assert parent_or_child_links({("R", "M"): (14, 14)}) == set()
+    assert parent_or_child_links({("R", "M"): (19, 22)}) == set()
+    assert parent_or_child_links({("R", "M"): (20, 22)}) == {("R", "M")}
+
+
+def test_a_parent_or_child_of_unknown_degree_is_coloured_as_one():
+    rows = _simulated_relative_rows(seed=11, shares=((0, _CHROM_LENGTH, 1),))
+
+    relative = _annotate_relative(rows)["R"]
+
+    coloured = _coloured_spans(relative, "hap1") + _coloured_spans(relative, "hap2")
+    # The mother's homolog 1 along the chromosome, on whichever of R's lanes carries it.
+    assert {shade for _start, _end, shade in coloured} == {"1"}
+    assert sum(end - start for start, end, _shade in coloured) > 0.95 * _CHROM_LENGTH
+    for block in relative:
+        assert {block["hap1_lineage"], block["hap2_lineage"]} <= {MATERNAL, UNTRANSMITTED}
+
+
+def test_a_relative_of_unknown_degree_not_found_a_parent_or_child_stays_grey():
+    # The same genotypes, but the genome-wide test did not read a parent or child.
+    rows = _simulated_relative_rows(seed=11, shares=((0, _CHROM_LENGTH, 1),))
+
+    relative = _annotate_relative(rows, parent_or_child=())["R"]
+
+    assert not _coloured_spans(relative, "hap1") and not _coloured_spans(relative, "hap2")
+
+
+def test_a_child_of_both_linked_parents_gets_a_lane_from_each():
+    rows = _simulated_relative_rows(seed=5, shares=((0, _CHROM_LENGTH, 0),))
+    # Make R the couple's child: its other lane carries the father's homolog 1.
+    rows = [
+        (pos, names, [gts[0], gts[1], gts[2], f"{gts[0].split('|')[1]}|{gts[1].split('|')[0]}"])
+        for pos, names, gts in rows
+    ]
+    relationships = [
+        *_RELATIVE_RELATIONSHIPS,
+        {"relationship_type": "relative", "sample_id_a": "F", "sample_id_b": "R", "role_a": "relative", "role_b": "relative"},
+    ]
+    whole = {"chr": "1", "start": 0, "end": _CHROM_LENGTH, "ps": None}
+
+    relative = annotate_lineage(
+        sample_rows=_RELATIVE_MEMBERS,
+        relationship_rows=relationships,
+        segments_by_name={
+            "F": [{**whole, "hap1": "0", "hap2": "1"}],
+            "M": [{**whole, "hap1": "0", "hap2": "1"}],
+            "E1": [{**whole, "hap1": "0", "hap2": "0"}],
+            "R": [{**whole, "hap1": "0", "hap2": "0"}],
+        },
+        genotype_rows=rows,
+        chrom="1",
+        region_start=0,
+        region_end=_CHROM_LENGTH,
+        parent_or_child={("R", "M"), ("R", "F")},
+    )["R"]
+
+    lineages = {(block["hap1_lineage"], block["hap2_lineage"]) for block in relative}
+    assert (PATERNAL, MATERNAL) in lineages
+    assert sum(block["end"] - block["start"] for block in relative if {block["hap1_lineage"], block["hap2_lineage"]} == {PATERNAL, MATERNAL}) > 0.9 * _CHROM_LENGTH
+
+
+def test_a_window_colours_a_relative_of_unknown_degree_from_the_genome_wide_precompute(monkeypatch):
+    import asyncio
+
+    from backend.app.services import bed_service, clickhouse_family_variants
+    from backend.app.services.family_metadata_context import FamilyMetadataContext
+
+    rows = _simulated_relative_rows(seed=11, shares=((0, _CHROM_LENGTH, 1),))
+
+    async def fetch(context, *, chrom, start, end, limit):
+        return [row for row in rows if start <= row[0] <= end]
+
+    precomputed_block = {
+        "chr": "1", "start": 0, "end": _CHROM_LENGTH, "hap1": "1", "hap2": "0", "ps": None,
+        "hap1_lineage": MATERNAL, "hap2_lineage": UNTRANSMITTED,
+    }
+    precomputed: dict = {"R-uuid": [precomputed_block]}
+
+    async def stored_lineage(context):
+        return precomputed
+
+    monkeypatch.setattr(clickhouse_family_variants, "fetch_imputed_phased_genotypes", fetch)
+    monkeypatch.setattr(bed_service, "_fetch_precomputed_lineage", stored_lineage)
+    names = [member["sample_id"] for member in _RELATIVE_MEMBERS]
+    context = FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM1",
+        project_ids=[],
+        sample_rows=_RELATIVE_MEMBERS,
+        sample_uuid_to_name={f"{name}-uuid": name for name in names},
+        sample_name_to_uuid={name: f"{name}-uuid" for name in names},
+        affected_sample_names=["M", "R"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+        relationship_rows=_RELATIVE_RELATIONSHIPS,
+    )
+    window = {"chr": "1", "start": 24_000_000, "end": 26_000_000, "ps": None}
+    stored = {
+        "F-uuid": [{**window, "hap1": "0", "hap2": "1"}],
+        "M-uuid": [{**window, "hap1": "0", "hap2": "1"}],
+        "E1-uuid": [{**window, "hap1": "0", "hap2": "0"}],
+        "R-uuid": [{**window, "hap1": "1", "hap2": "0"}],
+    }
+
+    def lineage():
+        return asyncio.run(
+            bed_service._apply_haplotype_lineage(
+                context, segments_by_uuid=dict(stored), chrom="1", start=24_000_000, end=26_000_000
+            )
+        )["R-uuid"]
+
+    # The precompute's colours, cut to the window.
+    assert lineage() == [{**precomputed_block, "start": 24_000_000, "end": 26_000_000}]
+    # No current precompute: grey, never coloured from the window alone.
+    precomputed = None
+    relative = lineage()
+    assert not _coloured_spans(relative, "hap1") and not _coloured_spans(relative, "hap2")

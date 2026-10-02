@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import { drawHaplotypeRiskOverlay, haplotypeRiskPattern } from '../../lib/haplotypeCanvas';
 import { segregationStateLabel } from '../../lib/embryoSegregation';
+import { describePhaseCorrection, type HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import {
   defaultHaplotypeRiskRegion,
   diseaseHaplotypeKindForLane,
@@ -174,6 +175,9 @@ interface Props {
    * their own homologs. Disagreements with the cleaned blocks stand out.
    */
   showMarkers?: boolean;
+  /** This member's phase switches the blocks undid on this chromosome (a parent's),
+   * marked on its lanes with what they mean on hover. */
+  phaseCorrections?: HaplotypePhaseCorrection[];
 }
 
 const BAND_THICKNESS = 4;
@@ -188,6 +192,9 @@ const MENDEL_WARN_RATE = 0.02;
 // Stable empty fallback so the optional familyMembers prop keeps one reference
 // across renders (an inline `= []` default would defeat the memos below).
 const EMPTY_MEMBERS: HaplotypeMemberLike[] = [];
+const EMPTY_CORRECTIONS: HaplotypePhaseCorrection[] = [];
+// A phase correction's mark: hovering within this many pixels of it shows what it means.
+const PHASE_CORRECTION_HOVER_PX = 4;
 
 const HaplotypePhasedTrack: React.FC<Props> = ({
   familyId,
@@ -208,6 +215,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   familyMembers = EMPTY_MEMBERS,
   riskRegion,
   showMarkers = false,
+  phaseCorrections = EMPTY_CORRECTIONS,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: React.ReactNode } | null>(
@@ -529,9 +537,36 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     });
     ctx.setLineDash([]);
 
+    // Where this parent's phase was swapped back: a solid line in the warning colour
+    // with a triangle on top, apart from the dashed recombination lines. Drawn last, so
+    // the marker dots never cover it.
+    const drawPhaseCorrections = () => {
+      const correctionColor = cssVar('--color-warning-strong');
+      phaseCorrections.forEach((correction) => {
+        if (correction.position < regionStart || correction.position > regionEnd) return;
+        const x = Math.floor(((correction.position - regionStart) / span) * width) + 0.5;
+        ctx.strokeStyle = correctionColor;
+        ctx.fillStyle = correctionColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x - 4, 0);
+        ctx.lineTo(x + 4, 0);
+        ctx.lineTo(x, 6);
+        ctx.closePath();
+        ctx.fill();
+      });
+    };
+
     // Truncated fetch -> markers are partial/misleading, so draw none (the blocks
     // above are already rendered) and let the 'zoom in' overlay explain why.
-    if (!showMarkers || markersTruncated) return;
+    if (!showMarkers || markersTruncated) {
+      drawPhaseCorrections();
+      return;
+    }
 
     // Covering cleaned block for a position. Raw markers inherit that block's
     // lineage — so an untransmitted (grey) lane greys its markers too — and its
@@ -591,8 +626,10 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
         drawMarkerRisk(x, maternalCy, block, 'hap2');
       }
     });
+    drawPhaseCorrections();
   }, [
     segments,
+    phaseCorrections,
     markers,
     showMarkers,
     markersTruncated,
@@ -623,6 +660,25 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   );
 
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    // A phase correction's mark says what it means, markers shown or not.
+    if (phaseCorrections.length && canvasRef.current) {
+      const bounds = canvasRef.current.getBoundingClientRect();
+      const hoverX = event.clientX - bounds.left;
+      const regionSpan = regionEnd - regionStart || 1;
+      const hovered = phaseCorrections.find(
+        (correction) =>
+          Math.abs(((correction.position - regionStart) / regionSpan) * width - hoverX) <=
+          PHASE_CORRECTION_HOVER_PX,
+      );
+      if (hovered) {
+        setTooltip({
+          x: event.clientX,
+          y: event.clientY,
+          node: <div style={{ maxWidth: 320 }}>{describePhaseCorrection(hovered)}</div>,
+        });
+        return;
+      }
+    }
     // Anchor the hover on the UNION of all members' marker positions, not just this
     // member's own markers. A relative carries no markers of its own, but hovering
     // its track must still surface the all-member genotype table at the nearest site.

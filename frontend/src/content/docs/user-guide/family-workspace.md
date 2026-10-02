@@ -21,9 +21,15 @@ family, **Review ROI markers →** opens the marker review.
 
 ### Family members
 
-One row per person: role, parents, partner, status, HPO terms and a **Seq. QC** chip with the sequencing
-QC verdict and mean depth (hover for the metrics). In a PGT family each embryo also shows its derived
-call (see [Haplotype segregation](#haplotype-segregation)).
+One row per person: role, parents, partner, **Related to**, status, HPO terms and a **Seq. QC** chip
+with the sequencing QC verdict and mean depth (hover for the metrics). In a PGT family each embryo also
+shows its derived call (see [Haplotype segregation](#haplotype-segregation)).
+
+**Related to** names the member through whom a person is related by an unknown degree, such as a PGT
+index known to be on the mother's side, or both parents. The pedigree draws the link as a dotted arc
+with a **?**. The haplotype track colours that person only when they turn out to be that member's own
+parent or child (they share one of the member's haplotypes along nearly every chromosome); a more
+distant relative stays grey.
 
 Only an administrator edits a member: click the sample name to open **Family member details**, change
 the fields, press **Apply to pending**, then **Save pending updates** on the family page. HPO terms are

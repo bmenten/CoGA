@@ -16,7 +16,8 @@ interface PedigreeMember {
 }
 
 interface PedigreeRelationship {
-  relationship_type: 'parent_child' | 'couple';
+  /** `relative`: `sample_id_b` is related through `sample_id_a`, by an unknown degree. */
+  relationship_type: 'parent_child' | 'couple' | 'relative';
   sample_id_a: string;
   sample_id_b: string;
   role_a?: string | null;
@@ -74,6 +75,12 @@ type CoupleEdge = {
   metadata?: Record<string, unknown> | null;
 };
 
+/** A member related through another, by an unknown degree: drawn as a dotted arc with a "?". */
+type RelativeEdge = {
+  anchor: string;
+  member: string;
+};
+
 type Position = {
   x: number;
   y: number;
@@ -98,6 +105,7 @@ type NormalizedPedigree = {
   childrenByParent: Map<string, string[]>;
   familyUnits: FamilyUnit[];
   coupleEdges: CoupleEdge[];
+  relativeEdges: RelativeEdge[];
 };
 
 type LayoutResult = {
@@ -105,6 +113,7 @@ type LayoutResult = {
   memberMap: Map<string, PedigreeMember>;
   familyUnits: FamilyUnit[];
   coupleEdges: CoupleEdge[];
+  relativeEdges: RelativeEdge[];
   positions: Map<string, Position>;
   generationMembers: string[][];
   generationCount: number;
@@ -249,7 +258,10 @@ const normalizePedigree = (
         sexHintFromParentRole(relationship.role_a)
       );
       addRow(relationship.sample_id_b);
-    } else if (relationship.relationship_type === 'couple') {
+    } else if (
+      relationship.relationship_type === 'couple' ||
+      relationship.relationship_type === 'relative'
+    ) {
       addRow(relationship.sample_id_a);
       addRow(relationship.sample_id_b);
     }
@@ -366,6 +378,15 @@ const normalizePedigree = (
     addCoupleEdge(parents[0], parents[1], 'explicit', relationship.metadata);
   });
 
+  const relativeEdgesByKey = new Map<string, RelativeEdge>();
+  relationships.forEach((relationship) => {
+    if (relationship.relationship_type !== 'relative') return;
+    const anchor = trimId(relationship.sample_id_a);
+    const member = trimId(relationship.sample_id_b);
+    if (!anchor || !member || anchor === member) return;
+    relativeEdgesByKey.set(`${anchor}|${member}`, { anchor, member });
+  });
+
   const familyUnits = [...familyUnitsByKey.values()].sort((left, right) => {
     const leftOrder = Math.min(
       ...left.parents.map((parentId) => sampleOrder(parentId, rowOrder))
@@ -386,6 +407,7 @@ const normalizePedigree = (
     childrenByParent,
     familyUnits,
     coupleEdges: [...coupleEdgesByKey.values()],
+    relativeEdges: [...relativeEdgesByKey.values()],
   };
 };
 
@@ -455,6 +477,17 @@ const assignGenerations = (
       }
       if (rightGeneration !== alignedGeneration) {
         generationCache.set(edge.right, alignedGeneration);
+        changed = true;
+      }
+    });
+
+    // A member related to the family by an unknown degree, without recorded parents,
+    // stands in the generation of the member it is related through.
+    normalized.relativeEdges.forEach((edge) => {
+      if (parentIdsFromInfo(normalized.parentInfoByChild.get(edge.member)).length) return;
+      const anchorGeneration = generationCache.get(edge.anchor) ?? 0;
+      if ((generationCache.get(edge.member) ?? 0) < anchorGeneration) {
+        generationCache.set(edge.member, anchorGeneration);
         changed = true;
       }
     });
@@ -599,6 +632,33 @@ const orderBlockMembers = (
   return [...around.slice(0, splitIndex), center, ...around.slice(splitIndex)];
 };
 
+/**
+ * Where a member related by an unknown degree goes when it stands alone in its block:
+ * beside the member it is related through, left of a father (or a male anchor) and
+ * right of a mother or of both parents, so its dotted arc stays short and the couple
+ * keeps its place over their children.
+ */
+const relatedBlockOrder = (
+  members: string[],
+  normalized: NormalizedPedigree,
+  generations: Map<string, number>
+): number | undefined => {
+  if (members.length !== 1) return undefined;
+  const [member] = members;
+  const anchors = normalized.relativeEdges
+    .filter(
+      (edge) =>
+        edge.member === member &&
+        generations.get(edge.anchor) === generations.get(member)
+    )
+    .map((edge) => edge.anchor);
+  if (!anchors.length) return undefined;
+  const orders = anchors.map((anchor) => sampleOrder(anchor, normalized.rowOrder));
+  const leftOfAnchor =
+    anchors.length === 1 && rowSexRank(normalized.rowMap.get(anchors[0])) === 0;
+  return leftOfAnchor ? Math.min(...orders) - 0.5 : Math.max(...orders) + 0.5;
+};
+
 const buildBlocksByGeneration = (
   normalized: NormalizedPedigree,
   generations: Map<string, number>
@@ -656,9 +716,11 @@ const buildBlocksByGeneration = (
           NODE_SIZE,
           (orderedMembers.length - 1) * COUPLE_GAP + NODE_SIZE
         ),
-        initialOrder: Math.min(
-          ...members.map((member) => sampleOrder(member, normalized.rowOrder))
-        ),
+        initialOrder:
+          relatedBlockOrder(members, normalized, generations) ??
+          Math.min(
+            ...members.map((member) => sampleOrder(member, normalized.rowOrder))
+          ),
       };
     });
 
@@ -791,6 +853,7 @@ const layoutPedigree = (
       memberMap: normalized.memberMap,
       familyUnits: [],
       coupleEdges: [],
+      relativeEdges: [],
       positions: new Map(),
       generationMembers: [],
       generationCount: 0,
@@ -987,6 +1050,7 @@ const layoutPedigree = (
     memberMap: normalized.memberMap,
     familyUnits: normalized.familyUnits,
     coupleEdges: normalized.coupleEdges,
+    relativeEdges: normalized.relativeEdges,
     positions,
     generationMembers,
     generationCount,
@@ -1043,11 +1107,15 @@ const describePedigree = (
     );
   }).length;
 
+  const relatedMembers = new Set(layout.relativeEdges.map((edge) => edge.member)).size;
   const facts = [
     `${countOf(layout.rows.length, 'member')} in ${countOf(layout.generationCount, 'generation')}`,
     `${affected.toLocaleString()} affected`,
     carriers ? countOf(carriers, 'carrier') : null,
     consanguineousCouples ? countOf(consanguineousCouples, 'consanguineous couple') : null,
+    relatedMembers
+      ? `${countOf(relatedMembers, 'member')} related by an unknown degree (dotted)`
+      : null,
     withPhenotypes ? `${withPhenotypes.toLocaleString()} with HPO phenotypes` : null,
   ].filter(Boolean);
   const qc = (['fail', 'warn', 'pass'] as const)
@@ -1151,6 +1219,49 @@ const Pedigree: React.FC<Props> = ({
           { dashed: true }
         );
       }
+    });
+
+    // A member related by an unknown degree: a dotted arc to the member it is related
+    // through, with a "?" for the degree, apart from the solid couple line and the
+    // dashed line of a couple across generations.
+    layout.relativeEdges.forEach((edge) => {
+      const anchor = layout.positions.get(edge.anchor);
+      const member = layout.positions.get(edge.member);
+      if (!anchor || !member) return;
+      let d: string;
+      let labelX: number;
+      let labelY: number;
+      if (anchor.generation === member.generation) {
+        const top = anchor.y - NODE_SIZE / 2;
+        const lift = Math.min(40, 18 + 0.15 * Math.abs(member.x - anchor.x));
+        d = `M ${anchor.x} ${top} C ${anchor.x} ${top - lift}, ${member.x} ${top - lift}, ${member.x} ${top}`;
+        labelX = (anchor.x + member.x) / 2;
+        labelY = top - lift * 0.75 - 3;
+      } else {
+        d = `M ${anchor.x} ${anchor.y} L ${member.x} ${member.y}`;
+        labelX = (anchor.x + member.x) / 2;
+        labelY = (anchor.y + member.y) / 2 - 3;
+      }
+      svg
+        .append('path')
+        .attr('data-pedigree-relative', `${edge.anchor}|${edge.member}`)
+        .attr('d', d)
+        .attr('fill', 'none')
+        .attr('stroke', 'black')
+        .attr('stroke-width', 1.4)
+        .attr('stroke-linecap', 'round')
+        .attr('stroke-dasharray', '0.1 4');
+      svg
+        .append('text')
+        .attr('data-pedigree-relative-degree', `${edge.anchor}|${edge.member}`)
+        .attr('x', labelX)
+        .attr('y', labelY)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('font-weight', 600)
+        .text('?')
+        .append('title')
+        .text(`${edge.member} is related through ${edge.anchor}, by an unknown degree`);
     });
 
     layout.familyUnits.forEach((unit) => {

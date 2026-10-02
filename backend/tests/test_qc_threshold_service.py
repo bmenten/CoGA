@@ -163,11 +163,17 @@ def test_evaluate_sequencing_qc_returns_none_without_recorded_qc() -> None:
     assert evaluate_sequencing_qc({"reads": {"quality_cutoffs": {"q20": {"reads": 1}}}}, {}) is None
 
 
-def test_only_spread_and_contamination_fail_on_the_high_side() -> None:
+def test_only_spread_duplicates_allele_errors_and_contamination_fail_on_the_high_side() -> None:
     # Everything else fails when it is too LOW. Pin the exceptions so a catalogue edit
     # cannot silently invert a comparison.
     higher_is_worse = [metric.key for metric in QC_METRICS if metric.direction == "higher_is_worse"]
-    assert higher_is_worse == ["reads.stdev_read_length", "mtdna.contamination"]
+    assert higher_is_worse == [
+        "reads.stdev_read_length",
+        "alignment.duplicated_reads_percent",
+        "pgt.allele_dropout_rate",
+        "pgt.allele_dropin_rate",
+        "mtdna.contamination",
+    ]
 
 
 def test_mtdna_metrics_are_configured_here_but_evaluated_elsewhere() -> None:

@@ -42,6 +42,35 @@ describe('classifyEmbryosAtRoi (dominant)', () => {
     expect(out.E_RISK.uninformative).toBe(false);
   });
 
+  it("flags every embryo when a parent's phase was corrected near the ROI", () => {
+    const correction = {
+      parent: 'FATHER',
+      side: 'father' as const,
+      chr: '1',
+      position: 1_100_000,
+      end: 1_150_000,
+      children_switching: 3,
+      children: 3,
+    };
+    const near = byId(
+      classifyEmbryosAtRoi({ members, samples, inheritanceModel: 'AD', region, phaseCorrections: [correction] }),
+    );
+    expect(near.E_RISK.phaseCorrectionsNearRoi).toEqual([correction]);
+    expect(near.E_CLEAR.phaseCorrectionsNearRoi).toEqual([correction]);
+    // The swap leaves which embryos share the risk haplotype as it was.
+    expect(near.E_RISK.state).toBe('affected_or_at_risk');
+    const far = byId(
+      classifyEmbryosAtRoi({
+        members,
+        samples,
+        inheritanceModel: 'AD',
+        region,
+        phaseCorrections: [{ ...correction, position: 5_000_000, end: 5_100_000 }],
+      }),
+    );
+    expect(far.E_RISK.phaseCorrectionsNearRoi).toEqual([]);
+  });
+
   it('calls an embryo with no haplotype over the ROI uninformative, never unaffected', () => {
     // The disease haplotype resolves (paternal 1), but these embryos have no block at the
     // ROI: one has blocks only in the flank the ROI view fetches, one none at all. They

@@ -12,6 +12,7 @@ import type {
   CoupleDraft,
   MemberDetailDraft,
   ParentChildDraft,
+  RelativeDraft,
   StructureMemberDraft,
 } from './familyDetailTypes';
 import { ROLE_OPTIONS } from './familyDetailConstants';
@@ -143,8 +144,18 @@ export const coupleDraftsFromRelationships = (family: ApiFamilyRecord | undefine
       context: typeof relationship.metadata?.context === 'string' ? relationship.metadata.context : '',
     }));
 
+/** The links of unknown degree: `sample_id_b` is related through `sample_id_a`. */
+export const relativeDraftsFromRelationships = (family: ApiFamilyRecord | undefined): RelativeDraft[] =>
+  (family?.relationships || [])
+    .filter((relationship) => relationship.relationship_type === 'relative')
+    .map((relationship, index) => ({
+      id: relationship.id || `relative-${index}`,
+      member: relationship.sample_id_b,
+      relatedTo: relationship.sample_id_a,
+    }));
+
 export interface SampleSequencingQc {
-  /** Package-relative path of the rendered QC report (NanoPlot today, MultiQC later). */
+  /** Package-relative path of the rendered QC report (NanoPlot, MultiQC or Qualimap). */
   report?: string;
   reads?: {
     mean_read_length?: number;
@@ -158,6 +169,25 @@ export interface SampleSequencingQc {
   depth?: {
     mean_depth?: number;
     mito_mean_depth?: number;
+  };
+  /** Qualimap bamqc headline numbers (the PGT pipeline runs it on every sample). */
+  alignment?: {
+    mapped_reads_percent?: number;
+    duplicated_reads_percent?: number;
+    mean_mapping_quality?: number;
+  };
+  /** The sex the pipeline read off the reads (ngs-bits), apart from the recorded sex. */
+  sex_check?: {
+    method?: string;
+    inferred_sex?: string;
+    ratio_chry_chrx?: number;
+  };
+  /** Per-embryo QC from the PGT pipeline, as percentages. */
+  pgt?: {
+    allele_dropout_rate?: number;
+    allele_dropin_rate?: number;
+    mendelian_concordance?: number;
+    mendelian_concordance_imputed?: number;
   };
 }
 
@@ -221,6 +251,28 @@ export const formatSequencingQcDetail = (qc: SampleSequencingQc | undefined): st
   }
   if (typeof qc.reads?.total_bases === 'number') {
     parts.push(`${(qc.reads.total_bases / 1e9).toFixed(1)} Gb total`);
+  }
+  if (typeof qc.alignment?.mapped_reads_percent === 'number') {
+    parts.push(`${qc.alignment.mapped_reads_percent.toFixed(1)}% mapped`);
+  }
+  if (typeof qc.alignment?.duplicated_reads_percent === 'number') {
+    parts.push(`${qc.alignment.duplicated_reads_percent.toFixed(1)}% duplicates`);
+  }
+  if (typeof qc.pgt?.allele_dropout_rate === 'number') {
+    parts.push(`ADO ${qc.pgt.allele_dropout_rate.toFixed(1)}%`);
+  }
+  if (typeof qc.pgt?.allele_dropin_rate === 'number') {
+    parts.push(`ADI ${qc.pgt.allele_dropin_rate.toFixed(1)}%`);
+  }
+  const concordance = qc.pgt?.mendelian_concordance;
+  const imputedConcordance = qc.pgt?.mendelian_concordance_imputed;
+  if (typeof concordance === 'number' || typeof imputedConcordance === 'number') {
+    const before = typeof concordance === 'number' ? `${concordance.toFixed(1)}% before` : null;
+    const after = typeof imputedConcordance === 'number' ? `${imputedConcordance.toFixed(1)}% after` : null;
+    parts.push(`Mendelian concordance ${[before, after].filter(Boolean).join(', ')} imputation`);
+  }
+  if (qc.sex_check?.inferred_sex) {
+    parts.push(`sex read as ${qc.sex_check.inferred_sex}${qc.sex_check.method ? ` (${qc.sex_check.method})` : ''}`);
   }
   return parts.length ? parts.join(' · ') : null;
 };

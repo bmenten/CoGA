@@ -12,6 +12,7 @@ nothing downstream has to re-read pipeline output.
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import re
@@ -123,6 +124,210 @@ def parse_mosdepth_summary_text(text_value: str) -> dict[str, Any]:
     return result
 
 
+def _csv_rows(text_value: str) -> list[list[str]]:
+    """Non-empty rows of a small comma-separated file, cells stripped of blanks and quotes."""
+    rows: list[list[str]] = []
+    for row in csv.reader(text_value.splitlines()):
+        cells = [cell.strip() for cell in row]
+        if any(cells):
+            rows.append(cells)
+    return rows
+
+
+def parse_sample_value_csv(text_value: str) -> dict[str, float]:
+    """``{sample: value}`` from a headerless ``sample,value`` file.
+
+    The PGT pipeline (nf-cmgg/copgtm) writes several of its QC numbers this way: the
+    mean coverage per sample (``mean/<sample>_coverage.csv``) and the per-embryo
+    Mendelian concordance before and after imputation (``rtgtools/<family>_*_concordance.csv``).
+    A header row, if one is ever added, is skipped because its value is not a number.
+    """
+    values: dict[str, float] = {}
+    for row in _csv_rows(text_value):
+        if len(row) < 2 or not row[0]:
+            continue
+        value = _coerce_finite_float(row[1])
+        if value is None:
+            continue
+        values[row[0]] = value
+    return values
+
+
+def parse_ado_adi_text(text_value: str) -> dict[str, dict[str, float]]:
+    """``{offspring: {"allele_dropout_rate": .., "allele_dropin_rate": ..}}`` from the
+    pipeline's Picard Mendelian-violation summary (``picard/<family>_ADO_ADI.csv``,
+    header ``FAMILY_ID,OFFSPRING,ADO,ADI``; both rates are percentages)."""
+    rows = _csv_rows(text_value)
+    if not rows:
+        return {}
+    header = [cell.lower() for cell in rows[0]]
+    try:
+        offspring_index = header.index("offspring")
+        ado_index = header.index("ado")
+        adi_index = header.index("adi")
+    except ValueError:
+        logger.warning("ADO/ADI summary has no OFFSPRING/ADO/ADI header; skipping it")
+        return {}
+    result: dict[str, dict[str, float]] = {}
+    for row in rows[1:]:
+        if len(row) <= max(offspring_index, ado_index, adi_index) or not row[offspring_index]:
+            continue
+        rates: dict[str, float] = {}
+        ado = _coerce_finite_float(row[ado_index])
+        adi = _coerce_finite_float(row[adi_index])
+        if ado is not None:
+            rates["allele_dropout_rate"] = ado
+        if adi is not None:
+            rates["allele_dropin_rate"] = adi
+        if rates:
+            result[row[offspring_index]] = rates
+    return result
+
+
+def parse_king_kin0_text(text_value: str) -> list[dict[str, Any]]:
+    """Sample pairs from a KING ``.kin0`` table (between-family kinship).
+
+    The PGT pipeline runs KING on every pair of the family's samples, each sample as its
+    own family, so the file is a ``.kin0``; the columns are read by name.
+    """
+    lines = [line for line in text_value.splitlines() if line.strip()]
+    if not lines:
+        return []
+    header = [cell.strip().lower() for cell in lines[0].split()]
+    columns = {name: index for index, name in enumerate(header)}
+    if "id1" not in columns or "id2" not in columns or "kinship" not in columns:
+        logger.warning("KING table has no ID1/ID2/Kinship header; skipping it")
+        return []
+    pairs: list[dict[str, Any]] = []
+    for line in lines[1:]:
+        cells = line.split()
+        if len(cells) < len(header):
+            continue
+        kinship = _coerce_finite_float(cells[columns["kinship"]])
+        if kinship is None:
+            continue
+        pair: dict[str, Any] = {
+            "sample_a": cells[columns["id1"]],
+            "sample_b": cells[columns["id2"]],
+            "kinship": kinship,
+        }
+        if "n_snp" in columns:
+            pair["n_snp"] = _coerce_int(cells[columns["n_snp"]])
+        if "hethet" in columns:
+            pair["het_het"] = _coerce_finite_float(cells[columns["hethet"]])
+        if "ibs0" in columns:
+            pair["ibs0"] = _coerce_finite_float(cells[columns["ibs0"]])
+        pairs.append(pair)
+    return pairs
+
+
+def parse_ngsbits_sample_gender_text(text_value: str) -> dict[str, Any]:
+    """The sex ngs-bits ``SampleGender`` read off the chrY/chrX read ratio.
+
+    The file is a two-line TSV, ``#file gender reads_chry reads_chrx ratio_chry_chrx``.
+    The result is the pipeline's *inferred* sex; CoGA keeps it apart from the recorded
+    sex, which is what the sample-integrity check compares against.
+    """
+    lines = [line for line in text_value.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return {}
+    header = [cell.strip().lstrip("#").lower() for cell in lines[0].split("\t")]
+    cells = [cell.strip() for cell in lines[1].split("\t")]
+    row = dict(zip(header, cells))
+    inferred = (row.get("gender") or "").strip().lower()
+    if not inferred:
+        return {}
+    result: dict[str, Any] = {
+        "method": "ngs-bits SampleGender",
+        "inferred_sex": inferred if inferred in {"male", "female"} else "indeterminate",
+    }
+    for key in ("reads_chry", "reads_chrx"):
+        value = _coerce_int(row.get(key))
+        if value is not None:
+            result[key] = value
+    ratio = _coerce_finite_float(row.get("ratio_chry_chrx"))
+    if ratio is not None:
+        result["ratio_chry_chrx"] = ratio
+    return result
+
+
+# Qualimap ``genome_results.txt`` labels -> the metric names stored under
+# ``sequencing_qc.alignment``. Values carry thousands separators, units and a
+# parenthesised percentage ("217,392,633 (99.11%)"), so they are cleaned per label.
+_QUALIMAP_COUNT_LABELS = {
+    "number of reads": "read_count",
+    "number of mapped reads": "mapped_reads",
+    "number of duplicated reads (flagged)": "duplicated_reads",
+}
+_QUALIMAP_VALUE_LABELS = {
+    "mean coveragedata": "mean_coverage",
+    "std coveragedata": "std_coverage",
+    "mean mapping quality": "mean_mapping_quality",
+    "median insert size": "median_insert_size",
+    "general error rate": "general_error_rate",
+    "gc percentage": "gc_percent",
+}
+_QUALIMAP_PERCENT = re.compile(r"\(([\d.]+)%\)")
+_QUALIMAP_NUMBER = re.compile(r"-?[\d,]*\.?\d+")
+
+
+def parse_qualimap_genome_results_text(text_value: str) -> dict[str, Any]:
+    """Headline alignment metrics from a Qualimap ``bamqc`` ``genome_results.txt``."""
+    metrics: dict[str, Any] = {}
+    for line in text_value.splitlines():
+        label, separator, raw_value = line.partition("=")
+        if not separator:
+            continue
+        key = label.strip().lower()
+        value_text = raw_value.strip()
+        if key in _QUALIMAP_COUNT_LABELS:
+            number = _QUALIMAP_NUMBER.search(value_text)
+            count = _coerce_int(number.group(0).replace(",", "")) if number else None
+            if count is not None:
+                metrics[_QUALIMAP_COUNT_LABELS[key]] = count
+            percent = _QUALIMAP_PERCENT.search(value_text)
+            if key == "number of mapped reads" and percent:
+                mapped_percent = _coerce_finite_float(percent.group(1))
+                if mapped_percent is not None:
+                    metrics["mapped_reads_percent"] = mapped_percent
+        elif key in _QUALIMAP_VALUE_LABELS:
+            number = _QUALIMAP_NUMBER.search(value_text)
+            value = _coerce_finite_float(number.group(0).replace(",", "")) if number else None
+            if value is not None:
+                metrics[_QUALIMAP_VALUE_LABELS[key]] = value
+    read_count = metrics.get("read_count")
+    duplicated = metrics.get("duplicated_reads")
+    if isinstance(read_count, int) and read_count > 0 and isinstance(duplicated, int):
+        metrics["duplicated_reads_percent"] = round(100.0 * duplicated / read_count, 2)
+    return metrics
+
+
+def parse_haplotype_origin_text(text_value: str) -> list[dict[str, Any]]:
+    """Rows of the pipeline's affected/normal haplotype table
+    (``phasing/haplotype_origin/<parent>_affected_normal_haplotype.csv``): per haplotype
+    of the affected parent, how many sites it shares with the index's affected and
+    normal haplotypes."""
+    rows = _csv_rows(text_value)
+    if not rows:
+        return []
+    header = [cell.lower() for cell in rows[0]]
+    if "haplotype" not in header:
+        logger.warning("Haplotype-origin table has no 'haplotype' column; skipping it")
+        return []
+    result: list[dict[str, Any]] = []
+    for row in rows[1:]:
+        entry: dict[str, Any] = {}
+        for name, cell in zip(header, row):
+            if name == "haplotype":
+                entry["haplotype"] = cell
+                continue
+            value = _coerce_int(cell)
+            entry[name] = value if value is not None else cell
+        if entry.get("haplotype"):
+            result.append(entry)
+    return result
+
+
 # A process heading in software_versions.yaml: an all-caps Nextflow process name (or
 # the trailing "Workflow" block) on its own line with no value after the colon.
 _PIPELINE_PROCESS_HEADING = re.compile(r"^([A-Za-z][A-Za-z0-9_./-]*):\s*$")
@@ -218,6 +423,15 @@ _PIPELINE_PARAM_KEYS = (
     "clair3_model_pacbio",
     "clair3_model_ont",
     "qdnaseq_bin_size",
+    # PGT (nf-cmgg/copgtm): the parent whose disease haplotype the run traces, the
+    # region it was run for, the QDNAseq bin size (kb), whether APCAD used the imputed
+    # parents, and the callset and phasing panel the run started from.
+    "affected_parent",
+    "roi",
+    "bin_size",
+    "apcad_imputation",
+    "cohort_vcf",
+    "shapeit_reference_panel",
 )
 
 
@@ -349,7 +563,43 @@ async def record_family_pipeline_metadata(
     family_uuid: str,
     parameters: dict[str, Any],
 ) -> None:
-    """Store the pipeline run parameters under ``families.metadata["pipeline"]``.
+    """Store the pipeline run parameters under ``families.metadata["pipeline"]``."""
+    await _set_family_metadata_key(session, family_uuid=family_uuid, key="pipeline", value=parameters)
+
+
+async def record_family_pipeline_qc(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    pipeline_qc: dict[str, Any],
+) -> None:
+    """Store the QC the pipeline reported for the family as a whole -- the KING kinship
+    of every pair -- under ``families.metadata["pipeline_qc"]``."""
+    await _set_family_metadata_key(session, family_uuid=family_uuid, key="pipeline_qc", value=pipeline_qc)
+
+
+async def record_family_haplotype_origin(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    haplotype_origin: dict[str, Any],
+) -> None:
+    """Store the pipeline's reading of the affected parent's affected haplotype under
+    ``families.metadata["pipeline_haplotype_origin"]``. It is evidence the report can
+    cite; CoGA's own risk-haplotype inference does not read it."""
+    await _set_family_metadata_key(
+        session, family_uuid=family_uuid, key="pipeline_haplotype_origin", value=haplotype_origin
+    )
+
+
+async def _set_family_metadata_key(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    key: str,
+    value: dict[str, Any],
+) -> None:
+    """Replace one top-level key of ``families.metadata``, keeping the others.
 
     Set where it is stored, not written back whole from a copy read first, which would put
     back what another writer changed in between (the import-state keys among them)."""
@@ -359,13 +609,13 @@ async def record_family_pipeline_metadata(
             UPDATE families
             SET metadata = jsonb_set(
                 COALESCE(metadata, '{}'::jsonb),
-                '{pipeline}',
-                CAST(:pipeline_json AS jsonb),
+                CAST(:path AS text[]),
+                CAST(:value_json AS jsonb),
                 true
             )
             WHERE id = CAST(:family_id AS uuid)
             """
         ),
-        {"family_id": family_uuid, "pipeline_json": json.dumps(_jsonb_safe(parameters))},
+        {"family_id": family_uuid, "path": [key], "value_json": json.dumps(_jsonb_safe(value))},
     )
     await session.commit()

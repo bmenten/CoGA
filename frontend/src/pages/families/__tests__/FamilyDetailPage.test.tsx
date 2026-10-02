@@ -25,6 +25,7 @@ const mockApiState = vi.hoisted(() => ({
   structuralVariantTotal: 1,
   hpoAnnotations: [] as unknown[],
   members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male' }] as unknown[],
+  relationships: [] as unknown[],
   analysisType: null as string | null,
 }));
 
@@ -37,6 +38,7 @@ vi.mock('../../../lib/api', () => ({
             _id: 'fam1',
             family_id: 'F1',
             members: mockApiState.members,
+            relationships: mockApiState.relationships,
             pedigree: null,
             projects: ['p1'],
             metadata: {
@@ -227,6 +229,7 @@ describe('FamilyDetailPage', () => {
     mockApiState.members = [
       { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
     ];
+    mockApiState.relationships = [];
     mockApiState.analysisType = null;
     vi.mocked(api.put).mockReset();
     vi.mocked(api.post).mockReset();
@@ -802,6 +805,85 @@ describe('FamilyDetailPage', () => {
     }
   });
 
+  // A parent's phase switch the blocks undid lies next to the ROI: the embryos' calls stand,
+  // but where the phase switched is known only to within the children's switches.
+  it("warns on every embryo when a parent's phase was corrected next to the ROI", async () => {
+    localStorage.setItem('role', 'viewer');
+    mockApiState.members = [
+      { sample_id: 'DAD', role: 'father', affected: true, sex: 'male' },
+      { sample_id: 'KID', role: 'proband', affected: true, sex: 'female' },
+      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'female' },
+      { sample_id: 'E2', role: 'embryo', affected: false, sex: 'female' },
+    ];
+    const block = (hap1: string, hap2: string, lineage = 'maternal') => ({
+      chr: '7',
+      start: 29_000_000,
+      end: 32_000_000,
+      hap1,
+      hap2,
+      hap1_lineage: 'paternal',
+      hap2_lineage: lineage,
+    });
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation(async (url: string, config?: unknown) => {
+      if (url === '/families/F1') {
+        const family = (await working(url, config)) as { data: Record<string, unknown> };
+        return {
+          data: {
+            ...family.data,
+            metadata: {
+              ...(family.data.metadata as object),
+              pgt: { inheritance_model: 'AD' },
+              haplotype_phase_corrections: [
+                { parent: 'DAD', side: 'father', chr: '7', position: 30_400_000, end: 30_450_000, children_switching: 3, children: 3 },
+              ],
+            },
+            roi: { query: 'GENEY', label: 'GENEY', source: 'gene', assembly_id: 'asm1', chr: '7', start: 30_500_000, end: 30_600_000 },
+          },
+        };
+      }
+      if (url === '/families/F1/haplotypes') {
+        return {
+          data: {
+            chr: '7',
+            samples: [
+              { sample: 'DAD', segments: [block('0', '1', 'paternal')] },
+              { sample: 'KID', segments: [block('1', '0')] },
+              { sample: 'E1', segments: [block('1', '1')] },
+              { sample: 'E2', segments: [block('0', '1')] },
+            ],
+          },
+        };
+      }
+      return working(url, config);
+    });
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1']}>
+            <Routes>
+              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const rowOf = async (sampleId: string) =>
+        (await screen.findByRole('button', { name: sampleId })).closest('tr') as HTMLElement;
+
+      for (const embryo of ['E1', 'E2']) {
+        const row = await rowOf(embryo);
+        const warning = await within(row).findByRole('button', { name: /Phase corrected: 3 of 3 children switched together on the father's side/ });
+        expect(warning).toHaveTextContent('⚠ phase corrected');
+      }
+      // The call itself stands: E1 shares the affected haplotype, E2 does not.
+      expect(within(await rowOf('E1')).getByText('Affected / at risk')).toBeInTheDocument();
+      expect(within(await rowOf('E2')).getByText('Unaffected')).toBeInTheDocument();
+    } finally {
+      get.mockImplementation(working);
+    }
+  });
+
   // #607 — a failed request on the family page is said as such, never as missing data.
   describe('when a request fails', () => {
     const renderWithFailing = (matches: (url: string) => boolean) => {
@@ -1355,5 +1437,69 @@ describe('FamilyDetailPage', () => {
       }),
     ));
     expect(await screen.findByText(/Family structure saved/i)).toBeInTheDocument();
+  });
+
+  it('shows a link of unknown degree and saves it to both parents', async () => {
+    localStorage.setItem('role', 'admin');
+    mockApiState.members = [
+      { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
+      { sample_id: 'MOM', role: 'mother', affected: true, sex: 'female' },
+      { sample_id: 'EMB1', role: 'embryo', affected: false, sex: 'und' },
+      { sample_id: 'INDEX1', role: 'relative', affected: true, sex: 'female' },
+    ];
+    const parentChild = (parent: string, role: string) => ({
+      id: `pc-${parent}`,
+      relationship_type: 'parent_child',
+      sample_id_a: parent,
+      sample_id_b: 'EMB1',
+      role_a: role,
+      role_b: 'child',
+      metadata: {},
+    });
+    mockApiState.relationships = [
+      parentChild('DAD', 'father'),
+      parentChild('MOM', 'mother'),
+      {
+        id: 'rel-1',
+        relationship_type: 'relative',
+        sample_id_a: 'MOM',
+        sample_id_b: 'INDEX1',
+        role_a: 'relative',
+        role_b: 'relative',
+        metadata: {},
+      },
+    ];
+    vi.mocked(api.put).mockResolvedValueOnce({
+      data: { family: { _id: 'fam1', family_id: 'F1', members: mockApiState.members, projects: ['p1'], metadata: {} } },
+    });
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/admin/data/families/F1/structure']}>
+          <Routes>
+            <Route path="/admin/data/families/:familyId/structure" element={<FamilyDetailPage editable />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const related = (await screen.findByLabelText('Related to, for INDEX1')) as HTMLSelectElement;
+    await waitFor(() => expect(related.value).toBe('MOM'));
+    fireEvent.change(related, { target: { value: 'DAD,MOM' } });
+    expect(related.selectedOptions[0].textContent).toBe('both parents');
+    fireEvent.click(screen.getByRole('button', { name: /update family structure/i }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+      '/families/F1/structure',
+      expect.objectContaining({
+        relationships: expect.objectContaining({
+          relatives: [
+            { member: 'INDEX1', related_to: 'DAD', metadata: {} },
+            { member: 'INDEX1', related_to: 'MOM', metadata: {} },
+          ],
+        }),
+      }),
+    ));
   });
 });

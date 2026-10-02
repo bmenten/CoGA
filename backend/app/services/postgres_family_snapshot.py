@@ -19,7 +19,8 @@ the `ON DELETE SET NULL` cascade on `report_signouts` / `clinical_audit_events` 
 detach signed history from the family (and the protective triggers won't let it be
 re-linked). Instead each loop-modified table's family-scoped rows are deleted and
 re-inserted verbatim (original ids/timestamps preserved) via
-`jsonb_populate_recordset`, and `samples.metadata` is restored with an UPDATE.
+`jsonb_populate_recordset`, `samples.metadata` is restored with an UPDATE, and so are the
+few `families.metadata` keys the importers write (the pipeline's run parameters and QC).
 Postgres is transactional, so the whole restore commits atomically.
 """
 
@@ -47,18 +48,32 @@ _LOOP_MODIFIED_TABLES: tuple[str, ...] = (
 )
 
 
+# The `families.metadata` keys the dataset importers write during the loop: the run
+# parameters (pipeline_info), the PGT pipeline's family QC (qc) and haplotype-origin
+# reading, and the parents' phase switches the haplotype blocks undid (haplotypes). Only
+# these are restored, so registration's refresh of the rest stays, as for the tables above.
+_LOOP_MODIFIED_FAMILY_METADATA_KEYS: tuple[str, ...] = (
+    "pipeline",
+    "pipeline_qc",
+    "pipeline_haplotype_origin",
+    "haplotype_phase_corrections",
+)
+
+
 @dataclass
 class FamilyPostgresSnapshot:
     """In-memory capture of a family's loop-modified Postgres rows.
 
     ``tables`` maps each table to a JSON-array text of its rows (kept as text so no
     driver-specific jsonb (de)serialisation is involved); ``sample_metadata`` maps
-    each sample uuid to its ``metadata`` jsonb text.
+    each sample uuid to its ``metadata`` jsonb text; ``family_metadata`` is the jsonb
+    text of the loop-modified ``families.metadata`` keys the family had.
     """
 
     family_uuid: str
     tables: dict[str, str] = field(default_factory=dict)
     sample_metadata: dict[str, str] = field(default_factory=dict)
+    family_metadata: str = "{}"
 
 
 async def snapshot_family_postgres_state(
@@ -84,6 +99,17 @@ async def snapshot_family_postgres_state(
         )
     ).all():
         snapshot.sample_metadata[sample_uuid] = metadata
+    family_metadata = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(jsonb_object_agg(entry.key, entry.value), '{}'::jsonb)::text "
+                "FROM families AS f, jsonb_each(COALESCE(f.metadata, '{}'::jsonb)) AS entry "
+                "WHERE f.id = CAST(:fid AS uuid) AND entry.key = ANY(CAST(:keys AS text[]))"
+            ),
+            {"fid": fid, "keys": list(_LOOP_MODIFIED_FAMILY_METADATA_KEYS)},
+        )
+    ).scalar_one_or_none()
+    snapshot.family_metadata = family_metadata or "{}"
     return snapshot
 
 
@@ -93,7 +119,8 @@ async def restore_family_postgres_state(
     """Roll the loop-modified tables back to the snapshot, then commit.
 
     Runs as one transaction: each table's current family rows are deleted and the
-    snapshotted rows re-inserted verbatim, then `samples.metadata` is restored.
+    snapshotted rows re-inserted verbatim, then `samples.metadata` and the loop's
+    `families.metadata` keys are restored.
     Raises on any failure so the caller can roll back and fall back to the
     incomplete flag.
     """
@@ -115,4 +142,17 @@ async def restore_family_postgres_state(
             text("UPDATE samples SET metadata = CAST(:metadata AS jsonb) WHERE id = CAST(:sid AS uuid)"),
             {"metadata": metadata, "sid": sample_uuid},
         )
+    # The loop's keys back as they were: a key the family did not have is removed.
+    await session.execute(
+        text(
+            "UPDATE families SET metadata = "
+            "(COALESCE(metadata, '{}'::jsonb) - CAST(:keys AS text[])) || CAST(:captured AS jsonb) "
+            "WHERE id = CAST(:fid AS uuid)"
+        ),
+        {
+            "fid": fid,
+            "keys": list(_LOOP_MODIFIED_FAMILY_METADATA_KEYS),
+            "captured": snapshot.family_metadata,
+        },
+    )
     await session.commit()

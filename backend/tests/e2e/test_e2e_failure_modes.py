@@ -272,6 +272,14 @@ async def _collect(base: Path) -> dict:
             ),
             {"sid": sid},
         )
+        # A families.metadata key the dataset loop writes (the PGT pipeline's family QC).
+        await s.execute(
+            text(
+                "UPDATE families SET metadata = COALESCE(metadata, '{}'::jsonb) || "
+                "'{\"pipeline_qc\": {\"marker\": \"original\"}}'::jsonb WHERE id = CAST(:fid AS uuid)"
+            ),
+            {"fid": fu},
+        )
         await s.commit()
 
     async with sm() as s:
@@ -296,6 +304,17 @@ async def _collect(base: Path) -> dict:
             ),
             {"sid": sid},
         )
+        # The overwrite rewrote one loop key, added another, and touched a key outside the
+        # loop's (registration's), which the restore must leave alone.
+        await s.execute(
+            text(
+                "UPDATE families SET metadata = metadata || "
+                "'{\"pipeline_qc\": {\"marker\": \"mutated\"}, "
+                "\"pipeline_haplotype_origin\": {\"parent\": \"M\"}, "
+                "\"registration_marker\": \"refreshed\"}'::jsonb WHERE id = CAST(:fid AS uuid)"
+            ),
+            {"fid": fu},
+        )
         await s.commit()
 
     async with sm() as s:
@@ -317,7 +336,20 @@ async def _collect(base: Path) -> dict:
                 {"sid": sid},
             )
         ).scalar_one()
-    out["pg_restore"] = {"sources": [list(r) for r in rows], "marker": marker}
+        family_keys = (
+            await s.execute(
+                text(
+                    "SELECT metadata -> 'pipeline_qc' ->> 'marker', (metadata -> 'pipeline_haplotype_origin') IS NOT NULL, "
+                    "metadata ->> 'registration_marker' FROM families WHERE id = CAST(:fid AS uuid)"
+                ),
+                {"fid": fu},
+            )
+        ).one()
+    out["pg_restore"] = {
+        "sources": [list(r) for r in rows],
+        "marker": marker,
+        "family_keys": list(family_keys),
+    }
 
     # --- job lifecycle: queue -> claim -> run -> terminal status (mirrors the worker) ---
     async def lifecycle(root: Path) -> dict:
@@ -442,6 +474,9 @@ def test_postgres_snapshot_restore_reverts_loop_tables(results):
     # back verbatim (row_count 7), and samples.metadata reverted from 'mutated' to 'original'.
     assert r["sources"] == [["orig", "orig.bed", 7]], r
     assert r["marker"] == "original", r
+    # The loop's families.metadata keys are back (a key the family lacked is gone again);
+    # a key outside them keeps what registration wrote.
+    assert r["family_keys"] == ["original", False, "refreshed"], r
 
 
 # ------------------------------------------------------------------------- job lifecycle

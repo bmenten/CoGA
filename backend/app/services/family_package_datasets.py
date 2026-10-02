@@ -48,14 +48,22 @@ from .annotation_table_parser import parse_mutserve_annotation_path
 from .variant_upload_service import remove_family_small_variant_sample_calls, upload_family_small_variant_file
 
 from .family_package_bigwig import autosomal_median, open_bigwig
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map
 from .family_package_manifest import _ped_embryo_sample_ids
 from .family_package_qc import (
     extract_pipeline_versions,
+    parse_ado_adi_text,
+    parse_haplotype_origin_text,
+    parse_king_kin0_text,
     parse_mosdepth_summary_text,
     parse_nanostats_text,
+    parse_ngsbits_sample_gender_text,
     parse_pipeline_params,
+    parse_qualimap_genome_results_text,
+    parse_sample_value_csv,
+    record_family_haplotype_origin as _record_family_haplotype_origin,
     record_family_pipeline_metadata as _record_family_pipeline_metadata,
+    record_family_pipeline_qc as _record_family_pipeline_qc,
     record_sample_alignment_metadata as _record_sample_alignment_metadata,
     record_sample_mtdna_metadata,
     record_sample_signal_tracks as _record_sample_signal_tracks,
@@ -287,7 +295,7 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
             return summary.model_copy(
                 update={
                     "status": "skipped",
-                    "message": "Skipped GLIMPSE2 import in update mode because small variants or haplotypes already exist",
+                    "message": "Skipped the phased family VCF in update mode because small variants or haplotypes already exist",
                     "summary": {
                         "existing_small_variants": existing_count,
                         "existing_haplotypes": existing_haplotype_count,
@@ -305,7 +313,7 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
                 summary.model_copy(
                     update={
                         "status": "running",
-                        "message": "Importing GLIMPSE2 VCF and haplotype blocks",
+                        "message": "Importing the phased family VCF and haplotype blocks",
                         "summary": stats,
                     }
                 )
@@ -353,13 +361,60 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
                 track_type="haplotype",
             )
         raise
+    haplotype_origin = await _record_pipeline_haplotype_origin(job)
     return summary.model_copy(
         update={
             "status": "imported",
-            "message": "Imported GLIMPSE2 family VCF as small variants and haplotype blocks",
-            "summary": result,
+            "message": (
+                "Imported the phased family VCF as small variants and haplotype blocks"
+                + ("; the pipeline's haplotype-origin reading on the family" if haplotype_origin else "")
+            ),
+            "summary": {**result, **({"haplotype_origin": haplotype_origin} if haplotype_origin else {})},
         }
     )
+
+
+# The PGT pipeline names its haplotype-origin files after the affected parent.
+_HAPLOTYPE_ORIGIN_SUFFIXES = ("_affected_normal_haplotype.csv", "_haplotype_conclusion.txt")
+_HAPLOTYPE_CONCLUSION_MAX_CHARS = 2000
+
+
+async def _record_pipeline_haplotype_origin(job: DatasetImportJob) -> dict[str, Any] | None:
+    """Record the pipeline's reading of which haplotype of the affected parent is the
+    affected one, when the haplotypes dataset declares it. The table counts, per
+    haplotype of the parent, the sites it shares with the index's affected and normal
+    haplotypes; the conclusion is the pipeline's own sentence. Both are kept verbatim
+    as evidence: CoGA infers the risk haplotype itself, from the members' states."""
+    extra = job.dataset.model_extra or {}
+    root = job.bundle.root
+    record: dict[str, Any] = {}
+    files: dict[str, str] = {}
+    for role in HAPLOTYPE_ORIGIN_ROLES:
+        path = _resolve_package_path(root, extra.get(role))
+        if path is None or not path.is_file():
+            continue
+        files[role] = _display_path(root, path)
+        text_value = read_path_text_bounded(path, kind="Haplotype origin")
+        if role == "haplotype_origin":
+            rows = parse_haplotype_origin_text(text_value)
+            if rows:
+                record["haplotypes"] = rows
+        else:
+            conclusion = text_value.strip()[:_HAPLOTYPE_CONCLUSION_MAX_CHARS]
+            if conclusion:
+                record["conclusion"] = conclusion
+        for suffix in _HAPLOTYPE_ORIGIN_SUFFIXES:
+            if path.name.endswith(suffix) and len(path.name) > len(suffix):
+                record.setdefault("parent", path.name[: -len(suffix)])
+    if not record:
+        return None
+    record["files"] = files
+    await _record_family_haplotype_origin(
+        job.session,
+        family_uuid=job.family_context.family_uuid,
+        haplotype_origin=record,
+    )
+    return record
 
 
 @_dataset_importer("wisecondorx")
@@ -594,6 +649,25 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
 async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
+    progress = job.progress
+    sample_results: dict[str, Any] = {}
+
+    async def report_apcad_progress(stats: dict[str, Any]) -> None:
+        # An APCAD VCF holds every SNV the embryo was called at, millions per embryo,
+        # so one sample can take minutes: report, and keep the job's heartbeat fresh.
+        if progress is None:
+            return
+        await progress(
+            summary.model_copy(
+                update={
+                    "status": "running",
+                    "message": "Importing APCAD into embryo APCAD tracks",
+                    "summary": {**sample_results, **stats},
+                }
+            )
+        )
+
+    reporter = report_apcad_progress if progress is not None else None
     if dataset.family_vcf:
         vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
         if vcf_path is None:
@@ -623,11 +697,15 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                     "summary": {"existing": existing_by_sample},
                 }
             )
-        sample_results = await _import_apcad_track_file(
-            session,
-            sample_contexts=target_sample_contexts,
-            path=vcf_path,
-            ped=bundle.ped,
+        sample_results = await _run_with_periodic_progress(
+            _import_apcad_track_file(
+                session,
+                sample_contexts=target_sample_contexts,
+                path=vcf_path,
+                ped=bundle.ped,
+            ),
+            report=reporter,
+            stats={"family_vcf": _display_path(bundle.root, vcf_path)},
         )
         return summary.model_copy(
             update={
@@ -641,7 +719,6 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
             summary,
             "Registered only; this manifest uses a family-level APCAD BED and existing loaders are sample-scoped",
         )
-    sample_results: dict[str, Any] = {}
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
@@ -660,13 +737,19 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
         if conflict_mode == "update" and existing_count:
             sample_results[sample_id] = {"skipped": True, "existing": existing_count}
             continue
-        import_result = await _import_apcad_track_file(
-            session,
-            sample_contexts=sample_contexts,
-            path=bed_path,
-            ped=bundle.ped,
-            selected_sample_id=sample_id,
-            selected_vcf_sample=raw_entry.get("sample_name") or raw_entry.get("vcf_sample"),
+        # A per-embryo trio VCF (nf-cmgg/copgtm) carries the embryo's column beside the
+        # parents' columns, which give each site its parental origin.
+        import_result = await _run_with_periodic_progress(
+            _import_apcad_track_file(
+                session,
+                sample_contexts=sample_contexts,
+                path=bed_path,
+                ped=bundle.ped,
+                selected_sample_id=sample_id,
+                selected_vcf_sample=raw_entry.get("sample_name") or raw_entry.get("vcf_sample"),
+            ),
+            report=reporter,
+            stats={"importing": sample_id, "file": _display_path(bundle.root, bed_path)},
         )
         sample_results[sample_id] = (
             import_result.get(sample_id, import_result)
@@ -682,6 +765,8 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                     file=upload,
                     overwrite=True,
                 )
+        if reporter is not None:
+            await reporter({})
     skipped = [
         sample_id
         for sample_id, stats in sample_results.items()
@@ -1421,30 +1506,30 @@ async def _import_qc_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummar
     are parsed at import and stored on the sample, so the workspace shows them without
     re-reading pipeline output. The rendered HTML report is recorded by path only --
     it is untrusted pipeline output and is never inlined into the application.
+
+    The PGT pipeline (nf-cmgg/copgtm) adds, per sample, a Qualimap summary, a mean
+    coverage and an ngs-bits sex check, and per family the tables covering every embryo
+    (allele drop-out/drop-in, Mendelian concordance before and after imputation) and the
+    KING kinship of every pair. The embryo rows go onto each embryo's QC; the kinship
+    table onto the family.
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts = job.sample_contexts
-    if not dataset.per_sample:
+    extra = dataset.model_extra or {}
+    family_tables = _read_family_qc_tables(bundle.root, extra)
+    pgt_metrics = _pgt_metrics_by_sample(family_tables)
+    if not dataset.per_sample and not family_tables:
         return await _register_only(summary, "Registered only; QC dataset has no per_sample entries")
     sample_results: dict[str, Any] = {}
-    for sample_id, raw_entry in dataset.per_sample.items():
+    sample_ids = list(dict.fromkeys([*dataset.per_sample, *pgt_metrics]))
+    for sample_id in sample_ids:
         sample_context = sample_contexts.get(sample_id)
+        raw_entry = dataset.per_sample.get(sample_id, {})
         if sample_context is None or not isinstance(raw_entry, dict):
             continue
-        metrics: dict[str, Any] = {}
-        read_stats_path = _resolve_package_path(bundle.root, raw_entry.get("read_stats"))
-        if read_stats_path is not None and read_stats_path.is_file():
-            metrics["reads"] = parse_nanostats_text(
-                read_path_text_bounded(read_stats_path, kind="NanoStats")
-            )
-        depth_summary_path = _resolve_package_path(bundle.root, raw_entry.get("depth_summary"))
-        if depth_summary_path is not None and depth_summary_path.is_file():
-            metrics["depth"] = parse_mosdepth_summary_text(
-                read_path_text_bounded(depth_summary_path, kind="mosdepth summary")
-            )
-        report_path = _resolve_package_path(bundle.root, raw_entry.get("report"))
-        if report_path is not None and report_path.is_file():
-            metrics["report"] = _display_path(bundle.root, report_path)
+        metrics = _sample_qc_metrics(bundle.root, sample_id, raw_entry)
+        if sample_id in pgt_metrics:
+            metrics["pgt"] = pgt_metrics[sample_id]
         if not metrics:
             continue
         await _record_sample_qc_metadata(
@@ -1453,15 +1538,117 @@ async def _import_qc_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummar
             metrics=metrics,
         )
         sample_results[sample_id] = metrics
-    if not sample_results:
+    family_result: dict[str, Any] = {}
+    kinship = family_tables.get("kinship")
+    if kinship:
+        family_result = {
+            "kinship": kinship["pairs"],
+            "files": {role: table["file"] for role, table in family_tables.items()},
+        }
+        await _record_family_pipeline_qc(
+            session,
+            family_uuid=job.family_context.family_uuid,
+            pipeline_qc=family_result,
+        )
+    if not sample_results and not family_result:
         return await _register_only(summary, "Registered only; no QC artefacts were readable")
     return summary.model_copy(
         update={
             "status": "imported",
-            "message": "Recorded sequencing QC metrics and report location on each sample",
-            "summary": sample_results,
+            "message": (
+                "Recorded sequencing QC metrics and report location on each sample"
+                + ("; the pipeline's kinship table on the family" if family_result else "")
+            ),
+            "summary": {
+                **sample_results,
+                # Beside the per-sample entries, under a key no sample id takes.
+                **({"pipeline_qc": {"kinship_pairs": len(family_result["kinship"])}} if family_result else {}),
+            },
         }
     )
+
+
+def _sample_qc_metrics(root: Path, sample_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+    """One sample's QC from its per-sample artefacts."""
+    metrics: dict[str, Any] = {}
+    read_stats_path = _resolve_package_path(root, entry.get("read_stats"))
+    if read_stats_path is not None and read_stats_path.is_file():
+        metrics["reads"] = parse_nanostats_text(
+            read_path_text_bounded(read_stats_path, kind="NanoStats")
+        )
+    depth_summary_path = _resolve_package_path(root, entry.get("depth_summary"))
+    if depth_summary_path is not None and depth_summary_path.is_file():
+        metrics["depth"] = parse_mosdepth_summary_text(
+            read_path_text_bounded(depth_summary_path, kind="mosdepth summary")
+        )
+    qualimap_path = _resolve_package_path(root, entry.get("qualimap_summary"))
+    if qualimap_path is not None and qualimap_path.is_file():
+        alignment = parse_qualimap_genome_results_text(
+            read_path_text_bounded(qualimap_path, kind="Qualimap summary")
+        )
+        if alignment:
+            metrics["alignment"] = alignment
+    mean_coverage_path = _resolve_package_path(root, entry.get("mean_coverage"))
+    mean_coverage: float | None = None
+    if mean_coverage_path is not None and mean_coverage_path.is_file():
+        values = parse_sample_value_csv(read_path_text_bounded(mean_coverage_path, kind="Mean coverage"))
+        # The file is per sample; a single row under another name is still this sample's.
+        mean_coverage = values.get(sample_id) if sample_id in values else (
+            next(iter(values.values())) if len(values) == 1 else None
+        )
+    if mean_coverage is None:
+        qualimap_mean = metrics.get("alignment", {}).get("mean_coverage")
+        mean_coverage = qualimap_mean if isinstance(qualimap_mean, (int, float)) else None
+    if mean_coverage is not None and "mean_depth" not in metrics.get("depth", {}):
+        metrics.setdefault("depth", {})["mean_depth"] = mean_coverage
+    sex_check_path = _resolve_package_path(root, entry.get("sex_check"))
+    if sex_check_path is not None and sex_check_path.is_file():
+        sex_check = parse_ngsbits_sample_gender_text(
+            read_path_text_bounded(sex_check_path, kind="ngs-bits sex check")
+        )
+        if sex_check:
+            metrics["sex_check"] = sex_check
+    report_path = _resolve_package_path(root, entry.get("report"))
+    if report_path is not None and report_path.is_file():
+        metrics["report"] = _display_path(root, report_path)
+    return metrics
+
+
+def _read_family_qc_tables(root: Path, extra: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The family-level QC tables a ``qc`` dataset declares, parsed, each with its
+    package-relative file."""
+    parsers: dict[str, tuple[str, Callable[[str], Any]]] = {
+        "ado_adi": ("ADO/ADI summary", parse_ado_adi_text),
+        "concordance": ("Mendelian concordance", parse_sample_value_csv),
+        "imputed_concordance": ("Mendelian concordance", parse_sample_value_csv),
+        "kinship": ("KING kinship", parse_king_kin0_text),
+    }
+    tables: dict[str, dict[str, Any]] = {}
+    for role in QC_FAMILY_ROLES:
+        path = _resolve_package_path(root, extra.get(role))
+        if path is None or not path.is_file():
+            continue
+        kind, parser = parsers[role]
+        parsed = parser(read_path_text_bounded(path, kind=kind))
+        if parsed:
+            key = "pairs" if role == "kinship" else "values"
+            tables[role] = {key: parsed, "file": _display_path(root, path)}
+    return tables
+
+
+def _pgt_metrics_by_sample(tables: dict[str, dict[str, Any]]) -> dict[str, dict[str, float]]:
+    """The per-embryo numbers of the family-level tables, keyed by embryo, under the
+    metric names ``sequencing_qc.pgt`` holds (percentages, as the pipeline reports)."""
+    metrics: dict[str, dict[str, float]] = {}
+    for sample_id, rates in (tables.get("ado_adi", {}).get("values") or {}).items():
+        metrics.setdefault(sample_id, {}).update(rates)
+    for role, metric in (
+        ("concordance", "mendelian_concordance"),
+        ("imputed_concordance", "mendelian_concordance_imputed"),
+    ):
+        for sample_id, value in (tables.get(role, {}).get("values") or {}).items():
+            metrics.setdefault(sample_id, {})[metric] = value
+    return metrics
 
 
 def _local_alignment_entry(

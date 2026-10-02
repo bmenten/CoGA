@@ -72,6 +72,9 @@
 | REQ-PGT-008 | Detect embryo aneuploidy from segment/copy-number data. | C | H7 |
 | REQ-PGT-009 | Provide direct mutation detection (genotype at the ROI/locus). | C | H1 |
 | REQ-PGT-010 | Serve the genome-overview lineage from a staleness-guarded precompute; never serve stale colours after a pedigree/affected-set change. | B | H5, H8 |
+| REQ-PGT-011 | Undo a switch in a parent's phasing: where all of three, or all but one of four or more, of the couple's informative children switch the homolog inherited from that parent within 2 Mb, and fewer than 0.05 such clusters are expected by chance from their other switches, swap that parent's haplotypes from there in the blocks and wherever the parents' phase is read (lineage colouring, phased markers); keep the corrections on the family and mark them on the parent's track; flag every embryo when one lies within the ROI flank. Leave the genotypes as called. | C | H5 |
+| REQ-PGT-012 | Colour a relative linked to the family by an unknown degree only when it is the linked member's parent or child: when it shares one of the member's haplotypes along at least 90% of the autosomes the parent-child test can read (at least 15); colour it then as a parent or child, and keep any other such relative grey. | C | H5 |
+| REQ-PGT-013 | Record the affected parent of a PGT with the status its inheritance model asks: affected under AD and XLD, and for a father under XLR; a proven carrier under AR, and for a mother under XLR; none under mitochondrial inheritance. A status recorded for the parent wins; a contradiction is warned at validation. | C | H5 |
 
 ### 3.4 Rare-disorder diagnostics (REQ-DIAG)
 

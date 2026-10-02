@@ -365,3 +365,72 @@ test('names a pedigree without QC or members for what it is (#529)', () => {
   render(<Pedigree rows={[]} />);
   expect(screen.getByRole('img', { name: 'Pedigree: no members' })).toBeInTheDocument();
 });
+
+const pgtRows = [
+  ...baseRows,
+  { fid: 'F1', iid: 'EMB1', pid: 'DAD', mid: 'MOM', sex: '0', phen: '0' },
+  { fid: 'F1', iid: 'EMB2', pid: 'DAD', mid: 'MOM', sex: '0', phen: '0' },
+  { fid: 'F1', iid: 'INDEX1', pid: '0', mid: '0', sex: '2', phen: '2' },
+];
+
+const relativeLink = (anchor: string, member: string) => ({
+  relationship_type: 'relative' as const,
+  sample_id_a: anchor,
+  sample_id_b: member,
+  role_a: 'relative',
+  role_b: 'relative',
+});
+
+test('draws a relative of unknown degree beside its parent, linked by a dotted arc with a question mark', async () => {
+  const { container } = render(
+    <Pedigree rows={pgtRows} relationships={[relativeLink('MOM', 'INDEX1')]} />
+  );
+
+  await waitFor(() =>
+    expect(container.querySelector('[data-pedigree-relative="MOM|INDEX1"]')).not.toBeNull()
+  );
+  const arc = container.querySelector('[data-pedigree-relative="MOM|INDEX1"]')!;
+  // Dotted, unlike the solid couple line and the dashed couple line across generations.
+  expect(arc.getAttribute('stroke-dasharray')).toBe('0.1 4');
+  const degree = container.querySelector('[data-pedigree-relative-degree="MOM|INDEX1"]')!;
+  expect(degree.textContent).toContain('?');
+  expect(degree.querySelector('title')?.textContent).toBe(
+    'INDEX1 is related through MOM, by an unknown degree'
+  );
+
+  const positions = pedigreePositions(container);
+  // In the mother's generation, to her right, and the couple still over the embryos.
+  expect(positions.get('INDEX1')?.generation).toBe(positions.get('MOM')?.generation);
+  expect(positions.get('INDEX1')!.x).toBeGreaterThan(positions.get('MOM')!.x);
+  const coupleCenter = (positions.get('DAD')!.x + positions.get('MOM')!.x) / 2;
+  const embryoCenter = (positions.get('EMB1')!.x + positions.get('EMB2')!.x) / 2;
+  expect(Math.abs(coupleCenter - embryoCenter)).toBeLessThan(0.5);
+  expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
+    '1 member related by an unknown degree (dotted)'
+  );
+});
+
+test('puts a relative of the father on his side, and one of both parents on the right', async () => {
+  const fatherSide = render(
+    <Pedigree rows={pgtRows} relationships={[relativeLink('DAD', 'INDEX1')]} />
+  );
+  await waitFor(() =>
+    expect(fatherSide.container.querySelector('[data-pedigree-relative="DAD|INDEX1"]')).not.toBeNull()
+  );
+  let positions = pedigreePositions(fatherSide.container);
+  expect(positions.get('INDEX1')!.x).toBeLessThan(positions.get('DAD')!.x);
+  fatherSide.unmount();
+
+  const bothSides = render(
+    <Pedigree
+      rows={pgtRows}
+      relationships={[relativeLink('DAD', 'INDEX1'), relativeLink('MOM', 'INDEX1')]}
+    />
+  );
+  await waitFor(() =>
+    expect(bothSides.container.querySelectorAll('[data-pedigree-relative]')).toHaveLength(2)
+  );
+  positions = pedigreePositions(bothSides.container);
+  expect(positions.get('INDEX1')!.x).toBeGreaterThan(positions.get('MOM')!.x);
+  expect(bothSides.container.querySelectorAll('[data-pedigree-relative-degree]')).toHaveLength(2);
+});

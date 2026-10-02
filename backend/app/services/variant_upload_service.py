@@ -55,6 +55,7 @@ from .family_variant_write_lock import (
     lock_family_variant_writes,
 )
 from .haplotype_block_builder import HaplotypeBlockBuilder
+from .haplotype_phase_correction import FAMILY_METADATA_KEY as PHASE_CORRECTIONS_KEY, PhaseCorrection
 from .structural_variant_ingest import (
     ParsedStructuralVariant,
     StructuralVariantRecordFormat,
@@ -410,6 +411,36 @@ async def _fetch_chromosome_sizes(
         for row in result.mappings().all()
         if row["chr"] is not None and row["size"] is not None
     }
+
+
+async def record_haplotype_phase_corrections(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    corrections: Sequence[PhaseCorrection],
+) -> None:
+    """Keep on the family the parents' phase switches its haplotype blocks undid
+    (``families.metadata.haplotype_phase_corrections``), replacing an earlier upload's:
+    the lineage and marker views swap those parents' alleles there."""
+    await session.execute(
+        text(
+            """
+            UPDATE families
+            SET metadata = jsonb_set(
+                COALESCE(metadata, '{}'::jsonb),
+                CAST(:path AS text[]),
+                CAST(:corrections AS jsonb),
+                true
+            )
+            WHERE id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        {
+            "family_uuid": family_uuid,
+            "path": [PHASE_CORRECTIONS_KEY],
+            "corrections": json.dumps([correction.as_metadata() for correction in corrections]),
+        },
+    )
 
 
 async def _insert_haplotype_rows(
@@ -925,6 +956,13 @@ async def upload_family_small_variant_file(
             filename=file.filename or "",
             metadata_json=metadata_json,
         )
+        phase_corrections = haplotype_blocks.phase_corrections if haplotype_blocks is not None else []
+        if loads_haplotype_blocks:
+            # Replaced with the blocks, so no view swaps a parent's alleles where another
+            # callset's phase switched.
+            await record_haplotype_phase_corrections(
+                session, family_uuid=context.family_uuid, corrections=phase_corrections
+            )
         # Capture annotation/tool provenance from the VCF header into the family's
         # annotation manifest (best-effort; never fails the upload). Joins this
         # transaction so provenance commits iff the variants do.
@@ -960,6 +998,7 @@ async def upload_family_small_variant_file(
             "skipped_filtered": skipped_filtered,
             "excluded_filters": sorted(excluded_filters),
             "haplotypes_inserted": len(haplotype_rows),
+            "haplotype_phase_corrections": len(phase_corrections),
             "source_format": resolved_format,
             "annotation_rows": vep_annotations.row_count if vep_annotations else 0,
             "annotation_source": "vep_tsv" if vep_annotations else None,

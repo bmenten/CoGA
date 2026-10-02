@@ -36,6 +36,39 @@ briefly grey the relatives, but never shows stale colours.
 | `MIN_INFORMATIVE_PER_MB` | 0.5 | informative-site density floor over the matched span |
 | `LINEAGE_SWITCH_MIN_MARKERS` / `LINEAGE_SWITCH_MIN_SPAN` | 50 / 500 kb | a lane switch (crossover) is committed only after a run this long and this wide |
 
+A relative linked by a `relative` edge (related through that member by an unknown degree) is coloured
+only when it turns out to be that member's parent or child: when the parent-child share test above
+(`match_shared_homolog`) finds it sharing one of the member's haplotypes along at least 90% of the
+autosomes it could read, and it could read at least 15 (`RELATIVE_PARENT_OR_CHILD_MIN_FRACTION`,
+`RELATIVE_PARENT_OR_CHILD_MIN_CHROMOSOMES`). It is then coloured as a parent or child is
+(`_segment_relative_blocks`; linked to both parents, a lane from each, `_merge_lane_claims`), and
+nothing is coloured through it. A more distant relative stays grey: a sibling shares no haplotype
+somewhere on most chromosomes, and on low-pass imputed genotypes a share that covers only stretches
+cannot be told from the long runs unrelated people share by state. (In an example family, a model that
+read such stretches site by site called a share at most sites of an unrelated pair, and called both
+haplotypes shared at a third of a parent and child's sites; the whole-chromosome test read the index
+as the mother's parent or child on 22 of 22 autosomes and the unrelated father on none.) The decision
+needs the whole genome, so the precompute takes it (`bed_service._compute_genomewide_lineage`, a first
+pass over every autosome, `relative_link_matches` and `parent_or_child_links`) and a window takes the
+relative's colours from the current precompute, grey while there is none.
+
+A parent's phase switch (`haplotype_phase_correction.py`) is read from the couple's children
+(`couple_children`: the pedigree's core children) on one chromosome at a time:
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| `PHASE_SWITCH_MIN_CHILD_MARKERS` | 100 | sites with a known inherited homolog a child needs on that parent's side to count |
+| `required_switching_children` | all of 3; all but one of 4 or more | children that must switch together (none read with fewer than 3) |
+| `PHASE_SWITCH_CLUSTER_SPAN` | 2 Mb | how far apart their switches may lie (each child's switch is placed where its own run of agreeing sites begins, which noise delays; up to 1.8 Mb in an example family) |
+| `PHASE_SWITCH_MAX_CHANCE_CLUSTERS` | 0.05 | clusters of that size and spread expected by chance from the children's switches, each counted at its own rate; at or above, no correction |
+
+The correction sits at the cluster's earliest switch and flips every child's transmissions from there,
+the same for all, so the children's sharing (and every embryo call) is unchanged; only where a crossover
+shows moves. It runs on the autosomes only. A chromosome an unsorted file splits keeps the corrections
+its first part found, so the blocks and the views swap the same sites. As the parent's phase may have
+switched up to 2 Mb before the correction (`PHASE_SWITCH_UNCERTAINTY` in
+`frontend/src/lib/haplotypePhaseCorrections.ts`), the embryo warning covers that stretch too.
+
 Elsewhere: the embryo recombination warning uses a 250 kb flank around the ROI
 (`ROI_RECOMBINATION_FLANK`, `frontend/src/lib/embryoSegregation.ts`), and the phased-marker fetch is
 capped at 500,000 sites (`PHASED_FETCH_LIMIT`, `phased_marker_service.py`), beyond which the marker
@@ -61,6 +94,15 @@ overlay is hidden.
   (`interpretSampleHaplotypeRisk` returns the call alone); `getHaplotypeLaneSignature`, which treats the
   backend's lineage tags as authoritative over the flat `role`. `frontend/src/lib/embryoSegregation.ts`
   holds the family-page classification and its warnings.
+- **Phase switches in a parent** — `backend/app/services/haplotype_phase_correction.py`
+  (`find_phase_switches`: the densest clusters of the couple's children switching on one parent's
+  side, one switch per child; `expected_chance_clusters`: the chance gate; `corrected_genotype_rows`:
+  the swap the readers apply). `haplotype_block_builder.py` keeps a chromosome's transmissions
+  (`_ChildTransmissions`), reads each child's switches with the blocks' own rule, and replays the
+  corrected transmissions into the blocks (`_build_child_blocks`); the upload keeps the corrections in
+  `families.metadata.haplotype_phase_corrections` (`record_haplotype_phase_corrections`), and the
+  lineage (`bed_service.py`) and the markers (`phased_marker_service.py`) read the parents' phase through
+  them, via `FamilyMetadataContext.phase_corrections`. The precompute fingerprint includes them.
 - **One copy in males** — `bed_service._mark_hemizygous_blocks` marks each block `hemizygous_in_males`
   with `sex_chromosomes.hemizygous_interval`, the PAR table the variant queries use; `haplotypeRisk.ts`
   reads a male on one lane only on such blocks, so in a PAR he is read on both.

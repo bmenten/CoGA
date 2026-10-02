@@ -102,7 +102,8 @@ QC_METRICS: tuple[QcMetric, ...] = (
         "Mean depth",
         "x",
         "lower_is_worse",
-        "Genome-wide mean coverage from mosdepth. The first number an interpreter reads.",
+        "Genome-wide mean coverage (mosdepth, or the PGT pipeline's mean-coverage step). "
+        "The first number an interpreter reads.",
     ),
     _metric(
         "depth.mito_mean_depth",
@@ -197,6 +198,56 @@ QC_METRICS: tuple[QcMetric, ...] = (
         "bp",
         "higher_is_worse",
         "Standard deviation of read length. A wide spread points at library fragmentation.",
+    ),
+    # Alignment QC from Qualimap bamqc (the PGT pipeline runs it on every sample).
+    _metric(
+        "alignment.mapped_reads_percent",
+        "Mapped reads",
+        "%",
+        "lower_is_worse",
+        "Share of reads that aligned (Qualimap). A low value points at contamination or the wrong reference.",
+    ),
+    _metric(
+        "alignment.duplicated_reads_percent",
+        "Duplicate reads",
+        "%",
+        "higher_is_worse",
+        "Share of reads flagged as duplicates (Qualimap). Whole-genome amplification of a "
+        "biopsy raises it.",
+    ),
+    # Embryo QC from the PGT pipeline (nf-cmgg/copgtm), per embryo against its parents.
+    _metric(
+        "pgt.allele_dropout_rate",
+        "Allele drop-out (ADO)",
+        "%",
+        "higher_is_worse",
+        "Share of sites where the embryo's call lost one parental allele (Picard Mendelian "
+        "violations). Whole-genome amplification drops alleles; a high rate makes the "
+        "embryo's heterozygous calls, and so its haplotypes, unreliable.",
+    ),
+    _metric(
+        "pgt.allele_dropin_rate",
+        "Allele drop-in (ADI)",
+        "%",
+        "higher_is_worse",
+        "Share of sites where the embryo's call carries an allele neither parent has "
+        "(Picard Mendelian violations). Points at contamination or amplification artefacts.",
+    ),
+    _metric(
+        "pgt.mendelian_concordance",
+        "Mendelian concordance before imputation",
+        "%",
+        "lower_is_worse",
+        "Share of the embryo's directly called genotypes consistent with the parents' (RTG "
+        "Tools), before the parents were imputed. Low by design at low parental depth.",
+    ),
+    _metric(
+        "pgt.mendelian_concordance_imputed",
+        "Mendelian concordance after imputation",
+        "%",
+        "lower_is_worse",
+        "The same consistency check against the imputed parental genotypes (RTG Tools). A "
+        "low value points at a sample swap or a wrong pedigree.",
     ),
     # Mitochondrial QC. Evaluated by mitochondrial_analysis against its own coverage and
     # contamination inputs, but configured here so there is one place a lab sets a QC

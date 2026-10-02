@@ -39,12 +39,14 @@ Welke locaties gescand mogen worden, staat in `FAMILY_IMPORT_ROOTS`: een **allow
 Een geldig pakket is een map met een manifest en/of een PED-bestand. Het manifest kent vijftien soorten datasets:
 
 - **Varianten:** `snv` (small variants, met optionele annotatietabel), `sv_needlr` (structurele varianten), `cnv` (CNV-calls met hun signaalbestanden), `mito` (mitochondriale varianten), `repeats_trgt` (repeat-expansies).
-- **Tracks:** `wisecondorx` en `qdnaseq` (CNV-dekking en -segmenten), `coverage`, `apcad` en `pcf` (embryo-analyses), `haplotypes` (GLIMPSE2-fasering).
+- **Tracks:** `wisecondorx` en `qdnaseq` (CNV-dekking en -segmenten), `coverage`, `apcad` en `pcf` (embryo-analyses), `haplotypes` (een gefaseerde familie-VCF van GLIMPSE2 of SHAPEIT5).
 - **Overige:** `paraphase` (paraloge genen), `alignments` (CRAM/BAM voor de genoombrowser), `qc` (sequencing-QC) en `pipeline_info` (de run-registratie van de pipeline: toolversies en parameters).
 
 De verwachte mapindeling per dataset staat in `docs/data-import.md`. De ontdekkingsstap zoekt die paden af en toont wat hij vond. De long-read-pipeline zet de toolversie in bestandsnamen; een zoekpad mag daarom een `*` bevatten, maar het manifest bevat altijd het concrete pad dat gevonden werd, nooit het patroon.
 
-**De PED is de bron van waarheid voor de familie.** De controle leest haar strikt: zes kolommen, precies één familie. Elke dataset per sample moet naar een sample uit de PED verwijzen. Het manifest mag klinische status, dragerschap en expliciete relaties toevoegen, maar geen samples die niet in de PED staan. Bij een import in een *bestaande* familie mag de PED ontbreken: dan wordt de stamboom uit de databank gebruikt.
+**De PED is de bron van waarheid voor de familie.** De controle leest haar strikt: zes kolommen, precies één familie. Elke dataset per sample moet naar een lid van de familie verwijzen. Het manifest mag klinische status, dragerschap en expliciete relaties toevoegen, en onder `family.add_members` een lid dat de PED mist: dat wordt gelezen als een extra PED-rij, zonder ouders, en doorloopt dezelfde controles. Een lid dat al in de PED staat, mag er niet opnieuw in, en een relatie mag alleen leden noemen. Bij een import in een *bestaande* familie mag de PED ontbreken: dan wordt de stamboom uit de databank gebruikt.
+
+**De PGT-pipeline (nf-cmgg/copgtm)** schrijft haar uitvoer per tool weg, met de PED in `ped/combined.ped`. Die PED geeft de embryo's het geslacht dat ngs-bits uit de reads afleidde, waardoor CoGA ze uit de PED alleen niet als embryo herkent, en ze mist de index: de verwant wiens haplotypes de twee haplotypes van de aangetaste ouder van elkaar onderscheiden. De ontdekkingsstap leest beide uit de samplesheet van de pipeline (`dashboard/samplesheet.csv`): de embryo's krijgen de rol embryo, en een index die de PED mist, wordt onder `family.add_members` toegevoegd als verwant. Hoe de index verwant is, staat in geen enkel pipelinebestand. De ontdekkingsstap stelt daarom een relatie voor op basis van wat KING mat tussen de index en het koppel: het kind van het koppel als KING de index eerstegraads verwant meet met beide ouders, anders een verwant van onbekende graad (`family.relationships.relatives`) van de ouder met wie KING verwantschap meet, of van de aangetaste ouder als KING geen verwantschap ziet. De waarschuwing citeert KING en zegt welke relatie werd voorgesteld. Zonder relatie blijft het haplotype van de index grijs; met een relatie van onbekende graad kleurt CoGA de index alleen als die een ouder of kind van die ouder blijkt: als hij langs bijna elk chromosoom een van haar haplotypes deelt. Een verdere verwant blijft grijs, omdat zulke gedeelde stukken op geïmputeerde low-pass genotypes niet betrouwbaar te onderscheiden zijn van wat onverwanten toevallig delen. De klinische status van de index blijft onbekend tot die wordt ingevuld. De ouder die de pipeline volgde, wordt de aangetaste ouder (`metadata.pgt.affected_parents`); met het overervingsmodel ingevuld (`metadata.pgt.inheritance_model`) krijgt die ouder de status die het model vraagt: aangetast bij AD en XLD en voor een vader bij XLR, bewezen drager bij AR en voor een moeder bij XLR. Een status die voor de ouder onder `family.members` staat, gaat voor. De PCF-segmentatie leest CoGA alleen uit haar tabel (`apcad/<embryo>_pcf_mat_data.csv` en `_pcf_pat_data.csv`): een run die de PCF enkel in een HTML-plot tekent, krijgt geen PCF-track.
 
 **Waar in de code:** `backend/app/services/family_package_discovery.py` (ontdekken), `family_package_common.py` (de datasetlijst) en `family_package_manifest.py` (de PED en het manifest lezen).
 
@@ -55,7 +57,7 @@ De dry-run is de veiligheidspoort van de import. Hij voert exact dezelfde contro
 1. **Pad** — de map moet binnen `FAMILY_IMPORT_ROOTS` liggen.
 2. **Bestaan** — de map bestaat en het manifest bestaat.
 3. **Manifestversie** — `schema_version` moet `1` zijn (ontbreekt ze, dan volgt een waarschuwing).
-4. **PED** — zes kolommen, één familie, unieke sample-id's, de juiste familie-id.
+4. **PED** — zes kolommen, één familie, unieke sample-id's, de juiste familie-id; een lid uit `family.add_members` staat niet al in de PED, en elke relatie uit het manifest noemt een lid.
 5. **Per dataset** — de bestanden bestaan (een alignment van een pakket uit de cloud: in de bucket), en een gecomprimeerde VCF/BCF heeft een index (`.tbi`, `.csi` of `.idx`); een ongecomprimeerde `.vcf` mag zonder. Een onbekende dataset is een **fout**; een ontbrekende kerndataset (`snv` of `sv_needlr`) geeft een **waarschuwing**.
 6. **Fenotypes (HPO)** — een fenotypetabel moet naar samples uit de PED verwijzen; slechte rijen worden waarschuwingen.
 
@@ -82,7 +84,7 @@ Eerst registreert de import de familie en de herkomst, daarna volgen de datasets
 | Bron van elke interval-track | `sample_interval_track_sources` | Postgres |
 | `repeats_trgt` (VCF) | `repeat_expansions` | Postgres |
 | `paraphase` (JSON) | `sample_paraphase_results` | Postgres |
-| `qc`, `alignments` | De metadata van het sample (`samples.metadata`) | Postgres |
+| `qc`, `alignments` | De metadata van het sample (`samples.metadata`); de KING-tabel van de PGT-pipeline in de metadata van de familie | Postgres |
 | `pipeline_info` | `family_annotation_manifest` en de metadata van de familie | Postgres |
 | Fenotypes (HPO) | `individual_hpo` | Postgres |
 | Familiestructuur (PED, manifest) | `families`, `samples`, `family_members`, `family_projects`, `sample_projects` | Postgres |

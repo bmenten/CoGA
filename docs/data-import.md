@@ -299,6 +299,50 @@ pacbio/
   pipeline_info/software_versions.yaml, params_*.json
 ```
 
+A PGT package from nf-cmgg/copgtm is laid out per tool, and holds the files Discover reads
+for each dataset:
+
+```text
+FAM001/
+  manifest.yaml
+  ped/combined.ped                       the couple and the embryos
+  dashboard/samplesheet.csv              the pipeline's input: each sample's role
+  dashboard/pedigree.csv                 father, mother, index and embryo per row
+  qdnaseq/SAMPLE_cnv.csv                 QDNAseq bins (copynumber) and segments (segmented)
+  split_trio/filter_trio/EMBRYO1.trio_filtered.vcf.gz (+ .tbi)          APCAD
+  apcad/EMBRYO1_pcf_{mat,pat}_data.csv   PCF segments, when the run writes them
+  phasing/shapeit_filter/FAM001_shapeit_rephased_final.vcf.gz (+ .tbi)  haplotypes
+  phasing/haplotype_origin/PARENT_affected_normal_haplotype.csv, PARENT_haplotype_conclusion.txt
+  cram/SAMPLE.cram (+ .crai)
+  mean/SAMPLE_coverage.csv, ngsbits/SAMPLE.tsv, qualimap/SAMPLE/genome_results.txt + qualimapReport.html
+  picard/FAM001_ADO_ADI.csv, rtgtools/FAM001_{cohort,imputed}_concordance.csv, king/FAM001.kin0
+  pipeline_info/params_*.json, copgtm_software_mqc_versions.yml
+```
+
+Its PED gives the embryos the sex ngs-bits read, so CoGA cannot tell them apart from the
+couple's other children, and it lacks the index, the relative whose haplotypes tell the
+affected parent's two haplotypes apart. Discover takes both from the samplesheet: each
+embryo gets the embryo role under `family.members`, and an index the PED lacks is added
+under `family.add_members` with the sex ngs-bits read. How the index is related is in none
+of the pipeline's files, so Discover proposes a link from what KING measured against the
+couple: the couple's child (the proband) when KING measures it first-degree to both
+parents; otherwise a relative of unknown degree (`family.relationships.relatives`) of the
+parent or parents KING measures it related to, or, when KING sees no relationship, of the
+affected parent the run traced. The warning quotes KING and says which link it proposed;
+the link can be changed before the manifest is written, or on the family page after the
+import. Without a link the index's haplotype stays grey and is not used to find the risk
+haplotype. Its clinical status stays unknown until it is recorded: the risk haplotype is
+found from the affected members.
+
+Discover also sets `roi` to the region of the newest `params_*.json`, and records the parent
+the run traced (`affected_parent`) under `metadata.pgt.affected_parents`. The run does not
+record the inheritance model: set `metadata.pgt.inheritance_model`, and the import records
+that parent as affected or as a proven carrier, as the model asks (see the manifest below).
+The embryo-only VCFs (`split_trio/extract_embryo/`), the pipeline's HTML plots and the
+`dashboard/` copies are not imported. The PCF segmentation is read from its table only: a
+run that draws it in `apcad/EMBRYO1_pcf_apcad_plot.html` alone gets no PCF track, and
+Discover leaves the `pcf` dataset off.
+
 Discover knows several file names per dataset, and shows what it found. The exact patterns
 are the `standard_v1` entry of `NAMING_SCHEMES` in
 `backend/app/services/family_package_discovery.py`. A pattern may contain `*` (the SV
@@ -320,10 +364,14 @@ metadata:
     inheritance_model: AR  # AD, AR, XLD, XLR or mitochondrial
     obligate_carriers: [FATHER]
     proven_carriers: [MOTHER]
+    affected_parents: [MOTHER]   # the parent(s) whose condition the PGT tests for
 
-family:                    # optional: member states and extra relationships
+family:                    # optional: member states, extra members and relationships
   members:
     FATHER: {clinical_status: unaffected, carrier_status: carrier, carrier_type: proven}
+  add_members:             # members the PED lacks, read as extra PED rows
+    - {sample_id: INDEX1, sex: female, role: relative, clinical_status: unknown}
+    - {sample_id: CHILD1, sex: male, father: FATHER, mother: MOTHER, role: proband}
   relationships:
     couples:
       - partners: [FATHER, MOTHER]
@@ -331,6 +379,9 @@ family:                    # optional: member states and extra relationships
     parent_child:
       - child: PROBAND
         parents: [FATHER, MOTHER]
+    relatives:             # related through a member by an unknown degree
+      - member: INDEX1
+        related_to: [MOTHER]
 
 phenotypes:
   file: phenotypes.tsv
@@ -360,6 +411,32 @@ datasets:
         maf_bigwig: cnv/HG002/HG002.HG002.maf.bw
 ```
 
+`metadata.pgt.affected_parents` names the parent whose condition the PGT tests for (the
+PGT pipeline's `affected_parent`, which Discover copies), and gives that parent the status
+the inheritance model asks: affected under AD and XLD, a proven carrier under AR, and under
+XLR a proven carrier for a mother and affected for a father. The haplotype analysis reads
+these statuses to find the risk haplotype. Mitochondrial inheritance gives no status. A
+status recorded for the parent wins: under `family.members`, in the carrier lists, or in
+the PED; where it contradicts the model, validation warns. Without an inheritance model the
+parent keeps its status, and validation says the model is missing. Validation also lists
+each status it derives, and the family keeps the list under `metadata.pgt`.
+
+`family.add_members` adds a member the PED lacks: it becomes one more PED row, with its
+`role` (default `relative`), `sex` (default unknown), `clinical_status` (default unknown) and,
+when given, its `father` and `mother`, so every check and the stored pedigree treat it like
+the PED's members. A member already in the PED is an error; its states go under
+`family.members`. Other links go under `family.relationships`, which may only name members.
+
+`family.relationships.relatives` links a member to the family through another member by an
+unknown degree: a PGT index known only to be on the mother's side, say, or related to both
+parents. The pedigree draws the link as a dotted arc with a question mark, and the haplotype
+track colours the member only when it turns out to be the linked member's parent or child: when
+it shares one of that member's haplotypes along nearly every chromosome (see
+[haplotype-segregation-analysis.md](haplotype-segregation-analysis.md)). A link of a
+member to itself, or between two members the PED or the manifest already records as parent
+and child or as a couple (the parents of a child are recorded as one), or that links the same pair
+twice, is an error: the family editor would refuse the family's every later edit.
+
 `analysis_type: monogenic_nipt` marks a monogenic NIPT family (see
 [monogenic-nipt.md](monogenic-nipt.md)). A dataset can be switched off with `enabled: false`.
 The `snv` dataset takes three optional settings:
@@ -384,15 +461,15 @@ The `snv` dataset takes three optional settings:
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
 | `coverage` | the `coverage` track (a BED per sample) |
-| `apcad` | the `apcad` track |
+| `apcad` | the `apcad` track: per SNV the embryo's alternate-allele fraction, tagged with the parent the alternate allele can only have come from. From a family VCF, or one trio VCF per embryo (`vcf:` under `per_sample`) |
 | `pcf` | the `apcad_pcf` track (maternal and paternal segment files) |
-| `haplotypes` | a family GLIMPSE2 VCF becomes small variants plus haplotype blocks; a per-sample BCF is only registered, not imported |
+| `haplotypes` | a phased family VCF (GLIMPSE2, or SHAPEIT5 from the PGT pipeline) becomes small variants plus haplotype blocks, with a switch in a parent's phasing undone where the couple's children all switch together (kept in `families.metadata.haplotype_phase_corrections`); a per-sample BCF is only registered, not imported. The PGT pipeline's haplotype-origin files (`haplotype_origin`, `haplotype_conclusion`) are kept on the family as its reading of the affected haplotype; CoGA's own risk call does not use them |
 | `paraphase` | Paraphase results (Postgres), shown on the family's Paraphase page |
 | `cnv` (HiFiCNV) | structural variants, source `hificnv`; the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers), and the MAF bigWig as `apcad` |
 | `mito` | chrM small variants, source `mito`, annotated from the mutserve table, and each sample's mtDNA haplogroup, the one most of its annotated variants name |
-| `qc` | the sample's sequencing QC, shown as a chip in the family members table |
+| `qc` | the sample's sequencing QC, shown as a chip in the family members table: NanoPlot and mosdepth, or the PGT pipeline's mean coverage, Qualimap summary and report, and ngs-bits sex. The PGT pipeline's family tables (`ado_adi`, `concordance`, `imputed_concordance`) go onto each embryo, its KING table (`kinship`) onto the family |
 | `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI |
-| `pipeline_info` | tool versions in the annotation manifest; run parameters on the family |
+| `pipeline_info` | tool versions in the annotation manifest; run parameters on the family (for the PGT pipeline also the affected parent, the ROI, the QDNAseq bin size, and the callset and phasing panel it started from) |
 
 Each caller's rows carry their own source tag, so re-importing one callset never removes
 another, and two callers' rows of one variant stay two rows in storage
@@ -413,7 +490,9 @@ Discover, dry run and import check that:
 - the PED parses as six-column PED, holds one family and matches `family_id`; sample IDs are
   unique and every parent is in the PED. For an import into an existing family the PED file
   may be missing: the family's stored pedigree is used;
-- the manifest's samples and per-sample entries name samples in the PED;
+- the manifest's samples and per-sample entries name samples in the PED or in
+  `family.add_members`, an added member is not already in the PED, and every
+  `family.relationships` entry names members;
 - a phenotype file named in the manifest exists and uses `format: hpo_tsv`;
 - every file the manifest names exists (for a package in a bucket, an alignment exists in the
   bucket), and a compressed family VCF has its index (`.tbi`, `.csi` or `.idx`, next to it or
@@ -511,6 +590,9 @@ an inactive member's included.
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
 | `ped_family_mismatch`, `ped_multiple_families` | The PED's family ID differs from `family_id`, or it holds more than one family. |
 | `dataset_vcf_index_missing` | A compressed VCF has no `.tbi`, `.csi` or `.idx`. |
+| `manifest_added_member_in_ped` | A member under `family.add_members` is in the PED already; set its states under `family.members`. |
+| `manifest_relationship_unknown_member` | A `family.relationships` entry names someone who is neither in the PED nor in `family.add_members`. |
+| "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
 | Empty viewers or gene search | The assembly's reference data is missing (section 1). |

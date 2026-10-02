@@ -12,6 +12,7 @@ from ..schemas import (
     FamilyStructureCoupleUpdate,
     FamilyStructureMemberCreate,
     FamilyStructureParentChildUpdate,
+    FamilyStructureRelativeUpdate,
     FamilyStructureUpdate,
     FamilyStructureUpdateOut,
 )
@@ -430,6 +431,7 @@ def _relationship_rows_from_payload(
     relationships: FamilyStructureUpdate,
     *,
     target_members: dict[str, dict[str, Any]],
+    current_relationships: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     if relationships.relationships is None:
         raise ValueError("relationships payload is required")
@@ -438,7 +440,39 @@ def _relationship_rows_from_payload(
         rows.append(_parent_child_relationship_row(relationship, target_members=target_members))
     for relationship in relationships.relationships.couples:
         rows.append(_couple_relationship_row(relationship, target_members=target_members))
+    if relationships.relationships.relatives is None:
+        # A payload without the links of unknown degree keeps them (for members still in
+        # the family), so an editor that does not show them cannot drop them.
+        rows.extend(
+            relationship
+            for relationship in current_relationships
+            if relationship.get("relationship_type") == "relative"
+            and target_members.get(_sample_key(str(relationship["sample_id_a"])), {}).get("active")
+            and target_members.get(_sample_key(str(relationship["sample_id_b"])), {}).get("active")
+        )
+    else:
+        for relative in relationships.relationships.relatives:
+            rows.append(_relative_relationship_row(relative, target_members=target_members))
     return rows
+
+
+def _relative_relationship_row(
+    relationship: FamilyStructureRelativeUpdate,
+    *,
+    target_members: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    # sample_id_a is the member the link goes through, sample_id_b the relative.
+    related_to = _ensure_relationship_member(relationship.related_to, target_members=target_members)
+    member = _ensure_relationship_member(relationship.member, target_members=target_members)
+    return {
+        "relationship_type": "relative",
+        "sample_id_a": related_to,
+        "sample_id_b": member,
+        "role_a": "relative",
+        "role_b": "relative",
+        "source": "manual",
+        "metadata": dict(relationship.metadata or {}),
+    }
 
 
 def _ensure_relationship_member(
@@ -508,6 +542,7 @@ def _validate_relationship_graph(
 ) -> None:
     parent_edges: set[tuple[str, str]] = set()
     couple_edges: set[tuple[str, str]] = set()
+    relative_edges: set[tuple[str, str]] = set()
     parents_by_child: dict[str, list[dict[str, Any]]] = defaultdict(list)
     children_by_parent: dict[str, list[str]] = defaultdict(list)
 
@@ -540,8 +575,25 @@ def _validate_relationship_graph(
             if edge_key in couple_edges:
                 raise HTTPException(status_code=400, detail=f"Duplicate couple relationship for {sample_a} and {sample_b}")
             couple_edges.add(edge_key)
+        elif relationship_type == "relative":
+            if key_a == key_b:
+                raise HTTPException(status_code=400, detail="A member cannot be related to themselves")
+            edge_key = tuple(sorted((key_a, key_b)))
+            if edge_key in relative_edges:
+                raise HTTPException(status_code=400, detail=f"Duplicate relative link for {sample_a} and {sample_b}")
+            relative_edges.add(edge_key)
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported relationship type '{relationship_type}'")
+
+    # A link of unknown degree between two members whose relationship is recorded says
+    # less than the record, and would draw both.
+    known_pairs = {tuple(sorted(edge)) for edge in parent_edges} | couple_edges
+    for edge_key in sorted(relative_edges & known_pairs):
+        sample_a, sample_b = (target_members[key]["sample_id"] for key in edge_key)
+        raise HTTPException(
+            status_code=400,
+            detail=f"{sample_a} and {sample_b} are already linked as parent and child or as a couple",
+        )
 
     for child_key, parents in parents_by_child.items():
         if len(parents) > 2:
@@ -630,6 +682,14 @@ def _pedigree_text_from_target(
 
 def _relationship_key(relationship: dict[str, Any]) -> tuple[Any, ...]:
     metadata_key = json.dumps(relationship.get("metadata") or {}, sort_keys=True, default=str)
+    if relationship.get("relationship_type") == "relative":
+        return (
+            "relative",
+            _sample_key(str(relationship.get("sample_id_a"))),
+            _sample_key(str(relationship.get("sample_id_b"))),
+            relationship.get("source") or "manual",
+            metadata_key,
+        )
     if relationship.get("relationship_type") == "couple":
         partner_keys = sorted([
             _sample_key(str(relationship.get("sample_id_a"))),
@@ -1000,7 +1060,9 @@ async def update_family_structure_for_admin(
         raise HTTPException(status_code=400, detail="A family can have only one active proband")
 
     if update.relationships is not None:
-        target_relationships = _relationship_rows_from_payload(update, target_members=target_members)
+        target_relationships = _relationship_rows_from_payload(
+            update, target_members=target_members, current_relationships=current_relationships
+        )
     else:
         target_relationships = [
             relationship

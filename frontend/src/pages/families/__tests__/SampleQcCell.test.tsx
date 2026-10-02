@@ -137,6 +137,38 @@ describe('SampleQcCell', () => {
     expect(screen.getByRole('button', { name: /QC report/i })).toBeInTheDocument();
   });
 
+  it("puts an embryo's PGT pipeline QC in the tooltip", async () => {
+    render(
+      <SampleQcCell
+        familyId="PGT01"
+        member={member({
+          sequencing_qc: {
+            report: 'qualimap/EMB1/qualimapReport.html',
+            depth: { mean_depth: 9.5 },
+            alignment: { mapped_reads_percent: 98.96, duplicated_reads_percent: 6.4 },
+            sex_check: { method: 'ngs-bits SampleGender', inferred_sex: 'female' },
+            pgt: {
+              allele_dropout_rate: 12.35,
+              allele_dropin_rate: 2.06,
+              mendelian_concordance: 41.25,
+              mendelian_concordance_imputed: 96.5,
+            },
+          },
+        })}
+      />,
+    );
+
+    // Depth stays the one number on the chip.
+    expect(screen.getByText('9.5x')).toBeInTheDocument();
+    await userEvent.hover(screen.getByRole('button'));
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent('99.0% mapped');
+    expect(tooltip).toHaveTextContent('6.4% duplicates');
+    expect(tooltip).toHaveTextContent('ADO 12.3% · ADI 2.1%');
+    expect(tooltip).toHaveTextContent('Mendelian concordance 41.3% before, 96.5% after imputation');
+    expect(tooltip).toHaveTextContent('sex read as female (ngs-bits SampleGender)');
+  });
+
   it('carries the metrics on the control itself rather than beside it', () => {
     render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
 

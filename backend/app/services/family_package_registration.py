@@ -43,7 +43,7 @@ from . import ped_service
 from .raw_import_files_pg import record_raw_import_file
 
 from .family_package_common import FamilyPackageBundle, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path
-from .family_package_manifest import _manifest_carrier_types, _manifest_member_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
+from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
 
 
 logger = logging.getLogger(__name__)
@@ -177,6 +177,17 @@ _PROVENANCE_PATH_KEYS = {
     "versions",
     "execution_trace",
     "execution_report",
+    # PGT pipeline (nf-cmgg/copgtm) roles: the per-sample QC files, the family's QC
+    # tables, and its reading of the affected haplotype.
+    "qualimap_summary",
+    "mean_coverage",
+    "sex_check",
+    "ado_adi",
+    "concordance",
+    "imputed_concordance",
+    "kinship",
+    "haplotype_origin",
+    "haplotype_conclusion",
 }
 
 
@@ -398,7 +409,7 @@ async def _register_package_provenance(
     sample_metadata = _normalize_manifest_samples(bundle.manifest.samples)
     sample_provenance = _sample_provenance(bundle)
     manifest_carrier_types = _manifest_carrier_types(bundle.manifest)
-    member_overrides = _manifest_member_overrides(bundle.manifest)
+    member_overrides = _manifest_member_status_overrides(bundle.manifest, bundle.ped)
     ped_member_state: dict[str, dict[str, Any]] = {}
     for member in bundle.ped.members:
         carrier_type = manifest_carrier_types.get(member.iid) or _ped_carrier_type(member)
@@ -1147,7 +1158,7 @@ async def _ensure_family_from_ped(
         members = _ped_members_for_import(
             bundle.ped,
             carrier_types=_manifest_carrier_types(bundle.manifest),
-            member_overrides=_manifest_member_overrides(bundle.manifest),
+            member_overrides=_manifest_member_status_overrides(bundle.manifest, bundle.ped),
         )
         relationships = ped_service._relationships_from_members(members)
         seen_relationships = {

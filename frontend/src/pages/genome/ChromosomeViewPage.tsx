@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { phaseCorrectionsFromMetadata } from '../../lib/haplotypePhaseCorrections';
 import type {
   ApiChromosomeTrackAvailability,
   ApiFamilyRecord,
@@ -411,6 +412,10 @@ const ChromosomeViewPage: React.FC = () => {
     }
     return data.roi;
   }, [assemblyId, data?.roi]);
+  const phaseCorrections = useMemo(
+    () => phaseCorrectionsFromMetadata(data?.metadata as Record<string, unknown> | undefined),
+    [data?.metadata],
+  );
   const inheritanceModel = (data?.metadata?.pgt as { inheritance_model?: string | null } | undefined)
     ?.inheritance_model;
 
@@ -572,6 +577,7 @@ const ChromosomeViewPage: React.FC = () => {
         chromInfoSize={chromInfo?.size}
         visibleRoi={visibleRoi}
         inheritanceModel={inheritanceModel}
+        phaseCorrections={phaseCorrections}
         chromosomeRoiRange={chromosomeRoiRange}
         regionRoiRange={regionRoiRange}
         onChromChange={(nextChrom) => {

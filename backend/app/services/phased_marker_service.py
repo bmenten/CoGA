@@ -37,6 +37,7 @@ from .clickhouse_family_variants import fetch_imputed_phased_genotypes
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .family_metadata_context import FamilyMetadataContext
 from .haplotype_lineage_service import build_pedigree, founder_shade_map
+from .haplotype_phase_correction import corrected_genotype_rows
 from .haplotype_block_builder import (
     _parent_sample_names,
     _phased_haplotype_alleles,
@@ -351,7 +352,10 @@ async def get_family_phased_markers_response(
         )
 
     markers_by_member, qc_by_child = compute_phased_markers(
-        rows,
+        # The parents' phase as the blocks were built from: swapped where it switched,
+        # so a child's markers stay with its blocks past a corrected phase switch. The
+        # tooltip's genotypes below stay as called.
+        corrected_genotype_rows(rows, context.phase_corrections, chrom=chr),
         father=father,
         mother=mother,
         children=children,

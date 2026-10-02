@@ -158,7 +158,8 @@ export interface ApiFamilyMemberDeleteResponse {
 
 export interface ApiFamilyRelationship {
   id: string;
-  relationship_type: 'parent_child' | 'couple';
+  /** `relative`: `sample_id_b` is related to the family through `sample_id_a`, by an unknown degree. */
+  relationship_type: 'parent_child' | 'couple' | 'relative';
   sample_id_a: string;
   sample_id_b: string;
   role_a?: string | null;

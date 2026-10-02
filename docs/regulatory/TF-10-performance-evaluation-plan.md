@@ -201,10 +201,14 @@ pull request updates this list only when it adds clinical behaviour that no area
 - **Application logic** — monogenic NIPT (one fetal fraction, paternally allowed fetal
   states, paternity confidence, the audited artifact list, a report that says when it is
   incomplete); PGT embryo calls that are uninformative without supporting data, and the
-  risk-haplotype display; the mtDNA haplogroup and per-sample mitochondrial imports; the
-  Sample QC read from sites across every autosome, so sibling embryos read as siblings, and
-  its sex check from chrX outside the pseudo-autosomal regions.
-- **Data integrity** — package imports (long-read layout, bucket sources, snapshot/restore);
+  risk-haplotype display, with a parent's phase switches undone where the embryos switch
+  together, a relative of unknown degree coloured only when it is the linked member's
+  parent or child, and the affected parent's status from the inheritance model; the mtDNA
+  haplogroup and per-sample mitochondrial imports; the Sample QC read from sites across
+  every autosome, so sibling embryos read as siblings, and its sex check from chrX outside
+  the pseudo-autosomal regions.
+- **Data integrity** — package imports (long-read layout; the PGT pipeline layout, with the
+  embryo roles and the index its PED lacks; bucket sources; snapshot/restore);
   serialised per-family variant writes; per-sample and per-source rewrites and deletes that
   keep every other call; calls from two callsets or sources both kept; concurrent review
   saves refused when stale.
