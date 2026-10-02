@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Collection, Mapping, Sequence
+from typing import Any, Collection, Literal, Mapping, Sequence
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -104,6 +104,7 @@ from .clickhouse_variant_queries import (
     _sample_small_track_records,
     _segregation_modes_by_variant,
     _selected_structural_samples,
+    _small_hemizygous_position_condition,
     _small_pair_inheritance_candidate_limit,
     _small_query_filter_parts,
     _small_record_matches,
@@ -119,6 +120,7 @@ from .clickhouse_variant_queries import (
     _structural_variant_where_clauses,
     _variant_gene_keys,
     _visible_clickhouse_sample_ids,
+    _xpos,
 )
 from .clickhouse_variant_ids import _small_table_name, _structural_table_name
 from .clickhouse_variant_storage import (
@@ -1240,10 +1242,11 @@ async def fetch_imputed_phased_genotypes(
     """Lean, family-scoped fetch of variant positions, the ref/alt alleles, and
     the per-sample genotype strings in a region — no annotation hydration, so it
     stays cheap even for tens of thousands of sites. Used by the phased-marker
-    parent-of-origin computation, relative haplotype colouring (``source=glimpse2``,
-    phased ``0|1``) and sample-integrity QC (which also reads ``clair3`` SNVs,
-    unphased ``0/1``). Pass ``source=None`` to read across all callsets. Each row
-    is ``(pos, ref, alt, sample_ids, gts)``."""
+    parent-of-origin computation and relative haplotype colouring (``source=glimpse2``,
+    phased ``0|1``). Sample-integrity QC reads :func:`fetch_genotype_site_sample`
+    instead: the first sites of a region are not a sample of the genome. Pass
+    ``source=None`` to read across all callsets. Each row is
+    ``(pos, ref, alt, sample_ids, gts)``."""
     if not context.assembly_name:
         return []
     filters = SmallVariantQueryFilters(
@@ -1264,9 +1267,8 @@ async def fetch_imputed_phased_genotypes(
         WHERE {' AND '.join(where_clauses)}
         -- e.key is a unique per-variant tiebreaker so the LIMIT cutoff selects a fixed
         -- set of sites even when several variants share a position. Without it, ties at
-        -- the truncation boundary resolve arbitrarily across executions, which would
-        -- make the sample-integrity QC metrics (and the frozen sign-out content hash
-        -- that includes them) non-reproducible for identical data.
+        -- the truncation boundary resolve arbitrarily across executions, and identical
+        -- data could show different markers.
         ORDER BY e.pos, e.key
         LIMIT %(phased_limit)s
     """
@@ -1276,6 +1278,86 @@ async def fetch_imputed_phased_genotypes(
         (int(row[0]), str(row[1]), str(row[2]), [str(s) for s in row[3]], [str(g) for g in row[4]])
         for row in rows
     ]
+
+
+# The chromosomes a sample-integrity genotype sample spans, as xpos ranks (xpos = rank ×
+# 10⁹ + position, so the ranges hold every name of a chromosome: 1, chr1; X, chrX, 23).
+GenotypeSampleScope = Literal["autosomes", "chrX"]
+_GENOTYPE_SAMPLE_RANKS: dict[GenotypeSampleScope, tuple[str, str]] = {
+    "autosomes": ("1", "22"),
+    "chrX": ("X", "X"),
+}
+_XPOS_LAST_POSITION = 999_999_999
+
+
+async def fetch_genotype_site_sample(
+    context: FamilyMetadataContext,
+    *,
+    scope: GenotypeSampleScope,
+    limit: int,
+    source: str | None,
+) -> list[tuple[str, int, str, str, list[str], list[str]]]:
+    """A fixed sample of up to ``limit`` of the family's sites, spread over every chromosome
+    of ``scope``, with the per-sample genotype strings: the genotypes of sample-integrity QC.
+
+    ``scope`` is ``"autosomes"`` (1–22) or ``"chrX"``: chrX outside the pseudo-autosomal
+    regions, where a male has one copy, or all of chrX on an assembly whose PARs are not
+    known. The sample is the sites with the smallest storage keys. A key is a 64-bit digest
+    of the assembly and the variant id, unrelated to the position, so the sample spreads over
+    the chromosomes as the family's sites do, and identical data gives the identical sample,
+    as the signed report's content hash needs. With fewer sites than ``limit``, every site is
+    returned. A variant stored more than once (the family linked to two projects, or
+    ``source`` matching two callsets) counts once, so a sample can hold fewer sites.
+    Each row is ``(chrom, pos, ref, alt, sample_ids, gts)``."""
+    if not context.assembly_name:
+        return []
+    filters = SmallVariantQueryFilters(page=1, page_size=1, source=source)
+    where_clauses, params, _ = _small_query_filter_parts(context, filters)
+    first, last = _GENOTYPE_SAMPLE_RANKS[scope]
+    where_clauses.append("e.xpos BETWEEN %(sample_xpos_start)s AND %(sample_xpos_end)s")
+    params["sample_xpos_start"] = _xpos(first, 0)
+    params["sample_xpos_end"] = _xpos(last, _XPOS_LAST_POSITION)
+    if scope == "chrX":
+        hemizygous = _small_hemizygous_position_condition(
+            context.assembly_name, prefix="sample_hemizygous", params=params
+        )
+        if hemizygous:
+            where_clauses.append(hemizygous)
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    where = " AND ".join(where_clauses)
+    query = f"""
+        SELECT e.key AS key, e.chrom AS chrom, e.pos AS pos, e.ref AS ref, e.alt AS alt,
+               e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts
+        FROM {entries_table} AS e
+        WHERE {where}
+          -- The sample's largest key, found from the keys alone: only the sample's rows
+          -- reach the sort below, with their genotype arrays, not every site of the family.
+          AND e.key <= (
+              SELECT max(sample_key) FROM (
+                  SELECT e.key AS sample_key
+                  FROM {entries_table} AS e
+                  WHERE {where}
+                  ORDER BY e.key
+                  LIMIT %(sample_limit)s
+              )
+          )
+        -- The smallest keys are the sample. source and project_guid order the copies of
+        -- one variant, so the copy kept below is the same on every run.
+        ORDER BY e.key, e.source, e.project_guid
+        LIMIT %(sample_limit)s
+    """
+    params["sample_limit"] = max(int(limit), 0)
+    rows = await _execute_clickhouse(query, params)
+    sample: list[tuple[str, int, str, str, list[str], list[str]]] = []
+    seen_keys: set[int] = set()
+    for key, chrom, pos, ref, alt, sample_ids, gts in rows:
+        if int(key) in seen_keys:
+            continue
+        seen_keys.add(int(key))
+        sample.append(
+            (str(chrom), int(pos), str(ref), str(alt), [str(s) for s in sample_ids], [str(g) for g in gts])
+        )
+    return sample
 
 
 async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[str]:

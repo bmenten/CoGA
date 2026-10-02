@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import random
 import types
-import zlib
 
 import pytest
 
@@ -52,7 +51,8 @@ def _autosomal_rows(n: int, seed: int, swap_child: bool):
             c = (int(stranger.random() < 0.5), int(stranger.random() < 0.5))
         else:
             c = (rng.choice(f), rng.choice(m))
-        rows.append((i, "A", "G", SAMPLES, [_phased(f), _phased(m), _phased(c)]))
+        chrom = str(i % 22 + 1)
+        rows.append((chrom, i, "A", "G", SAMPLES, [_phased(f), _phased(m), _phased(c)]))
     return rows
 
 
@@ -63,7 +63,7 @@ def _x_rows(n: int):
         father = (1, 1) if i % 2 else (0, 0)  # male: hemizygous -> hom
         child = (0, 0) if i % 2 else (1, 1)  # male
         mother = (int(rng.random() < 0.5), int(rng.random() < 0.5))  # female: het
-        rows.append((i, "A", "G", SAMPLES, [_phased(father), _phased(mother), _phased(child)]))
+        rows.append(("X", i, "A", "G", SAMPLES, [_phased(father), _phased(mother), _phased(child)]))
     return rows
 
 
@@ -77,19 +77,17 @@ def _patch(monkeypatch, *, swap_child: bool, metadata: dict | None = None):
     async def _fake_sources(context):
         return ["clair3"]
 
-    async def _fake_fetch(context, *, chrom, start, end, limit, source=None):
-        if chrom == sample_integrity_service.QC_X_CHROM:
+    async def _fake_sample(context, *, scope, limit, source):
+        if scope == "chrX":
             return _x_rows(600)
-        # Deterministic per-chrom seed: builtin hash() is randomized per process
-        # (PYTHONHASHSEED), which made the aggregate relatedness occasionally dip to
-        # "warn" and flake this test in CI. crc32 is stable across runs.
-        seed = zlib.crc32(str(chrom).encode()) % 1000
-        return _autosomal_rows(800, seed=seed, swap_child=swap_child)
+        # A fixed seed: one taken from builtin hash() (randomized per process) made the
+        # relatedness occasionally dip to "warn" in CI.
+        return _autosomal_rows(2_400, seed=11, swap_child=swap_child)
 
     monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
     monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
     monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _fake_sources)
-    monkeypatch.setattr(sample_integrity_service, "fetch_imputed_phased_genotypes", _fake_fetch)
+    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _fake_sample)
 
 
 def test_service_clean_trio_passes(monkeypatch) -> None:
@@ -108,8 +106,8 @@ def test_service_clean_trio_passes(monkeypatch) -> None:
     # A trio with parent-child edges resolves to the WGS application on clair3.
     assert report.application == "wgs"
     assert report.genotype_source == "clair3"
-    # 3 autosomes * 800 sites = 2400 autosomal sites loaded.
-    assert report.autosomal_sites == 3 * 800
+    # Every site of the autosomal sample is loaded.
+    assert report.autosomal_sites == 2_400
 
 
 def test_service_swapped_child_fails(monkeypatch) -> None:
@@ -311,16 +309,16 @@ def test_service_sexes_a_haploid_called_nipt_father(monkeypatch) -> None:
     monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
     rng = random.Random(5)
 
-    async def _haploid_x_fetch(context, *, chrom, start, end, limit, source=None):
-        assert chrom == sample_integrity_service.QC_X_CHROM
+    async def _haploid_x_sample(context, *, scope, limit, source):
+        assert scope == "chrX"
         rows = []
         for i in range(600):
             father = "1" if i % 2 else "0"
             mother = _phased((int(rng.random() < 0.5), int(rng.random() < 0.5)))
-            rows.append((i, "A", "G", SAMPLES, [father, mother, "."]))
+            rows.append(("X", i, "A", "G", SAMPLES, [father, mother, "."]))
         return rows
 
-    monkeypatch.setattr(sample_integrity_service, "fetch_imputed_phased_genotypes", _haploid_x_fetch)
+    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _haploid_x_sample)
 
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
@@ -330,3 +328,153 @@ def test_service_sexes_a_haploid_called_nipt_father(monkeypatch) -> None:
 
     father = next(c for c in report.sex_checks if c.sample_id == "FATHER")
     assert (father.inferred_sex, father.x_sites, father.status) == ("male", 600, "pass")
+
+
+# --- The genotype sample spans the genome --------------------------------------
+
+_PGT_SAMPLES = ["FATHER", "MOTHER", "E1", "E2"]
+_PHASED = {(a, b): f"{a}|{b}" for a in (0, 1) for b in (0, 1)}
+
+
+class _SiblingCallset:
+    """A dense synthetic PGT family: the parents and two sibling embryos, E1 and E2.
+
+    Each autosome is laid out as the embryos' haplotype sharing: identical (IBD2) over its
+    first quarter, one haplotype shared (IBD1) over the next half and none (IBD0) over the
+    last quarter, the genome-wide shares of full siblings. chr1-3 hold 120,000 sites each,
+    so their first 30,000 sites (a dense callset's first ~30 Mb) lie in the identical part.
+    The parents' alleles are drawn with frequency 0.5, and every genotype is a consistent
+    transmission.
+    """
+
+    def __init__(self) -> None:
+        from backend.app.services.clickhouse_variant_ids import small_variant_key
+
+        rng = random.Random(2026)
+        self.sites: list[tuple[int, str, int, list[str]]] = []
+        for number in range(1, 23):
+            chrom = str(number)
+            n = 120_000 if number <= 3 else 4_000
+            for i in range(n):
+                pos = 1_000 * (i + 1)
+                bits = rng.getrandbits(4)
+                f = (bits & 1, bits >> 1 & 1)
+                m = (bits >> 2 & 1, bits >> 3 & 1)
+                e1 = (f[0], m[0])
+                if i < n // 4:
+                    e2 = e1
+                elif i < 3 * n // 4:
+                    e2 = (f[0], m[1])
+                else:
+                    e2 = (f[1], m[1])
+                key = small_variant_key("GRCh38", f"{chrom}-{pos}-A-G")
+                self.sites.append((key, chrom, pos, [_PHASED[f], _PHASED[m], _PHASED[e1], _PHASED[e2]]))
+
+    @staticmethod
+    def _row(site):
+        _key, chrom, pos, gts = site
+        return (chrom, pos, "A", "G", _PGT_SAMPLES, gts)
+
+    def smallest_keys(self, limit: int):
+        """What fetch_genotype_site_sample returns: the sites with the smallest keys."""
+        return [self._row(site) for site in sorted(self.sites)[:limit]]
+
+    def first_sites(self, chrom: str, n: int):
+        return [self._row(site) for site in self.sites if site[1] == chrom][:n]
+
+    @staticmethod
+    def x_rows():
+        # FATHER and E2 are male (one X); MOTHER and E1, who has her father's X, are female.
+        rng = random.Random(7)
+        rows = []
+        for i in range(600):
+            fx = rng.getrandbits(1)
+            m = (rng.getrandbits(1), rng.getrandbits(1))
+            gts = [_PHASED[(fx, fx)], _PHASED[m], _PHASED[(fx, m[0])], _PHASED[(m[1], m[1])]]
+            rows.append(("X", 3_000_000 + 1_000 * i, "A", "G", _PGT_SAMPLES, gts))
+        return rows
+
+
+def _pgt_context() -> FamilyMetadataContext:
+    sample_rows = [
+        {"sample_id": "FATHER", "role": "father", "sex": "male"},
+        {"sample_id": "MOTHER", "role": "mother", "sex": "female"},
+        {"sample_id": "E1", "role": "embryo", "sex": "female"},
+        {"sample_id": "E2", "role": "embryo", "sex": "male"},
+    ]
+    relationship_rows = [
+        {"relationship_type": "parent_child", "sample_id_a": parent, "sample_id_b": embryo, "role_a": role}
+        for embryo in ("E1", "E2")
+        for parent, role in (("FATHER", "father"), ("MOTHER", "mother"))
+    ]
+    return FamilyMetadataContext(
+        family_uuid="fam-pgt",
+        family_id="PGT1",
+        project_ids=[],
+        sample_rows=sample_rows,
+        sample_uuid_to_name={f"uuid-{s}": s for s in _PGT_SAMPLES},
+        sample_name_to_uuid={s: f"uuid-{s}" for s in _PGT_SAMPLES},
+        affected_sample_names=[],
+        assembly_id="asm",
+        assembly_name="GRCh38",
+        relationship_rows=relationship_rows,
+    )
+
+
+def test_service_reads_sibling_embryos_as_siblings_from_sites_across_the_genome(monkeypatch) -> None:
+    # Siblings share 0, 1 or 2 haplotypes in blocks tens of Mb long. The QC read the first
+    # 30,000 sites of chr1-3, a contiguous ~30 Mb of a dense callset each, and so measured
+    # the sharing of three blocks: here, where the siblings are identical, it called them
+    # duplicates and failed the family. A sample over every autosome reads them as siblings.
+    from backend.app.services.sample_integrity_qc import (
+        IBS0_PARENT_CHILD_MAX,
+        classify_relatedness,
+        king_relatedness,
+    )
+
+    callset = _SiblingCallset()
+    windows = [row for chrom in ("1", "2", "3") for row in callset.first_sites(chrom, 30_000)]
+    e1 = [sample_integrity_service._parse_genotype(row[5][2]) for row in windows]
+    e2 = [sample_integrity_service._parse_genotype(row[5][3]) for row in windows]
+    assert classify_relatedness(*king_relatedness(e1, e2)) == "duplicate"
+
+    sampled: dict[str, list] = {}
+
+    async def _fake_context(session, *, family_identifier, user, project_id=None):
+        return _pgt_context()
+
+    async def _fake_get_family(session, family_id, user):
+        return types.SimpleNamespace(metadata={})
+
+    async def _fake_sources(context):
+        return ["glimpse2"]
+
+    async def _fake_sample(context, *, scope, limit, source):
+        assert source == "glimpse2"
+        sampled[scope] = callset.x_rows() if scope == "chrX" else callset.smallest_keys(limit)
+        return sampled[scope]
+
+    monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
+    monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
+    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _fake_sources)
+    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _fake_sample)
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=None, family_id="PGT1", user=None
+        )
+    )
+
+    assert report.application == "pgt"
+    assert report.autosomal_sites == sample_integrity_service.QC_AUTOSOMAL_SITES
+    assert {row[0] for row in sampled["autosomes"]} == {str(n) for n in range(1, 23)}
+    siblings = next(c for c in report.relatedness_checks if {c.sample_a, c.sample_b} == {"E1", "E2"})
+    assert siblings.inferred_relationship == "sibling", siblings.message
+    assert siblings.status == "pass"
+    assert 0.2 < siblings.kinship < 0.3
+    assert siblings.ibs0_rate > IBS0_PARENT_CHILD_MAX
+    parent_child = [c for c in report.relatedness_checks if c.expected_relationship == "parent-child"]
+    assert len(parent_child) == 4 and all(c.status == "pass" for c in parent_child)
+    assert all(c.status == "pass" for c in report.mendelian_checks)
+    assert all(c.status == "pass" for c in report.sex_checks)
+    assert report.overall_status == "pass"
