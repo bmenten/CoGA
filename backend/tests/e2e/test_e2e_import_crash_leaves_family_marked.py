@@ -29,6 +29,11 @@ callset); the other between its datasets, after SNV and before coverage. Then:
 * a re-import by overwrite replaces it (6 of 6) and clears the mark; for the family stopped
   between datasets, an overwrite of the dataset it had not finished (coverage) is enough.
 
+Last, an overwrite of the first family, complete by then, is stopped inside its SNV dataset.
+It had copied the family's rows into five backup tables named after its job; they outlive
+its process until the worker's claim ends the job and drops them. The family is not put
+back from them: it stays marked until the next overwrite, which leaves no backup.
+
 Everything runs in ONE event loop via an in-process ``httpx.ASGITransport`` client (see
 test_e2e_api_contract.py). The families are new and uniquely named; the job rows end
 completed or failed. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e``
@@ -107,6 +112,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     from backend.app.main import app
     from backend.app.services import family_package_import as package_import
     from backend.app.services import variant_upload_service
+    from backend.app.services.clickhouse_family_snapshot import list_import_backup_tables
     from backend.app.services.clickhouse_interval_tracks import count_interval_track_source_rows
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
@@ -182,6 +188,10 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             "coverage_rows": coverage,
         }
 
+    async def backups(job_id: str) -> list[str]:
+        """The ClickHouse backup tables this job's import made of its family."""
+        return [table.name for table in await list_import_backup_tables(owner=job_id)]
+
     async def claim(job_id: str, worker: str) -> None:
         """Claim this queued job as the worker does, by its id."""
         async with sm() as s:
@@ -224,9 +234,14 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 await claim(job_id, worker)
                 await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
 
-            async def stopped_import(family_id: str, root: Path, where: str) -> dict[str, Any]:
-                """Queue and run the import of a new family, and stop it at ``where``."""
-                job_id = await queue(root, "cancel")
+            async def stopped_import(
+                family_id: str, root: Path, where: str, conflict_mode: str = "cancel"
+            ) -> dict[str, Any]:
+                """Queue and run an import, and stop it at ``where``: of a new family
+                (cancel), or of an existing one (overwrite, which snapshots it first)."""
+                job_id = await queue(
+                    root, conflict_mode, family_id if conflict_mode != "cancel" else None
+                )
                 worker = f"e2e-crash-{uuid4().hex[:8]}"
                 await claim(job_id, worker)
                 stop_at.update(where=where, reached=asyncio.Event())
@@ -244,6 +259,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 record: dict[str, Any] = {"job_id": job_id, "flushed": list(flushes)}
                 record["job_after_stop"] = await job(job_id)
                 record["family_after_stop"] = await family(family_id)
+                record["backups_after_stop"] = await backups(job_id)
                 record["signout_while_running"] = await sign_out(family_id, _ALL_GATES)
 
                 # Ten minutes later the heartbeat is stale, and a worker claims the job,
@@ -266,13 +282,13 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                         )
                     if claimed is None:
                         break
-                    if claimed["status"] == "validating":
-                        try:
-                            await package_import.run_family_import_job(
-                                job_id=claimed["id"], worker_id=reclaimer
-                            )
-                        except Exception:  # noqa: BLE001 - the worker logs it and goes on
-                            pass
+                    try:
+                        # What the worker loop does with what it claims.
+                        await package_import.handle_claimed_family_import_job(
+                            claimed, worker_id=reclaimer
+                        )
+                    except Exception:  # noqa: BLE001 - the worker logs it and goes on
+                        pass
                     if claimed["id"] == job_id:
                         record["claimed"] = {
                             key: claimed[key] for key in ("status", "claimed_from") if key in claimed
@@ -280,6 +296,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                         break
                 record["job_after_claim"] = await job(job_id)
                 record["family_after_claim"] = await family(family_id)
+                record["backups_after_claim"] = await backups(job_id)
                 return record
 
             # 1. Stopped inside its SNV dataset, two variants flushed.
@@ -312,6 +329,17 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             run["overwrite_job"] = await job(overwrite_job)
             run["family_after_overwrite"] = await family(fam_cov)
             out["between_datasets"] = run
+
+            # 3. An overwrite of the complete first family, stopped inside its SNV dataset:
+            # its snapshot of the family's rows was taken, and the process that would have
+            # dropped (or restored) it is gone.
+            run = await stopped_import(fam_snv, root_snv, "snv", conflict_mode="overwrite")
+            overwrite_job = await queue(root_snv, "overwrite", fam_snv)
+            await run_job(overwrite_job)
+            run["overwrite_job"] = await job(overwrite_job)
+            run["family_after_overwrite"] = await family(fam_snv)
+            run["backups_after_overwrite"] = await backups(overwrite_job)
+            out["overwrite_stopped"] = run
     finally:
         async with sm() as s:
             await s.execute(
@@ -446,3 +474,38 @@ def test_an_overwrite_of_the_dataset_it_had_not_finished_completes_the_family(sn
     after = run["family_after_overwrite"]
     assert after["unfinished"] is None and after["incomplete"] is None
     assert after["coverage_rows"] > 0 and after["snvs"] == _VARIANTS
+
+
+# --- an overwrite stopped part-way: its backup of the family -------------------------------
+
+
+def test_an_overwrite_stopped_part_way_leaves_its_family_marked(snap) -> None:
+    run = snap["overwrite_stopped"]
+    # Its SNV dataset was cleared and refilled to the first flush: 2 of the 6 variants.
+    assert run["family_after_stop"]["snvs"] == _BATCH
+    entry = run["family_after_stop"]["unfinished"][run["job_id"]]
+    assert entry["finished_datasets"] == []
+    assert run["job_after_claim"]["status"] == "failed"
+    assert run["job_after_claim"]["error"].startswith("Interrupted:")
+
+
+def test_the_backup_a_stopped_overwrite_made_is_dropped_when_its_job_is_ended(snap) -> None:
+    run = snap["overwrite_stopped"]
+    # The import's backup of the family's rows, named after its job, outlived it: its
+    # process was the one to drop it.
+    assert len(run["backups_after_stop"]) == 5, run["backups_after_stop"]
+    assert all(f"/SNAPSHOT/{run['job_id']}/" in name for name in run["backups_after_stop"])
+    # Before: kept for good, a copy of the family's rows no process would ever drop.
+    assert run["backups_after_claim"] == []
+    # The family is not put back from it: it stays marked, partly overwritten.
+    assert run["family_after_claim"]["snvs"] == _BATCH
+    assert set(run["family_after_claim"]["unfinished"]) == {run["job_id"]}
+
+
+def test_an_overwrite_after_it_completes_the_family_and_leaves_no_backup(snap) -> None:
+    run = snap["overwrite_stopped"]
+    assert run["overwrite_job"]["status"] == "completed", run["overwrite_job"]["error"]
+    after = run["family_after_overwrite"]
+    assert after["snvs"] == _VARIANTS
+    assert after["unfinished"] is None and after["incomplete"] is None
+    assert run["backups_after_overwrite"] == []

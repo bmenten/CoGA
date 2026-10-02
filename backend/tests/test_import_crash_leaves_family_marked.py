@@ -396,8 +396,13 @@ async def test_a_failed_import_swaps_its_entry_for_the_import_incomplete_flag(fa
 async def test_a_failed_overwrite_put_back_removes_its_entry(family, monkeypatch) -> None:
     _datasets(monkeypatch, {"snv": "imported", "coverage": RuntimeError("bad BED")})
     restored: list[str] = []
+    owners: list[Any] = []
 
     async def snapshot(*_args: Any, **_kwargs: Any) -> str:
+        return "snapshot"
+
+    async def clickhouse_snapshot(*_args: Any, owner: Any = None) -> str:
+        owners.append(owner)
         return "snapshot"
 
     async def restore(*_args: Any, **_kwargs: Any) -> None:
@@ -408,7 +413,7 @@ async def test_a_failed_overwrite_put_back_removes_its_entry(family, monkeypatch
 
     for name, value in {
         "snapshot_family_postgres_state": snapshot,
-        "snapshot_family_clickhouse_state": snapshot,
+        "snapshot_family_clickhouse_state": clickhouse_snapshot,
         "restore_family_clickhouse_state": restore,
         "restore_family_postgres_state": restore,
         "discard_family_clickhouse_snapshot": discard,
@@ -418,6 +423,8 @@ async def test_a_failed_overwrite_put_back_removes_its_entry(family, monkeypatch
     result = await _import(family, conflict_mode="overwrite")
 
     assert result.completed is False and restored == ["restored", "restored"]
+    # The ClickHouse backup is named after the import (test_import_backup_cleanup.py).
+    assert owners == ["job-1"]
     # Put back as it was before the import: no entry of its own, and no flag.
     assert family.unfinished == {} and family.incomplete is None
     assert ("ended",) in family.events

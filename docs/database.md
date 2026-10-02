@@ -184,6 +184,15 @@ Their names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SV/family_data_version` | one token per change to a family's structural variants (below) |
 | `INTERVAL/entries` | the interval-track rows: coverage, segments, APCAD, PCF segments and haplotype blocks |
 
+An `overwrite` package import of an existing family also makes **backup tables**, a copy of
+the family's rows in `SNV_INDEL/entries`, `SV/entries`, `SV/variants/details`, `SV/key_lookup`
+and `INTERVAL/entries`, named after the import: `<assembly>/SNAPSHOT/<import job id>/<table>`
+(`run-<hex>` for an import run outside a job). They are never served, and the startup storage
+check ignores them. The import drops them when it ends; for one whose process stopped, the
+worker that ends its job drops them, and every start drops a backup whose job has ended (or
+one made outside a job, a day after it was made). See
+[clickhouse_family_snapshot.py](../backend/app/services/clickhouse_family_snapshot.py).
+
 Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
 (`ensure_clickhouse_variant_tables`). Columns worth calling out:
 

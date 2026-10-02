@@ -246,6 +246,13 @@ already has data, partly written data too. An import that fails after marking th
 and before its first dataset (while registering it, say) wrote none of its datasets: its
 entry becomes the import-incomplete flag, naming them all as failed.
 
+An `overwrite` of an existing family first copies the family's variant and track rows into
+backup tables in ClickHouse, to put the family back if a dataset fails, and drops them when
+it ends. One whose process stopped could not: the worker that ends its job drops them, and
+every start drops the backups no running import owns. The family is not put back from such a
+backup: the part held in Postgres was lost with the process, and the family may have been
+written since.
+
 While the flag or an entry is set, every family page shows *Import incomplete*, and sign-out
 needs the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).
 

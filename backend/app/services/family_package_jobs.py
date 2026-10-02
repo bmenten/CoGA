@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -366,6 +367,28 @@ async def _record_job_family(
     )
     await session.commit()
     return result.rowcount == 1
+
+
+async def running_family_import_job_ids(
+    session: AsyncSession, job_ids: Iterable[str]
+) -> set[str]:
+    """Those of these import jobs that are queued, validating or running: the ones whose
+    import may still run (one whose process stopped stays running until a worker ends it)."""
+    ids = sorted({str(job_id) for job_id in job_ids})
+    if not ids:
+        return set()
+    rows = await session.execute(
+        text(
+            """
+            SELECT id::text
+            FROM family_import_jobs
+            WHERE id::text = ANY(CAST(:ids AS text[]))
+              AND status IN ('queued', 'validating', 'running')
+            """
+        ),
+        {"ids": ids},
+    )
+    return {str(job_id) for job_id in rows.scalars().all()}
 
 
 async def _beat_family_import_job(
