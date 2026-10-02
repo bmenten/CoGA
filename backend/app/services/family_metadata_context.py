@@ -45,6 +45,8 @@ class FamilyMetadataContext:
     relationship_rows: list[dict[str, Any]] = field(default_factory=list)
     # The parents' phase switches the haplotype blocks undid (haplotype_phase_correction).
     phase_corrections: list[dict[str, Any]] = field(default_factory=list)
+    # The family's region of interest as (chromosome, start, end), when it has one.
+    roi: tuple[str, int, int] | None = None
 
 
 @dataclass(slots=True)
@@ -218,6 +220,11 @@ async def build_family_metadata_context(
         relationship_rows=relationship_rows,
         phase_corrections=corrections_from_metadata(
             family_metadata.get(PHASE_CORRECTIONS_KEY) if isinstance(family_metadata, dict) else None
+        ),
+        roi=(
+            (str(family_row["roi_chr"]), int(family_row["roi_start"]), int(family_row["roi_end"]))
+            if family_row.get("roi_chr") and family_row.get("roi_start") is not None and family_row.get("roi_end") is not None
+            else None
         ),
         sample_uuid_to_name=sample_uuid_to_name,
         sample_name_to_uuid=sample_name_to_uuid,

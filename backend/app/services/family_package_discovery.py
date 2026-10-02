@@ -1577,13 +1577,20 @@ def discover_family_package_manifest(
         # The request's HPO terms and notes win; everything else the manifest recorded
         # (the PGT context, say) stays.
         manifest_payload["metadata"] = {**existing_metadata, **manifest_payload.get("metadata", {})}
-    if traced_parent:
+    # The run's index, when it is a member: with the inheritance model set, the import
+    # derives its status as it does the affected parent's.
+    indexes = sorted(
+        sample_id for sample_id, role in pipeline_roles.items() if role == "index" and sample_id in sample_ids
+    )
+    if traced_parent or indexes:
         metadata_block = manifest_payload.setdefault("metadata", {})
         existing_pgt = metadata_block.get("pgt")
         pgt_block = dict(existing_pgt) if isinstance(existing_pgt, dict) else {}
-        # An affected parent the manifest already names stays.
-        if not any(key in pgt_block for key in ("affected_parents", "affected_parent")):
+        # An affected parent or index the manifest already names stays.
+        if traced_parent and not any(key in pgt_block for key in ("affected_parents", "affected_parent")):
             pgt_block["affected_parents"] = [traced_parent]
+        if indexes and "indexes" not in pgt_block:
+            pgt_block["indexes"] = indexes
         metadata_block["pgt"] = pgt_block
     if roi:
         manifest_payload["roi"] = roi

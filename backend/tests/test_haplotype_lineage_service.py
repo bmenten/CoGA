@@ -5,6 +5,8 @@ affected paternal grandmother (stored with the overloaded role ``mother``) must
 show one haplotype matching the affected father's shared homolog and the other
 greyed, instead of the old two-green rendering.
 """
+import pytest
+
 from backend.app.services.haplotype_lineage_service import (
     GREY,
     MATERNAL,
@@ -799,15 +801,17 @@ def _simulated_relative_rows(
     error_rate: float = 0.01,
     chrom: str = "1",
     length: int = _CHROM_LENGTH,
+    first: int = _SITE_STEP,
+    step: int = _SITE_STEP,
 ):
-    """Genotypes of a couple, an embryo and a relative R of the mother's: R carries the
-    mother's homolog ``homolog`` on its first lane over each ``(start, end, homolog)`` of
-    ``shares``, both her homologs over each ``ibd2`` stretch, and alleles of its own
-    elsewhere; its lanes come in either order, and a fraction ``error_rate`` of its alleles
-    is flipped."""
+    """Genotypes of a couple, an embryo and a relative R of the mother's, at a site every
+    ``step`` from ``first``: R carries the mother's homolog ``homolog`` on its first lane
+    over each ``(start, end, homolog)`` of ``shares``, both her homologs over each ``ibd2``
+    stretch, and alleles of its own elsewhere; its lanes come in either order, and a
+    fraction ``error_rate`` of its alleles is flipped."""
     rng = random.Random(seed)
     rows = []
-    for pos in range(_SITE_STEP, length, _SITE_STEP):
+    for pos in range(first, length, step):
         frequency = rng.uniform(0.05, 0.95)
 
         def draw(frequency: float = frequency) -> int:
@@ -845,11 +849,13 @@ _RELATIVE_RELATIONSHIPS = [
 ]
 
 
-def _annotate_relative(rows, parent_or_child=(("R", "M"),), length=_CHROM_LENGTH):
+def _annotate_relative(
+    rows, parent_or_child=(("R", "M"),), length=_CHROM_LENGTH, locus=None, relationships=_RELATIVE_RELATIONSHIPS
+):
     whole = {"chr": "1", "start": 0, "end": length, "ps": None}
     return annotate_lineage(
         sample_rows=_RELATIVE_MEMBERS,
-        relationship_rows=_RELATIVE_RELATIONSHIPS,
+        relationship_rows=relationships,
         segments_by_name={
             "F": [{**whole, "hap1": "0", "hap2": "1"}],
             "M": [{**whole, "hap1": "0", "hap2": "1"}],
@@ -861,6 +867,7 @@ def _annotate_relative(rows, parent_or_child=(("R", "M"),), length=_CHROM_LENGTH
         region_start=0,
         region_end=length,
         parent_or_child=parent_or_child,
+        locus=locus,
     )
 
 
@@ -917,10 +924,12 @@ def test_too_few_autosomes_cannot_tell():
     assert parent_or_child_links({("R", "M"): (20, 22)}) == {("R", "M")}
 
 
-def test_a_parent_or_child_of_unknown_degree_is_coloured_as_one():
+@pytest.mark.parametrize("locus", [None, (30_000_000, 30_200_000)])
+def test_a_parent_or_child_of_unknown_degree_is_coloured_as_one(locus):
     rows = _simulated_relative_rows(seed=11, shares=((0, _CHROM_LENGTH, 1),))
 
-    relative = _annotate_relative(rows)["R"]
+    # The ROI does not narrow it: a parent or child is coloured along the chromosome.
+    relative = _annotate_relative(rows, locus=locus)["R"]
 
     coloured = _coloured_spans(relative, "hap1") + _coloured_spans(relative, "hap2")
     # The mother's homolog 1 along the chromosome, on whichever of R's lanes carries it.
@@ -1029,3 +1038,188 @@ def test_a_window_colours_a_relative_of_unknown_degree_from_the_genome_wide_prec
     precomputed = None
     relative = lineage()
     assert not _coloured_spans(relative, "hap1") and not _coloured_spans(relative, "hap2")
+
+
+# --- a more distant relative of unknown degree, read at the ROI ---------------------
+
+from backend.app.services.haplotype_lineage_service import (  # noqa: E402
+    RELATIVE_LOCUS_FLANK,
+    _colour_across,
+    relative_share_at_locus,
+)
+
+_ROI = (30_000_000, 30_200_000)
+_LOCUS_LENGTH = 40_000_000
+_WINDOW = (_ROI[0] - RELATIVE_LOCUS_FLANK, _ROI[1] + RELATIVE_LOCUS_FLANK)
+
+
+def _locus_rows(seed, shares=(), ibd2=()):
+    """Sites every 2 kb (about as dense as imputed genotypes are, thinned) from 20 Mb on."""
+    return _simulated_relative_rows(
+        seed=seed, shares=shares, ibd2=ibd2, length=_LOCUS_LENGTH, first=20_000_000, step=2_000
+    )
+
+
+def _alleles(rows, name):
+    column = rows[0][1].index(name)
+    return {pos: tuple(int(allele) for allele in gts[column].split("|")) for pos, _names, gts in rows}
+
+
+def _share_at_roi(rows):
+    return relative_share_at_locus(_alleles(rows, "R"), _alleles(rows, "M"), start=_ROI[0], end=_ROI[1])
+
+
+def test_a_distant_relative_sharing_a_homolog_across_the_roi_is_read_from_both_flanks():
+    # A sibling, aunt or cousin of the mother's: one of her homologs over a stretch that
+    # holds the ROI and both its flanks.
+    for seed in range(8):
+        for homolog in (0, 1):
+            rows = _locus_rows(seed, shares=((20_000_000, 40_000_000, homolog),))
+            assert _share_at_roi(rows) == homolog, (seed, homolog)
+
+
+@pytest.mark.parametrize(
+    ("shares", "ibd2"),
+    [
+        # No haplotype shared there.
+        ((), ()),
+        # Both her homologs shared (a full sibling's IBD2): the relative tells them not apart.
+        ((), ((20_000_000, 40_000_000),)),
+        # A crossover in the ROI: only the left flank shares.
+        (((20_000_000, 30_100_000, 1),), ()),
+        # The flanks share different homologs.
+        (((20_000_000, 30_100_000, 1), (30_100_000, 40_000_000, 0)), ()),
+        # A share that ends inside the right flank.
+        (((20_000_000, 31_500_000, 1),), ()),
+    ],
+)
+def test_a_distant_relative_is_not_read_at_the_roi_unless_both_flanks_share_one_homolog(shares, ibd2):
+    for seed in range(6):
+        rows = _locus_rows(seed, shares=shares, ibd2=ibd2)
+        assert _share_at_roi(rows) is None, seed
+
+
+def test_too_few_informative_sites_on_a_flank_cannot_tell():
+    rows = _locus_rows(2, shares=((20_000_000, 40_000_000, 1),))
+    # Keep one site in five on the left flank: fewer than the pins a flank needs.
+    sparse = [row for row in rows if not (_WINDOW[0] <= row[0] < _ROI[0]) or row[0] % 10_000 == 0]
+
+    assert _share_at_roi(rows) == 1
+    assert _share_at_roi(sparse) is None
+
+
+def test_a_flank_with_few_pins_among_the_members_heterozygous_sites_cannot_tell():
+    # A relative heterozygous at nearly all of the member's heterozygous sites carries both
+    # her haplotypes there, whatever its few homozygous calls say.
+    def share(pin_every):
+        member, relative = {}, {}
+        for first in (_WINDOW[0], _ROI[1]):
+            for i in range(1_000):
+                member[first + i * 3_000] = (0, 1)
+                relative[first + i * 3_000] = (0, 0) if i % pin_every == 0 else (0, 1)
+        return relative_share_at_locus(relative, member, start=_ROI[0], end=_ROI[1])
+
+    assert share(5) == 0  # 200 pins of 1,000 sites
+    assert share(8) is None  # 125 pins of 1,000 sites
+
+
+def test_a_distant_relative_is_coloured_across_the_roi_and_its_flanks_and_grey_elsewhere():
+    rows = _locus_rows(3, shares=((20_000_000, 40_000_000, 1),))
+
+    relative = _annotate_relative(rows, parent_or_child=(), length=_LOCUS_LENGTH, locus=_ROI)["R"]
+
+    coloured = _coloured_spans(relative, "hap1") + _coloured_spans(relative, "hap2")
+    # The mother's homolog 1 (her stored hap2), on one of R's lanes; the other lane grey.
+    assert coloured == [(_WINDOW[0], _WINDOW[1], "1")]
+    for block in relative:
+        lineages = {block["hap1_lineage"], block["hap2_lineage"]}
+        if block["end"] <= _WINDOW[0] or block["start"] >= _WINDOW[1]:
+            assert lineages == {UNKNOWN}
+        else:
+            assert lineages == {MATERNAL, UNTRANSMITTED}
+    assert (relative[0]["start"], relative[-1]["end"]) == (0, _LOCUS_LENGTH)
+
+
+@pytest.mark.parametrize(
+    ("shares", "ibd2", "locus"),
+    [
+        # Shared, but this is not the ROI's chromosome.
+        (((20_000_000, 40_000_000, 1),), (), None),
+        ((), (), _ROI),
+        ((), ((20_000_000, 40_000_000),), _ROI),
+    ],
+)
+def test_a_distant_relative_stays_grey_where_the_roi_does_not_show_a_share(shares, ibd2, locus):
+    rows = _locus_rows(4, shares=shares, ibd2=ibd2)
+
+    relative = _annotate_relative(rows, parent_or_child=(), length=_LOCUS_LENGTH, locus=locus)["R"]
+
+    assert not _coloured_spans(relative, "hap1") and not _coloured_spans(relative, "hap2")
+
+
+def test_a_relative_linked_to_both_parents_is_coloured_from_the_side_it_shares():
+    rows = _locus_rows(6, shares=((20_000_000, 40_000_000, 0),))
+    relationships = [
+        *_RELATIVE_RELATIONSHIPS,
+        {"relationship_type": "relative", "sample_id_a": "F", "sample_id_b": "R", "role_a": "relative", "role_b": "relative"},
+    ]
+
+    relative = _annotate_relative(
+        rows, parent_or_child=(), length=_LOCUS_LENGTH, locus=_ROI, relationships=relationships
+    )["R"]
+
+    assert _coloured_spans(relative, "hap1") + _coloured_spans(relative, "hap2") == [(_WINDOW[0], _WINDOW[1], "0")]
+    assert PATERNAL not in {block[f"{lane}_lineage"] for block in relative for lane in ("hap1", "hap2")}
+
+
+def test_an_anchor_whose_colour_changes_across_the_window_gives_none():
+    dark, light = HomologAssignment(MATERNAL, 0), HomologAssignment(MATERNAL, 1)
+    resolver = HomologResolver(runs={0: [(0, dark), (31_000_000, light)], 1: [(0, light)]})
+
+    assert _colour_across(resolver, 0, *_WINDOW) is None
+    assert _colour_across(resolver, 0, 0, 30_000_000) == dark
+    assert _colour_across(resolver, 1, *_WINDOW) == light
+
+
+def test_the_genome_wide_precompute_reads_a_distant_relative_at_the_roi(monkeypatch):
+    import asyncio
+
+    from backend.app.services import bed_service, clickhouse_family_variants
+    from backend.app.services.family_metadata_context import FamilyMetadataContext
+
+    rows = _locus_rows(3, shares=((20_000_000, 40_000_000, 1),))
+
+    async def fetch(context, *, chrom, start, end, limit):
+        return [row for row in rows if start <= row[0] <= end]
+
+    monkeypatch.setattr(clickhouse_family_variants, "fetch_imputed_phased_genotypes", fetch)
+    names = [member["sample_id"] for member in _RELATIVE_MEMBERS]
+    whole = {"chr": "1", "start": 0, "end": _LOCUS_LENGTH, "ps": None}
+    segments = {
+        "F": [{**whole, "hap1": "0", "hap2": "1"}],
+        "M": [{**whole, "hap1": "0", "hap2": "1"}],
+        "E1": [{**whole, "hap1": "0", "hap2": "0"}],
+        "R": [{**whole, "hap1": "1", "hap2": "0"}],
+    }
+
+    def relative(roi):
+        context = FamilyMetadataContext(
+            family_uuid="family-uuid",
+            family_id="FAM1",
+            project_ids=[],
+            sample_rows=_RELATIVE_MEMBERS,
+            sample_uuid_to_name={f"{name}-uuid": name for name in names},
+            sample_name_to_uuid={name: f"{name}-uuid" for name in names},
+            affected_sample_names=["M", "R"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+            relationship_rows=_RELATIVE_RELATIONSHIPS,
+            roi=roi,
+        )
+        blocks = asyncio.run(bed_service._compute_genomewide_lineage(context, segments_by_name=segments))["R"]
+        return _coloured_spans(blocks, "hap1") + _coloured_spans(blocks, "hap2")
+
+    # One chromosome cannot show a parent or child, so R is read at the ROI only.
+    assert relative(("chr1", *_ROI)) == [(_WINDOW[0], _WINDOW[1], "1")]
+    assert relative(("chr2", *_ROI)) == []
+    assert relative(None) == []

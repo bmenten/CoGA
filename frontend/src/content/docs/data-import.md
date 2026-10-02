@@ -141,11 +141,13 @@ what KING measured against the couple: the couple's child when it is first-degre
 otherwise a relative of unknown degree (**Related to**, a dotted arc in the pedigree) of the parent it is
 related to, or of the affected parent. The warning says which link it proposed; change it before you
 write the manifest, or on the family page afterwards. Without a link, the index's haplotype stays grey
-and does not help find the risk haplotype. Record the index's clinical status too: it stays unknown, and
-the risk haplotype is found from the affected members. The parent the pipeline traced is recorded as the affected parent
-(`metadata.pgt.affected_parents`); set the inheritance model (`metadata.pgt.inheritance_model`) and that
-parent is recorded as affected (AD, XLD, or a father under XLR) or as a proven carrier (AR, or a mother
-under XLR). A status you record for the parent under `family.members` wins. The ROI comes from the
+and does not help find the risk haplotype. The parent the pipeline traced is recorded as the affected
+parent (`metadata.pgt.affected_parents`) and its index as the index (`metadata.pgt.indexes`). Set the
+inheritance model (`metadata.pgt.inheritance_model`) and both get the status it asks: the parent is
+recorded as affected (AD, XLD, or a father under XLR) or as a proven carrier (AR, or a mother under
+XLR), and the index as affected (AD, XLD, AR, or a male index under XLR) or, a female index under XLR,
+as a proven carrier. Validation lists each status it derived. A status you record for the member under
+`family.members` (or, for the added index, under `family.add_members`) wins. The ROI comes from the
 pipeline run. PCF segments are read from their CSV table only; a run that only draws them in an HTML plot
 gets no PCF track.
 

@@ -23,7 +23,7 @@ from .hpo_service import (
 )
 
 from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, _vcf_index_candidates, read_vcf_sample_columns
-from .family_package_manifest import _manifest_added_ped_rows, _manifest_affected_parent_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
+from .family_package_manifest import _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, staged_package_source
 
 
@@ -1431,9 +1431,9 @@ def _validate_and_load_package(
                 )
 
         errors.extend(_manifest_relationship_issues(manifest, set(ped.sample_ids), ped))
-        _derived_statuses, affected_errors, affected_warnings = _manifest_affected_parent_statuses(manifest, ped)
-        errors.extend(affected_errors)
-        warnings.extend(affected_warnings)
+        _derived_statuses, status_errors, status_warnings = _manifest_derived_statuses(manifest, ped)
+        errors.extend(status_errors)
+        warnings.extend(status_warnings)
 
         sample_metadata = _normalize_manifest_samples(manifest.samples)
         for sample_id in sample_metadata:

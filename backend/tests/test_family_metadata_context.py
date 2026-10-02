@@ -88,6 +88,36 @@ async def test_family_metadata_context_uses_family_members_for_project_scoped_sa
     assert context.project_ids == [project_id, other_project_id]
     assert context.sample_name_to_uuid == {"PROBAND": "sample-proband"}
     assert "sample_projects" not in session.statements[0]
+    assert context.roi is None
+
+
+@pytest.mark.asyncio
+async def test_family_metadata_context_carries_the_families_roi(monkeypatch: pytest.MonkeyPatch) -> None:
+    project_id = "11111111-1111-1111-1111-111111111111"
+
+    async def fake_family_mapping(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "id": "family-uuid",
+            "family_id": "F1",
+            "project_ids": [project_id],
+            "roi_chr": "chr7",
+            "roi_start": 117_480_000,
+            "roi_end": 117_670_000,
+        }
+
+    monkeypatch.setattr(
+        "backend.app.services.family_metadata_context.get_accessible_family_mapping",
+        fake_family_mapping,
+    )
+
+    context = await build_family_metadata_context(
+        _FakeSession(),  # type: ignore[arg-type]
+        family_identifier="F1",
+        user=_viewer([project_id]),
+        project_id=project_id,
+    )
+
+    assert context.roi == ("chr7", 117_480_000, 117_670_000)
 
 
 class _AssemblyResult:

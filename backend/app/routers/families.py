@@ -117,15 +117,20 @@ async def update_family_metadata(
 async def update_family_roi(
     family_id: str,
     update: FamilyRegionOfInterestUpdate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyOut:
-    return await update_family_roi_for_admin(
+    family = await update_family_roi_for_admin(
         session,
         family_id=family_id,
         update=update,
         user=user,
     )
+    # A relative of unknown degree is coloured at the ROI, so the genome-overview lineage
+    # is read again for the new one (grey until then, by the hash guard).
+    background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+    return family
 
 
 @router.put("/{family_id}/structure", response_model=FamilyStructureUpdateOut)

@@ -777,8 +777,9 @@ async def get_family_haplotypes_batch_response(
 
 def _lineage_hash(context: FamilyMetadataContext) -> str:
     """Fingerprint of the inputs that determine the lineage colours: the pedigree
-    edges, each member's role, the affected set and the parents' phase corrections. If
-    this changes, a stored precompute is stale and must not be served."""
+    edges, each member's role, the affected set, the parents' phase corrections and, for a
+    family with a relative of unknown degree, the ROI. If this changes, a stored precompute
+    is stale and must not be served."""
     pedigree = sorted(
         (
             str(r.get("relationship_type") or ""),
@@ -798,6 +799,11 @@ def _lineage_hash(context: FamilyMetadataContext) -> str:
         "roles": roles,
         "affected": sorted(context.affected_sample_names),
     }
+    if context.roi is not None and any(
+        str(row.get("relationship_type")) == "relative" for row in context.relationship_rows
+    ):
+        # A relative of unknown degree is read at the ROI, so moving it changes the colours.
+        fingerprint["roi"] = list(context.roi)
     if context.phase_corrections:
         # The parents' phase switches the blocks undid; a family without any keeps the
         # fingerprint it had.
@@ -867,6 +873,12 @@ async def _compute_genomewide_lineage(
         if not any(chrom_segments.values()):
             continue
         genotype_rows = await genotypes(chrom)
+        # A more distant relative of unknown degree is read at the ROI only.
+        locus = (
+            (context.roi[1], context.roi[2])
+            if context.roi is not None and normalize_chromosome(context.roi[0]) == chrom
+            else None
+        )
         annotated = await asyncio.to_thread(
             annotate_lineage,
             sample_rows=context.sample_rows,
@@ -876,6 +888,7 @@ async def _compute_genomewide_lineage(
             chrom=chrom,
             genotype_truncated=len(genotype_rows) >= LINEAGE_PRECOMPUTE_FETCH_LIMIT,
             parent_or_child=parent_or_child,
+            locus=locus,
         )
         for name, segs in annotated.items():
             merged[name].extend(segs)
