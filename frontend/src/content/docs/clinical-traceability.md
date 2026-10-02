@@ -117,7 +117,7 @@ Sign-out stops at each of these, in this order:
 | **Data being written** | A data import of the family is queued or running, or its variants are being written (an upload or a deletion). | No override: sign out once it has finished. |
 | **Evidence drift** | A reported classification, of a small variant, a structural variant or a CNV, drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
 | **Sample QC** | Sample QC failed, or a check that confirms the pedigree could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
-| **Incomplete import** | A data import for the family partly failed, or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Re-run the import, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
+| **Incomplete import** | A data import for the family partly failed, or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Import what failed again, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
 so "signed out over a known problem, and why" is part of the permanent record.
@@ -136,9 +136,11 @@ load and marks the family as incomplete. Every family page, the report included,
 *Import incomplete*: the datasets that failed and those that did import, when, and the import job
 whose record holds each dataset's error. The warning prints with the report.
 
-Results on such a family can lack whole datasets, for example all its structural variants. Re-run
-the import to complete the family; a complete import removes the warning. Signing out before then
-needs an acknowledgement with a reason, and the signed version records which datasets were missing.
+Results on such a family can lack whole datasets, for example all its structural variants. Import
+the datasets that failed again to complete the family: the warning goes once each has been imported
+again, and an import without them leaves it. If a later import fails too, the warning names both,
+each with its import job. Signing out before then needs an acknowledgement with a reason, and the
+signed version records which datasets were missing.
 
 An import also marks the family before it writes anything of it, and removes the mark when it ends.
 While it runs the pages carry *Import incomplete* too. If it stops part-way (the server restarted,

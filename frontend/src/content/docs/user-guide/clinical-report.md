@@ -20,7 +20,7 @@ gene context and phenotype overlap — and is where the case is signed out. Once
 - An **Import incomplete** warning at the top when a data import left the family partly loaded, or
   has not finished: it is still running, or it stopped part-way (for example the server restarted).
   It names the datasets that failed, or that the import had not finished, and the import job. The
-  same warning shows on every family page until an import completes the family.
+  same warning shows on every family page until an import has imported those datasets again.
 
 ### Signing out
 
@@ -35,9 +35,9 @@ stops for five things:
    that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked):
    re-review, or acknowledge with a reason.
 4. **Sample QC** that failed, or could not confirm the pedigree: acknowledge with a reason.
-5. **An incomplete import** (the page says *Import incomplete*): re-run the import, or acknowledge with
-   a reason. After an import that stopped part-way, re-run it with **overwrite**: an update skips data
-   that is already there, partly written data too.
+5. **An incomplete import** (the page says *Import incomplete*): import what failed again, or
+   acknowledge with a reason. After an import that stopped part-way, re-run it with **overwrite**: an
+   update skips data that is already there, partly written data too.
 
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
 creates a new version (**Amend sign-out**); earlier versions are never overwritten. After signing out,

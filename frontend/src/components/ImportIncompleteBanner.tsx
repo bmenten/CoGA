@@ -9,7 +9,26 @@ export interface FamilyImportIncomplete {
   importedDatasets: string[];
   /** The import job whose record holds each dataset's error, or null when not recorded. */
   jobId: string | null;
+  /**
+   * The job whose record holds each failed dataset's error: a later failure keeps an
+   * earlier import's failed datasets, so they can come from different jobs.
+   */
+  failedJobs: Record<string, string>;
 }
+
+/**
+ * The jobs that hold the failed datasets' errors, each with its datasets, when they come
+ * from more than one job; null when one job (or none) holds them all.
+ */
+export const failuresByJob = (flag: FamilyImportIncomplete): [string, string[]][] | null => {
+  const byJob = new Map<string, string[]>();
+  flag.failedDatasets.forEach((name) => {
+    const job = flag.failedJobs[name];
+    if (job) byJob.set(job, [...(byJob.get(job) ?? []), name]);
+  });
+  if (byJob.size < 2) return null;
+  return [...byJob.entries()].sort((a, b) => a[1][0].localeCompare(b[1][0]));
+};
 
 const stringList = (value: unknown): string[] | null =>
   Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : null;
@@ -19,7 +38,7 @@ const stringList = (value: unknown): string[] | null =>
  *
  * A family-package import that partly fails keeps the datasets that did import and stamps
  * `metadata.import_incomplete` (family_package_registration._flag_family_import_incomplete);
- * a later, fully successful import removes it. As on the server, a flag that is set but
+ * it goes once an import has imported each failed dataset again. As on the server, a flag that is set but
  * not in the shape the import writes still counts as incomplete, with nothing to name,
  * and a flag written before the import job was recorded has no job to point to.
  */
@@ -29,11 +48,24 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
   if (flag === undefined || flag === null || flag === false) return null;
   const record =
     typeof flag === 'object' && !Array.isArray(flag) ? (flag as Record<string, unknown>) : {};
+  const jobId = typeof record.job_id === 'string' && record.job_id ? record.job_id : null;
+  const failedDatasets = stringList(record.failed_datasets) ?? [];
+  const jobs =
+    record.failed_jobs && typeof record.failed_jobs === 'object' && !Array.isArray(record.failed_jobs)
+      ? (record.failed_jobs as Record<string, unknown>)
+      : {};
+  const failedJobs: Record<string, string> = {};
+  failedDatasets.forEach((name) => {
+    const job = jobs[name];
+    const resolved = typeof job === 'string' && job ? job : jobId;
+    if (resolved) failedJobs[name] = resolved;
+  });
   return {
     at: typeof record.at === 'string' && record.at ? record.at : null,
-    failedDatasets: stringList(record.failed_datasets) ?? [],
+    failedDatasets,
     importedDatasets: stringList(record.imported_datasets) ?? [],
-    jobId: typeof record.job_id === 'string' && record.job_id ? record.job_id : null,
+    jobId,
+    failedJobs,
   };
 };
 
@@ -142,14 +174,25 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
       {unfinished.length
         ? 'Data from what failed or did not finish may be missing or partly written here, so the results and the report may be incomplete. '
         : 'Data from what failed is missing here, so the results and the report may be incomplete. '}
-      {flag?.jobId ? (
+      {flag && failuresByJob(flag) ? (
+        <>
+          Each dataset&rsquo;s error is recorded in its import job:{' '}
+          {failuresByJob(flag)!.map(([job, names], index) => (
+            <React.Fragment key={job}>
+              {index ? '; ' : ''}
+              {joinWithAnd(names)} in import job <code>{job}</code>
+            </React.Fragment>
+          ))}
+          .{' '}
+        </>
+      ) : flag?.jobId ? (
         <>
           Each dataset&rsquo;s error is recorded in import job <code>{flag.jobId}</code>.{' '}
         </>
       ) : null}
       {unfinished.length
-        ? 'Re-run the import to complete it, with overwrite for what an import did not finish: an update keeps the data already there. '
-        : 'Re-run the import to complete it. '}
+        ? 'Import what failed or did not finish again to complete it, with overwrite for what an import did not finish: an update keeps the data already there. '
+        : 'Import what failed again to complete it. '}
       Sign-out needs this acknowledged with a reason.
     </div>
   );

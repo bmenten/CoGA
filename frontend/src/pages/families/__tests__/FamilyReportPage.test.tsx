@@ -1782,6 +1782,45 @@ describe('FamilyReportPage', () => {
       });
     });
 
+    it('names each failed dataset’s job in the dialog and on the signed record', async () => {
+      // A later failure kept an earlier one: sv's error is in another job's record.
+      const flag = { ...IMPORT_FLAG, failed_jobs: { snv: IMPORT_JOB_ID, sv: 'job-earlier' } };
+      mockUnsignedFamily();
+      apiMock.post.mockImplementation(() =>
+        Promise.reject({
+          response: {
+            status: 409,
+            data: { detail: { gate: 'import_incomplete', message: 'incomplete', import_incomplete: flag } },
+          },
+        }),
+      );
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      expect(within(dialog).getByText(`Import job ${IMPORT_JOB_ID}: snv`)).toBeInTheDocument();
+      expect(within(dialog).getByText('Import job job-earlier: sv')).toBeInTheDocument();
+    });
+
+    it('names each failed dataset’s job on the signed record', async () => {
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_incomplete: { ...IMPORT_FLAG, failed_jobs: { snv: IMPORT_JOB_ID, sv: 'job-earlier' } },
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(`Import jobs: snv in ${IMPORT_JOB_ID}; sv in job-earlier.`);
+    });
+
     it('shows on the signed record an import that had not finished', async () => {
       mockSignedCase({
         versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],

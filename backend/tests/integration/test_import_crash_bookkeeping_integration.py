@@ -189,25 +189,25 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
                 s, family_uuid=family_uuid, mark=covered, finished=["snv"]
             )
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=other)
-            remaining = await _clear_family_import_incomplete(
-                s,
-                context,
-                import_key=own.key,
-                rewritten={"snv": scopes["snv"], "coverage": scopes["coverage"]},
+            overwritten = {"snv": scopes["snv"], "coverage": scopes["coverage"]}
+            left = await _clear_family_import_incomplete(
+                s, context, import_key=own.key, rewritten=overwritten, imported=overwritten
             )
             metadata = await _metadata(s, family_uuid)
-        assert set(remaining or {}) == {"unreadable", other.key}
+        assert left is not None
+        assert set(left.unfinished) == {"unreadable", other.key}
         assert metadata["import_unfinished"] == {"unreadable": "garbage", other.key: other.entry()}
-        assert "import_incomplete" not in metadata
+        # It imported coverage again, the dataset the flag names as failed.
+        assert "import_incomplete" not in metadata and left.failures.failed == {}
 
         # One that imports haplotypes and snv completes the other stopped import; the value
         # that is not an entry stays, as nothing can show it complete.
         async with sm() as s:
-            remaining = await _clear_family_import_incomplete(
+            left = await _clear_family_import_incomplete(
                 s, context, rewritten={"snv": scopes["snv"], "haplotypes": scopes["haplotypes"]}
             )
             metadata = await _metadata(s, family_uuid)
-        assert remaining == {"unreadable": "garbage"}
+        assert left is not None and left.unfinished == {"unreadable": "garbage"}
         assert metadata["import_unfinished"] == {"unreadable": "garbage"}
 
         # Removed by hand, nothing is left: the next clear drops the empty map.
@@ -220,10 +220,10 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
                 {"f": family_uuid},
             )
             await s.commit()
-            remaining = await _clear_family_import_incomplete(s, context)
+            left = await _clear_family_import_incomplete(s, context)
             metadata = await _metadata(s, family_uuid)
             state = await rss._import_unfinished_state(s, family_uuid)
-        assert remaining == {}
+        assert left is not None and left.unfinished == {}
         assert "import_unfinished" not in metadata and state == {}
         assert metadata["qc_profile"] == "short_read_wgs"
 
@@ -240,6 +240,39 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
         assert metadata["import_incomplete"]["failed_datasets"] == ["coverage", "snv"]
         assert metadata["import_incomplete"]["imported_datasets"] == []
         assert metadata["import_incomplete"]["job_id"] == failed_early.job_id
+
+        # A later failure keeps these, each with its job; a completed import that imports
+        # some of them again leaves the others flagged, and the last one's import clears it.
+        later = mark("haplotypes")
+        async with sm() as s:
+            await _flag_family_import_incomplete(
+                s,
+                context,
+                failed_datasets=["haplotypes"],
+                imported_datasets=[],
+                job_id=later.job_id,
+                scopes=later.scopes,
+            )
+            flag = (await _metadata(s, family_uuid))["import_incomplete"]
+        assert flag["failed_datasets"] == ["coverage", "haplotypes", "snv"]
+        assert flag["failed_jobs"] == {
+            "coverage": failed_early.job_id,
+            "haplotypes": later.job_id,
+            "snv": failed_early.job_id,
+        }
+        async with sm() as s:
+            left = await _clear_family_import_incomplete(
+                s, context, imported={"snv": scopes["snv"], "coverage": {"source": None, "samples": []}}
+            )
+            flag = (await _metadata(s, family_uuid))["import_incomplete"]
+        # coverage came back for fewer samples than failed: still flagged.
+        assert left is not None and set(left.failures.failed) == {"coverage", "haplotypes"}
+        assert flag["failed_datasets"] == ["coverage", "haplotypes"]
+        async with sm() as s:
+            await _clear_family_import_incomplete(
+                s, context, imported={"coverage": scopes["coverage"], "haplotypes": scopes["haplotypes"]}
+            )
+            assert "import_incomplete" not in await _metadata(s, family_uuid)
 
         async with sm() as s:
             await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})

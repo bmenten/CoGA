@@ -685,6 +685,131 @@ def _scope_covers(replaced: Any, wanted: Any) -> bool:
     return {str(sample) for sample in want} <= {str(sample) for sample in have}
 
 
+def _failure_imported_again(imported: Mapping[str, Any], name: str, scope: Any) -> bool:
+    """Whether a failed dataset was imported again: an import that imported it (in any
+    mode -- the failing loader's rows were rolled back or cleaned up, so an update finds
+    none and imports it whole, while one whose clean-up left rows is skipped) for the
+    scope the flag records. A flag that records no scope for it (written before flags
+    did) compares the dataset only."""
+    if name not in imported:
+        return False
+    return scope is None or _scope_covers(imported[name], scope)
+
+
+def _flag_failures(flag: Any) -> dict[str, dict[str, Any]] | None:
+    """The datasets a stored ``import_incomplete`` flag names as failed, each with the
+    import job whose record holds its error (``failed_jobs``, else the flag's job) and its
+    scope; None when the flag is not in the shape an import writes."""
+    if not isinstance(flag, Mapping):
+        return None
+    failed = _dataset_names(flag.get("failed_datasets"))
+    if failed is None:
+        return None
+    job = flag.get("job_id")
+    jobs = flag.get("failed_jobs")
+    scopes = flag.get("scopes")
+    failures: dict[str, dict[str, Any]] = {}
+    for name in failed:
+        dataset_job = jobs.get(name) if isinstance(jobs, Mapping) else None
+        if not (isinstance(dataset_job, str) and dataset_job):
+            dataset_job = job if isinstance(job, str) and job else None
+        failures[name] = {
+            "job_id": dataset_job,
+            "scope": scopes.get(name) if isinstance(scopes, Mapping) else None,
+        }
+    return failures
+
+
+def _flag_payload(
+    failures: Mapping[str, Mapping[str, Any]],
+    *,
+    at: Any,
+    job_id: Any,
+    imported: Iterable[str],
+) -> dict[str, Any]:
+    names = sorted(failures)
+    return {
+        "at": at,
+        "failed_datasets": names,
+        "imported_datasets": sorted({str(name) for name in imported}),
+        "job_id": job_id,
+        "failed_jobs": {name: failures[name]["job_id"] for name in names},
+        "scopes": {
+            name: failures[name]["scope"] for name in names if failures[name]["scope"] is not None
+        },
+    }
+
+
+def merged_import_failure(
+    stored: Any,
+    *,
+    at: str,
+    job_id: str | None,
+    failed: Iterable[str],
+    imported: Iterable[str],
+    scopes: Mapping[str, Any],
+    imported_scopes: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The ``import_incomplete`` flag after an import that failed for ``failed``: its own
+    failures, and those of the flag already stored that it did not import again
+    (``imported_scopes``: the scope of each dataset it imported). A later failure never
+    drops an earlier one. Each failed dataset keeps the job whose record holds its error
+    and its scope. A stored flag not in the shape an import writes names nothing to keep."""
+    failures: dict[str, dict[str, Any]] = {
+        name: earlier
+        for name, earlier in (_flag_failures(stored) or {}).items()
+        if not _failure_imported_again(imported_scopes, name, earlier["scope"])
+    }
+    for name in {str(name) for name in failed}:
+        failures[name] = {"job_id": job_id, "scope": scopes.get(name)}
+    return _flag_payload(failures, at=at, job_id=job_id, imported=imported)
+
+
+@dataclass(frozen=True)
+class FailuresLeft:
+    """What of an ``import_incomplete`` flag a completed import leaves: the flag to store
+    (None: none), and the failed datasets still to import again, each with its job."""
+
+    flag: Any
+    failed: dict[str, str | None]
+    unreadable: bool = False
+
+
+def failures_left_after(stored: Any, imported_scopes: Mapping[str, Any]) -> FailuresLeft:
+    """The ``import_incomplete`` flag after an import that completed, having imported
+    ``imported_scopes``: each failed dataset it imported again leaves the flag; the flag
+    goes with the last. A flag not in the shape an import writes stays as it is: nothing
+    shows what would complete it."""
+    if stored is None:
+        return FailuresLeft(flag=None, failed={})
+    failures = _flag_failures(stored)
+    if failures is None:
+        return FailuresLeft(flag=stored, failed={}, unreadable=True)
+    left = {
+        name: failure
+        for name, failure in failures.items()
+        if not _failure_imported_again(imported_scopes, name, failure["scope"])
+    }
+    if not left or not isinstance(stored, Mapping):
+        return FailuresLeft(flag=None, failed={})
+    flag = _flag_payload(
+        left,
+        at=stored.get("at"),
+        job_id=stored.get("job_id"),
+        imported=_dataset_names(stored.get("imported_datasets")) or (),
+    )
+    return FailuresLeft(flag=flag, failed={name: left[name]["job_id"] for name in sorted(left)})
+
+
+@dataclass(frozen=True)
+class ImportStateLeft:
+    """What a completed import leaves marking the family: other imports' unfinished
+    entries, and what of the ``import_incomplete`` flag it did not import again."""
+
+    unfinished: dict[str, Any]
+    failures: FailuresLeft
+
+
 @dataclass(frozen=True)
 class ImportMark:
     """One import's entry in ``families.metadata.import_unfinished``.
@@ -848,42 +973,114 @@ END
 """
 
 
+# The row an import's failure is written to, read under its lock: by the family's uuid, or
+# by its identifier (an import that failed before it had the family's context).
+_FAILURE_ROW_BY_UUID = """
+SELECT id::text AS family_uuid,
+       metadata -> 'import_incomplete' AS flag,
+       metadata -> 'import_unfinished' AS unfinished
+FROM families
+WHERE id = CAST(:family_uuid AS uuid)
+FOR UPDATE
+"""
+_FAILURE_ROW_BY_FAMILY_ID = """
+SELECT id::text AS family_uuid,
+       metadata -> 'import_incomplete' AS flag,
+       metadata -> 'import_unfinished' AS unfinished
+FROM families
+WHERE family_id = :family_id
+FOR UPDATE
+"""
+
+
+async def _write_import_failure(
+    session: AsyncSession,
+    *,
+    family_uuid: str | None = None,
+    family_id: str | None = None,
+    failed_datasets: Iterable[str],
+    imported_datasets: Iterable[str],
+    job_id: str | None,
+    import_key: str | None,
+    scopes: Mapping[str, Any],
+    imported_scopes: Mapping[str, Any],
+    only_with_entry: bool = False,
+) -> bool:
+    """Write an import's failure into the family's ``import_incomplete`` flag, merged with
+    the flag already there (``merged_import_failure``), and remove the import's
+    ``import_unfinished`` entry, in one transaction under the row's lock. With
+    ``only_with_entry``, only where the import's entry is. Raises on a database error;
+    False when there was nothing to write."""
+    if family_uuid is not None:
+        row_sql, params = _FAILURE_ROW_BY_UUID, {"family_uuid": family_uuid}
+    else:
+        row_sql, params = _FAILURE_ROW_BY_FAMILY_ID, {"family_id": family_id}
+    row = (await session.execute(text(row_sql), params)).mappings().first()
+    if row is None or (
+        only_with_entry and (import_key is None or import_key not in _unfinished_entries(row["unfinished"]))
+    ):
+        await session.rollback()
+        return False
+    flag = row["flag"]
+    if isinstance(flag, str):
+        try:
+            flag = json.loads(flag)
+        except ValueError:
+            pass
+    payload = merged_import_failure(
+        flag,
+        at=datetime.now(timezone.utc).isoformat(),
+        job_id=job_id,
+        failed=failed_datasets,
+        imported=imported_datasets,
+        scopes=scopes,
+        imported_scopes=imported_scopes,
+    )
+    await session.execute(
+        text(
+            f"""
+            UPDATE families
+            SET metadata = jsonb_set(
+                {_WITHOUT_IMPORT_ENTRY},
+                '{{import_incomplete}}',
+                CAST(:payload AS jsonb),
+                true
+            )
+            WHERE id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        {
+            "family_uuid": row["family_uuid"],
+            "payload": json.dumps(payload),
+            "import_key": import_key,
+        },
+    )
+    await session.commit()
+    return True
+
+
 async def _end_import_failed_before_datasets(
     session: AsyncSession, *, family_id: str, mark: ImportMark
 ) -> bool:
     """Swap this import's entry for the ``import_incomplete`` flag, naming every dataset it
     set out to import as failed: it failed after it marked the family and before its first
-    dataset, so it wrote none of them. Only where its entry is -- not when it failed
-    before marking the family -- in one statement. Best-effort: an entry left in place
-    keeps the family marked. True when the swap was made."""
-    payload = {
-        "at": datetime.now(timezone.utc).isoformat(),
-        "failed_datasets": list(mark.datasets),
-        "imported_datasets": [],
-        "job_id": mark.job_id,
-    }
+    dataset, so it wrote none of them. Merged with a flag already there. Only where its
+    entry is -- not when it failed before marking the family. Best-effort: an entry left
+    in place keeps the family marked. True when the swap was made."""
     try:
         # What failed may have left a failed transaction behind.
         await session.rollback()
-        result = await session.execute(
-            text(
-                f"""
-                UPDATE families
-                SET metadata = jsonb_set(
-                    {_WITHOUT_IMPORT_ENTRY},
-                    '{{import_incomplete}}',
-                    CAST(:payload AS jsonb),
-                    true
-                )
-                WHERE family_id = :family_id
-                  AND jsonb_typeof(metadata -> 'import_unfinished') = 'object'
-                  AND (metadata -> 'import_unfinished') ? CAST(:import_key AS text)
-                """
-            ),
-            {"family_id": family_id, "payload": json.dumps(payload), "import_key": mark.key},
+        return await _write_import_failure(
+            session,
+            family_id=family_id,
+            failed_datasets=mark.datasets,
+            imported_datasets=(),
+            job_id=mark.job_id,
+            import_key=mark.key,
+            scopes=mark.scopes,
+            imported_scopes={},
+            only_with_entry=True,
         )
-        await session.commit()
-        return bool(getattr(result, "rowcount", 0) == 1)
     except Exception:  # the entry stays: the family stays marked
         logger.warning(
             "Failed to record the failed import of family %s", family_id, exc_info=True
@@ -1090,6 +1287,8 @@ async def _flag_family_import_incomplete(
     imported_datasets: list[str],
     job_id: str | None = None,
     import_key: str | None = None,
+    scopes: Mapping[str, Any] | None = None,
+    imported_scopes: Mapping[str, Any] | None = None,
 ) -> None:
     """Stamp a pre-existing family as import-incomplete after a failed update/overwrite.
 
@@ -1102,43 +1301,31 @@ async def _flag_family_import_incomplete(
 
     The flag names the import job (``job_id``, None for an import run outside a job):
     the job's record holds each dataset's error. The error texts are not copied here, as
-    they can carry file paths and grow long.
+    they can carry file paths and grow long. It records each failed dataset's scope
+    (``scopes``, from ``dataset_scopes``) and, merged with a flag already there, keeps an
+    earlier import's failures this import did not import again (``imported_scopes``),
+    each with the job that holds its error (``failed_jobs``): the flag clears only once
+    every failed dataset has been imported again (``failures_left_after``).
 
     The import has ended, so its ``import_unfinished`` entry (``import_key``) goes in the
-    same statement: the family is never without one or the other. If the statement
-    fails, the entry stays and still marks the family.
+    same transaction: the family is never without one or the other. If the write fails,
+    the entry stays and still marks the family.
 
     Read back by report sign-out (``report_signout_service._import_incomplete_state``),
     which refuses a flagged family unless the signer acknowledges it with a reason, and
     by the family pages, which warn while it is set. Keep the payload's keys in step.
     """
-    payload = {
-        "at": datetime.now(timezone.utc).isoformat(),
-        "failed_datasets": sorted(set(failed_datasets)),
-        "imported_datasets": sorted(set(imported_datasets)),
-        "job_id": job_id,
-    }
     try:
-        await session.execute(
-            text(
-                f"""
-                UPDATE families
-                SET metadata = jsonb_set(
-                    {_WITHOUT_IMPORT_ENTRY},
-                    '{{import_incomplete}}',
-                    CAST(:payload AS jsonb),
-                    true
-                )
-                WHERE id = CAST(:family_uuid AS uuid)
-                """
-            ),
-            {
-                "family_uuid": family_context.family_uuid,
-                "payload": json.dumps(payload),
-                "import_key": import_key,
-            },
+        await _write_import_failure(
+            session,
+            family_uuid=family_context.family_uuid,
+            failed_datasets=failed_datasets,
+            imported_datasets=imported_datasets,
+            job_id=job_id,
+            import_key=import_key,
+            scopes=scopes or {},
+            imported_scopes=imported_scopes or {},
         )
-        await session.commit()
     except Exception:  # flag write must not mask the import failure
         logger.warning(
             "Failed to flag family %s as import-incomplete",
@@ -1151,41 +1338,70 @@ async def _flag_family_import_incomplete(
             pass
 
 
+# The family's metadata with each import-state key set to its new value, or removed (a JSON
+# null): :flag for import_incomplete, :unfinished for import_unfinished.
+_WITH_IMPORT_STATE = """
+CASE
+    WHEN CAST(:unfinished AS jsonb) = 'null'::jsonb THEN {flagged} - 'import_unfinished'
+    ELSE jsonb_set({flagged}, '{{import_unfinished}}', CAST(:unfinished AS jsonb), true)
+END
+""".format(
+    flagged="""(
+    CASE
+        WHEN CAST(:flag AS jsonb) = 'null'::jsonb
+            THEN COALESCE(metadata, '{}'::jsonb) - 'import_incomplete'
+        ELSE jsonb_set(COALESCE(metadata, '{}'::jsonb), '{import_incomplete}', CAST(:flag AS jsonb), true)
+    END
+)"""
+)
+
+
 async def _clear_family_import_incomplete(
     session: AsyncSession,
     family_context: FamilyMetadataContext,
     *,
     import_key: str | None = None,
     rewritten: Mapping[str, Any] | None = None,
-) -> dict[str, Any] | None:
-    """Drop a stale ``import_incomplete`` flag after a fully-successful (re)import, and
-    this import's ``import_unfinished`` entry (``import_key``).
+    imported: Mapping[str, Any] | None = None,
+) -> ImportStateLeft | None:
+    """After a fully-successful (re)import: remove what of the ``import_incomplete`` flag
+    it imported again, and this import's ``import_unfinished`` entry (``import_key``).
 
-    An earlier import's entry goes too when this import completed what that one may have
-    left partly written: every dataset it had not finished is one this import imported
-    again, replacing all of what that one was writing (``rewritten``: the scope of each
-    dataset an ``overwrite`` imported, as ``dataset_scopes`` gives it, compared with the
-    scope the entry records; an ``update`` replaces nothing, so passes none), or it had
-    finished them all. Any other entry stays. Returns the entries left, so the import can
-    say why the family stays marked, or None when nothing could be cleared.
+    The flag shrinks by each failed dataset this import imported again, in any mode, for
+    the scope the flag records (``imported``: the scope of each dataset it imported, as
+    ``dataset_scopes`` gives it), and goes with the last (``failures_left_after``); an
+    import that does not import a failed dataset leaves it flagged.
 
-    Read and written under the row's lock, so no other entry written meanwhile is lost.
-    Best-effort: leaving the flag would misreport a now-complete family as degraded; an
-    entry left in place keeps it marked, the safe side.
+    An earlier import's entry goes when this import completed what that one may have left
+    partly written: every dataset it had not finished is one this import imported again,
+    replacing all of what that one was writing (``rewritten``: as ``imported``, but only
+    for an ``overwrite``; an ``update`` replaces nothing, so passes none), or it had
+    finished them all. Any other entry stays. Returns what is left, so the import can say
+    why the family stays marked, or None when nothing could be cleared.
+
+    Read and written under the row's lock, so no other mark written meanwhile is lost.
+    Best-effort: a flag or an entry left in place keeps the family marked, the safe side.
     """
     replaced = dict(rewritten or {})
     try:
-        raw = (
+        row = (
             await session.execute(
                 text(
-                    "SELECT metadata -> 'import_unfinished' FROM families "
-                    "WHERE id = CAST(:family_uuid AS uuid) FOR UPDATE"
+                    "SELECT metadata -> 'import_incomplete' AS flag, "
+                    "metadata -> 'import_unfinished' AS unfinished "
+                    "FROM families WHERE id = CAST(:family_uuid AS uuid) FOR UPDATE"
                 ),
                 {"family_uuid": family_context.family_uuid},
             )
-        ).scalar_one_or_none()
+        ).mappings().first()
+        stored_flag = row["flag"] if row is not None else None
+        if isinstance(stored_flag, str):
+            try:
+                stored_flag = json.loads(stored_flag)
+            except ValueError:
+                pass
         remaining: dict[str, Any] = {}
-        for key, entry in _unfinished_entries(raw).items():
+        for key, entry in _unfinished_entries(row["unfinished"] if row is not None else None).items():
             if key == import_key:
                 continue
             pending = pending_datasets(entry)
@@ -1199,28 +1415,23 @@ async def _clear_family_import_incomplete(
             ):
                 continue
             remaining[key] = entry
+        failures = failures_left_after(stored_flag, dict(imported or {}))
         await session.execute(
             text(
-                """
+                f"""
                 UPDATE families
-                SET metadata = CASE
-                    WHEN CAST(:remaining AS jsonb) = '{}'::jsonb
-                        THEN COALESCE(metadata, '{}'::jsonb)
-                            - 'import_incomplete' - 'import_unfinished'
-                    ELSE jsonb_set(
-                        COALESCE(metadata, '{}'::jsonb) - 'import_incomplete',
-                        '{import_unfinished}',
-                        CAST(:remaining AS jsonb),
-                        true
-                    )
-                END
+                SET metadata = {_WITH_IMPORT_STATE}
                 WHERE id = CAST(:family_uuid AS uuid)
                 """
             ),
-            {"family_uuid": family_context.family_uuid, "remaining": json.dumps(remaining)},
+            {
+                "family_uuid": family_context.family_uuid,
+                "flag": json.dumps(failures.flag),
+                "unfinished": json.dumps(remaining or None),
+            },
         )
         await session.commit()
-        return remaining
+        return ImportStateLeft(unfinished=remaining, failures=failures)
     except Exception:  # best-effort flag clear
         logger.warning(
             "Failed to clear import-incomplete flag for family %s",

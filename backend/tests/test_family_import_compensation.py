@@ -2,15 +2,18 @@
 
 Covers the fail-clean plumbing without a live database:
   * `_delete_family_shell` also clears orphan ClickHouse interval-track rows.
-  * `_flag_family_import_incomplete` stamps a failed update/overwrite as degraded, and
-    removes the import's own `import_unfinished` entry in the same statement.
-  * `_clear_family_import_incomplete` drops the flag after a clean re-import, with the
-    import's own entry and each earlier import's entry it completed; an entry it did not
-    complete (an update, or an overwrite without that dataset) stays.
+  * `_flag_family_import_incomplete` stamps a failed update/overwrite as degraded, merged
+    with the flag already there (a later failure keeps an earlier one), and removes the
+    import's own `import_unfinished` entry in the same transaction.
+  * `_clear_family_import_incomplete`, after a completed import, removes what of the flag
+    it imported again (the flag stays until each failed dataset is), with the import's own
+    entry and each earlier import's entry it completed; an entry it did not complete (an
+    update, or an overwrite without that dataset) stays.
 The SQL itself runs against Postgres in
 integration/test_import_crash_bookkeeping_integration.py.
 """
 
+import copy
 import json
 from types import SimpleNamespace
 
@@ -72,78 +75,46 @@ async def test_delete_family_shell_also_clears_interval_tracks(monkeypatch) -> N
     assert any("DELETE FROM families" in sql for sql, _ in session.executed)
 
 
-@pytest.mark.asyncio
-async def test_flag_family_import_incomplete_records_datasets() -> None:
-    session = _FakeSession()
-    await fpi._flag_family_import_incomplete(
-        session,
-        _ctx(),
-        failed_datasets=["snv"],
-        imported_datasets=["sv_needlr"],
-    )
-    sql, params = session.executed[0]
-    assert "import_incomplete" in sql
-    payload = json.loads(params["payload"])
-    assert payload["failed_datasets"] == ["snv"]
-    assert payload["imported_datasets"] == ["sv_needlr"]
-    assert "at" in payload
+class _FamilyRow(_FakeSession):
+    """The family row's import state (``flag``: metadata.import_incomplete,
+    ``unfinished``: metadata.import_unfinished, None when absent). Answers the locked
+    reads and applies each UPDATE as its statement documents, told apart by what it binds:
+    an import's failure binds a ``payload`` (the merged flag; its own entry removed), a
+    completed import's clear binds the new ``flag`` and ``unfinished`` (JSON null: none)."""
 
-
-@pytest.mark.asyncio
-async def test_flag_family_import_incomplete_records_the_import_job() -> None:
-    # The flag names the job that holds each dataset's error; it never copies the error
-    # texts, which can carry file paths.
-    session = _FakeSession()
-    await fpi._flag_family_import_incomplete(
-        session, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-uuid"
-    )
-    payload = json.loads(session.executed[0][1]["payload"])
-    assert payload["job_id"] == "job-uuid"
-    assert set(payload) == {"at", "failed_datasets", "imported_datasets", "job_id"}
-
-    # An import run outside a job records none.
-    session = _FakeSession()
-    await fpi._flag_family_import_incomplete(
-        session, _ctx(), failed_datasets=["snv"], imported_datasets=[]
-    )
-    assert json.loads(session.executed[0][1]["payload"])["job_id"] is None
-
-
-@pytest.mark.asyncio
-async def test_a_failed_import_removes_its_own_unfinished_entry_with_the_flag() -> None:
-    # One statement: the family is never left with neither the flag nor the entry.
-    session = _FakeSession()
-    await fpi._flag_family_import_incomplete(
-        session, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-1", import_key="job-1"
-    )
-    assert len(session.executed) == 1
-    sql, params = session.executed[0]
-    assert "import_incomplete" in sql and "import_unfinished" in sql
-    assert params["import_key"] == "job-1"
-
-
-class _UnfinishedSession(_FakeSession):
-    """Answers the locked read of `import_unfinished` with ``stored``."""
-
-    def __init__(self, stored) -> None:
+    def __init__(self, flag=None, unfinished=None) -> None:
         super().__init__()
-        self.stored = stored
+        self.flag = flag
+        self.unfinished = unfinished
 
     async def execute(self, statement, params=None):
         await super().execute(statement, params)
-        stored = self.stored
-        return SimpleNamespace(scalar_one_or_none=lambda: stored)
-
-    def written(self) -> dict:
-        updates = [params for sql, params in self.executed if "UPDATE families" in sql]
-        assert len(updates) == 1
-        return json.loads(updates[0]["remaining"])
+        sql = " ".join(str(statement).split())
+        params = params or {}
+        if sql.startswith("SELECT"):
+            row = {
+                "family_uuid": "uuid-1",
+                "flag": copy.deepcopy(self.flag),
+                "unfinished": copy.deepcopy(self.unfinished),
+            }
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
+        assert sql.startswith("UPDATE families"), sql
+        if "payload" in params:
+            self.flag = json.loads(params["payload"])
+            if isinstance(self.unfinished, dict):
+                self.unfinished.pop(params.get("import_key"), None)
+                self.unfinished = self.unfinished or None
+        else:
+            self.flag = json.loads(params["flag"])
+            self.unfinished = json.loads(params["unfinished"])
+        return SimpleNamespace(rowcount=1)
 
 
 # What an overwrite of each dataset replaces (registration.dataset_scopes): the SNV
 # callset's source, and a per-sample dataset's samples.
 _SCOPES = {
     "snv": {"source": "auto", "samples": None},
+    "sv_needlr": {"source": None, "samples": None},
     "coverage": {"source": None, "samples": ["S1", "S2"]},
     "haplotypes": {"source": None, "samples": None},
 }
@@ -159,15 +130,183 @@ def _entry(job_id, datasets, finished=(), scopes=None):
     }
 
 
+def _flag(job_id, failed, imported=(), *, jobs=None):
+    """A flag as an import wrote it: each failed dataset with its job and scope."""
+    return {
+        "at": "2026-10-01T09:00:00+00:00",
+        "failed_datasets": sorted(failed),
+        "imported_datasets": sorted(imported),
+        "job_id": job_id,
+        "failed_jobs": {name: (jobs or {}).get(name, job_id) for name in sorted(failed)},
+        "scopes": {name: _SCOPES[name] for name in sorted(failed)},
+    }
+
+
+# --- an import's failure ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_flag_family_import_incomplete_records_datasets() -> None:
+    row = _FamilyRow()
+    await fpi._flag_family_import_incomplete(
+        row,
+        _ctx(),
+        failed_datasets=["snv"],
+        imported_datasets=["sv_needlr"],
+        scopes=_SCOPES,
+    )
+    assert row.flag["failed_datasets"] == ["snv"]
+    assert row.flag["imported_datasets"] == ["sv_needlr"]
+    assert "at" in row.flag
+    # What would import it again: the scope it failed for.
+    assert row.flag["scopes"] == {"snv": _SCOPES["snv"]}
+    select_sql, _ = row.executed[0]
+    assert "FOR UPDATE" in select_sql  # merged under the row's lock
+
+
+@pytest.mark.asyncio
+async def test_flag_family_import_incomplete_records_the_import_job() -> None:
+    # The flag names the job that holds each dataset's error; it never copies the error
+    # texts, which can carry file paths.
+    row = _FamilyRow()
+    await fpi._flag_family_import_incomplete(
+        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-uuid"
+    )
+    assert row.flag["job_id"] == "job-uuid"
+    assert row.flag["failed_jobs"] == {"snv": "job-uuid"}
+    assert set(row.flag) == {"at", "failed_datasets", "imported_datasets", "job_id", "failed_jobs", "scopes"}
+
+    # An import run outside a job records none.
+    row = _FamilyRow()
+    await fpi._flag_family_import_incomplete(
+        row, _ctx(), failed_datasets=["snv"], imported_datasets=[]
+    )
+    assert row.flag["job_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_failed_import_removes_its_own_unfinished_entry_with_the_flag() -> None:
+    # One transaction: the family is never left with neither the flag nor the entry.
+    row = _FamilyRow(unfinished={"job-1": _entry("job-1", ["snv"]), "job-0": _entry("job-0", ["coverage"])})
+    await fpi._flag_family_import_incomplete(
+        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-1", import_key="job-1"
+    )
+    assert row.flag["failed_datasets"] == ["snv"]
+    assert set(row.unfinished) == {"job-0"}
+    update_sql = row.executed[-1][0]
+    assert "import_incomplete" in update_sql and "import_unfinished" in update_sql
+
+
+@pytest.mark.asyncio
+async def test_a_later_failure_keeps_an_earlier_one_with_its_job() -> None:
+    # Before: the later flag replaced the earlier one, and sv's failure was forgotten.
+    row = _FamilyRow(flag=_flag("job-1", ["sv_needlr"], ["snv"]))
+    await fpi._flag_family_import_incomplete(
+        row, _ctx(), failed_datasets=["coverage"], imported_datasets=[], job_id="job-2", scopes=_SCOPES
+    )
+    assert row.flag["failed_datasets"] == ["coverage", "sv_needlr"]
+    assert row.flag["failed_jobs"] == {"coverage": "job-2", "sv_needlr": "job-1"}
+    assert row.flag["job_id"] == "job-2"
+    assert row.flag["scopes"] == {"coverage": _SCOPES["coverage"], "sv_needlr": _SCOPES["sv_needlr"]}
+
+
+@pytest.mark.asyncio
+async def test_a_failure_drops_an_earlier_failure_it_imported_again() -> None:
+    row = _FamilyRow(flag=_flag("job-1", ["sv_needlr"]))
+    await fpi._flag_family_import_incomplete(
+        row,
+        _ctx(),
+        failed_datasets=["coverage"],
+        imported_datasets=["sv_needlr"],
+        job_id="job-2",
+        scopes=_SCOPES,
+        imported_scopes={"sv_needlr": _SCOPES["sv_needlr"]},
+    )
+    assert row.flag["failed_datasets"] == ["coverage"]
+    assert row.flag["failed_jobs"] == {"coverage": "job-2"}
+
+
+# --- a completed import's clear -----------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_clear_family_import_incomplete_drops_the_flag() -> None:
-    session = _UnfinishedSession(None)
-    assert await fpi._clear_family_import_incomplete(session, _ctx()) == {}
-    select_sql, _ = session.executed[0]
+    row = _FamilyRow()
+    left = await fpi._clear_family_import_incomplete(row, _ctx())
+    assert left is not None and left.unfinished == {} and left.failures.failed == {}
+    select_sql, _ = row.executed[0]
     assert "FOR UPDATE" in select_sql  # read under the row's lock
-    update_sql, params = session.executed[1]
-    assert "- 'import_incomplete'" in update_sql
-    assert json.loads(params["remaining"]) == {}
+    assert row.flag is None and row.unfinished is None
+
+
+@pytest.mark.asyncio
+async def test_a_completed_import_that_did_not_import_the_failed_dataset_leaves_it_flagged() -> None:
+    # Before: any import that completed cleared the flag, sv still missing.
+    row = _FamilyRow(flag=_flag("job-1", ["sv_needlr"], ["snv"]))
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"snv": _SCOPES["snv"]})
+    assert row.flag == _flag("job-1", ["sv_needlr"], ["snv"])
+    assert left.failures.failed == {"sv_needlr": "job-1"}
+
+
+@pytest.mark.asyncio
+async def test_an_import_that_imports_the_failed_dataset_again_in_any_mode_clears_it() -> None:
+    # An update counts: the failing loader's rows were rolled back or cleaned up, so the
+    # update found none and imported the dataset whole (one whose rows stayed is skipped,
+    # and a skipped dataset is not imported).
+    row = _FamilyRow(flag=_flag("job-1", ["sv_needlr"]))
+    left = await fpi._clear_family_import_incomplete(
+        row, _ctx(), imported={"sv_needlr": _SCOPES["sv_needlr"]}
+    )
+    assert row.flag is None and left.failures.failed == {}
+
+
+@pytest.mark.asyncio
+async def test_a_partial_reimport_shrinks_the_flag_to_what_is_still_missing() -> None:
+    row = _FamilyRow(flag=_flag("job-2", ["coverage", "sv_needlr"], jobs={"sv_needlr": "job-1"}))
+    left = await fpi._clear_family_import_incomplete(
+        row, _ctx(), imported={"sv_needlr": _SCOPES["sv_needlr"]}
+    )
+    assert row.flag["failed_datasets"] == ["coverage"]
+    assert row.flag["failed_jobs"] == {"coverage": "job-2"}
+    assert row.flag["scopes"] == {"coverage": _SCOPES["coverage"]}
+    # When and by which job the import failed stay as they were.
+    assert (row.flag["at"], row.flag["job_id"]) == ("2026-10-01T09:00:00+00:00", "job-2")
+    assert left.failures.failed == {"coverage": "job-2"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("case", "imported"),
+    [
+        ("another SNV source", {"snv": {"source": "deepvariant", "samples": None}}),
+        ("fewer samples", {"coverage": {"source": None, "samples": ["S1"]}}),
+    ],
+)
+async def test_an_import_of_less_than_failed_leaves_it_flagged(case, imported) -> None:
+    name = next(iter(imported))
+    row = _FamilyRow(flag=_flag("job-1", [name]))
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported=imported)
+    assert left.failures.failed == {name: "job-1"}, case
+
+
+@pytest.mark.asyncio
+async def test_a_flag_that_records_no_scope_is_cleared_by_its_dataset() -> None:
+    # Written before flags recorded scopes: the dataset alone is compared.
+    flag = {key: value for key, value in _flag("job-1", ["snv"]).items() if key not in {"scopes", "failed_jobs"}}
+    row = _FamilyRow(flag=flag)
+    await fpi._clear_family_import_incomplete(
+        row, _ctx(), imported={"snv": {"source": "deepvariant", "samples": None}}
+    )
+    assert row.flag is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("flag", ["garbage", True, {"failed_datasets": "snv"}])
+async def test_a_flag_not_in_the_shape_an_import_writes_stays(flag) -> None:
+    row = _FamilyRow(flag=flag)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"snv": _SCOPES["snv"]})
+    assert row.flag == flag
+    assert left.failures.unreadable
 
 
 @pytest.mark.asyncio
@@ -183,15 +322,15 @@ async def test_a_completed_import_removes_its_own_entry_and_those_it_completed()
         # Not in the shape an import writes: nothing shows it complete.
         "unreadable": "garbage",
     }
-    session = _UnfinishedSession(stored)
-    remaining = await fpi._clear_family_import_incomplete(
-        session,
+    row = _FamilyRow(unfinished=copy.deepcopy(stored))
+    left = await fpi._clear_family_import_incomplete(
+        row,
         _ctx(),
         import_key="job-own",
         rewritten={"snv": _SCOPES["snv"], "coverage": _SCOPES["coverage"]},
     )
-    assert set(remaining) == {"job-other", "unreadable"}
-    assert session.written() == {"job-other": stored["job-other"], "unreadable": "garbage"}
+    assert set(left.unfinished) == {"job-other", "unreadable"}
+    assert row.unfinished == {"job-other": stored["job-other"], "unreadable": "garbage"}
 
 
 @pytest.mark.asyncio
@@ -209,51 +348,47 @@ async def test_a_completed_import_removes_its_own_entry_and_those_it_completed()
 )
 async def test_an_overwrite_of_less_than_the_stopped_import_wrote_leaves_its_entry(case, replaced) -> None:
     pending = next(iter(replaced))
-    stored = {"job-stopped": _entry("job-stopped", [pending])}
-    session = _UnfinishedSession(stored)
+    row = _FamilyRow(unfinished={"job-stopped": _entry("job-stopped", [pending])})
 
-    remaining = await fpi._clear_family_import_incomplete(session, _ctx(), rewritten=replaced)
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced)
 
-    assert set(remaining) == {"job-stopped"}, case
+    assert set(left.unfinished) == {"job-stopped"}, case
 
 
 @pytest.mark.asyncio
 async def test_an_overwrite_of_the_same_samples_or_more_completes_the_stopped_import() -> None:
-    stored = {"job-stopped": _entry("job-stopped", ["coverage"])}
-    session = _UnfinishedSession(stored)
+    row = _FamilyRow(unfinished={"job-stopped": _entry("job-stopped", ["coverage"])})
 
-    remaining = await fpi._clear_family_import_incomplete(
-        session, _ctx(), rewritten={"coverage": {"source": None, "samples": ["S1", "S2", "S3"]}}
+    left = await fpi._clear_family_import_incomplete(
+        row, _ctx(), rewritten={"coverage": {"source": None, "samples": ["S1", "S2", "S3"]}}
     )
 
-    assert remaining == {}
+    assert left.unfinished == {} and row.unfinished is None
 
 
 @pytest.mark.asyncio
 async def test_an_entry_without_the_scope_of_what_it_was_writing_is_never_completed() -> None:
-    stored = {"job-stopped": {**_entry("job-stopped", ["snv"]), "scopes": {}}}
-    session = _UnfinishedSession(stored)
+    row = _FamilyRow(unfinished={"job-stopped": {**_entry("job-stopped", ["snv"]), "scopes": {}}})
 
-    remaining = await fpi._clear_family_import_incomplete(
-        session, _ctx(), rewritten={"snv": _SCOPES["snv"]}
-    )
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={"snv": _SCOPES["snv"]})
 
-    assert set(remaining) == {"job-stopped"}
+    assert set(left.unfinished) == {"job-stopped"}
 
 
 @pytest.mark.asyncio
 async def test_an_update_completes_no_earlier_imports_partial_data() -> None:
     # An update skips a dataset that already holds data -- partly written data too -- so
     # it replaces nothing: an entry with anything pending stays.
-    stored = {
-        "job-own": _entry("job-own", ["snv"]),
-        "job-stopped": _entry("job-stopped", ["snv", "coverage"], finished=["coverage"]),
-    }
-    session = _UnfinishedSession(stored)
-    remaining = await fpi._clear_family_import_incomplete(
-        session, _ctx(), import_key="job-own", rewritten={}
+    row = _FamilyRow(
+        unfinished={
+            "job-own": _entry("job-own", ["snv"]),
+            "job-stopped": _entry("job-stopped", ["snv", "coverage"], finished=["coverage"]),
+        }
     )
-    assert set(remaining) == {"job-stopped"}
+    left = await fpi._clear_family_import_incomplete(
+        row, _ctx(), import_key="job-own", rewritten={}, imported={"snv": _SCOPES["snv"]}
+    )
+    assert set(left.unfinished) == {"job-stopped"}
 
 
 @pytest.mark.asyncio
