@@ -32,6 +32,7 @@ from .services.gene_info_jobs_pg import (
 )
 from .services.family_variant_filters import SampleFilterError
 from .services.family_package_import import (
+    drop_orphaned_import_backups,
     family_package_import_worker,
     stop_family_package_import_worker,
 )
@@ -92,6 +93,9 @@ async def lifespan(app: FastAPI):
     # Refuse to start on variant tables whose rows are not identified by their callset
     # (created by an earlier version): their merges lose calls. See docs/database.md.
     await verify_clickhouse_variant_storage_identity()
+    # An overwrite import's backup tables (a copy of the family's earlier variant rows)
+    # that no running import owns: left by an import whose process stopped. Best-effort.
+    await drop_orphaned_import_backups()
     await start_clickhouse_integrity_monitor()
     worker_task = asyncio.create_task(gene_reference_refresh_worker(worker_stop))
     family_import_worker_tasks = [

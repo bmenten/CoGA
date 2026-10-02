@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 from contextlib import AsyncExitStack, suppress
+from datetime import datetime, timedelta, timezone
 import logging
 import os
 from pathlib import Path
@@ -30,6 +31,10 @@ from . import ped_service
 from .bed_service import precompute_family_haplotype_lineage
 from .clickhouse_family_snapshot import (
     discard_family_clickhouse_snapshot,
+    drop_import_backup_tables,
+    is_job_owned,
+    list_import_backup_tables,
+    orphaned_import_backups,
     restore_family_clickhouse_state,
     snapshot_family_clickhouse_state,
 )
@@ -50,6 +55,7 @@ from .family_package_source import package_folder_path, staged_package_source_as
 from .family_package_validation import load_validated_family_package
 from .family_package_jobs import (
     claim_next_family_import_job,
+    running_family_import_job_ids,
     _beat_family_import_job,
     _record_job_family,
     _update_job_progress,
@@ -84,6 +90,9 @@ FAMILY_IMPORT_WORKER_POLL_SECONDS = 2.0
 # for another writer's locks, copying a snapshot): a heartbeat older than
 # FAMILY_IMPORT_STALE_HEARTBEAT means the process running it has stopped.
 FAMILY_IMPORT_HEARTBEAT_SECONDS = 60.0
+# How long a backup table of an import run outside a job is kept: nothing records whether
+# that import still runs (drop_orphaned_import_backups).
+IMPORT_BACKUP_GRACE = timedelta(days=1)
 
 
 class FamilyImportNotRecorded(RuntimeError):
@@ -384,8 +393,10 @@ async def _import_family_datasets(
                 session, family_context.family_uuid
             )
             if family_context.assembly_name:
+                # Named after this import, so a backup its stopped process leaves is found
+                # and dropped (handle_claimed_family_import_job, drop_orphaned_import_backups).
                 clickhouse_snapshot = await snapshot_family_clickhouse_state(
-                    family_context.assembly_name, family_context.family_uuid
+                    family_context.assembly_name, family_context.family_uuid, owner=import_key
                 )
             logs.append(
                 "Snapshotted the family's existing data for atomic restore on failure."
@@ -794,6 +805,59 @@ async def run_family_import_job(
                 await heartbeat
 
 
+async def handle_claimed_family_import_job(job_row: Mapping[str, Any], *, worker_id: str) -> None:
+    """Do what a claimed job needs: run it, or, when the claim ended it as interrupted (its
+    import had begun writing the family when its process stopped), drop the backup tables
+    that import made of the family and could not drop itself."""
+    if job_row["status"] == "validating":
+        await run_family_import_job(job_id=str(job_row["id"]), worker_id=worker_id)
+        return
+    logger.warning(
+        "Family package import job %s stopped part-way; ended it as interrupted",
+        job_row["id"],
+    )
+    try:
+        dropped = await drop_import_backup_tables(
+            await list_import_backup_tables(owner=str(job_row["id"]))
+        )
+    except Exception:  # left for the startup sweep (drop_orphaned_import_backups)
+        logger.warning(
+            "Could not drop the backup tables of stopped import job %s", job_row["id"], exc_info=True
+        )
+        return
+    if dropped:
+        logger.info(
+            "Dropped %d backup table(s) of stopped import job %s", len(dropped), job_row["id"]
+        )
+
+
+async def drop_orphaned_import_backups(*, grace: timedelta = IMPORT_BACKUP_GRACE) -> list[str]:
+    """Drop the import backup tables no running import owns; returns those dropped.
+
+    Run at startup. The worker that ends a stopped job drops its backups, so this finds
+    those left when that failed, or when the import ran outside a job (kept for ``grace``,
+    as nothing records whether it still runs): see ``orphaned_import_backups``.
+    Best-effort: a failure is logged and the tables are left for the next start.
+    """
+    try:
+        tables = await list_import_backup_tables()
+        job_owners = {table.owner for table in tables if is_job_owned(table)}
+        running: set[str] = set()
+        if job_owners:
+            async with get_postgres_sessionmaker()() as session:
+                running = await running_family_import_job_ids(session, job_owners)
+        orphaned = orphaned_import_backups(
+            tables, running_jobs=running, now=datetime.now(timezone.utc), grace=grace
+        )
+        dropped = await drop_import_backup_tables(orphaned)
+    except Exception:  # never stops the start
+        logger.warning("Could not drop the orphaned import backup tables", exc_info=True)
+        return []
+    if dropped:
+        logger.info("Dropped %d orphaned import backup table(s)", len(dropped))
+    return dropped
+
+
 async def family_package_import_worker(stop_event: asyncio.Event | None = None) -> None:
     session_factory = get_postgres_sessionmaker()
     worker_id = f"{os.getpid()}-{uuid4().hex}"
@@ -806,14 +870,7 @@ async def family_package_import_worker(stop_event: asyncio.Event | None = None) 
             if job_row is None:
                 await asyncio.sleep(FAMILY_IMPORT_WORKER_POLL_SECONDS)
                 continue
-            if job_row["status"] != "validating":
-                # Its import had stopped part-way, so the claim ended it: nothing to run.
-                logger.warning(
-                    "Family package import job %s stopped part-way; ended it as interrupted",
-                    job_row["id"],
-                )
-                continue
-            await run_family_import_job(job_id=job_row["id"], worker_id=worker_id)
+            await handle_claimed_family_import_job(job_row, worker_id=worker_id)
         except asyncio.CancelledError:
             raise
         except Exception:  # pragma: no cover
