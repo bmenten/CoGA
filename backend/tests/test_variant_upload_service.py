@@ -206,7 +206,7 @@ def test_gt_only_shapeit_vcf_is_detected_as_glimpse2() -> None:
 
     assert _detect_small_variant_format(vcf_text, "auto") == "glimpse2"
 
-    upload = UploadFile(file=BytesIO(vcf_text.encode()), filename="co619_phased_final.vcf")
+    upload = UploadFile(file=BytesIO(vcf_text.encode()), filename="FAM001_phased_final.vcf")
     assert _detect_small_variant_format_from_upload(upload, "auto") == "glimpse2"
 
 

@@ -246,8 +246,8 @@ describe('haplotype risk inference', () => {
 });
 
 describe('pedigree-aware lineage tags override role-based origin', () => {
-  // co620: the paternal grandmother is stored with role "mother" but the backend
-  // tags her shared homolog paternal and her other homolog untransmitted.
+  // Three-generation family: the paternal grandmother is stored with role "mother" but
+  // the backend tags her shared homolog paternal and her other homolog untransmitted.
   const grandmother: HaplotypeMemberLike = { sample_id: 'GM', role: 'mother', affected: true, sex: 'female' };
 
   it('uses the lineage tag, not the role, to pick the origin', () => {
@@ -304,7 +304,7 @@ describe('pedigree-aware lineage tags override role-based origin', () => {
   it('does not let a fully-greyed affected relative collapse a resolvable dominant call', () => {
     // Regression for the intersection-collapse bug: the affected father + affected
     // proband co-segregate paternal:0, so the dominant call must resolve. An affected
-    // relative the lineage service greyed on BOTH lanes (e.g. the co620 grandmother on
+    // relative the lineage service greyed on BOTH lanes (e.g. the paternal grandmother on
     // an autosome where IBD matching failed the gates, or any non-autosome) yields ZERO
     // in-region signatures. She must be treated as NON-informative for the intersection,
     // not as a hard zero that wipes the whole disease-haplotype call.

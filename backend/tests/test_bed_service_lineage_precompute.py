@@ -11,7 +11,7 @@ from app.services.family_metadata_context import FamilyMetadataContext
 def _ctx(**overrides) -> FamilyMetadataContext:
     base = dict(
         family_uuid="fam-uuid",
-        family_id="co620",
+        family_id="FAM001",
         project_ids=[],
         sample_rows=[
             {"sample_uuid": "u-dad", "sample_id": "DAD", "role": "father", "clinical_status": "unaffected"},
