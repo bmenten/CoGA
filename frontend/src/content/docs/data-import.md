@@ -120,6 +120,35 @@ pacbio/
   pipeline_info/  software_versions.yaml, params_*.json
 ```
 
+PGT packages from the PGT pipeline (nf-cmgg/copgtm) are laid out per tool:
+
+```text
+FAM001/
+  ped/            combined.ped                                 the couple and the embryos
+  dashboard/      samplesheet.csv, pedigree.csv                each sample's role
+  qdnaseq/        EMBRYO1_cnv.csv                              CNV bins and segments
+  split_trio/     filter_trio/EMBRYO1.trio_filtered.vcf.gz     APCAD, one trio per embryo
+  apcad/          EMBRYO1_pcf_{mat,pat}_data.csv               PCF segments, when the run writes them
+  phasing/        shapeit_filter/FAM001_shapeit_rephased_final.vcf.gz   haplotypes
+  cram/           EMBRYO1.cram (+ .crai)                       alignments
+  mean/ qualimap/ ngsbits/ picard/ rtgtools/ king/             QC
+  pipeline_info/  params_*.json, copgtm_software_mqc_versions.yml
+```
+
+**Discover manifest** reads the samplesheet: the embryos get the embryo role, and an index that the PED
+lacks is added. The pipeline does not say how the index is related, so Discover proposes a link from
+what KING measured against the couple: the couple's child when it is first-degree to both parents,
+otherwise a relative of unknown degree (**Related to**, a dotted arc in the pedigree) of the parent it is
+related to, or of the affected parent. The warning says which link it proposed; change it before you
+write the manifest, or on the family page afterwards. Without a link, the index's haplotype stays grey
+and does not help find the risk haplotype. Record the index's clinical status too: it stays unknown, and
+the risk haplotype is found from the affected members. The parent the pipeline traced is recorded as the affected parent
+(`metadata.pgt.affected_parents`); set the inheritance model (`metadata.pgt.inheritance_model`) and that
+parent is recorded as affected (AD, XLD, or a father under XLR) or as a proven carrier (AR, or a mother
+under XLR). A status you record for the parent under `family.members` wins. The ROI comes from the
+pipeline run. PCF segments are read from their CSV table only; a run that only draws them in an HTML plot
+gets no PCF track.
+
 CoGA knows several usual file names per layer, so packages from slightly different pipelines are still
 found; **Discover manifest** shows what it found. When a caller names a VCF's sample column after its
 input file (`Sample0`, `HG002_sort`) rather than the sample, CoGA binds a single-sample VCF to the sample

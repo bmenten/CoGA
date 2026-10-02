@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import uuid_list_bindparam, uuid_values
+from .haplotype_phase_correction import FAMILY_METADATA_KEY as PHASE_CORRECTIONS_KEY, corrections_from_metadata
 from .metadata_service import get_accessible_family_mapping, get_accessible_sample_mapping
 from .access_control import CurrentUser, is_admin_user
 
@@ -42,6 +43,8 @@ class FamilyMetadataContext:
     assembly_id: str | None
     assembly_name: str | None
     relationship_rows: list[dict[str, Any]] = field(default_factory=list)
+    # The parents' phase switches the haplotype blocks undid (haplotype_phase_correction).
+    phase_corrections: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -206,12 +209,16 @@ async def build_family_metadata_context(
         project_id=project_id,
         project_ids=None if project_id is not None else project_ids,
     )
+    family_metadata = family_row.get("metadata")
     return FamilyMetadataContext(
         family_uuid=family_uuid,
         family_id=str(family_row["family_id"]),
         project_ids=project_ids,
         sample_rows=sample_rows,
         relationship_rows=relationship_rows,
+        phase_corrections=corrections_from_metadata(
+            family_metadata.get(PHASE_CORRECTIONS_KEY) if isinstance(family_metadata, dict) else None
+        ),
         sample_uuid_to_name=sample_uuid_to_name,
         sample_name_to_uuid=sample_name_to_uuid,
         affected_sample_names=affected_sample_names,

@@ -88,6 +88,37 @@ describe('PipelineSettingsPanel', () => {
     expect(screen.queryByText('false')).not.toBeInTheDocument();
   });
 
+  it("groups a PGT run's parameters under the job they configured", () => {
+    // The shape the PGT pipeline (nf-cmgg/copgtm) records from its params_*.json.
+    render(
+      <PipelineSettingsPanel
+        settings={{
+          fasta: 'GRCh38_analysis_set.fna',
+          affected_parent: 'MOTHER1',
+          roi: 'chr7:1000-2000',
+          bin_size: 500,
+          apcad_imputation: true,
+          cohort_vcf: 'joint_germline.vcf.gz',
+          shapeit_reference_panel: 'panel_samplesheet.csv',
+        }}
+      />,
+    );
+
+    const groups = screen.getByTestId('pipeline-tools');
+    expect(groups).toHaveTextContent('PGT analysis');
+    expect(groups).toHaveTextContent('Affected parent');
+    expect(groups).toHaveTextContent('MOTHER1');
+    expect(groups).toHaveTextContent('Region of interest');
+    expect(groups).toHaveTextContent('chr7:1000-2000');
+    expect(groups).toHaveTextContent('Bin size (kb)');
+    expect(groups).toHaveTextContent('Phasing reference panel');
+    expect(groups).toHaveTextContent('Joint callset');
+    // Every parameter has its place: nothing is left for "Other settings".
+    expect(screen.queryByText('Other settings')).not.toBeInTheDocument();
+    // A switch is a stage that ran, not a "true" row.
+    expect(screen.getByTestId('pipeline-stages')).toHaveTextContent('APCAD on the imputed parents');
+  });
+
   it('still shows a parameter it does not have a label for', () => {
     // A setting added upstream belongs on the record even before this UI knows it.
     render(<PipelineSettingsPanel settings={{ genome: 'GRCh38', future_option: 'enabled' }} />);

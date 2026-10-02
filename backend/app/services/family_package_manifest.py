@@ -53,6 +53,8 @@ _PED_ROLE_VALUES = {"proband", "father", "mother", "sibling", "embryo", "relativ
 
 
 _TRUE_VALUES = {"1", "true", "yes", "y", "carrier"}
+# A PED carrier column that says "not a carrier".
+_NOT_CARRIER_VALUES = {"0", "false", "no", "n", "not_carrier", "notcarrier", "non_carrier", "noncarrier", "non-carrier"}
 
 
 _INHERITANCE_MODELS = {"AD", "AR", "XLD", "XLR", "mitochondrial"}
@@ -155,6 +157,16 @@ def _ped_is_carrier(member: PedMember) -> bool:
     return bool({"carrier", "obligatecarrier", "provencarrier"}.intersection(flags))
 
 
+def _ped_records_not_carrier(member: PedMember) -> bool:
+    """A PED carrier column that says the member is not a carrier (as opposed to one
+    that says nothing)."""
+    for key in ("carrier", "carrierstatus"):
+        value = member.extra.get(key)
+        if value is not None and str(value).strip().lower() in _NOT_CARRIER_VALUES:
+            return True
+    return False
+
+
 def _lookup_normalized_key(payload: dict[str, Any], *keys: str) -> Any:
     normalized_keys = {_normalize_header_key(key) for key in keys}
     for key, value in payload.items():
@@ -210,6 +222,7 @@ def _manifest_pgt_metadata(manifest: PackageManifest) -> dict[str, Any]:
     proven_carriers = sorted(
         set(_manifest_sample_id_list(_lookup_normalized_key(source, "proven_carriers", "provenCarriers")))
     )
+    affected_parents = _manifest_affected_parents(manifest)
     metadata: dict[str, Any] = {}
     if inheritance_model:
         metadata["inheritance_model"] = inheritance_model
@@ -217,6 +230,8 @@ def _manifest_pgt_metadata(manifest: PackageManifest) -> dict[str, Any]:
         metadata["obligate_carriers"] = obligate_carriers
     if proven_carriers:
         metadata["proven_carriers"] = proven_carriers
+    if affected_parents:
+        metadata["affected_parents"] = affected_parents
     return metadata
 
 
@@ -305,6 +320,293 @@ def _manifest_member_overrides(manifest: PackageManifest) -> dict[str, dict[str,
     return overrides
 
 
+def _manifest_affected_parents(manifest: PackageManifest) -> list[str]:
+    """The parents ``metadata.pgt.affected_parents`` names: those whose condition the PGT
+    tests for. ``affected_parent``, the PGT pipeline's name for it, is read too."""
+    value = _lookup_normalized_key(
+        _manifest_pgt_source(manifest),
+        "affected_parents",
+        "affectedParents",
+        "affected_parent",
+        "affectedParent",
+    )
+    return sorted(set(_manifest_sample_id_list(value)))
+
+
+def _affected_parent_status(inheritance_model: str, *, is_father: bool) -> dict[str, str] | None:
+    """The status an affected parent has under an inheritance model, as the haplotype
+    analysis reads it: affected under a dominant model, and under X-linked recessive
+    inheritance a father; a proven carrier under a recessive model, and under X-linked
+    recessive inheritance a mother. Mitochondrial inheritance is not traced through
+    haplotypes, so it gives none."""
+    if inheritance_model in {"AD", "XLD"} or (inheritance_model == "XLR" and is_father):
+        return {"clinical_status": "affected"}
+    if inheritance_model in {"AR", "XLR"}:
+        return {"carrier_status": "carrier", "carrier_type": "proven"}
+    return None
+
+
+def _manifest_affected_parent_statuses(
+    manifest: PackageManifest, ped: ParsedPed
+) -> tuple[dict[str, dict[str, Any]], list[FamilyImportValidationIssue], list[FamilyImportValidationIssue]]:
+    """The status each parent named under ``metadata.pgt.affected_parents`` gets from
+    ``metadata.pgt.inheritance_model``, with the errors and warnings that explain it.
+
+    A status recorded for the parent wins: under ``family.members``, in the carrier
+    lists, or in the PED. A derived value only fills what none of them states, and where
+    a recorded status contradicts the model, a warning says so. Each status derived is
+    reported as a warning too, so the user sees it before the import."""
+    parents = _manifest_affected_parents(manifest)
+    if not parents:
+        return {}, [], []
+    members = {member.iid: member for member in ped.members}
+    fathers = {member.pid for member in ped.members if member.pid not in {"", "0"}}
+    mothers = {member.mid for member in ped.members if member.mid not in {"", "0"}}
+    inheritance_model = _manifest_pgt_metadata(manifest).get("inheritance_model")
+    explicit = _manifest_member_overrides(manifest)
+    listed_carriers = _manifest_carrier_types(manifest)
+    derived: dict[str, dict[str, Any]] = {}
+    errors: list[FamilyImportValidationIssue] = []
+    warnings: list[FamilyImportValidationIssue] = []
+    for sample_id in parents:
+        member = members.get(sample_id)
+        if member is None:
+            errors.append(
+                _issue(
+                    "manifest_affected_parent_unknown",
+                    f"metadata.pgt.affected_parents names '{sample_id}', which is not a member of the family",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        if sample_id not in fathers and sample_id not in mothers:
+            errors.append(
+                _issue(
+                    "manifest_affected_parent_not_parent",
+                    f"metadata.pgt.affected_parents names '{sample_id}', who is no one's parent in the PED",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        if inheritance_model is None:
+            warnings.append(
+                _issue(
+                    "pgt_affected_parent_needs_model",
+                    f"{sample_id} is the affected parent, but metadata.pgt.inheritance_model is not "
+                    "set, so its clinical and carrier status stay as recorded. With the model set "
+                    "(AD, AR, XLD or XLR), the affected parent is recorded as affected or as a "
+                    "proven carrier, as the model asks.",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        status = _affected_parent_status(inheritance_model, is_father=sample_id in fathers)
+        if status is None:
+            warnings.append(
+                _issue(
+                    "pgt_affected_parent_no_status",
+                    f"No status is derived for the affected parent {sample_id} under "
+                    f"{inheritance_model} inheritance; record it under family.members.",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        override = explicit.get(sample_id, {})
+        kept: dict[str, Any] = {}
+        if "clinical_status" in status:
+            recorded = override.get("clinical_status") or (
+                member.clinical_status if member.clinical_status != "unknown" else None
+            )
+            if recorded is None:
+                kept["clinical_status"] = status["clinical_status"]
+            elif recorded != status["clinical_status"]:
+                warnings.append(
+                    _issue(
+                        "pgt_affected_parent_status_conflict",
+                        f"{sample_id} is recorded as {recorded}, though the affected parent is "
+                        f"affected under {inheritance_model} inheritance; the recorded status is kept.",
+                        sample_id=sample_id,
+                    )
+                )
+        else:
+            recorded_carrier = override.get("carrier_status") or (
+                "carrier"
+                if override.get("carrier_type") or sample_id in listed_carriers or _ped_is_carrier(member)
+                else "not_carrier"
+                if _ped_records_not_carrier(member)
+                else None
+            )
+            if recorded_carrier is None:
+                kept.update(status)
+                kept["carrier_evidence"] = {
+                    "derived_from": "metadata.pgt.affected_parents",
+                    "inheritance_model": inheritance_model,
+                }
+            elif recorded_carrier != "carrier":
+                warnings.append(
+                    _issue(
+                        "pgt_affected_parent_status_conflict",
+                        f"{sample_id} is recorded as {recorded_carrier.replace('_', ' ')}, though the "
+                        f"affected parent is a carrier under {inheritance_model} inheritance; the "
+                        "recorded status is kept.",
+                        sample_id=sample_id,
+                    )
+                )
+        if kept:
+            derived[sample_id] = kept
+            description = "affected" if "clinical_status" in kept else "a proven carrier"
+            warnings.append(
+                _issue(
+                    "pgt_affected_parent_status",
+                    f"{sample_id} is recorded as {description}: the affected parent under "
+                    f"{inheritance_model} inheritance.",
+                    sample_id=sample_id,
+                )
+            )
+    return derived, errors, warnings
+
+
+def _manifest_member_status_overrides(
+    manifest: PackageManifest, ped: ParsedPed
+) -> dict[str, dict[str, Any]]:
+    """``family.members`` overrides, with the affected parent's derived status beneath
+    them (see :func:`_manifest_affected_parent_statuses`)."""
+    overrides = {sample_id: dict(override) for sample_id, override in _manifest_member_overrides(manifest).items()}
+    derived, _errors, _warnings = _manifest_affected_parent_statuses(manifest, ped)
+    for sample_id, fields in derived.items():
+        target = overrides.setdefault(sample_id, {})
+        for key, value in fields.items():
+            target.setdefault(key, value)
+    return overrides
+
+
+def _manifest_added_member_entries(manifest: PackageManifest) -> list[tuple[str, dict[str, Any]]]:
+    """``family.add_members`` as ``(sample_id, payload)`` pairs, a list or a mapping."""
+    raw = _manifest_family_payload(manifest).get("add_members")
+    entries: list[tuple[str, dict[str, Any]]] = []
+    if isinstance(raw, dict):
+        for sample_id, payload in raw.items():
+            entries.append((str(sample_id).strip(), payload if isinstance(payload, dict) else {}))
+    elif isinstance(raw, list):
+        for payload in raw:
+            if isinstance(payload, dict):
+                sample_id = payload.get("sample_id") or payload.get("id")
+                entries.append((str(sample_id or "").strip(), payload))
+            else:
+                entries.append((str(payload or "").strip(), {}))
+    return entries
+
+
+_ADDED_MEMBER_PHENOTYPE_CODES = {"unknown": "0", "unaffected": "1", "affected": "2"}
+
+
+def _manifest_added_ped_rows(
+    manifest: PackageManifest,
+    *,
+    family_id: str,
+    ped_sample_ids: set[str],
+    ped_from_database: bool = False,
+) -> tuple[list[str], list[FamilyImportValidationIssue]]:
+    """PED rows for the members ``family.add_members`` adds to the PED's.
+
+    A pipeline PED may lack a member the analysis uses: the PGT pipeline's PED holds the
+    couple and the embryos, not the index whose haplotypes identify the affected one.
+    Each added member becomes one more PED row, so every later step (validation, the
+    family's members, the stored pedigree) sees it like any other member; its role is
+    written as a ``role=`` column. Its ``father`` and ``mother``, when given, go into the
+    row, so a child of the couple is one in the PED too; the PED checks then see that
+    they are members of the right sex. Other links go under ``family.relationships``.
+
+    A member already in the PED is an error, except when the PED is the stored pedigree
+    of an existing family, which holds the members an earlier import added.
+    """
+    rows: list[str] = []
+    errors: list[FamilyImportValidationIssue] = []
+    seen: set[str] = set()
+    for sample_id, payload in _manifest_added_member_entries(manifest):
+        if not sample_id or any(character.isspace() for character in sample_id):
+            errors.append(
+                _issue(
+                    "manifest_added_member_invalid",
+                    "family.add_members entries need a sample_id without spaces",
+                )
+            )
+            continue
+        if sample_id in ped_sample_ids:
+            if ped_from_database:
+                continue
+            errors.append(
+                _issue(
+                    "manifest_added_member_in_ped",
+                    f"family.add_members adds '{sample_id}', which is already in the PED; "
+                    "change it under family.members instead",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        if sample_id in seen:
+            errors.append(
+                _issue(
+                    "manifest_added_member_duplicate",
+                    f"family.add_members lists '{sample_id}' twice",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        seen.add(sample_id)
+        sex_value = _lookup_normalized_key(payload, "sex")
+        sex = _normalize_ped_sex(str(sex_value)) if sex_value is not None else "0"
+        if sex is None:
+            errors.append(
+                _issue(
+                    "manifest_added_member_invalid",
+                    f"family.add_members gives '{sample_id}' the unsupported sex '{sex_value}'",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        role_value = _lookup_normalized_key(payload, "role")
+        role = str(role_value).strip().lower() if role_value is not None else "relative"
+        if role not in _PED_ROLE_VALUES:
+            errors.append(
+                _issue(
+                    "manifest_added_member_invalid",
+                    f"family.add_members gives '{sample_id}' the unsupported role '{role_value}'",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        status_value = _lookup_normalized_key(payload, "clinical_status", "clinicalStatus", "phenotype")
+        clinical_status = (
+            _normalize_manifest_clinical_status(status_value) if status_value is not None else "unknown"
+        )
+        if clinical_status is None:
+            errors.append(
+                _issue(
+                    "manifest_added_member_invalid",
+                    f"family.add_members gives '{sample_id}' the unsupported clinical status '{status_value}'",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        phenotype = _ADDED_MEMBER_PHENOTYPE_CODES[clinical_status]
+        parents = [
+            str(value).strip() if value is not None and str(value).strip() else "0"
+            for value in (_lookup_normalized_key(payload, "father"), _lookup_normalized_key(payload, "mother"))
+        ]
+        if any(any(character.isspace() for character in parent) for parent in parents):
+            errors.append(
+                _issue(
+                    "manifest_added_member_invalid",
+                    f"family.add_members gives '{sample_id}' a parent id with spaces",
+                    sample_id=sample_id,
+                )
+            )
+            continue
+        rows.append(f"{family_id} {sample_id} {parents[0]} {parents[1]} {sex} {phenotype} role={role}")
+    return rows, errors
+
+
 def _manifest_relationships(manifest: PackageManifest) -> list[dict[str, Any]]:
     relationships = _metadata_dict(_manifest_family_payload(manifest).get("relationships"))
     result: list[dict[str, Any]] = []
@@ -354,7 +656,88 @@ def _manifest_relationships(manifest: PackageManifest) -> list[dict[str, Any]]:
                         "metadata": {},
                     }
                 )
+    # A member related to the family through another, by an unknown degree: a PGT index
+    # known to be on the mother's side, say. sample_id_a is the member the link goes
+    # through.
+    relatives = relationships.get("relatives")
+    if isinstance(relatives, list):
+        for relative in relatives:
+            if not isinstance(relative, dict):
+                continue
+            member = relative.get("member") or relative.get("sample_id")
+            if member is None or not str(member).strip():
+                continue
+            for related_to in _manifest_sample_id_list(relative.get("related_to")):
+                result.append(
+                    {
+                        "relationship_type": "relative",
+                        "sample_id_a": related_to,
+                        "sample_id_b": str(member).strip(),
+                        "role_a": "relative",
+                        "role_b": "relative",
+                        "source": "manifest",
+                        "metadata": _metadata_dict(relative.get("metadata")),
+                    }
+                )
     return result
+
+
+def _manifest_relationship_issues(
+    manifest: PackageManifest, sample_ids: set[str], ped: ParsedPed | None = None
+) -> list[FamilyImportValidationIssue]:
+    """Errors for ``family.relationships`` entries that name someone who is not a member,
+    and for a link of unknown degree (``relatives``) that links a member to itself or
+    repeats a relationship the PED or the manifest records.
+
+    Without this check a typo in a manifest relationship surfaced only when the family
+    was written, after the package had validated."""
+    errors: list[FamilyImportValidationIssue] = []
+    relationships = _manifest_relationships(manifest)
+    for relationship in relationships:
+        for key in ("sample_id_a", "sample_id_b"):
+            sample_id = relationship[key]
+            if sample_id not in sample_ids:
+                errors.append(
+                    _issue(
+                        "manifest_relationship_unknown_member",
+                        f"family.relationships names '{sample_id}', which is not a member of the family",
+                        sample_id=sample_id,
+                    )
+                )
+    # The pairs the family will record otherwise: the manifest's own links, each PED
+    # member with its parents, and the parents of a child, whom the import records as
+    # a couple. The family editor refuses a link of unknown degree between any of these,
+    # and so every later edit of the family would fail.
+    known_pairs = {
+        frozenset((relationship["sample_id_a"], relationship["sample_id_b"]))
+        for relationship in relationships
+        if relationship["relationship_type"] != "relative"
+    }
+    for member in ped.members if ped is not None else []:
+        parents = [parent for parent in (member.pid, member.mid) if parent not in {"", "0"}]
+        known_pairs.update(frozenset((member.iid, parent)) for parent in parents)
+        if len(parents) == 2:
+            known_pairs.add(frozenset(parents))
+    seen_relatives: set[frozenset[str]] = set()
+    for relationship in relationships:
+        if relationship["relationship_type"] != "relative":
+            continue
+        member, related_to = relationship["sample_id_b"], relationship["sample_id_a"]
+        pair = frozenset((member, related_to))
+        if member == related_to:
+            message = f"family.relationships.relatives links '{member}' to itself"
+        elif pair in known_pairs:
+            message = (
+                f"family.relationships.relatives links '{member}' to '{related_to}', who are "
+                "already recorded as parent and child or as a couple"
+            )
+        elif pair in seen_relatives:
+            message = f"family.relationships.relatives links '{member}' and '{related_to}' twice"
+        else:
+            seen_relatives.add(pair)
+            continue
+        errors.append(_issue("manifest_relative_link_invalid", message, sample_id=member))
+    return errors
 
 
 def _parse_ped_text_strict(text_value: str) -> tuple[ParsedPed | None, list[FamilyImportValidationIssue]]:

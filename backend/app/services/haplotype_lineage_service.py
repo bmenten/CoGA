@@ -44,7 +44,7 @@ from __future__ import annotations
 import bisect
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Collection, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +134,8 @@ class Pedigree:
     parents_of: dict[str, dict[str, str]]
     # parent sample name -> set of child sample names
     children_of: dict[str, set[str]]
+    # sample name -> the members it is related to by an unknown degree (``relative`` edges)
+    relatives_of: dict[str, set[str]] = field(default_factory=dict)
 
     def parents(self, name: str) -> set[str]:
         return set(self.parents_of.get(name, {}).values())
@@ -141,6 +143,10 @@ class Pedigree:
     def neighbors(self, name: str) -> set[str]:
         """All pedigree neighbours reachable by a single parent-child edge."""
         return self.parents(name) | self.children_of.get(name, set())
+
+    def relatives(self, name: str) -> set[str]:
+        """The members ``name`` is related to by an unknown degree."""
+        return set(self.relatives_of.get(name, set()))
 
 
 def build_pedigree(
@@ -154,7 +160,14 @@ def build_pedigree(
             roles[name] = _normalize_role(row.get("role"))
     parents_of: dict[str, dict[str, str]] = {}
     children_of: dict[str, set[str]] = {}
+    relatives_of: dict[str, set[str]] = {}
     for rel in relationship_rows:
+        if str(rel.get("relationship_type")) == "relative":
+            one, other = str(rel.get("sample_id_a") or ""), str(rel.get("sample_id_b") or "")
+            if one and other and one != other:
+                relatives_of.setdefault(one, set()).add(other)
+                relatives_of.setdefault(other, set()).add(one)
+            continue
         if str(rel.get("relationship_type")) != "parent_child":
             continue
         parent = str(rel.get("sample_id_a") or "")
@@ -165,7 +178,7 @@ def build_pedigree(
         side = "father" if role_a == "father" else "mother" if role_a == "mother" else role_a or "parent"
         parents_of.setdefault(child, {})[side] = parent
         children_of.setdefault(parent, set()).add(child)
-    return Pedigree(roles=roles, parents_of=parents_of, children_of=children_of)
+    return Pedigree(roles=roles, parents_of=parents_of, children_of=children_of, relatives_of=relatives_of)
 
 
 @dataclass(slots=True)
@@ -738,6 +751,114 @@ def _same_colouring(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return all(a[k] == b[k] for k in ("hap1", "hap2", "hap1_lineage", "hap2_lineage"))
 
 
+# --- relatives of unknown degree -------------------------------------------------
+#
+# A member linked to the family by a ``relative`` edge -- related through that member by
+# a degree nobody recorded, such as a PGT index known only to be on the mother's side --
+# is coloured only when it turns out to be that member's parent or child: when it shares
+# one of the member's haplotypes along (nearly) every autosome, which the parent-child
+# share test above confirms one chromosome at a time. It is then coloured as a parent or
+# child is. A more distant relative shares a haplotype only in stretches, and on imputed
+# low-pass genotypes those stretches cannot be told apart from the long runs unrelated
+# people share by state, nor from stretches where a sibling shares both haplotypes (in
+# an example family, a model reading such stretches site by site called a share at most
+# sites of an unrelated pair and called both haplotypes shared at a third of a parent
+# and child's sites). Such a relative stays grey. The genome-wide decision is taken in
+# the genome-wide precompute (``bed_service``); the windows read its colours.
+
+# A relative of unknown degree is read as the linked member's parent or child when it
+# shares one of the member's haplotypes along at least this share of the autosomes the
+# test could read, and the test could read at least this many.
+RELATIVE_PARENT_OR_CHILD_MIN_FRACTION = 0.9
+RELATIVE_PARENT_OR_CHILD_MIN_CHROMOSOMES = 15
+
+
+def relative_links(relationship_rows: Iterable[dict[str, Any]]) -> list[tuple[str, str]]:
+    """``(member, linked member)`` of each ``relative`` edge: ``sample_id_b`` is related
+    through ``sample_id_a``."""
+    links: list[tuple[str, str]] = []
+    for rel in relationship_rows:
+        if str(rel.get("relationship_type")) != "relative":
+            continue
+        linked, member = str(rel.get("sample_id_a") or ""), str(rel.get("sample_id_b") or "")
+        if linked and member and linked != member:
+            links.append((member, linked))
+    return links
+
+
+def relative_link_matches(
+    genotype_rows: list[tuple[Any, ...]],
+    links: Iterable[tuple[str, str]],
+    *,
+    chrom: str,
+) -> dict[tuple[str, str], bool]:
+    """Per link, whether the member shares one of the linked member's haplotypes along
+    this chromosome (the parent-child share test). A link the chromosome cannot test --
+    not an autosome, or either member without phased genotypes here -- is left out."""
+    if not _is_autosome(chrom):
+        return {}
+    alleles = _alleles_by_member(genotype_rows)
+    results: dict[tuple[str, str], bool] = {}
+    for member, linked in links:
+        member_alleles, linked_alleles = alleles.get(member, {}), alleles.get(linked, {})
+        if not member_alleles or not linked_alleles:
+            continue
+        results[(member, linked)] = match_shared_homolog(member_alleles, linked_alleles) is not None
+    return results
+
+
+def parent_or_child_links(counts: dict[tuple[str, str], tuple[int, int]]) -> set[tuple[str, str]]:
+    """The links whose member is the linked member's parent or child, from
+    ``{link: (autosomes sharing, autosomes tested)}``."""
+    return {
+        link
+        for link, (sharing, tested) in counts.items()
+        if tested >= RELATIVE_PARENT_OR_CHILD_MIN_CHROMOSOMES
+        and sharing >= RELATIVE_PARENT_OR_CHILD_MIN_FRACTION * tested
+    }
+
+
+def _merge_lane_claims(
+    chrom: str,
+    claims_by_anchor: list[list[dict[str, Any]]],
+    region_start: int,
+    region_end: int,
+) -> list[dict[str, Any]]:
+    """One relative's blocks from several linked members' colourings (each colours one
+    lane of a block and greys the other): a lane takes the colour one of them gives it;
+    a lane two of them colour is grey (unknown), as nothing tells which is right."""
+    unknown = HomologAssignment(origin=UNKNOWN, shade=None)
+    boundaries = sorted(
+        {region_start, region_end}
+        | {int(block["start"]) for blocks in claims_by_anchor for block in blocks}
+        | {int(block["end"]) for blocks in claims_by_anchor for block in blocks}
+    )
+    raw: list[dict[str, Any]] = []
+    for index, start in enumerate(boundaries[:-1]):
+        end = boundaries[index + 1]
+        if end <= region_start or start >= region_end:
+            continue
+        coloured: dict[str, list[tuple[str, str]]] = {"hap1": [], "hap2": []}
+        for blocks in claims_by_anchor:
+            for block in blocks:
+                if int(block["start"]) <= start and end <= int(block["end"]):
+                    for lane in ("hap1", "hap2"):
+                        if block[f"{lane}_lineage"] in (PATERNAL, MATERNAL):
+                            coloured[lane].append((str(block[lane]), str(block[f"{lane}_lineage"])))
+        block_out: dict[str, Any] = {"chr": chrom, "start": int(start), "end": int(end), "ps": None}
+        for lane in ("hap1", "hap2"):
+            other = "hap2" if lane == "hap1" else "hap1"
+            if len(coloured[lane]) == 1:
+                block_out[lane], block_out[f"{lane}_lineage"] = coloured[lane][0]
+            else:
+                block_out[lane] = "0"
+                block_out[f"{lane}_lineage"] = (
+                    unknown.origin if coloured[lane] or not coloured[other] else UNTRANSMITTED
+                )
+        raw.append(block_out)
+    return _merge_adjacent_blocks(raw)
+
+
 # --- orchestration ------------------------------------------------------------
 
 def _alleles_by_member(
@@ -803,8 +924,13 @@ def annotate_lineage(
     region_start: int | None = None,
     region_end: int | None = None,
     genotype_truncated: bool = False,
+    parent_or_child: Collection[tuple[str, str]] = (),
 ) -> dict[str, list[dict[str, Any]]]:
     """Return segments with per-lane lineage tags.
+
+    ``parent_or_child`` holds the ``relative`` links (member, linked member) whose
+    member was found to be the linked member's parent or child genome-wide (see
+    "relatives of unknown degree"); a member of any other such link stays grey.
 
     Nuclear-core members keep their stored blocks, tagged by role. Relatives have
     their stored (meaningless) blocks replaced by lineage-tagged blocks computed
@@ -941,6 +1067,48 @@ def annotate_lineage(
             )
             visited.add(neighbor)
             frontier.append(neighbor)
+        # Relatives of unknown degree, coloured as parents or children of the members
+        # they are linked to where ``parent_or_child`` says they are; nothing is coloured
+        # through them.
+        for neighbor in sorted(pedigree.relatives(anchor_name)):
+            if neighbor in visited or neighbor in coloured:
+                continue
+            rel_alleles = alleles.get(neighbor, {})
+            if not rel_alleles:
+                continue
+            anchors = [
+                name
+                for name in sorted(pedigree.relatives(neighbor))
+                if ((neighbor, name) in parent_or_child or (name, neighbor) in parent_or_child)
+                and name in coloured
+                and coloured[name].alleles
+            ]
+            if not anchors:
+                continue
+            visited.add(neighbor)
+            claims: list[list[dict[str, Any]]] = []
+            for name in anchors:
+                anchor_member = coloured[name]
+                match = match_shared_homolog(rel_alleles, anchor_member.alleles)
+                if match is None:
+                    continue
+                segs, _assignment, _resolver = _segment_relative_blocks(
+                    chrom=chrom,
+                    positions=sorted(pos for pos in rel_alleles if pos in anchor_member.alleles),
+                    rel_alleles=rel_alleles,
+                    anc_alleles=anchor_member.alleles,
+                    anchor_homologs=anchor_member.homolog_resolver(),
+                    match=match,
+                    region_start=eff_start,
+                    region_end=eff_end,
+                )
+                claims.append(segs)
+            if not claims:
+                continue
+            segs = claims[0] if len(claims) == 1 else _merge_lane_claims(chrom, claims, eff_start, eff_end)
+            if genotype_truncated and region_full_end > eff_end:
+                segs = segs + [_grey_tail_block(chrom, eff_end, region_full_end)]
+            result[neighbor] = segs
 
     return _grey_remaining(result, segments_by_name, chrom, region_start, region_end)
 

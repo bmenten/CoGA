@@ -28,6 +28,13 @@ export interface CoupleDraft {
   context: string;
 }
 
+/** A member related to the family through another member, by an unknown degree. */
+export interface RelativeDraft {
+  id: string;
+  member: string;
+  relatedTo: string;
+}
+
 export interface MemberDetailDraft {
   sample_id: string;
   sex: StructureMemberDraft['sex'];

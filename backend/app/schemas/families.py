@@ -41,10 +41,14 @@ class FamilyMemberOut(BaseModel):
 
 
 class FamilyRelationshipOut(BaseModel):
-    """Canonical family graph edge between two members."""
+    """Canonical family graph edge between two members.
+
+    ``relative`` links a member to the family through another member (``sample_id_a``),
+    by a degree that is not known: a PGT index known to be on the mother's side, say.
+    """
 
     id: ApiId
-    relationship_type: Literal["parent_child", "couple"]
+    relationship_type: Literal["parent_child", "couple", "relative"]
     sample_id_a: str
     sample_id_b: str
     role_a: Optional[str] = None
@@ -176,9 +180,19 @@ class FamilyStructureCoupleUpdate(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class FamilyStructureRelativeUpdate(BaseModel):
+    """A member related to the family through another member, by an unknown degree."""
+
+    member: str = Field(min_length=1)
+    related_to: str = Field(min_length=1)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class FamilyStructureRelationshipsUpdate(BaseModel):
     parent_child: List[FamilyStructureParentChildUpdate] = Field(default_factory=list)
     couples: List[FamilyStructureCoupleUpdate] = Field(default_factory=list)
+    # None keeps the family's links of unknown degree; a list replaces them.
+    relatives: Optional[List[FamilyStructureRelativeUpdate]] = None
 
 
 class FamilyStructureUpdate(BaseModel):

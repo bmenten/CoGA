@@ -27,7 +27,8 @@ from .clickhouse_interval_tracks import (
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from .haplotype_lineage_service import annotate_lineage
+from .haplotype_lineage_service import annotate_lineage, parent_or_child_links, relative_link_matches, relative_links
+from .haplotype_phase_correction import corrected_genotype_rows
 from .sex_chromosomes import hemizygous_interval
 
 logger = logging.getLogger(__name__)
@@ -585,12 +586,17 @@ async def _apply_haplotype_lineage(
 
     genotype_rows: list[tuple[int, list[str], list[str]]] = []
     if start is not None and end is not None and end > start and context.assembly_name:
-        genotype_rows = await fetch_imputed_phased_genotypes(
-            context,
+        # The parents' phase as the blocks were built from: swapped where it switched.
+        genotype_rows = corrected_genotype_rows(
+            await fetch_imputed_phased_genotypes(
+                context,
+                chrom=chrom,
+                start=int(start),
+                end=int(end),
+                limit=LINEAGE_PHASED_FETCH_LIMIT,
+            ),
+            context.phase_corrections,
             chrom=chrom,
-            start=int(start),
-            end=int(end),
-            limit=LINEAGE_PHASED_FETCH_LIMIT,
         )
     segments_by_name = {
         context.sample_uuid_to_name[sample_uuid]: segs
@@ -611,12 +617,40 @@ async def _apply_haplotype_lineage(
         # last fetched site within the window.
         genotype_truncated=len(genotype_rows) >= LINEAGE_PHASED_FETCH_LIMIT,
     )
+    links = relative_links(context.relationship_rows)
+    if links:
+        # A relative of unknown degree is coloured only when the genome-wide precompute
+        # found it to be the linked member's parent or child; its colours here are the
+        # precompute's (grey while there is no current one).
+        precomputed = await _fetch_precomputed_lineage(context)
+        for member in {member for member, _linked in links}:
+            uuid = context.sample_name_to_uuid.get(member)
+            if uuid is None or member not in annotated:
+                continue
+            stored = [
+                segment
+                for segment in (precomputed or {}).get(uuid, [])
+                if normalize_chromosome(str(segment.get("chr") or "")) == normalize_chromosome(chrom)
+            ]
+            if stored and start is not None and end is not None:
+                annotated[member] = _clip_segments(stored, int(start), int(end))
     name_to_uuid = context.sample_name_to_uuid
     return {
         name_to_uuid[name]: segs
         for name, segs in annotated.items()
         if name in name_to_uuid
     }
+
+
+def _clip_segments(segments: list[dict[str, Any]], start: int, end: int) -> list[dict[str, Any]]:
+    """The segments overlapping ``[start, end)``, cut to it."""
+    clipped: list[dict[str, Any]] = []
+    for segment in segments:
+        segment_start, segment_end = int(segment["start"]), int(segment["end"])
+        if segment_end <= start or segment_start >= end:
+            continue
+        clipped.append({**segment, "start": max(segment_start, start), "end": min(segment_end, end)})
+    return clipped
 
 
 def _mark_hemizygous_blocks(
@@ -743,8 +777,8 @@ async def get_family_haplotypes_batch_response(
 
 def _lineage_hash(context: FamilyMetadataContext) -> str:
     """Fingerprint of the inputs that determine the lineage colours: the pedigree
-    edges, each member's role, and the affected set. If this changes, a stored
-    precompute is stale and must not be served."""
+    edges, each member's role, the affected set and the parents' phase corrections. If
+    this changes, a stored precompute is stale and must not be served."""
     pedigree = sorted(
         (
             str(r.get("relationship_type") or ""),
@@ -759,10 +793,19 @@ def _lineage_hash(context: FamilyMetadataContext) -> str:
         (str(row.get("sample_id") or ""), str(row.get("role") or ""))
         for row in context.sample_rows
     )
-    payload = json.dumps(
-        {"pedigree": pedigree, "roles": roles, "affected": sorted(context.affected_sample_names)},
-        sort_keys=True,
-    )
+    fingerprint: dict[str, Any] = {
+        "pedigree": pedigree,
+        "roles": roles,
+        "affected": sorted(context.affected_sample_names),
+    }
+    if context.phase_corrections:
+        # The parents' phase switches the blocks undid; a family without any keeps the
+        # fingerprint it had.
+        fingerprint["phase_corrections"] = sorted(
+            (str(item.get("parent")), str(item.get("chr")), int(item.get("position") or 0))
+            for item in context.phase_corrections
+        )
+    payload = json.dumps(fingerprint, sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -784,6 +827,37 @@ async def _compute_genomewide_lineage(
         }
         - {""}
     )
+    async def genotypes(chrom: str) -> list[tuple[Any, ...]]:
+        return corrected_genotype_rows(
+            await fetch_imputed_phased_genotypes(
+                context, chrom=chrom, start=0, end=2_000_000_000, limit=LINEAGE_PRECOMPUTE_FETCH_LIMIT
+            ),
+            context.phase_corrections,
+            chrom=chrom,
+        )
+
+    # A relative of unknown degree: is it the linked member's parent or child? Only the
+    # whole genome says (see haplotype_lineage_service, "relatives of unknown degree").
+    links = relative_links(context.relationship_rows)
+    parent_or_child: set[tuple[str, str]] = set()
+    if links:
+        counts: dict[tuple[str, str], tuple[int, int]] = {}
+        for chrom in chroms:
+            matches = await asyncio.to_thread(relative_link_matches, await genotypes(chrom), links, chrom=chrom)
+            for link, shared in matches.items():
+                sharing, tested = counts.get(link, (0, 0))
+                counts[link] = (sharing + int(shared), tested + 1)
+        parent_or_child = parent_or_child_links(counts)
+        for link, (sharing, tested) in sorted(counts.items()):
+            logger.info(
+                "Family %s: a relative of unknown degree shares a haplotype with the member it is "
+                "linked to along %d of %d autosomes; %s",
+                context.family_id,
+                sharing,
+                tested,
+                "coloured as that member's parent or child" if link in parent_or_child else "left grey",
+            )
+
     merged: dict[str, list[dict[str, Any]]] = {name: [] for name in segments_by_name}
     for chrom in chroms:
         chrom_segments = {
@@ -792,9 +866,7 @@ async def _compute_genomewide_lineage(
         }
         if not any(chrom_segments.values()):
             continue
-        genotype_rows = await fetch_imputed_phased_genotypes(
-            context, chrom=chrom, start=0, end=2_000_000_000, limit=LINEAGE_PRECOMPUTE_FETCH_LIMIT
-        )
+        genotype_rows = await genotypes(chrom)
         annotated = await asyncio.to_thread(
             annotate_lineage,
             sample_rows=context.sample_rows,
@@ -803,6 +875,7 @@ async def _compute_genomewide_lineage(
             genotype_rows=genotype_rows,
             chrom=chrom,
             genotype_truncated=len(genotype_rows) >= LINEAGE_PRECOMPUTE_FETCH_LIMIT,
+            parent_or_child=parent_or_child,
         )
         for name, segs in annotated.items():
             merged[name].extend(segs)

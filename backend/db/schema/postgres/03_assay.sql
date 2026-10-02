@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS family_relationships (
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT family_relationships_pkey PRIMARY KEY (id),
     CONSTRAINT family_relationships_check CHECK ((sample_id_a <> sample_id_b)),
-    CONSTRAINT family_relationships_relationship_type_check CHECK ((relationship_type = ANY (ARRAY['parent_child'::text, 'couple'::text]))),
+    CONSTRAINT family_relationships_relationship_type_check CHECK ((relationship_type = ANY (ARRAY['parent_child'::text, 'couple'::text, 'relative'::text]))),
     CONSTRAINT family_relationships_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
     CONSTRAINT family_relationships_sample_id_a_fkey FOREIGN KEY (sample_id_a) REFERENCES samples(id) ON DELETE CASCADE,
     CONSTRAINT family_relationships_sample_id_b_fkey FOREIGN KEY (sample_id_b) REFERENCES samples(id) ON DELETE CASCADE

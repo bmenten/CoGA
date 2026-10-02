@@ -22,8 +22,8 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, _vcf_index_candidates
-from .family_package_manifest import _manifest_pgt_metadata, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, _vcf_index_candidates, read_vcf_sample_columns
+from .family_package_manifest import _manifest_added_ped_rows, _manifest_affected_parent_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, staged_package_source
 
 
@@ -184,6 +184,17 @@ def _validate_family_vcf_dataset(
         status="error" if len(errors) > before else "valid",
         files=list(dict.fromkeys(files)),
     )
+
+
+def _vcf_columns_if_readable(path: Path | None) -> list[str] | None:
+    """A VCF's sample columns, read from its header only, or None when the file cannot be
+    read as a VCF here; the importer then reports what is wrong with it."""
+    if path is None or not path.is_file():
+        return None
+    try:
+        return read_vcf_sample_columns(path)
+    except (OSError, EOFError, UnicodeError, ValueError):
+        return None
 
 
 def _sample_entry_mapping(
@@ -410,6 +421,8 @@ def _validate_apcad_dataset(
     dataset: ManifestDataset,
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
+    warnings: list[FamilyImportValidationIssue] | None = None,
+    ped: ParsedPed | None = None,
 ) -> FamilyImportDatasetSummary:
     files: list[str] = []
     samples: list[str] = []
@@ -456,10 +469,28 @@ def _validate_apcad_dataset(
                 root=root,
                 dataset_type="apcad",
                 value=entry.get("bed") or entry.get("file") or entry.get("vcf"),
-                field_name="bed",
+                field_name="vcf" if entry.get("vcf") and not entry.get("bed") else "bed",
                 errors=errors,
                 files=files,
                 sample_id=sample_id,
+            )
+            if entry.get("index"):
+                _require_file(
+                    root=root,
+                    dataset_type="apcad",
+                    value=entry.get("index"),
+                    field_name="index",
+                    errors=errors,
+                    files=files,
+                    sample_id=sample_id,
+                )
+            _check_apcad_sample_vcf_columns(
+                root=root,
+                sample_id=sample_id,
+                entry=entry,
+                ped=ped,
+                errors=errors,
+                warnings=warnings,
             )
     elif dataset.bed:
         _require_file(
@@ -479,6 +510,59 @@ def _validate_apcad_dataset(
         files=list(dict.fromkeys(files)),
         samples=samples,
     )
+
+
+def _check_apcad_sample_vcf_columns(
+    *,
+    root: Path,
+    sample_id: str,
+    entry: dict[str, Any],
+    ped: ParsedPed | None,
+    errors: list[FamilyImportValidationIssue],
+    warnings: list[FamilyImportValidationIssue] | None,
+) -> None:
+    """A per-sample APCAD VCF must hold the sample's column. A trio VCF (the PGT
+    pipeline's) also holds the parents' columns, which give each site its parental
+    origin: without one, the import still runs but cannot say which parent an allele
+    came from, so that is a warning."""
+    value = entry.get("vcf") or entry.get("bed") or entry.get("file")
+    if not isinstance(value, str) or not value.lower().endswith((".vcf", ".vcf.gz")):
+        return
+    try:
+        path = _resolve_package_path(root, value)
+    except HTTPException:
+        return
+    columns = _vcf_columns_if_readable(path)
+    if not columns:
+        return
+    column = entry.get("vcf_sample") or entry.get("sample_name") or sample_id
+    if column not in columns:
+        errors.append(
+            _issue(
+                "dataset_vcf_sample_missing",
+                f"APCAD VCF {value} has no column '{column}' (it has {', '.join(columns)}); "
+                "name the sample's column with vcf_sample",
+                dataset="apcad",
+                sample_id=sample_id,
+                path=path,
+            )
+        )
+        return
+    member = next((member for member in (ped.members if ped else []) if member.iid == sample_id), None)
+    if member is None or warnings is None or len(columns) < 2:
+        return
+    for parent in (member.pid, member.mid):
+        if parent not in {"", "0"} and parent not in columns:
+            warnings.append(
+                _issue(
+                    "apcad_parent_column_missing",
+                    f"APCAD VCF {value} has no column for {sample_id}'s parent {parent}: "
+                    "its sites cannot be given that parent's origin",
+                    dataset="apcad",
+                    sample_id=sample_id,
+                    path=path,
+                )
+            )
 
 
 def _pcf_role_path(entry: dict[str, Any], role: str) -> Any:
@@ -576,6 +660,34 @@ def _validate_haplotypes_dataset(
                 if candidate.is_file():
                     files.append(_display_path(root, candidate))
                     break
+        unknown_columns = [
+            column for column in (_vcf_columns_if_readable(family_vcf_path) or []) if column not in ped_sample_ids
+        ]
+        if unknown_columns:
+            # The loader binds every column to a member and stops at the first it cannot:
+            # a PGT index the PED lacks would otherwise fail the import after the other
+            # datasets were written.
+            errors.append(
+                _issue(
+                    "dataset_vcf_sample_unknown",
+                    f"The phased family VCF has sample column(s) {', '.join(unknown_columns)} that "
+                    "are not members of the family; add a member the PED lacks under "
+                    "family.add_members",
+                    dataset="haplotypes",
+                    path=family_vcf_path,
+                )
+            )
+        extra = dataset.model_extra or {}
+        for role in HAPLOTYPE_ORIGIN_ROLES:
+            if extra.get(role):
+                _require_file(
+                    root=root,
+                    dataset_type="haplotypes",
+                    value=extra.get(role),
+                    field_name=role,
+                    errors=errors,
+                    files=files,
+                )
         return FamilyImportDatasetSummary(
             dataset_type="haplotypes",
             enabled=True,
@@ -702,7 +814,7 @@ _PER_SAMPLE_DATASET_ROLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = 
     "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "maf_bigwig", "summary_html")),
     "mito": (("vcf",), ("index", "annotation_tsv", "sv_vcf", "sv_index", "sv_annotation_tsv")),
     "alignments": (("file",), ("index",)),
-    "qc": ((), ("report", "read_stats", "depth_summary", "depth_regions", "depth_global_dist")),
+    "qc": ((), QC_SAMPLE_ROLES),
     # repeats_trgt is family-level by default; the long-read pipeline writes it per
     # sample (repeats/<sample>/<sample>_tr.vcf.gz), so both shapes are accepted.
     "repeats_trgt": (("file",), ("index",)),
@@ -730,7 +842,22 @@ def _validate_per_sample_file_dataset(
     files: list[str] = []
     samples: list[str] = []
     before = len(errors)
-    if not dataset.per_sample:
+    # The PGT pipeline writes part of its QC per family (one ADO/ADI table, one KING
+    # table for all samples), so a qc dataset may declare those files beside, or
+    # instead of, its per-sample entries.
+    family_roles = QC_FAMILY_ROLES if dataset_type == "qc" else ()
+    extra = dataset.model_extra or {}
+    declared_family_roles = [role for role in family_roles if extra.get(role)]
+    for role in declared_family_roles:
+        _require_file(
+            root=root,
+            dataset_type=dataset_type,
+            value=extra.get(role),
+            field_name=role,
+            errors=errors,
+            files=files,
+        )
+    if not dataset.per_sample and not declared_family_roles:
         errors.append(
             _issue(
                 "dataset_per_sample_missing",
@@ -845,6 +972,8 @@ def _validate_dataset(
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
     remote_only_files: frozenset[str] = frozenset(),
+    warnings: list[FamilyImportValidationIssue] | None = None,
+    ped: ParsedPed | None = None,
 ) -> FamilyImportDatasetSummary:
     if not dataset.enabled:
         return FamilyImportDatasetSummary(
@@ -910,6 +1039,8 @@ def _validate_dataset(
             dataset=dataset,
             ped_sample_ids=ped_sample_ids,
             errors=errors,
+            warnings=warnings,
+            ped=ped,
         )
     if dataset_type == "pcf":
         return _validate_pcf_dataset(
@@ -1264,6 +1395,20 @@ def _validate_and_load_package(
 
     if ped_text is not None:
         ped, ped_errors = _parse_ped_text_strict(ped_text)
+        if ped is not None:
+            added_rows, added_errors = _manifest_added_ped_rows(
+                manifest,
+                family_id=family_id,
+                ped_sample_ids=set(ped.sample_ids),
+                ped_from_database=metadata.get("ped_source") == "database",
+            )
+            errors.extend(added_errors)
+            if added_rows:
+                # Re-parsed with the added rows appended to the file's own text, so the
+                # file's rows keep their line numbers and the added members get every
+                # PED check (duplicate ids, parents) the file's members get.
+                ped, ped_errors = _parse_ped_text_strict("\n".join([ped_text.rstrip("\n"), *added_rows]))
+                metadata["added_members"] = [row.split()[1] for row in added_rows]
         errors.extend(ped_errors)
 
     if ped is not None:
@@ -1284,6 +1429,11 @@ def _validate_and_load_package(
                         path=ped_path,
                     )
                 )
+
+        errors.extend(_manifest_relationship_issues(manifest, set(ped.sample_ids), ped))
+        _derived_statuses, affected_errors, affected_warnings = _manifest_affected_parent_statuses(manifest, ped)
+        errors.extend(affected_errors)
+        warnings.extend(affected_warnings)
 
         sample_metadata = _normalize_manifest_samples(manifest.samples)
         for sample_id in sample_metadata:
@@ -1328,6 +1478,8 @@ def _validate_and_load_package(
                     ped_sample_ids=ped_sample_ids,
                     errors=errors,
                     remote_only_files=remote_only_files,
+                    warnings=warnings,
+                    ped=ped,
                 )
             )
         phenotype_summary = _validate_manifest_hpo_annotations(

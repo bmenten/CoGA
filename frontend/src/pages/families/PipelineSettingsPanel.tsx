@@ -39,7 +39,7 @@ interface SettingsGroup {
 const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     title: 'Workflow',
-    tools: ['nf-core/lrsvar', 'nextflow'],
+    tools: ['nf-core/lrsvar', 'nf-cmgg/copgtm', 'nextflow'],
   },
   {
     title: 'Reference',
@@ -54,14 +54,16 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
     params: [
       ['kit', 'Library kit'],
       ['conf_dorado', 'Basecalling config'],
+      ['shapeit_reference_panel', 'Phasing reference panel'],
     ],
-    tools: ['minimap2', 'longphase', 'samtools'],
+    tools: ['minimap2', 'longphase', 'samtools', 'shapeit5', 'whatshap'],
   },
   {
     title: 'Variant calling',
     params: [
       ['clair3_model_pacbio', 'Clair3 model (PacBio)'],
       ['clair3_model_ont', 'Clair3 model (ONT)'],
+      ['cohort_vcf', 'Joint callset'],
     ],
     tools: ['deepvariant', 'glnexus', 'sniffles', 'hificnv', 'deepsomatic', 'mutserve'],
     roleParam: [
@@ -78,8 +80,20 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   },
   {
     title: 'Copy-number binning',
-    params: [['qdnaseq_bin_size', 'QDNAseq bin size (kb)']],
+    params: [
+      ['qdnaseq_bin_size', 'QDNAseq bin size (kb)'],
+      // The PGT pipeline (nf-cmgg/copgtm) names it bin_size.
+      ['bin_size', 'Bin size (kb)'],
+    ],
     tools: ['qdnaseq', 'wisecondorx'],
+  },
+  {
+    // What a PGT run traced: the parent whose disease haplotype it followed, and where.
+    title: 'PGT analysis',
+    params: [
+      ['affected_parent', 'Affected parent'],
+      ['roi', 'Region of interest'],
+    ],
   },
   {
     title: 'Annotation',
@@ -92,7 +106,7 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   },
   {
     title: 'Quality control',
-    tools: ['mosdepth', 'nanoplot'],
+    tools: ['mosdepth', 'nanoplot', 'qualimap', 'ngsbits', 'picard', 'rtgtools', 'king', 'plink'],
   },
 ];
 
@@ -121,6 +135,7 @@ const STAGE_LABELS: [string, string][] = [
   ['methyl', 'methylation'],
   ['dwell', 'dwell times'],
   ['nanocomp', 'nanocomp'],
+  ['apcad_imputation', 'APCAD on the imputed parents'],
 ];
 
 export interface PipelineSettings {

@@ -36,6 +36,24 @@ and each embryo's call are **computed** from the phased genotypes and the pedigr
 
 Use the dots to confirm that a breakpoint is real before you trust an embryo call.
 
+### Phase switches in a parent
+
+A switch error in a parent's statistical phasing swaps the parent's two haplotypes from one site on.
+Every embryo then seems to cross over at the same place on that parent's side. Where all of three, or
+all but one of four or more, of the couple's children switch together within 2 Mb, and that is not
+likely by chance from their other switches, CoGA reads a phase switch in the parent and swaps that
+parent's haplotypes back from there: the spurious crossovers disappear, and a child that did not switch
+there turns out to have crossed over there. The same swap applies to every child, so no embryo's call
+changes; the raw dots follow the corrected phase too, while the genotypes in their tooltip stay as
+called.
+
+The parent's track marks each correction with a solid line and a small triangle in the warning colour;
+hovering it says how many children switched and where. When a correction lies inside or close to the
+ROI, or up to 2 Mb after it (the phase may have switched that much before the children's switches
+show it), every embryo shows **⚠ phase corrected**: where the phase switched is known only roughly,
+so the call across the locus is less certain, and an embryo's own crossover there may not show.
+Review the ROI markers.
+
 ---
 
 ## The colours
@@ -80,6 +98,18 @@ grey. That is how you see which paternal haplotype carries a dominant allele.
 The matching follows recombinations: a haplotype keeps its colour but can move to the other lane at a
 crossover. A member CoGA cannot place with confidence is shown entirely grey, never in the wrong colour.
 
+### Relatives of unknown degree
+
+A PGT index is often known only to be on the mother's or the father's side. Linked as **Related to**
+that parent (the dotted arc in the pedigree), it is coloured when it turns out to be that parent's own
+parent or child: when it shares one of the parent's haplotypes along nearly every chromosome, which
+CoGA tests one chromosome at a time over the whole genome. It is then coloured as a parent or child
+is. A more distant relative (a sibling, an aunt, a cousin) stays grey: it shares a haplotype with the
+parent only in stretches, and on imputed low-pass genotypes those stretches cannot be told apart
+reliably from the stretches unrelated people share by chance, nor from places where a sibling shares
+both haplotypes. A grey index does not help find the disease haplotype; record how it is related
+through members that have data, if they are in the family, to have it coloured.
+
 ### Single-parent (donor) families
 
 CoGA supports embryos with one known parent (a single woman, or a couple using a donor gamete) when the
@@ -115,6 +145,10 @@ call appears as a badge in the **Family members** table on the family page.
 | **Carrier** | Recessive: carries one of the two carrier haplotypes, and its other homolog, seen across the ROI, is not the other one. X-linked, female: carries it on one side. |
 | **Unaffected** | Carries none of the disease haplotypes, and its own haplotype is seen across the ROI. |
 | **Uninformative** | No call is made: the disease haplotype could not be resolved, or the embryo's own haplotype does not cover the ROI. |
+
+Next to the call, **⚠ recombination** says a crossover falls inside or close to the ROI, and **⚠ phase
+corrected** that a parent's phase switch was undone there (see [Phase switches in a
+parent](#phase-switches-in-a-parent)).
 
 ### What a call rests on
 

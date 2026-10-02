@@ -22,7 +22,7 @@ from ..core.object_storage import (
     remote_uri_within,
 )
 
-from .family_package_common import PackageManifest
+from .family_package_common import PED_FOLDER, PackageManifest
 
 
 logger = logging.getLogger(__name__)
@@ -127,8 +127,9 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
     """List candidate family packages directly under each local import root.
 
     A candidate is an immediate subdirectory containing a manifest
-    (manifest.yaml/.yml/.json) or a ``*.ped`` file. The folder path can then be
-    selected in the import UI instead of typed by hand.
+    (manifest.yaml/.yml/.json) or a ``*.ped`` file, at its top or in its ``ped/``
+    folder (where the PGT pipeline writes it). The folder path can then be selected in
+    the import UI instead of typed by hand.
     """
     packages: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -139,7 +140,7 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
             if not child.is_dir():
                 continue
             manifest_path = _find_manifest(child)
-            ped_paths = sorted(child.glob("*.ped"))
+            ped_paths = sorted(child.glob("*.ped")) or sorted((child / PED_FOLDER).glob("*.ped"))
             if manifest_path is None and not ped_paths:
                 continue
             resolved = str(child.resolve())

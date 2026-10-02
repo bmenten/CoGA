@@ -54,6 +54,37 @@ SUPPORTED_DATASETS = (
 CORE_DATASETS = ("snv", "sv_needlr")
 
 
+# Where a package keeps its PED when it is not at the top: the PGT pipeline
+# (nf-cmgg/copgtm) writes ped/combined.ped.
+PED_FOLDER = "ped"
+
+
+# Roles of the ``qc`` dataset. Per sample: the long-read pipeline's NanoPlot/MultiQC
+# report, NanoStats and mosdepth files, and the PGT pipeline's (nf-cmgg/copgtm) Qualimap
+# report and summary, mean-coverage file and ngs-bits sex check. Per family, the PGT
+# pipeline's tables covering every embryo or pair at once: allele drop-out/drop-in
+# (Picard), Mendelian concordance before and after imputation (RTG Tools) and KING
+# kinship.
+QC_SAMPLE_ROLES = (
+    "report",
+    "read_stats",
+    "depth_summary",
+    "depth_regions",
+    "depth_global_dist",
+    "qualimap_summary",
+    "mean_coverage",
+    "sex_check",
+)
+QC_FAMILY_ROLES = ("ado_adi", "concordance", "imputed_concordance", "kinship")
+
+
+# Optional family-level files of the ``haplotypes`` dataset: the PGT pipeline's reading
+# of which haplotype of the affected parent is the affected one (a table of the sites
+# each haplotype shares with the index, and its one-line conclusion). Recorded as
+# pipeline evidence; CoGA's own risk-haplotype inference does not use it.
+HAPLOTYPE_ORIGIN_ROLES = ("haplotype_origin", "haplotype_conclusion")
+
+
 APCAD_PCF_TRACK_TYPE = "apcad_pcf"
 
 

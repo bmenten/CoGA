@@ -17,8 +17,9 @@ from ..schemas import (
     FamilyPackageManifestWriteOut,
 )
 
-from .family_package_common import PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, PED_FOLDER, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path
 from .family_package_manifest import _parse_ped_text_strict
+from .family_package_pgt import pgt_family_block, pgt_run_context, read_pgt_pipeline_roles
 from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict
 from .family_package_validation import validate_family_package
 
@@ -146,6 +147,10 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     # holds uncorrected read counts and `calls` the discrete call, both
                     # of which the interval tracks have no axis for.
                     "cnv/{sample_id}/{sample_id}_cnv_qdnaseq_bins.bed",
+                    # The PGT pipeline (nf-cmgg/copgtm) writes one CSV per sample with
+                    # both columns: `copynumber` (the per-bin log2 ratio, read as bins)
+                    # and `segmented` (the bin's segment level, read as segments).
+                    "qdnaseq/{sample_id}_cnv.csv",
                     "QDNAseq/{sample_id}/bins.csv",
                     "QDNAseq/{sample_id}/sample_bins.csv",
                     "QDNAseq/{sample_id}/{sample_id}_bins.csv",
@@ -165,6 +170,7 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     # lrsvar abbreviates this one to `_segs`.
                     "cnv/{sample_id}/{sample_id}_cnv_qdnaseq_segs.bed",
                     "cnv/{sample_id}/{sample_id}_cnv_qdnaseq_segments.bed",
+                    "qdnaseq/{sample_id}_cnv.csv",
                     "QDNAseq/{sample_id}/segments.csv",
                     "QDNAseq/{sample_id}/sample_segments.csv",
                     "QDNAseq/{sample_id}/{sample_id}_segments.csv",
@@ -240,23 +246,46 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "apcad/{sample_id}.vcf.gz",
                     "apcad/{sample_id}.vcf",
                 ],
+                # The PGT pipeline (nf-cmgg/copgtm) splits the family into one trio
+                # VCF per embryo -- the father's and mother's imputed genotypes beside
+                # the embryo's own calls with their allele depths -- and filters it to
+                # the biallelic SNVs the embryo was called at. Only embryos have one.
+                "vcf": [
+                    "split_trio/filter_trio/{sample_id}.trio_filtered.vcf.gz",
+                    "split_trio/filter_trio/{sample_id}.trio_filtered.vcf",
+                ],
+                "sample_index": [
+                    "split_trio/filter_trio/{sample_id}.trio_filtered.vcf.gz.tbi",
+                    "split_trio/filter_trio/{sample_id}.trio_filtered.vcf.gz.csi",
+                ],
             },
             "pcf": {
+                # The PGT pipeline (nf-cmgg/copgtm) keeps its PCF output beside the
+                # APCAD plots. Only the segment table is read: a PCF drawn in a plot
+                # alone is not imported.
                 "maternal": [
                     "PCF/{sample_id}_pcf_mat_data.csv",
                     "PCF/{sample_id}.pcf.mat_data.csv",
                     "pcf/{sample_id}_pcf_mat_data.csv",
                     "pcf/{sample_id}.pcf.mat_data.csv",
+                    "apcad/{sample_id}_pcf_mat_data.csv",
+                    "apcad/{sample_id}.pcf.mat_data.csv",
                 ],
                 "paternal": [
                     "PCF/{sample_id}_pcf_pat_data.csv",
                     "PCF/{sample_id}.pcf.pat_data.csv",
                     "pcf/{sample_id}_pcf_pat_data.csv",
                     "pcf/{sample_id}.pcf.pat_data.csv",
+                    "apcad/{sample_id}_pcf_pat_data.csv",
+                    "apcad/{sample_id}.pcf.pat_data.csv",
                 ],
             },
             "haplotypes": {
                 "family_vcf": [
+                    # The PGT pipeline (nf-cmgg/copgtm) re-phases the couple, the
+                    # embryos and the index together with SHAPEIT5, using the pedigree,
+                    # and keeps the sites where anyone carries the alternate allele.
+                    "phasing/shapeit_filter/{family_id}_shapeit_rephased_final.vcf.gz",
                     "GLIMPSE2/{family_id}_phased_final.vcf.gz",
                     "GLIMPSE2/{family_id}_phased_final.vcf",
                     "GLIMPSE2/{family_id}.glimpse2.vcf.gz",
@@ -279,6 +308,8 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "haplotypes/family.vcf",
                 ],
                 "index": [
+                    "phasing/shapeit_filter/{family_id}_shapeit_rephased_final.vcf.gz.tbi",
+                    "phasing/shapeit_filter/{family_id}_shapeit_rephased_final.vcf.gz.csi",
                     "GLIMPSE2/{family_id}_phased_final.vcf.gz.tbi",
                     "GLIMPSE2/{family_id}_phased_final.vcf.gz.csi",
                     "GLIMPSE2/{family_id}.glimpse2.vcf.gz.tbi",
@@ -308,6 +339,10 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "GLIMPSE2/{sample_id}.glimpse2.bcf.csi",
                     "haplotypes/{sample_id}.glimpse2.bcf.csi",
                 ],
+                # The PGT pipeline's reading of which haplotype of the affected parent
+                # is the affected one. The files are named after that parent.
+                "haplotype_origin": ["phasing/haplotype_origin/*_affected_normal_haplotype.csv"],
+                "haplotype_conclusion": ["phasing/haplotype_origin/*_haplotype_conclusion.txt"],
             },
             "paraphase": {
                 "json": [
@@ -386,6 +421,11 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "bams/{sample_id}.bam",
                     "alignments/{sample_id}.cram",
                     "alignments/{sample_id}.bam",
+                    # The PGT pipeline's per-sample CRAMs; a suffix after the sample id
+                    # (a depth or tool tag) is allowed after a dot only, so S1 never
+                    # takes S10's file.
+                    "cram/{sample_id}.cram",
+                    "cram/{sample_id}.*.cram",
                     "{sample_id}.cram",
                     "{sample_id}.bam",
                 ],
@@ -394,6 +434,9 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "bams/{sample_id}.bam.bai",
                     "alignments/{sample_id}.cram.crai",
                     "alignments/{sample_id}.bam.bai",
+                    "cram/{sample_id}.cram.crai",
+                    "cram/{sample_id}.crai",
+                    "cram/{sample_id}.*.cram.crai",
                     "{sample_id}.cram.crai",
                     "{sample_id}.bam.bai",
                 ],
@@ -407,6 +450,8 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "qc/nanoplot/{sample_id}/{sample_id}NanoPlot-report.html",
                     "qc/nanoplot/{sample_id}/NanoPlot-report.html",
                     "qc/{sample_id}/*report*.html",
+                    # The PGT pipeline (nf-cmgg/copgtm) runs Qualimap bamqc per sample.
+                    "qualimap/{sample_id}/qualimapReport.html",
                 ],
                 "read_stats": [
                     "qc/nanoplot/{sample_id}/{sample_id}NanoStats.txt",
@@ -424,6 +469,15 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "qc/depth/{sample_id}/{sample_id}.mosdepth.global.dist.txt",
                     "qc/mosdepth/{sample_id}/{sample_id}.mosdepth.global.dist.txt",
                 ],
+                # ---- PGT pipeline (nf-cmgg/copgtm) QC, per sample ----
+                "qualimap_summary": ["qualimap/{sample_id}/genome_results.txt"],
+                "mean_coverage": ["mean/{sample_id}_coverage.csv"],
+                "sex_check": ["ngsbits/{sample_id}.tsv"],
+                # ---- PGT pipeline QC, one table per family ----
+                "ado_adi": ["picard/{family_id}_ADO_ADI.csv"],
+                "concordance": ["rtgtools/{family_id}_cohort_concordance.csv"],
+                "imputed_concordance": ["rtgtools/{family_id}_imputed_concordance.csv"],
+                "kinship": ["king/{family_id}.kin0"],
             },
             # Family-level Nextflow run record (traceability, not variant data).
             "pipeline_info": {
@@ -431,6 +485,9 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                 "versions": [
                     "pipeline_info/software_versions.yaml",
                     "pipeline_info/software_versions.yml",
+                    # The nf-core template names it after the pipeline
+                    # (copgtm_software_mqc_versions.yml for nf-cmgg/copgtm).
+                    "pipeline_info/*software_mqc_versions.yml",
                 ],
                 "execution_trace": ["pipeline_info/execution_trace_*.txt"],
                 "execution_report": ["pipeline_info/execution_report_*.html"],
@@ -569,6 +626,13 @@ def _detect_ped_path(
     if preferred.is_file():
         return preferred, errors, warnings
     ped_files = sorted(root.glob("*.ped"))
+    if not ped_files:
+        # The PGT pipeline (nf-cmgg/copgtm) writes its PED into a ped/ folder.
+        ped_folder = root / PED_FOLDER
+        preferred = ped_folder / f"{family_id}.ped"
+        if preferred.is_file():
+            return preferred, errors, warnings
+        ped_files = sorted(ped_folder.glob("*.ped")) if ped_folder.is_dir() else []
     if len(ped_files) == 1:
         return ped_files[0], errors, warnings
     if len(ped_files) > 1:
@@ -890,6 +954,43 @@ def _optional_role_dataset_availability(
     )
 
 
+def _with_family_qc_files(
+    *,
+    root: Path,
+    family_id: str,
+    patterns: dict[str, list[str]],
+    item: FamilyManifestDatasetAvailability,
+    block: dict[str, Any],
+) -> tuple[FamilyManifestDatasetAvailability, dict[str, Any]]:
+    """Add the PGT pipeline's family-level QC tables (ADO/ADI, concordance, KING) to the
+    per-sample ``qc`` availability; the dataset is available when either part is."""
+    files = list(item.files)
+    block = dict(block)
+    found: list[str] = []
+    for role in QC_FAMILY_ROLES:
+        value, exists = _choose_candidate_path(root, patterns[role], family_id=family_id)
+        if not exists:
+            continue
+        files.append(_availability_file(root=root, role=role, path_value=value))
+        block[role] = value
+        found.append(role)
+    if not found:
+        return item, block
+    block["enabled"] = True
+    sample_part = f" for {len(item.samples)} sample(s)" if item.samples else ""
+    return (
+        item.model_copy(
+            update={
+                "enabled": True,
+                "complete": True,
+                "files": files,
+                "message": f"Available{sample_part}, with the family's {', '.join(found)} table(s)",
+            }
+        ),
+        block,
+    )
+
+
 def _family_role_dataset_availability(
     *,
     root: Path,
@@ -1004,6 +1105,19 @@ def _apcad_dataset_availability(
             ),
             block,
         )
+    trio_item, trio_block = _optional_role_dataset_availability(
+        root=root,
+        family_id=family_id,
+        sample_ids=sample_ids,
+        dataset_type="apcad",
+        patterns={"vcf": patterns["vcf"], "index": patterns["sample_index"]},
+        required_roles=("vcf",),
+        optional_roles=("index",),
+    )
+    if trio_item.complete:
+        # One trio VCF per embryo (nf-cmgg/copgtm): the importer reads each embryo's
+        # column against the parents' columns of the same file.
+        return trio_item.model_copy(update={"message": f"Available as a trio VCF for {len(trio_item.samples)} embryo(s)"}), trio_block
     return _per_sample_dataset_availability(
         root=root,
         family_id=family_id,
@@ -1093,13 +1207,18 @@ def _haplotypes_dataset_availability(
         }
         if index_exists:
             block["index"] = index_value
+        for role in HAPLOTYPE_ORIGIN_ROLES:
+            role_value, role_exists = _choose_candidate_path(root, patterns[role], family_id=family_id)
+            if role_exists:
+                files.append(_availability_file(root=root, role=role, path_value=role_value))
+                block[role] = role_value
         return (
             FamilyManifestDatasetAvailability(
                 dataset_type="haplotypes",
                 enabled=True,
                 complete=True,
                 files=files,
-                message="Available as family GLIMPSE2 VCF",
+                message="Available as a phased family VCF",
             ),
             block,
         )
@@ -1174,7 +1293,7 @@ def _build_manifest_payload(
         "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "maf_bigwig", "summary_html")),
         "mito": (("vcf",), ("index", "annotation_tsv", "sv_vcf", "sv_index", "sv_annotation_tsv")),
         "alignments": (("file",), ("index",)),
-        "qc": ((), ("report", "read_stats", "depth_summary", "depth_regions", "depth_global_dist")),
+        "qc": ((), QC_SAMPLE_ROLES),
     }
     for dataset_type, (required_roles, optional_roles) in long_read_roles.items():
         item, block = _optional_role_dataset_availability(
@@ -1186,6 +1305,10 @@ def _build_manifest_payload(
             required_roles=required_roles,
             optional_roles=optional_roles,
         )
+        if dataset_type == "qc":
+            item, block = _with_family_qc_files(
+                root=root, family_id=family_id, patterns=scheme["qc"], item=item, block=block
+            )
         availability.append(item)
         datasets[dataset_type] = block
 
@@ -1250,6 +1373,42 @@ def _build_manifest_payload(
     payload["samples"] = {sample_id: {} for sample_id in sample_ids}
     payload["datasets"] = datasets
     return payload, availability
+
+
+def _added_member_ids(family_block: dict[str, Any]) -> list[str]:
+    """The sample ids a manifest ``family`` block adds under ``add_members``."""
+    raw = family_block.get("add_members")
+    if isinstance(raw, dict):
+        return [str(sample_id) for sample_id in raw]
+    if isinstance(raw, list):
+        return [
+            str(entry.get("sample_id") or entry.get("id"))
+            for entry in raw
+            if isinstance(entry, dict) and (entry.get("sample_id") or entry.get("id"))
+        ]
+    return []
+
+
+# The order a discovered manifest is written in: who the family is before where its data
+# are. Keys not listed (analysis_type) follow in the order they were set.
+_MANIFEST_KEY_ORDER = (
+    "schema_version",
+    "family_id",
+    "ped",
+    "metadata",
+    "roi",
+    "family",
+    "phenotypes",
+    "individuals",
+    "samples",
+    "datasets",
+)
+
+
+def _ordered_manifest(payload: dict[str, Any]) -> dict[str, Any]:
+    ordered = {key: payload[key] for key in _MANIFEST_KEY_ORDER if key in payload}
+    ordered.update({key: value for key, value in payload.items() if key not in ordered})
+    return ordered
 
 
 def discover_family_package_manifest(
@@ -1372,6 +1531,34 @@ def discover_family_package_manifest(
                     )
                 )
 
+    # The family block: an existing manifest's own, else what the PGT pipeline's
+    # samplesheet says (embryo roles, an index the PED lacks). Members it adds count as
+    # samples for the per-sample datasets below.
+    parent_ids = (
+        {member.pid for member in parsed_ped.members if member.pid not in {"", "0"}}
+        | {member.mid for member in parsed_ped.members if member.mid not in {"", "0"}}
+        if parsed_ped is not None
+        else set()
+    )
+    pipeline_roles = read_pgt_pipeline_roles(root) if parsed_ped is not None else {}
+    roi, traced_parent, run_warnings = pgt_run_context(
+        root, sample_ids=[*sample_ids, *pipeline_roles], parent_ids=parent_ids
+    )
+    warnings.extend(run_warnings)
+    existing_family = existing_manifest.get("family")
+    family_block: dict[str, Any] = existing_family if isinstance(existing_family, dict) else {}
+    if not family_block and parsed_ped is not None and pipeline_roles:
+        family_block, _added_ids, pgt_warnings = pgt_family_block(
+            root=root,
+            family_id=family_id,
+            ped=parsed_ped,
+            roles=pipeline_roles,
+            affected_parent=traced_parent,
+        )
+        warnings.extend(pgt_warnings)
+    added_ids = [sample_id for sample_id in _added_member_ids(family_block) if sample_id not in sample_ids]
+    sample_ids = [*sample_ids, *added_ids]
+
     ped_relative_path = _display_path(root, ped_path) if ped_path is not None else (request.ped_path or f"{family_id}.ped")
     manifest_payload, availability = _build_manifest_payload(
         root=root,
@@ -1382,6 +1569,29 @@ def discover_family_package_manifest(
         hpo_terms=request.hpo_terms,
         notes=request.notes,
     )
+    existing_roi = existing_manifest.get("roi")
+    if existing_roi:
+        roi = existing_roi
+    existing_metadata = existing_manifest.get("metadata")
+    if isinstance(existing_metadata, dict) and existing_metadata:
+        # The request's HPO terms and notes win; everything else the manifest recorded
+        # (the PGT context, say) stays.
+        manifest_payload["metadata"] = {**existing_metadata, **manifest_payload.get("metadata", {})}
+    if traced_parent:
+        metadata_block = manifest_payload.setdefault("metadata", {})
+        existing_pgt = metadata_block.get("pgt")
+        pgt_block = dict(existing_pgt) if isinstance(existing_pgt, dict) else {}
+        # An affected parent the manifest already names stays.
+        if not any(key in pgt_block for key in ("affected_parents", "affected_parent")):
+            pgt_block["affected_parents"] = [traced_parent]
+        metadata_block["pgt"] = pgt_block
+    if roi:
+        manifest_payload["roi"] = roi
+    if family_block:
+        manifest_payload["family"] = family_block
+    for key in ("phenotypes", "individuals"):
+        if key in existing_manifest:
+            manifest_payload[key] = existing_manifest[key]
     # Preserve an existing manifest's analysis_type / samples (e.g. the NIPT tags)
     # so re-discovering and writing the manifest does not silently drop them.
     existing_analysis_type = existing_manifest.get("analysis_type")
@@ -1411,7 +1621,7 @@ def discover_family_package_manifest(
                 availability_by_type[dataset_type] = len(availability)
                 availability.append(item)
     manifest_yaml = yaml.safe_dump(
-        manifest_payload,
+        _ordered_manifest(manifest_payload),
         sort_keys=False,
         default_flow_style=False,
     )

@@ -342,3 +342,38 @@ test('the name says when the phased-marker overlay failed to load (#529, #510)',
     }),
   ).toBeInTheDocument();
 });
+
+test("marks where a parent's phase was corrected, and says what it means on hover", () => {
+  mockData({ segments });
+  const { container } = render(
+    <HaplotypePhasedTrack
+      familyId="F1"
+      sampleId="CHILD"
+      chrom="1"
+      regionStart={0}
+      regionEnd={1000}
+      width={500}
+      height={36}
+      role="proband"
+      affected={false}
+      sex="male"
+      highlightRiskHaplotype={false}
+      familyMembers={members}
+      inheritanceModel="AD"
+      riskRegion={null}
+      showMarkers={false}
+      phaseCorrections={[
+        { parent: 'CHILD', side: 'father', chr: '1', position: 400, end: 450, children_switching: 4, children: 5 },
+      ]}
+    />,
+  );
+  const canvas = container.querySelector('canvas') as Element;
+  // x = 200 over width 500 across region 0–1000 → genomic pos 400, the correction.
+  fireEvent.mouseMove(canvas, { clientX: 201, clientY: 10 });
+  expect(document.body.querySelector('.viz-tooltip')?.textContent).toContain(
+    "Phase corrected: 4 of 5 children switched together on the father's side",
+  );
+  // Away from it, with markers hidden, nothing.
+  fireEvent.mouseMove(canvas, { clientX: 300, clientY: 10 });
+  expect(document.body.querySelector('.viz-tooltip')).toBeNull();
+});

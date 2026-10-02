@@ -14,7 +14,11 @@
  *     embryo's own haplotype does not cover the ROI on the parental side the call needs
  *     (missing data is never read as "does not carry the risk haplotype");
  *   - sexDependent: X-linked recessive, the embryo's sex is not recorded and its call would
- *     differ between a son and a daughter, so the call assumes neither sex.
+ *     differ between a son and a daughter, so the call assumes neither sex;
+ *   - phaseCorrectionsNearRoi: a parent's phase switch the blocks undid lies inside or close
+ *     to the ROI. The swap leaves which embryos share a haplotype unchanged, but where the
+ *     parent's phase switched is known only to within the children's switches, so the call
+ *     across the locus is less certain, and an embryo's own crossover there may be hidden.
  *
  * This is DERIVED FROM THE ANALYSIS — it is not entered by an analyst or user.
  */
@@ -30,6 +34,7 @@ import {
   type HaplotypeSampleLike,
   type HaplotypeSegmentLike,
 } from './haplotypeRisk';
+import { phaseCorrectionsNearRegion, type HaplotypePhaseCorrection } from './haplotypePhaseCorrections';
 
 /** A crossover within the ROI, or within this flank of either edge, is "close to
  * the ROI" — close enough that it undermines the segregation call at the locus. */
@@ -49,6 +54,8 @@ export interface EmbryoClassification {
   /** X-linked recessive with the sex not recorded: the call a son and a daughter would each get,
    * when they differ. The state is then Affected / at risk, or uninformative (see haplotypeRisk). */
   sexDependent: HaplotypeRiskAssessment['sexDependent'];
+  /** The parents' phase corrections inside or close to the ROI (see the module comment). */
+  phaseCorrectionsNearRoi: HaplotypePhaseCorrection[];
 }
 
 const segmentsForSample = (
@@ -87,11 +94,13 @@ export const classifyEmbryosAtRoi = ({
   samples,
   inheritanceModel,
   region,
+  phaseCorrections = [],
 }: {
   members: HaplotypeMemberLike[];
   samples: HaplotypeSampleLike[];
   inheritanceModel?: string | null;
   region: HaplotypeRiskRegion;
+  phaseCorrections?: HaplotypePhaseCorrection[];
 }): EmbryoClassification[] => {
   const model = inferDiseaseHaplotypes({
     samples,
@@ -99,6 +108,7 @@ export const classifyEmbryosAtRoi = ({
     inheritanceModel: resolveHaplotypeInheritanceModel(inheritanceModel, members),
     region,
   });
+  const correctionsNearRoi = phaseCorrectionsNearRegion(phaseCorrections, region, ROI_RECOMBINATION_FLANK);
   return members
     .filter((member) => String(member.role || '').toLowerCase() === 'embryo')
     .map((member) => {
@@ -110,6 +120,7 @@ export const classifyEmbryosAtRoi = ({
         roiNotCovered,
         sexDependent,
         recombinationNearRoi: hasRecombinationNearRoi(segmentsForSample(samples, member.sample_id), region),
+        phaseCorrectionsNearRoi: correctionsNearRoi,
       };
     });
 };

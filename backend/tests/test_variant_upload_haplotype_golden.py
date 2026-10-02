@@ -1,10 +1,13 @@
 """Haplotype blocks from a glimpse2 upload, pinned against a recorded output (#528).
 
 The block builder moved out of ``upload_family_small_variant_file``. These seeded families
-must give exactly the blocks, in the same order, that the in-line builder gave. They are a
-quartet with segregation haplotypes, the same at the unit-test switch thresholds, a family
-without both parents (per-sample phase-set blocks), and a quartet with chromosome sizes
-known. Regenerate the fixture only for an intended change to the blocks:
+must give exactly the blocks that the in-line builder gave. With segregation haplotypes the
+children's blocks of a chromosome come after its parents' blocks: they are built once the
+chromosome is read, to undo a parent's phase switches, of which these families have none
+(the switch-error family's switches are each child's own). They are a quartet with
+segregation haplotypes, the same at the unit-test switch thresholds, a family without both
+parents (per-sample phase-set blocks), and a quartet with chromosome sizes known.
+Regenerate the fixture only for an intended change to the blocks:
 
     COGA_REGENERATE_GOLDEN=1 python -m pytest backend/tests/test_variant_upload_haplotype_golden.py
 """
@@ -182,6 +185,11 @@ async def _blocks(
     async def sizes(*_args: Any, **_kwargs: Any) -> dict[str, int]:
         return dict(chromosome_sizes)
 
+    recorded_corrections: list[Any] = []
+
+    async def record_corrections(_session: Any, *, family_uuid: str, corrections: list[Any]) -> None:
+        recorded_corrections.append(list(corrections))
+
     monkeypatch.setattr(variant_upload_service, "count_family_small_variants", zero)
     monkeypatch.setattr(variant_upload_service, "get_track_presence_by_sample", no_tracks)
     monkeypatch.setattr(variant_upload_service, "insert_small_variant_records", nothing)
@@ -189,6 +197,7 @@ async def _blocks(
     monkeypatch.setattr(variant_upload_service, "insert_interval_track_rows", capture)
     monkeypatch.setattr(variant_upload_service, "upsert_interval_track_source", nothing)
     monkeypatch.setattr(variant_upload_service, "_fetch_chromosome_sizes", sizes)
+    monkeypatch.setattr(variant_upload_service, "record_haplotype_phase_corrections", record_corrections)
     monkeypatch.setattr(
         "backend.app.services.annotation_manifest_service.merge_vcf_header_provenance", nothing
     )
@@ -213,6 +222,8 @@ async def _blocks(
     # The metadata carries the upload time; everything else must match exactly.
     metadata = {json.dumps({k: v for k, v in json.loads(row["metadata_json"]).items() if k != "uploaded_at"}) for row in rows}
     assert len(metadata) <= 1
+    # These families have no phase switch in a parent; the switches are each child's own.
+    assert recorded_corrections == [[]]
     return {
         "inserted": result["inserted"],
         "haplotypes_inserted": result["haplotypes_inserted"],

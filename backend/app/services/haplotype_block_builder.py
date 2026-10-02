@@ -6,21 +6,56 @@ committed only after repeated evidence; the parents' labels are then oriented by
 affected child. Otherwise each sample's blocks follow its own phase sets. Pure logic:
 the loader in ``variant_upload_service`` feeds it records and stores what it returns.
 Split out of ``upload_family_small_variant_file``.
+
+With segregation haplotypes, a chromosome's transmissions are kept until the chromosome
+ends, so that a switch in a parent's phase, which every child of the couple shows at the
+same place, is read and undone before the children's blocks are built (see
+``haplotype_phase_correction``).
 """
 
 from __future__ import annotations
 
+import bisect
+from array import array
 from typing import Any
 
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .haplotype_lineage_service import build_pedigree, identify_core
+from .haplotype_phase_correction import PhaseCorrection, find_phase_switches, is_autosome
 
 
 # A child's inherited homolog switches only after this many consecutive markers over at
 # least this span agree, so a crossover splits the blocks but genotype noise does not.
 SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS = 50
 SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN = 500_000
+# A child counts towards reading a parent's phase switch on a chromosome when it has at
+# least this many sites where the homolog it inherited from that parent is known.
+PHASE_SWITCH_MIN_CHILD_MARKERS = 2 * SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS
+
+# The bytearray code of a site where no homolog was read on a side.
+_NO_HAPLOTYPE = 2
+
+
+class _ChildTransmissions:
+    """One child's transmissions on one chromosome, in record order: the site, the homolog
+    read on each parent's side (``_NO_HAPLOTYPE`` for none) and, where the call has one,
+    its phase set. Compact, as a chromosome holds a few hundred thousand sites."""
+
+    __slots__ = ("positions", "paternal", "maternal", "phase_sets")
+
+    def __init__(self) -> None:
+        self.positions = array("q")
+        self.paternal = bytearray()
+        self.maternal = bytearray()
+        self.phase_sets: dict[int, int] = {}
+
+    def append(self, pos: int, paternal: str | None, maternal: str | None, ps: int | None) -> None:
+        if ps is not None:
+            self.phase_sets[len(self.positions)] = ps
+        self.positions.append(pos)
+        self.paternal.append(_NO_HAPLOTYPE if paternal is None else int(paternal))
+        self.maternal.append(_NO_HAPLOTYPE if maternal is None else int(maternal))
 
 
 def _haplotype_state_end(
@@ -303,6 +338,15 @@ def _role_first_parent_names(
     return father_name, mother_name
 
 
+def _couple_children(context: FamilyMetadataContext) -> set[str]:
+    """The children of the couple by the pedigree, who alone tell a parent's phase switch
+    from crossovers; empty when the pedigree does not name the couple."""
+    if not context.relationship_rows:
+        return set()
+    core = identify_core(build_pedigree(context.sample_rows, context.relationship_rows))
+    return set(core.children) if core.father and core.mother else set()
+
+
 def _parent_sample_names(context: FamilyMetadataContext) -> tuple[str | None, str | None]:
     """Resolve the *index couple* — the father/mother who co-parent the index
     children — so the marker overlay and the upload block builder agree with the
@@ -443,6 +487,15 @@ class HaplotypeBlockBuilder:
         self.rows: list[dict[str, Any]] = []
         self.states: dict[str, dict[str, Any]] = {}
         self.side_states: dict[str, dict[str, dict[str, Any]]] = {}
+        # Segregation haplotypes: the current chromosome's transmissions per child, and
+        # the parents' phase switches found so far.
+        self.couple_children = _couple_children(context)
+        self.transmission_chrom: str | None = None
+        self.transmissions: dict[str, _ChildTransmissions] = {}
+        self.phase_corrections: list[PhaseCorrection] = []
+        # Per chromosome, where each parent's phase is swapped back: a chromosome an
+        # unsorted file splits keeps the swaps its first part found, as the views do.
+        self.phase_flips_by_chrom: dict[str, dict[str, list[int]]] = {}
 
     def add_sample(self, name: str) -> None:
         self.states[name] = _empty_haplotype_state()
@@ -551,6 +604,9 @@ class HaplotypeBlockBuilder:
                 split_on_haplotype_change=True,
             )
 
+        if chrom != self.transmission_chrom:
+            self._build_child_blocks()
+            self.transmission_chrom = chrom
         for sample_name in sample_names:
             if sample_name in {father_name, mother_name}:
                 continue
@@ -568,73 +624,173 @@ class HaplotypeBlockBuilder:
             )
             if paternal_hap is None and maternal_hap is None:
                 continue
-            if sample_name in self.affected_sample_names:
-                if paternal_hap is not None:
-                    self.affected_parent_counts["father"][paternal_hap] += 1
-                if maternal_hap is not None:
-                    self.affected_parent_counts["mother"][maternal_hap] += 1
-            side_states = self.side_states[sample_name]
-            changes: dict[int, dict[str, str]] = {}
-            paternal_change = _observe_segregation_haplotype(
-                side_states["father"],
-                chrom=chrom,
-                start=start,
-                hap=paternal_hap,
+            self.transmissions.setdefault(sample_name, _ChildTransmissions()).append(
+                start, paternal_hap, maternal_hap, child_call.ps if child_call else None
             )
-            maternal_change = _observe_segregation_haplotype(
-                side_states["mother"],
-                chrom=chrom,
-                start=start,
-                hap=maternal_hap,
-            )
-            if paternal_change is not None:
-                switch_start, confirmed_hap = paternal_change
-                changes.setdefault(switch_start, {})["hap1"] = confirmed_hap
-            if maternal_change is not None:
-                switch_start, confirmed_hap = maternal_change
-                changes.setdefault(switch_start, {})["hap2"] = confirmed_hap
-            for switch_start, change in sorted(changes.items()):
-                state = self.states[sample_name]
-                if state["chr"] == chrom and state["start"] is not None:
-                    hap1 = str(state["hap1"])
-                    hap2 = str(state["hap2"])
-                else:
-                    hap1 = _confirmed_segregation_haplotype(side_states["father"], chrom)
-                    hap2 = _confirmed_segregation_haplotype(side_states["mother"], chrom)
-                hap1 = change.get("hap1", hap1)
-                hap2 = change.get("hap2", hap2)
-                if (
-                    state["chr"] == chrom
-                    and state["start"] is not None
-                    and switch_start <= int(state["start"])
-                ):
-                    state["hap1"] = hap1
-                    state["hap2"] = hap2
-                    state["ps"] = child_call.ps if child_call else None
+
+    def _build_child_blocks(self) -> None:
+        """The children's blocks of the chromosome whose transmissions are kept: the
+        parents' phase switches found and undone, then every child's transmissions fed
+        to its blocks in order."""
+        chrom = self.transmission_chrom
+        transmissions, self.transmissions = self.transmissions, {}
+        if chrom is None or not transmissions:
+            return
+        chrom_key = normalize_chromosome(chrom)
+        known_flips = self.phase_flips_by_chrom.get(chrom_key)
+        flips: dict[str, list[int]] = known_flips or {"father": [], "mother": []}
+        if known_flips is None and is_autosome(chrom):
+            for side, parent in (("father", self.father_name), ("mother", self.mother_name)):
+                if parent is None:
                     continue
-                _update_haplotype_state(
-                    states=self.states,
-                    rows=self.rows,
-                    sample_contexts=self.sample_contexts,
-                    sample_name=sample_name,
+                switches, extents = self._child_switches(chrom, transmissions, side)
+                for switch in find_phase_switches(
+                    switches, informative_children=len(switches), extents_by_child=extents
+                ):
+                    flips[side].append(switch.position)
+                    self.phase_corrections.append(
+                        PhaseCorrection(
+                            parent=parent,
+                            side=side,
+                            chrom=normalize_chromosome(chrom),
+                            position=switch.position,
+                            end=switch.end,
+                            children_switching=switch.children_switching,
+                            children=len(switches),
+                        )
+                    )
+        self.phase_flips_by_chrom[chrom_key] = flips
+        father_flips, mother_flips = sorted(flips["father"]), sorted(flips["mother"])
+        for sample_name, record in transmissions.items():
+            for index, pos in enumerate(record.positions):
+                # Swapped where an odd number of the parent's corrections lie at or before
+                # the site, as corrected_genotype_rows swaps the parent's alleles.
+                father_flip = bisect.bisect_right(father_flips, pos) % 2
+                mother_flip = bisect.bisect_right(mother_flips, pos) % 2
+                paternal = record.paternal[index]
+                maternal = record.maternal[index]
+                self._observe_child_transmission(
                     chrom=chrom,
-                    start=switch_start,
-                    hap1=hap1,
-                    hap2=hap2,
-                    ps=child_call.ps if child_call else None,
-                    chromosome_sizes=self.chromosome_sizes,
-                    metadata_json=self.metadata_json,
-                    split_on_haplotype_change=True,
+                    start=pos,
+                    sample_name=sample_name,
+                    paternal_hap=None if paternal == _NO_HAPLOTYPE else str(paternal ^ father_flip),
+                    maternal_hap=None if maternal == _NO_HAPLOTYPE else str(maternal ^ mother_flip),
+                    ps=record.phase_sets.get(index),
                 )
+
+    def _child_switches(
+        self, chrom: str, transmissions: dict[str, _ChildTransmissions], side: str
+    ) -> tuple[dict[str, list[int]], dict[str, int]]:
+        """Where each of the couple's children with enough sites on ``side`` to show a
+        switch at all switches the homolog it inherited there, by the rule its blocks
+        follow, and the stretch its sites cover."""
+        switches: dict[str, list[int]] = {}
+        extents: dict[str, int] = {}
+        for sample_name, record in transmissions.items():
+            if self.couple_children and sample_name not in self.couple_children:
+                continue
+            haplotypes = record.paternal if side == "father" else record.maternal
+            state = _empty_segregation_side_state()
+            positions: list[int] = []
+            sites = 0
+            first_site = last_site = 0
+            for pos, haplotype in zip(record.positions, haplotypes):
+                if haplotype == _NO_HAPLOTYPE:
+                    continue
+                sites += 1
+                if sites == 1:
+                    first_site = pos
+                last_site = pos
+                change = _observe_segregation_haplotype(state, chrom=chrom, start=pos, hap=str(haplotype))
+                # The first change is the chromosome's first homolog, not a switch.
+                if change is not None and sites > 1:
+                    positions.append(change[0])
+            if sites >= PHASE_SWITCH_MIN_CHILD_MARKERS:
+                switches[sample_name] = positions
+                extents[sample_name] = last_site - first_site
+        return switches, extents
+
+    def _observe_child_transmission(
+        self,
+        *,
+        chrom: str,
+        start: int,
+        sample_name: str,
+        paternal_hap: str | None,
+        maternal_hap: str | None,
+        ps: int | None,
+    ) -> None:
+        if paternal_hap is None and maternal_hap is None:
+            return
+        if sample_name in self.affected_sample_names:
+            if paternal_hap is not None:
+                self.affected_parent_counts["father"][paternal_hap] += 1
+            if maternal_hap is not None:
+                self.affected_parent_counts["mother"][maternal_hap] += 1
+        side_states = self.side_states[sample_name]
+        changes: dict[int, dict[str, str]] = {}
+        paternal_change = _observe_segregation_haplotype(
+            side_states["father"],
+            chrom=chrom,
+            start=start,
+            hap=paternal_hap,
+        )
+        maternal_change = _observe_segregation_haplotype(
+            side_states["mother"],
+            chrom=chrom,
+            start=start,
+            hap=maternal_hap,
+        )
+        if paternal_change is not None:
+            switch_start, confirmed_hap = paternal_change
+            changes.setdefault(switch_start, {})["hap1"] = confirmed_hap
+        if maternal_change is not None:
+            switch_start, confirmed_hap = maternal_change
+            changes.setdefault(switch_start, {})["hap2"] = confirmed_hap
+        for switch_start, change in sorted(changes.items()):
             state = self.states[sample_name]
+            if state["chr"] == chrom and state["start"] is not None:
+                hap1 = str(state["hap1"])
+                hap2 = str(state["hap2"])
+            else:
+                hap1 = _confirmed_segregation_haplotype(side_states["father"], chrom)
+                hap2 = _confirmed_segregation_haplotype(side_states["mother"], chrom)
+            hap1 = change.get("hap1", hap1)
+            hap2 = change.get("hap2", hap2)
             if (
                 state["chr"] == chrom
                 and state["start"] is not None
-                and start >= int(state["start"])
+                and switch_start <= int(state["start"])
             ):
-                state["last_pos"] = start
+                state["hap1"] = hap1
+                state["hap2"] = hap2
+                state["ps"] = ps
+                continue
+            _update_haplotype_state(
+                states=self.states,
+                rows=self.rows,
+                sample_contexts=self.sample_contexts,
+                sample_name=sample_name,
+                chrom=chrom,
+                start=switch_start,
+                hap1=hap1,
+                hap2=hap2,
+                ps=ps,
+                chromosome_sizes=self.chromosome_sizes,
+                metadata_json=self.metadata_json,
+                split_on_haplotype_change=True,
+            )
+        state = self.states[sample_name]
+        if (
+            state["chr"] == chrom
+            and state["start"] is not None
+            and start >= int(state["start"])
+        ):
+            state["last_pos"] = start
 
     def finish(self) -> list[dict[str, Any]]:
+        if self.use_segregation:
+            self._build_child_blocks()
         for sample_name, state in self.states.items():
             if state["start"] is None:
                 continue

@@ -711,10 +711,15 @@ export interface FamilyRegionOfInterestUpdate {
   project_id?: string | null;
 }
 
-/** Canonical family graph edge between two members. */
+/**
+ * Canonical family graph edge between two members.
+ *
+ * ``relative`` links a member to the family through another member (``sample_id_a``),
+ * by a degree that is not known: a PGT index known to be on the mother's side, say.
+ */
 export interface FamilyRelationshipOut {
   id: string;
-  relationship_type: "parent_child" | "couple";
+  relationship_type: "parent_child" | "couple" | "relative";
   sample_id_a: string;
   sample_id_b: string;
   role_a: string | null;
@@ -799,6 +804,14 @@ export interface FamilyStructureParentChildUpdate {
 export interface FamilyStructureRelationshipsUpdate {
   parent_child?: FamilyStructureParentChildUpdate[];
   couples?: FamilyStructureCoupleUpdate[];
+  relatives?: FamilyStructureRelativeUpdate[] | null;
+}
+
+/** A member related to the family through another member, by an unknown degree. */
+export interface FamilyStructureRelativeUpdate {
+  member: string;
+  related_to: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface FamilyStructureUpdate {

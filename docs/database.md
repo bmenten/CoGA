@@ -72,7 +72,7 @@ built-in reference file is recorded under its file name.
 | `samples` | a sample: its `sample_id`, family, sex and `metadata` (below) |
 | `family_members` | a sample's place in its family: role, clinical and carrier status, active flag |
 | `family_projects`, `sample_projects` | which projects can see a family or a sample |
-| `family_relationships` | explicit links between two samples: `parent_child` (with the role at each end) or `couple`; `source` says whether a PED import or an edit made it, `active = false` retires it |
+| `family_relationships` | explicit links between two samples: `parent_child` (with the role at each end), `couple`, or `relative` (`sample_id_b` is related through `sample_id_a` by an unknown degree, such as a PGT index known only to be on the mother's side); `source` says whether a PED import or an edit made it, `active = false` retires it |
 | `family_structure_versions` | one row per pedigree or phenotype change: the version, a `structure_hash` over roles, parentage and affected status, and the full snapshot |
 | `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset. `family_id` is the family a job imports, committed with status `running` before the import writes anything of it (an import that cannot record it writes nothing); the report sign-out refuses a family while a job of it is queued, validating or running. A running job writes `heartbeat_at` every minute; a worker claims a job whose heartbeat is ten minutes old, runs it again if it was still `validating`, and ends it `failed` (interrupted) if it was `running`, adding a line to its log either way |
 | `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown` |
@@ -94,14 +94,17 @@ JSON keys that package import writes into the `metadata` columns:
 
 | Column | Key | Contents |
 | --- | --- | --- |
-| `samples.metadata` | `sequencing_qc` | read metrics (NanoPlot), depth (mosdepth) and the path of the QC report |
+| `samples.metadata` | `sequencing_qc` | read metrics (NanoPlot), depth (mosdepth, or the PGT pipeline's mean coverage), alignment metrics (`alignment`, from Qualimap), the sex ngs-bits read (`sex_check`), an embryo's PGT QC (`pgt`: allele drop-out and drop-in, Mendelian concordance before and after imputation, as percentages) and the path of the QC report |
 | `samples.metadata` | `alignment` | the CRAM/BAM path and index, package-relative (`path`, `index_path`), and for a package in a bucket the objects' URIs (`uri`, `index_uri`), which IGV reads |
 | `samples.metadata` | `signal_tracks` | the package-relative paths of the HiFiCNV depth, MAF and copy-number files, served to IGV, and for a package in a bucket the objects' URIs under `uris` |
 | `samples.metadata` | `mtdna` | the mtDNA haplogroup from the mutserve annotation |
 | `samples.metadata` | `sv_files` | the file name per structural-variant source |
-| `families.metadata` | `pipeline` | the Nextflow run parameters (reference build, callers, annotation caches) |
+| `families.metadata` | `pipeline` | the Nextflow run parameters (reference build, callers, annotation caches; for the PGT pipeline the affected parent, ROI and QDNAseq bin size) |
+| `families.metadata` | `pipeline_qc` | the QC the PGT pipeline reported for the family as a whole: the KING kinship, IBS0 and SNP count of every pair (`kinship`), and the files they came from |
+| `families.metadata` | `haplotype_phase_corrections` | the parents' phase switches the haplotype blocks undid, one per switch: the parent and its side, the chromosome, the position from which its two haplotypes are swapped and the end of the children's switches, and how many of how many informative children switched. Replaced at every haplotype import; the lineage colouring and the phased markers read the parents' phase through them |
+| `families.metadata` | `pipeline_haplotype_origin` | the PGT pipeline's reading of which haplotype of the affected parent is the affected one: the parent, the sites each haplotype shares with the index's affected and normal haplotypes, and the pipeline's conclusion. Evidence only; CoGA's risk-haplotype inference does not read it |
 | `families.metadata` | `package_import` | the import provenance: folder (a bucket folder's URI), manifest, datasets and the manifest's own `metadata` |
-| `families.metadata` | `pgt`, `analysis_type` | the manifest's PGT context and analysis type |
+| `families.metadata` | `pgt`, `analysis_type` | the manifest's PGT context (the inheritance model, the obligate and proven carriers, and the affected parents) and analysis type |
 | `families.metadata` | `import_incomplete` | set by an import that failed for some datasets and kept the others: the datasets that failed and those that imported, when, and the import job; for each failed dataset the job that holds its error (`failed_jobs`, as a later failure keeps an earlier one's) and its scope (`scopes`). A completed import removes each failed dataset it imported again for that scope, and the flag with the last |
 | `families.metadata` | `import_unfinished` | the imports that have begun writing the family and not finished, by job: when each began, its datasets and those it finished. An import writes its entry before its first write (and again once it holds the family's variant-write locks) and removes it when it ends, so an entry that stays names one whose process stopped part-way. It records each dataset's scope (`scopes`: the small variants' `source_format`, a per-sample dataset's samples), and only an `overwrite` that imports again what it had not finished, for that scope, removes it |
 

@@ -3,6 +3,7 @@ import { useParams, Link, useLocation } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import MonarchPhenotypeMatchPanel from './MonarchPhenotypeMatchPanel';
+import { describePhaseCorrection, phaseCorrectionsFromMetadata } from '../../lib/haplotypePhaseCorrections';
 import { useEmbryoSegregation } from '../../lib/useEmbryoSegregation';
 import { segregationStateLabel, sexUnknownWarning } from '../../lib/embryoSegregation';
 import InfoTip from '../../components/InfoTip';
@@ -39,6 +40,7 @@ import type {
   CoupleDraft,
   MemberDetailDraft,
   ParentChildDraft,
+  RelativeDraft,
   StructureMemberDraft,
 } from './familyDetailTypes';
 import {
@@ -58,6 +60,7 @@ import {
   memberDraftFromFamilyMember,
   parentChildDraftsFromRelationships,
   parentsForSample,
+  relativeDraftsFromRelationships,
   sampleKey,
 } from './familyDetailHelpers';
 import VariantWorkspaceLink from './VariantWorkspaceLink';
@@ -113,6 +116,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const [structureMembers, setStructureMembers] = useState<StructureMemberDraft[]>([]);
   const [parentChildDrafts, setParentChildDrafts] = useState<ParentChildDraft[]>([]);
   const [coupleDrafts, setCoupleDrafts] = useState<CoupleDraft[]>([]);
+  const [relativeDrafts, setRelativeDrafts] = useState<RelativeDraft[]>([]);
   const [newMember, setNewMember] = useState<StructureMemberDraft>(defaultNewMember);
   const [newMemberRelations, setNewMemberRelations] = useState({ father: '', mother: '', partner: '' });
   const [structureBusy, setStructureBusy] = useState(false);
@@ -405,6 +409,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   );
   // Derived embryo segregation at the ROI (carrier/affected/unaffected), shown per
   // embryo in the Family members table below. Derived from the haplotype analysis.
+  const phaseCorrections = useMemo(
+    () => phaseCorrectionsFromMetadata(data?.metadata as Record<string, unknown> | undefined),
+    [data?.metadata],
+  );
   const {
     byEmbryo: embryoSegregation,
     isError: segregationFailed,
@@ -415,6 +423,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     members: data?.members ?? [],
     inheritanceModel: (data?.metadata?.pgt as { inheritance_model?: string } | undefined)
       ?.inheritance_model,
+    phaseCorrections,
   });
   // A PGT case: phased markers across the ROI only exist where embryos were analysed.
   const hasEmbryos = useMemo(
@@ -471,11 +480,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       setStructureMembers([]);
       setParentChildDrafts([]);
       setCoupleDrafts([]);
+      setRelativeDrafts([]);
       return;
     }
     setStructureMembers(data.members.map(memberDraftFromFamilyMember));
     setParentChildDrafts(parentChildDraftsFromRelationships(data));
     setCoupleDrafts(coupleDraftsFromRelationships(data));
+    setRelativeDrafts(relativeDraftsFromRelationships(data));
     setNewMember(defaultNewMember);
     setNewMemberRelations({ father: '', mother: '', partner: '' });
   }, [data]);
@@ -653,6 +664,34 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     });
   };
 
+  // "Related to": the members this one is related through by an unknown degree, as a
+  // comma-joined value so that one select offers both parents together.
+  const relativeValueFor = (memberId: string): string =>
+    relativeDrafts
+      .filter((relationship) => sampleKey(relationship.member) === sampleKey(memberId))
+      .map((relationship) => relationship.relatedTo)
+      .sort((left, right) => sampleKey(left).localeCompare(sampleKey(right)))
+      .join(',');
+
+  const setRelativeValue = (memberId: string, value: string) => {
+    setRelativeDrafts((relationships) => [
+      ...relationships.filter((relationship) => sampleKey(relationship.member) !== sampleKey(memberId)),
+      ...value
+        .split(',')
+        .filter(Boolean)
+        .map((relatedTo) => ({ id: `relative-${memberId}-${relatedTo}-${Date.now()}`, member: memberId, relatedTo })),
+    ]);
+  };
+
+  const coupleIds = (['father', 'mother'] as const).map((role) => {
+    const holders = activeStructureMembers.filter((member) => member.role === role);
+    return holders.length === 1 ? holders[0].sample_id : null;
+  });
+  const bothParentsValue =
+    coupleIds[0] && coupleIds[1]
+      ? [coupleIds[0], coupleIds[1]].sort((left, right) => sampleKey(left).localeCompare(sampleKey(right))).join(',')
+      : null;
+
   const updateStructureMember = (
     sampleId: string,
     updates: Partial<StructureMemberDraft>,
@@ -688,6 +727,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     setCoupleDrafts((relationships) =>
       relationships.filter(
         (relationship) => relationship.partnerA !== sampleId && relationship.partnerB !== sampleId,
+      ),
+    );
+    setRelativeDrafts((relationships) =>
+      relationships.filter(
+        (relationship) => relationship.member !== sampleId && relationship.relatedTo !== sampleId,
       ),
     );
   };
@@ -779,6 +823,16 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           context: relationship.context.trim() || null,
           metadata: {},
         }));
+      const relatives = relativeDrafts
+        .filter(
+          (relationship) =>
+            activeDraftIds.has(relationship.member) && activeDraftIds.has(relationship.relatedTo),
+        )
+        .map((relationship) => ({
+          member: relationship.member,
+          related_to: relationship.relatedTo,
+          metadata: {},
+        }));
       const response = await api.put(apiPath`/families/${familyId}/structure`, {
         expected_structure_version: data.structure_version?.version ?? null,
         change_reason: 'family_detail_page',
@@ -789,6 +843,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
         relationships: {
           parent_child: parentChild,
           couples,
+          relatives,
         },
       });
       const payload = response.data as {
@@ -1406,6 +1461,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 <th>Father</th>
                 <th>Mother</th>
                 <th>Partner</th>
+                <th title="Related to the family through this member, by an unknown degree">Related to</th>
                 <th>Status</th>
                 <th>HPO terms</th>
                 <th>Seq. QC</th>
@@ -1577,6 +1633,37 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     </td>
                     <td>
                       {canEditFamilyDetails ? (
+                        <select
+                          aria-label={`Related to, for ${member.sample_id}`}
+                          title="Related to the family through this member, by an unknown degree"
+                          value={relativeValueFor(member.sample_id)}
+                          onChange={(event) => setRelativeValue(member.sample_id, event.target.value)}
+                          disabled={structureBusy}
+                        >
+                          <option value="">—</option>
+                          {bothParentsValue && !coupleIds.includes(member.sample_id) && (
+                            <option value={bothParentsValue}>both parents</option>
+                          )}
+                          {relativeValueFor(member.sample_id).includes(',') &&
+                            relativeValueFor(member.sample_id) !== bothParentsValue && (
+                              <option value={relativeValueFor(member.sample_id)}>
+                                {relativeValueFor(member.sample_id).split(',').join(' and ')}
+                              </option>
+                            )}
+                          {activeSampleIds
+                            .filter((sampleId) => sampleId !== member.sample_id)
+                            .map((sampleId) => (
+                              <option key={sampleId} value={sampleId}>
+                                {sampleId}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        relativeValueFor(member.sample_id).split(',').join(', ') || '-'
+                      )}
+                    </td>
+                    <td>
+                      {canEditFamilyDetails ? (
                         <div className="family-member-status-controls">
                           <select
                             aria-label={`Phenotype for ${member.sample_id}`}
@@ -1647,6 +1734,16 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                               label="A recombination falls inside or close to the ROI — the call across the locus is uncertain. Review the ROI markers."
                             >
                               ⚠ recombination
+                            </InfoTip>
+                          )}
+                          {embryoClass && embryoClass.phaseCorrectionsNearRoi.length > 0 && (
+                            <InfoTip
+                              className="segregation-warning"
+                              label={`${embryoClass.phaseCorrectionsNearRoi
+                                .map(describePhaseCorrection)
+                                .join(' ')} This is inside or close to the ROI: where the phase switched is known only to within the children's switches, so the call across the locus is less certain, and an embryo's own crossover there may not show. Review the ROI markers.`}
+                            >
+                              ⚠ phase corrected
                             </InfoTip>
                           )}
                           {/* X-linked recessive: the call depends on a sex that is not recorded, so
