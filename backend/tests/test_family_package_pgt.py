@@ -1242,6 +1242,43 @@ async def test_a_trio_vcf_gives_the_embryos_allele_fraction_and_its_parental_ori
 
 
 @pytest.mark.asyncio
+async def test_a_large_trio_vcf_goes_in_as_few_large_inserts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A per-embryo trio VCF holds about six million sites. In 5,000-row inserts that was
+    # over a thousand ClickHouse parts per file in one partition: ClickHouse delayed the
+    # inserts while it merged them until the client's socket read timed out.
+    batches: list[int] = []
+
+    async def capture(_session: Any, rows: list[dict[str, Any]]) -> None:
+        batches.append(len(rows))
+
+    monkeypatch.setattr(family_package_tracks, "_insert_interval_track_rows", capture)
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    job = _job(root, "apcad")
+    sites = 2 * family_package_tracks.INTERVAL_INSERT_BATCH_ROWS + 7
+    body = "".join(
+        f"chr1\t{100 + index}\t.\tA\tG\t50\tPASS\t.\tGT:AD\t0|0:.\t1|1:.\t0/1:6,4\n" for index in range(sites)
+    )
+    vcf = _write(
+        root / "split_trio/filter_trio/EMB1.trio_filtered.vcf.gz",
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tFATHER1\tMOTHER1\tEMB1\n" + body,
+    )
+
+    results = await family_package_tracks._import_apcad_vcf_file(
+        object(),  # type: ignore[arg-type]
+        path=vcf,
+        sample_contexts=job.sample_contexts,
+        ped=job.bundle.ped,
+        selected_sample_id="EMB1",
+    )
+
+    assert family_package_tracks.INTERVAL_INSERT_BATCH_ROWS >= 50_000
+    assert results["EMB1"]["inserted"] == sites
+    assert batches == [family_package_tracks.INTERVAL_INSERT_BATCH_ROWS] * 2 + [7]
+
+
+@pytest.mark.asyncio
 async def test_the_apcad_import_reads_each_embryos_trio_vcf_and_reports_progress(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

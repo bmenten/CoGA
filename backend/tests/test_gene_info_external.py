@@ -37,6 +37,7 @@ def captured_requests(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict]]
         return _FakeResponse()
 
     monkeypatch.setattr(gene_info_external, "resilient_request", fake_request)
+    monkeypatch.setattr(gene_info_external._ncbi_pacer, "interval", 0.0)
     return calls
 
 
@@ -95,3 +96,69 @@ async def test_removed_per_gene_lookups_are_gone(
         "normalize_homologs",
     ):
         assert not hasattr(gene_info_external, name), f"{name} should have been removed"
+
+
+@pytest.mark.asyncio
+async def test_with_hgncs_ncbi_gene_id_the_lookup_is_one_request(
+    captured_requests: list[tuple[str, dict]],
+) -> None:
+    # HGNC gives most genes' NCBI Gene ID: the summary is fetched by it, without the search.
+    await gene_info_external.fetch_ncbi_gene("TP53", "Homo sapiens", ncbi_gene_id="7157")
+
+    assert [url.rsplit("/", 1)[-1] for url, _params in captured_requests] == ["esummary.fcgi"]
+    assert captured_requests[0][1]["id"] == "7157"
+
+
+@pytest.mark.asyncio
+async def test_an_ncbi_gene_id_that_is_not_a_number_is_searched_by_symbol(
+    captured_requests: list[tuple[str, dict]],
+) -> None:
+    await gene_info_external.fetch_ncbi_gene("TP53", "Homo sapiens", ncbi_gene_id="7157/../x")
+
+    assert [url.rsplit("/", 1)[-1] for url, _params in captured_requests] == ["esearch.fcgi"]
+
+
+@pytest.mark.asyncio
+async def test_ncbi_requests_are_spaced_under_its_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Three requests a second from one address without an API key; a refresh sent each
+    # gene's two requests back to back, and a fifth of them came back 429.
+    clock = {"now": 1000.0}
+    slept: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        slept.append(round(seconds, 3))
+        clock["now"] += seconds
+
+    monkeypatch.setattr(gene_info_external.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(gene_info_external.asyncio, "sleep", fake_sleep)
+    pacer = gene_info_external._RequestPacer(gene_info_external.NCBI_REQUEST_INTERVAL_SECONDS)
+
+    for _request in range(3):
+        await pacer.wait()
+    clock["now"] += 5.0  # a pause longer than the interval: the next one goes at once
+    await pacer.wait()
+
+    interval = gene_info_external.NCBI_REQUEST_INTERVAL_SECONDS
+    assert interval >= 1 / 3
+    assert slept == [interval, interval]
+
+
+@pytest.mark.asyncio
+async def test_every_ncbi_request_waits_its_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+    turns: list[str] = []
+
+    async def wait() -> None:
+        turns.append("wait")
+
+    async def fake_request(method: str, url: str, **kwargs):
+        turns.append(url.rsplit("/", 1)[-1])
+        if url.endswith("esearch.fcgi"):
+            return _FakeResponse({"esearchresult": {"idlist": ["7157"]}})
+        return _FakeResponse({"result": {"7157": {"summary": "x"}}})
+
+    monkeypatch.setattr(gene_info_external._ncbi_pacer, "wait", wait)
+    monkeypatch.setattr(gene_info_external, "resilient_request", fake_request)
+
+    await gene_info_external.fetch_ncbi_gene("TP53", "Homo sapiens")
+
+    assert turns == ["wait", "esearch.fcgi", "wait", "esummary.fcgi"]

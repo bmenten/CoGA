@@ -312,7 +312,7 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
-    async def fake_fetch_ncbi_gene(symbol: str, species_name: str):
+    async def fake_fetch_ncbi_gene(symbol: str, species_name: str, **_kwargs):
         assert symbol == "BRCA1"
         assert species_name == "Homo sapiens"
         return {
@@ -625,7 +625,7 @@ async def test_fetch_external_gene_bundle_takes_identity_from_the_bulk_hgnc_set(
     the complete set that is already downloaded once per job.
     """
 
-    async def fake_fetch_ncbi_gene(symbol: str, species_name: str):
+    async def fake_fetch_ncbi_gene(symbol: str, species_name: str, **_kwargs):
         return {"summary": "Tumor suppressor involved in DNA repair."}
 
     monkeypatch.setattr(gene_info_external, "fetch_ncbi_gene", fake_fetch_ncbi_gene)

@@ -73,6 +73,14 @@ async def _delete_sample_interval_source(
     )
 
 
+# Rows per ClickHouse insert of an interval track. Each insert is a part, and the interval
+# table is partitioned by track type: a per-embryo APCAD VCF holds about six million sites,
+# so 5,000-row inserts made over a thousand parts per file. ClickHouse delayed the inserts
+# while it merged them, until the client's read of the socket timed out and the dataset
+# failed. A batch of this size is a few tens of megabytes in Python.
+INTERVAL_INSERT_BATCH_ROWS = 50_000
+
+
 async def _insert_interval_track_rows(
     session: AsyncSession,
     rows: list[dict[str, Any]],
@@ -361,7 +369,7 @@ async def _import_wisecondorx_track(
                 skipped += 1
                 continue
             batch.append(row)
-            if len(batch) >= 5000:
+            if len(batch) >= INTERVAL_INSERT_BATCH_ROWS:
                 await _insert_interval_track_rows(session, batch)
                 inserted += len(batch)
                 batch = []
@@ -460,7 +468,7 @@ async def _import_copy_number_track(
             if value_transform is not None and row.get("value") is not None:
                 row["value"] = value_transform(float(row["value"]))
             batch.append(row)
-            if len(batch) >= 5000:
+            if len(batch) >= INTERVAL_INSERT_BATCH_ROWS:
                 await _insert_interval_track_rows(session, batch)
                 inserted += len(batch)
                 batch = []
@@ -570,7 +578,7 @@ async def _import_bigwig_interval_track(
                     ),
                 }
             )
-            if len(batch) >= 5000:
+            if len(batch) >= INTERVAL_INSERT_BATCH_ROWS:
                 await _insert_interval_track_rows(session, batch)
                 inserted += len(batch)
                 batch = []
@@ -858,7 +866,7 @@ async def _import_apcad_interval_file(
                 skipped += 1
                 continue
             batch.append(row)
-            if len(batch) >= 5000:
+            if len(batch) >= INTERVAL_INSERT_BATCH_ROWS:
                 await _insert_interval_track_rows(session, batch)
                 inserted += len(batch)
                 batch = []
@@ -993,7 +1001,7 @@ async def _import_apcad_vcf_file(
                     },
                 )
                 batches.setdefault(sample_id, []).append(row)
-                if len(batches[sample_id]) >= 5000:
+                if len(batches[sample_id]) >= INTERVAL_INSERT_BATCH_ROWS:
                     await flush_sample(sample_id)
     for sample_id in list(batches):
         await flush_sample(sample_id)
@@ -1147,7 +1155,7 @@ async def _import_pcf_segment_file(
                 skipped += 1
                 continue
             batch.append(row)
-            if len(batch) >= 5000:
+            if len(batch) >= INTERVAL_INSERT_BATCH_ROWS:
                 await _insert_interval_track_rows(session, batch)
                 inserted += len(batch)
                 batch = []
