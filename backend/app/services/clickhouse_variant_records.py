@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 
@@ -103,6 +103,12 @@ class SmallVariantCall:
     af: list[float]
     ad: list[int]
     ps: int | None
+    # The call's own FILTER values and caller metrics (TLOD, FS, MMQ, ...), kept when the
+    # VCF holds this one sample: its record's FILTER and INFO then describe this call alone
+    # (a per-sample callset, such as the cfDNA and paternal files of a monogenic NIPT).
+    # Empty for a call of a multi-sample VCF, whose FILTER and INFO describe the site.
+    filters: list[str] = field(default_factory=list)
+    metrics: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -269,6 +275,18 @@ def _coerce_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _call_metrics(value: Any) -> dict[str, float]:
+    """A stored call's caller metrics (a ClickHouse map) as name -> float; {} for none."""
+    if not isinstance(value, dict):
+        return {}
+    metrics: dict[str, float] = {}
+    for name, raw in value.items():
+        number = _coerce_float(raw)
+        if number is not None and str(name):
+            metrics[str(name)] = number
+    return metrics
 
 
 def _coerce_bool(value: Any) -> bool:

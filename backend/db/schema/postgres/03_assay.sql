@@ -346,7 +346,7 @@ CREATE TABLE IF NOT EXISTS sample_interval_track_sources (
     uploaded_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT sample_interval_track_sources_pkey PRIMARY KEY (id),
     CONSTRAINT sample_interval_track_sources_sample_id_track_type_source_f_key UNIQUE (sample_id, track_type, source, filename),
-    CONSTRAINT sample_interval_track_sources_track_type_check CHECK ((track_type = ANY (ARRAY['coverage'::text, 'apcad'::text, 'apcad_pcf'::text, 'segments'::text, 'haplotype'::text]))),
+    CONSTRAINT sample_interval_track_sources_track_type_check CHECK ((track_type = ANY (ARRAY['coverage'::text, 'apcad'::text, 'apcad_pcf'::text, 'segments'::text, 'haplotype'::text, 'target_coverage'::text]))),
     CONSTRAINT sample_interval_track_sources_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE SET NULL,
     CONSTRAINT sample_interval_track_sources_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
     CONSTRAINT sample_interval_track_sources_sample_id_fkey FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE

@@ -66,6 +66,8 @@ from .variant_annotation_parser import (
     extract_small_variant_annotations,
     update_annotation_header_state,
 )
+from .clickhouse_variant_queries import NIPT_SMALL_VARIANT_SOURCE as _NIPT_SOURCE
+from .vcf_call_metrics import record_filter_values, single_sample_call_metrics
 from .vcf_header_provenance import (
     extract_header_provenance,
     extract_info_description_provenance,
@@ -94,7 +96,15 @@ _PROVENANCE_HEADER_CAP = 200
 # separate source so re-importing the nuclear callset never deletes the chrM calls
 # (they come from a different file and a different caller run).
 SmallVariantFormat = Literal["auto", "clair3", "glimpse2", "mito"]
-ResolvedSmallVariantFormat = Literal["clair3", "glimpse2", "mito"]
+# "nipt" is the callset of a monogenic NIPT stored one file per sample (the cfDNA and the
+# paternal VCF): only the package import writes it, per sample (``overwrite_scope="samples"``),
+# so the REST upload, which replaces a whole callset with one file, does not offer it.
+NIPT_SMALL_VARIANT_SOURCE = _NIPT_SOURCE
+SmallVariantUploadFormat = Literal["auto", "clair3", "glimpse2", "mito", "nipt"]
+ResolvedSmallVariantFormat = Literal["clair3", "glimpse2", "mito", "nipt"]
+# Decides whether a parsed record is stored: (chromosome, start, end of REF, the record's
+# calls).
+SmallVariantRecordFilter = Callable[[str, int, int, Sequence[SmallVariantCall]], bool]
 StructuralVariantFormat = Literal["auto", "manual", "sniffles", "spectre"]
 # The ClickHouse ``source`` label each per-sample SV upload format is stored under. The
 # upload's "already exists" check, its merge and its delete all match this label exactly,
@@ -259,7 +269,7 @@ def _has_phasing_source_hint(header_lines: list[str], filename: str | None = Non
 
 def _detect_small_variant_format(
     text: str,
-    format_hint: SmallVariantFormat,
+    format_hint: SmallVariantUploadFormat,
 ) -> ResolvedSmallVariantFormat:
     if format_hint != "auto":
         return format_hint
@@ -285,7 +295,7 @@ def _detect_small_variant_format(
 
 def _detect_small_variant_format_from_upload(
     file: UploadFile,
-    format_hint: SmallVariantFormat,
+    format_hint: SmallVariantUploadFormat,
 ) -> ResolvedSmallVariantFormat:
     if format_hint != "auto":
         return format_hint
@@ -603,13 +613,14 @@ async def upload_family_small_variant_file(
     sample_contexts: dict[str, SampleMetadataContext],
     file: UploadFile,
     overwrite: bool,
-    format_hint: SmallVariantFormat,
+    format_hint: SmallVariantUploadFormat,
     annotation_file: UploadFile | None = None,
     progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     sample_aliases: dict[str, str] | None = None,
     exclude_filters: Sequence[str] | None = None,
     vep_annotations: VepAnnotationLookup | None = None,
     overwrite_scope: Literal["source", "samples"] = "source",
+    record_filter: SmallVariantRecordFilter | None = None,
 ) -> dict[str, Any]:
     """Load a family's small-variant VCF into ClickHouse.
 
@@ -636,6 +647,13 @@ async def upload_family_small_variant_file(
     other call of the callset is written back as stored, and each variant stays one row
     holding every sample's call. The conflict (409) is then about those samples' calls,
     and the file's rows are merged into the stored ones at its end, in one rewrite.
+
+    ``record_filter`` decides, per parsed record, whether it is stored; the records it
+    drops are counted (``skipped_by_filter``). The NIPT import uses it to leave out the
+    paternal file's low-level noise (see ``family_package_datasets``).
+
+    When the VCF holds one sample, its record's FILTER values and caller metrics (TLOD,
+    FS, ...) are that call's own, and are kept with the call (``vcf_call_metrics``).
     """
     if not context.assembly_name:
         raise HTTPException(
@@ -646,6 +664,7 @@ async def upload_family_small_variant_file(
     alias_map = {str(key): str(value) for key, value in (sample_aliases or {}).items()}
     excluded_filters = {str(value).strip() for value in (exclude_filters or []) if str(value).strip()}
     skipped_filtered = 0
+    skipped_by_filter = 0
     if annotation_file is not None:
         vep_annotations = await asyncio.to_thread(
             _parse_vep_tsv_annotation_upload,
@@ -873,6 +892,9 @@ async def upload_family_small_variant_file(
 
             calls: list[SmallVariantCall] = []
             calls_by_sample: dict[str, SmallVariantCall] = {}
+            # A one-sample VCF's record is that call's own: its FILTER and caller metrics
+            # go with the call (a Mutect2 tumour-only call's quality is TLOD; it has no QUAL).
+            single_sample = len(sample_names) == 1
             for sample_name, sample_field in zip(sample_names, sample_fields):
                 fmt_vals = _parse_format(fmt, sample_field)
                 gt_val = fmt_vals.get("GT", "./.")
@@ -887,9 +909,14 @@ async def upload_family_small_variant_file(
                     af=_parse_float_list(fmt_vals.get("AF") or fmt_vals.get("VAF")),
                     ad=_parse_int_list(fmt_vals.get("AD")),
                     ps=_first_present_int(fmt_vals, "PS"),
+                    filters=record_filter_values(filt) if single_sample else [],
+                    metrics=single_sample_call_metrics(info_field, qual) if single_sample else {},
                 )
                 calls.append(call)
                 calls_by_sample[sample_name] = call
+            if record_filter is not None and not record_filter(chrom, start, end, calls):
+                skipped_by_filter += 1
+                continue
             if haplotype_blocks is not None:
                 haplotype_blocks.observe(
                     chrom=chrom,
@@ -923,6 +950,11 @@ async def upload_family_small_variant_file(
 
         if inserted == 0:
             detail = "No valid small-variant records found"
+            if skipped_by_filter and not skipped_filtered:
+                detail = (
+                    f"No small-variant records remained after the import's record filter "
+                    f"({skipped_by_filter} record(s) left out)"
+                )
             if skipped_filtered:
                 detail = (
                     f"No small-variant records remained after excluding FILTER "
@@ -996,6 +1028,7 @@ async def upload_family_small_variant_file(
             "inserted": inserted,
             "skipped_malformed": skipped_malformed,
             "skipped_filtered": skipped_filtered,
+            "skipped_by_filter": skipped_by_filter,
             "excluded_filters": sorted(excluded_filters),
             "haplotypes_inserted": len(haplotype_rows),
             "haplotype_phase_corrections": len(phase_corrections),

@@ -133,6 +133,11 @@ docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT
   callset"** — the local ClickHouse data holds variant tables with a different row identity.
   Reset (`docker compose down -v`) and load the demo data again, or follow the recovery steps in
   [database.md](database.md#row-identity), which keep the interval tracks.
+- **"Refusing to use ClickHouse variant tables created by an earlier version"** — an
+  assembly's `SNV_INDEL/entries` table lacks the per-call columns `calls.filters` and
+  `calls.metrics`. Reset or recover as above. A Postgres database from before the
+  `target_coverage` track type fails a per-target coverage import on
+  `sample_interval_track_sources_track_type_check`: reset it as well.
 - **The web app cannot reach the API** — the backend is still starting or keeps restarting;
   read its log.
 - **Families, samples or users look wrong** — that data is in Postgres; look for schema

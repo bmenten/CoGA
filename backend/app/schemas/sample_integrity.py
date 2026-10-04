@@ -44,12 +44,18 @@ class SampleIntegrityMendelianCheckOut(BaseModel):
 
 
 class SampleIntegrityPaternityCheckOut(BaseModel):
-    """NIPT paternity from the cfDNA classification (categories 7/8)."""
+    """NIPT paternity: the father's homozygous alleles must all be in the plasma, his het
+    ones half. ``cat7_transmitted`` counts both kinds seen, ``cat8_absent`` the homozygous
+    ones missing."""
 
     father: str
     cat7_transmitted: int
     cat8_absent: int
     informative_sites: int
+    hom_alt_transmitted: int = 0
+    hom_alt_not_transmitted: int = 0
+    het_transmitted: int = 0
+    het_not_transmitted: int = 0
     status: str
     message: str
 

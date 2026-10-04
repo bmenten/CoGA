@@ -195,11 +195,15 @@ describe('FamilySampleQcPage', () => {
         mendelian_checks: [],
         paternity_check: {
           father: 'FATHER',
-          cat7_transmitted: 40,
-          cat8_absent: 2,
-          informative_sites: 42,
+          cat7_transmitted: 90,
+          cat8_absent: 1,
+          informative_sites: 151,
+          hom_alt_transmitted: 40,
+          hom_alt_not_transmitted: 1,
+          het_transmitted: 50,
+          het_not_transmitted: 60,
           status: 'pass',
-          message: 'Paternity supported: paternal transmission observed.',
+          message: 'Paternity supported.',
         },
         fetal_sex_check: {
           inferred_sex: 'female',
@@ -235,8 +239,10 @@ describe('FamilySampleQcPage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('Paternity (cfDNA categories 7/8)')).toBeInTheDocument();
-    expect(screen.getByText(/Father FATHER — 40 paternal-transmitted/)).toBeInTheDocument();
+    expect(await screen.findByText("Paternity (the father's alleles in the cfDNA)")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Father FATHER — homozygous alleles seen 40 of 41 \(all expected\), het alleles seen 50 of 110/),
+    ).toBeInTheDocument();
     expect(screen.getByText('Fetal sex (paternal X transmission)')).toBeInTheDocument();
     expect(screen.getByText(/Fetus appears female — 12 paternal-X transmitted/)).toBeInTheDocument();
     // Parents are now sexed (X zygosity), so the per-sample table renders; the

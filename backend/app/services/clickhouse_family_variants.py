@@ -67,12 +67,15 @@ from .clickhouse_variant_records import (
     SmallVariantRecord,
     StructuralVariantCall,
     StructuralVariantRecord,
+    _call_metrics,
     _coerce_float,
     _coerce_int,
 )
 
 from .clickhouse_variant_queries import (
     IMPUTED_SMALL_VARIANT_SOURCES,
+    PER_SAMPLE_SMALL_VARIANT_SOURCES,
+    vaf_genotype,
     _PANEL_REGION_INLINE_LIMIT,
     _SMALL_COUNT_LIMIT,
     _append_limit_offset,
@@ -552,6 +555,111 @@ async def fetch_recurrent_small_variant_ids(
         for variant_id, carriers, terms in rows
         if not clinvar_may_assert_pathogenic([str(term) for term in terms or []])
     ]
+
+
+async def count_cfdna_carriers(
+    assembly_name: str,
+    variant_ids: Sequence[str],
+    *,
+    carrier_samples: Mapping[str, str],
+    exclude_family_uuid: str,
+    min_alt_reads: int = 5,
+    min_alt_fraction: float = 0.01,
+    chunk_size: int = 5_000,
+) -> dict[str, int]:
+    """How many of ``carrier_samples`` outside the family carry each of ``variant_ids``.
+
+    ``carrier_samples`` maps each identifier ClickHouse may store for a sample (its name or
+    UUID) to one name per sample, as ``fetch_recurrent_small_variant_ids`` takes it: the
+    cfDNA samples of the family's assay. A call carries the allele when it has at least
+    ``min_alt_reads`` alt reads and ``min_alt_fraction`` of the reads (the NIPT quality
+    filter's floors), or, without allele depths, an alt genotype. A per-sample cfDNA
+    callset stores every low-level call, so a read or two that crossed over from another
+    sample of the run does not count. Variants nobody else carries are not listed.
+    """
+    if not assembly_name or not variant_ids or not carrier_samples:
+        return {}
+    entries_table = _small_table_name(assembly_name, "entries")
+    stored_ids = sorted(carrier_samples)
+    counts: dict[str, int] = {}
+    unique_ids = list(dict.fromkeys(str(value) for value in variant_ids if value))
+    for offset in range(0, len(unique_ids), chunk_size):
+        params: dict[str, Any] = {
+            "variant_ids": tuple(unique_ids[offset : offset + chunk_size]),
+            "carrier_ids": tuple(stored_ids),
+            "carrier_from": list(stored_ids),
+            "carrier_to": [carrier_samples[stored] for stored in stored_ids],
+            "family_guid": exclude_family_uuid,
+            "min_alt_reads": int(min_alt_reads),
+            "min_alt_fraction": float(min_alt_fraction),
+        }
+        has_alt = clickhouse_genotype_condition("gt", ALT_CLASSES, param="gt_alt", params=params)
+        rows = await _execute_clickhouse(
+            f"""
+            SELECT variantId, uniqExact(transform(sample_id, %(carrier_from)s, %(carrier_to)s, sample_id))
+            FROM {entries_table}
+            ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt, `calls.ad` AS ad
+            WHERE sign = 1
+              AND family_guid != %(family_guid)s
+              AND variantId IN %(variant_ids)s
+              AND sample_id IN %(carrier_ids)s
+              AND (
+                (
+                  length(ad) >= 2
+                  AND ifNull(ad[2], 0) >= %(min_alt_reads)s
+                  AND ifNull(ad[2], 0) >= %(min_alt_fraction)s * arraySum(arrayMap(x -> ifNull(x, 0), ad))
+                )
+                OR (length(ad) < 2 AND {has_alt})
+              )
+            GROUP BY variantId
+            """,
+            params,
+        )
+        for variant_id, carriers in rows:
+            counts[str(variant_id)] = int(carriers or 0)
+    return counts
+
+
+async def fetch_artifact_protection_flags(
+    assembly_name: str,
+    variant_ids: Sequence[str],
+    *,
+    common_af: float = 0.05,
+    chunk_size: int = 5_000,
+) -> dict[str, str]:
+    """The variants of ``variant_ids`` an artifact list may never hold, with the reason:
+    ``common`` (a gnomAD or TopMed frequency above ``common_af`` in any of its annotations
+    on the assembly, the auto-seed's ``is_gnomad_gt_5_percent``) or ``clinvar`` (its pooled
+    ClinVar terms may assert pathogenic: ``clinvar_may_assert_pathogenic``). A variant no
+    family on the assembly carries has no annotation here and is not listed."""
+    if not assembly_name or not variant_ids:
+        return {}
+    annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
+    flags: dict[str, str] = {}
+    unique_ids = list(dict.fromkeys(str(value) for value in variant_ids if value))
+    for offset in range(0, len(unique_ids), chunk_size):
+        rows = await _execute_clickhouse(
+            f"""
+            SELECT
+                variantId,
+                max(greatest(
+                    ifNull(max_gnomad_af, 0), ifNull(max_gnomad_exomes_af, 0),
+                    ifNull(max_gnomad_genomes_af, 0), ifNull(max_gnomad_popmax_af, 0),
+                    ifNull(max_topmed_af, 0)
+                )) AS population_af,
+                groupUniqArrayArray(clinvar_terms) AS terms
+            FROM {annotation_index}
+            WHERE variantId IN %(variant_ids)s
+            GROUP BY variantId
+            """,
+            {"variant_ids": tuple(unique_ids[offset : offset + chunk_size])},
+        )
+        for variant_id, population_af, terms in rows:
+            if clinvar_may_assert_pathogenic([str(term) for term in terms or []]):
+                flags[str(variant_id)] = "clinvar"
+            elif population_af is not None and float(population_af) > common_af:
+                flags[str(variant_id)] = "common"
+    return flags
 
 
 async def _scan_family_sv_gene_map(
@@ -1130,7 +1238,9 @@ async def _fetch_small_variant_rows(
             any(e.calls.af) AS sample_afs,
             any(e.calls.ad) AS sample_ads,
             any(e.calls.ps) AS sample_phase_sets,
-            any(e.qual) AS qual
+            any(e.qual) AS qual,
+            any(e.calls.filters) AS sample_filters,
+            any(e.calls.metrics) AS sample_metrics
         FROM {entries_table} AS e
         WHERE {' AND '.join(where_clauses)}
         GROUP BY e.key
@@ -1171,7 +1281,10 @@ async def _fetch_small_variant_rows(
             sample_ads,
             sample_phase_sets,
             qual,
-        ) = row
+        ) = row[:21]
+        # The per-call FILTER values and caller metrics, the two last columns.
+        sample_filters = row[21] if len(row) > 21 else None
+        sample_metrics = row[22] if len(row) > 22 else None
         parsed_variant_key = _coerce_int(variant_key)
         parsed_annotation_set_hash = _coerce_int(annotation_set_hash)
         detail = detail_map.get(
@@ -1203,6 +1316,8 @@ async def _fetch_small_variant_rows(
                     af=af_values,
                     ad=_int_list(_indexed(sample_ads, index)),
                     ps=_coerce_int(_indexed(sample_phase_sets, index)),
+                    filters=_string_list(_indexed(sample_filters, index) or []),
+                    metrics=_call_metrics(_indexed(sample_metrics, index)),
                 )
             )
         if not calls:
@@ -1325,9 +1440,13 @@ async def fetch_genotype_site_sample(
             where_clauses.append(hemizygous)
     entries_table = _small_table_name(context.assembly_name, "entries")
     where = " AND ".join(where_clauses)
+    # A per-sample callset's GT says nothing of the genotype (Mutect2 tumour-only): read it
+    # from the allele depths.
+    per_sample = source in PER_SAMPLE_SMALL_VARIANT_SOURCES
+    allele_depths = ", e.calls.ad AS sample_ads" if per_sample else ""
     query = f"""
         SELECT e.key AS key, e.chrom AS chrom, e.pos AS pos, e.ref AS ref, e.alt AS alt,
-               e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts
+               e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts{allele_depths}
         FROM {entries_table} AS e
         WHERE {where}
           -- The sample's largest key, found from the keys alone: only the sample's rows
@@ -1350,13 +1469,19 @@ async def fetch_genotype_site_sample(
     rows = await _execute_clickhouse(query, params)
     sample: list[tuple[str, int, str, str, list[str], list[str]]] = []
     seen_keys: set[int] = set()
-    for key, chrom, pos, ref, alt, sample_ids, gts in rows:
+    for row in rows:
+        key, chrom, pos, ref, alt, sample_ids, gts = row[:7]
         if int(key) in seen_keys:
             continue
         seen_keys.add(int(key))
-        sample.append(
-            (str(chrom), int(pos), str(ref), str(alt), [str(s) for s in sample_ids], [str(g) for g in gts])
-        )
+        genotypes = [str(g) for g in gts]
+        if per_sample and len(row) > 7:
+            ads = list(row[7] or [])
+            genotypes = [
+                vaf_genotype(ads[index] if index < len(ads) else None, genotype)
+                for index, genotype in enumerate(genotypes)
+            ]
+        sample.append((str(chrom), int(pos), str(ref), str(alt), [str(s) for s in sample_ids], genotypes))
     return sample
 
 

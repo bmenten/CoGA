@@ -201,6 +201,10 @@ async def get_family_sample_integrity_qc_endpoint(
                 cat7_transmitted=report.paternity_check.cat7_transmitted,
                 cat8_absent=report.paternity_check.cat8_absent,
                 informative_sites=report.paternity_check.informative_sites,
+                hom_alt_transmitted=report.paternity_check.hom_alt_transmitted,
+                hom_alt_not_transmitted=report.paternity_check.hom_alt_not_transmitted,
+                het_transmitted=report.paternity_check.het_transmitted,
+                het_not_transmitted=report.paternity_check.het_not_transmitted,
                 status=report.paternity_check.status,
                 message=report.paternity_check.message,
             )

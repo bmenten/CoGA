@@ -49,3 +49,53 @@ describe('NiptClassificationBlock', () => {
     expect(screen.getByText('dropout')).toBeInTheDocument();
   });
 });
+
+describe('NiptClassificationBlock fetal-inheritance evidence', () => {
+  it('shows the plasma reads, the father and the inheritance probabilities', () => {
+    render(
+      <NiptClassificationBlock
+        nipt={{
+          ...base,
+          cf_alt_reads: 150,
+          cf_depth: 1500,
+          father_state: 'het',
+          father_vaf: 0.5,
+          father_depth: 300,
+          paternal_transmission_probability: 0.9999,
+          maternal_allele_probability: 0.86,
+          fetal_hom_alt_probability: 0.02,
+        }}
+      />,
+    );
+    expect(screen.getByText('150 of 1500')).toBeInTheDocument();
+    expect(screen.getByText('het · 50.0% · 300×')).toBeInTheDocument();
+    expect(screen.getByText('Paternal allele inherited')).toBeInTheDocument();
+    expect(screen.getByText('100.0%')).toBeInTheDocument();
+    expect(screen.getByText('86.0%')).toBeInTheDocument();
+    expect(screen.getByText('Fetus homozygous')).toBeInTheDocument();
+  });
+
+  it('says when the plasma has no call and its depth comes from the target coverage', () => {
+    render(
+      <NiptClassificationBlock
+        nipt={{ ...base, cf_alt_reads: 0, cf_depth: 1420, cf_depth_estimated: true, father_state: 'absent' }}
+      />,
+    );
+    expect(screen.getByText('no call at ~1420× (target coverage)')).toBeInTheDocument();
+    expect(screen.getByText('no call (reference)')).toBeInTheDocument();
+  });
+
+  it("shows a de novo candidate's triage", () => {
+    render(
+      <NiptClassificationBlock
+        nipt={{
+          ...base,
+          category: 1,
+          de_novo: { window: 'strict', score: 19, label: 'high', reasons: ['impact MODERATE', 'novel'], other_cfdna_carriers: 0 },
+        }}
+      />,
+    );
+    expect(screen.getByText('De novo: high priority')).toBeInTheDocument();
+    expect(screen.getByText(/score 19 · strict window · impact MODERATE, novel/)).toBeInTheDocument();
+  });
+});

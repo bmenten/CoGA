@@ -24,6 +24,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from .nipt_analysis import MIN_FETAL_SEX_SITES
+
 Genotype = tuple[int, int]
 Status = Literal["pass", "warn", "fail", "skip"]
 
@@ -58,13 +60,20 @@ MIN_MENDEL_SITES = 200
 MENDEL_WARN_RATE = 0.02
 MENDEL_FAIL_RATE = 0.05
 
-# --- NIPT paternity (cfDNA categories 7/8) ----------------------------------
-MIN_PATERNITY_SITES = 10
-# Fraction of paternal-informative sites where the paternal allele is absent
-# (category 8). Some absence is expected at low fetal fraction (dropout); a high
-# fraction with little/no category-7 signal indicates non-paternity / mixup.
-PATERNITY_WARN_FN_RATE = 0.40
-PATERNITY_FAIL_FN_RATE = 0.70
+# --- NIPT paternity (the father's alleles in the plasma) --------------------
+# Read at the autosomal sites where the father carries an allele and the mother does not,
+# with enough plasma depth that a transmitted allele could not be missed
+# (nipt_analysis.paternal_transmission_evidence). The fetus inherits every allele its
+# father is homozygous for, and half of his het ones: the true father's homozygous alleles
+# are all seen but a few coverage dropouts, another man's far from all, and his het ones
+# well under half. Pooling the two kinds hid a wrong paternal file: the share of its
+# alleles absent stayed under the old 40% warning.
+MIN_PATERNITY_HOM_ALT_SITES = 20
+MIN_PATERNITY_HET_SITES = 50
+PATERNITY_HOM_ALT_PASS_RATE = 0.90
+PATERNITY_HOM_ALT_FAIL_RATE = 0.80
+PATERNITY_HET_PASS_RANGE = (0.35, 0.65)
+PATERNITY_HET_FAIL_RANGE = (0.25, 0.75)
 
 # --- NIPT category-distribution QC ------------------------------------------
 # De novo (category 1) is rare; an excess flags artifacts or contamination.
@@ -115,20 +124,38 @@ class MendelianCheck:
 
 @dataclass(slots=True)
 class PaternityCheck:
-    """NIPT paternity from the cfDNA classification (no genotype relatedness).
+    """NIPT paternity: whether the fetus inherited the father's alleles (no genotype
+    relatedness; the fetus is not sequenced).
 
-    Category 7 = paternal allele transmitted and seen in cfDNA (positive paternity
-    signal); category 8 = paternal hom-alt allele that *must* transmit but is
-    absent from cfDNA (a false negative — a high fraction points at non-paternity
-    or a sample mixup).
+    His homozygous alleles must all be in the plasma (the fetus inherits one of each);
+    his het ones half. A homozygous allele missing at a depth where it cannot be missed
+    (category 8) points at another father or a sample mixup.
     """
 
     father: str
-    cat7_transmitted: int
-    cat8_absent: int
-    informative_sites: int
+    hom_alt_transmitted: int
+    hom_alt_not_transmitted: int
+    het_transmitted: int
+    het_not_transmitted: int
     status: Status
     message: str
+
+    @property
+    def cat7_transmitted(self) -> int:
+        return self.hom_alt_transmitted + self.het_transmitted
+
+    @property
+    def cat8_absent(self) -> int:
+        return self.hom_alt_not_transmitted
+
+    @property
+    def informative_sites(self) -> int:
+        return (
+            self.hom_alt_transmitted
+            + self.hom_alt_not_transmitted
+            + self.het_transmitted
+            + self.het_not_transmitted
+        )
 
 
 @dataclass(slots=True)
@@ -569,27 +596,75 @@ def profile_for(application: ApplicationKind) -> QcProfile:
     return _PROFILES.get(application, _PROFILES["unknown"])
 
 
-def evaluate_paternity(father: str, category_counts: dict[int, int]) -> PaternityCheck:
-    """Paternity verdict from the category-7 / -8 tally of the sites whose father call
-    is confident (``NiptAnalysisResult.paternal_evidence``), not the raw category counts."""
-    cat7 = int(category_counts.get(7, 0))
-    cat8 = int(category_counts.get(8, 0))
-    informative = cat7 + cat8
-    if informative < MIN_PATERNITY_SITES:
-        return PaternityCheck(father, cat7, cat8, informative, "warn",
-                              f"Too few paternal-informative sites ({informative}) to assess paternity.")
-    fn_rate = cat8 / informative
-    metrics = f"{cat7} transmitted, {cat8} absent of {informative} paternal sites"
-    if cat7 == 0 or fn_rate >= PATERNITY_FAIL_FN_RATE:
-        return PaternityCheck(father, cat7, cat8, informative, "fail",
-                              f"Paternal alleles largely absent from cfDNA ({metrics}) — "
-                              "possible non-paternity or sample mixup.")
-    if fn_rate >= PATERNITY_WARN_FN_RATE:
-        return PaternityCheck(father, cat7, cat8, informative, "warn",
-                              f"Elevated paternal-allele dropout ({metrics}); may reflect low "
-                              "fetal fraction rather than non-paternity.")
-    return PaternityCheck(father, cat7, cat8, informative, "pass",
-                          f"Paternity supported: paternal transmission observed ({metrics}).")
+def paternity_unverifiable(*, hom_alt_informative: int, het_informative: int) -> bool:
+    """Too few paternal-informative sites of both kinds for a paternity verdict."""
+    return hom_alt_informative < MIN_PATERNITY_HOM_ALT_SITES and het_informative < MIN_PATERNITY_HET_SITES
+
+
+def evaluate_paternity(
+    father: str,
+    *,
+    hom_alt_transmitted: int,
+    hom_alt_not_transmitted: int,
+    het_transmitted: int,
+    het_not_transmitted: int,
+) -> PaternityCheck:
+    """Paternity from the father's alleles in the plasma (see the constants above): his
+    homozygous alleles must all be seen (90% passes, under 80% fails), his het ones half
+    (35-65% passes, outside 25-75% fails). Too few sites of both kinds warns."""
+    hom_informative = hom_alt_transmitted + hom_alt_not_transmitted
+    het_informative = het_transmitted + het_not_transmitted
+    statuses: list[Status] = []
+    findings: list[str] = []
+    if hom_informative >= MIN_PATERNITY_HOM_ALT_SITES:
+        rate = hom_alt_transmitted / hom_informative
+        findings.append(
+            f"{hom_alt_transmitted} of {hom_informative} ({rate:.0%}) of his homozygous alleles seen"
+        )
+        if rate < PATERNITY_HOM_ALT_FAIL_RATE:
+            statuses.append("fail")
+        elif rate < PATERNITY_HOM_ALT_PASS_RATE:
+            statuses.append("warn")
+        else:
+            statuses.append("pass")
+    if het_informative >= MIN_PATERNITY_HET_SITES:
+        rate = het_transmitted / het_informative
+        findings.append(f"{het_transmitted} of {het_informative} ({rate:.0%}) of his het alleles seen (half expected)")
+        low_pass, high_pass = PATERNITY_HET_PASS_RANGE
+        low_fail, high_fail = PATERNITY_HET_FAIL_RANGE
+        if rate < low_fail or rate > high_fail:
+            statuses.append("fail")
+        elif rate < low_pass or rate > high_pass:
+            statuses.append("warn")
+        else:
+            statuses.append("pass")
+    check = PaternityCheck(
+        father=father,
+        hom_alt_transmitted=hom_alt_transmitted,
+        hom_alt_not_transmitted=hom_alt_not_transmitted,
+        het_transmitted=het_transmitted,
+        het_not_transmitted=het_not_transmitted,
+        status="warn",
+        message="",
+    )
+    if not statuses or paternity_unverifiable(hom_alt_informative=hom_informative, het_informative=het_informative):
+        check.message = (
+            f"Too few paternal-informative sites ({hom_informative} homozygous, {het_informative} het) "
+            "to assess paternity."
+        )
+        return check
+    check.status = _worst(statuses)
+    metrics = "; ".join(findings)
+    if check.status == "fail":
+        check.message = (
+            f"The father's alleles are largely absent from the plasma ({metrics}): another father, "
+            "or a sample or file mixup."
+        )
+    elif check.status == "warn":
+        check.message = f"Paternal transmission off its expectation ({metrics}); check the samples."
+    else:
+        check.message = f"Paternity supported ({metrics})."
+    return check
 
 
 def evaluate_fetal_sex(
@@ -598,8 +673,13 @@ def evaluate_fetal_sex(
     """Wrap the paternal-X-transmission fetal-sex call as a QC result."""
     metrics = f"{x_transmitted} paternal-X transmitted, {x_not_transmitted} absent of {informative_sites} sites"
     if inferred == "indeterminate":
+        reason = (
+            "too few informative paternal-X sites"
+            if informative_sites < MIN_FETAL_SEX_SITES
+            else "the father's X alleles are neither mostly present nor mostly absent (check paternity)"
+        )
         return FetalSexCheck(inferred, x_transmitted, x_not_transmitted, informative_sites,
-                             "warn", f"Fetal sex indeterminate — too few informative paternal-X sites ({metrics}).")
+                             "warn", f"Fetal sex indeterminate — {reason} ({metrics}).")
     return FetalSexCheck(inferred, x_transmitted, x_not_transmitted, informative_sites,
                          "pass", f"Fetal sex appears {inferred}: paternal X "
                          f"{'transmitted' if inferred == 'female' else 'not transmitted'} ({metrics}).")

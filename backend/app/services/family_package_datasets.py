@@ -22,6 +22,8 @@ from .clickhouse_interval_tracks import (
     count_interval_track_source_rows,
     delete_interval_track_sources,
     delete_interval_tracks,
+    insert_interval_track_rows,
+    upsert_interval_track_source,
 )
 from .clickhouse_variant_storage import (
     count_family_small_variants,
@@ -45,11 +47,28 @@ from .repeat_expansion_pg import (
 )
 from .upload_safety import read_path_text_bounded
 from .annotation_table_parser import parse_mutserve_annotation_path
-from .variant_upload_service import remove_family_small_variant_sample_calls, upload_family_small_variant_file
+from .variant_upload_service import (
+    NIPT_SMALL_VARIANT_SOURCE,
+    remove_family_small_variant_sample_calls,
+    upload_family_small_variant_file,
+)
 
 from .family_package_bigwig import autosomal_median, open_bigwig
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map
 from .family_package_manifest import _ped_embryo_sample_ids
+from .family_package_nipt import (
+    nipt_import_order,
+    nipt_package_cfdna_sample,
+    paternal_record_filter,
+    scan_vcf_positions,
+)
+from .nipt_target_coverage import (
+    TARGET_COVERAGE_SOURCE,
+    TARGET_COVERAGE_TRACK_TYPE,
+    TargetCoverageFormatError,
+    parse_target_coverage_table,
+    target_row_metadata,
+)
 from .family_package_qc import (
     extract_pipeline_versions,
     parse_ado_adi_text,
@@ -129,6 +148,9 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     conflict_mode, progress = job.conflict_mode, job.progress
     if not family_context.assembly_name:
         return await _register_only(summary, "Registered only; family is not linked to a single assembly")
+    if dataset.per_sample and not dataset.family_vcf:
+        # Validation allows this only for a monogenic NIPT family.
+        return await _import_nipt_per_sample_snv(job)
     vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
     if vcf_path is None:
         return await _register_only(summary, "Registered only; family_vcf path is unavailable")
@@ -785,8 +807,142 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
     )
 
 
+async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    """Import a monogenic NIPT's SNV files, one per sample (``datasets.snv.per_sample``),
+    as one callset with source ``nipt`` (see family_package_nipt).
+
+    The plasma file goes first, then every other file merges its calls into the stored
+    rows (``overwrite_scope="samples"``), so each variant is one row holding each sample's
+    call. A paternal file keeps only its calls at a plasma call position or at
+    ``NIPT_PATERNAL_KEEP_MIN_VAF`` or more; the others are counted per sample
+    (``skipped_by_filter``). Each file replaces its own sample's earlier calls, so a
+    re-import of one file leaves the other sample's calls as they were.
+    """
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    family_context, sample_contexts = job.family_context, job.sample_contexts
+    assembly_name = family_context.assembly_name or ""
+    if job.conflict_mode == "update":
+        existing_count = await count_family_small_variants(
+            assembly_name,
+            family_context.family_uuid,
+            project_ids=family_context.project_ids,
+            source=NIPT_SMALL_VARIANT_SOURCE,
+        )
+        if existing_count:
+            return summary.model_copy(
+                update={
+                    "status": "skipped",
+                    "message": "Skipped the NIPT SNV import in update mode because its calls already exist",
+                    "summary": {"existing": existing_count},
+                }
+            )
+    cfdna_sample_id = nipt_package_cfdna_sample(bundle)
+    plasma_positions: set[tuple[str, int]] = set()
+    sample_results: dict[str, Any] = {}
+    for sample_id in nipt_import_order(cfdna_sample_id, dataset.per_sample):
+        raw_entry = dataset.per_sample.get(sample_id)
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None or not isinstance(raw_entry, dict):
+            continue
+        vcf_path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
+        if vcf_path is None:
+            continue
+        vcf_columns = read_vcf_sample_columns(vcf_path)
+        if len(vcf_columns) != 1:
+            raise RuntimeError(
+                f"The NIPT SNV file of {sample_id} must hold one sample; it has {len(vcf_columns)}"
+            )
+        aliases, _unresolved = vcf_sample_alias_map(
+            vcf_columns, set(sample_contexts), target_sample_id=sample_id
+        )
+        is_plasma = sample_id == cfdna_sample_id
+        if is_plasma:
+            plasma_positions = await asyncio.to_thread(scan_vcf_positions, vcf_path)
+        async with _local_upload(vcf_path) as upload:
+            result = await upload_family_small_variant_file(
+                session,
+                context=family_context,
+                sample_contexts=sample_contexts,
+                file=upload,
+                overwrite=True,
+                format_hint=NIPT_SMALL_VARIANT_SOURCE,
+                sample_aliases=aliases,
+                overwrite_scope="samples",
+                record_filter=None if is_plasma else paternal_record_filter(plasma_positions),
+            )
+        sample_results[sample_id] = {
+            **result,
+            "role": "cfdna" if is_plasma else "paired_sample",
+            "vcf": _display_path(bundle.root, vcf_path),
+        }
+    if not sample_results:
+        return await _register_only(summary, "Registered only; no per-sample SNV file is readable")
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": "Imported the NIPT per-sample SNV files as one callset",
+            "summary": sample_results,
+        }
+    )
+
+
+async def _import_target_coverage_table(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    table_path: Path,
+    bundle_root: Path,
+) -> dict[str, Any]:
+    """Store a per-target coverage table as the sample's ``target_coverage`` track, in
+    place of the one stored before (see nipt_target_coverage)."""
+    assembly_name = sample_context.assembly_name or ""
+    text_value = await asyncio.to_thread(read_path_text_bounded, table_path, kind="Coverage table")
+    try:
+        targets = parse_target_coverage_table(text_value.splitlines())
+    except TargetCoverageFormatError as exc:
+        raise RuntimeError(f"{_display_path(bundle_root, table_path)}: {exc}") from exc
+    if not targets:
+        raise RuntimeError(f"{_display_path(bundle_root, table_path)} holds no target")
+    await _delete_sample_interval_source(
+        session,
+        sample_context=sample_context,
+        track_type=TARGET_COVERAGE_TRACK_TYPE,
+        source=TARGET_COVERAGE_SOURCE,
+    )
+    rows = [
+        {
+            "sample_id": sample_context.sample_uuid,
+            "family_id": sample_context.family_uuid,
+            "track_type": TARGET_COVERAGE_TRACK_TYPE,
+            "source": TARGET_COVERAGE_SOURCE,
+            "filename": table_path.name,
+            "chr": target.chrom,
+            "start": target.start,
+            "end": target.end,
+            "record_id": target.gene or None,
+            "value": target.mean,
+            "metadata_json": target_row_metadata(target),
+        }
+        for target in targets
+    ]
+    await insert_interval_track_rows(assembly_name, rows)
+    await upsert_interval_track_source(
+        session,
+        sample_context=sample_context,
+        track_type=TARGET_COVERAGE_TRACK_TYPE,
+        source=TARGET_COVERAGE_SOURCE,
+        filename=table_path.name,
+        row_count=len(rows),
+        metadata={"format": "per_target_coverage_table", "targets": len(rows)},
+    )
+    return {"inserted": len(rows), "track_type": TARGET_COVERAGE_TRACK_TYPE}
+
+
 @_dataset_importer("coverage")
 async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    """Import coverage: a BED of depths (``bed``) into the ``coverage`` track, or a capture
+    panel's per-target coverage table (``target_table``, monogenic NIPT) into the
+    ``target_coverage`` track."""
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     if not dataset.per_sample:
@@ -797,6 +953,19 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
+            continue
+        table_path = _resolve_package_path(bundle.root, raw_entry.get("target_table"))
+        if table_path is not None:
+            existing_targets = await _interval_track_count(
+                session, sample_context=sample_context, track_type=TARGET_COVERAGE_TRACK_TYPE
+            )
+            if conflict_mode == "update" and existing_targets:
+                sample_results[sample_id] = {"skipped": True, "existing": existing_targets}
+                continue
+            sample_results[sample_id] = await _import_target_coverage_table(
+                session, sample_context=sample_context, table_path=table_path, bundle_root=bundle.root
+            )
+            await session.commit()
             continue
         bed_path = _resolve_package_path(
             bundle.root, raw_entry.get("bed") or raw_entry.get("file")

@@ -4,6 +4,7 @@ export type SampleTrackType =
   | 'apcad'
   | 'apcad_pcf'
   | 'haplotype'
+  | 'target_coverage'
   | 'structural_variants'
   | 'repeat_expansions';
 
@@ -147,6 +148,7 @@ export const SAMPLE_TRACK_ORDER: SampleTrackType[] = [
   'apcad',
   'apcad_pcf',
   'haplotype',
+  'target_coverage',
   'structural_variants',
   'repeat_expansions',
 ];
@@ -160,6 +162,7 @@ export const FAMILY_TRACK_ORDER: FamilyTrackType[] = [
   'apcad',
   'apcad_pcf',
   'haplotype',
+  'target_coverage',
 ];
 
 export const TRACK_LABELS: Record<FamilyTrackType, string> = {
@@ -168,6 +171,7 @@ export const TRACK_LABELS: Record<FamilyTrackType, string> = {
   apcad: 'APCAD loci',
   apcad_pcf: 'APCAD PCF segments',
   haplotype: 'Haplotype blocks',
+  target_coverage: 'Capture-target coverage',
   structural_variants: 'Structural variants',
   repeat_expansions: 'Repeat expansions',
   small_variants: 'Small variants',

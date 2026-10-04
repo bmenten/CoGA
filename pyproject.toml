@@ -47,6 +47,8 @@ files = [
     "backend/app/services/monarch_semsim.py",
     "backend/app/services/nipt_analysis.py",
     "backend/app/services/nipt_service.py",
+    "backend/app/services/nipt_target_coverage.py",
+    "backend/app/services/nipt_triage.py",
     "backend/app/services/qc_threshold_service.py",
     "backend/app/services/report_signout_service.py",
     "backend/app/services/review_pg_utils.py",

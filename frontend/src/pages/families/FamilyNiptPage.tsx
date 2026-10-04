@@ -43,19 +43,23 @@ import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
+import NiptQcPanel from './NiptQcPanel';
+import NiptRecessiveGenes from './NiptRecessiveGenes';
+import NiptTargetCoverage from './NiptTargetCoverage';
 import { apiPath } from '../../lib/apiPath';
 
 const PAGE_SIZE = 50;
 
-// `categories` is ticked in the category checkboxes when the preset is picked.
-// Recessive groups by gene (no single category), so it clears them; "Any" leaves
-// whatever is checked.
+// The inheritance views of the variant list. Picking one clears the category ticks
+// (`categories: ''`): a view reads the fetal inheritance itself, and a category tick would
+// narrow it (a de novo candidate whose father's call is too weak to tell it from a
+// paternal allele is category 7). "Any" leaves whatever is checked.
 const INHERITANCE_PRESETS: { value: string; label: string; categories?: string }[] = [
   { value: '', label: 'Any inheritance' },
-  { value: 'de_novo', label: 'De novo candidates', categories: '1' },
-  { value: 'paternal_dominant', label: 'Paternal dominant (transmitted)', categories: '7' },
-  { value: 'maternal_dominant', label: 'Maternal dominant (transmitted)', categories: '3' },
-  { value: 'recessive_at_risk', label: 'Recessive at-risk', categories: '' },
+  { value: 'de_novo', label: 'De novo in the fetus', categories: '' },
+  { value: 'paternal_dominant', label: 'Paternal, inherited by the fetus', categories: '' },
+  { value: 'maternal_dominant', label: 'Maternal, inherited by the fetus', categories: '' },
+  { value: 'recessive_at_risk', label: 'Recessive: both parents carriers', categories: '' },
 ];
 
 const FILTER_STEPS: { key: string; label: string }[] = [
@@ -142,6 +146,8 @@ const buildVariantParams = (f: SmallFilterState, page: number): Record<string, u
   if (categories.length) params.category = categories;
   numeric('min_confidence', f.min_confidence);
   if (f.inheritance) params.inheritance = f.inheritance;
+  if (f.include_not_inherited === 'true') params.include_not_inherited = true;
+  str('de_novo_priority', f.de_novo_priority);
   return params;
 };
 
@@ -203,6 +209,9 @@ const FamilyNiptPage: React.FC = () => {
     locationSearch: location.search,
     navigate,
     resolvedProjectId: projectId,
+    // Opens unfiltered: the small-variant page's Phenotype-priority default rests on
+    // genotype and phenotype filters that do not apply to cfDNA.
+    freshOpenPreset: null,
   });
 
   const {
@@ -535,6 +544,8 @@ const FamilyNiptPage: React.FC = () => {
         )}
       </section>
 
+      {summary?.qc ? <NiptQcPanel qc={summary.qc} fetalFraction={summary.fetal_fraction} /> : null}
+
       {summaryFailed ? (
         <QueryFailure
           what="the fetal-fraction estimate"
@@ -565,6 +576,9 @@ const FamilyNiptPage: React.FC = () => {
             , so the list stops part-way through the genome and its count is a lower bound. Narrow
             the search with a gene panel, a gene or a region.
           </div>
+        ) : null}
+        {!variantsFailed && filters.inheritance === 'recessive_at_risk' && variantPage ? (
+          <NiptRecessiveGenes genes={variantPage.recessive_genes ?? []} />
         ) : null}
         {/* A failed search is said as such: it read "No variants match the current
             search" (#606). */}
@@ -622,7 +636,9 @@ const FamilyNiptPage: React.FC = () => {
 
         <section className="surface-card space-y-2" aria-label="On-target coverage">
           <h2 className="section-title">On-target coverage</h2>
-          {coverage ? (
+          {coverage?.targets ? (
+            <NiptTargetCoverage coverage={coverage.targets} scoped={Boolean(filters.panel_id || filters.gene.trim())} />
+          ) : coverage ? (
             coverage.target_region_count === 0 ? (
               <p className="table-subtle">
                 No target regions — set a family ROI or gene panel to report coverage.

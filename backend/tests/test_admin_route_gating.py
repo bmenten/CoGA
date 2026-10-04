@@ -51,6 +51,8 @@ def viewer_client(monkeypatch: pytest.MonkeyPatch):
         ("post", "/api/panels/mendeliome/regenerate"),
         # Small-variant tag-definition mutations.
         ("delete", "/api/families/FAM1/small-variant-tags/tagkey"),
+        # The NIPT artifact list: importing the NIPT-M pipeline's recurrent-artefact table.
+        ("post", "/api/admin/nipt/artifacts/import"),
     ],
 )
 def test_admin_mutations_reject_a_viewer(viewer_client, method, path) -> None:

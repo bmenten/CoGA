@@ -313,6 +313,9 @@ async def test_startup_check_passes_on_current_tables_and_ignores_import_snapsho
 
     async def fake_execute(query, params=None, data=None):
         names = set((params or {}).get("names") or ())
+        if "system.columns" in query:
+            # The current entries table has every column, the per-call ones included.
+            return [(name, list(cvs.SMALL_VARIANT_ENTRY_COLUMNS)) for name in sorted(names)]
         return [row for row in tables if row[0] in names]
 
     async def fake_assemblies():

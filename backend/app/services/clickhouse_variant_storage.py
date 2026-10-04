@@ -56,6 +56,11 @@ _STRUCTURAL_VARIANT_ENTRY_SORT_KEY: tuple[str, ...] = (
     "source",
 )
 _STRUCTURAL_VARIANT_KEY_LOOKUP_SORT_KEY: tuple[str, ...] = ("family_guid", "variantId", "source")
+# Per-call columns of ``SNV_INDEL/entries`` that a table created by an earlier version
+# lacks: the call's own FILTER values and caller metrics, which a per-sample VCF describes
+# (see ``SmallVariantCall``). Such a table is refused like one with an older row identity
+# (``_storage_column_gaps``); there is no older schema to upgrade in place.
+_SMALL_VARIANT_REQUIRED_CALL_COLUMNS: tuple[str, ...] = ("calls.filters", "calls.metrics")
 _CALLSET_SORT_KEYS: dict[str, tuple[str, ...]] = {
     "SNV_INDEL/entries": _SMALL_VARIANT_ENTRY_SORT_KEY,
     "SV/entries": _STRUCTURAL_VARIANT_ENTRY_SORT_KEY,
@@ -279,6 +284,8 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `calls.af` Array(Array(Nullable(Float32))),
             `calls.ad` Array(Array(Nullable(UInt16))),
             `calls.ps` Array(Nullable(UInt64)),
+            `calls.filters` Array(Array(LowCardinality(String))),
+            `calls.metrics` Array(Map(LowCardinality(String), Float32)),
             `sign` Int8,
             INDEX idx_entry_variant variantId TYPE bloom_filter(0.01) GRANULARITY 4,
             INDEX idx_entry_annotation_version annotation_version TYPE set(32) GRANULARITY 4,
@@ -419,6 +426,9 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         mismatches = await _storage_identity_mismatches([dataset])
         if mismatches:
             raise _storage_identity_error(mismatches)
+        gaps = await _storage_column_gaps([dataset])
+        if gaps:
+            raise _storage_column_error(gaps)
         for statement in statements:
             await _execute(statement)
         _ensured_variant_table_assemblies.add(dataset)
@@ -486,6 +496,42 @@ def _storage_identity_error(
     )
 
 
+async def _storage_column_gaps(datasets: Sequence[str]) -> list[tuple[str, str]]:
+    """``(table, the columns it lacks)`` for every existing ``SNV_INDEL/entries`` table of
+    these assemblies created before a column of ``_SMALL_VARIANT_REQUIRED_CALL_COLUMNS``
+    existed. One bound query over ``system.columns``; a table not created yet is not listed."""
+    names = tuple(sorted(f"{dataset}/SNV_INDEL/entries" for dataset in datasets))
+    if not names:
+        return []
+    rows = await _execute(
+        """
+        SELECT table, groupArray(name)
+        FROM system.columns
+        WHERE database = %(database)s AND table IN %(names)s
+        GROUP BY table
+        """,
+        {"database": settings.clickhouse_database, "names": names},
+    )
+    gaps: list[tuple[str, str]] = []
+    for table, columns in rows or []:
+        present = {str(column) for column in columns or []}
+        missing = [column for column in _SMALL_VARIANT_REQUIRED_CALL_COLUMNS if column not in present]
+        if missing:
+            gaps.append((str(table), ", ".join(missing)))
+    return sorted(gaps)
+
+
+def _storage_column_error(gaps: Sequence[tuple[str, str]]) -> ClickHouseStorageIdentityError:
+    tables = "; ".join(
+        f"{settings.clickhouse_database}.`{name}` has no {missing}" for name, missing in gaps
+    )
+    return ClickHouseStorageIdentityError(
+        f"Refusing to use ClickHouse variant tables created by an earlier version: {tables}. "
+        "Drop the assembly's SNV_INDEL and SV tables, start again and re-import its families: "
+        'see docs/database.md, "Row identity".'
+    )
+
+
 async def verify_clickhouse_variant_storage_identity() -> None:
     """Refuse to start on variant tables created with an older row identity.
 
@@ -496,9 +542,13 @@ async def verify_clickhouse_variant_storage_identity() -> None:
     calls, which only a re-import brings back. So it is refused, and the message says to
     recreate the tables and re-import (docs/database.md, "Row identity").
     """
-    mismatches = await _storage_identity_mismatches(await list_clickhouse_variant_assemblies())
+    assemblies = await list_clickhouse_variant_assemblies()
+    mismatches = await _storage_identity_mismatches(assemblies)
     if mismatches:
         raise _storage_identity_error(mismatches)
+    gaps = await _storage_column_gaps(assemblies)
+    if gaps:
+        raise _storage_column_error(gaps)
 
 
 async def _bump_family_data_version(version_table: str, family_uuid: str) -> None:
@@ -728,6 +778,8 @@ async def insert_small_variant_records(
                 `calls.af`,
                 `calls.ad`,
                 `calls.ps`,
+                `calls.filters`,
+                `calls.metrics`,
                 sign
             ) VALUES
             """,
@@ -872,6 +924,8 @@ SMALL_VARIANT_ENTRY_COLUMNS: tuple[str, ...] = (
     "calls.af",
     "calls.ad",
     "calls.ps",
+    "calls.filters",
+    "calls.metrics",
     "sign",
 )
 # The per-call arrays of an entry row, with the value a missing element is written back as.
@@ -884,6 +938,8 @@ _SMALL_VARIANT_CALL_DEFAULTS: dict[str, Any] = {
     "calls.af": [],
     "calls.ad": [],
     "calls.ps": None,
+    "calls.filters": [],
+    "calls.metrics": {},
 }
 
 

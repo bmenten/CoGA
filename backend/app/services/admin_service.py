@@ -65,7 +65,7 @@ from .raw_import_files_pg import (
     verify_raw_import_file as _verify_raw_import_file,
 )
 
-BED_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "haplotype")
+BED_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "haplotype", "target_coverage")
 SAMPLE_TRACK_TYPES = (*BED_TRACK_TYPES, "structural_variants", "repeat_expansions")
 FAMILY_TRACK_TYPES = ("small_variants", "structural_variants", "repeat_expansions", *BED_TRACK_TYPES)
 

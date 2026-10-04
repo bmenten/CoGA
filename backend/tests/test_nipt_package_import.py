@@ -198,3 +198,116 @@ def test_discover_preserves_explicit_snv_and_coverage(
     availability = {item.dataset_type: item for item in result.datasets}
     assert availability["snv"].enabled and availability["snv"].complete
     assert availability["coverage"].enabled and availability["coverage"].complete
+
+
+# --------------------------------------------------------------------------- #
+# A monogenic NIPT pair: one VCF per parent and per-target coverage tables
+# --------------------------------------------------------------------------- #
+
+_PAIR_PED = (
+    "NIPTPAIR\tFATHER1\t0\t0\t1\t1\n"
+    "NIPTPAIR\tCFDNA1\t0\t0\t2\t1\n"
+    "NIPTPAIR\tFETUS1\tFATHER1\tCFDNA1\t0\t2\n"
+)
+_COVERAGE_HEADER = (
+    "#build\tchromosome\tstart\tend\tattribute\tlength\tmin\tmax\tmean\tmedian\tstdev\t"
+    "zero_coverage_bases\tproportion_covered\n"
+)
+
+
+def _one_sample_vcf(sample: str) -> str:
+    return (
+        "##fileformat=VCFv4.2\n"
+        f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
+        "chr7\t1000\t.\tA\tG\t.\tPASS\tTLOD=300\tGT:AD:DP\t0/1:900,100:1000\n"
+    )
+
+
+def _write_pair_folder(folder: Path, *, manifest: str | None = None) -> None:
+    import gzip
+
+    folder.mkdir()
+    (folder / "nipt_trio.ped").write_text(_PAIR_PED)
+    for sample in ("CFDNA1", "FATHER1"):
+        with gzip.open(folder / f"{sample}.mutect2.vcf.gz", "wt") as handle:
+            handle.write(_one_sample_vcf(sample))
+    (folder / "coverage_CFDNA1.txt").write_text(
+        _COVERAGE_HEADER + 'hg38\tchr7\t900\t1100\t"GENEA;NM_1.1;ENST1;ENSE1;1"\t200\t800\t1500\t1100,5\t1102\t20,1\t0\t100\n'
+    )
+    if manifest is not None:
+        (folder / "manifest.yaml").write_text(manifest)
+
+
+def test_discover_proposes_a_nipt_manifest_for_a_parent_pair(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    import yaml
+
+    monkeypatch.setattr(settings, "family_import_roots", [])
+    package = tmp_path / "NIPTPAIR"
+    _write_pair_folder(package)
+    result = discover_family_package_manifest(FamilyPackageManifestBuildRequest(folder_path=str(package)))
+    manifest = yaml.safe_load(result.manifest_yaml)
+    assert manifest["analysis_type"] == "monogenic_nipt"
+    assert manifest["samples"]["CFDNA1"] == {"assay": "nipt_cfdna"}
+    assert manifest["datasets"]["snv"]["per_sample"] == {
+        "CFDNA1": {"vcf": "CFDNA1.mutect2.vcf.gz"},
+        "FATHER1": {"vcf": "FATHER1.mutect2.vcf.gz"},
+    }
+    assert manifest["datasets"]["coverage"]["per_sample"] == {"CFDNA1": {"target_table": "coverage_CFDNA1.txt"}}
+    assert any(issue.code == "nipt_pair_detected" for issue in result.warnings)
+    availability = {item.dataset_type: item for item in result.datasets}
+    assert availability["snv"].complete and availability["coverage"].complete
+
+
+_PAIR_MANIFEST = (
+    "schema_version: 1\n"
+    "family_id: NIPTPAIR\n"
+    "ped: nipt_trio.ped\n"
+    "{analysis_type}"
+    "samples:\n"
+    "  CFDNA1: {{assay: nipt_cfdna, assay_panel: PANEL1}}\n"
+    "datasets:\n"
+    "  snv:\n"
+    "    per_sample:\n"
+    "      CFDNA1: {{vcf: CFDNA1.mutect2.vcf.gz}}\n"
+    "      FATHER1: {{vcf: FATHER1.mutect2.vcf.gz}}\n"
+    "  coverage:\n"
+    "    per_sample:\n"
+    "      CFDNA1: {{target_table: coverage_CFDNA1.txt}}\n"
+)
+
+
+def test_a_nipt_pair_package_validates(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setattr(settings, "family_import_roots", [])
+    package = tmp_path / "NIPTPAIR"
+    _write_pair_folder(package, manifest=_PAIR_MANIFEST.format(analysis_type="analysis_type: monogenic_nipt\n"))
+    validation, _bundle = load_validated_family_package(package)
+    assert validation.valid, validation.errors
+    datasets = {summary.dataset_type: summary for summary in validation.datasets}
+    assert datasets["snv"].status == "valid" and datasets["snv"].samples == ["CFDNA1", "FATHER1"]
+    assert datasets["coverage"].status == "valid"
+
+
+def test_a_per_sample_snv_callset_is_read_only_for_a_nipt_family(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.setattr(settings, "family_import_roots", [])
+    package = tmp_path / "NIPTPAIR"
+    _write_pair_folder(package, manifest=_PAIR_MANIFEST.format(analysis_type=""))
+    validation, _bundle = load_validated_family_package(package)
+    assert not validation.valid
+    assert any(issue.code == "dataset_per_sample_unsupported" for issue in validation.errors)
+
+
+def test_a_per_sample_file_must_hold_one_sample_and_a_table_its_columns(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import gzip
+
+    monkeypatch.setattr(settings, "family_import_roots", [])
+    package = tmp_path / "NIPTPAIR"
+    _write_pair_folder(package, manifest=_PAIR_MANIFEST.format(analysis_type="analysis_type: monogenic_nipt\n"))
+    with gzip.open(package / "FATHER1.mutect2.vcf.gz", "wt") as handle:
+        handle.write(_one_sample_vcf("FATHER1").replace("\tFATHER1\n", "\tFATHER1\tCFDNA1\n"))
+    (package / "coverage_CFDNA1.txt").write_text("#build\tchromosome\tstart\tend\n")
+    validation, _bundle = load_validated_family_package(package)
+    codes = {issue.code for issue in validation.errors}
+    assert "dataset_vcf_not_single_sample" in codes
+    assert "coverage_target_table_columns" in codes

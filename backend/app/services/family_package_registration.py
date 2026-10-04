@@ -469,10 +469,12 @@ async def _register_package_provenance(
             if sample_id in sample_metadata:
                 metadata["package_sample_metadata"] = sample_metadata[sample_id]
                 # Promote a per-sample assay (e.g. nipt_cfdna) to the top level so
-                # resolve_nipt_trio can identify the maternal-plasma cfDNA sample.
-                assay = sample_metadata[sample_id].get("assay")
-                if isinstance(assay, str) and assay.strip():
-                    metadata["assay"] = assay.strip()
+                # resolve_nipt_trio can identify the maternal-plasma cfDNA sample, and
+                # its capture panel, which scopes the NIPT artifact list (nipt.py).
+                for key in ("assay", "assay_panel"):
+                    value = sample_metadata[sample_id].get(key)
+                    if isinstance(value, str) and value.strip():
+                        metadata[key] = value.strip()
             if sample_id in sample_provenance:
                 metadata["package_import"] = {
                     "source": "family_package",

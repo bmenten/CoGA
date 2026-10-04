@@ -7,6 +7,7 @@ import types
 import pytest
 
 from backend.app.services import sample_integrity_service
+from backend.app.services.nipt_analysis import PaternalTransmissionEvidence
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 
 SAMPLES = ["FATHER", "MOTHER", "CHILD"]
@@ -142,6 +143,9 @@ def test_service_nipt_runs_paternity_parent_sex_and_category_qc(monkeypatch) -> 
         return types.SimpleNamespace(
             category_counts={1: 1, 2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
             paternal_evidence={7: 40, 8: 2},
+            paternal_transmission=PaternalTransmissionEvidence(
+                hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
+            ),
             fetal_sex=types.SimpleNamespace(
                 inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
             ),
@@ -200,9 +204,10 @@ def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> No
 def _nipt_site(variant_id: str, *, father_state: str, father_dp: int | None, present: bool):
     from backend.app.services.nipt_analysis import NiptSiteObservation
 
+    # An absent allele at 400x and FF 10% would have shown 20 reads: it cannot be missed.
     return NiptSiteObservation(
         variant_id=variant_id, chrom="1", pos=100, is_autosomal=True,
-        cf_present=present, cf_dp=400 if present else 120, cf_alt_reads=20 if present else 0,
+        cf_present=present, cf_dp=400, cf_alt_reads=20 if present else 0,
         cf_vaf=0.05 if present else 0.0, cf_qual=40.0,
         father_state=father_state, father_dp=father_dp, father_qual=None,
     )
@@ -226,7 +231,7 @@ def test_service_nipt_paternity_ignores_sites_without_a_confident_father_call(mo
         for i in range(40)
     ] + [
         _nipt_site(f"absent-{i}", father_state="hom_alt", father_dp=50, present=False)
-        for i in range(12)
+        for i in range(24)
     ]
     # These sites alone give no fetal fraction; impose the 0.10 that informative sites
     # elsewhere in the callset would give, so the no-call sites are classified.
@@ -243,7 +248,7 @@ def test_service_nipt_paternity_ignores_sites_without_a_confident_father_call(mo
         ),
     )
     analysis = run_nipt_analysis(sites, NiptQualityThresholds())
-    assert analysis.category_counts[7] == 40 and analysis.category_counts[8] == 12
+    assert analysis.category_counts[7] == 40 and analysis.category_counts[8] == 24
 
     async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
         return analysis
@@ -257,7 +262,7 @@ def test_service_nipt_paternity_ignores_sites_without_a_confident_father_call(mo
     )
 
     assert report.paternity_check is not None
-    assert (report.paternity_check.cat7_transmitted, report.paternity_check.cat8_absent) == (0, 12)
+    assert (report.paternity_check.cat7_transmitted, report.paternity_check.cat8_absent) == (0, 24)
     assert report.paternity_check.status == "fail"
     assert report.overall_status == "fail"
 
@@ -301,6 +306,9 @@ def test_service_sexes_a_haploid_called_nipt_father(monkeypatch) -> None:
         return types.SimpleNamespace(
             category_counts={2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
             paternal_evidence={7: 40, 8: 2},
+            paternal_transmission=PaternalTransmissionEvidence(
+                hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
+            ),
             fetal_sex=types.SimpleNamespace(
                 inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
             ),
@@ -478,3 +486,73 @@ def test_service_reads_sibling_embryos_as_siblings_from_sites_across_the_genome(
     assert all(c.status == "pass" for c in report.mendelian_checks)
     assert all(c.status == "pass" for c in report.sex_checks)
     assert report.overall_status == "pass"
+
+
+def test_service_sexes_a_per_sample_nipt_callset_from_its_allele_depths(monkeypatch) -> None:
+    # A per-sample NIPT callset (Mutect2 tumour-only) writes GT 0/1 whatever the allele
+    # fraction, so a hemizygous father read by his GT is "het" on every chrX site: female.
+    # His genotypes come from his allele depths instead, and a site where his file has no
+    # call is reference.
+    from backend.app.services import clickhouse_family_variants
+
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(
+        sample_integrity_service, "resolve_nipt_trio",
+        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
+    )
+    import backend.app.services.nipt_service as nipt_service
+
+    async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
+        return types.SimpleNamespace(
+            category_counts={2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
+            paternal_evidence={7: 40, 8: 2},
+            paternal_transmission=PaternalTransmissionEvidence(
+                hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
+            ),
+            fetal_sex=types.SimpleNamespace(
+                inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
+            ),
+        )
+
+    async def _nipt_source(context):
+        return ["nipt"]
+
+    rng = random.Random(11)
+
+    async def _fake_execute(query, params):
+        assert "e.calls.ad AS sample_ads" in query
+        rows = []
+        for i in range(600):
+            mother_alt = rng.choice((0, 500, 1000))  # hom-ref, het or hom-alt mother
+            if i % 3 == 0:
+                # The father's hemizygous allele (GT 0/1 from Mutect2), the mother's call too.
+                rows.append((i, "X", 3_000_000 + i, "A", "G", ["FATHER", "MOTHER"], ["0/1", "0/1"],
+                             [[1, 299], [1000 - mother_alt, max(mother_alt, 5)]]))
+            else:
+                # Only the mother has a call: the father's file has none (reference).
+                rows.append((i, "X", 3_000_000 + i, "A", "G", ["MOTHER"], ["0/1"],
+                             [[1000 - mother_alt, max(mother_alt, 5)]]))
+        return rows
+
+    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
+    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _nipt_source)
+    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", clickhouse_family_variants.fetch_genotype_site_sample)
+    monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", _fake_execute)
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="FAM1", user=None)
+    )
+
+    sexes = {check.sample_id: (check.inferred_sex, check.status) for check in report.sex_checks}
+    assert sexes["FATHER"] == ("male", "pass")
+    assert sexes["MOTHER"] == ("female", "pass")
+
+
+def test_vaf_genotype() -> None:
+    from backend.app.services.clickhouse_variant_queries import vaf_genotype
+
+    assert vaf_genotype([1, 299], "0/1") == "1/1"
+    assert vaf_genotype([150, 150], "0/1") == "0/1"
+    assert vaf_genotype([280, 20], "0/1") == "0/0"  # 7%: noise, not a genotype
+    assert vaf_genotype([3, 2], "0/1") == "./."  # too few reads
+    assert vaf_genotype([], "1|1") == "1|1"  # no allele depths: the GT

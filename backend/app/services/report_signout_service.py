@@ -51,7 +51,7 @@ from .access_control import CurrentUser
 from .sample_integrity_qc import (
     MIN_MATERNAL_TRANSMISSION_SITES,
     MIN_MENDEL_SITES,
-    MIN_PATERNITY_SITES,
+    paternity_unverifiable,
     MIN_RELATEDNESS_SITES,
     SampleIntegrityReport,
 )
@@ -176,7 +176,12 @@ def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
                 or f"Mendelian consistency for {check.get('child')} could not be verified."
             )
     paternity = qc.get("paternity_check")
-    if paternity and int(paternity.get("informative_sites") or 0) < MIN_PATERNITY_SITES:
+    if paternity and paternity_unverifiable(
+        hom_alt_informative=int(paternity.get("hom_alt_transmitted") or 0)
+        + int(paternity.get("hom_alt_not_transmitted") or 0),
+        het_informative=int(paternity.get("het_transmitted") or 0)
+        + int(paternity.get("het_not_transmitted") or 0),
+    ):
         reasons.append(
             paternity.get("message")
             or "NIPT paternity could not be verified (too few paternal-informative sites)."

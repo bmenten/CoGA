@@ -1,3 +1,5 @@
+import type { NiptQcOut, NiptTargetCoverageOut } from './apiSchema.generated';
+
 export interface ApiPaginatedTotalResponse {
   total: number;
 }
@@ -275,6 +277,9 @@ export interface ApiNiptFetalFraction {
   n_sites: number;
   method: string;
   low_confidence: boolean;
+  // The 5th / 95th percentile of the FF sites' allele fractions (the de novo window).
+  vaf_q05?: number | null;
+  vaf_q95?: number | null;
 }
 
 export interface ApiNiptSummary {
@@ -283,6 +288,8 @@ export interface ApiNiptSummary {
   // Category counts are keyed by the category number (1-8), serialized as strings.
   category_counts: Record<string, number>;
   filter_counts: Record<string, number>;
+  // Paternity, fetal sex, the plasma's sex profile, target coverage and the model.
+  qc?: NiptQcOut | null;
 }
 
 export interface ApiNiptCoverageRegion {
@@ -313,6 +320,8 @@ export interface ApiNiptCoverageSummary {
   min_depth: number;
   min_covered_fraction: number;
   low_coverage_regions?: ApiNiptCoverageLowRegion[];
+  // The capture targets' QC, when the plasma has a per-target coverage table.
+  targets?: NiptTargetCoverageOut | null;
 }
 
 export type QcStatus = 'pass' | 'warn' | 'fail' | 'skip';
@@ -354,6 +363,11 @@ export interface ApiSampleIntegrityPaternityCheck {
   cat7_transmitted: number;
   cat8_absent: number;
   informative_sites: number;
+  // The father's homozygous alleles (all must be seen) and het ones (half are).
+  hom_alt_transmitted?: number;
+  hom_alt_not_transmitted?: number;
+  het_transmitted?: number;
+  het_not_transmitted?: number;
   status: QcStatus;
   message: string;
 }

@@ -343,6 +343,31 @@ The embryo-only VCFs (`split_trio/extract_embryo/`), the pipeline's HTML plots a
 run that draws it in `apcad/EMBRYO1_pcf_apcad_plot.html` alone gets no PCF track, and
 Discover leaves the `pcf` dataset off.
 
+A monogenic NIPT package from the NIPT-M pipeline holds one VCF per parent, each with one
+sample: the maternal plasma's (cfDNA) and the father's, both called by Mutect2 in tumour-only
+mode. A per-target coverage table per sample gives each capture target's depth:
+
+```text
+NIPTFAM1/
+  manifest.yaml
+  nipt_trio.ped              the father, the mother (her sample is the plasma) and the fetus
+  CFDNA1.mutect2.vcf.gz      the plasma's calls
+  FATHER1.mutect2.vcf.gz     the father's calls
+  coverage_CFDNA1.txt        per-target coverage of the plasma
+  coverage_FATHER1.txt       per-target coverage of the father
+```
+
+When Discover finds no joint SNV VCF, it looks for such a pair: a PED child without a VCF of
+its own (the fetus) whose mother and father each have a one-sample VCF named after them,
+`<sample>.vcf.gz` or `<sample>.<anything>.vcf.gz`, in the package folder or one folder down.
+It takes the mother's sample as the maternal-plasma cfDNA and drafts a NIPT manifest:
+`analysis_type: monogenic_nipt`, `assay: nipt_cfdna` on the plasma's sample, the two VCFs
+under `datasets.snv.per_sample`, and the coverage tables it finds (`coverage_<sample>.txt` or
+`.tsv`, in the same places) under `datasets.coverage.per_sample` as `target_table`. Its
+warning (`nipt_pair_detected`) names the sample it took for the plasma and the one it took for
+the father: check both before the import. How the pair is imported is under
+[Monogenic NIPT pairs](#monogenic-nipt-pairs).
+
 Discover knows several file names per dataset, and shows what it found. The exact patterns
 are the `standard_v1` entry of `NAMING_SCHEMES` in
 `backend/app/services/family_package_discovery.py`. A pattern may contain `*` (the SV
@@ -450,7 +475,10 @@ and child or as a couple (the parents of a child are recorded as one), or that l
 twice, is an error: the family editor would refuse the family's every later edit.
 
 `analysis_type: monogenic_nipt` marks a monogenic NIPT family (see
-[monogenic-nipt.md](monogenic-nipt.md)). A dataset can be switched off with `enabled: false`.
+[monogenic-nipt.md](monogenic-nipt.md)). Its `samples` entry for the maternal plasma says
+`assay: nipt_cfdna` (without one, CoGA takes the mother's sample), and may name the capture
+panel as `assay_panel`, which scopes the NIPT artifact list; both are copied into the sample's
+metadata. A dataset can be switched off with `enabled: false`.
 The `snv` dataset takes three optional settings:
 
 - `source_format`: `clair3` for a directly called callset, `glimpse2` for imputed genotypes.
@@ -468,11 +496,11 @@ The `snv` dataset takes three optional settings:
 
 | Dataset | Stored as |
 | --- | --- |
-| `snv` | small variants (ClickHouse), with the VEP table if given |
+| `snv` | small variants (ClickHouse), with the VEP table if given; a monogenic NIPT pair's one-sample VCFs (`per_sample`) as one callset, source `nipt` ([below](#monogenic-nipt-pairs)) |
 | `sv_needlr` | structural variants (ClickHouse), source `needlr` |
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
-| `coverage` | the `coverage` track (a BED per sample) |
+| `coverage` | the `coverage` track (a BED per sample, `bed:`), or the `target_coverage` track (a capture panel's per-target coverage table, `target_table:`, [below](#monogenic-nipt-pairs)) |
 | `apcad` | the `apcad` track: per SNV the embryo's alternate-allele fraction, tagged with the parent the alternate allele can only have come from. From a family VCF, or one trio VCF per embryo (`vcf:` under `per_sample`) |
 | `pcf` | the `apcad_pcf` track (maternal and paternal segment files) |
 | `haplotypes` | a phased family VCF (GLIMPSE2, or SHAPEIT5 from the PGT pipeline) becomes small variants plus haplotype blocks, with a switch in a parent's phasing undone where the couple's children all switch together (kept in `families.metadata.haplotype_phase_corrections`); a per-sample BCF is only registered, not imported. The PGT pipeline's haplotype-origin files (`haplotype_origin`, `haplotype_conclusion`) are kept on the family as its reading of the affected haplotype; CoGA's own risk call does not use them |
@@ -494,6 +522,64 @@ The track viewers draw one track per caller (`GET /families/{family_id}/track-av
 lists them). The three HiFiCNV files are also served unchanged to the genome browser (IGV),
 from the bucket for a package in a bucket.
 
+### Monogenic NIPT pairs
+
+A NIPT pair's manifest, as Discover drafts it (`assay_panel` added by hand):
+
+```yaml
+analysis_type: monogenic_nipt
+samples:
+  CFDNA1: {assay: nipt_cfdna, assay_panel: PANEL1}
+datasets:
+  snv:
+    per_sample:
+      CFDNA1: {vcf: CFDNA1.mutect2.vcf.gz}
+      FATHER1: {vcf: FATHER1.mutect2.vcf.gz}
+  coverage:
+    per_sample:
+      CFDNA1: {target_table: coverage_CFDNA1.txt}
+      FATHER1: {target_table: coverage_FATHER1.txt}
+```
+
+The VCFs under `snv.per_sample` become one small-variant callset, source `nipt`
+([family_package_nipt.py](../backend/app/services/family_package_nipt.py)):
+
+- The plasma's file goes first, whatever the manifest's order: the sample tagged
+  `assay: nipt_cfdna`, else the mother of the PED's child. Each other file is then merged into
+  the stored rows for its own sample, as the `mito` files are: a variant is one row holding each
+  sample's call where its file has one, and a file replaces only its own sample's calls. A
+  sample without a call at a variant had no alt read there that its caller reported; the
+  analysis reads its depth there from the sample's coverage table.
+- The father's file is mostly low-level noise: nearly all of its calls sit below 20% alt
+  reads. The importer keeps a paternal record when one of its calls reaches 15% alt reads
+  (`NIPT_PATERNAL_KEEP_MIN_VAF`, below the 20% of a heterozygous call, so no genotype is lost;
+  the alt reads over all the record's reads, or the caller's AF without allele depths), or
+  when it lies on a position where the plasma has a call (an MNV over any of its bases). The
+  dataset summary counts, per sample, the records it left out (`skipped_by_filter`).
+- Each file holds one sample, so a record's FILTER values and caller metrics (Mutect2's TLOD,
+  FS, mapping quality, mismatches, repeat units and so on) are that one call's: they are kept
+  with the call ([database.md](database.md), `calls.filters` and `calls.metrics`) for the
+  NIPT quality filter and the de novo triage.
+- The `snv` settings `source_format`, `exclude_filters`, `vcf_sample` and `annotation_tsv` do
+  not apply: the callset is always `nipt`, each file's one column is bound to the sample of its
+  entry, and each file's annotation is read from its own records. With `update`, the dataset is
+  skipped when the family already holds `nipt` calls.
+
+A per-target coverage table (`target_table`) is tab-separated with a header line, one row
+per capture target. It needs the columns `chromosome`, `start` and `end` (BED coordinates),
+`attribute` (`GENE;transcript;…`: the gene comes first) and `mean`, and reads `median`, `min`,
+`max`, `proportion_covered` and `zero_coverage_bases` when they are there; a number may have a
+decimal comma. The table becomes the sample's `target_coverage` track, in place of the one
+stored before ([database.md](database.md)); with `update`, a sample that has one is skipped.
+The NIPT coverage check and the plasma's sex profile read the plasma's table, and the analysis
+reads each sample's depth from its table where its VCF has no call
+([monogenic-nipt.md](monogenic-nipt.md)).
+
+One combined VCF with a father column and a plasma column, genotyped jointly, still imports as
+an ordinary `snv` `family_vcf`, as the demo family does
+([demo/nipt_family](../demo/nipt_family/README.md)); the analysis is the same. Without coverage
+tables, the NIPT coverage check reads the plasma's `coverage` track (a BED) instead.
+
 ### Validation
 
 Discover, dry run and import check that:
@@ -509,6 +595,12 @@ Discover, dry run and import check that:
 - every file the manifest names exists (for a package in a bucket, an alignment exists in the
   bucket), and a compressed family VCF has its index (`.tbi`, `.csi` or `.idx`, next to it or
   given as `index:`); a plain `.vcf` needs none;
+- a per-sample SNV callset (`snv.per_sample` without `family_vcf`) is read only for a family
+  with `analysis_type: monogenic_nipt` (`dataset_per_sample_unsupported`): every other analysis
+  reads a sample without a call as reference, which only a joint VCF says. Each of its VCFs
+  holds exactly one sample (`dataset_vcf_not_single_sample`) and needs no index;
+- a per-target coverage table's header names `chromosome`, `start`, `end`, `attribute` and
+  `mean` (`coverage_target_table_columns`);
 - every dataset key is a known one.
 
 A missing `snv` or `sv_needlr` dataset is a warning; other datasets are optional without a
@@ -568,7 +660,9 @@ A family small-variant upload is one family VCF from one callset:
 - `source_format` is `clair3` (a directly called callset), `glimpse2` (imputed genotypes, which
   also make the haplotype blocks), `mito` (chrM calls) or `auto`, the default, which tells
   `clair3` and `glimpse2` apart from the first record. Any other value is refused (422) before
-  anything is stored.
+  anything is stored. Only Package Import writes the `nipt` callset of a monogenic NIPT pair,
+  one file per sample ([Monogenic NIPT pairs](#monogenic-nipt-pairs)); a combined father and
+  plasma VCF uploads as an ordinary callset.
 - The upload is refused (409) when the family already has calls from that callset.
   `overwrite=true` replaces them; every other callset stays as it is.
 - The answer says what was stored: the records loaded and skipped, the callset, the haplotype
@@ -593,6 +687,40 @@ from every source. Both this delete and an upload rewrite the stored rows, and w
 call they do not change back as stored: with its phase set and breakend end, in its project,
 an inactive member's included.
 
+### The NIPT artifact list
+
+The recurrent-artifact list of monogenic NIPT is kept per assembly and assay
+(`nipt_artifact_variants`; see [monogenic-nipt.md](monogenic-nipt.md)). Admins maintain it
+through the API; there is no screen for it. Besides adding or removing one allele
+(`POST /admin/nipt/artifacts`, `DELETE /admin/nipt/artifacts/{artifact_id}`) and seeding it
+from the cohort's cfDNA samples (`POST /admin/nipt/artifacts/auto-seed`), an admin can import
+the NIPT-M pipeline's recurrent table with `POST /admin/nipt/artifacts/import`: a multipart
+form with the table as `file`, the `assembly_id`, and the `assay_key` (default `nipt_cfdna`;
+a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA samples).
+
+- The table is tab-separated with a header line. It needs a `variant_key` column
+  (`CHROM:POS:REF:ALT`) or the columns `CHROM`, `POS`, `REF` and `ALT`; without them it is
+  refused (400). With a `filter_as_recurrent_artifact` column, as the pipeline's
+  `recurrent_cfdna_artifact_filter_*.tsv` has, only the rows it marks TRUE are read; without
+  it, every row is an artifact.
+- Each allele is listed as `curated`, with `n_cfdna_families` as its recurrence count and the
+  label `recurrent (<recurrent_filter_profile>)`. An allele already on the list keeps its
+  source and label and takes the table's count.
+- The auto-seed's protections hold. An allele whose annotation on the assembly has a gnomAD
+  or TopMed frequency above 5%, or a ClinVar record that may assert pathogenic (pathogenic,
+  likely pathogenic or conflicting), is not listed. An allele that no family on the assembly
+  carries has no annotation there to check, and is listed. Each family's analysis checks its
+  listed alleles again with the family's own annotation, and keeps a common or
+  ClinVar-pathogenic one, flagged `artifact_list_protected`. An allele without any annotation is
+  not protected: review the list.
+- The answer counts the rows read, those the table does not flag (`not_flagged`), those it
+  could not read (`invalid`, such as a multi-allelic `ALT`), the alleles listed (`imported`),
+  and those refused as common (`protected_common`) or for ClinVar (`protected_clinvar`).
+- An import that lists alleles is one clinical audit event, `nipt_artifacts_imported`, on the
+  artifact list's own chain: it names the file and every allele it listed
+  ([clinical-traceability.md](clinical-traceability.md)). An import that lists none records
+  no event.
+
 ## 7. Troubleshooting
 
 | Message or symptom | Cause |
@@ -607,6 +735,11 @@ an inactive member's included.
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
+| `nipt_pair_detected` (warning) | Discover took the folder for a monogenic NIPT pair. Check the sample it took for the maternal plasma and the one it took for the father. |
+| `dataset_per_sample_unsupported` | `snv.per_sample` in a family that is not `analysis_type: monogenic_nipt`; give a joint VCF as `snv.family_vcf`. |
+| `dataset_vcf_not_single_sample` | A VCF of a NIPT pair holds no sample column or more than one. |
+| `coverage_target_table_columns` | A per-target coverage table's header lacks `chromosome`, `start`, `end`, `attribute` or `mean`. |
+| A per-target coverage import fails on `sample_interval_track_sources_track_type_check` | The Postgres database is older than the `target_coverage` track type; reset it ([database.md](database.md)). |
 | Empty viewers or gene search | The assembly's reference data is missing (section 1). |
 | dbNSFP `missing` on every gene | The dbNSFP gene file is not at `GENE_REFERENCE_DBNSFP_GENE_PATH`. |
 

@@ -23,6 +23,7 @@ from .clickhouse_family_variants import (
     fetch_genotype_site_sample,
 )
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
+from .clickhouse_variant_queries import PER_SAMPLE_SMALL_VARIANT_SOURCES
 from .genotypes import NO_CALL, classify_genotype
 from .haplotype_lineage_service import build_pedigree
 from .metadata_service import get_family_record
@@ -100,11 +101,14 @@ async def _load_genotype_sample(
     source: str,
 ) -> dict[str, list[Genotype | None]]:
     rows = await fetch_genotype_site_sample(context, scope=scope, limit=limit, source=source)
+    # In a per-sample callset a sample without a call at a site had no alt read there:
+    # reference, as a joint VCF would have called it.
+    uncalled = "0/0" if source in PER_SAMPLE_SMALL_VARIANT_SOURCES else None
     arrays: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
     for _chrom, _pos, _ref, _alt, sample_ids, gts in rows:
         gt_by_sample = dict(zip(sample_ids, gts))
         for sample in samples:
-            arrays[sample].append(_parse_genotype(gt_by_sample.get(sample)))
+            arrays[sample].append(_parse_genotype(gt_by_sample.get(sample, uncalled)))
     return arrays
 
 
@@ -167,9 +171,16 @@ async def _nipt_checks(
     result = await run_family_nipt_analysis(
         session, family_id=family_id, user=user, project_id=project_id
     )
-    # Only sites with a confident father call count: a missing or thin call reaches
-    # category 7 on the prior alone and would read as paternity support.
-    paternity = evaluate_paternity(trio.father_sample_id, result.paternal_evidence)
+    # Only sites with a confident father call, where the mother does not carry the
+    # allele and a transmitted allele could not have been missed, count.
+    evidence = result.paternal_transmission
+    paternity = evaluate_paternity(
+        trio.father_sample_id,
+        hom_alt_transmitted=evidence.hom_alt_transmitted,
+        hom_alt_not_transmitted=evidence.hom_alt_not_transmitted,
+        het_transmitted=evidence.het_transmitted,
+        het_not_transmitted=evidence.het_not_transmitted,
+    )
     fs = result.fetal_sex
     fetal_sex = evaluate_fetal_sex(
         fs.inferred, fs.x_transmitted, fs.x_not_transmitted, fs.informative_sites
