@@ -628,6 +628,18 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
   );
 };
 
+// What each NIPT inheritance view lists (nipt_service.get_family_nipt_variants).
+const NIPT_VIEW_NOTES: Record<string, string> = {
+  de_novo:
+    "Calls in the fetal window of the paternal alleles' allele fractions, without a supported call in the father, triaged and ranked by score. Confirm a candidate's absence in the father and its allele fraction before acting on it.",
+  paternal_dominant:
+    "The father's alleles the mother does not carry, and whether the fetus inherited each (seen at FF/2 in the plasma, or absent where it would have shown).",
+  maternal_dominant:
+    "The mother's alleles, and the probability that the fetus inherited each (the plasma's allele fraction against 50% - FF/2, 50% and 50% + FF/2).",
+  recessive_at_risk:
+    'The genes where both parents carry an allele, with the probability that the fetus inherited each and both.',
+};
+
 export const NiptCategoriesFilterSection = ({ form }: { form: FilterSectionForm }) => {
   const {
     categoryCounts,
@@ -683,6 +695,35 @@ summarizeSection(
       }
     >
       <div className="variant-filter-dropdown-content">
+        {NIPT_VIEW_NOTES[draftFilters.inheritance] ? (
+          <p className="table-subtle">{NIPT_VIEW_NOTES[draftFilters.inheritance]}</p>
+        ) : null}
+        {draftFilters.inheritance === 'de_novo' ? (
+          <label className="analysis-field-label">
+            List de novo candidates of priority
+            <select
+              aria-label="Lowest de novo priority"
+              value={draftFilters.de_novo_priority || 'low'}
+              onChange={(event) =>
+                setDraftFilterValue('de_novo_priority', event.target.value === 'low' ? '' : event.target.value)
+              }
+            >
+              <option value="high">High only</option>
+              <option value="medium">High and medium</option>
+              <option value="low">Every candidate in the fetal window</option>
+            </select>
+          </label>
+        ) : null}
+        {draftFilters.inheritance === 'paternal_dominant' || draftFilters.inheritance === 'maternal_dominant' ? (
+          <label className="analysis-checkbox">
+            <input
+              type="checkbox"
+              checked={draftFilters.include_not_inherited === 'true'}
+              onChange={(event) => setDraftFilterValue('include_not_inherited', event.target.checked ? 'true' : '')}
+            />
+            <span>Also list the alleles the fetus did not inherit</span>
+          </label>
+        ) : null}
         <div className="nipt-category-grid">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((categoryNumber) => {
             const value = String(categoryNumber);

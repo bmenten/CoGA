@@ -256,16 +256,33 @@ def test_nipt_profile_summary_names_the_checks_it_runs() -> None:
     assert "relatedness" in summary and "mendelian" in summary
 
 
+def _paternity(hom: tuple[int, int], het: tuple[int, int]):
+    return evaluate_paternity(
+        "FATHER",
+        hom_alt_transmitted=hom[0],
+        hom_alt_not_transmitted=hom[1],
+        het_transmitted=het[0],
+        het_not_transmitted=het[1],
+    )
+
+
 def test_evaluate_paternity_supported_vs_mixup() -> None:
-    # Plenty of cat-7 (paternal transmitted), little cat-8 absence -> paternity ok.
-    ok = evaluate_paternity("FATHER", {7: 40, 8: 2})
-    assert ok.status == "pass" and ok.cat7_transmitted == 40
-    # Paternal alleles essentially absent -> non-paternity / mixup.
-    bad = evaluate_paternity("FATHER", {7: 0, 8: 30})
-    assert bad.status == "fail"
+    # The true father: his homozygous alleles all seen but a few dropouts, half his het ones.
+    ok = _paternity((485, 15), (1020, 980))
+    assert ok.status == "pass" and ok.cat7_transmitted == 485 + 1020 and ok.cat8_absent == 15
+    # Another man's file: far from all his homozygous alleles, and a quarter of his het ones.
+    # Pooled, a third of its alleles were absent, which the old 40% warning let through.
+    bad = _paternity((200, 300), (500, 1500))
+    assert bad.status == "fail" and "another father" in bad.message
+    # Either signal alone decides when the other has too few sites.
+    assert _paternity((40, 30), (0, 0)).status == "fail"
+    assert _paternity((0, 0), (20, 80)).status == "fail"
+    assert _paternity((36, 2), (0, 0)).status == "pass"
+    # A homozygous rate between the two bounds warns.
+    assert _paternity((85, 15), (50, 50)).status == "warn"
     # Too few paternal-informative sites -> warn, not a confident verdict.
-    thin = evaluate_paternity("FATHER", {7: 2, 8: 1})
-    assert thin.status == "warn"
+    thin = _paternity((5, 1), (10, 9))
+    assert thin.status == "warn" and "Too few" in thin.message
 
 
 def test_evaluate_fetal_sex_wraps_the_call() -> None:
@@ -274,7 +291,10 @@ def test_evaluate_fetal_sex_wraps_the_call() -> None:
     male = evaluate_fetal_sex("male", 0, 15, 15)
     assert male.status == "pass" and "male" in male.message
     unknown = evaluate_fetal_sex("indeterminate", 1, 2, 3)
-    assert unknown.status == "warn"
+    assert unknown.status == "warn" and "too few" in unknown.message
+    # Enough sites, but about as many seen as absent: not this father's X, or noise.
+    split = evaluate_fetal_sex("indeterminate", 6, 8, 14)
+    assert split.status == "warn" and "check paternity" in split.message
 
 
 def test_evaluate_nipt_category_qc() -> None:

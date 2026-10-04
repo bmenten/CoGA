@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
+import type { NiptDeNovoTriageOut, NiptRecessiveGeneOut } from '../../lib/apiSchema.generated';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { logUiEvent } from '../../lib/telemetry';
 import {
@@ -183,6 +184,24 @@ export interface NiptClassification {
   observed_vaf?: number | null;
   confidence: number;
   flags: string[];
+  runner_up_category?: number | null;
+  runner_up_confidence?: number | null;
+  // Whether the fetus inherited the father's allele, the mother's, or both (where the
+  // site tells), and the fetal genotype at a maternal het site.
+  paternal_transmission_probability?: number | null;
+  maternal_allele_probability?: number | null;
+  fetal_hom_alt_probability?: number | null;
+  fetal_genotype_posterior?: Record<string, number> | null;
+  quality_failures?: string[];
+  // The reads behind the call: the plasma's (estimated from its coverage when it has no
+  // call there) and the father's genotype class, allele fraction and depth.
+  cf_alt_reads?: number | null;
+  cf_depth?: number | null;
+  cf_depth_estimated?: boolean;
+  father_state?: string | null;
+  father_vaf?: number | null;
+  father_depth?: number | null;
+  de_novo?: NiptDeNovoTriageOut | null;
 }
 
 export interface SvSecondHit {
@@ -242,6 +261,8 @@ export interface SmallVariantPage {
   ranking_cached?: boolean;
   ranking_computed_at?: string | null;
   small_variant_summary?: SmallVariantSummary | null;
+  // Monogenic NIPT, recessive view: the genes where both parents carry an allele.
+  recessive_genes?: NiptRecessiveGeneOut[];
 }
 
 export interface SmallVariantSampleSummary {
@@ -380,10 +401,14 @@ export type SmallFilterState = {
   classification: string;
   review_tags: string;
   has_notes: string;
-  // Monogenic NIPT only: the maternal/fetal category multi-select and the
-  // minimum classification confidence. Never set by the small-variant UI.
+  // Monogenic NIPT only: the maternal/fetal category multi-select, the minimum
+  // classification confidence, whether the paternal and maternal views also list the
+  // alleles the fetus did not inherit ('true'), and the lowest de novo priority listed
+  // (high, medium or low). Never set by the small-variant UI.
   category: string;
   min_confidence: string;
+  include_not_inherited: string;
+  de_novo_priority: string;
 };
 
 export type ActiveSmallFilterChip =
@@ -420,6 +445,7 @@ export type SmallPreset =
   | 'clinvar_review'
   // Monogenic NIPT built-in presets (shown only in the NIPT filter form).
   | 'nipt_de_novo'
+  | 'nipt_paternal'
   | 'nipt_recessive';
 
 export const HOM_GT_GROUP = ['1/1', '1|1'];
@@ -561,15 +587,29 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
     value: 'nipt_de_novo',
     label: 'De novo',
     description:
-      'Category-1 de-novo candidates: high/moderate impact, gnomAD <1% (ClinVar P/LP overrides), absent in both parents.',
+      'De novo candidates in the fetal window, triaged and ranked: high/moderate impact, gnomAD <1% (ClinVar P/LP overrides), no supported call in the father.',
+  },
+  {
+    value: 'nipt_paternal',
+    label: 'Paternal, inherited',
+    description:
+      "The father's rare, high/moderate alleles the fetus inherited (ClinVar P/LP overrides frequency), for a dominant paternal condition.",
   },
   {
     value: 'nipt_recessive',
     label: 'Recessive (both parents carrier)',
     description:
-      'Genes where both parents carry a rare, high/moderate variant (ClinVar P/LP overrides frequency); shows every carrier variant so you can read whether the fetus inherited none, one, or both.',
+      'Genes where both parents carry a rare, high/moderate variant (ClinVar P/LP overrides frequency), with the probability that the fetus inherited each allele and both.',
   },
 ];
+
+// The inheritance views of the NIPT variant list, as chips name them.
+export const NIPT_INHERITANCE_LABELS: Record<string, string> = {
+  de_novo: 'De novo in the fetus',
+  paternal_dominant: 'Paternal, inherited by the fetus',
+  maternal_dominant: 'Maternal, inherited by the fetus',
+  recessive_at_risk: 'Recessive: both parents carriers',
+};
 
 const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   locus: 'Location',
@@ -619,6 +659,8 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   has_notes: 'Has notes',
   category: 'Category',
   min_confidence: 'Min confidence',
+  include_not_inherited: 'Also not inherited',
+  de_novo_priority: 'De novo priority from',
 };
 
 const SAMPLE_FIELD_LABELS: Record<Exclude<keyof SmallVariantSampleFilter, 'gt'>, string> = {
@@ -770,6 +812,8 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   has_notes: '',
   category: '',
   min_confidence: '',
+  include_not_inherited: '',
+  de_novo_priority: '',
 });
 
 const buildDefaultSampleFilters = (
@@ -906,12 +950,18 @@ const buildPresetState = (
     setAffectedGenotypes(HET_GT_GROUP, { qual: '15', dp: '8', af: '0.18', ad_alt: '3' });
     setUnaffectedGenotypes(REF_GT_GROUP);
   } else if (preset === 'nipt_de_novo') {
-    // Monogenic NIPT: de-novo candidates -- category 1 only (de novo in the
-    // fetus), high/moderate impact, rare in gnomAD, ClinVar P/LP overriding the
-    // frequency cut-off. No genotype filters (the fetal call is inferred from the
-    // cfDNA VAF).
+    // Monogenic NIPT: the de novo view (candidates in the fetal window without a
+    // supported paternal call, triaged), high/moderate impact, rare in gnomAD, ClinVar
+    // P/LP overriding the frequency cut-off. No genotype filters (the fetal call is
+    // inferred from the cfDNA VAF) and no category tick: a candidate whose father's call
+    // is too weak to tell de novo from paternal is category 7 and still a candidate.
     filters.inheritance = 'de_novo';
-    filters.category = '1';
+    filters.impact = 'HIGH, MODERATE';
+    setFrequencyCeiling('0.01');
+    filters.clinvar_overrides_frequency = 'true';
+  } else if (preset === 'nipt_paternal') {
+    // Monogenic NIPT: the father's alleles the fetus inherited, rare and damaging.
+    filters.inheritance = 'paternal_dominant';
     filters.impact = 'HIGH, MODERATE';
     setFrequencyCeiling('0.01');
     filters.clinvar_overrides_frequency = 'true';
@@ -1140,6 +1190,8 @@ export const buildSmallVariantQueryParams = (
   if (currentFilters.inheritance) params.set('inheritance', currentFilters.inheritance);
   // Monogenic NIPT filters; round-trip through the URL so they survive Apply.
   if (currentFilters.min_confidence) params.set('min_confidence', currentFilters.min_confidence);
+  if (currentFilters.include_not_inherited === 'true') params.set('include_not_inherited', 'true');
+  if (currentFilters.de_novo_priority) params.set('de_novo_priority', currentFilters.de_novo_priority);
   parseCommaSeparatedValues(currentFilters.category).forEach((value) => {
     params.append('category', value);
   });
@@ -1299,7 +1351,9 @@ export const buildActiveFilterChips = (
     if (key === 'inheritance') {
       chips.push({
         id: `top:${key}`,
-        label: `${SMALL_FILTER_LABELS[key]}: ${SMALL_INHERITANCE_LABELS[value] || value}`,
+        label: `${SMALL_FILTER_LABELS[key]}: ${
+          SMALL_INHERITANCE_LABELS[value] || NIPT_INHERITANCE_LABELS[value] || value
+        }`,
         kind: 'top',
         key,
         value,
@@ -1464,6 +1518,10 @@ type UseSmallVariantSearchStateArgs = {
   mendeliomePanelId?: string;
   // Whether the panels query has settled, so the default can include the panel.
   panelsLoaded?: boolean;
+  // The preset a fresh open (no search in the URL) applies; null opens unfiltered. The
+  // monogenic NIPT page opens unfiltered: the Phenotype-priority preset's genotype and
+  // phenotype filters do not apply to cfDNA.
+  freshOpenPreset?: SmallPreset | null;
 };
 
 export const useSmallVariantSearchState = ({
@@ -1473,6 +1531,7 @@ export const useSmallVariantSearchState = ({
   resolvedProjectId,
   mendeliomePanelId,
   panelsLoaded = true,
+  freshOpenPreset = 'phenotype_priority',
 }: UseSmallVariantSearchStateArgs) => {
   const emptyFilters = useMemo(() => createEmptySmallFilters(), []);
   const members = useMemo(
@@ -1517,15 +1576,16 @@ export const useSmallVariantSearchState = ({
     if (!hasExplicitSearch) {
       if (!panelsLoaded || defaultInitKeyRef.current === familyKey) return;
       defaultInitKeyRef.current = familyKey;
-      const presetState = members.length
-        ? buildPresetState('phenotype_priority', members)
-        : {
-            filters: createEmptySmallFilters(),
-            sampleFilters: buildDefaultSampleFilters(family.members),
-          };
+      const presetState =
+        members.length && freshOpenPreset
+          ? buildPresetState(freshOpenPreset, members)
+          : {
+              filters: createEmptySmallFilters(),
+              sampleFilters: buildDefaultSampleFilters(family.members),
+            };
       const defaultFilters: SmallFilterState = {
         ...presetState.filters,
-        panel_id: mendeliomePanelId ?? '',
+        panel_id: freshOpenPreset ? (mendeliomePanelId ?? '') : '',
       };
       setFilters(defaultFilters);
       setDraftFilters(defaultFilters);
@@ -1617,6 +1677,7 @@ export const useSmallVariantSearchState = ({
   }, [
     emptyFilters,
     family,
+    freshOpenPreset,
     locationSearch,
     members,
     familyKey,

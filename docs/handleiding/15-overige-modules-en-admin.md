@@ -91,7 +91,7 @@ Een overzicht van de gedeelde filterpresets, en het beheer van de eigen variantt
 
 ### Overige
 
-Het beheer van de NIPT-artefacten (de lijst terugkerende artefacten per assay; op aanvraag stelt de API kandidaten voor uit de cfDNA-samples van dezelfde assay, zonder frequente varianten en zonder varianten met een ClinVar-melding pathogeen, waarschijnlijk pathogeen of conflicterend; hoofdstuk 8), de synchronisatie van de genreferentie (hoofdstuk 13), en het beheer van HPO en Monarch (hoofdstuk 12).
+Het beheer van de NIPT-artefacten (de lijst terugkerende artefacten per assay; op aanvraag stelt de API kandidaten voor uit de cfDNA-samples van dezelfde assay, of leest hij de lijst van terugkerende artefacten van de NIPT-M-pipeline in (`POST /api/admin/nipt/artifacts/import`), telkens zonder frequente varianten en zonder varianten met een ClinVar-melding pathogeen, waarschijnlijk pathogeen of conflicterend; omdat een allel dat nog geen familie draagt bij het opnemen niet te controleren is, controleert elke familie-analyse de gelijste allelen opnieuw met haar eigen annotatie en houdt ze een frequent of ClinVar-pathogeen allel, gemarkeerd `artifact_list_protected`; een import is één klinische auditgebeurtenis, `nipt_artifacts_imported`; hoofdstuk 8 en `docs/data-import.md`), de synchronisatie van de genreferentie (hoofdstuk 13), en het beheer van HPO en Monarch (hoofdstuk 12).
 
 ## In-app documentatie
 

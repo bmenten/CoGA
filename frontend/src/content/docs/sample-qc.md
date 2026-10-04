@@ -111,20 +111,25 @@ genotypes on the **Review ROI markers** page.
 
 In NIPT there is no clean fetal genome, and the mother's sample is a cfDNA mixture (maternal DNA with a
 small fetal fraction). CoGA models the case as a trio backed by the father's germline sample and the
-cfDNA, so these checks read the cfDNA categories rather than genotype relatedness. The categories are
-explained in the [Monogenic NIPT reference](/docs/reference/monogenic-nipt).
+cfDNA, so these checks read the cfDNA analysis (the father's alleles in the cfDNA, and the categories)
+rather than genotype relatedness. The analysis is explained in the
+[Monogenic NIPT reference](/docs/reference/monogenic-nipt).
 
-### Paternity (categories 7 and 8)
+### Paternity (the father's alleles in the cfDNA)
 
-Category 7 is a paternal allele that reached the fetus; category 8 is an allele the father is
-homozygous for but that is absent from the cfDNA. Only sites with a usable father call count: a
-genotype at a depth of 10 or more. Where the father has no usable call, a site at `FF / 2` is still
-placed in category 7, but it says nothing about paternity and is left out. The share of absent paternal
-alleles, `cat 8 ÷ (cat 7 + cat 8)`:
+A fetus carries every allele its father is homozygous for, and half of those he is heterozygous for. CoGA
+counts the father's alleles at sites where the mother does not carry them (no cfDNA call, or one at 25%
+or less) and the cfDNA depth leaves at least 10 expected alt reads, so a transmitted allele is all but
+never missed. Only usable father calls count: a genotype read off his allele depths at a depth of 20 or
+more. An allele counts as seen when the probability that the fetus inherited it is 50% or more.
 
-- no category-7 site, or 70% or more absent → **fail** (non-paternity or a sample mix-up);
-- 40% or more absent → **warn** (can also reflect a low fetal fraction);
-- at least **10** paternal-informative sites are needed; with fewer, **warn**.
+- **His homozygous alleles** (all expected): 90% or more seen → **pass**; below 80% → **fail**; between
+  → **warn**. Needs at least **20** such sites.
+- **His heterozygous alleles** (half expected): 35–65% seen → **pass**; outside 25–75% → **fail**;
+  between → **warn**. Needs at least **50** such sites.
+- The verdict is the worse of the two. With too few sites of both kinds → **warn** (unverifiable).
+
+A fail means another father, or a sample or file mix-up (for example the wrong paternal VCF).
 
 ### Fetal sex (paternal X transmission)
 
@@ -133,9 +138,12 @@ pseudo-autosomal regions) shows in the cfDNA at about `FF / 2` for a girl and is
 allele at a maternal level (VAF 30% or more) belongs to the mother and is ignored.
 
 - At least **8** informative sites are needed; otherwise indeterminate (**warn**).
-- 3 or more transmitted paternal-X alleles → **female**; none → **male**; otherwise indeterminate.
-- Only sites where the father carries the allele count: `1/1`, or a haploid `1` as some callers write
-  a man's X, at a depth of 10 or more.
+- 80% or more of the father's X alleles seen → **female**; 10% or less → **male**. A share in between
+  is indeterminate (**warn**): the alleles are not this fetus's father's, or the calls are noisy.
+- Only sites where the father is hom-alt count (a man's X), at a depth of 20 or more.
+
+The NIPT page adds a second, independent signal, the plasma's chrY coverage, and shows the call of the
+two together.
 
 ### Parent sex
 

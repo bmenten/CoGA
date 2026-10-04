@@ -25,7 +25,7 @@ import {
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import VariantScoreCell from './VariantScoreCell';
 import SvSecondHitBadge from './SvSecondHitBadge';
-import { pct } from './niptClassification';
+import { niptEvidenceSummary, pct } from './niptClassification';
 
 interface SmallVariantTableProps {
   variants: SmallVariant[];
@@ -201,6 +201,9 @@ export default function SmallVariantTable({
                           {pct(variant.nipt.expected_vaf)} · conf{' '}
                           {variant.nipt.confidence.toFixed(2)}
                         </span>
+                        {niptEvidenceSummary(variant.nipt) ? (
+                          <span className="nipt-table-detail">{niptEvidenceSummary(variant.nipt)}</span>
+                        ) : null}
                       </div>
                     ) : (
                       '—'

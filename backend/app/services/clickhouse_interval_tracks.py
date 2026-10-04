@@ -15,7 +15,7 @@ from .clickhouse_variant_ids import _require_clickhouse_identifier
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import SampleMetadataContext
 
-VALID_INTERVAL_TRACK_TYPES = {"coverage", "apcad", "apcad_pcf", "segments", "haplotype"}
+VALID_INTERVAL_TRACK_TYPES = {"coverage", "apcad", "apcad_pcf", "segments", "haplotype", "target_coverage"}
 
 # Memoize which interval tables have been ensured this process so the DDL runs
 # once per assembly instead of before every read/presence call (mirrors
@@ -204,6 +204,7 @@ async def fetch_interval_track_rows(
     start: int | None = None,
     end: int | None = None,
     limit: int | None = None,
+    include_metadata: bool = False,
 ) -> list[dict[str, Any]]:
     await ensure_clickhouse_interval_table(assembly_name)
     clauses = ["track_type = %(track_type)s"]
@@ -235,11 +236,13 @@ async def fetch_interval_track_rows(
         clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
         params["window_start"] = int(start)
         params["window_end"] = int(end)
-    # `metadata_json` (per-row provenance: filename, line_no, …) is deliberately NOT
-    # selected here. It is large (a JSON blob per row) and unused by every track
-    # reader, so streaming it for a whole-genome APCAD track meant moving megabytes
-    # of dead weight per request — slow, and the prime trigger for stream corruption
-    # under the genome view's concurrent fan-out.
+    # `metadata_json` (per-row provenance: filename, line_no, …) is NOT selected unless
+    # asked for. It is large (a JSON blob per row) and unused by every track reader but
+    # the per-target coverage table's (whose rows keep their median and covered share
+    # there), so streaming it for a whole-genome APCAD track meant moving megabytes of
+    # dead weight per request — slow, and the prime trigger for stream corruption under
+    # the genome view's concurrent fan-out.
+    metadata_column = ", metadata_json" if include_metadata else ""
     query = f"""
         SELECT
             sample_guid,
@@ -251,7 +254,7 @@ async def fetch_interval_track_rows(
             origin,
             hap1,
             hap2,
-            ps
+            ps{metadata_column}
         FROM {_interval_table_name(assembly_name)}
         WHERE {' AND '.join(clauses)}
         ORDER BY chrom, start
@@ -273,21 +276,22 @@ async def fetch_interval_track_rows(
             hap1,
             hap2,
             ps,
-        ) = row
-        result.append(
-            {
-                "sample_uuid": sample_guid,
-                "chr": chrom,
-                "start": row_start,
-                "end": row_end,
-                "record_id": record_id,
-                "value": value,
-                "origin": origin,
-                "hap1": hap1,
-                "hap2": hap2,
-                "ps": ps,
-            }
-        )
+        ) = row[:10]
+        item = {
+            "sample_uuid": sample_guid,
+            "chr": chrom,
+            "start": row_start,
+            "end": row_end,
+            "record_id": record_id,
+            "value": value,
+            "origin": origin,
+            "hap1": hap1,
+            "hap2": hap2,
+            "ps": ps,
+        }
+        if include_metadata:
+            item["metadata_json"] = row[10]
+        result.append(item)
     return result
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Iterable, Sequence
 
 from .data_scope import normalize_chromosome
@@ -338,6 +339,19 @@ def _small_call_ps(call: SmallVariantCall) -> int | None:
     return None if call.ps is None else int(call.ps)
 
 
+def _small_call_metrics(call: SmallVariantCall) -> dict[str, float]:
+    """The call's caller metrics as stored: finite numbers under their names."""
+    metrics: dict[str, float] = {}
+    for name, value in (call.metrics or {}).items():
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number) and str(name).strip():
+            metrics[str(name).strip()] = number
+    return metrics
+
+
 def _structural_call_qual(call: StructuralVariantCall) -> float | None:
     return None if call.qual is None else float(call.qual)
 
@@ -436,6 +450,8 @@ def _small_variant_entry_rows(
         sample_afs = [call.af for call in record.calls]
         sample_ads = [call.ad for call in record.calls]
         sample_pss = [_small_call_ps(call) for call in record.calls]
+        sample_filters = [_string_list(call.filters) for call in record.calls]
+        sample_metrics = [_small_call_metrics(call) for call in record.calls]
         for project_id in normalized_project_ids:
             entry_rows.append(
                 (
@@ -466,6 +482,8 @@ def _small_variant_entry_rows(
                     sample_afs,
                     sample_ads,
                     sample_pss,
+                    sample_filters,
+                    sample_metrics,
                     1,
                 )
             )

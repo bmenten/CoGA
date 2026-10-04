@@ -19,6 +19,8 @@ from ..schemas import (
 
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, PED_FOLDER, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path
 from .family_package_manifest import _parse_ped_text_strict
+from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files
+from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_family_block, pgt_run_context, read_pgt_pipeline_roles
 from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict
 from .family_package_validation import validate_family_package
@@ -1405,6 +1407,62 @@ _MANIFEST_KEY_ORDER = (
 )
 
 
+def _apply_nipt_package_files(
+    payload: dict[str, Any],
+    availability: list[FamilyManifestDatasetAvailability],
+    *,
+    root: Path,
+    files: NiptPackageFiles,
+) -> None:
+    """Make the manifest a monogenic NIPT one: the analysis type, the plasma sample's
+    assay tag, the per-sample SNV files and the per-target coverage tables."""
+    payload["analysis_type"] = MONOGENIC_NIPT_ANALYSIS_TYPE
+    samples = payload.setdefault("samples", {})
+    samples[files.cfdna_sample_id] = {**samples.get(files.cfdna_sample_id, {}), "assay": NIPT_CFDNA_ASSAY}
+    datasets = payload.setdefault("datasets", {})
+    datasets["snv"] = {
+        "enabled": True,
+        "per_sample": {sample_id: {"vcf": path} for sample_id, path in files.vcfs.items()},
+    }
+    blocks = {
+        "snv": FamilyManifestDatasetAvailability(
+            dataset_type="snv",
+            enabled=True,
+            complete=True,
+            files=[
+                _availability_file(root=root, role="vcf", path_value=path, sample_id=sample_id)
+                for sample_id, path in files.vcfs.items()
+            ],
+            samples=list(files.vcfs),
+            message="Monogenic NIPT: one VCF per parent",
+        )
+    }
+    if files.coverage_tables:
+        datasets["coverage"] = {
+            "enabled": True,
+            "per_sample": {
+                sample_id: {"target_table": path} for sample_id, path in files.coverage_tables.items()
+            },
+        }
+        blocks["coverage"] = FamilyManifestDatasetAvailability(
+            dataset_type="coverage",
+            enabled=True,
+            complete=True,
+            files=[
+                _availability_file(root=root, role="target_table", path_value=path, sample_id=sample_id)
+                for sample_id, path in files.coverage_tables.items()
+            ],
+            samples=list(files.coverage_tables),
+            message="Per-target coverage tables",
+        )
+    for dataset_type, item in blocks.items():
+        index = next((i for i, existing in enumerate(availability) if existing.dataset_type == dataset_type), None)
+        if index is None:
+            availability.append(item)
+        else:
+            availability[index] = item
+
+
 def _ordered_manifest(payload: dict[str, Any]) -> dict[str, Any]:
     ordered = {key: payload[key] for key in _MANIFEST_KEY_ORDER if key in payload}
     ordered.update({key: value for key, value in payload.items() if key not in ordered})
@@ -1569,6 +1627,20 @@ def discover_family_package_manifest(
         hpo_terms=request.hpo_terms,
         notes=request.notes,
     )
+    if parsed_ped is not None and not manifest_payload["datasets"].get("snv", {}).get("enabled"):
+        # No joint VCF: a monogenic NIPT pair has one VCF per parent instead.
+        nipt_files = discover_nipt_package_files(root, parsed_ped)
+        if nipt_files is not None:
+            _apply_nipt_package_files(manifest_payload, availability, root=root, files=nipt_files)
+            warnings.append(
+                _issue(
+                    "nipt_pair_detected",
+                    f"Found a monogenic NIPT pair: {nipt_files.cfdna_sample_id} (the mother) is taken as "
+                    f"the maternal-plasma cfDNA and {nipt_files.father_sample_id} as the father of "
+                    f"{nipt_files.fetus_sample_id}. Check both before importing.",
+                    dataset="snv",
+                )
+            )
     existing_roi = existing_manifest.get("roi")
     if existing_roi:
         roi = existing_roi

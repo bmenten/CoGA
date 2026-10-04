@@ -73,6 +73,8 @@ def _entry(project: str, pos: int, calls: dict[str, tuple[str, float]], **fields
     row["calls.af"] = [[af] for _gt, af in calls.values()]
     row["calls.ad"] = [[500 - int(af * 500), int(af * 500)] for _gt, af in calls.values()]
     row["calls.ps"] = [None for _ in calls]
+    row["calls.filters"] = [[] for _ in calls]
+    row["calls.metrics"] = [{} for _ in calls]
     row.update(fields)
     return row
 

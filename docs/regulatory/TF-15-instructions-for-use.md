@@ -53,7 +53,7 @@ trained clinical laboratory professionals only**, in an ISO 15189-accredited lab
 ‹Step-by-step operating instructions per application, referencing the in-app user guide.
 For each: required inputs, how to set up the family/pedigree, how to run and read the
 analysis, and **how to interpret each QC/warning signal and what to do when it fires.**›
-- Monogenic NIPT — see the in-app reference *Monogenic NIPT (cfDNA)* (`/docs/reference/monogenic-nipt`); read FF, CI and category-8 dropout.
+- Monogenic NIPT — see the in-app reference *Monogenic NIPT (cfDNA)* (`/docs/reference/monogenic-nipt`); read the quality checks first (FF and CI, paternity, fetal sex, the maternal-plasma sample, target coverage): after a failed paternity check do not read the variants (another father, or a sample or file mix-up). Then read each variant's inheritance probability, not only its category, and the category-8 dropout; confirm a de novo candidate's absence in the father and its reads before acting on it.
 - PGT — see *Haplotype segregation analysis* (`/docs/reference/haplotype-segregation`); read informative markers, Mendel errors, recombination near ROI, "uninformative" results, donor-family limits.
 - Carrier screening — couple-wise at-risk interpretation; reportable-variant confirmation.
 - Rare-disorder — multi-data-type review (SNV/SV/repeat/Paraphase/mtDNA); ACMG classification is overridable (*Semi-automatic ACMG classification*, `/docs/reference/acmg-classification`).

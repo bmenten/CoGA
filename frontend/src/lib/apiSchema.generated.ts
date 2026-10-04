@@ -114,6 +114,12 @@ export interface BlacklistRegionOut {
   label: string;
 }
 
+export interface Body_import_nipt_artifacts_endpoint_api_admin_nipt_artifacts_import_post {
+  file: string;
+  assembly_id: string;
+  assay_key?: string;
+}
+
 export interface Body_token_api_auth_token_post {
   grant_type?: string | null;
   username: string;
@@ -1568,6 +1574,20 @@ export interface NiptArtifactCreate {
   recurrence_count?: number;
 }
 
+/**
+ * What an artefact-table import did: the rows it read, those the table does not flag
+ * as artefacts or could not read, the alleles it added, and those it refused because
+ * their annotation is common or may assert pathogenic in ClinVar.
+ */
+export interface NiptArtifactImportOut {
+  rows_read: number;
+  not_flagged: number;
+  invalid: number;
+  imported: number;
+  protected_common: number;
+  protected_clinvar: number;
+}
+
 /** A recurrent-artifact (panel-of-normals) entry for monogenic NIPT. */
 export interface NiptArtifactOut {
   id: string;
@@ -1597,6 +1617,20 @@ export interface NiptClassificationOut {
   observed_vaf: number | null;
   confidence: number;
   flags: string[];
+  runner_up_category: number | null;
+  runner_up_confidence: number | null;
+  paternal_transmission_probability: number | null;
+  maternal_allele_probability: number | null;
+  fetal_hom_alt_probability: number | null;
+  fetal_genotype_posterior: Record<string, number> | null;
+  quality_failures: string[];
+  cf_alt_reads: number | null;
+  cf_depth: number | null;
+  cf_depth_estimated: boolean;
+  father_state: string | null;
+  father_vaf: number | null;
+  father_depth: number | null;
+  de_novo: NiptDeNovoTriageOut | null;
 }
 
 /** A panel gene / target region flagged as inadequately interrogated. */
@@ -1633,6 +1667,27 @@ export interface NiptCoverageSummaryOut {
   min_depth: number;
   min_covered_fraction: number;
   low_coverage_regions: NiptCoverageLowRegionOut[];
+  targets: NiptTargetCoverageOut | null;
+}
+
+/**
+ * A de novo candidate's triage (the R NIPT-M rules): where its allele fraction falls
+ * in the fetal window, its score and priority, and what lowered or raised it.
+ */
+export interface NiptDeNovoTriageOut {
+  window: "strict" | "loose" | "below" | "above";
+  score: number;
+  label: "high" | "medium" | "low" | "excluded_recurrent" | "outside_window";
+  reasons: string[];
+  other_cfdna_carriers: number;
+}
+
+/** The family's fetal window the de novo triage reads (allele fractions). */
+export interface NiptDeNovoWindowOut {
+  strict_min: number;
+  strict_max: number;
+  loose_min: number;
+  loose_max: number;
 }
 
 /** Fetal-fraction estimate for a monogenic NIPT family. */
@@ -1645,6 +1700,91 @@ export interface NiptFetalFractionOut {
   n_sites: number;
   method: string;
   low_confidence: boolean;
+  vaf_q05: number | null;
+  vaf_q95: number | null;
+}
+
+/** The fetal sex from the father's X alleles in the plasma and from its chrY coverage. */
+export interface NiptFetalSexOut {
+  call: "female" | "male" | "indeterminate" | "discordant";
+  paternal_x: string;
+  x_transmitted: number;
+  x_not_transmitted: number;
+  informative_sites: number;
+  chry_profile: string | null;
+  y_ratio: number | null;
+  x_ratio: number | null;
+  chry_fetal_fraction: number | null;
+}
+
+/**
+ * The model the analysis ran with: its validation, the cfDNA quality filter and the
+ * paternal genotype classes.
+ */
+export interface NiptModelOut {
+  reference: string;
+  overdispersion: number;
+  maternal_het_bias: number;
+  min_quality: number;
+  min_alt_reads: number;
+  min_vaf: number;
+  vaf_ff_fraction: number;
+  max_strand_bias_fs: number;
+  father_het_min_vaf: number;
+  father_hom_alt_min_vaf: number;
+  min_father_depth: number;
+}
+
+/**
+ * Whether the fetus inherited the father's alleles: at the autosomal sites where he
+ * carries one and the mother does not, with enough plasma depth to see it. The fetus
+ * inherits every allele he is homozygous for and half of his het ones.
+ */
+export interface NiptPaternityOut {
+  hom_alt_transmitted: number;
+  hom_alt_not_transmitted: number;
+  het_transmitted: number;
+  het_not_transmitted: number;
+  hom_alt_rate: number | null;
+  het_rate: number | null;
+  status: "pass" | "warn" | "fail";
+  message: string;
+}
+
+/**
+ * The NIPT quality checks: the de novo window, paternity, fetal sex, the plasma's sex
+ * profile and target coverage, and why cfDNA calls failed the quality filter.
+ */
+export interface NiptQcOut {
+  de_novo_window: NiptDeNovoWindowOut | null;
+  paternity: NiptPaternityOut;
+  fetal_sex: NiptFetalSexOut;
+  plasma_profile_status: "pass" | "warn" | "fail" | "unknown";
+  plasma_profile_message: string;
+  target_coverage: NiptTargetCoverageOut | null;
+  quality_failures: Record<string, number>;
+  model: NiptModelOut;
+}
+
+export interface NiptRecessiveAlleleOut {
+  variant_id: string;
+  inherited_probability: number | null;
+  category: number | null;
+  note: string | null;
+}
+
+/**
+ * A gene where both parents carry an allele: whether the fetus inherited each, and
+ * the probability it inherited one of each (a carrier couple's prior is 25%).
+ */
+export interface NiptRecessiveGeneOut {
+  gene: string;
+  maternal: NiptRecessiveAlleleOut[];
+  paternal: NiptRecessiveAlleleOut[];
+  risk: number | null;
+  maternal_variant_id: string | null;
+  paternal_variant_id: string | null;
+  risk_uses_prior: boolean;
 }
 
 /** Monogenic NIPT analysis summary: fetal fraction and category/filter counts. */
@@ -1653,6 +1793,46 @@ export interface NiptSummaryOut {
   fetal_fraction: NiptFetalFractionOut;
   category_counts: Record<string, number>;
   filter_counts: Record<string, number>;
+  qc: NiptQcOut | null;
+}
+
+export interface NiptTargetCoverageGeneOut {
+  gene: string;
+  targets: number;
+  weak_targets: number;
+  min_mean: number | null;
+  mean_of_means: number | null;
+  weak: NiptTargetOut[];
+}
+
+/**
+ * The plasma's per-target coverage QC: every target, or a panel's or genes'. A target
+ * is weak when its mean depth is below ``critical_mean_depth`` or a base has no coverage.
+ */
+export interface NiptTargetCoverageOut {
+  targets: number;
+  median_mean: number | null;
+  q05_mean: number | null;
+  below_critical: number;
+  below_advisory: number;
+  zero_mean: number;
+  incomplete: number;
+  critical_mean_depth: number;
+  advisory_mean_depth: number;
+  genes: NiptTargetCoverageGeneOut[];
+}
+
+/** A capture target (an exon of a panel transcript) and its depth. */
+export interface NiptTargetOut {
+  chr: string;
+  start: number;
+  end: number;
+  gene: string;
+  attribute: string;
+  mean: number | null;
+  median: number | null;
+  min: number | null;
+  proportion_covered: number | null;
 }
 
 /**
@@ -1734,6 +1914,7 @@ export interface NiptVariantPage {
   count_limit: number | null;
   fetal_fraction: NiptFetalFractionOut;
   variants: NiptVariantOut[];
+  recessive_genes: NiptRecessiveGeneOut[];
 }
 
 export interface PanelAppImportRequest {
@@ -2382,12 +2563,20 @@ export interface SampleIntegrityMendelianCheckOut {
   message: string;
 }
 
-/** NIPT paternity from the cfDNA classification (categories 7/8). */
+/**
+ * NIPT paternity: the father's homozygous alleles must all be in the plasma, his het
+ * ones half. ``cat7_transmitted`` counts both kinds seen, ``cat8_absent`` the homozygous
+ * ones missing.
+ */
 export interface SampleIntegrityPaternityCheckOut {
   father: string;
   cat7_transmitted: number;
   cat8_absent: number;
   informative_sites: number;
+  hom_alt_transmitted: number;
+  hom_alt_not_transmitted: number;
+  het_transmitted: number;
+  het_not_transmitted: number;
   status: string;
   message: string;
 }

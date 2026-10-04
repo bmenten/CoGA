@@ -8,9 +8,20 @@ from ..schemas import (
     NiptCoverageLowRegionOut,
     NiptCoverageRegionOut,
     NiptCoverageSummaryOut,
+    NiptDeNovoTriageOut,
+    NiptDeNovoWindowOut,
     NiptFetalFractionOut,
+    NiptFetalSexOut,
+    NiptModelOut,
+    NiptPaternityOut,
+    NiptQcOut,
+    NiptRecessiveAlleleOut,
+    NiptRecessiveGeneOut,
     NiptSummaryOut,
     NiptClassificationOut,
+    NiptTargetCoverageGeneOut,
+    NiptTargetCoverageOut,
+    NiptTargetOut,
     NiptVariantOut,
     NiptVariantPage,
 )
@@ -18,13 +29,24 @@ from ..services.clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
 )
 from ..services.access_control import CurrentUser
+from ..services.nipt_analysis import (
+    MATERNAL_HET_BIAS,
+    NIPT_MODEL_REFERENCE,
+    OVERDISPERSION,
+    NiptQualityThresholds,
+    combined_fetal_sex,
+)
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
 from ..services.nipt_service import (
     NiptClassifiedVariant,
+    NiptFamilySummary,
     get_family_nipt_coverage,
+    get_family_nipt_summary as load_family_nipt_summary,
     get_family_nipt_variants,
-    run_family_nipt_analysis,
 )
+from ..services.nipt_target_coverage import TargetCoverageRow, TargetCoverageSummary
+from ..services.nipt_triage import RecessiveGeneRisk, de_novo_window
+from ..services.sample_integrity_qc import evaluate_paternity
 
 
 router = APIRouter()
@@ -40,11 +62,169 @@ def _nipt_fetal_fraction_out(ff) -> NiptFetalFractionOut:
         n_sites=ff.n_sites,
         method=ff.method,
         low_confidence=ff.low_confidence,
+        vaf_q05=ff.vaf_q05,
+        vaf_q95=ff.vaf_q95,
+    )
+
+
+def _target_out(row: TargetCoverageRow) -> NiptTargetOut:
+    return NiptTargetOut(
+        chr=row.chrom,
+        start=row.start,
+        end=row.end,
+        gene=row.gene,
+        attribute=row.attribute,
+        mean=row.mean,
+        median=row.median,
+        min=row.min,
+        proportion_covered=row.proportion_covered,
+    )
+
+
+def _target_coverage_out(summary: TargetCoverageSummary) -> NiptTargetCoverageOut:
+    return NiptTargetCoverageOut(
+        targets=summary.targets,
+        median_mean=summary.median_mean,
+        q05_mean=summary.q05_mean,
+        below_critical=summary.below_critical,
+        below_advisory=summary.below_advisory,
+        zero_mean=summary.zero_mean,
+        incomplete=summary.incomplete,
+        critical_mean_depth=summary.critical_mean_depth,
+        advisory_mean_depth=summary.advisory_mean_depth,
+        genes=[
+            NiptTargetCoverageGeneOut(
+                gene=gene.gene,
+                targets=gene.targets,
+                weak_targets=gene.weak_targets,
+                min_mean=gene.min_mean,
+                mean_of_means=gene.mean_of_means,
+                weak=[_target_out(row) for row in gene.weak],
+            )
+            for gene in summary.genes
+        ],
+    )
+
+
+# The plasma's sex profile (nipt_target_coverage.sex_chromosome_coverage) as a QC verdict:
+# male DNA cannot be maternal plasma.
+_PLASMA_PROFILE_VERDICTS: dict[str, tuple[str, str]] = {
+    "female_no_chrY_signal": ("pass", "Female plasma; no chrY signal (a female fetus, or a low fetal fraction)."),
+    "female_with_male_fetal_signal": ("pass", "Female plasma with a male fetal chrY signal."),
+    "high_chrY_review": ("warn", "chrY coverage near the autosomal level: check that this is maternal plasma."),
+    "male_like_not_maternal_plasma": (
+        "fail",
+        "Male DNA (chrY at the autosomal level, chrX low): this sample cannot be maternal plasma.",
+    ),
+    "no_chrY_targets": ("unknown", "The panel has no chrY target: no sex profile."),
+}
+
+
+def _qc_out(summary: NiptFamilySummary) -> NiptQcOut:
+    analysis = summary.analysis
+    ff = analysis.fetal_fraction
+    window = de_novo_window(ff)
+    evidence = analysis.paternal_transmission
+    paternity = evaluate_paternity(
+        "father",
+        hom_alt_transmitted=evidence.hom_alt_transmitted,
+        hom_alt_not_transmitted=evidence.hom_alt_not_transmitted,
+        het_transmitted=evidence.het_transmitted,
+        het_not_transmitted=evidence.het_not_transmitted,
+    )
+    sex = summary.sex_chromosomes
+    profile = sex.profile if sex is not None else None
+    status, message = _PLASMA_PROFILE_VERDICTS.get(
+        profile or "", ("unknown", "No per-target coverage: no sex profile.")
+    )
+    qc = NiptQualityThresholds()
+    return NiptQcOut(
+        de_novo_window=(
+            NiptDeNovoWindowOut(
+                strict_min=window.strict_min,
+                strict_max=window.strict_max,
+                loose_min=window.loose_min,
+                loose_max=window.loose_max,
+            )
+            if window is not None
+            else None
+        ),
+        paternity=NiptPaternityOut(
+            hom_alt_transmitted=evidence.hom_alt_transmitted,
+            hom_alt_not_transmitted=evidence.hom_alt_not_transmitted,
+            het_transmitted=evidence.het_transmitted,
+            het_not_transmitted=evidence.het_not_transmitted,
+            hom_alt_rate=evidence.hom_alt_rate,
+            het_rate=evidence.het_rate,
+            status=paternity.status,
+            message=paternity.message,
+        ),
+        fetal_sex=NiptFetalSexOut(
+            call=combined_fetal_sex(  # type: ignore[arg-type]
+                analysis.fetal_sex.inferred, profile, ff.ff_computed or 0.0
+            ),
+            paternal_x=analysis.fetal_sex.inferred,
+            x_transmitted=analysis.fetal_sex.x_transmitted,
+            x_not_transmitted=analysis.fetal_sex.x_not_transmitted,
+            informative_sites=analysis.fetal_sex.informative_sites,
+            chry_profile=profile,
+            y_ratio=sex.y_ratio if sex is not None else None,
+            x_ratio=sex.x_ratio if sex is not None else None,
+            chry_fetal_fraction=sex.fetal_fraction_estimate if sex is not None else None,
+        ),
+        plasma_profile_status=status,  # type: ignore[arg-type]
+        plasma_profile_message=message,
+        target_coverage=(
+            _target_coverage_out(summary.target_coverage) if summary.target_coverage is not None else None
+        ),
+        quality_failures=analysis.quality_failure_counts,
+        model=NiptModelOut(
+            reference=NIPT_MODEL_REFERENCE,
+            overdispersion=OVERDISPERSION,
+            maternal_het_bias=MATERNAL_HET_BIAS,
+            min_quality=qc.min_qual,
+            min_alt_reads=qc.min_cf_alt_reads,
+            min_vaf=qc.min_vaf,
+            vaf_ff_fraction=qc.vaf_ff_fraction,
+            max_strand_bias_fs=qc.max_fs,
+            father_het_min_vaf=qc.father_het_min_vaf,
+            father_hom_alt_min_vaf=qc.father_hom_alt_min_vaf,
+            min_father_depth=qc.min_father_dp,
+        ),
+    )
+
+
+def _recessive_gene_out(gene: RecessiveGeneRisk) -> NiptRecessiveGeneOut:
+    return NiptRecessiveGeneOut(
+        gene=gene.gene,
+        maternal=[
+            NiptRecessiveAlleleOut(
+                variant_id=allele.variant_id,
+                inherited_probability=allele.inherited_probability,
+                category=allele.category,
+                note=allele.note,
+            )
+            for allele in gene.maternal
+        ],
+        paternal=[
+            NiptRecessiveAlleleOut(
+                variant_id=allele.variant_id,
+                inherited_probability=allele.inherited_probability,
+                category=allele.category,
+                note=allele.note,
+            )
+            for allele in gene.paternal
+        ],
+        risk=gene.risk,
+        maternal_variant_id=gene.maternal_variant_id,
+        paternal_variant_id=gene.paternal_variant_id,
+        risk_uses_prior=gene.risk_uses_prior,
     )
 
 
 def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
     classification = item.classification
+    site = item.site
     nipt = NiptClassificationOut(
         category=classification.category,
         category_label=classification.category_label,
@@ -54,6 +234,30 @@ def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
         observed_vaf=classification.observed_vaf,
         confidence=classification.confidence,
         flags=classification.flags,
+        runner_up_category=classification.runner_up_category,
+        runner_up_confidence=classification.runner_up_confidence,
+        paternal_transmission_probability=classification.paternal_transmission_probability,
+        maternal_allele_probability=classification.maternal_allele_probability,
+        fetal_hom_alt_probability=classification.fetal_hom_alt_probability,
+        fetal_genotype_posterior=classification.fetal_genotype_posterior,
+        quality_failures=classification.quality_failures,
+        cf_alt_reads=site.cf_alt_reads if site is not None else None,
+        cf_depth=site.cf_dp if site is not None else None,
+        cf_depth_estimated=site.cf_depth_estimated if site is not None else False,
+        father_state=site.father_state if site is not None else None,
+        father_vaf=site.father_vaf if site is not None else None,
+        father_depth=site.father_dp if site is not None else None,
+        de_novo=(
+            NiptDeNovoTriageOut(
+                window=item.de_novo.window,  # type: ignore[arg-type]
+                score=item.de_novo.score,
+                label=item.de_novo.label,  # type: ignore[arg-type]
+                reasons=item.de_novo.reasons,
+                other_cfdna_carriers=item.de_novo.other_cfdna_carriers,
+            )
+            if item.de_novo is not None
+            else None
+        ),
     )
     if item.variant_out is None:
         # get_family_nipt_variants always hydrates the page slice.
@@ -68,17 +272,19 @@ async def get_family_nipt_summary(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptSummaryOut:
-    result = await run_family_nipt_analysis(
+    summary = await load_family_nipt_summary(
         session,
         family_id=family_id,
         user=user,
         project_id=project_id,
     )
+    result = summary.analysis
     return NiptSummaryOut(
         family_id=family_id,
         fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
         category_counts=result.category_counts,
         filter_counts=result.filter_counts,
+        qc=_qc_out(summary),
     )
 
 
@@ -91,6 +297,10 @@ async def get_family_nipt_variants_page(
     category: list[int] | None = Query(None),
     min_confidence: float | None = None,
     inheritance: str | None = None,
+    # The paternal and maternal views: also the alleles the fetus did not inherit.
+    include_not_inherited: bool = False,
+    # The de novo view: the lowest priority it lists (high, medium or low).
+    de_novo_priority: str = "low",
     gene: str | None = None,
     exclude_gene: str | None = None,
     panel_id: str | None = None,
@@ -176,6 +386,8 @@ async def get_family_nipt_variants_page(
         categories=category,
         min_confidence=min_confidence,
         inheritance=inheritance,
+        include_not_inherited=include_not_inherited,
+        de_novo_priority=de_novo_priority,
         page=page,
         page_size=page_size,
     )
@@ -186,6 +398,7 @@ async def get_family_nipt_variants_page(
         count_limit=result.count_limit,
         fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
         variants=[_nipt_variant_out(item) for item in result.variants],
+        recessive_genes=[_recessive_gene_out(gene) for gene in result.recessive_genes],
     )
 
 
@@ -199,7 +412,7 @@ async def get_family_nipt_coverage_summary(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptCoverageSummaryOut:
-    summary = await get_family_nipt_coverage(
+    coverage = await get_family_nipt_coverage(
         session,
         family_id=family_id,
         user=user,
@@ -208,6 +421,7 @@ async def get_family_nipt_coverage_summary(
         panel_id=panel_id,
         min_depth=min_depth,
     )
+    summary = coverage.regions
     return NiptCoverageSummaryOut(
         family_id=family_id,
         overall_median_on_target=summary.overall_median_on_target,
@@ -236,4 +450,5 @@ async def get_family_nipt_coverage_summary(
             )
             for region in summary.low_coverage_regions
         ],
+        targets=_target_coverage_out(coverage.targets) if coverage.targets is not None else None,
     )

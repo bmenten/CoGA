@@ -175,6 +175,45 @@ async def test_ensure_tables_creates_the_family_data_version_table(monkeypatch) 
     assert "CREATE TABLE IF NOT EXISTS" in ddl[0] and "ENGINE = MergeTree" in ddl[0]
 
 
+@pytest.mark.asyncio
+async def test_entries_hold_each_calls_filter_and_metrics(monkeypatch) -> None:
+    # A one-sample VCF's FILTER and caller metrics (TLOD, ...) are its call's own and are
+    # kept per call; a rewrite writes them back with every other column.
+    statements: list[str] = []
+
+    async def fake_execute(query, params=None, data=None):
+        statements.append(" ".join(query.split()))
+        return []
+
+    monkeypatch.setattr(cvs, "_execute", fake_execute)
+    monkeypatch.setattr(cvs, "_ensured_variant_table_assemblies", set())
+
+    await cvs.ensure_clickhouse_variant_tables("GRCh38")
+
+    [create] = [s for s in statements if "CREATE TABLE" in s and "SNV_INDEL/entries`" in s]
+    assert "`calls.filters` Array(Array(LowCardinality(String)))" in create
+    assert "`calls.metrics` Array(Map(LowCardinality(String), Float32))" in create
+    assert {"calls.filters", "calls.metrics"} <= set(cvs.SMALL_VARIANT_ENTRY_COLUMNS)
+
+
+@pytest.mark.asyncio
+async def test_an_entries_table_without_the_per_call_columns_is_refused(monkeypatch) -> None:
+    # A table an earlier version created has no per-call FILTER and metrics columns. It is
+    # refused, as a table with an older row identity is, rather than failing later on
+    # every read: there is no older schema to upgrade in place.
+    async def fake_execute(query, params=None, data=None):
+        if "system.columns" in query:
+            return [("GRCh38/SNV_INDEL/entries", ["key", "calls.sampleId", "calls.ps"])]
+        return []
+
+    monkeypatch.setattr(cvs, "_execute", fake_execute)
+    monkeypatch.setattr(cvs, "_ensured_variant_table_assemblies", set())
+
+    with pytest.raises(cvs.ClickHouseStorageIdentityError, match="calls.filters, calls.metrics"):
+        await cvs.ensure_clickhouse_variant_tables("GRCh38")
+    assert "GRCh38" not in cvs._ensured_variant_table_assemblies
+
+
 def _sv_data_version_bumps(issued, family_uuid="fam-1"):
     return [
         payload

@@ -51,7 +51,7 @@ stored without a snapshot.
 
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
-to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family). Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `sign_out`, and `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed` and `nipt_artifacts_auto_seeded`.
+to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family). Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `sign_out`, and `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed).
 For a small variant, `classification` holds the ACMG class, the accepted criteria, the point
 total, the VUS tier and every stored criterion: its strength, whether it was accepted, its
 evidence text and whether it was an automatic suggestion. For a structural variant or CNV, it

@@ -240,7 +240,9 @@ async def test_run_family_nipt_analysis_end_to_end(monkeypatch: pytest.MonkeyPat
         return family
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(assembly_id="assembly-uuid", assembly_name="GRCh38")
+        return SimpleNamespace(
+            assembly_id="assembly-uuid", assembly_name="GRCh38", sample_name_to_uuid={}, family_uuid="family-uuid"
+        )
 
     async def fake_fetch(_context, _filters, *, limit=None, **_kwargs):
         return records
@@ -290,7 +292,9 @@ async def test_run_family_nipt_analysis_counts_artifacts(
         return family
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(assembly_id="assembly-uuid", assembly_name="GRCh38")
+        return SimpleNamespace(
+            assembly_id="assembly-uuid", assembly_name="GRCh38", sample_name_to_uuid={}, family_uuid="family-uuid"
+        )
 
     async def fake_fetch(_context, _filters, *, limit=None, **_kwargs):
         return records
@@ -369,7 +373,9 @@ def _wire_variants_mocks(
         return _nipt_family()
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return SimpleNamespace(assembly_id="assembly-uuid", assembly_name="GRCh38")
+        return SimpleNamespace(
+            assembly_id="assembly-uuid", assembly_name="GRCh38", sample_name_to_uuid={}, family_uuid="family-uuid"
+        )
 
     async def fake_fetch(_context, filters, *, limit=None, **_kwargs):
         # The cohort (FF) load carries no gene filter; the variant load does. A limit is
@@ -386,11 +392,16 @@ def _wire_variants_mocks(
     async def fake_hydrate(_session, *, context, variants):
         return None
 
+    # No other cfDNA sample of the assay: no allele recurs.
+    async def fake_carrier_samples(_session, *, assay_key):
+        return {}
+
     monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
     monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", fake_load_artifacts)
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", fake_hydrate)
+    monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", fake_carrier_samples)
 
 
 def _cohort_cat7_records() -> list[SmallVariantRecord]:
@@ -485,6 +496,14 @@ async def test_get_family_nipt_variants_de_novo_inheritance_preset(
     )
 
     assert {item.classification.category for item in result.variants} == {1}
+    # Each candidate carries its triage: in the fetal window of the FF sites (all at
+    # 5%), a novel, very rare SNV with clean technical terms.
+    [candidate] = result.variants
+    assert candidate.de_novo is not None
+    assert candidate.de_novo.window == "strict"
+    # 8 strict + 1 novel + 1 very rare + 6 technical (a joint VCF has no caller metrics:
+    # every term is met) + 1 SNV.
+    assert (candidate.de_novo.score, candidate.de_novo.label) == (17, "high")
 
 
 @pytest.mark.asyncio
@@ -829,6 +848,8 @@ async def test_get_family_nipt_coverage_over_family_roi(
     async def fake_fetch_coverage(
         _assembly_name, *, sample_uuid=None, track_type=None, chromosomes=None, **_kwargs
     ):
+        if track_type == "target_coverage":
+            return []  # no per-target table: the coverage track over the ROI
         assert track_type == "coverage"
         assert sample_uuid == "cfdna-uuid"
         return [{"chr": "1", "start": 100, "end": 200, "value": 30.0}]
@@ -837,11 +858,13 @@ async def test_get_family_nipt_coverage_over_family_roi(
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_fetch_coverage)
 
-    summary = await get_family_nipt_coverage(
+    coverage = await get_family_nipt_coverage(
         session=None,  # type: ignore[arg-type]
         family_id="NIPT001",
         user=None,  # type: ignore[arg-type]
     )
+    summary = coverage.regions
+    assert coverage.targets is None
 
     assert summary.target_region_count == 1
     assert summary.overall_median_on_target == 30.0
@@ -903,6 +926,8 @@ async def test_get_family_nipt_coverage_labels_gene_regions(
     async def fake_fetch_coverage(
         _assembly_name, *, sample_uuid=None, track_type=None, chromosomes=None, **_kwargs
     ):
+        if track_type == "target_coverage":
+            return []
         return [{"chr": "17", "start": 43044295, "end": 43125483, "value": 80.0}]
 
     monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
@@ -912,12 +937,13 @@ async def test_get_family_nipt_coverage_labels_gene_regions(
     session = _FakeGeneSession(
         [{"hgnc_symbol": "BRCA1", "chr": "17", "start": 43044295, "end": 43125483}]
     )
-    summary = await get_family_nipt_coverage(
+    coverage = await get_family_nipt_coverage(
         session,  # type: ignore[arg-type]
         family_id="NIPT001",
         user=None,  # type: ignore[arg-type]
         gene="BRCA1",
     )
+    summary = coverage.regions
 
     assert summary.target_region_count == 1
     assert summary.per_region[0].label == "BRCA1"

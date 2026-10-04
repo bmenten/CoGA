@@ -15,12 +15,9 @@ from pathlib import Path
 import pytest
 
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
-from backend.app.services.nipt_analysis import NiptQualityThresholds, run_nipt_analysis
-from backend.app.services.nipt_service import (
-    NiptClassifiedVariant,
-    _recessive_at_risk_variants,
-    build_nipt_observations,
-)
+from backend.app.services.nipt_analysis import NiptQualityThresholds, run_nipt_analysis, trusted_father_state
+from backend.app.services.nipt_service import build_nipt_observations
+from backend.app.services.nipt_triage import RecessiveCandidate, recessive_gene_risks
 from backend.app.services.variant_upload_service import (
     _parse_float_list,
     _parse_format,
@@ -108,12 +105,14 @@ def test_nipt_demo_end_to_end() -> None:
     assert result.fetal_fraction.ff_computed == pytest.approx(0.12, abs=0.01)
     assert not result.fetal_fraction.low_confidence
 
-    # The filter funnel: one low-depth drop, one artifact drop.
+    # The filter funnel counts the plasma's calls: one low-depth drop, one artifact drop.
+    # The category-8 site, where only the father has the allele, is counted apart.
     assert result.filter_counts == {
-        "total_in": 49,
-        "passed": 47,
+        "total_in": 48,
+        "passed": 46,
         "failed_quality": 1,
         "failed_artifact": 1,
+        "paternal_only": 1,
     }
 
     # Every maternal/fetal category is represented as designed.
@@ -132,30 +131,41 @@ def test_nipt_demo_recessive_at_risk() -> None:
     records, expected = _parse_demo_vcf()
     artifact_ids = {vid for vid, cat in expected.items() if cat == "ARTIFACT"}
     records_by_id = {record.variant_id: record for record in records}
+    qc = NiptQualityThresholds()
 
     sites = build_nipt_observations(
         records, father_sample_id=FATHER_SAMPLE, cfdna_sample_id=CFDNA_SAMPLE
     )
-    result = run_nipt_analysis(
-        sites, NiptQualityThresholds(), artifact_lookup=artifact_ids.__contains__
-    )
+    sites_by_id = {site.variant_id: site for site in sites}
+    result = run_nipt_analysis(sites, qc, artifact_lookup=artifact_ids.__contains__)
 
-    classified = [
-        NiptClassifiedVariant(
-            record=records_by_id[classification.variant_id], classification=classification
+    candidates = [
+        RecessiveCandidate(
+            variant_id=classification.variant_id,
+            genes=records_by_id[classification.variant_id].gene_symbols,
+            father_state=trusted_father_state(sites_by_id[classification.variant_id], qc),
+            classification=classification,
         )
         for classification in result.classifications
     ]
-    observations = {site.variant_id: site for site in sites}
-    at_risk = _recessive_at_risk_variants(classified, observations)
-    at_risk_genes = {
-        gene for variant in at_risk for gene in variant.record.gene_symbols
-    }
+    risks = {risk.gene: risk for risk in recessive_gene_risks(candidates)}
 
-    # Genes where both parents carry: GENE_RECESS (maternal cat 3 + paternal cat 7),
-    # GENE_HOMRISK (cat 4 — maternal het + paternal allele the fetus made homozygous),
-    # GENE_MATHOM2 (cat 6 — both hom). GENE_CARRIER's lone paternal hit (cat 7, no
-    # maternal carrier) and the maternal-only genes (cat 2/5, father hom-ref) are excluded.
-    assert at_risk_genes == {"GENE_RECESS", "GENE_HOMRISK", "GENE_MATHOM2"}
-    assert len(at_risk) == 4  # 2 compound-pair carriers + 2 homozygous variants
-    assert "GENE_CARRIER" not in at_risk_genes
+    # Genes where both parents are heterozygous carriers: GENE_RECESS (maternal cat 3 +
+    # paternal cat 7) and GENE_HOMRISK (cat 4 -- maternal het + paternal allele the fetus
+    # made homozygous). GENE_MATHOM2 (cat 6) has two homozygous parents, who are not
+    # carriers; GENE_CARRIER's lone paternal hit (cat 7, no maternal carrier) and the
+    # maternal-only genes (cat 2/5, father hom-ref) are excluded too.
+    assert set(risks) == {"GENE_RECESS", "GENE_HOMRISK"}
+    # The fetus inherited the maternal and the paternal allele of GENE_RECESS. The
+    # paternal allele is plain to see (at FF/2 where the mother has none); whether the
+    # maternal one was inherited rests on 50% versus 44% (FF 12%), which the validated
+    # overdispersion reads with about 86% certainty at any depth (the R validation's
+    # accuracy at this FF), so the risk says so rather than claiming certainty.
+    recess = risks["GENE_RECESS"]
+    assert recess.risk is not None and 0.8 < recess.risk < 0.95
+    assert recess.paternal[0].inherited_probability == pytest.approx(1.0, abs=1e-3)
+    assert (recess.maternal_variant_id, recess.paternal_variant_id) == ("1-3001-A-G", "1-10000-A-G")
+    # GENE_HOMRISK: the fetus is homozygous at the shared site.
+    homrisk = risks["GENE_HOMRISK"]
+    assert homrisk.maternal_variant_id == homrisk.paternal_variant_id == "1-4001-A-G"
+    assert homrisk.risk is not None and homrisk.risk > 0.5

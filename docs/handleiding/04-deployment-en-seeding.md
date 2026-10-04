@@ -101,7 +101,7 @@ FastAPI kent een *lifespan*: een functie die één keer draait bij het opstarten
 2. **Alleen als** `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` aanstaat: het Postgres-schema toepassen en de eerste beheerder aanmaken.
 3. De achtergrondschrijvers voor de auditlog en de UI-events starten, zodat alles daarna al gelogd wordt.
 4. In één Postgres-sessie: de repeatcatalogus seeden, GRCh38 verzekeren, optioneel T2T-CHM13 importeren, de HPO-ontologie laden, de ingebouwde tracks seeden en zo nodig de eerste gen-referentiejob in de wachtrij zetten.
-5. Wachten tot ClickHouse bereikbaar is en het ClickHouse-schema toepassen. Heeft een varianttabel een sorteersleutel zonder de callset, dan start de backend niet (hoofdstuk 3).
+5. Wachten tot ClickHouse bereikbaar is en het ClickHouse-schema toepassen. Heeft een varianttabel een sorteersleutel zonder de callset, of mist `SNV_INDEL/entries` de kolommen per call `calls.filters` en `calls.metrics`, dan start de backend niet (hoofdstuk 3).
 6. De integriteitsbewaking van ClickHouse starten: kort na het opstarten en daarna op een vast interval controleert die de varianttabellen, en bij beschadiging logt ze een fout (hoofdstuk 11).
 7. De worker voor de gen-referentie en de workers voor de pakketimport starten (aantal via `FAMILY_IMPORT_WORKER_COUNT`).
 

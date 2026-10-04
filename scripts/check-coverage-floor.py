@@ -46,6 +46,8 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/monarch_semsim.py": 65.0,  # (68.8)
     "backend/app/services/nipt_analysis.py": 92.0,  # (95.5)
     "backend/app/services/nipt_service.py": 88.0,  # (91.7)
+    "backend/app/services/nipt_target_coverage.py": 93.0,  # (96.0, unit tests at the change)
+    "backend/app/services/nipt_triage.py": 93.0,  # (96.0, unit tests at the change)
     "backend/app/services/qc_threshold_service.py": 83.0,  # (86.2)
     "backend/app/services/report_signout_service.py": 91.0,  # (94.8)
     "backend/app/services/review_pg_utils.py": 87.0,  # (90.2)

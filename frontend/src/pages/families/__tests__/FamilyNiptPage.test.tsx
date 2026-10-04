@@ -192,21 +192,27 @@ describe('FamilyNiptPage', () => {
     // Every variant of the search was classified, so nothing says the list stops short.
     expect(screen.queryByText(/than CoGA classifies at once/)).not.toBeInTheDocument();
 
-    // Picking an inheritance preset ticks its matching category checkbox
-    // (paternal dominant → category 7).
+    // A category tick survives "Apply filters" (it round-trips through the URL rather
+    // than being cleared by the URL-sync effect).
     const cat7 = screen.getByRole('checkbox', { name: /7 — Paternal, transmitted/ });
     expect(cat7).not.toBeChecked();
-    fireEvent.change(screen.getByLabelText('NIPT inheritance preset'), {
-      target: { value: 'paternal_dominant' },
-    });
-    await waitFor(() => expect(cat7).toBeChecked());
-
-    // The category selection survives "Apply filters" (it round-trips through
-    // the URL rather than being cleared by the URL-sync effect).
+    fireEvent.click(cat7);
     fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
     await waitFor(() =>
       expect(screen.getByRole('checkbox', { name: /7 — Paternal, transmitted/ })).toBeChecked(),
     );
+
+    // Picking an inheritance view clears the ticks (the view reads the fetal inheritance
+    // itself) and offers the view's own control.
+    fireEvent.change(screen.getByLabelText('NIPT inheritance preset'), {
+      target: { value: 'paternal_dominant' },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: /7 — Paternal, transmitted/ })).not.toBeChecked(),
+    );
+    expect(screen.getByRole('checkbox', { name: /Also list the alleles the fetus did not inherit/ })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('NIPT inheritance preset'), { target: { value: 'de_novo' } });
+    expect(await screen.findByLabelText('Lowest de novo priority')).toBeInTheDocument();
   });
 
   // The list classifies the first variants of the search, in genomic order, up to a limit.

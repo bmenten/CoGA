@@ -374,6 +374,7 @@ const FamilyNiptReportPage: React.FC = () => {
   }
 
   const ff = summary?.fetal_fraction;
+  const qc = summary?.qc;
   const lowCoverage = coverage?.low_coverage_regions ?? [];
   // The fetal fraction and the coverage QC are part of what the report states: when either
   // could not be loaded it is said in its place and heads every printed page, instead of
@@ -477,11 +478,11 @@ const FamilyNiptReportPage: React.FC = () => {
         <h2 className="section-title">Scope</h2>
         <p className="report-paragraph">{scopeLine({ panelId, panel, panelFailed, geneTerms })}</p>
         <p className="report-paragraph">
-          The candidate list holds every variant in this scope with a call in the cfDNA sample,
-          except the sites on the recurrent-artifact list of the assay. No other filter of the NIPT
-          page applies: not the categories, the inheritance preset, the confidence, the regions, or
-          the frequency and consequence filters. Sites that fail the quality filter are listed too:
-          a low-depth site carries the low_depth flag, a low-QUAL site no flag.
+          The candidate list holds every variant in this scope with a call in the cfDNA sample or
+          the father&apos;s, except the sites on the recurrent-artifact list of the assay. No other
+          filter of the NIPT page applies: not the categories, the inheritance view, the
+          confidence, the regions, or the frequency and consequence filters. Sites that fail the
+          quality filter are listed too, each flagged with the reason (quality:…).
         </p>
       </section>
 
@@ -495,7 +496,12 @@ const FamilyNiptReportPage: React.FC = () => {
                 ? ` (95% CI ${pct(ff.ci_low)}–${pct(ff.ci_high)})`
                 : ''}
               , derived from {ff.n_sites} category-7 site{ff.n_sites === 1 ? '' : 's'} using the{' '}
-              {ff.method} method.
+              {ff.method} method
+              {ff.ff_median != null ? `; the per-site median gives ${pct(ff.ff_median)}` : ''}
+              {qc?.fetal_sex.chry_fetal_fraction != null
+                ? `; chrY coverage suggests about ${pct(qc.fetal_sex.chry_fetal_fraction)} (indicative: one chrY target)`
+                : ''}
+              .
             </p>
             {ff.low_confidence ? (
               <p className="report-paragraph report-disclaimer">
@@ -514,9 +520,56 @@ const FamilyNiptReportPage: React.FC = () => {
         )}
       </section>
 
+      {qc ? (
+        <section className="surface-card report-section">
+          <h2 className="section-title">Quality checks</h2>
+          <p className="report-paragraph">
+            <strong>Fetal sex: {qc.fetal_sex.call}.</strong> The father&apos;s X alleles:{' '}
+            {qc.fetal_sex.x_transmitted} seen, {qc.fetal_sex.x_not_transmitted} absent (
+            {qc.fetal_sex.paternal_x}); chrY coverage:{' '}
+            {qc.fetal_sex.chry_profile ? qc.fetal_sex.chry_profile.replace(/_/g, ' ') : 'no target table'}
+            {qc.fetal_sex.y_ratio != null ? ` (chrY/autosomes ${qc.fetal_sex.y_ratio.toFixed(3)})` : ''}.
+          </p>
+          <p className="report-paragraph">
+            <strong>Paternity ({qc.paternity.status}).</strong> {qc.paternity.message}
+          </p>
+          <p className="report-paragraph">
+            <strong>Maternal plasma sample ({qc.plasma_profile_status}).</strong> {qc.plasma_profile_message}
+          </p>
+          <p className="report-paragraph">Model: {qc.model.reference}.</p>
+        </section>
+      ) : null}
+
       <section className="surface-card report-section">
         <h2 className="section-title">Coverage QC</h2>
-        {coverage && coverage.target_region_count > 0 ? (
+        {coverage?.targets ? (
+          <>
+            <p className="report-paragraph">
+              The median depth of the {formatCount(coverage.targets.targets)} capture target
+              {coverage.targets.targets === 1 ? '' : 's'} in scope is{' '}
+              <strong>{depth(coverage.targets.median_mean)}</strong>;{' '}
+              {formatCount(coverage.targets.below_critical)} are below {depth(coverage.targets.critical_mean_depth)} and{' '}
+              {formatCount(coverage.targets.incomplete)} have bases without coverage.
+            </p>
+            {coverage.targets.genes.filter((item) => item.weak_targets > 0 || item.targets === 0).length ? (
+              <ul className="report-criteria-list">
+                {coverage.targets.genes
+                  .filter((item) => item.weak_targets > 0 || item.targets === 0)
+                  .slice(0, 100)
+                  .map((item) => (
+                    <li key={item.gene} className="report-paragraph">
+                      <strong>{item.gene}</strong> —{' '}
+                      {item.targets === 0
+                        ? 'not a capture target'
+                        : `${item.weak_targets} of ${item.targets} targets weak (lowest mean ${depth(item.min_mean)})`}
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <p className="report-paragraph">Every target in scope was adequately interrogated.</p>
+            )}
+          </>
+        ) : coverage && coverage.target_region_count > 0 ? (
           <>
             <p className="report-paragraph">
               Median on-target coverage is <strong>{depth(coverage.overall_median_on_target)}</strong>{' '}

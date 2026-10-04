@@ -91,6 +91,8 @@ describe('smallVariantSearch preset helpers', () => {
         has_notes: '',
         category: '',
         min_confidence: '',
+        include_not_inherited: '',
+        de_novo_priority: '',
       },
       members,
       sampleFilters,

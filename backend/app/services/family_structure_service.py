@@ -35,7 +35,7 @@ CLINICAL_STATUS_VALUES = {"unknown", "unaffected", "affected"}
 CARRIER_STATUS_VALUES = {"unknown", "not_carrier", "carrier"}
 MEMBER_ROLES = {"proband", "father", "mother", "sibling", "embryo", "relative"}
 SEX_VALUES = {"male", "female", "und"}
-INTERVAL_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "haplotype")
+INTERVAL_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "haplotype", "target_coverage")
 
 
 def _clean_sample_id(value: str, *, field_name: str = "sample_id") -> str:

@@ -229,13 +229,16 @@ def test_nipt_analysis_recovers_categories(smoke):
 
 
 def test_nipt_analysis_filter_counts_exact(smoke):
-    # 49 sites in; QUAL_DROP fails quality; the seeded artifact fails the artifact
-    # filter; the remaining 47 pass.
+    # The funnel counts the plasma's 48 calls: QUAL_DROP fails quality; the seeded
+    # artifact fails the artifact filter; the remaining 46 pass. The category-8 site,
+    # where the plasma has no alt read and only the father has the allele, is counted
+    # apart (matches the direct-parse unit test).
     assert smoke["nipt_analysis"]["filter_counts"] == {
-        "total_in": 49,
-        "passed": 47,
+        "total_in": 48,
+        "passed": 46,
         "failed_quality": 1,
         "failed_artifact": 1,
+        "paternal_only": 1,
     }, smoke["nipt_analysis"]["filter_counts"]
 
 

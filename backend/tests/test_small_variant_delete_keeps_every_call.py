@@ -33,11 +33,14 @@ _CALL_COLUMNS = (
     "calls.af",
     "calls.ad",
     "calls.ps",
+    "calls.filters",
+    "calls.metrics",
 )
 
 
 def _entry(calls: list[tuple[Any, ...]], **overrides: Any) -> dict[str, Any]:
-    """An entry row as stored; ``calls`` holds (sampleId, gt, gq, dp, ab, af, ad, ps)."""
+    """An entry row as stored; ``calls`` holds (sampleId, gt, gq, dp, ab, af, ad, ps,
+    filters, metrics)."""
     entry: dict[str, Any] = {
         "key": 101,
         "variantId": "1-1000-A-G",
@@ -70,10 +73,11 @@ def _calls(entry: dict[str, Any]) -> list[tuple[Any, ...]]:
     return list(zip(*(entry[column] for column in _CALL_COLUMNS)))
 
 
-_PROBAND = ("PROBAND", "HET", 99, 20, 0.4, [], [12, 8], None)
-_FATHER = ("FATHER", "0|1", 99, 30, 0.5, [0.5], [15, 15], 5001)
-_SIB = ("SIB", "0/1", 99, 25, 0.5, [0.5], [12, 13], None)
-_SIB_BY_UUID = ("uuid-sib", "1/1", 99, 25, 1.0, [1.0], [0, 25], None)
+_PROBAND = ("PROBAND", "HET", 99, 20, 0.4, [], [12, 8], None, [], {})
+# A call of a one-sample VCF keeps its own FILTER and caller metrics: they go with the call.
+_FATHER = ("FATHER", "0|1", 99, 30, 0.5, [0.5], [15, 15], 5001, ["PASS"], {"TLOD": 50.0})
+_SIB = ("SIB", "0/1", 99, 25, 0.5, [0.5], [12, 13], None, [], {})
+_SIB_BY_UUID = ("uuid-sib", "1/1", 99, 25, 1.0, [1.0], [0, 25], None, [], {})
 
 
 # --- the stored read ----------------------------------------------------------------------

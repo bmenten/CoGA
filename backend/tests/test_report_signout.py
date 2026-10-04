@@ -801,7 +801,7 @@ def test_nipt_paternity_and_silent_maternal_pass_through_block(monkeypatch) -> N
         monkeypatch,
         SampleIntegrityReport(
             overall_status="warn",
-            paternity_check=PaternityCheck("FATHER", 2, 1, 3, "warn", "Too few paternal-informative sites."),
+            paternity_check=PaternityCheck("FATHER", 2, 1, 0, 0, "warn", "Too few paternal-informative sites."),
         ),
     )
     with pytest.raises(HTTPException) as excinfo:
@@ -881,7 +881,7 @@ def test_nipt_with_ran_checks_signs_out(monkeypatch) -> None:
         SampleIntegrityReport(
             overall_status="pass",
             application="nipt",
-            paternity_check=PaternityCheck("FATHER", 40, 5, 45, "pass", "Paternity supported."),
+            paternity_check=PaternityCheck("FATHER", 40, 2, 60, 55, "pass", "Paternity supported."),
             category_qc_check=NiptCategoryQc(1, 2, 60, 30, 0.5, "pass", "Within expectation."),
         ),
     )

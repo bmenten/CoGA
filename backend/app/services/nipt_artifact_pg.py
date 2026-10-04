@@ -12,13 +12,16 @@ See docs/monogenic-nipt.md.
 
 from __future__ import annotations
 
+import csv
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .clickhouse_family_variants import fetch_recurrent_small_variant_ids
+from .clickhouse_family_variants import fetch_artifact_protection_flags, fetch_recurrent_small_variant_ids
+from .clickhouse_variant_ids import build_small_variant_id
 from .clinical_audit_service import record_clinical_event
 from .nipt import NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_PANEL_KEY, assay_key_for_sample_metadata
 
@@ -326,6 +329,12 @@ async def _assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str)
     return carriers
 
 
+async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) -> dict[str, str]:
+    """The cfDNA samples of an assay scope, keyed by each identifier ClickHouse may store
+    for them (name and UUID) -> the sample name: whose calls count as recurrence."""
+    return await _assay_cfdna_carrier_samples(session, assay_key=assay_key)
+
+
 async def auto_seed_nipt_artifacts(
     session: AsyncSession,
     *,
@@ -402,3 +411,184 @@ async def auto_seed_nipt_artifacts(
         )
         await session.commit()
     return {"seeded": seeded, "min_carrier_samples": min_carrier_samples}
+
+
+# The R NIPT-M pipeline's recurrent-artefact table
+# (``recurrent_cfdna_artifact_filter_<suffix>.tsv``): one row per allele seen in the
+# cohort's plasma, ``filter_as_recurrent_artifact`` TRUE for those its tiered profiles
+# remove. A plain list of alleles (``variant_key`` or CHROM/POS/REF/ALT) also reads.
+_TRUE_VALUES = {"true", "t", "1", "yes"}
+
+
+@dataclass(slots=True)
+class ArtifactTableItem:
+    variant_id: str
+    recurrence_count: int
+    label: str
+
+
+@dataclass(slots=True)
+class ArtifactTable:
+    items: list[ArtifactTableItem] = field(default_factory=list)
+    rows_read: int = 0
+    not_flagged: int = 0
+    invalid: int = 0
+
+
+def _artifact_allele(row: dict[str, str]) -> tuple[str, int, str, str] | None:
+    key = (row.get("variant_key") or "").strip()
+    if key:
+        parts = key.split(":")
+        if len(parts) != 4:
+            return None
+        chrom, position, ref, alt = parts
+    else:
+        chrom = (row.get("CHROM") or row.get("chrom") or "").strip()
+        position = (row.get("POS") or row.get("pos") or "").strip()
+        ref = (row.get("REF") or row.get("ref") or "").strip()
+        alt = (row.get("ALT") or row.get("alt") or "").strip()
+    if not chrom or not ref or not alt or "," in alt or alt in {".", "*"}:
+        return None
+    try:
+        start = int(position)
+    except ValueError:
+        return None
+    if start < 1:
+        return None
+    return chrom, start, ref.upper(), alt.upper()
+
+
+def parse_artifact_table(text_value: str) -> ArtifactTable:
+    """The alleles a tab-separated artefact table lists: with a
+    ``filter_as_recurrent_artifact`` column, only the rows it marks TRUE. The recurrence
+    count is ``n_cfdna_families`` (0 without it); the label names the R profile
+    (``recurrent_filter_profile``) when there is one."""
+    reader = csv.DictReader(text_value.splitlines(), delimiter="\t")
+    fields = set(reader.fieldnames or [])
+    if not ({"variant_key"} <= fields or {"CHROM", "POS", "REF", "ALT"} <= fields):
+        raise HTTPException(
+            status_code=400,
+            detail="The artifact table needs a variant_key column or CHROM, POS, REF and ALT columns",
+        )
+    flagged_column = "filter_as_recurrent_artifact" in fields
+    table = ArtifactTable()
+    seen: set[str] = set()
+    for row in reader:
+        table.rows_read += 1
+        flag = str(row.get("filter_as_recurrent_artifact") or "").strip().lower()
+        if flagged_column and flag not in _TRUE_VALUES:
+            table.not_flagged += 1
+            continue
+        allele = _artifact_allele(row)
+        if allele is None:
+            table.invalid += 1
+            continue
+        variant_id = build_small_variant_id(*allele)
+        if variant_id in seen:
+            continue
+        seen.add(variant_id)
+        try:
+            count = int(float(row.get("n_cfdna_families") or 0))
+        except ValueError:
+            count = 0
+        profile = (row.get("recurrent_filter_profile") or "").strip()
+        table.items.append(
+            ArtifactTableItem(
+                variant_id=variant_id,
+                recurrence_count=max(0, count),
+                label=f"recurrent ({profile})" if profile else "recurrent (imported)",
+            )
+        )
+    return table
+
+
+async def import_nipt_artifact_table(
+    session: AsyncSession,
+    *,
+    assembly_id: str,
+    assay_key: str,
+    text_value: str,
+    filename: str,
+    created_by: str | None = None,
+    actor: str = "system",
+) -> dict[str, int]:
+    """Add the alleles of an artefact table (the R NIPT-M pipeline's recurrent list) to the
+    artifact list of a scope, as curated entries, and audit the import as one event.
+
+    The auto-seed's protections hold: an allele whose annotation on the assembly is
+    common (gnomAD or TopMed above 5%) or may assert pathogenic in ClinVar is never
+    added. An allele no family on the assembly carries has no annotation to check; it is
+    added, and each family's analysis checks it again with the family's own annotation
+    (``nipt_service.family_artifact_ids``: a listed allele the family's annotation marks
+    common or ClinVar-pathogenic stays in that family's analysis, flagged). An entry
+    already on the list keeps its source and label and takes the table's recurrence count.
+    """
+    assembly_name = await _resolve_assembly_name(session, assembly_id)
+    if assembly_name is None:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+    table = parse_artifact_table(text_value)
+    protected = await fetch_artifact_protection_flags(
+        assembly_name, [item.variant_id for item in table.items]
+    )
+    accepted = [item for item in table.items if item.variant_id not in protected]
+    if accepted:
+        await session.execute(
+            text(
+                """
+                INSERT INTO nipt_artifact_variants (
+                    assembly_id, assay_key, variant_id, recurrence_count, source, label, created_by
+                ) VALUES (
+                    CAST(:assembly_id AS uuid), :assay_key, :variant_id,
+                    :recurrence_count, 'curated', :label, CAST(:created_by AS uuid)
+                )
+                ON CONFLICT (assembly_id, assay_key, variant_id) DO UPDATE SET
+                    recurrence_count = EXCLUDED.recurrence_count,
+                    updated_at = timezone('utc', now())
+                """
+            ),
+            [
+                {
+                    "assembly_id": assembly_id,
+                    "assay_key": assay_key,
+                    "variant_id": item.variant_id,
+                    "recurrence_count": item.recurrence_count,
+                    "label": item.label,
+                    "created_by": created_by,
+                }
+                for item in accepted
+            ],
+        )
+    summary = {
+        "rows_read": table.rows_read,
+        "not_flagged": table.not_flagged,
+        "invalid": table.invalid,
+        "imported": len(accepted),
+        "protected_common": sum(1 for reason in protected.values() if reason == "common"),
+        "protected_clinvar": sum(1 for reason in protected.values() if reason == "clinvar"),
+    }
+    if accepted:
+        await _record_artifact_event(
+            session,
+            actor=actor,
+            actor_id=created_by,
+            action="nipt_artifacts_imported",
+            summary=(
+                f"Imported {len(accepted)} recurrent variant(s) from {filename} into the NIPT "
+                f"artifact list ({assay_key})"
+            ),
+            after={
+                "variants": [
+                    {"variant_id": item.variant_id, "recurrence_count": item.recurrence_count, "label": item.label}
+                    for item in accepted
+                ]
+            },
+            metadata={
+                "assembly_id": assembly_id,
+                "assay_key": assay_key,
+                "filename": filename,
+                "protected": sorted(protected),
+                **summary,
+            },
+        )
+        await session.commit()
+    return summary

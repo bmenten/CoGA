@@ -314,3 +314,112 @@ async def test_bulk_upsert_nipt_artifacts_empty_is_noop() -> None:
     )
     assert seeded == 0
     assert session.bulk_rows is None
+
+
+# --------------------------------------------------------------------------- #
+# Importing a recurrent-artefact table (the R NIPT-M pipeline's list)
+# --------------------------------------------------------------------------- #
+
+_R_TABLE = (
+    "variant_key\tCHROM\tPOS\tREF\tALT\tn_cfdna_families\trecurrent_filter_profile\tfilter_as_recurrent_artifact\n"
+    "chr1:100:A:G\tchr1\t100\tA\tG\t3\trecurrent_low_vaf_noise\tTRUE\n"
+    "chr1:200:C:T\tchr1\t200\tC\tT\t4\trecurrent_high_vaf_background\tTRUE\n"
+    "chr1:300:G:A\tchr1\t300\tG\tA\t5\trecurrent_moderate_vaf_background\tTRUE\n"
+    "chr2:400:T:C\tchr2\t400\tT\tC\t2\trecurrent_truth_protected\tFALSE\n"
+    "chr2:500:T:C,G\tchr2\t500\tT\tC,G\t2\trecurrent_multi_alt_site\tTRUE\n"
+)
+
+
+def test_parse_artifact_table_reads_the_flagged_alleles() -> None:
+    table = nipt_artifact_pg.parse_artifact_table(_R_TABLE)
+    assert [(item.variant_id, item.recurrence_count, item.label) for item in table.items] == [
+        ("1-100-A-G", 3, "recurrent (recurrent_low_vaf_noise)"),
+        ("1-200-C-T", 4, "recurrent (recurrent_high_vaf_background)"),
+        ("1-300-G-A", 5, "recurrent (recurrent_moderate_vaf_background)"),
+    ]
+    assert (table.rows_read, table.not_flagged, table.invalid) == (5, 1, 1)
+
+
+def test_parse_artifact_table_reads_a_plain_allele_list() -> None:
+    table = nipt_artifact_pg.parse_artifact_table("CHROM\tPOS\tREF\tALT\nchr7\t1000\ta\tg\n")
+    assert [item.variant_id for item in table.items] == ["7-1000-A-G"]
+    assert table.items[0].label == "recurrent (imported)"
+
+
+def test_parse_artifact_table_refuses_a_table_without_alleles() -> None:
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        nipt_artifact_pg.parse_artifact_table("gene\tcount\nGENEA\t3\n")
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_import_never_lists_a_common_or_pathogenic_allele(
+    monkeypatch: pytest.MonkeyPatch, audit_events: list[dict]
+) -> None:
+    async def assembly_name(_session, _assembly_id):
+        return "GRCh38"
+
+    async def flags(_assembly_name, variant_ids, **_kwargs):
+        assert variant_ids == ["1-100-A-G", "1-200-C-T", "1-300-G-A"]
+        return {"1-200-C-T": "common", "1-300-G-A": "clinvar"}
+
+    class _Session:
+        def __init__(self) -> None:
+            self.executed: list = []
+            self.commits = 0
+
+        async def execute(self, statement, params=None):
+            self.executed.append((str(statement), params))
+
+        async def commit(self) -> None:
+            self.commits += 1
+
+    monkeypatch.setattr(nipt_artifact_pg, "_resolve_assembly_name", assembly_name)
+    monkeypatch.setattr(nipt_artifact_pg, "fetch_artifact_protection_flags", flags)
+    session = _Session()
+    summary = await nipt_artifact_pg.import_nipt_artifact_table(
+        session,  # type: ignore[arg-type]
+        assembly_id="assembly-uuid",
+        assay_key="panel-v1",
+        text_value=_R_TABLE,
+        filename="recurrent.tsv",
+        actor="admin",
+    )
+    assert summary == {
+        "rows_read": 5,
+        "not_flagged": 1,
+        "invalid": 1,
+        "imported": 1,
+        "protected_common": 1,
+        "protected_clinvar": 1,
+    }
+    [(statement, rows)] = session.executed
+    assert "INSERT INTO nipt_artifact_variants" in statement and "'curated'" in statement
+    assert [row["variant_id"] for row in rows] == ["1-100-A-G"]
+    assert session.commits == 1
+    # One audit event names the file and every allele it added.
+    [event] = audit_events
+    assert event["action"] == "nipt_artifacts_imported"
+    assert event["metadata"]["filename"] == "recurrent.tsv"
+    assert event["metadata"]["protected"] == ["1-200-C-T", "1-300-G-A"]
+    assert [item["variant_id"] for item in event["after"]["variants"]] == ["1-100-A-G"]
+
+
+@pytest.mark.asyncio
+async def test_protection_flags_read_the_pooled_annotation(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_execute(query, params):
+        assert "variants/annotation_index" in query
+        assert params["variant_ids"] == ("1-1-A-G", "1-2-A-G", "1-3-A-G")
+        return [
+            ("1-1-A-G", 0.12, []),
+            ("1-2-A-G", 0.001, ["Pathogenic"]),
+            ("1-3-A-G", 0.001, ["Benign"]),
+        ]
+
+    monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute)
+    flags = await clickhouse_family_variants.fetch_artifact_protection_flags(
+        "GRCh38", ["1-1-A-G", "1-2-A-G", "1-3-A-G"]
+    )
+    assert flags == {"1-1-A-G": "common", "1-2-A-G": "clinvar"}

@@ -78,8 +78,8 @@ built-in reference file is recorded under its file name.
 | `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown` |
 | `repeat_expansions` | TRGT repeat calls per sample |
 | `sample_paraphase_results` | Paraphase copy-number and haplotype results per sample |
-| `nipt_artifact_variants` | the recurrent-artifact list for monogenic NIPT, per assembly and assay, curated or seeded from the cohort (see [monogenic-nipt.md](monogenic-nipt.md)) |
-| `sample_interval_track_sources` | one row per sample, track type (`coverage`, `segments`, `apcad`, `apcad_pcf`, `haplotype`), source and file, with its row count; the rows themselves are in ClickHouse |
+| `nipt_artifact_variants` | the recurrent-artifact list for monogenic NIPT, per assembly and assay: entries added one by one, imported from the NIPT-M pipeline's recurrent table (as `curated`) or seeded from the cohort (`auto`) (see [monogenic-nipt.md](monogenic-nipt.md) and [data-import.md](data-import.md#the-nipt-artifact-list)) |
+| `sample_interval_track_sources` | one row per sample, track type (`coverage`, `segments`, `apcad`, `apcad_pcf`, `haplotype`, `target_coverage`), source and file, with its row count; the rows themselves are in ClickHouse |
 | `small_variant_reviews` | the classification, ACMG criteria, tags, notes and evidence snapshot of a small variant in a family |
 | `structural_variant_reviews` | the same for a structural variant or CNV, with the CNV ACMG points and the evidence snapshot of the CNV classification |
 | `small_variant_filter_presets`, `structural_variant_filter_presets` | saved filter sets, per user: a small-variant one is reusable in every family, a structural-variant one is for one family or all |
@@ -90,6 +90,12 @@ built-in reference file is recorded under its file name.
 | `qc_thresholds` | per profile and metric, a warning and an error bound (either may be null) |
 | `qc_threshold_changes` | **append-only** history of every cut-off edit (below) |
 
+`sample_interval_track_sources.track_type` is held to the track types above by a `CHECK`
+(`sample_interval_track_sources_track_type_check`). The baseline creates the table only when it
+is missing, so a database created before `target_coverage` was in the list keeps the old check,
+and the import of a per-target coverage table fails on it. Reset such a database
+([development.md](development.md#stop-and-reset)).
+
 JSON keys that package import writes into the `metadata` columns:
 
 | Column | Key | Contents |
@@ -99,6 +105,7 @@ JSON keys that package import writes into the `metadata` columns:
 | `samples.metadata` | `signal_tracks` | the package-relative paths of the HiFiCNV depth, MAF and copy-number files, served to IGV, and for a package in a bucket the objects' URIs under `uris` |
 | `samples.metadata` | `mtdna` | the mtDNA haplogroup from the mutserve annotation |
 | `samples.metadata` | `sv_files` | the file name per structural-variant source |
+| `samples.metadata` | `assay`, `assay_panel` | copied from the manifest's `samples` entry (kept whole under `package_sample_metadata`): `assay: nipt_cfdna` marks the maternal-plasma cfDNA sample of a monogenic NIPT family, and `assay_panel` names its capture panel, which scopes the NIPT artifact list |
 | `families.metadata` | `pipeline` | the Nextflow run parameters (reference build, callers, annotation caches; for the PGT pipeline the affected parent, ROI and QDNAseq bin size) |
 | `families.metadata` | `pipeline_qc` | the QC the PGT pipeline reported for the family as a whole: the KING kinship, IBS0 and SNP count of every pair (`kinship`), and the files they came from |
 | `families.metadata` | `haplotype_phase_corrections` | the parents' phase switches the haplotype blocks undid, one per switch: the parent and its side, the chromosome, the position from which its two haplotypes are swapped and the end of the children's switches, and how many of how many informative children switched. Replaced at every haplotype import; the lineage colouring and the phased markers read the parents' phase through them |
@@ -185,7 +192,7 @@ Their names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SV/key_lookup` | maps a family's variant ids, per source, to their internal keys |
 | `SV/entries` | the structural-variant calls per family and sample |
 | `SV/family_data_version` | one token per change to a family's structural variants (below) |
-| `INTERVAL/entries` | the interval-track rows: coverage, segments, APCAD, PCF segments and haplotype blocks |
+| `INTERVAL/entries` | the interval-track rows: coverage, segments, APCAD, PCF segments, haplotype blocks, and a capture panel's per-target coverage (`target_coverage`, below) |
 
 An `overwrite` package import of an existing family also makes **backup tables**, a copy of
 the family's rows in `SNV_INDEL/entries`, `SV/entries`, `SV/variants/details`, `SV/key_lookup`
@@ -197,20 +204,26 @@ one made outside a job, a day after it was made). See
 [clickhouse_family_snapshot.py](../backend/app/services/clickhouse_family_snapshot.py).
 
 Column-level detail lives with the DDL in `clickhouse_variant_storage.py`
-(`ensure_clickhouse_variant_tables`). Columns worth calling out:
+(`ensure_clickhouse_variant_tables`) and `clickhouse_interval_tracks.py`. Columns worth calling
+out:
 
 | Table | Column | Why it exists |
 | --- | --- | --- |
 | `…/SNV_INDEL/entries` | `calls.ps` | Phase set, for read-based cis/trans against a phased SV |
 | `…/SNV_INDEL/entries` | `calls.af` | Per-allele fraction; on chrM this *is* the heteroplasmy level the mtDNA workspace reads |
+| `…/SNV_INDEL/entries` | `calls.filters` | The call's own FILTER values (`PASS` kept as is). Filled only when the VCF holds one sample, as each file of a monogenic NIPT pair does: its record's FILTER then describes that one call. A call from a multi-sample VCF has none, since its record's FILTER describes the site. |
+| `…/SNV_INDEL/entries` | `calls.metrics` | The caller's metrics of the call, a map from the INFO key to a number, filled the same way ([vcf_call_metrics.py](../backend/app/services/vcf_call_metrics.py)): Mutect2's `TLOD`, `FS`, `SOR`, `MQ`, `ECNT` and others, and VarDict's `SBF`, `NM`, `MSI` and others; for a key with one value per allele (`MMQ`, `MBQ`, `MFRL`, `RPA`) the first ALT's value under the key and the reference's under `<key>_REF`; `QUAL` when the record has one; `STR` = 1 for Mutect2's short-tandem-repeat flag, and `RU_LEN`, the length of the repeat unit. A Mutect2 tumour-only call has no QUAL: its quality is `TLOD`. The NIPT quality filter, the father's genotype class and the de novo triage read them. |
 | `…/SV/entries` | `calls.ps` | Phase set for a structural call |
 | `…/SV/entries` | `calls.cn` | Copy number from a depth-based CNV caller (HiFiCNV `FORMAT/CN`). `GT=1/1` on a duplication cannot distinguish CN=3 from CN=6, and the ClinGen CNV dosage scoring needs the actual number. Null for callers that report none. |
+| `…/INTERVAL/entries` | `value`, `record_id`, `metadata_json` | On a `target_coverage` row (source `coverage_table`), one capture target of a per-target coverage table, at the table's BED coordinates: its mean depth, its gene (the first field of the table's `attribute`), and the table's `attribute`, `median`, `min`, `max`, `proportion_covered` (the percentage of its bases with any coverage) and `zero_coverage_bases`. The NIPT coverage check, the plasma's sex profile and the plasma's depth where it has no call read them ([nipt_target_coverage.py](../backend/app/services/nipt_target_coverage.py)); the track viewers do not draw this track. |
 
 The `source` column on both `entries` tables scopes deletes and re-imports, so one family can
 hold several callsets side by side. Small variants: `clair3` (the primary callset, whatever
-caller made it), `glimpse2` (imputed; hidden from the diagnostic lists by default) and `mito`
-(chrM). Structural variants: `needlr` and `hificnv` from packages, and `manual_upload`,
-`sniffles` or `spectre` from a direct upload.
+caller made it), `glimpse2` (imputed; hidden from the diagnostic lists by default), `mito`
+(chrM) and `nipt` (a monogenic NIPT pair: the plasma's and the father's single-sample VCFs, each
+merged into the callset for its own sample, so a variant is one row holding each sample's call
+where its file has one). Structural variants: `needlr` and `hificnv` from packages, and
+`manual_upload`, `sniffles` or `spectre` from a direct upload.
 
 Deleting a sample (`DELETE /admin/samples/{sample_id}`) rewrites the family's
 `SNV_INDEL/entries` from the stored rows: every callset, project and column comes back as
@@ -313,6 +326,12 @@ list. If a table has another key, the backend refuses to start. The message name
 its sort key and the one it needs. The rows are not copied into a new table: under the other
 key, merges may already have dropped calls, and only a re-import brings them back.
 
+An `SNV_INDEL/entries` table without the per-call columns `calls.filters` and `calls.metrics`
+(created before they existed) is refused the same way, at the same two points: the message
+("Refusing to use ClickHouse variant tables created by an earlier version") names the table and
+the columns it lacks. The backend adds no column to a stored table (there is no `ALTER`), and a
+re-import is what fills the columns, so the recovery is the same.
+
 To recover, for each assembly the message names:
 
 1. Stop the backend.
@@ -320,7 +339,7 @@ To recover, for each assembly the message names:
    `SELECT name FROM system.tables WHERE database = 'coga' AND match(name, '^GRCh38/(SNV_INDEL|SV)/')`
    (with your database and assembly), then drop each one with ``DROP TABLE coga.`<name>` SYNC``.
    The interval tracks (`INTERVAL/entries`) stay.
-3. Start the backend. It creates the tables with the sort keys above.
+3. Start the backend. It creates the tables with the sort keys above and every column.
 4. Re-import every family of the assembly. Reviews, classifications and signed reports are in
    Postgres, and attach again by variant id.
 
@@ -350,7 +369,8 @@ On every start the backend re-applies the five Postgres baseline files and makes
 admin user exists, when `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default).
 With the restricted runtime role a separate migration step (`backend/app/db_migrate.py`)
 does this instead, as the table owner. In ClickHouse, startup creates the database and refuses
-to go on when an assembly's tables have a different row identity
-([Row identity](#row-identity)); each assembly's tables are created on first use. The full startup order is in
+to go on when an assembly's tables have a different row identity, or its `SNV_INDEL/entries`
+table lacks the per-call columns ([Row identity](#row-identity)); each assembly's tables are
+created on first use. The full startup order is in
 [application-scheme.md](application-scheme.md), "Startup and background work"; the reference
 data it loads is listed in [data-import.md](data-import.md), section 1.

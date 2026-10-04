@@ -176,6 +176,132 @@ describe('FamilyNiptReportPage', () => {
     expect(screen.getByText('CFTR')).toBeInTheDocument();
   });
 
+  it('states the quality checks and the coverage of the capture targets', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            members: [{ sample_id: 'CFDNA', role: 'proband', active: true }],
+            metadata: { analysis_type: 'monogenic_nipt' },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/summary') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            fetal_fraction: {
+              ff: 0.2,
+              ff_computed: 0.2,
+              ff_median: 0.19,
+              ci_low: 0.19,
+              ci_high: 0.21,
+              n_sites: 800,
+              method: 'category7_pooled',
+              low_confidence: false,
+            },
+            category_counts: {},
+            filter_counts: {},
+            qc: {
+              de_novo_window: { strict_min: 0.07, strict_max: 0.14, loose_min: 0.05, loose_max: 0.18 },
+              paternity: {
+                hom_alt_transmitted: 99,
+                hom_alt_not_transmitted: 1,
+                het_transmitted: 500,
+                het_not_transmitted: 500,
+                hom_alt_rate: 0.99,
+                het_rate: 0.5,
+                status: 'pass',
+                message: 'The father is consistent with paternity.',
+              },
+              fetal_sex: {
+                call: 'female',
+                paternal_x: 'female',
+                x_transmitted: 30,
+                x_not_transmitted: 0,
+                informative_sites: 30,
+                chry_profile: 'female_no_chrY_signal',
+                y_ratio: 0,
+                x_ratio: 1.25,
+                chry_fetal_fraction: null,
+              },
+              plasma_profile_status: 'pass',
+              plasma_profile_message: 'Female plasma; no chrY signal.',
+              target_coverage: null,
+              quality_failures: {},
+              model: {
+                reference: 'R NIPT-M v0.5.1 validation',
+                overdispersion: 0.0037,
+                maternal_het_bias: -0.011,
+                min_quality: 20,
+                min_alt_reads: 5,
+                min_vaf: 0.01,
+                vaf_ff_fraction: 0.25,
+                max_strand_bias_fs: 20,
+                father_het_min_vaf: 0.2,
+                father_hom_alt_min_vaf: 0.8,
+                min_father_depth: 20,
+              },
+            },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/coverage') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            overall_median_on_target: null,
+            target_region_count: 0,
+            per_region: [],
+            min_depth: 20,
+            min_covered_fraction: 0.9,
+            low_coverage_regions: [],
+            targets: {
+              targets: 12,
+              median_mean: 950,
+              q05_mean: 400,
+              below_critical: 1,
+              below_advisory: 5,
+              zero_mean: 0,
+              incomplete: 2,
+              critical_mean_depth: 300,
+              advisory_mean_depth: 1000,
+              genes: [
+                { gene: 'GENEA', targets: 4, weak_targets: 2, min_mean: 250, mean_of_means: 700, weak: [] },
+                { gene: 'GENEB', targets: 0, weak_targets: 0, min_mean: null, mean_of_means: null, weak: [] },
+                { gene: 'GENEC', targets: 8, weak_targets: 0, min_mean: 900, mean_of_means: 1100, weak: [] },
+              ],
+            },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({ data: { family_id: 'NIPT001', total: 0, variants: [] } });
+      }
+      if (url === '/panels/panel-1') {
+        return Promise.resolve({ data: { _id: 'panel-1', name: 'Neurodevelopmental', version: 2 } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Quality checks')).toBeInTheDocument();
+    expect(screen.getByText(/the per-site median gives 19\.0%/)).toBeInTheDocument();
+    expect(screen.getByText('Fetal sex: female.')).toBeInTheDocument();
+    expect(screen.getByText(/30 seen, 0 absent \(female\); chrY coverage: female no chrY signal/)).toBeInTheDocument();
+    expect(screen.getByText('Paternity (pass).')).toBeInTheDocument();
+    expect(screen.getByText('The father is consistent with paternity.')).toBeInTheDocument();
+    expect(screen.getByText('Maternal plasma sample (pass).')).toBeInTheDocument();
+    expect(screen.getByText('Model: R NIPT-M v0.5.1 validation.')).toBeInTheDocument();
+    // The coverage of the capture targets in scope, and the genes with a weak target.
+    expect(screen.getByText(/The median depth of the 12 capture targets in scope is/)).toBeInTheDocument();
+    expect(screen.getByText(/2 of 4 targets weak \(lowest mean 250x\)/)).toBeInTheDocument();
+    expect(screen.getByText(/not a capture target/)).toBeInTheDocument();
+    expect(screen.queryByText('GENEC')).not.toBeInTheDocument();
+  });
+
   it('shows a not-configured message for a non-NIPT family', async () => {
     apiMock.get.mockResolvedValue({
       data: { family_id: 'FAM001', members: [], metadata: {} },

@@ -105,6 +105,30 @@ logger = logging.getLogger(__name__)
 # relative-haplotype colouring and sample-integrity QC readers. Kept in sync with
 # variant_explorer_service._IMPUTED_SOURCES.
 IMPUTED_SMALL_VARIANT_SOURCES: tuple[str, ...] = ("glimpse2", "shapeit")
+# A monogenic NIPT's callset stored one variant-only VCF per sample (the plasma and the
+# father; family_package_nipt): a sample without a call at a variant had no alt read
+# there, and a Mutect2 tumour-only GT says 0/1 whatever the allele fraction, so a reader
+# that needs genotypes takes them from the allele depths (vaf_genotype).
+NIPT_SMALL_VARIANT_SOURCE = "nipt"
+PER_SAMPLE_SMALL_VARIANT_SOURCES: tuple[str, ...] = (NIPT_SMALL_VARIANT_SOURCE,)
+
+
+def vaf_genotype(ad: Sequence[Any] | None, gt: str, *, min_depth: int = 10) -> str:
+    """A per-sample call's genotype from its allele depths: hom-alt from an alt fraction
+    of 0.80, het from 0.20 (the R NIPT-M classes), else reference; no call below
+    ``min_depth`` reads. The GT itself when there are no allele depths."""
+    depths = [int(value) for value in (ad or []) if value is not None]
+    if len(depths) < 2:
+        return gt
+    total = sum(depths)
+    if total < min_depth:
+        return "./."
+    fraction = depths[1] / total
+    if fraction >= 0.80:
+        return "1/1"
+    if fraction >= 0.20:
+        return "0/1"
+    return "0/0"
 
 
 # One entry of an interval list: chr:start-end, with a hyphen or an en dash, or chr:position

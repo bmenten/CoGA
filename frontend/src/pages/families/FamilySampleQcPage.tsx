@@ -311,21 +311,27 @@ const RelatednessMatrix: React.FC<{
   );
 };
 
-const PaternityCard: React.FC<{ check: ApiSampleIntegrityPaternityCheck }> = ({ check }) => (
-  <section className="surface-card space-y-2">
-    <h2 className="section-title">Paternity (cfDNA categories 7/8)</h2>
-    <div className="qc-check-row">
-      <StatusChip status={check.status} />
-      <div className="qc-check-body">
-        <p className="qc-check-title">
-          Father {check.father} — {check.cat7_transmitted} paternal-transmitted, {check.cat8_absent} absent
-          of {check.informative_sites} sites
-        </p>
-        <p className="table-subtle">{check.message}</p>
+const PaternityCard: React.FC<{ check: ApiSampleIntegrityPaternityCheck }> = ({ check }) => {
+  const homSeen = check.hom_alt_transmitted ?? 0;
+  const homAll = homSeen + (check.hom_alt_not_transmitted ?? 0);
+  const hetSeen = check.het_transmitted ?? 0;
+  const hetAll = hetSeen + (check.het_not_transmitted ?? 0);
+  return (
+    <section className="surface-card space-y-2">
+      <h2 className="section-title">Paternity (the father&apos;s alleles in the cfDNA)</h2>
+      <div className="qc-check-row">
+        <StatusChip status={check.status} />
+        <div className="qc-check-body">
+          <p className="qc-check-title">
+            Father {check.father} — homozygous alleles seen {homSeen} of {homAll} (all expected), het alleles seen{' '}
+            {hetSeen} of {hetAll} (half expected)
+          </p>
+          <p className="table-subtle">{check.message}</p>
+        </div>
       </div>
-    </div>
-  </section>
-);
+    </section>
+  );
+};
 
 const FamilySampleQcPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();

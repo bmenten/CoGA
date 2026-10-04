@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, List
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +41,7 @@ from ..schemas import (
     NiptArtifactAutoSeed,
     NiptArtifactAutoSeedOut,
     NiptArtifactCreate,
+    NiptArtifactImportOut,
     NiptArtifactOut,
     ProjectsUpdate,
     QcMetricCatalogueOut,
@@ -125,8 +126,10 @@ from ..services.nipt_artifact_pg import (
     add_nipt_artifact,
     auto_seed_nipt_artifacts,
     delete_nipt_artifact,
+    import_nipt_artifact_table,
     list_nipt_artifacts,
 )
+from ..services.upload_safety import decode_upload_text
 from ..services.small_variant_review_tags import (
     create_small_variant_tag_definition,
     delete_small_variant_tag_definition,
@@ -299,6 +302,29 @@ async def auto_seed_nipt_artifacts_endpoint(
         actor=user.username,
     )
     return NiptArtifactAutoSeedOut(**result)
+
+
+@router.post("/nipt/artifacts/import", response_model=NiptArtifactImportOut)
+async def import_nipt_artifacts_endpoint(
+    file: UploadFile = File(...),
+    assembly_id: str = Form(...),
+    assay_key: str = Form("nipt_cfdna"),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> NiptArtifactImportOut:
+    """Add a recurrent-artefact table (the R NIPT-M pipeline's
+    ``recurrent_cfdna_artifact_filter_*.tsv``, or a list of alleles) to an artifact list."""
+    text_value = await decode_upload_text(file, kind="Artifact table")
+    result = await import_nipt_artifact_table(
+        session,
+        assembly_id=assembly_id,
+        assay_key=assay_key.strip() or "nipt_cfdna",
+        text_value=text_value,
+        filename=file.filename or "",
+        created_by=user.id,
+        actor=user.username,
+    )
+    return NiptArtifactImportOut(**result)
 
 
 @router.put("/families/{family_id}/projects")

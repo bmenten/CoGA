@@ -66,8 +66,9 @@ SV→gene index attach by it. A row in ClickHouse is one callset's call of one v
 family and one project: its sort key ends with the callset (`source`). So a direct call and an
 imputed call of one variant, or two callers' calls of one SV, are separate rows, and a part
 merge keeps both. The diagnostic lists show the direct call, and the SV list shows an SV once
-per caller. The backend refuses to start on a table whose sort key leaves the callset out. The
-sort keys, how the storage keys are built and the recovery steps are in
+per caller. The backend refuses to start on a table whose sort key leaves the callset out, and
+on a small-variant calls table without the per-call `calls.filters` and `calls.metrics`
+columns. The sort keys, how the storage keys are built and the recovery steps are in
 [database.md](database.md#row-identity).
 
 ## Runtime flow
@@ -112,7 +113,8 @@ On start the backend (`backend/app/main.py`):
    duplications); and queues the first gene-reference sync when the local dbNSFP gene file is
    present and no gene information is cached;
 4. waits for ClickHouse and creates the database; refuses to start when a variant table's sort
-   key leaves the callset out ([Storage identity](#storage-identity)); and starts the scheduled
+   key leaves the callset out, or the small-variant calls table lacks the per-call FILTER and
+   metrics columns ([Storage identity](#storage-identity)); and starts the scheduled
    ClickHouse integrity check;
 5. starts the gene-reference refresh worker and the family-package import workers
    (`FAMILY_IMPORT_WORKER_COUNT`).

@@ -25,6 +25,8 @@ from .hpo_service import (
 from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, _vcf_index_candidates, read_vcf_sample_columns
 from .family_package_manifest import _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, staged_package_source
+from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
+from .nipt_target_coverage import target_table_missing_columns
 
 
 logger = logging.getLogger(__name__)
@@ -294,6 +296,76 @@ def _validate_wisecondorx_dataset(
     )
 
 
+def _validate_nipt_per_sample_snv_dataset(
+    *,
+    root: Path,
+    dataset: ManifestDataset,
+    ped_sample_ids: set[str],
+    errors: list[FamilyImportValidationIssue],
+    analysis_type: str | None,
+) -> FamilyImportDatasetSummary:
+    """Validate ``snv.per_sample``: a monogenic NIPT's SNV files, one per sample.
+
+    Only a monogenic NIPT family has its SNV callset as one file per sample: every other
+    analysis reads a sample without a call at a variant as reference, which only a joint
+    VCF says. Each file must hold exactly one sample (it is bound to its entry's sample).
+    """
+    files: list[str] = []
+    samples: list[str] = []
+    before = len(errors)
+    if analysis_type != MONOGENIC_NIPT_ANALYSIS_TYPE:
+        errors.append(
+            _issue(
+                "dataset_per_sample_unsupported",
+                "A per-sample SNV callset (snv.per_sample) is read only for a monogenic NIPT "
+                "family (analysis_type: monogenic_nipt); give a joint VCF as snv.family_vcf",
+                dataset="snv",
+            )
+        )
+    for sample_id, raw_entry in dataset.per_sample.items():
+        samples.append(sample_id)
+        _validate_per_sample_id(
+            dataset_type="snv",
+            sample_id=sample_id,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+        entry = _sample_entry_mapping(
+            dataset_type="snv",
+            sample_id=sample_id,
+            entry=raw_entry,
+            errors=errors,
+        )
+        vcf_path = _require_file(
+            root=root,
+            dataset_type="snv",
+            value=entry.get("vcf") or entry.get("file"),
+            field_name="vcf",
+            errors=errors,
+            files=files,
+            sample_id=sample_id,
+        )
+        if vcf_path is not None and vcf_path.is_file():
+            columns = read_vcf_sample_columns(vcf_path)
+            if len(columns) != 1:
+                errors.append(
+                    _issue(
+                        "dataset_vcf_not_single_sample",
+                        f"The SNV file of {sample_id} must hold exactly one sample; it has {len(columns)}",
+                        dataset="snv",
+                        sample_id=sample_id,
+                        path=vcf_path,
+                    )
+                )
+    return FamilyImportDatasetSummary(
+        dataset_type="snv",
+        enabled=True,
+        status="error" if len(errors) > before else "valid",
+        files=list(dict.fromkeys(files)),
+        samples=samples,
+    )
+
+
 def _validate_coverage_dataset(
     *,
     root: Path,
@@ -326,6 +398,31 @@ def _validate_coverage_dataset(
             entry=raw_entry,
             errors=errors,
         )
+        if entry.get("target_table"):
+            # A capture panel's per-target coverage table (monogenic NIPT); its header
+            # must name the columns the parser reads.
+            table_path = _require_file(
+                root=root,
+                dataset_type="coverage",
+                value=entry.get("target_table"),
+                field_name="target_table",
+                errors=errors,
+                files=files,
+                sample_id=sample_id,
+            )
+            if table_path is not None and table_path.is_file():
+                missing = target_table_missing_columns(table_path)
+                if missing:
+                    errors.append(
+                        _issue(
+                            "coverage_target_table_columns",
+                            f"The coverage table of {sample_id} has no column {', '.join(missing)}",
+                            dataset="coverage",
+                            sample_id=sample_id,
+                            path=table_path,
+                        )
+                    )
+            continue
         _require_file(
             root=root,
             dataset_type="coverage",
@@ -974,6 +1071,7 @@ def _validate_dataset(
     remote_only_files: frozenset[str] = frozenset(),
     warnings: list[FamilyImportValidationIssue] | None = None,
     ped: ParsedPed | None = None,
+    analysis_type: str | None = None,
 ) -> FamilyImportDatasetSummary:
     if not dataset.enabled:
         return FamilyImportDatasetSummary(
@@ -981,6 +1079,14 @@ def _validate_dataset(
             enabled=False,
             status="disabled",
             message="Dataset disabled in manifest",
+        )
+    if dataset_type == "snv" and dataset.per_sample and not dataset.family_vcf:
+        return _validate_nipt_per_sample_snv_dataset(
+            root=root,
+            dataset=dataset,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+            analysis_type=analysis_type,
         )
     if dataset_type in {"snv", "sv_needlr", "repeats_trgt"}:
         # TRGT is family-level when a joint VCF exists and per-sample otherwise (the
@@ -1480,6 +1586,7 @@ def _validate_and_load_package(
                     remote_only_files=remote_only_files,
                     warnings=warnings,
                     ped=ped,
+                    analysis_type=manifest.analysis_type,
                 )
             )
         phenotype_summary = _validate_manifest_hpo_annotations(

@@ -15,7 +15,7 @@ Enkele begrippen:
 Er zijn twee rapportpagina's:
 
 - **`FamilyReportPage.tsx`** — het familierapport. Het live rapport toont de varianten met de reviewtag **`report`** (small variants en structurele varianten), met per gerapporteerd gen het genprofiel en de HPO-termen van de familie. Het vraagt per soort tot 10.000 gerapporteerde varianten, het maximum van de API, en zegt op het scherm en op de afdruk wanneer een lijst niet volledig is: meer gerapporteerde varianten dan die pagina, of een begrensde zoekopdracht (`reportedListCompleteness.ts`). Het ondertekende snapshot leest de gerapporteerde reviews rechtstreeks uit Postgres en heeft die grens niet. De zinnen van het rapport bouwen hulpfuncties die apart getest worden (`reportNarrative.ts`). Een ondertekende versie tekent `SignedFamilyReport.tsx` uit het bevroren snapshot (zie verder).
-- **`FamilyNiptReportPage.tsx`** — het rapport voor monogene NIPT, met de foetale fractie, de dekking en de kandidaatvarianten (hoofdstuk 8).
+- **`FamilyNiptReportPage.tsx`** — het rapport voor monogene NIPT, met de foetale fractie, de kwaliteitscontroles (foetaal geslacht, vaderschap, het plasmasample), de dekking en de kandidaatvarianten (hoofdstuk 8).
 
 Wat elke variantsectie bevat, beschrijft `docs/report-template.md`. Exporteren gebeurt via de printfunctie van de browser. **Beide pagina's dragen een disclaimer** dat het rapport beslissingsondersteuning is die een gekwalificeerd klinisch wetenschapper moet bevestigen; het NIPT-rapport vraagt ook bevestiging met een invasieve diagnostische test.
 

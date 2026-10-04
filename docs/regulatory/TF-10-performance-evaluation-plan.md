@@ -111,7 +111,7 @@ effect on agreement estimates noted.
 
 ### 3.4 Monogenic NIPT (30 samples)
 - **Units of analysis:** **fetal-fraction estimate** (quantitative QC, vs comparator/known FF); **per-variant zygosity category**; and the **inheritance-preset conclusions** (de novo, paternal/maternal dominant, recessive at-risk).
-- **Inputs:** combined two-sample (paternal + cfDNA) annotated VCFs, coverage, pedigree; external FF where available.
+- **Inputs:** the NIPT-M pipeline's single-sample cfDNA and paternal annotated VCFs with their per-target coverage tables (or combined two-sample VCFs with coverage), pedigree; external FF where available.
 - **Metrics:**
   - FF: bias and correlation (Pearson/Deming, Bland–Altman) of CoGA's fetal-fraction estimate (from paternally inherited variants, category 7) vs comparator FF (the external FF, where available).
   - Category assignment & inheritance calls: PPA/NPA/OPA vs the confirmed fetal genotype/comparator; **false-negative rate** (paternal homozygous variants missing from the cfDNA, category 8).
@@ -199,9 +199,14 @@ pull request updates this list only when it adds clinical behaviour that no area
   classifications that reopen with their saved criteria, CNV classifications preserved by
   review edits, and the prioritised ranking and its cache keys.
 - **Application logic** — monogenic NIPT (one fetal fraction, paternally allowed fetal
-  states, paternity confidence, the audited artifact list, a report that says when it is
-  incomplete); PGT embryo calls that are uninformative without supporting data, and the
-  risk-haplotype display, with a parent's phase switches undone where the embryos switch
+  states, the R NIPT-M validation's quality filter and model constants, paternity from how
+  many of the father's homozygous and of his heterozygous alleles the plasma shows, the fetal
+  sex from the father's X alleles and the plasma's chrY coverage, the maternal-plasma sex
+  profile and the per-target coverage check, the fetal-inheritance probabilities, the de novo
+  triage, the per-gene recessive risk, an allele written as an MNV in one sample and as SNVs
+  in the other, the audited artifact list and its import from the pipeline's recurrent
+  table, a report that says when it is incomplete); PGT embryo calls that are uninformative
+  without supporting data, and the risk-haplotype display, with a parent's phase switches undone where the embryos switch
   together, a relative of unknown degree coloured along the genome when it is the linked
   member's parent or child and otherwise at the ROI where both flanks name the haplotype
   it shares, and the affected parent's and the index's statuses from the inheritance
@@ -210,7 +215,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   every autosome, so sibling embryos read as siblings, and its sex check from chrX outside
   the pseudo-autosomal regions.
 - **Data integrity** — package imports (long-read layout; the PGT pipeline layout, with the
-  embryo roles and the index its PED lacks; bucket sources; snapshot/restore);
+  embryo roles and the index its PED lacks; the monogenic NIPT pair, one VCF per sample with
+  the father's noise left out, and the per-target coverage tables; bucket sources;
+  snapshot/restore);
   serialised per-family variant writes; per-sample and per-source rewrites and deletes that
   keep every other call; calls from two callsets or sources both kept; concurrent review
   saves refused when stale.

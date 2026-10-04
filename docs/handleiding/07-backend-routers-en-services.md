@@ -83,7 +83,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | `families.py` | `/families` | Familie, leden, structuur, HPO, fenotype-matching, regio van interesse |
 | `families_small_variants.py` | `/families` (deel) | Small variants: pagina's, export, compound-het, presets, tags, review en ACMG (hoofdstuk 8) |
 | `families_structural_variants.py` | `/families` (deel) | Structurele varianten van een familie |
-| `families_nipt.py` | `/families` (deel) | Monogene NIPT: samenvatting, varianten, dekking |
+| `families_nipt.py` | `/families` (deel) | Monogene NIPT: samenvatting met de kwaliteitscontroles, varianten met de overervingsweergaven, dekking (ook per capture-target) (hoofdstuk 8) |
 | `families_reports.py` | `/families` (deel) | Annotatiemanifest, drift, klinische audit, sample-QC, rapport en ondertekening (hoofdstuk 11) |
 | `families_tracks.py` | `/families` (deel) | Tracks: haplotypes, gefaseerde markers, repeats, mtDNA, Paraphase (hoofdstuk 9) |
 | `family_qc_reports.py` | `/families` | Het QC-rapport van de pipeline, via een kortlevende link en afgeschermd (hoofdstuk 2) |

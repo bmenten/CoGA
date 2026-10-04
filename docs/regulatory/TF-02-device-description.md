@@ -51,19 +51,20 @@ separate validation/accreditation.
 ```
 
 **Explicitly upstream / not part of CoGA:** base-calling, demultiplexing, alignment,
-variant calling, annotation, fetal-fraction *primary* estimation by an external caller
-(CoGA recomputes and cross-checks but the wet-lab assay produces the cfDNA), imputation/
-phasing computation (CoGA consumes phased/imputed markers). The provenance and versions of
-these upstream modules are captured per family and frozen into the report
+variant calling, annotation, per-target coverage computation (for monogenic NIPT, CoGA
+estimates the fetal fraction itself from the calls and takes no externally supplied value),
+imputation/phasing computation (CoGA consumes phased/imputed markers). The provenance and
+versions of these upstream modules are captured per family and frozen into the report
 ([clinical-traceability.md](../clinical-traceability.md)).
 
 ## 4. Inputs
 
 | Input | Description | Used by |
 | --- | --- | --- |
-| Annotated VCF (SNV/indel) | Single- or multi-sample, with VEP/ClinVar/gnomAD/dbNSFP/SpliceAI annotations; site QUAL and per-call GT/DP/AF/AD. For the mitochondrial app (3.5) this includes the nuclear mito-gene panel from the ONT adaptive-sampling run. | All applications |
+| Annotated VCF (SNV/indel) | Single- or multi-sample, with VEP/ClinVar/gnomAD/dbNSFP/SpliceAI annotations; site QUAL and per-call GT/DP/AF/AD; a single-sample VCF's FILTER and caller metrics (e.g. Mutect2 TLOD, FS) kept with its call. For the mitochondrial app (3.5) this includes the nuclear mito-gene panel from the ONT adaptive-sampling run. For monogenic NIPT, one VCF per sample (cfDNA and paternal) or a joint VCF. | All applications |
 | Structural-variant VCF | SV calls | PGT (large SV), rare-disorder |
 | Interval tracks | Coverage, segments, copy-number, APCAD (allele fraction), haplotype-lineage, in BED-like form | PGT (aneuploidy/SV/coverage), NIPT (coverage), rare-disorder |
+| Per-target coverage table | Per capture target: mean and median depth and the share of its bases covered (the NIPT-M pipeline's `coverage_<sample>.txt`), stored as the sample's target-coverage track | NIPT (coverage QC, the plasma's sex profile, a sample's depth where its VCF has no call) |
 | Phased/imputed markers | Per-site phased genotypes for haplotype segregation | PGT |
 | Repeat expansions (TRGT), Paraphase, mtDNA results | Per-sample specialized caller outputs; the **complete-mtDNA** call set from ONT adaptive sampling drives the mitochondrial app | Rare-disorder, mitochondrial (3.5) |
 | Copy-number VCF (depth-based caller) | Per-sample CNV calls with copy number, confidence intervals and overlapping genes; ingested as reviewable structural variants alongside the alignment-based SV calls | Rare-disorder, PGT |
@@ -82,7 +83,7 @@ these upstream modules are captured per family and frozen into the report
 | Family-scoped variant query | Filter SNV/SV by gene/panel/frequency/consequence/ROI; trio inheritance via genotype matching | [application-scheme.md](../application-scheme.md) |
 | Global Small Variant Explorer | Cross-project variant-centric aggregation with carrier counts | README |
 | Semi-automatic ACMG/AMP classifier | Pre-position ACMG criteria, server-recompute points/class on save; overridable | In-app reference ([source](../../frontend/src/content/docs/acmg-classification.md)); [acmg-classification.md](../acmg-classification.md) |
-| Monogenic-NIPT analysis | Fetal-fraction estimation, 8-category VAF zygosity classification, inheritance presets, coverage/QC funnels | [monogenic-nipt.md](../monogenic-nipt.md) |
+| Monogenic-NIPT analysis | Fetal-fraction estimation, cfDNA quality filter, 8-category VAF zygosity classification with fetal-inheritance probabilities, de novo triage, inheritance views with the per-gene recessive fetal risk, quality checks (paternity, fetal sex, maternal-plasma sample, target coverage), coverage/QC funnels | [monogenic-nipt.md](../monogenic-nipt.md) |
 | PGT haplotype segregation | Pedigree-IBD founder colouring, disease-haplotype inference, derived embryo classification + QC | [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md) |
 | Structural / CNV / aneuploidy review | SV second-hit, large-SV and aneuploidy interval tracks | [snv-sv-compound-het.md](../snv-sv-compound-het.md) |
 | Repeat / Paraphase / mtDNA | Specialized per-data-type views | README |
@@ -93,7 +94,7 @@ these upstream modules are captured per family and frozen into the report
 
 - Filtered/prioritized candidate-variant lists with annotations and internal/external frequencies.
 - Semi-automatic ACMG/AMP classification (5-class + VUS sub-tier), fully overridable, server-recomputed.
-- Application-specific derived calls: NIPT fetal-fraction + per-variant category; PGT per-embryo ROI classification with QC; aneuploidy/large-SV review.
+- Application-specific derived calls: NIPT fetal-fraction + per-variant category and fetal-inheritance probabilities, triaged de novo candidates, per-gene recessive fetal risk and quality checks; PGT per-embryo ROI classification with QC; aneuploidy/large-SV review.
 - A **signed-out clinical report** with a provenance footer, and an immutable clinical audit trail. Each signed version is frozen and content-hashed, rendered and printed from its frozen record, and downloadable; the live report says when it no longer matches the latest signed version (TF-06 H9).
 
 > No output is an autonomous diagnosis. All outputs are reviewed and signed out by a
@@ -128,8 +129,9 @@ Reference: [clinical-traceability.md](../clinical-traceability.md).
 CoGA is one device with per-application configuration (assay tags, gene panels, inheritance
 presets) rather than separate software variants. Configuration items under control:
 gene-panel definitions and their source version, ACMG criterion pre-positioning rules,
-NIPT artifact lists (per assay/panel), reference-data releases. Configuration management is
-governed by **TF-18**.
+NIPT artifact lists (per assay/panel; seeded from the assay's cfDNA samples or imported from
+the NIPT-M pipeline's recurrent-artefact table), reference-data releases. Configuration
+management is governed by **TF-18**.
 
 ## 10. Operating environment & deployment
 
