@@ -184,6 +184,22 @@ def _query_returns_rows(query: str) -> bool:
     return first_token in {"SELECT", "SHOW", "DESCRIBE", "DESC", "EXISTS", "WITH", "CHECK"}
 
 
+def _quote_identifier(name: str) -> str:
+    return "`" + name.replace("\\", "\\\\").replace("`", "\\`") + "`"
+
+
+def _driver_table_name(table: str, database: str | None) -> str:
+    """The table as clickhouse-connect's ``insert`` must get it: quoted and qualified.
+
+    The driver takes a name holding a dot for an already qualified ``database.table`` and
+    sends it unquoted, ignoring ``database``. The table of an assembly whose dataset key
+    has a dot (``T2T_CHM13v2.0/SNV_INDEL/entries``) then reached ClickHouse as broken SQL,
+    and no insert into it worked. A quoted, qualified name passes through as it is."""
+    if database is None:
+        return table
+    return f"{_quote_identifier(database)}.{_quote_identifier(table)}"
+
+
 def _parse_insert_query(query: str) -> tuple[str, str | None, list[str]]:
     match = _INSERT_QUERY_PATTERN.match(query)
     if match is None:
@@ -214,8 +230,8 @@ async def insert_clickhouse(
         client = await get_clickhouse_client()
         try:
             return await client.insert(
-                table=table,
-                database=database,
+                table=_driver_table_name(table, database),
+                database=None,
                 data=data,
                 column_names=columns,
             )

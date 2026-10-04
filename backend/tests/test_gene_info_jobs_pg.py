@@ -164,6 +164,50 @@ HGNC_RECORDS = {
 }
 
 
+class _RowsResult:
+    def mappings(self):
+        return self
+
+    def all(self):
+        return []
+
+
+class _GeneRowsSession:
+    def __init__(self) -> None:
+        self.sql: list[str] = []
+
+    async def execute(self, statement, params=None):
+        self.sql.append(str(statement))
+        return _RowsResult()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("symbol", [None, "BRCA1"])
+async def test_the_gene_refresh_loads_no_exons(monkeypatch: pytest.MonkeyPatch, symbol) -> None:
+    # A whole-cohort refresh holds every gene row of every human assembly for hours; with
+    # their exon lists the API process grew to gigabytes and an import beside it ran out
+    # of memory. The refresh writes a gene's locus and annotation, nothing of its exons.
+    async def human_context(_session):
+        return gene_info_jobs_pg.HumanGeneContext(
+            species={"id": "species-uuid", "name": "Homo sapiens"},
+            assemblies=[{"id": "11111111-1111-4111-8111-111111111111", "assembly_name": "GRCh38"}],
+        )
+
+    async def no_species(_session):
+        return []
+
+    monkeypatch.setattr(gene_info_jobs_pg, "_get_human_context", human_context)
+    monkeypatch.setattr(gene_info_jobs_pg, "_fetch_species_rows", no_species)
+    session = _GeneRowsSession()
+    await gene_info_jobs_pg._load_human_gene_groups(session, symbol=symbol)  # type: ignore[arg-type]
+    [sql] = session.sql
+    columns = sql.split("FROM genes")[0]
+    for unused in ("exons", "strand", "extra", "source"):
+        assert unused not in columns
+    for needed in ("gene_id", "hgnc_symbol", "chr", "start", '"end"', "biotype", "description"):
+        assert needed in columns
+
+
 def test_expand_groups_folds_a_renamed_symbol_onto_its_current_name() -> None:
     # The assembly annotation still calls this gene AATK; HGNC renamed it to LMTK1, and
     # every current source keys on the new name. The locus has to follow the rename.

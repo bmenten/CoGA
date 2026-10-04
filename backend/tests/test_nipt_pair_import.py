@@ -234,6 +234,24 @@ async def test_the_record_filter_leaves_out_records_and_counts_them(storage) -> 
 
 
 @pytest.mark.asyncio
+async def test_a_record_the_filter_leaves_out_has_no_annotation_parsed(storage, monkeypatch) -> None:
+    # A NIPT father's file drops over a million noise calls: their VEP annotation, most of a
+    # record's parsing, was parsed and thrown away.
+    parsed: list[str] = []
+    real = variant_upload_service.extract_small_variant_annotations
+
+    def counting(info, state):
+        parsed.append(str(info.get("TLOD")))
+        return real(info, state)
+
+    monkeypatch.setattr(variant_upload_service, "extract_small_variant_annotations", counting)
+    keep = paternal_record_filter({("7", 1000), ("7", 2000)})
+    result = await _upload(_FATHER_VCF, "FATHER1.vcf", record_filter=keep)
+    assert result["skipped_by_filter"] == 1
+    assert len(parsed) == result["inserted"] == 3
+
+
+@pytest.mark.asyncio
 async def test_a_multi_sample_record_describes_the_site_not_the_calls(storage) -> None:
     joint = (
         _HEADER
