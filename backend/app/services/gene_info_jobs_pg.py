@@ -210,6 +210,10 @@ async def _load_human_gene_groups(
     human_context = await _get_human_context(session)
     assembly_ids = [assembly["id"] for assembly in human_context.assemblies]
     species_docs = await _fetch_species_rows(session)
+    # Only the fields the refresh writes from a gene row: its locus and the annotation it
+    # falls back on. A whole-cohort refresh holds every gene row of every human assembly
+    # (over half a million) for the hours it runs; their exon lists and extra were most
+    # of the API process's memory, enough for an import beside it to run it out of memory.
     params: dict[str, Any] = {}
     if symbol:
         query = text(
@@ -221,12 +225,8 @@ async def _load_human_gene_groups(
                 chr,
                 start,
                 "end",
-                exons,
-                strand,
                 biotype,
-                description,
-                source,
-                extra
+                description
             FROM genes
             WHERE assembly_id IN :assembly_ids
               AND lower(hgnc_symbol) = lower(:symbol)
@@ -244,12 +244,8 @@ async def _load_human_gene_groups(
                 chr,
                 start,
                 "end",
-                exons,
-                strand,
                 biotype,
-                description,
-                source,
-                extra
+                description
             FROM genes
             WHERE assembly_id IN :assembly_ids
             ORDER BY hgnc_symbol, assembly_id
