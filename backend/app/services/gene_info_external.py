@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List
+
+import httpx
 
 from ..core.http_resilience import resilient_request
 from .gene_info_bulk_sources import HumanGeneBulkContext, build_bulk_gene_bundle, merge_gene_extra
@@ -45,28 +49,71 @@ def source_status(
     }
 
 
-async def fetch_ncbi_gene(symbol: str, species_name: str) -> Dict[str, Any]:
-    search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-    summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-    search_response = await resilient_request(
-        "GET",
-        search_url,
-        params={
-            "db": "gene",
-            "term": f"{symbol}[sym] AND {species_name}[orgn]",
-            "retmode": "json",
-        },
-    )
-    search_response.raise_for_status()
-    ids = search_response.json().get("esearchresult", {}).get("idlist", [])
-    if not ids:
-        return {}
-    summary_response = await resilient_request(
-        "GET", summary_url, params={"db": "gene", "id": ids[0], "retmode": "json"}
-    )
+_NCBI_EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+# NCBI's E-utilities take three requests a second from one address without an API key, and
+# answer more with 429 (Too Many Requests). A whole-cohort gene refresh asks about thousands
+# of genes one after another; with each gene's esearch and esummary back to back, a fifth of
+# its requests came back 429. The requests go out one per interval, a margin under the limit.
+NCBI_REQUEST_INTERVAL_SECONDS = 0.4
+
+
+class _RequestPacer:
+    """Spaces the requests to one service across the process: each waits until the
+    interval since the one before it has passed."""
+
+    def __init__(self, interval: float) -> None:
+        self.interval = interval
+        self._next_at = 0.0
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._lock: asyncio.Lock | None = None
+
+    def _lock_for_running_loop(self) -> asyncio.Lock:
+        # A lock belongs to the event loop it waits in: the app runs one, a test run several.
+        loop = asyncio.get_running_loop()
+        if self._lock is None or self._loop is not loop:
+            self._loop, self._lock = loop, asyncio.Lock()
+        return self._lock
+
+    async def wait(self) -> None:
+        async with self._lock_for_running_loop():
+            delay = self._next_at - time.monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            self._next_at = time.monotonic() + self.interval
+
+
+_ncbi_pacer = _RequestPacer(NCBI_REQUEST_INTERVAL_SECONDS)
+
+
+async def _ncbi_get(endpoint: str, params: Dict[str, Any]) -> httpx.Response:
+    await _ncbi_pacer.wait()
+    return await resilient_request("GET", f"{_NCBI_EUTILS}/{endpoint}", params=params)
+
+
+async def fetch_ncbi_gene(
+    symbol: str, species_name: str, *, ncbi_gene_id: str | None = None
+) -> Dict[str, Any]:
+    """NCBI Gene's summary of a gene: by its NCBI Gene ID when HGNC gives one (one request),
+    else found by symbol and species first (two)."""
+    gene_id = str(ncbi_gene_id or "").strip()
+    if not gene_id.isdigit():
+        search_response = await _ncbi_get(
+            "esearch.fcgi",
+            {
+                "db": "gene",
+                "term": f"{symbol}[sym] AND {species_name}[orgn]",
+                "retmode": "json",
+            },
+        )
+        search_response.raise_for_status()
+        ids = search_response.json().get("esearchresult", {}).get("idlist", [])
+        if not ids:
+            return {}
+        gene_id = str(ids[0])
+    summary_response = await _ncbi_get("esummary.fcgi", {"db": "gene", "id": gene_id, "retmode": "json"})
     summary_response.raise_for_status()
     summary_data = summary_response.json().get("result", {})
-    return summary_data.get(ids[0], {})
+    return summary_data.get(gene_id, {})
 
 
 async def fetch_external_gene_bundle(
@@ -131,7 +178,11 @@ async def fetch_external_gene_bundle(
     # source of a gene summary for genes outside dbNSFP.
     ncbi_payload: Dict[str, Any] = {}
     try:
-        ncbi_payload = await fetch_ncbi_gene(cleaned_symbol, str(species_document.get("name")))
+        ncbi_payload = await fetch_ncbi_gene(
+            cleaned_symbol,
+            str(species_document.get("name")),
+            ncbi_gene_id=(bulk_bundle.get("profile") or {}).get("ncbi_gene_id"),
+        )
         source_status_map["ncbi"] = source_status(
             status="success" if ncbi_payload else "missing",
             source_url="https://www.ncbi.nlm.nih.gov/home/develop/api/",
