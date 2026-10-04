@@ -99,14 +99,46 @@ async def test_execute_clickhouse_routes_insert_to_insert_api(monkeypatch: pytes
     assert result == {"inserted": 1}
     assert client.inserts == [
         (
-            "GRCh38/SNV_INDEL/entries",
-            "coga",
+            "`coga`.`GRCh38/SNV_INDEL/entries`",
+            None,
             [(1, "v1", ["S1"])],
             ["key", "variantId", "calls.sampleId"],
         )
     ]
     assert client.queries == []
     assert client.commands == []
+
+
+@pytest.mark.asyncio
+async def test_an_insert_into_a_dotted_assemblys_table_reaches_the_driver_quoted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The T2T assembly's dataset key keeps its dot (T2T_CHM13v2.0). clickhouse-connect
+    # takes a table name holding a dot for "database.table" and sends it unquoted, so the
+    # split name made every T2T insert a syntax error (DESCRIBE TABLE T2T_CHM13v2.0/...).
+    from clickhouse_connect.driver.binding import _qualified_table
+
+    client = _RecordingAsyncClient()
+    monkeypatch.setattr(clickhouse, "_async_client", client)
+    monkeypatch.setattr(clickhouse, "_client_lock", None)
+
+    await clickhouse.execute_clickhouse(
+        "INSERT INTO coga.`T2T_CHM13v2.0/SNV_INDEL/entries` (key) VALUES",
+        [(1,)],
+    )
+
+    [(table, database, _data, _columns)] = client.inserts
+    assert (table, database) == ("`coga`.`T2T_CHM13v2.0/SNV_INDEL/entries`", None)
+    # What the driver itself makes of it: the name, intact.
+    assert _qualified_table(table, database) == "`coga`.`T2T_CHM13v2.0/SNV_INDEL/entries`"
+    # The split name the driver used to get came out bare.
+    assert _qualified_table("T2T_CHM13v2.0/SNV_INDEL/entries", "coga") == "T2T_CHM13v2.0/SNV_INDEL/entries"
+
+
+def test_an_identifier_is_quoted_with_its_backticks_escaped() -> None:
+    assert clickhouse._quote_identifier("GRCh38/SV/entries") == "`GRCh38/SV/entries`"
+    assert clickhouse._quote_identifier("odd`name") == "`odd\\`name`"
+    assert clickhouse._driver_table_name("t", None) == "t"
 
 
 @pytest.mark.asyncio
@@ -142,8 +174,8 @@ async def test_execute_clickhouse_retries_insert_after_request_body_write_failur
     assert created[0].closed is True
     assert created[1].inserts == [
         (
-            "GRCh38/SNV_INDEL/entries",
-            "coga",
+            "`coga`.`GRCh38/SNV_INDEL/entries`",
+            None,
             [(1, "v1", ["S1"])],
             ["key", "variantId", "calls.sampleId"],
         )

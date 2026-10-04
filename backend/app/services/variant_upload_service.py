@@ -882,13 +882,6 @@ async def upload_family_small_variant_file(
                 skipped_malformed += 1
                 continue
             end = start + len(ref) - 1
-            info = _parse_info(info_field)
-            variant_id = build_small_variant_id(chrom, start, ref, alt)
-            annotations = (
-                vep_annotations.get(variant_id, chrom, start, ref, alt)
-                if vep_annotations
-                else None
-            ) or extract_small_variant_annotations(info, annotation_state)
 
             calls: list[SmallVariantCall] = []
             calls_by_sample: dict[str, SmallVariantCall] = {}
@@ -915,8 +908,17 @@ async def upload_family_small_variant_file(
                 calls.append(call)
                 calls_by_sample[sample_name] = call
             if record_filter is not None and not record_filter(chrom, start, end, calls):
+                # Before the annotation is parsed: a NIPT father's file drops over a million
+                # noise calls here, and their VEP annotation is most of a record's parsing.
                 skipped_by_filter += 1
                 continue
+            info = _parse_info(info_field)
+            variant_id = build_small_variant_id(chrom, start, ref, alt)
+            annotations = (
+                vep_annotations.get(variant_id, chrom, start, ref, alt)
+                if vep_annotations
+                else None
+            ) or extract_small_variant_annotations(info, annotation_state)
             if haplotype_blocks is not None:
                 haplotype_blocks.observe(
                     chrom=chrom,
