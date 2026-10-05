@@ -421,3 +421,46 @@ async def test_the_importer_loads_the_plasma_first_and_filters_the_paternal_file
     assert summary.summary["FATHER1"]["skipped_by_filter"] == 1
     assert storage["rewrites"] == ["nipt", "nipt"]
     assert {row["pos"] for row in storage["stored"]} == {1000, 2000, 4000}
+
+
+@pytest.mark.asyncio
+async def test_the_importer_reports_the_bytes_of_both_files_read(
+    tmp_path: Path, storage: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The time left of the dataset is of both files: the father's bytes count on from the
+    # end of the plasma's (import_progress).
+    _write_gz(tmp_path / "FATHER1.mutect2.vcf.gz", _FATHER_VCF)
+    _write_gz(tmp_path / "CFDNA1.mutect2.vcf.gz", _PLASMA_VCF)
+    monkeypatch.setattr(variant_upload_service, "SMALL_VARIANT_PROGRESS_INTERVAL", 1)
+    reports: list[FamilyImportDatasetSummary] = []
+
+    async def progress(summary: FamilyImportDatasetSummary) -> None:
+        reports.append(summary)
+
+    job = DatasetImportJob(
+        session=_FakeSession(),  # type: ignore[arg-type]
+        bundle=_bundle(tmp_path, {"CFDNA1": {"assay": "nipt_cfdna"}}),
+        dataset=ManifestDataset(
+            per_sample={
+                "FATHER1": {"vcf": "FATHER1.mutect2.vcf.gz"},
+                "CFDNA1": {"vcf": "CFDNA1.mutect2.vcf.gz"},
+            }
+        ),
+        summary=FamilyImportDatasetSummary(dataset_type="snv", enabled=True, status="valid"),
+        family_context=_context(),
+        sample_contexts=_sample_contexts(),
+        progress=progress,
+    )
+    summary = await family_package_datasets.DATASET_IMPORTERS["snv"](job)
+
+    plasma = (tmp_path / "CFDNA1.mutect2.vcf.gz").stat().st_size
+    father = (tmp_path / "FATHER1.mutect2.vcf.gz").stat().st_size
+    reading = [report.summary for report in reports if "bytes_read" in report.summary]
+    assert {report.status for report in reports} == {"running"}
+    assert {(stats["importing"], stats["bytes_read"]) for stats in reading} == {
+        ("CFDNA1", plasma),
+        ("FATHER1", plasma + father),
+    }
+    assert {stats["bytes_total"] for stats in reading} == {plasma + father}
+    assert summary.status == "imported"
+    assert list(summary.summary) == ["CFDNA1", "FATHER1"]

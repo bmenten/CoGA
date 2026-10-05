@@ -34,6 +34,24 @@ export const formatDate = (value?: string | null, missing = ''): string => {
  */
 export const formatCount = (value: number): string => new Intl.NumberFormat().format(value);
 
+/**
+ * A length of time: seconds under a minute ("12 s"), minutes under an hour ("25 min"), then
+ * hours and minutes ("2 h 5 min") and days and hours ("1 d 3 h"), rounded to the last unit.
+ */
+export const formatDuration = (seconds: number): string => {
+  const total = Math.max(0, seconds);
+  if (Math.round(total) < 60) return `${Math.round(total)} s`;
+  const minutes = Math.round(total / 60);
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 24 * 60) {
+    const hours = Math.floor(minutes / 60);
+    return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`;
+  }
+  const hours = Math.round(minutes / 60);
+  const days = Math.floor(hours / 24);
+  return hours % 24 ? `${days} d ${hours % 24} h` : `${days} d`;
+};
+
 /** A genomic span in bp, kb (one decimal) or Mb (two decimals). */
 export const formatRegionSize = (size: number): string => {
   if (size >= 1_000_000) return `${(size / 1_000_000).toFixed(2)} Mb`;

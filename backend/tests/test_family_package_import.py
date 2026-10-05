@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -23,6 +23,7 @@ from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageManifes
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.access_control import CurrentUser
+from backend.app.services.import_progress import DatasetTimer
 
 
 @pytest.fixture(autouse=True)
@@ -1092,6 +1093,90 @@ def _single_sample_context(*, family_id: str = "FAM001") -> FamilyMetadataContex
         assembly_id="assembly-uuid",
         assembly_name="GRCh38",
     )
+
+
+@pytest.mark.asyncio
+async def test_each_dataset_is_timed_and_a_running_one_tells_its_time_left(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    start = datetime(2026, 1, 5, 9, 0, tzinfo=timezone.utc)
+    clock = {"seconds": 0.0}
+
+    def timer() -> DatasetTimer:
+        return DatasetTimer(
+            now=lambda: start + timedelta(seconds=clock["seconds"]),
+            monotonic=lambda: clock["seconds"],
+        )
+
+    async def fake_ensure_family_from_ped(session, **_kwargs):
+        return _single_sample_context(), True
+
+    def fake_enabled_dataset_summaries(_validation):
+        return [
+            FamilyImportDatasetSummary(dataset_type="snv", status="valid"),
+            FamilyImportDatasetSummary(dataset_type="repeats_trgt", status="valid"),
+        ]
+
+    async def fake_import_dataset(session, *, summary, progress, **_kwargs):
+        if summary.dataset_type == "snv":
+            # The importer's reports: a tenth of the file read at 10 s, 40 % at 70 s.
+            for seconds, bytes_read in ((10, 100), (70, 400)):
+                clock["seconds"] = seconds
+                await progress(
+                    summary.model_copy(
+                        update={
+                            "status": "running",
+                            "summary": {"bytes_read": bytes_read, "bytes_total": 1_000},
+                        }
+                    )
+                )
+        clock["seconds"] += 30
+        return summary.model_copy(update={"status": "imported"})
+
+    snapshots: list[dict[str, FamilyImportDatasetSummary]] = []
+
+    async def job_progress(_validation, datasets, _logs, _family_id) -> None:
+        snapshots.append({dataset.dataset_type: dataset for dataset in datasets})
+
+    monkeypatch.setattr(package_import, "DatasetTimer", timer)
+    monkeypatch.setattr(package_import, "_ensure_family_from_ped", fake_ensure_family_from_ped)
+    monkeypatch.setattr(package_import, "_enabled_dataset_summaries", fake_enabled_dataset_summaries)
+    monkeypatch.setattr(package_import, "_import_dataset", fake_import_dataset)
+
+    result = await package_import.execute_family_package_import(
+        _CommitRollbackSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        project_id="project-uuid",
+        dry_run=False,
+        user=_current_admin(),
+        progress=job_progress,
+    )
+
+    snv_reports = [
+        snapshot["snv"].progress
+        for snapshot in snapshots
+        if snapshot["snv"].status == "running" and snapshot["snv"].progress is not None
+    ]
+    assert snv_reports[0].started_at == start
+    assert snv_reports[0].seconds_left is None
+    # 30 % of the file in the 60 s since the first report, 60 % to go: 120 s.
+    assert snv_reports[-1].fraction_read == pytest.approx(0.4)
+    assert snv_reports[-1].seconds_left == pytest.approx(120.0)
+    assert snv_reports[-1].measured_at == start + timedelta(seconds=70)
+
+    datasets = {dataset.dataset_type: dataset for dataset in result.datasets}
+    snv, repeats = datasets["snv"].progress, datasets["repeats_trgt"].progress
+    assert snv is not None and repeats is not None
+    assert (snv.started_at, snv.finished_at) == (start, start + timedelta(seconds=100))
+    assert snv.seconds_left is None
+    # A dataset whose importer counts no bytes still has when it ran.
+    assert (repeats.started_at, repeats.finished_at) == (
+        start + timedelta(seconds=100),
+        start + timedelta(seconds=130),
+    )
+    assert repeats.fraction_read is None
 
 
 class _CommitRollbackSession:

@@ -1318,6 +1318,7 @@ python docs/handleiding/build_site.py
 <h2>Jobs volgen en fouten afhandelen</h2>
 <p>Elke import is een rij in <code>family_import_jobs</code>, met een status die de databank bewaakt: <code>queued → validating → running → completed | failed</code>. De rij bewaart ook de validatiefouten en -waarschuwingen, de logregels, een samenvatting per dataset en de tijdstippen.</p>
 <p>Een job gaat pas naar <code>running</code> als hij de familie heeft vastgelegd die hij importeert (<code>family_id</code>), en dat gebeurt vóór de import iets van die familie schrijft: daaraan herkent een ondertekening een lopende import (hoofdstuk 11, poort 0b). Lukt dat niet, dan stopt de import zonder te schrijven en eindigt de job op <code>failed</code>, met de reden. De latere updates van de job (logregels, samenvatting per dataset, heartbeat) zijn informatief: mislukt er een, dan loopt de import gewoon door, want de status en de familie blijven staan.</p>
+<p><strong>Voortgang en resterende tijd.</strong> Elke dataset krijgt in zijn samenvatting een <code>progress</code>: wanneer hij begon en eindigde. De importers die tellen wat ze lezen (de small variants: de SNV-VCF, de twee bestanden van een NIPT-paar en de geïmputeerde genotypes; en APCAD) melden ook hoeveel bytes van hun bestanden ze gelezen hebben, van een gzip-bestand de gecomprimeerde. Daaruit volgt het deel dat gelezen is, en de resterende tijd: de rest van de bestanden aan het tempo sinds de eerste melding. De tijd daarvoor telt niet mee, want dan leest de importer nog niets (een VEP-tabel inlezen, de rijen van een overwrite wissen). Een schatting komt er pas na een halve minuut lezen. Ze geldt voor de dataset die loopt; de datasets erna worden niet geschat, en de pagina zegt hoeveel er volgen.</p>
 <p>Een worker neemt een job atomair (<code>FOR UPDATE SKIP LOCKED</code>), zodat meerdere workers elkaar niet hinderen. Een lopende job schrijft elke minuut een levensteken (<em>heartbeat</em>). Is dat tien minuten oud, dan is het proces dat de job draaide gestopt (een herstart, een crash, geen geheugen meer), en neemt de volgende worker de job over:</p>
 <ul>
 <li>Was de import nog niet begonnen de familie te schrijven (de job stond nog op <code>validating</code>), dan draait de worker hem opnieuw van bij het begin. De logregels van de eerdere poging blijven staan.</li>
@@ -1357,7 +1358,7 @@ python docs/handleiding/build_site.py
 <li><strong>Doel kiezen:</strong> een nieuwe of een bestaande familie, met een beleid voor bestaande data (<code>cancel</code>, <code>update</code> of <code>overwrite</code>).</li>
 <li><strong>Manifest ontdekken:</strong> een overzicht per dataset en een bewerkbaar voorbeeld van <code>manifest.yaml</code>, eventueel weg te schrijven.</li>
 <li><strong>Valideren of importeren:</strong> de keuze <em>Dry run</em> staat standaard aan. Voor een echte import is een project verplicht.</li>
-<li><strong>Volgen:</strong> de pagina ververst de status zolang de job loopt en toont tellers, fouten, waarschuwingen, het resultaat per dataset en de logregels. Eerdere imports blijven op te roepen.</li>
+<li><strong>Volgen:</strong> de pagina ververst de status zolang de job loopt en toont tellers, fouten, waarschuwingen, het resultaat per dataset en de logregels. Eerdere imports blijven op te roepen. Per dataset toont ze hoe lang hij duurde, en van de dataset die loopt het deel van zijn bestanden dat gelezen is en ongeveer hoe lang hij nog duurt, aan het tempo tot dan (zie hieronder).</li>
 </ol>
 <p><code>docs/data-import.md</code> beschrijft deze werkwijze met de dry-run eerst: de beheerder ziet de uitkomst van de controles voordat er iets naar de databank gaat.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/pages/dashboard/FamilyPackageImportPanel.tsx</code>.</p>
@@ -1401,6 +1402,10 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>backend/app/services/family_package_jobs.py</code></td>
 <td>Wachtrij, jobs nemen, heartbeat</td>
+</tr>
+<tr>
+<td><code>backend/app/services/import_progress.py</code></td>
+<td>Voortgang per dataset en de resterende tijd</td>
 </tr>
 <tr>
 <td><code>backend/app/services/vcf_header_provenance.py</code> · <code>annotation_manifest_service.py</code></td>

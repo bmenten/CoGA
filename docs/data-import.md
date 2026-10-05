@@ -213,6 +213,14 @@ The API behind the page:
 - `update`: import into the existing family, and skip each dataset that already has data.
 - `overwrite`: import into the existing family, and replace each imported dataset.
 
+While a job runs, the page shows each dataset's progress (`progress` in its summary): how
+long a finished dataset took and, for the one running, the share of its files read and about
+how long it should still take, at the pace it has read them so far. The loaders that count
+what they read are the small variants (the SNV VCF, the NIPT pair's files, the imputed
+genotypes) and APCAD, which take most of an import's time; another dataset shows how long it
+has run. The time left is the running dataset's: the datasets after it are not estimated, and
+the page says how many follow. It is first given after half a minute of reading.
+
 Jobs run on background workers: one job at a time per backend process, or more with
 `FAMILY_IMPORT_WORKER_COUNT` (up to 8). A running job writes a heartbeat every minute. A job
 whose heartbeat is ten minutes old belongs to a process that has stopped (a restart, a

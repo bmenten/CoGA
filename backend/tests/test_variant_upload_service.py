@@ -533,6 +533,93 @@ async def test_overwrite_scopes_delete_to_uploaded_source(
 
 
 @pytest.mark.asyncio
+async def test_the_upload_reports_the_records_and_the_bytes_it_has_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A package import estimates a dataset's time left from the bytes of its file read
+    # (import_progress). The records left out are counted as read: half a long-read
+    # callset is RefCall blocks, and a NIPT father's file is mostly noise.
+    monkeypatch.setattr(variant_upload_service, "SMALL_VARIANT_PROGRESS_INTERVAL", 2)
+    monkeypatch.setattr(variant_upload_service, "SMALL_VARIANT_UPLOAD_BATCH_SIZE", 1)
+
+    async def no_rows(*_args, **_kwargs):
+        return 0
+
+    async def no_tracks(*_args, **_kwargs):
+        return set()
+
+    async def fake_noop(*_args, **_kwargs):
+        return None
+
+    for name, fn in {
+        "count_family_small_variants": no_rows,
+        "get_track_presence_by_sample": no_tracks,
+        "insert_small_variant_records": fake_noop,
+        "refresh_family_small_variant_summaries": fake_noop,
+    }.items():
+        monkeypatch.setattr(variant_upload_service, name, fn)
+
+    class FakeSession:
+        async def commit(self) -> None:
+            return None
+
+    context = FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM001",
+        project_ids=["project-uuid"],
+        sample_rows=[],
+        sample_uuid_to_name={"sample-uuid": "S1"},
+        sample_name_to_uuid={"S1": "sample-uuid"},
+        affected_sample_names=[],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+    sample_contexts = {
+        "S1": SampleMetadataContext(
+            sample_uuid="sample-uuid",
+            sample_id="S1",
+            family_uuid="family-uuid",
+            family_id="FAM001",
+            sex="und",
+            project_ids=["project-uuid"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+    }
+    records = "".join(
+        f"1\t{100 + index}\t.\tA\tG\t.\t{'RefCall' if index % 2 else 'PASS'}\t.\tGT:DP\t0/1:30\n"
+        for index in range(6)
+    )
+    vcf_text = _CLAIR3_VCF.splitlines(keepends=True)
+    data = ("".join(vcf_text[:-1]) + records).encode()
+    reports: list[dict] = []
+
+    async def progress(stats: dict) -> None:
+        reports.append(stats)
+
+    result = await variant_upload_service.upload_family_small_variant_file(
+        FakeSession(),  # type: ignore[arg-type]
+        context=context,
+        sample_contexts=sample_contexts,
+        file=UploadFile(file=BytesIO(data), filename="variants.vcf"),
+        overwrite=True,
+        format_hint="clair3",
+        exclude_filters=["RefCall"],
+        progress=progress,
+    )
+
+    reading = [report for report in reports if "bytes_read" in report]
+    # Every second record read, the left-out ones too; stored: those flushed before it.
+    assert [(report["processed"], report["inserted"]) for report in reading] == [(2, 1), (4, 2), (6, 3)]
+    assert {report["bytes_total"] for report in reading} == {len(data)}
+    assert all(0 < report["bytes_read"] <= len(data) for report in reading)
+    assert result["inserted"] == 3
+    assert result["skipped_filtered"] == 3
+    # The last report is the result.
+    assert reports[-1] == result
+
+
+@pytest.mark.asyncio
 async def test_glimpse2_upload_derives_child_haplotype_blocks_from_parental_segregation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

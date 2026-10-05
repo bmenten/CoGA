@@ -28,6 +28,20 @@ class FamilyImportValidationIssue(BaseModel):
     path: Optional[str] = None
 
 
+class FamilyImportDatasetProgress(BaseModel):
+    """When a dataset's import ran and how far it got. ``fraction_read`` is the share of
+    its input files' bytes read (of a gzip file, the compressed bytes), measured at
+    ``measured_at``, by an importer that reports it; ``seconds_left`` is the time it should
+    still take at that moment, at the pace it has read so far, and None until there is
+    enough of a pace to tell."""
+
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    measured_at: Optional[datetime] = None
+    fraction_read: Optional[float] = None
+    seconds_left: Optional[float] = None
+
+
 class FamilyImportDatasetSummary(BaseModel):
     dataset_type: str
     enabled: bool = True
@@ -47,6 +61,7 @@ class FamilyImportDatasetSummary(BaseModel):
     samples: List[str] = Field(default_factory=list)
     message: Optional[str] = None
     summary: Dict[str, Any] = Field(default_factory=dict)
+    progress: Optional[FamilyImportDatasetProgress] = None
 
 
 class FamilyPackageValidationOut(BaseModel):

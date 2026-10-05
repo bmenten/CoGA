@@ -22,6 +22,7 @@ from .family_metadata_context import (
 )
 
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info
+from .import_progress import bytes_read_on_disk, file_size, read_stats
 
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,8 @@ async def _delete_sample_interval_source(
 # while it merged them, until the client's read of the socket timed out and the dataset
 # failed. A batch of this size is a few tens of megabytes in Python.
 INTERVAL_INSERT_BATCH_ROWS = 50_000
+# How often an APCAD VCF's import reports the bytes it has read, in records.
+APCAD_PROGRESS_RECORDS = 50_000
 
 
 async def _insert_interval_track_rows(
@@ -884,7 +887,11 @@ async def _import_apcad_vcf_file(
     ped: ParsedPed | None = None,
     selected_sample_id: str | None = None,
     selected_vcf_sample: str | None = None,
+    progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
+    """Store the APCAD of a VCF's sites as the samples' ``apcad`` track. ``progress`` is
+    told the bytes of the file read (``bytes_read`` of ``bytes_total``) every
+    ``APCAD_PROGRESS_RECORDS`` records: millions per embryo, minutes per file."""
     sample_names: list[str] = []
     sample_index_by_name: dict[str, int] = {}
     sample_results: dict[str, dict[str, int]] = {}
@@ -910,6 +917,8 @@ async def _import_apcad_vcf_file(
         sample_results[sample_id]["inserted"] += len(batch)
         batches[sample_id] = []
 
+    bytes_total = file_size(path) if progress is not None else None
+    records_read = 0
     async with _open_package_text(path) as handle:
         for line_no, line in enumerate(handle, start=1):
             if line.startswith("#CHROM"):
@@ -919,6 +928,9 @@ async def _import_apcad_vcf_file(
                 continue
             if not line or line.startswith("#"):
                 continue
+            records_read += 1
+            if progress is not None and records_read % APCAD_PROGRESS_RECORDS == 0:
+                await progress(read_stats(bytes_read_on_disk(handle), bytes_total))
             fields = line.rstrip("\n\r").split("\t")
             if len(fields) < 8:
                 continue
@@ -1016,6 +1028,7 @@ async def _import_apcad_track_file(
     ped: ParsedPed | None = None,
     selected_sample_id: str | None = None,
     selected_vcf_sample: str | None = None,
+    progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     target_contexts = (
         {selected_sample_id: sample_contexts[selected_sample_id]}
@@ -1036,6 +1049,7 @@ async def _import_apcad_track_file(
             ped=ped,
             selected_sample_id=selected_sample_id,
             selected_vcf_sample=selected_vcf_sample,
+            progress=progress,
         )
     else:
         sample_results = {}

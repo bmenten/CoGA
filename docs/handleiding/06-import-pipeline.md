@@ -112,6 +112,8 @@ Elke import is een rij in `family_import_jobs`, met een status die de databank b
 
 Een job gaat pas naar `running` als hij de familie heeft vastgelegd die hij importeert (`family_id`), en dat gebeurt vóór de import iets van die familie schrijft: daaraan herkent een ondertekening een lopende import (hoofdstuk 11, poort 0b). Lukt dat niet, dan stopt de import zonder te schrijven en eindigt de job op `failed`, met de reden. De latere updates van de job (logregels, samenvatting per dataset, heartbeat) zijn informatief: mislukt er een, dan loopt de import gewoon door, want de status en de familie blijven staan.
 
+**Voortgang en resterende tijd.** Elke dataset krijgt in zijn samenvatting een `progress`: wanneer hij begon en eindigde. De importers die tellen wat ze lezen (de small variants: de SNV-VCF, de twee bestanden van een NIPT-paar en de geïmputeerde genotypes; en APCAD) melden ook hoeveel bytes van hun bestanden ze gelezen hebben, van een gzip-bestand de gecomprimeerde. Daaruit volgt het deel dat gelezen is, en de resterende tijd: de rest van de bestanden aan het tempo sinds de eerste melding. De tijd daarvoor telt niet mee, want dan leest de importer nog niets (een VEP-tabel inlezen, de rijen van een overwrite wissen). Een schatting komt er pas na een halve minuut lezen. Ze geldt voor de dataset die loopt; de datasets erna worden niet geschat, en de pagina zegt hoeveel er volgen.
+
 Een worker neemt een job atomair (`FOR UPDATE SKIP LOCKED`), zodat meerdere workers elkaar niet hinderen. Een lopende job schrijft elke minuut een levensteken (*heartbeat*). Is dat tien minuten oud, dan is het proces dat de job draaide gestopt (een herstart, een crash, geen geheugen meer), en neemt de volgende worker de job over:
 
 - Was de import nog niet begonnen de familie te schrijven (de job stond nog op `validating`), dan draait de worker hem opnieuw van bij het begin. De logregels van de eerdere poging blijven staan.
@@ -159,7 +161,7 @@ De pagina *Package import* (`/package-import`) volgt de endpoints één op één
 2. **Doel kiezen:** een nieuwe of een bestaande familie, met een beleid voor bestaande data (`cancel`, `update` of `overwrite`).
 3. **Manifest ontdekken:** een overzicht per dataset en een bewerkbaar voorbeeld van `manifest.yaml`, eventueel weg te schrijven.
 4. **Valideren of importeren:** de keuze *Dry run* staat standaard aan. Voor een echte import is een project verplicht.
-5. **Volgen:** de pagina ververst de status zolang de job loopt en toont tellers, fouten, waarschuwingen, het resultaat per dataset en de logregels. Eerdere imports blijven op te roepen.
+5. **Volgen:** de pagina ververst de status zolang de job loopt en toont tellers, fouten, waarschuwingen, het resultaat per dataset en de logregels. Eerdere imports blijven op te roepen. Per dataset toont ze hoe lang hij duurde, en van de dataset die loopt het deel van zijn bestanden dat gelezen is en ongeveer hoe lang hij nog duurt, aan het tempo tot dan (zie hieronder).
 
 `docs/data-import.md` beschrijft deze werkwijze met de dry-run eerst: de beheerder ziet de uitkomst van de controles voordat er iets naar de databank gaat.
 
@@ -177,6 +179,7 @@ De pagina *Package import* (`/package-import`) volgt de endpoints één op één
 | `backend/app/services/family_package_nipt.py` · `nipt_target_coverage.py` · `vcf_call_metrics.py` | Monogene NIPT: het paar ontdekken en in volgorde importeren met de filter op de VCF van de vader, de dekkingstabel lezen, de callermetrieken per call |
 | `backend/app/services/family_package_registration.py` | Familie en samples registreren, herkomst vastleggen |
 | `backend/app/services/family_package_jobs.py` | Wachtrij, jobs nemen, heartbeat |
+| `backend/app/services/import_progress.py` | Voortgang per dataset en de resterende tijd |
 | `backend/app/services/vcf_header_provenance.py` · `annotation_manifest_service.py` | Versies uit de headers; het annotatiemanifest |
 | `backend/app/services/raw_import_files_pg.py` | Het register van bronbestanden met SHA-256 |
 | `frontend/src/pages/dashboard/FamilyPackageImportPanel.tsx` | De beheerpagina |

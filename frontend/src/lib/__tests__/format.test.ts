@@ -4,6 +4,7 @@ import {
   formatCount,
   formatDate,
   formatDateTime,
+  formatDuration,
   formatRegionSize,
   formatTimestamp,
   joinWithAnd,
@@ -46,6 +47,23 @@ describe('formatCount', () => {
 
   it('does not throw on a count the payload left out', () => {
     expect(formatCount(undefined as unknown as number)).toBe('NaN');
+  });
+});
+
+describe('formatDuration', () => {
+  it('shows seconds under a minute, then minutes, hours and days', () => {
+    expect(formatDuration(12.4)).toBe('12 s');
+    expect(formatDuration(59.4)).toBe('59 s');
+    expect(formatDuration(59.6)).toBe('1 min');
+    expect(formatDuration(25 * 60 + 10)).toBe('25 min');
+    expect(formatDuration(59 * 60 + 40)).toBe('1 h');
+    expect(formatDuration(2 * 3600 + 49 * 60 + 42)).toBe('2 h 50 min');
+    expect(formatDuration(27 * 3600 + 5 * 60)).toBe('1 d 3 h');
+    expect(formatDuration(48 * 3600)).toBe('2 d');
+  });
+
+  it('shows no less than nothing', () => {
+    expect(formatDuration(-5)).toBe('0 s');
   });
 });
 
