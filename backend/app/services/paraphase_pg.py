@@ -78,6 +78,25 @@ PARAPHASE_FIELD_LABELS = {
 }
 
 
+def _expected_copy_number_block(raw: Any) -> dict[str, tuple[float, float]]:
+    """Per-haploid-copy normal copy number per field, as an inclusive (low, high) range.
+
+    The catalog gives a number or a ``[min, max]`` pair; anything else is dropped, so a
+    malformed entry leaves that field unassessed rather than flagging every sample."""
+    if not isinstance(raw, dict):
+        return {}
+    block: dict[str, tuple[float, float]] = {}
+    for key, value in raw.items():
+        bounds = value if isinstance(value, list) else [value, value]
+        if len(bounds) != 2:
+            continue
+        low, high = (_numeric_value(item) for item in bounds)
+        if low is None or high is None or low > high:
+            continue
+        block[str(key)] = (low, high)
+    return block
+
+
 def _candidate_paraphase_region_paths() -> list[Path]:
     paths: list[Path] = []
     if settings.paraphase_medical_regions_path:
@@ -125,6 +144,10 @@ def load_paraphase_medical_regions() -> list[dict[str, Any]]:
                     "key_copy_number_fields": [
                         str(item) for item in raw_region.get("key_copy_number_fields") or [] if item
                     ],
+                    "chromosome": str(raw_region.get("chromosome") or "autosome"),
+                    "expected_copy_number": _expected_copy_number_block(
+                        raw_region.get("expected_copy_number")
+                    ),
                     "key_read_fields": [
                         str(item) for item in raw_region.get("key_read_fields") or [] if item
                     ],
@@ -211,7 +234,14 @@ def _clinical_status(
         return "review"
     # Allele-dependent loci (no automatic call): surface anything non-baseline for review.
     if region.get("clinical"):
-        return "review" if copy_number_signal or (fusion_count or 0) > 0 else "none"
+        if copy_number_signal or (fusion_count or 0) > 0:
+            return "review"
+        expected_fields = set(region.get("expected_copy_number") or {})
+        if any(
+            metric.value is None for metric in copy_number_metrics if metric.key in expected_fields
+        ):
+            return "no_call"
+        return "none"
     return None
 
 
@@ -270,16 +300,72 @@ def _metric(key: str, value: Any) -> ParaphaseMetricOut:
     return ParaphaseMetricOut(key=key, label=_humanize_key(key), value=_numeric_value(value))
 
 
-def _copy_number_expected_value(key: str) -> float:
-    if key in {"smn_del78_cn", "smn2_del78_cn"}:
-        return 0
+def _phase_region_chromosome(phase_region: Any) -> str | None:
+    """``X``, ``Y`` or ``autosome`` from Paraphase's ``38:chrX:155376507-155386059``."""
+    for part in str(phase_region or "").split(":"):
+        token = part.strip().lower().removeprefix("chr")
+        if token in {"x", "y"}:
+            return token.upper()
+        if token.isdigit() and part.strip().lower().startswith("chr"):
+            return "autosome"
+    return None
+
+
+def _normalized_sex(value: Any) -> str | None:
+    sex = str(value or "").strip().lower()
+    if sex in {"male", "m", "1", "xy"}:
+        return "male"
+    if sex in {"female", "f", "2", "xx"}:
+        return "female"
+    return None
+
+
+def _chromosome_copies(chromosome: str, sex: str | None) -> int | None:
+    """How many copies of the region a normal person carries.
+
+    Two for an autosome; on chrX two for a female and one for a male, so a normal male
+    is not read as a heterozygous loss; on chrY one for a male and none for a female.
+    None when the sex is unknown on a sex chromosome: the expectation cannot be
+    chosen, and the caller must not call the value normal."""
+    if chromosome == "X":
+        return {"male": 1, "female": 2}.get(sex or "")
+    if chromosome == "Y":
+        return {"male": 1, "female": 0}.get(sex or "")
     return 2
 
 
-def _copy_number_is_signal(metric: ParaphaseMetricOut) -> bool:
+def _per_copy_expectation(key: str, region: dict[str, Any] | None) -> tuple[float, float] | None:
+    """The normal copy-number range per chromosome copy for one metric, or None when the
+    field has no expectation (``highest_total_cn``, exploratory regions' paralog totals)."""
+    if region is not None:
+        per_copy: tuple[float, float] | None = (region.get("expected_copy_number") or {}).get(key)
+        return per_copy
+    if key in {"smn_del78_cn", "smn2_del78_cn"}:
+        return (0.0, 0.0)
+    if key == "gene_cn":
+        # The functional gene's own copies; a paralog family's total has no fixed norm.
+        return (1.0, 1.0)
+    return None
+
+
+def _copy_number_is_signal(
+    metric: ParaphaseMetricOut,
+    *,
+    region: dict[str, Any] | None = None,
+    copies: int | None = 2,
+) -> bool:
+    """True when a called copy number lies outside the normal range for this region
+    and this sample's sex. A no-call is not a change (the clinical status reports it),
+    and a field without an expectation is never one."""
     if metric.value is None:
+        return False
+    per_copy = _per_copy_expectation(metric.key, region)
+    if per_copy is None:
+        return False
+    if copies is None:
+        # Unknown sex on a sex chromosome: no normal value to compare with.
         return True
-    return metric.value != _copy_number_expected_value(metric.key)
+    return not per_copy[0] * copies <= metric.value <= per_copy[1] * copies
 
 
 def _extract_copy_number_metrics(payload: dict[str, Any], row: dict[str, Any]) -> list[ParaphaseMetricOut]:
@@ -492,7 +578,16 @@ async def get_family_paraphase_table_response(
         read_metrics = _extract_read_metrics(payload)
         haplotype_groups = _extract_haplotype_groups(payload)
         extra_fields = _extract_extra_fields(payload, region_info)
-        copy_number_signal = any(_copy_number_is_signal(metric) for metric in copy_number_metrics)
+        chromosome = _phase_region_chromosome(row.get("phase_region")) or (
+            region_info.get("chromosome") if region_info else "autosome"
+        )
+        # Paraphase's own sex call reads this sample's data; the pedigree is the fallback.
+        sex = _normalized_sex(row.get("sample_sex")) or _normalized_sex(meta.get("sex"))
+        copies = _chromosome_copies(str(chromosome or "autosome"), sex)
+        copy_number_signal = any(
+            _copy_number_is_signal(metric, region=region_info, copies=copies)
+            for metric in copy_number_metrics
+        )
         clinical_status = _clinical_status(
             region_info,
             copy_number_metrics,
