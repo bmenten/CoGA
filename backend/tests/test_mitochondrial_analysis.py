@@ -411,3 +411,86 @@ async def test_maternal_transmission_follows_the_mother_the_pedigree_links_to_th
     )
 
     assert response.variants[0].maternal_transmission == expected
+
+
+async def _transmissions(monkeypatch: pytest.MonkeyPatch, context, records) -> list[str]:
+    async def fake_fetch_mt_records(_context):
+        return records
+
+    async def fake_coverage_by_sample(_context):
+        return {}
+
+    async def fake_thresholds(_session, *, family_uuid):
+        return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
+
+    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
+    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
+    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", fake_thresholds)
+    response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
+        None,  # type: ignore[arg-type]
+        context=context,
+    )
+    return [variant.maternal_transmission for variant in response.variants]
+
+
+def _call(sample_id: str, gt: str, *, dp: int | None = 400) -> SmallVariantCall:
+    if gt == "0/1":
+        return SmallVariantCall(sample=sample_id, gt=gt, gq=None, dp=dp, af=[0.4], ad=[240, 160], ps=None)
+    if gt == "0/0":
+        return SmallVariantCall(sample=sample_id, gt=gt, gq=None, dp=dp, af=[0.0], ad=[400, 0], ps=None)
+    return SmallVariantCall(sample=sample_id, gt=gt, gq=None, dp=dp, af=[], ad=[], ps=None)
+
+
+# "Not seen in mother" read every proband variant when no mother was there to look at.
+@pytest.mark.asyncio
+async def test_proband_variant_without_a_linked_mother_is_not_assessed(monkeypatch: pytest.MonkeyPatch) -> None:
+    context = _three_generation_context()
+    # A father-child duo: the pedigree links no mother to the proband.
+    context.relationship_rows = [row for row in context.relationship_rows if "MOM" not in str(row)]
+    record = _mt_record()
+    record.calls = [_call("PROBAND", "0/1"), _call("DAD", "0/0")]
+
+    assert await _transmissions(monkeypatch, context, [record]) == ["mother_not_assessed"]
+
+
+@pytest.mark.asyncio
+async def test_proband_variant_with_an_unsequenced_mother_is_not_assessed(monkeypatch: pytest.MonkeyPatch) -> None:
+    context = _three_generation_context()
+    record = _mt_record()
+    # MOM is linked but has no mtDNA data at all: no calls, no coverage.
+    record.calls = [_call("PROBAND", "0/1"), _call("DAD", "0/0")]
+
+    assert await _transmissions(monkeypatch, context, [record]) == ["mother_not_assessed"]
+
+
+@pytest.mark.asyncio
+async def test_mother_no_call_at_the_site_is_not_assessed_but_her_absence_elsewhere_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _three_generation_context()
+    other = _mt_record()
+    other.variant_id, other.start = "M-100-A-G", 100
+    other.calls = [_call("PROBAND", "0/1"), _call("MOM", "0/1")]
+    no_call_site = _mt_record()
+    no_call_site.calls = [_call("PROBAND", "0/1"), _call("MOM", "./.", dp=None)]
+    absent_site = _mt_record()
+    absent_site.variant_id, absent_site.start = "M-9000-C-T", 9000
+    # Sequenced (she has depth on the other site) but no call here: not seen in her.
+    absent_site.calls = [_call("PROBAND", "0/1")]
+
+    transmissions = await _transmissions(monkeypatch, context, [other, no_call_site, absent_site])
+
+    assert sorted(transmissions) == sorted(["maternal_shared", "mother_not_assessed", "maternal_not_observed"])
+
+
+@pytest.mark.asyncio
+async def test_couple_without_a_proband_has_no_maternal_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    context = _three_generation_context()
+    context.sample_rows = [
+        {**row, "role": "sibling"} for row in context.sample_rows if row["sample_id"] in {"MOM", "DAD"}
+    ]
+    context.relationship_rows = []
+    record = _mt_record()
+    record.calls = [_call("MOM", "0/1"), _call("DAD", "0/0")]
+
+    assert await _transmissions(monkeypatch, context, [record]) == ["no_proband"]

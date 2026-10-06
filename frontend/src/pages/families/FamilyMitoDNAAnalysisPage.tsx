@@ -161,6 +161,12 @@ const transmissionLabel = (status: ApiMitoDNAVariant['maternal_transmission']) =
       return 'Maternal transmission';
     case 'maternal_not_observed':
       return 'Not seen in mother';
+    // No mother linked to the proband, or none with mtDNA data or a call here: her
+    // absence says nothing, so these stay out of the maternal review.
+    case 'mother_not_assessed':
+      return 'Mother not assessed';
+    case 'no_proband':
+      return 'No proband';
     case 'maternal_only':
       return 'Mother only';
     case 'father_only':

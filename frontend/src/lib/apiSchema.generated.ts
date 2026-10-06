@@ -1474,7 +1474,7 @@ export interface MitoDNAVariantOut {
   rsid: string | null;
   annotation: MitoDNAVariantAnnotationOut;
   calls: Record<string, MitoDNAVariantSampleCallOut>;
-  maternal_transmission: "maternal_shared" | "maternal_not_observed" | "maternal_only" | "father_only" | "family_private" | "no_alt_calls" | "unknown";
+  maternal_transmission: "maternal_shared" | "maternal_not_observed" | "mother_not_assessed" | "no_proband" | "maternal_only" | "father_only" | "family_private" | "no_alt_calls" | "unknown";
   review: SmallVariantReviewOut | null;
 }
 
