@@ -261,6 +261,7 @@ _VCF_SAMPLE_SUFFIXES = (
     ".sort",
     ".sorted",
     ".sv",
+    "-sv",
 )
 
 
