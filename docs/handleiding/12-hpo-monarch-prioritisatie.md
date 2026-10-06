@@ -50,7 +50,7 @@ De scoring zit in `backend/app/services/variant_prioritization.py`, een zuivere 
 | --- | --- |
 | Pathogeniciteit | Voorspelde schadelijkheid: impact en loss-of-function, ClinVar, de voorspellers (CADD, REVEL, SpliceAI, AlphaMissense) en genconstraint |
 | Frequentie | Zeldzaamheid in gnomAD: hoe zeldzamer, hoe hoger |
-| Segregatie | Het overervingspatroon in de stamboom (de novo, homozygoot recessief, compound heterozygoot, X-gebonden, dominant). Bij een zoon op X of Y buiten de pseudo-autosomale regio's volgt het de-novogewicht de ouder die dat chromosoom doorgeeft (hoofdstuk 8) |
+| Segregatie | Het overervingspatroon in de stamboom (de novo, homozygoot recessief, compound heterozygoot, X-gebonden, dominant). Bij een zoon op X of Y buiten de pseudo-autosomale regio's volgt het de-novogewicht de ouder die dat chromosoom doorgeeft (hoofdstuk 8). Een structurele variant draagt de *Inheritance*-annotatie van NeedlR voor het query-sample: *de novo* telt als de novo; een geërfde SV telt alleen als dominant wanneer de ouder van wie ze komt (maternaal: de moeder, paternaal: de vader) en het kind aangedaan zijn, anders telt ze niet mee |
 | Fenotype | Hoe goed het gen bij het klinische beeld past |
 
 De eerste drie vormen samen de variantscore; de eindscore is een gewogen combinatie met de fenotypescore. Twee keuzes bewaken de klinische betrouwbaarheid:

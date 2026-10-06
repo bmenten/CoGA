@@ -332,3 +332,64 @@ def test_cap_terms_by_ic_keeps_ic_descending_primary_order() -> None:
 def test_cap_terms_by_ic_unknown_ic_sinks_to_bottom() -> None:
     ic = {"HP:has": 4.0}
     assert _cap_terms_by_ic({"HP:has", "HP:missing"}, ic, 10) == ["HP:has", "HP:missing"]
+
+
+def _sv_family_context(*, affected: set[str]):
+    from backend.app.services.family_metadata_context import FamilyMetadataContext
+
+    samples = ["CHILD", "MOTHER", "FATHER", "SIB"]
+    return FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="SV_SEG",
+        project_ids=["project-uuid"],
+        sample_rows=[
+            {"sample_id": s, "clinical_status": "affected" if s in affected else "unaffected"} for s in samples
+        ],
+        sample_uuid_to_name={f"uuid-{s}": s for s in samples},
+        sample_name_to_uuid={s: f"uuid-{s}" for s in samples},
+        affected_sample_names=[s for s in samples if s in affected],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+        relationship_rows=[
+            {"relationship_type": "parent_child", "sample_id_a": parent, "sample_id_b": child, "role_a": role, "role_b": "child"}
+            for child in ("CHILD", "SIB")
+            for parent, role in (("MOTHER", "mother"), ("FATHER", "father"))
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("inheritance", "affected", "expected"),
+    [
+        # An SV the affected child got from an affected parent supports dominance.
+        ("maternal", {"CHILD", "MOTHER"}, [MODE_DOMINANT]),
+        ("paternal", {"CHILD", "FATHER"}, [MODE_DOMINANT]),
+        ("inherited", {"CHILD", "FATHER"}, [MODE_DOMINANT]),
+        # From an unaffected parent it argues against a dominant model; it used to count
+        # as support all the same.
+        ("maternal", {"CHILD"}, []),
+        ("inherited", {"CHILD"}, []),
+        # The affected parent is not the one it came from.
+        ("maternal", {"CHILD", "FATHER"}, []),
+        # The query child is unaffected.
+        ("maternal", {"MOTHER", "SIB"}, []),
+        ("de novo", {"CHILD"}, [MODE_DE_NOVO]),
+    ],
+)
+def test_structural_inherited_sv_supports_dominance_only_from_an_affected_parent(
+    inheritance: str, affected: set[str], expected: list[str]
+) -> None:
+    from backend.app.services.clickhouse_variant_queries import _structural_segregation_modes
+
+    context = _sv_family_context(affected=affected)
+    # NeedlR names the query sample after its input file.
+    annotation = {"inheritance": inheritance, "query_id": "CHILD_sv_phased"}
+
+    assert _structural_segregation_modes(annotation, context) == expected
+
+
+def test_structural_inherited_sv_without_pedigree_context_is_neutral() -> None:
+    from backend.app.services.clickhouse_variant_queries import _structural_segregation_modes
+
+    assert _structural_segregation_modes({"inheritance": "maternal"}) == []
+    assert _structural_segregation_modes({"inheritance": "de novo"}) == [MODE_DE_NOVO]

@@ -3160,7 +3160,7 @@ async def _prioritized_structural_variants_page(
             gene_count=len([symbol for symbol in record.gene_symbols if symbol]),
             control_af=_coerce_float(annotation_extra.get("control_af")),
             population_af=_coerce_float(annotation_extra.get("population_af")),
-            segregation_modes=_structural_segregation_modes(annotation_extra),
+            segregation_modes=_structural_segregation_modes(annotation_extra, context),
             segregation_evaluated=segregation_evaluated,
             phenotype_score=phenotype_value,
             gene_pli=gene_pli,
