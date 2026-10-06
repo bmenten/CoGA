@@ -20,6 +20,7 @@ from .clickhouse_variant_ids import (
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .variant_annotation_parser import _spliceai_delta
 from .family_metadata_context import FamilyMetadataContext
+from .family_package_common import resolve_vcf_sample_id
 from .compound_het_phase import (
     CONFIDENT_REFERENCE_MIN_DP,
     PHASE_CIS,
@@ -3236,18 +3237,58 @@ def _segregation_modes_by_variant(
     return modes
 
 
-def _structural_segregation_modes(annotation_extra: dict[str, Any]) -> list[str]:
+def _structural_segregation_modes(
+    annotation_extra: dict[str, Any],
+    context: FamilyMetadataContext | None = None,
+) -> list[str]:
     """Derive coarse segregation modes from the SV's annotated inheritance.
 
     SV calls carry an ``Inheritance`` annotation (de novo / maternal / paternal /
-    inherited) rather than per-sample genotype segregation, so we map a de-novo call
-    to the strong de-novo mode and an inherited call to the dominant mode. Anything
-    else is left neutral (empty), matching the small-variant ``segregation_weight``
-    semantics.
+    inherited) for the query sample (``Query_ID``) rather than per-sample genotype
+    segregation. A de novo call maps to the strong de novo mode.
+
+    An inherited call supports a dominant model only when the parent it came from is
+    affected, and so is the child it was called in -- the rule the small-variant matcher
+    applies to genotypes. Any inherited SV used to count as dominant, so an SV from an
+    unaffected parent ranked as supporting segregation it argues against. "maternal" names
+    the child's mother, "paternal" the father, and a bare "inherited" either parent. With
+    no ``context``, or no pedigree link to read the parent from, the inherited call is left
+    neutral (empty), matching the small-variant ``segregation_weight`` semantics.
     """
     inheritance = (annotation_extra.get("inheritance") or "").strip().lower()
     if not inheritance:
         return []
+    if "de" in inheritance and "novo" in inheritance:
+        return [MODE_DE_NOVO]
+    if "maternal" in inheritance:
+        transmitting_roles = {"mother"}
+    elif "paternal" in inheritance:
+        transmitting_roles = {"father"}
+    elif "inherited" in inheritance:
+        transmitting_roles = {"mother", "father"}
+    else:
+        return []
+    if context is None:
+        return []
+    affected = set(context.affected_sample_names)
+    parents_by_child: dict[str, list[tuple[str, str]]] = {}
+    for child, parent, role in _parent_child_links(context):
+        parents_by_child.setdefault(child, []).append((parent, role))
+    query = str(annotation_extra.get("query_id") or "").strip()
+    query_sample = resolve_vcf_sample_id(query, set(parents_by_child)) if query else None
+    # Without a readable Query_ID, the inheritance can only describe a child the pedigree
+    # gives parents to; any affected one will do.
+    children = [query_sample] if query_sample else list(parents_by_child)
+    for child in children:
+        if child not in affected:
+            continue
+        if any(
+            parent in affected
+            for parent, role in parents_by_child.get(child, [])
+            if role in transmitting_roles
+        ):
+            return [MODE_DOMINANT]
+    return []
     if "de" in inheritance and "novo" in inheritance:
         return [MODE_DE_NOVO]
     if any(token in inheritance for token in ("maternal", "paternal", "inherited")):
