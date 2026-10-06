@@ -28,6 +28,7 @@ from .family_package_common import (
     resolve_vcf_sample_id,
 )
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
+from .sex_chromosomes import hemizygous_chromosome
 from .vcf_header_provenance import extract_header_provenance
 
 
@@ -482,20 +483,78 @@ def _reclassify_repeat_alleles(
     return reclassified
 
 
+MALE_X_DISTINCT_ALLELES_NOTE = (
+    "Two different chrX alleles in a male: size mosaicism, TRGT run without "
+    "--karyotype XY, a recorded sex that does not match the sample, or 47,XXY. "
+    "Both alleles are shown; review."
+)
+
+
+def _is_male_hemizygous_locus(
+    *, sex: str | None, assembly_name: str | None, chrom: str, position: int
+) -> bool:
+    """A male's chrX outside the PARs, where he carries a single allele. Unknown PARs
+    (an assembly the PAR table does not list) count as diploid, so nothing is cut."""
+    return str(sex or "").lower() == "male" and (
+        hemizygous_chromosome(assembly_name, chrom, position) == "X"
+    )
+
+
+def _distinct_allele_sizes(alleles: list[dict[str, Any]]) -> set[tuple[Any, Any]]:
+    return {
+        (allele.get("repeat_count"), allele.get("bp_length"))
+        for allele in alleles
+        if allele.get("repeat_count") is not None or allele.get("bp_length") is not None
+    }
+
+
 def _normalize_x_male_alleles(
     alleles: list[dict[str, Any]],
     *,
     sex: str,
     chrom: str,
+    position: int,
+    assembly_name: str | None,
 ) -> list[dict[str, Any]]:
-    if sex != "male" or normalize_chromosome(chrom).upper() != "X":
+    """Collapse a male's chrX call to his single allele, but only when the two are one.
+
+    TRGT genotyped without ``--karyotype XY`` writes a male's allele twice, and that pair
+    is one allele. Two *different* sizes are never cut: TRGT orders alleles shortest
+    first, so keeping the first dropped the expansion -- a mosaic FMR1 full mutation,
+    or a premutation of a woman recorded as male -- and the locus read normal.
+    """
+    if len(alleles) < 2 or not _is_male_hemizygous_locus(
+        sex=sex, assembly_name=assembly_name, chrom=chrom, position=position
+    ):
         return alleles
-    if not alleles:
-        return alleles
-    first = alleles[0]
-    if len(alleles) == 1:
-        return alleles
-    return [first]
+    if len(_distinct_allele_sizes(alleles)) <= 1:
+        return alleles[:1]
+    return alleles
+
+
+def _male_x_allele_note(
+    alleles: list[dict[str, Any]],
+    *,
+    sex: str | None,
+    chrom: str,
+    position: int,
+    assembly_name: str | None,
+) -> str | None:
+    if len(_distinct_allele_sizes(alleles)) < 2:
+        return None
+    if not _is_male_hemizygous_locus(
+        sex=sex, assembly_name=assembly_name, chrom=chrom, position=position
+    ):
+        return None
+    return MALE_X_DISTINCT_ALLELES_NOTE
+
+
+def _call_status(alleles: list[dict[str, Any]], *, note: str | None) -> str:
+    """The worst allele's status; a call carrying a note is at least ``review``."""
+    status = summarize_repeat_status(allele.get("status", "unknown") for allele in alleles)
+    if note and REPEAT_STATUS_RANK.get(status, 0) < REPEAT_STATUS_RANK["review"]:
+        return "review"
+    return status
 
 
 _REPEAT_LOCI_LOOKUP_SQL = text(
@@ -791,11 +850,22 @@ def _build_trgt_insert_params(
         alleles,
         sex=sample_context.sex,
         chrom=chrom,
+        position=int(pos),
+        assembly_name=sample_context.assembly_name,
     )
     if not alleles:
         alleles = [{"status": "unknown"}]
 
-    status = summarize_repeat_status(allele["status"] for allele in alleles)
+    status = _call_status(
+        alleles,
+        note=_male_x_allele_note(
+            alleles,
+            sex=sample_context.sex,
+            chrom=chrom,
+            position=int(pos),
+            assembly_name=sample_context.assembly_name,
+        ),
+    )
     genotype = sample_values.get("GT", "./.")
     return {
         "sample_id": sample_context.sample_uuid,
@@ -1183,9 +1253,15 @@ async def get_family_repeat_expansion_table_response(
             benign_max=row.get("benign_max"),
             pathogenic_max=row.get("pathogenic_max"),
         )
-        row_status = summarize_repeat_status(
-            allele.get("status", "unknown") for allele in alleles
+        meta = member_meta.get(row["sample_uuid"], {})
+        note = _male_x_allele_note(
+            alleles,
+            sex=meta.get("sex"),
+            chrom=str(row.get("chr") or ""),
+            position=int(row.get("start", 0)),
+            assembly_name=context.assembly_name,
         )
+        row_status = _call_status(alleles, note=note)
         if row_status == "unknown":
             row_status = row.get("status", "unknown")
         key = str(row.get("locus_id") or f'{row.get("chr")}:{row.get("start")}')
@@ -1212,7 +1288,6 @@ async def get_family_repeat_expansion_table_response(
         )
         locus["status"] = summarize_repeat_status((locus["status"], row_status))
         sample_name = context.sample_uuid_to_name.get(row["sample_uuid"], row["sample_uuid"])
-        meta = member_meta.get(row["sample_uuid"], {})
         locus["calls"][sample_name] = RepeatExpansionSampleCallOut(
             sample=sample_name,
             role=meta.get("role"),
@@ -1222,6 +1297,7 @@ async def get_family_repeat_expansion_table_response(
             allele_count=int(row.get("allele_count", 0)),
             alleles=alleles,
             status=row_status,
+            note=note,
         )
 
     ordered_rows = [RepeatExpansionRowOut(**row) for row in grouped.values()]
