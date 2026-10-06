@@ -9,6 +9,13 @@ import { useProjectCatalog } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import QueryFailure from '../../components/QueryFailure';
 import { formatTimestamp } from '../../lib/format';
+import {
+  datasetProgressText,
+  jobProgressText,
+  runningDatasetText,
+  useNow,
+  type DatasetProgress,
+} from './importProgress';
 
 type ImportStatus = 'queued' | 'validating' | 'running' | 'completed' | 'failed';
 type PackageTargetMode = 'new' | 'existing';
@@ -39,6 +46,7 @@ type DatasetSummary = {
   samples: string[];
   message?: string | null;
   summary: Record<string, unknown>;
+  progress?: DatasetProgress | null;
 };
 
 type FileAvailability = {
@@ -104,6 +112,12 @@ const activeStatuses = new Set<ImportStatus>(['queued', 'validating', 'running']
 
 const issueLabel = (issue: ValidationIssue) =>
   [issue.dataset, issue.sample_id, issue.path].filter(Boolean).join(' · ');
+
+/** A running job's dataset in the jobs table: its share read and its time left. */
+const RunningDatasetNote: React.FC<{ job: FamilyImportJob; now: number }> = ({ job, now }) => {
+  const text = job.status === 'running' ? runningDatasetText(job.datasets, now) : null;
+  return text ? <div className="table-subtle">{text}</div> : null;
+};
 
 const FamilyPackageImportPanel: React.FC = () => {
   const queryClient = useQueryClient();
@@ -301,6 +315,13 @@ const FamilyPackageImportPanel: React.FC = () => {
     (targetMode === 'new' || Boolean(targetFamilyId));
   const canWriteManifest =
     folderPath.trim().length > 0 && manifestYaml.trim().length > 0 && !writeManifestMutation.isPending;
+
+  // A running import's time left counts down between the job's reports.
+  const anyJobRunning =
+    (currentJob ? activeStatuses.has(currentJob.status) : false) ||
+    recentJobs.some((job) => activeStatuses.has(job.status));
+  const now = useNow(anyJobRunning);
+  const currentJobProgress = currentJob ? jobProgressText(currentJob.datasets, now) : null;
 
   const datasetCounts = useMemo(() => {
     const imported = currentJob?.datasets.filter((dataset) => dataset.status === 'imported').length ?? 0;
@@ -691,7 +712,10 @@ const FamilyPackageImportPanel: React.FC = () => {
               <tbody>
                 {recentJobs.map((job) => (
                   <tr key={job._id}>
-                    <td>{job.status}</td>
+                    <td>
+                      {job.status}
+                      <RunningDatasetNote job={job} now={now} />
+                    </td>
                     <td>{job.family_id || '—'}</td>
                     <td className="font-mono text-xs">{job.submitted_path}</td>
                     <td>{formatTimestamp(job.requested_at)}</td>
@@ -761,6 +785,10 @@ const FamilyPackageImportPanel: React.FC = () => {
             {formatTimestamp(currentJob.heartbeat_at)}
           </div>
 
+          {currentJob.status === 'running' && currentJobProgress ? (
+            <p className="status-note status-note--info">{currentJobProgress}</p>
+          ) : null}
+
           {currentJob.error ? (
             <p className="status-note status-note--error">{currentJob.error}</p>
           ) : null}
@@ -800,6 +828,7 @@ const FamilyPackageImportPanel: React.FC = () => {
                   <tr>
                     <th>Dataset</th>
                     <th>Status</th>
+                    <th>Progress</th>
                     <th>Samples</th>
                     <th>Files</th>
                     <th>Summary</th>
@@ -810,6 +839,7 @@ const FamilyPackageImportPanel: React.FC = () => {
                     <tr key={dataset.dataset_type}>
                       <td>{dataset.dataset_type}</td>
                       <td>{dataset.status}</td>
+                      <td>{datasetProgressText(dataset, now) ?? '—'}</td>
                       <td>{dataset.samples.length ? dataset.samples.join(', ') : '—'}</td>
                       <td>{dataset.files.length}</td>
                       <td>{dataset.message || (dataset.enabled ? 'Ready' : 'Optional')}</td>

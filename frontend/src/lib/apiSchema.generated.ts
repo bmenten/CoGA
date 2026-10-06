@@ -390,6 +390,21 @@ export interface DgvVariantOut {
   source: string | null;
 }
 
+/**
+ * When a dataset's import ran and how far it got. ``fraction_read`` is the share of
+ * its input files' bytes read (of a gzip file, the compressed bytes), measured at
+ * ``measured_at``, by an importer that reports it; ``seconds_left`` is the time it should
+ * still take at that moment, at the pace it has read so far, and None until there is
+ * enough of a pace to tell.
+ */
+export interface FamilyImportDatasetProgress {
+  started_at: string;
+  finished_at: string | null;
+  measured_at: string | null;
+  fraction_read: number | null;
+  seconds_left: number | null;
+}
+
 export interface FamilyImportDatasetSummary {
   dataset_type: string;
   enabled: boolean;
@@ -398,6 +413,7 @@ export interface FamilyImportDatasetSummary {
   samples: string[];
   message: string | null;
   summary: Record<string, unknown>;
+  progress: FamilyImportDatasetProgress | null;
 }
 
 export interface FamilyImportValidationIssue {
