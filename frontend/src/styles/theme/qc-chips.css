@@ -8,7 +8,7 @@
 
 .table-chip--neutral {
   border-color: var(--color-border);
-  background: rgba(246, 249, 252, 0.96);
+  background: var(--color-surface-muted);
   color: var(--color-text-muted);
 }
 
@@ -41,17 +41,14 @@
    shape the rest of the members table uses. */
 .family-qc-cell {
   display: grid;
-  gap: 0.24rem;
+  gap: 0.1875rem;
   justify-items: start;
 }
 
 .family-qc-chip,
 .family-qc-chip-static {
-  /* Measurements, not a label: the table's uppercase treatment turns "18.6x" into
-     "18.6X" and "kb" into "KB", and widens the chip past its column. */
-  text-transform: none;
-  letter-spacing: 0.01em;
-  font-size: 0.66rem;
+  /* Measurements, not a label: "18.6x" and "kb" keep their case. */
+  font-size: var(--fs-2xs);
   white-space: nowrap;
 }
 
@@ -59,24 +56,17 @@
    `.table-chip--warning` / `--critical` set the same three properties and this rule sits
    later in the file — declaring colours here silently won and the verdict tone was lost.
 
-   The min-height/box-shadow/transform resets matter: this chip is a <button>, so without
-   them it inherits `min-height: 3rem` from the global button rule and stands 48px tall,
-   more than doubling the height of every members-table row, and it jumps on hover from
-   the button's translateY. Same reset the `.badge-chip button` rule uses. */
+   The min-height reset matters: this chip is a <button>, so without it it takes the
+   shared control height and stretches every members-table row. Same reset the
+   `.badge-chip button` rule uses. */
 .family-qc-chip {
   cursor: pointer;
   font-family: inherit;
   min-height: auto;
-  box-shadow: none;
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
     color 0.15s ease;
-}
-
-.family-qc-chip:hover,
-.family-qc-chip:focus-visible {
-  transform: none;
 }
 
 /* Neutral tone, applied when the verdict is pass or not-assessed. */

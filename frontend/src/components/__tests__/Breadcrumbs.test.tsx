@@ -17,21 +17,21 @@ const renderAt = (entry: string) => {
 test('preserves variant filters when navigating from chromosome to genome', () => {
   renderAt('/families/123/chromosome/1?af=0.5&start=1&end=2');
 
-  const link = screen.getByText('CHROMOSOME').closest('a');
+  const link = screen.getByText('Chromosome').closest('a');
   expect(link).toHaveAttribute('href', '/families/123/genome?af=0.5');
 });
 
 test('admin breadcrumb links back to admin dashboard', () => {
   renderAt('/admin/users');
 
-  const adminLink = screen.getByText('ADMIN').closest('a');
+  const adminLink = screen.getByText('Admin').closest('a');
   expect(adminLink).toHaveAttribute('href', '/admin');
 });
 
 test('admin access intermediate breadcrumb points to admin dashboard', () => {
   renderAt('/admin/access/projects');
 
-  const accessLink = screen.getByText('ACCESS').closest('a');
+  const accessLink = screen.getByText('Access').closest('a');
   expect(accessLink).toHaveAttribute('href', '/admin');
 });
 
@@ -61,10 +61,43 @@ test('shows the clinical CNV name in the breadcrumb instead of its id', () => {
   );
 
   expect(
-    screen.getByText('1Q21.1 RECURRENT (TAR SYNDROME) REGION'),
+    screen.getByText('1q21.1 recurrent (TAR syndrome) region'),
   ).toBeInTheDocument();
   expect(screen.queryByText('Cnv 1')).not.toBeInTheDocument();
-  // The "cnv-details" crumb reads "CNV EXPLORER" and links to the overview.
-  const explorerLink = screen.getByText('CNV EXPLORER').closest('a');
+  // The "cnv-details" crumb reads "CNV explorer" and links to the overview.
+  const explorerLink = screen.getByText('CNV explorer').closest('a');
   expect(explorerLink).toHaveAttribute('href', '/cnv-explorer');
+});
+
+test('reads route words in sentence case and shows identifiers as they are stored', () => {
+  renderAt('/families/demo_family/mitochondrial-dna');
+
+  expect(screen.getByText('Dashboard')).toBeInTheDocument();
+  expect(screen.getByText('Families')).toBeInTheDocument();
+  // An identifier keeps its case: it is not "Demo_family" or "DEMO_FAMILY".
+  expect(screen.getByText('demo_family').closest('a')).toHaveAttribute(
+    'href',
+    '/families/demo_family',
+  );
+  expect(screen.getByText('Mitochondrial DNA')).toBeInTheDocument();
+});
+
+test('the families crumb leads to the dashboard, where the families are listed', () => {
+  renderAt('/families/FAM_TRIO/small-variants');
+
+  expect(screen.getByText('Families').closest('a')).toHaveAttribute('href', '/dashboard');
+  expect(screen.getByText('FAM_TRIO').closest('a')).toHaveAttribute('href', '/families/FAM_TRIO');
+});
+
+test('the admin families crumb stays on the admin families page', () => {
+  renderAt('/admin/data/families/F1/structure');
+
+  expect(screen.getByText('Families').closest('a')).toHaveAttribute('href', '/admin/data/families');
+});
+
+test('the reference crumb of a reference doc leads to the user guide', () => {
+  renderAt('/docs/reference/sample-qc');
+
+  expect(screen.getByText('Reference').closest('a')).toHaveAttribute('href', '/docs');
+  expect(screen.getByText('Sample QC')).toBeInTheDocument();
 });

@@ -456,7 +456,7 @@ const MonarchDataAdminPage: React.FC = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <h4 className="table-subtle uppercase">Linked genes</h4>
+                    <h4 className="table-subtle">Linked genes</h4>
                     {selectedDisease.genes.length ? (
                       <ul className="space-y-1 text-sm">
                         {selectedDisease.genes.map((gene) => (
@@ -475,7 +475,7 @@ const MonarchDataAdminPage: React.FC = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <h4 className="table-subtle uppercase">
+                    <h4 className="table-subtle">
                       Expected phenotypes
                       {selectedDisease.matched_phenotype_count > 0
                         ? ` — ${formatCount(selectedDisease.matched_phenotype_count)} matched`

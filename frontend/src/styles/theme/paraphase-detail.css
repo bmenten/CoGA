@@ -3,7 +3,7 @@
 .paraphase-cn-grid,
 .paraphase-read-grid {
   display: grid;
-  gap: 0.3rem;
+  gap: 0.25rem;
 }
 
 .paraphase-cn-grid span,
@@ -11,11 +11,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.4375rem;
   width: 100%;
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   background: rgba(10, 11, 12, 0.035);
-  padding: 0.2rem 0.45rem;
+  padding: 0.125rem 0.25rem;
   color: var(--color-text-muted);
 }
 
@@ -23,7 +23,7 @@
 .paraphase-read-grid strong {
   color: var(--color-heading);
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: var(--fs-xs);
 }
 
 .paraphase-cn-grid {
@@ -45,70 +45,70 @@
 
 .paraphase-clinical-note {
   border-left: 3px solid rgba(180, 35, 24, 0.34);
-  padding: 0.22rem 0.5rem;
+  padding: 0.1875rem 0.3125rem;
   color: var(--color-text-muted);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   line-height: 1.35;
   background: rgba(180, 35, 24, 0.045);
 }
 
 .paraphase-extra-fields {
   display: grid;
-  gap: 0.32rem;
+  gap: 0.25rem;
 }
 
 .paraphase-extra-field {
   display: grid;
   grid-template-columns: minmax(8rem, 0.42fr) minmax(12rem, 1fr);
-  gap: 0.5rem;
+  gap: 0.3125rem;
   align-items: start;
-  padding: 0.34rem 0.5rem;
+  padding: 0.25rem 0.3125rem;
   border: 1px solid rgba(24, 73, 92, 0.1);
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   background: rgba(26, 77, 100, 0.045);
   color: var(--color-text-muted);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   line-height: 1.35;
 }
 
 .paraphase-extra-field span {
   display: block;
   color: var(--color-heading);
-  font-weight: 780;
+  font-weight: 600;
 }
 
 .paraphase-extra-field p {
-  margin: 0.12rem 0 0;
+  margin: 0.0625rem 0 0;
 }
 
 .paraphase-extra-field strong {
   min-width: 0;
   color: var(--color-heading);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 650;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
 .paraphase-haplotype-groups {
   display: grid;
-  gap: 0.32rem;
+  gap: 0.25rem;
 }
 
 .paraphase-haplotype-group {
   display: grid;
   grid-template-columns: minmax(7.5rem, auto) auto minmax(12rem, 1fr);
   align-items: baseline;
-  gap: 0.45rem;
-  border-radius: 6px;
+  gap: 0.25rem;
+  border-radius: var(--radius-card);
   background: rgba(10, 11, 12, 0.032);
-  padding: 0.24rem 0.45rem;
-  font-size: 0.7rem;
+  padding: 0.1875rem 0.25rem;
+  font-size: var(--fs-xs);
   color: var(--color-text-muted);
 }
 
 .paraphase-haplotype-group > span {
-  font-weight: 750;
+  font-weight: 600;
   color: var(--color-heading);
 }
 

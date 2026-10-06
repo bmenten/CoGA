@@ -1436,23 +1436,28 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             consequence="The embryos' segregation, and any recombination or uninformative warning, are not shown."
           />
         ) : null}
-        <div className="data-table-shell overflow-x-auto">
-          <table className="analysis-table family-members-table">
-            {/* Sequencing QC is a compact pill like Status, so it takes the narrowest
-                column here; the width freed up goes back to Sample and HPO terms,
-                which hold real text. */}
-            <colgroup>
-              <col style={{ width: canEditFamilyDetails ? '12%' : '15%' }} />
-              <col style={{ width: canEditFamilyDetails ? '8%' : '10%' }} />
-              {canEditFamilyDetails && <col style={{ width: '7%' }} />}
-              <col style={{ width: canEditFamilyDetails ? '10%' : '12%' }} />
-              <col style={{ width: canEditFamilyDetails ? '10%' : '12%' }} />
-              <col style={{ width: canEditFamilyDetails ? '10%' : '12%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: canEditFamilyDetails ? '13%' : '16%' }} />
-              <col style={{ width: canEditFamilyDetails ? '8%' : '9%' }} />
-              {canEditFamilyDetails && <col style={{ width: '8%' }} />}
-            </colgroup>
+        <div className={`data-table-shell overflow-x-auto${canEditFamilyDetails ? '' : ' data-table-shell--fit'}`}>
+          <table
+            className={`analysis-table family-members-table${canEditFamilyDetails ? ' family-members-table--editing' : ''}`}
+          >
+            {/* Read, the table is sized to its content. Edited, its columns are fixed, a
+                col for each of them: sequencing QC is a compact pill like Status, so it takes
+                the narrowest one, and Sample and HPO terms, which hold real text, the widest. */}
+            {canEditFamilyDetails ? (
+              <colgroup>
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '8%' }} />
+              </colgroup>
+            ) : null}
             <thead>
               <tr>
                 <th>Sample</th>
@@ -1824,7 +1829,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           <div className="space-y-4 family-members-editor">
             <h3 className="family-member-subsection-title">Add member</h3>
             <div className="data-table-shell overflow-x-auto">
-              <table className="analysis-table family-members-table">
+              <table className="analysis-table family-members-table family-members-table--editing">
                 <colgroup>
                   <col style={{ width: '15%' }} />
                   <col style={{ width: '10%' }} />

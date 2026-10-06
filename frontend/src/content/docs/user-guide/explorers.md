@@ -1,4 +1,5 @@
-Three explorers answer questions beyond a single case. Open them from the dashboard.
+Three explorers answer questions beyond a single case. Open them from the menu under the arrow at the
+right of the top bar, or from the dashboard.
 
 ### Gene Explorer
 

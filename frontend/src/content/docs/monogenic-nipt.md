@@ -425,12 +425,16 @@ Review the list before use. Every change to the list is a clinical audit event.
 With the per-target coverage table, the coverage check reads the plasma's capture targets: in the
 selected gene panel or genes, otherwise every target. A target is **weak** when its mean depth is below
 300× or a base of it has no coverage; a fetal variant there can be missed. The panel reports how many
-targets are below 1000× as well, without flagging them. The coverage card lists the genes with a weak
-target, and a selected gene that is not a target at all.
+targets are below 1000× as well, without flagging them. The coverage card on the NIPT page counts the
+genes with a weak target, a selected gene that is not a target at all among them. Its **Coverage
+details** link opens the coverage page, over the same genes: the genes below target, where a fetal
+variant can be missed, and those above it, each opening to its targets with their depth, the share
+covered and why a target is weak.
 
 Without the table, on-target coverage is the median depth of the cfDNA sample's coverage track over the
 selected genes, otherwise the family's region of interest. A region is flagged when it has no coverage,
-a median below 20×, or less than 90% of its length covered.
+a median below 20×, or less than 90% of its length covered. The card counts the flagged regions; the
+coverage page lists the regions below and above target.
 
 NIPT has its own sample-integrity checks on the Sample QC page as well (paternity, fetal sex, parent
 sex and the category distribution): see the [Sample-integrity QC reference](/docs/reference/sample-qc).

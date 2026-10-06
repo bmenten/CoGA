@@ -1024,7 +1024,7 @@ const ReferenceCatalogPage: React.FC = () => {
                 </label>
                 <button
                   type="submit"
-                  className="form-button w-full justify-center"
+                  className="form-button"
                   disabled={importing || !autoImportForm.ucsc_genome}
                 >
                   {importing ? 'Downloading from UCSC…' : 'Download cytobands and genes'}
@@ -1128,7 +1128,7 @@ const ReferenceCatalogPage: React.FC = () => {
                     onChange={(e) => setReferenceFile(e.target.files?.[0] || null)}
                   />
                 </label>
-                <button type="submit" className="form-button w-full justify-center">
+                <button type="submit" className="form-button">
                   Upload file
                 </button>
               </form>
@@ -1191,7 +1191,7 @@ const ReferenceCatalogPage: React.FC = () => {
                     placeholder="9606"
                   />
                 </label>
-                <button type="submit" className="form-button w-full justify-center">
+                <button type="submit" className="form-button">
                   Add species
                 </button>
               </form>
@@ -1264,7 +1264,7 @@ const ReferenceCatalogPage: React.FC = () => {
                     }
                   />
                 </label>
-                <button type="submit" className="form-button w-full justify-center">
+                <button type="submit" className="form-button">
                   Add assembly
                 </button>
               </form>

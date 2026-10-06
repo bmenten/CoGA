@@ -89,6 +89,12 @@ export const readsText = (nipt: {
 export const depth = (value?: number | null): string =>
   value == null ? '—' : `${value.toFixed(0)}x`;
 
+/** A capture target's exon: the last field of its attribute (gene;transcript;…;exon). */
+export const targetExon = (attribute: string): string => {
+  const parts = attribute.split(';');
+  return parts.length > 4 ? parts[parts.length - 1].trim() : '';
+};
+
 // Short, hover-able reason for why a panel gene failed the coverage QC check.
 export const lowCoverageDetail = (region: ApiNiptCoverageLowRegion): string => {
   if (region.reason === 'no_coverage') return 'no coverage';

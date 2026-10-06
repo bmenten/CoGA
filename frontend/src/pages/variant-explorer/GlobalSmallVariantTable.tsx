@@ -70,13 +70,13 @@ const GlobalSmallVariantTable = ({
                     <span className="table-empty">—</span>
                   )}
                 </td>
-                <td className="table-mono">
+                <td className="table-mono variant-locus-cell">
                   <div>
                     {variant.chr}:{variant.pos} {variant.ref}&gt;{variant.alt}
                   </div>
                   {variant.hgvsc ? <div className="table-subtle">{variant.hgvsc}</div> : null}
                 </td>
-                <td>
+                <td className="table-wrap-cell">
                   {variant.classification ? (
                     variant.classification
                   ) : variant.clinvar ? (
@@ -85,13 +85,13 @@ const GlobalSmallVariantTable = ({
                     <span className="table-empty">—</span>
                   )}
                 </td>
-                <td>
+                <td className="table-wrap-cell">
                   {variant.consequence || <span className="table-empty">—</span>}
                   {variant.impact ? (
                     <div className="table-subtle">{variant.impact}</div>
                   ) : null}
                 </td>
-                <td>
+                <td className="table-wrap-cell">
                   {variant.tags.length ? (
                     <div className="variant-explorer-tag-list">
                       {variant.tags.map((tag) => (

@@ -5,13 +5,13 @@ import { themeText } from './themeSource';
 /**
  * The shared form-control rule is written as
  *
- *   input:not([type='checkbox']):not([type='radio']) { min-height: 3.15rem; padding: 1rem }
+ *   input:not([type='checkbox']):not([type='radio']) { min-height: var(--control-height); ... }
  *
  * `:not()` takes the specificity of its argument, so each attribute selector adds a
  * class-level weight: the selector scores **(0,2,1)**, not (0,0,1) as its shape
  * suggests. A two-class override like `.some-table .some-input` scores (0,2,0) and
- * *loses* — silently, with no warning anywhere, leaving the control at its 50px
- * login-form height.
+ * *loses* — silently, with no warning anywhere, leaving the control at the shared
+ * height and padding.
  *
  * That is exactly what happened to the QC threshold inputs: three rounds of tuning
  * padding, width and height had no effect at all, because none of it applied. jsdom
@@ -35,11 +35,7 @@ const SHARED_RULE_AT = THEME.indexOf(SHARED_RULE);
  * than changed blind. Removing an entry here means fixing the rule.
  */
 const KNOWN_UNAPPLIED = new Set([
-  '.table-filter-row input, .table-filter-row select',
-  '.family-paraphase-filter-field input',
-  '.family-mtdna-filter-field input, .family-mtdna-filter-field select',
   '.family-mtdna-filter-toggle input',
-  '.cnv-points-input',
 ]);
 
 interface ControlRule {

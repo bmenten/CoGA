@@ -60,7 +60,7 @@ interface GenomeOverviewWorkspaceProps {
   assemblyVersion?: string;
   assembly: string;
   projectId?: string;
-  trackAreaRef: React.RefObject<HTMLElement | null>;
+  trackAreaRef: React.Ref<HTMLElement>;
   backDest: string;
   visibleRoi: ApiFamilyRegionOfInterest | null;
   inheritanceModel?: string | null;
@@ -318,7 +318,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
           </div>
         )}
       </section>
-      <section ref={trackAreaRef as React.RefObject<HTMLElement>} className="surface-card genome-visualization-panel space-y-6">
+      <section ref={trackAreaRef} className="surface-card genome-visualization-panel space-y-6">
         <section className="viz-shell">
           {membersWithData.map((member) => (
             <ViewerMemberSection key={member.sample_id} member={member}>
@@ -513,7 +513,12 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
           ))}
           {membersWithData.length === 0 && showViewerLoading && (
             <div className="viz-panel">
-              <div className="viz-frame relative h-[120px]" style={{ width: trackWidth }}>
+              <div
+                className="viz-frame relative h-[120px]"
+                // The tracks' width, but never wider than the panel: the placeholder has no
+                // scroller of its own, so a wider frame pushed the page into a sideways scroll.
+                style={{ width: trackWidth, maxWidth: '100%' }}
+              >
                 <VizLoadingOverlay message="Loading selected tracks" />
               </div>
             </div>

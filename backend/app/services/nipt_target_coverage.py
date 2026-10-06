@@ -301,11 +301,13 @@ def summarize_target_coverage(
     genes: Iterable[str] | None = None,
     critical_mean_depth: float = CRITICAL_MEAN_DEPTH,
     advisory_mean_depth: float = ADVISORY_MEAN_DEPTH,
+    include_passing: bool = False,
 ) -> TargetCoverageSummary:
     """The coverage QC of the targets, restricted to ``genes`` when given (case-insensitive).
 
     The per-gene list holds the requested genes, or, without a gene list, only the genes
-    with a weak target, weakest first.
+    with a weak target, weakest first. ``include_passing`` lists every gene in scope, the
+    ones whose targets all pass too: the coverage page shows both.
     """
     wanted = {gene.strip().upper() for gene in genes or [] if gene and gene.strip()}
     selected = [row for row in rows if not wanted or row.gene.upper() in wanted]
@@ -316,7 +318,7 @@ def summarize_target_coverage(
     gene_rows: list[TargetGeneCoverage] = []
     for gene, gene_targets in by_gene.items():
         weak = [row for row in gene_targets if row.is_weak(critical_mean_depth)]
-        if not wanted and not weak:
+        if not wanted and not weak and not include_passing:
             continue
         gene_means = [row.mean for row in gene_targets if row.mean is not None]
         gene_rows.append(

@@ -88,6 +88,31 @@ describe('useMeasuredWidth', () => {
     expect(widths.at(-1)).toBe(1400);
   });
 
+  // A page that shows "Loading…" first mounts the measured element later: it is measured
+  // all the same, not left at the caller's fallback width.
+  it('measures an element that mounts after the first render', () => {
+    const widths: number[] = [];
+    const Late = ({ ready }: { ready: boolean }) => {
+      const [ref, width] = useMeasuredWidth<HTMLDivElement>();
+      widths.push(width);
+      return ready ? <div ref={ref} data-testid="late" /> : <p>Loading…</p>;
+    };
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return this.dataset.testid === 'late' ? ({ width: 1800 } as DOMRect) : original.call(this);
+    });
+    vi.spyOn(window, 'getComputedStyle').mockReturnValue({
+      paddingLeft: '0px',
+      paddingRight: '0px',
+    } as CSSStyleDeclaration);
+
+    const { rerender } = render(<Late ready={false} />);
+    expect(widths.at(-1)).toBe(0);
+
+    rerender(<Late ready />);
+    expect(widths.at(-1)).toBe(1800);
+  });
+
   it('stops listening once unmounted', () => {
     const remove = vi.spyOn(document, 'removeEventListener');
     const { unmount } = render(<Probe onWidth={() => {}} />);

@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { expect, test } from 'vitest';
 
-import Pedigree from '../visualizations/Pedigree';
+import Pedigree, { estimateLabelWidth } from '../visualizations/Pedigree';
 
 const baseRows = [
   { fid: 'F1', iid: 'DAD', pid: '0', mid: '0', sex: '1', phen: '1' },
@@ -434,3 +434,60 @@ test('puts a relative of the father on his side, and one of both parents on the 
   expect(positions.get('INDEX1')!.x).toBeGreaterThan(positions.get('MOM')!.x);
   expect(bothSides.container.querySelectorAll('[data-pedigree-relative-degree]')).toHaveLength(2);
 });
+
+// Each sample's label as drawn: its text and size, centred under its symbol.
+const labelExtents = (container: HTMLElement) => {
+  const positions = pedigreePositions(container);
+  return [...container.querySelectorAll('[data-pedigree-label]')].map((label) => {
+    const sampleId = label.getAttribute('data-pedigree-label')!;
+    const { x, y } = positions.get(sampleId)!;
+    const half = estimateLabelWidth(label.textContent || '', Number(label.getAttribute('font-size'))) / 2;
+    return { sampleId, left: x - half, right: x + half, y };
+  });
+};
+
+test('spaces the symbols so that long sample IDs never run into each other', async () => {
+  const rows = [
+    { fid: 'F1', iid: 'FATHER_NIPT', pid: '0', mid: '0', sex: '1', phen: '1' },
+    { fid: 'F1', iid: 'CFDNA_NIPT', pid: '0', mid: '0', sex: '2', phen: '1' },
+    ...['EMBRYO_DAY5_BIOPSY_01', 'EMBRYO_DAY5_BIOPSY_02', 'EMBRYO3'].map((iid) => ({
+      fid: 'F1',
+      iid,
+      pid: 'FATHER_NIPT',
+      mid: 'CFDNA_NIPT',
+      sex: '0',
+      phen: '1',
+    })),
+    // Longer than the drawing's side padding: kept whole at the edge.
+    {
+      fid: 'F1',
+      iid: 'SYNTHETIC_cfDNA_plasma_rerun_lane_3_sequencing_batch',
+      pid: 'FATHER_NIPT',
+      mid: 'CFDNA_NIPT',
+      sex: '2',
+      phen: '2',
+    },
+  ];
+  const members = rows
+    .filter((row) => row.iid.startsWith('EMBRYO'))
+    .map((row) => ({ sample_id: row.iid, role: 'embryo' }));
+
+  const { container } = render(<Pedigree rows={rows} members={members} />);
+  const width = await svgWidth(container);
+  const labels = labelExtents(container);
+  expect(labels).toHaveLength(rows.length);
+
+  // The couple's labels clear each other, as do the children's in their row.
+  for (let i = 0; i < labels.length; i += 1) {
+    for (let j = i + 1; j < labels.length; j += 1) {
+      const [a, b] = [labels[i], labels[j]];
+      if (a.y !== b.y) continue;
+      expect(a.right <= b.left || b.right <= a.left, `${a.sampleId} overlaps ${b.sampleId}`).toBe(true);
+    }
+  }
+  labels.forEach((label) => {
+    expect(label.left, label.sampleId).toBeGreaterThanOrEqual(0);
+    expect(label.right, label.sampleId).toBeLessThanOrEqual(width);
+  });
+});
+

@@ -2,25 +2,25 @@
 
 .gene-profile-status {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.125rem;
   min-width: 220px;
 }
 
 .gene-compact-page {
   display: grid;
-  gap: 1rem;
+  gap: 0.625rem;
 }
 
 .gene-compact-header {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.5rem;
   border-bottom: 1px solid var(--color-border);
-  padding-bottom: 1rem;
+  padding-bottom: 0.625rem;
 }
 
 .gene-compact-search {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.375rem;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
 }
@@ -28,14 +28,14 @@
 .gene-compact-header-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.9rem;
+  gap: 0.5625rem;
 }
 
 .gene-compact-section {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.5rem;
   border-top: 1px solid var(--color-border);
-  padding-top: 0.95rem;
+  padding-top: 0.5625rem;
 }
 
 .gene-compact-section--overview {
@@ -47,34 +47,33 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.625rem;
   align-items: flex-start;
 }
 
 .gene-compact-title-block {
   display: grid;
-  gap: 0.18rem;
+  gap: 0.125rem;
   min-width: 0;
 }
 
 .gene-compact-gene-title {
   margin: 0;
-  font-size: clamp(1.75rem, 3vw, 2.5rem);
-  line-height: 1;
-  letter-spacing: -0.03em;
+  font-size: var(--fs-xl);
+  line-height: 1.2;
   color: var(--color-heading);
 }
 
 .gene-compact-gene-subtitle {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--color-text);
 }
 
 .gene-compact-locus-line {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--color-text-muted);
 }
@@ -82,7 +81,7 @@
 .gene-compact-title-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.25rem;
   justify-content: flex-end;
 }
 
@@ -91,14 +90,14 @@
 .gene-compact-source {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  border-radius: 999px;
+  gap: 0.25rem;
+  border-radius: var(--radius-control);
   border: 1px solid var(--color-border);
-  background: rgba(247, 249, 252, 0.96);
-  padding: 0.22rem 0.58rem;
-  font-size: 0.69rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  background: var(--color-surface-muted);
+  padding: 0 0.375rem;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  line-height: 1.125rem;
   color: var(--color-secondary);
 }
 
@@ -122,62 +121,59 @@
 
 .gene-compact-alias-line {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--color-text-muted);
 }
 
 .gene-compact-alias-line span {
-  margin-right: 0.45rem;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  margin-right: 0.25rem;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
   color: var(--color-text-muted);
 }
 
 .gene-compact-summary {
   margin: 0;
   max-width: 72rem;
-  font-size: 0.95rem;
-  line-height: 1.72;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
   color: var(--color-text);
 }
 
 .gene-compact-columns {
   display: grid;
-  gap: 1rem;
+  gap: 0.625rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
 }
 
 .gene-compact-block {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.375rem;
   min-width: 0;
 }
 
 .gene-compact-block h3,
 .gene-compact-section-title {
   margin: 0;
-  font-size: 0.92rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: var(--fs-sm);
+  font-weight: 600;
   color: var(--color-heading);
 }
 
 .gene-compact-detail-list {
   display: grid;
-  gap: 0.28rem;
+  gap: 0.1875rem;
 }
 
 .gene-compact-detail-row {
   display: grid;
   grid-template-columns: minmax(130px, 0.78fr) minmax(0, 1.22fr);
-  gap: 0.75rem;
+  gap: 0.4375rem;
   align-items: start;
-  border-bottom: 1px solid rgba(10, 11, 12, 0.05);
-  padding-bottom: 0.32rem;
+  border-bottom: 1px solid var(--color-row-rule);
+  padding-bottom: 0.25rem;
 }
 
 .gene-compact-detail-row:last-child {
@@ -186,10 +182,8 @@
 }
 
 .gene-compact-detail-row dt {
-  font-size: 0.69rem;
-  font-weight: 700;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: 400;
   color: var(--color-text-muted);
 }
 
@@ -197,20 +191,20 @@
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 0.86rem;
-  line-height: 1.5;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
   color: var(--color-heading);
 }
 
 .gene-compact-inline-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem 0.65rem;
+  gap: 0.25rem 0.375rem;
   align-items: center;
 }
 
 .gene-compact-link {
-  color: var(--color-signature-red-dark);
+  color: var(--color-link);
   text-decoration: none;
 }
 
@@ -220,27 +214,25 @@
 
 .gene-compact-subsection {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
 .gene-compact-group-stack {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.375rem;
 }
 
 .gene-compact-subtitle-label {
   margin: 0;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
   color: var(--color-text-muted);
 }
 
 .gene-compact-chip-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
 .gene-compact-term-chip {
@@ -249,36 +241,36 @@
   max-width: 100%;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.28rem;
-  border: 1px solid rgba(198, 31, 45, 0.14);
-  border-radius: 999px;
-  background: rgba(198, 31, 45, 0.055);
-  padding: 0.22rem 0.56rem;
+  gap: 0.1875rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-muted);
+  padding: 0.0625rem 0.375rem;
   overflow-wrap: anywhere;
-  font-size: 0.78rem;
-  font-weight: 650;
-  line-height: 1.25;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.3;
   color: var(--color-heading);
 }
 
 .gene-compact-term-chip span {
-  font-size: 0.68rem;
-  font-weight: 700;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
   color: var(--color-text-muted);
 }
 
 .gene-compact-list {
   display: grid;
-  gap: 0.32rem;
+  gap: 0.25rem;
   margin: 0;
-  padding-left: 1rem;
+  padding-left: 0.625rem;
   color: var(--color-text);
 }
 
 .gene-compact-list li {
   display: grid;
-  gap: 0.08rem;
-  font-size: 0.86rem;
+  gap: 0.0625rem;
+  font-size: var(--fs-xs);
   line-height: 1.45;
 }
 
@@ -286,7 +278,7 @@
 .gene-compact-empty,
 .gene-compact-paragraph,
 .gene-compact-section-note {
-  font-size: 0.8rem;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--color-text-muted);
 }
@@ -301,45 +293,43 @@
   flex-wrap: wrap;
   align-items: end;
   justify-content: space-between;
-  gap: 0.8rem;
+  gap: 0.5rem;
 }
 
 .gene-compact-section-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.3125rem;
   align-items: center;
   justify-content: flex-end;
 }
 
 .gene-compact-collapse-button {
-  min-height: 2rem;
-  padding: 0.3rem 0.72rem;
   white-space: nowrap;
 }
 
 .gene-compact-advanced-block {
   display: grid;
-  gap: 0.55rem;
-  border-left: 3px solid rgba(198, 31, 45, 0.22);
-  padding-left: 0.7rem;
+  gap: 0.3125rem;
+  border-left: 2px solid var(--color-border-strong);
+  padding-left: 0.4375rem;
 }
 
 .gene-compact-expression-list {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.25rem;
 }
 
 .gene-compact-expression-row {
   display: grid;
-  gap: 0.22rem;
+  gap: 0.1875rem;
 }
 
 .gene-compact-expression-labels {
   display: flex;
   justify-content: space-between;
-  gap: 0.75rem;
-  font-size: 0.78rem;
+  gap: 0.4375rem;
+  font-size: var(--fs-xs);
   line-height: 1.35;
   color: var(--color-heading);
 }
@@ -350,7 +340,7 @@
 }
 
 .gene-compact-mini-bar {
-  height: 0.42rem;
+  height: 0.375rem;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(10, 11, 12, 0.07);
@@ -360,41 +350,41 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--color-signature-red), #d56c3b);
+  background: var(--color-accent);
 }
 
 .gene-transcript-table td:first-child {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
 
 .gene-compact-link-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem 0.7rem;
+  gap: 0.25rem 0.4375rem;
 }
 
 .gene-compact-resource-link {
-  color: var(--color-secondary);
-  font-size: 0.84rem;
-  font-weight: 600;
+  color: var(--color-link);
+  font-size: var(--fs-sm);
+  font-weight: 500;
   text-decoration: none;
 }
 
 .gene-compact-resource-link:hover {
-  color: var(--color-signature-red-dark);
+  color: var(--color-link-hover);
   text-decoration: underline;
 }
 
 .gene-compact-footer {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.4375rem;
   align-items: center;
   border-top: 1px solid var(--color-border);
-  padding-top: 0.7rem;
-  font-size: 0.74rem;
+  padding-top: 0.4375rem;
+  font-size: var(--fs-xs);
   color: var(--color-text-muted);
 }
 
@@ -425,34 +415,32 @@
 
   .gene-compact-detail-row {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.14rem;
+    gap: 0.125rem;
   }
 }
 
 .gene-profile-status-label,
 .gene-profile-stat-label {
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
   color: var(--color-text-muted);
 }
 
 .gene-profile-grid {
   display: grid;
-  gap: 1.25rem;
+  gap: 0.75rem;
   grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.82fr);
   align-items: start;
 }
 
 .gene-profile-stat {
   display: grid;
-  gap: 0.45rem;
-  border: 1px solid rgba(10, 11, 12, 0.06);
-  border-radius: 4px;
-  padding: 0.9rem;
+  gap: 0.0625rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 0.3125rem 0.5rem;
   min-width: 0;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--color-surface-muted);
 }
 
 .gene-profile-stat strong {
@@ -464,44 +452,44 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.55rem 0.8rem;
+  gap: 0.3125rem 0.5rem;
 }
 
 .gene-sync-summary-grid {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.5rem;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  margin-top: 1rem;
+  margin-top: 0.625rem;
 }
 
 .gene-sync-action-grid {
   display: grid;
-  gap: 1rem;
+  gap: 0.625rem;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  margin-top: 1rem;
+  margin-top: 0.625rem;
 }
 
 .gene-sync-action-panel {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.4375rem;
 }
 
 .gene-sync-inline-form {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.4375rem;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
 }
 
 .gene-sync-job-card {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.4375rem;
 }
 
 .gene-sync-progress-shell {
   position: relative;
   width: 100%;
-  height: 0.52rem;
+  height: 0.375rem;
   border-radius: 999px;
   background: rgba(10, 11, 12, 0.08);
   overflow: hidden;
@@ -510,16 +498,16 @@
 .gene-sync-progress-bar {
   position: absolute;
   inset: 0 auto 0 0;
-  background: linear-gradient(90deg, var(--color-signature-red), var(--color-signature-red-dark));
+  background: var(--color-link);
   border-radius: inherit;
 }
 
 .gene-sync-job-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.85rem 1.2rem;
+  gap: 0.5rem 0.75rem;
   color: var(--color-text-muted);
-  font-size: 0.9rem;
+  font-size: var(--fs-xs);
 }
 
 @media (max-width: 1080px) {

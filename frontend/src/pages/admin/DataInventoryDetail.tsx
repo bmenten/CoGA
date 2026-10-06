@@ -112,7 +112,7 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
         <div className="page-header admin-family-overview-header">
           <div className="space-y-2">
             <p className="page-kicker">Selected Family</p>
-            <h2 className="section-title text-[1.9rem]!">{selectedFamily.family_id}</h2>
+            <h2 className="section-title">{selectedFamily.family_id}</h2>
             <p className="catalog-card-copy">
               Manage this family directly below: edit members and structure, review
               statistics and samples, and trace every imported source file.

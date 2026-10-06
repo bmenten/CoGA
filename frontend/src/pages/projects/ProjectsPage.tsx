@@ -604,7 +604,7 @@ const ProjectsPage: React.FC = () => {
             <div className="page-header">
               <div className="space-y-2">
                 <p className="page-kicker">Selected project</p>
-                <h2 className="section-title text-[1.9rem]!">{selectedProject.name}</h2>
+                <h2 className="section-title">{selectedProject.name}</h2>
                 <p className="catalog-card-copy">
                   {getSpeciesLabel(selectedProject, speciesNameById)} •{' '}
                   {getAssemblyLabel(selectedProject, assemblyById)}
@@ -641,7 +641,7 @@ const ProjectsPage: React.FC = () => {
             <div className="project-detail-layout">
               <div className="project-detail-main">
                 <div className="surface-card-muted space-y-4">
-                  <h3 className="section-title text-[1.15rem]!">Overview</h3>
+                  <h3 className="section-title">Overview</h3>
                   <div className="project-stat-grid">
                     <div className="project-stat-card">
                       <span className="stat-label">Families</span>
@@ -677,14 +677,14 @@ const ProjectsPage: React.FC = () => {
                 </div>
 
                 <div className="surface-card-muted space-y-4">
-                  <h3 className="section-title text-[1.15rem]!">Notes</h3>
+                  <h3 className="section-title">Notes</h3>
                   <p className="project-note-block">
                     {selectedProject.description?.trim() || 'No project notes have been added yet.'}
                   </p>
                 </div>
 
                 <div className="surface-card-muted space-y-4">
-                  <h3 className="section-title text-[1.15rem]!">Linked families</h3>
+                  <h3 className="section-title">Linked families</h3>
                   {selectedProject.families.length ? (
                     <div className="data-table-shell overflow-x-auto">
                       <table className="analysis-table project-family-table">
@@ -738,7 +738,7 @@ const ProjectsPage: React.FC = () => {
               <div className="project-detail-side">
                 {userIsAdmin && (
                   <div className="surface-card-muted space-y-4">
-                    <h3 className="section-title text-[1.15rem]!">Settings</h3>
+                    <h3 className="section-title">Settings</h3>
                     <div className="field-grid project-form-grid">
                       <label className="field-label">
                         Title
@@ -806,7 +806,7 @@ const ProjectsPage: React.FC = () => {
                 )}
 
                 <div className="surface-card-muted space-y-4">
-                  <h3 className="section-title text-[1.15rem]!">User access</h3>
+                  <h3 className="section-title">User access</h3>
                   {userIsAdmin ? (
                     users.length > 0 ? (
                       <div className="table-checkbox-grid project-access-grid">

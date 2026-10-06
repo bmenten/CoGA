@@ -119,7 +119,9 @@ plasma depth ≥ 20, passing the quality filter, VAF 0.005–0.25), with a Wilso
   per gene the highest maternal × paternal inheritance product, P(fetus hom-alt) at a shared site, the
   ½ prior for an untold inheritance, notes for a missing population frequency.
 - **Target coverage** — `summarize_target_coverage` (weak: mean < 300× or uncovered bases; 1000×
-  advisory).
+  advisory). The NIPT page's card counts the genes with a weak target; the coverage page lists every
+  gene in scope (`include_passing`) and reads one gene's targets on demand
+  (`get_family_nipt_gene_targets`).
 
 ## Two paths
 
@@ -136,8 +138,10 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
   `de_novo_priority`), the category filter, and paging. The recessive view returns `recessive_genes`.
 
 Endpoints (`routers/families_nipt.py`, under `/api`): `GET /families/{id}/nipt/summary`,
-`/nipt/variants` and `/nipt/coverage` (with `targets` from the target table). The fetal fraction is
-always CoGA's own estimate; it takes no external value.
+`/nipt/variants`, `/nipt/coverage` (with `targets` from the target table; `all_genes=true` lists the
+genes whose targets all pass too, for the coverage page) and `/nipt/coverage/targets?gene=` (one gene's
+targets, each with `weak`). The fetal fraction is always CoGA's own estimate; it takes no external
+value.
 
 ## The artifact list
 
@@ -182,6 +186,7 @@ These are described for lab users in the in-app reference.
   import), `vcf_call_metrics.py`, `nipt_artifact_pg.py`, `nipt_coverage.py` (the ROI fallback),
   `routers/families_nipt.py`, `schemas/nipt.py`.
 - Frontend: `frontend/src/pages/families/FamilyNiptPage.tsx`, `FamilyNiptReportPage.tsx`,
+  `FamilyNiptCoveragePage.tsx` (the coverage page, `/families/{id}/nipt/coverage`),
   `NiptQcPanel.tsx`, `NiptRecessiveGenes.tsx`, `NiptTargetCoverage.tsx`, `NiptClassificationBlock.tsx`,
   `niptClassification.ts`; views and presets in `smallVariantSearch.ts` and
   `smallVariantFilterSections.tsx`.

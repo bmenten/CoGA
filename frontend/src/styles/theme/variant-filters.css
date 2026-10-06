@@ -2,27 +2,30 @@
 
 .analysis-shell {
   display: grid;
-  gap: 1.15rem;
+  /* A shrinkable column, as in .analysis-main: an auto column sizes to its widest table,
+     which then pushes the page sideways instead of scrolling inside its card. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.625rem;
 }
 
 .analysis-grid {
   display: grid;
-  gap: 1.1rem;
+  gap: 0.625rem;
 }
 
 .analysis-grid--viewer {
   align-items: start;
-  gap: 0.9rem;
+  gap: 0.625rem;
 }
 
 .analysis-sidebar {
   display: grid;
-  gap: 1rem;
+  gap: 0.5rem;
   align-self: start;
 }
 
 .analysis-sidebar--viewer {
-  gap: 0.9rem;
+  gap: 0.5rem;
 }
 
 .analysis-main {
@@ -31,7 +34,7 @@
      column sizes to its content, so a wide track row would blow the column out
      past the viewer cell instead of letting the inner horizontal scroll engage. */
   grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
+  gap: 0.625rem;
 }
 
 .analysis-main--viewer {
@@ -53,7 +56,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.375rem;
 }
 
 .analysis-jump-form {
@@ -61,7 +64,7 @@
   flex: 1 1 26rem;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 0.75rem;
+  gap: 0.375rem;
 }
 
 .analysis-jump-field {
@@ -71,67 +74,63 @@
 
 .analysis-panel {
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.99);
-  box-shadow: var(--shadow-card);
-  padding: 1.35rem;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: 0.75rem;
 }
 
 .analysis-panel-muted {
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: rgba(247, 249, 252, 0.96);
-  padding: 1.15rem;
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+  padding: 0.5rem 0.75rem;
 }
 
 .analysis-section-title {
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--color-text-muted);
 }
 
 .analysis-filter-grid {
   display: grid;
-  /* Matches the filter dropdown's own 0.45rem rhythm; 0.9rem spread a row of small
-     numeric fields much wider than they need. */
-  gap: 0.45rem;
+  /* The filter dropdown's own rhythm: a row of small numeric fields, not a form. */
+  gap: 0.375rem;
 }
 
 .variant-workbench-card {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.5rem;
 }
 
 .variant-workbench-card .page-top-card-copy {
-  gap: 0.7rem;
+  gap: 0.375rem;
 }
 
 .variant-workbench-card .page-top-card-pedigree {
-  padding: 0.55rem 0.65rem;
-  border-radius: 6px;
+  padding: 0.3125rem 0.375rem;
+  border-radius: var(--radius-card);
 }
 
 .variant-search-workspace {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.5rem;
 }
 
 .variant-search-header {
   display: grid;
-  gap: 0.25rem;
+  gap: 0.375rem;
 }
 
 .variant-search-meta {
   display: grid;
-  gap: 0.32rem;
+  gap: 0.375rem;
 }
 
 .variant-search-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.38rem;
+  gap: 0.375rem;
   align-items: center;
 }
 
@@ -145,36 +144,36 @@
 
 .variant-search-section {
   display: grid;
-  gap: 0.32rem;
-  border-top: 1px solid rgba(12, 14, 16, 0.08);
-  padding-top: 0.4rem;
+  gap: 0.375rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.5rem;
 }
 
 .variant-search-section-copy {
   display: grid;
-  gap: 0.08rem;
+  gap: 0.0625rem;
 }
 
 .variant-search-section-copy code {
   border: 1px solid var(--color-border);
-  background: rgba(245, 248, 251, 0.96);
-  padding: 0.1rem 0.35rem;
-  border-radius: 4px;
+  background: var(--color-surface-muted);
+  padding: 0.0625rem 0.25rem;
+  border-radius: var(--radius-control);
   font-size: 0.9em;
 }
 
 .variant-sample-grid {
   display: grid;
-  gap: 0.38rem;
+  gap: 0.3125rem;
 }
 
 .variant-sample-row {
   display: grid;
-  gap: 0.34rem;
-  border: 1px solid rgba(12, 14, 16, 0.08);
-  border-radius: 4px;
-  background: rgba(247, 249, 252, 0.9);
-  padding: 0.42rem 0.5rem;
+  gap: 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+  padding: 0.375rem 0.5rem;
 }
 
 .variant-sample-heading {
@@ -182,55 +181,67 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.4375rem;
 }
 
 .variant-sample-title {
-  font-size: 0.92rem;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: 600;
   color: var(--color-heading);
 }
 
 .variant-sample-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.25rem;
 }
 
 .variant-sample-controls {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.375rem;
 }
 
 .variant-gt-toggle-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.3125rem;
 }
 
 .variant-search-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.25rem;
   justify-content: flex-start;
 }
 
+/* The filter sections: one line each, two to a row on a wide screen. An open section takes
+   the whole row, so its fields have the width they need. */
 .variant-filter-dropdown-grid {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.25rem 0.5rem;
   grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+@media (min-width: 1280px) {
+  .variant-filter-dropdown-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .variant-filter-dropdown-grid > .variant-filter-dropdown[open] {
+    grid-column: 1 / -1;
+  }
 }
 
 .variant-filter-dropdown {
   position: relative;
-  border: 1px solid rgba(10, 11, 12, 0.07);
-  border-radius: 6px;
-  background: linear-gradient(145deg, rgba(249, 251, 253, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
 }
 
 .variant-filter-dropdown[open] {
-  border-color: rgba(82, 111, 161, 0.18);
-  box-shadow: 0 10px 24px rgba(12, 14, 16, 0.05);
+  border-color: var(--color-border-strong);
 }
 
 .variant-filter-dropdown summary {
@@ -245,14 +256,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.6rem;
+  gap: 0.5rem;
+  min-height: 2.25rem;
   cursor: pointer;
-  padding: 0.4rem 0.5rem;
+  padding: 0.1875rem 0.5rem;
 }
 
 .variant-filter-dropdown-summary-copy {
-  display: grid;
-  gap: 0.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.5rem;
   min-width: 0;
 }
 
@@ -260,46 +274,47 @@
   display: inline-flex;
   flex: 0 0 auto;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   justify-content: flex-end;
-  gap: 0.45rem;
+  gap: 0.375rem 0.75rem;
   margin-left: auto;
 }
 
+/* A quick select in a section header: its label beside it, not above it, so the header
+   stays one line. */
 .variant-summary-select-field {
-  display: grid;
-  gap: 0.12rem;
-  width: clamp(13rem, 23vw, 19rem);
-  min-width: 13rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
 }
 
 .variant-summary-select-field > span {
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
   color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 .variant-summary-select-field > select {
-  min-height: 2rem;
-  padding: 0.42rem 0.55rem;
-  font-size: 0.7rem;
+  width: auto;
+  min-width: 9rem;
+  max-width: 16rem;
 }
 
 .variant-filter-dropdown-title {
-  font-size: 0.8rem;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: 600;
   color: var(--color-heading);
 }
 
 .variant-filter-dropdown-meta {
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   color: var(--color-text-muted);
 }
 
 .variant-filter-dropdown-caret {
   flex: 0 0 auto;
+  font-size: var(--fs-md);
+  line-height: 1;
   color: var(--color-text-muted);
   transition: transform 140ms ease;
 }
@@ -310,27 +325,12 @@
 
 .variant-filter-dropdown-content {
   display: grid;
-  gap: 0.45rem;
-  border-top: 1px solid rgba(10, 11, 12, 0.06);
-  padding: 0.46rem 0.5rem 0.52rem;
+  gap: 0.5rem;
+  border-top: 1px solid var(--color-border);
+  padding: 0.5rem;
 }
 
-/* A filter popover holds a dozen numeric fields to be read at a glance. The global
-   3.15rem control height is sized for standalone forms and left each dropdown a column
-   of oversized boxes — while the quick selects in the same form were already 2rem.
-   Match those, so one form has one control size. */
-.variant-filter-dropdown-content
-  input:not([type='checkbox']):not([type='radio']):not([type='range']),
-.variant-filter-dropdown-content select,
-.variant-filter-dropdown-content textarea,
-.analysis-filter-grid input:not([type='checkbox']):not([type='radio']):not([type='range']),
-.analysis-filter-grid select {
-  min-height: 2rem;
-  padding: 0.42rem 0.55rem;
-  font-size: 0.7rem;
-}
-
-/* A range has no text to pad, so the inherited 1rem padding was pure height. */
+/* A range has no text to pad: the shared control padding would only add height. */
 .variant-filter-dropdown-content input[type='range'] {
   min-height: 1.1rem;
   padding: 0;
@@ -339,15 +339,15 @@
 /* Monogenic NIPT filter form helpers (mirror the small-variant filter look). */
 .analysis-field-label {
   display: grid;
-  gap: 0.25rem;
-  font-size: 0.78rem;
+  gap: 0.1875rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  color: #5b6166;
+  color: var(--color-text-muted);
 }
 
 .nipt-category-grid {
   display: grid;
-  gap: 0.3rem 0.75rem;
+  gap: 0.25rem 0.4375rem;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
@@ -358,73 +358,78 @@
 .nipt-category-option-copy {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.4rem;
+  gap: 0.25rem;
 }
 
 .nipt-category-option-count {
   font-variant-numeric: tabular-nums;
-  color: #5b6166;
-  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
 }
 
 /* NIPT classification block (on the reused small-variant card) + table cell. */
 .nipt-classification-block {
   display: grid;
-  gap: 0.4rem;
-  margin: 0.4rem 0;
-  padding: 0.5rem 0.6rem;
+  gap: 0.25rem;
+  margin: 0.125rem 0;
+  padding: 0.3125rem 0.5rem;
   border: 1px solid rgba(99, 102, 241, 0.25);
-  border-radius: 0.6rem;
-  background: rgba(99, 102, 241, 0.06);
+  border-radius: var(--radius-card);
+  background: rgba(99, 102, 241, 0.05);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .nipt-classification-headline {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: 0.3125rem;
 }
 
 .nipt-classification-category {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .nipt-classification-label {
-  color: #5b6166;
+  color: var(--color-text-muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .nipt-classification-confidence {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
-  font-size: 0.78rem;
-  color: #5b6166;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
 }
 
 .nipt-classification-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.3rem 0.75rem;
+  gap: 0.25rem 0.4375rem;
   margin: 0;
 }
 
 .nipt-classification-stats > div {
   display: flex;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
 .nipt-classification-stats dt {
   font-weight: 600;
-  color: #5b6166;
+  color: var(--color-text-muted);
 }
 
 .nipt-classification-stats dd {
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .nipt-classification-flags {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
+  gap: 0.25rem;
 }
 
 /* A de novo candidate's triage: its priority chip, score, window and reasons. */
@@ -432,13 +437,13 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.25rem;
 }
 
 /* The recessive view's gene table: each parent's alleles, the pair the risk reads bold. */
 .nipt-recessive-alleles {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.125rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -450,33 +455,85 @@
 
 .nipt-table-cell {
   display: grid;
-  gap: 0.15rem;
+  gap: 0.125rem;
 }
 
 .nipt-table-category {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .nipt-table-detail {
-  font-size: 0.76rem;
-  color: #5b6166;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
+}
+
+/* The NIPT page's coverage verdict ends in the way to the coverage page. */
+.nipt-coverage-verdict a {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* The coverage page: a gene (or region) per row, sized to its few columns; a gene opened,
+   its targets beneath. */
+.nipt-coverage-filter {
+  max-width: 16rem;
+}
+
+.data-table-shell .nipt-coverage-table,
+.data-table-shell .nipt-coverage-target-table {
+  width: auto;
+}
+
+.data-table-shell .nipt-coverage-target-table {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.nipt-coverage-gene {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* A gene without a target has no caret: its name lines up with the others'. */
+span.nipt-coverage-gene {
+  padding-left: 0.6875rem;
+}
+
+.nipt-coverage-caret {
+  width: 0.4375rem;
+  height: 0.625rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 120ms ease;
+}
+
+.nipt-coverage-gene[aria-expanded='true'] .nipt-coverage-caret {
+  transform: rotate(90deg);
+}
+
+.nipt-coverage-targets-row > td {
+  background: var(--color-surface-muted);
+  padding: 0.25rem 0.5rem 0.5rem 1.25rem;
 }
 
 .variant-inline-controls {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.3125rem;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
 
 .variant-checkbox-grid {
   display: grid;
-  gap: 0.26rem 0.6rem;
+  gap: 0.1875rem 0.375rem;
   grid-template-columns: repeat(auto-fit, minmax(195px, 1fr));
   justify-items: start;
 }
 
 .variant-checkbox-grid--small {
-  gap: 0.2rem 0.45rem;
+  gap: 0.125rem 0.25rem;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
@@ -485,29 +542,27 @@
 }
 
 .variant-compact-checkbox {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   line-height: 1.2;
   color: var(--color-text-muted);
 }
 
 .variant-annotation-impact-groups {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.25rem;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   align-items: start;
 }
 
 .variant-annotation-impact-group {
   display: grid;
-  gap: 0.28rem;
+  gap: 0.1875rem;
   padding: 0;
 }
 
 .variant-annotation-impact-title {
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--color-text-muted);
 }
 
@@ -517,26 +572,26 @@
 
 .variant-frequency-slider-grid {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.25rem;
   grid-template-columns: repeat(auto-fit, minmax(260px, 420px));
   justify-content: flex-start;
 }
 
 .variant-frequency-slider-row {
   display: grid;
-  gap: 0.28rem;
+  gap: 0.1875rem;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.78);
-  padding: 0.34rem 0.42rem;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: 0.25rem 0.5rem;
 }
 
 .variant-frequency-slider-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.7rem;
-  font-size: 0.7rem;
+  gap: 0.4375rem;
+  font-size: var(--fs-xs);
   color: var(--color-text-muted);
 }
 
@@ -547,28 +602,27 @@
 }
 
 .variant-frequency-clear {
-  min-height: 1.8rem;
-  padding: 0.42rem 0.58rem;
-  font-size: 0.62rem;
-  letter-spacing: 0.14em;
+  min-height: var(--control-height-sm);
+  padding: 0 0.5rem;
+  font-size: var(--fs-2xs);
 }
 
 .variant-review-curation-columns {
   display: grid;
-  gap: 0.55rem 0.7rem;
+  gap: 0.3125rem 0.4375rem;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   align-items: start;
 }
 
 .variant-review-tag-column {
   display: grid;
-  gap: 0.3rem;
+  gap: 0.25rem;
   min-width: 0;
 }
 
 .variant-review-tag-list {
   display: grid;
-  gap: 0.24rem;
+  gap: 0.1875rem;
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
 }
@@ -576,7 +630,7 @@
 .variant-review-tag-list .variant-compact-checkbox {
   display: flex;
   align-items: flex-start;
-  gap: 0.36rem;
+  gap: 0.25rem;
   width: 100%;
   min-width: 0;
   white-space: normal;
@@ -585,15 +639,15 @@
 }
 
 .variant-review-tag-list .variant-compact-checkbox input {
-  margin-top: 0.1rem;
+  margin-top: 0.0625rem;
 }
 
 .variant-workspace-feedback {
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   border: 1px solid var(--color-border);
-  padding: 0.8rem 0.95rem;
-  font-size: 0.84rem;
-  font-weight: 600;
+  padding: 0.375rem 0.625rem;
+  font-size: var(--fs-sm);
+  font-weight: 500;
 }
 
 .variant-workspace-feedback--success {
@@ -617,25 +671,25 @@
 /* Subtle provenance note for a prioritised ranking served from cache. */
 .ranking-cache-note {
   margin: 0;
-  font-size: 0.78rem;
-  color: var(--color-text-muted, #64748b);
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
 .variant-save-panel {
   display: grid;
-  gap: 0.3rem;
-  border: 1px solid rgba(10, 11, 12, 0.07);
-  border-radius: 8px;
-  background: rgba(248, 250, 252, 0.85);
-  padding: 0.42rem 0.48rem;
+  gap: 0.375rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+  padding: 0.5rem;
 }
 
 .variant-save-panel-row {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.25rem;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
 }
@@ -646,16 +700,14 @@
 
 .variant-saved-disclosure {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
 .variant-saved-disclosure summary {
   list-style: none;
   cursor: pointer;
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--color-text-muted);
 }
 
@@ -666,10 +718,10 @@
 .preset-catalog-empty {
   display: grid;
   place-items: center;
-  min-height: 5rem;
-  border: 1px dashed rgba(10, 11, 12, 0.09);
-  border-radius: 8px;
-  background: rgba(247, 249, 252, 0.7);
+  min-height: 4rem;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
 }
 
 .preset-catalog-table td,
@@ -684,12 +736,12 @@
 
 .preset-catalog-name {
   display: grid;
-  gap: 0.18rem;
+  gap: 0.125rem;
 }
 
 .preset-catalog-description {
   margin: 0;
-  font-size: 0.76rem;
+  font-size: var(--fs-xs);
   line-height: 1.45;
   color: var(--color-text-muted);
 }
@@ -702,25 +754,25 @@
 .variant-filter-collapse-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.2rem 0;
+  gap: 0.25rem;
+  min-height: auto;
+  padding: 0.125rem 0;
   border: 0;
   background: none;
   cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--color-heading);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-link);
 }
 
 .variant-filter-collapse-toggle:hover,
 .variant-filter-collapse-toggle:active {
   background: none;
-  color: var(--color-heading);
-  transform: none;
+  color: var(--color-link-hover);
 }
 
 .variant-filter-collapse-toggle .variant-filter-dropdown-caret {
-  color: var(--color-heading);
+  color: currentColor;
 }
 
 .variant-filter-collapse-toggle[aria-expanded='true'] .variant-filter-dropdown-caret {
@@ -730,7 +782,7 @@
 .variant-filter-chip-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.28rem;
+  gap: 0.25rem;
 }
 
 /* Active-filter chips reuse the `.badge-chip` look; this only adds the
@@ -746,7 +798,6 @@
 }
 
 .variant-filter-chip:hover {
-  transform: none;
   border-color: rgba(166, 26, 46, 0.3);
   background: rgba(166, 26, 46, 0.08);
   color: var(--color-signature-red);
@@ -755,41 +806,40 @@
 .variant-summary-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.3125rem;
 }
 
 .variant-sample-summary {
   display: grid;
-  gap: 0.7rem;
-  margin-top: 0.25rem;
+  gap: 0.375rem;
+  margin-top: 0.1875rem;
 }
 
 .variant-sample-summary-table {
   width: auto;
-  font-size: 0.6rem;
-  letter-spacing: 0.01em;
+  font-size: var(--fs-xs);
 }
 
 .variant-sample-summary-table th,
 .variant-sample-summary-table td {
-  padding: 0.25rem 0.4rem;
+  padding: 0.125rem 0.5rem;
   white-space: nowrap;
 }
 
 .variant-sample-summary-table thead th {
-  font-size: 0.5rem;
+  font-size: var(--fs-xs);
 }
 
 .variant-sample-summary .analysis-section-title {
-  font-size: 0.4rem;
-  margin-bottom: 0.25rem;
+  font-size: var(--fs-xs);
+  margin-bottom: 0.1875rem;
 }
 
 .analysis-checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  font-size: 0.8rem;
+  gap: 0.25rem;
+  font-size: var(--fs-xs);
   color: var(--color-text-muted);
 }
 
@@ -799,7 +849,13 @@
     flex-wrap: wrap;
   }
 
+  /* Title and caret share the first line; the quick controls take the line below. */
+  .variant-filter-dropdown-summary-copy {
+    flex: 1 1 auto;
+  }
+
   .variant-filter-dropdown-summary-controls {
+    order: 1;
     width: 100%;
     justify-content: flex-start;
     margin-left: 0;
@@ -823,16 +879,16 @@
 }
 
 .analysis-count {
-  font-size: 0.94rem;
-  line-height: 1.7;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
   color: var(--color-text-muted);
 }
 
 .analysis-results-card,
 .data-table-shell {
-  overflow: hidden;
+  /* A table wider than its card scrolls inside it rather than being cut off. */
+  overflow-x: auto;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 10px 22px rgba(10, 12, 14, 0.025);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
 }

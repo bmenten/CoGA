@@ -88,6 +88,23 @@ class NiptTargetOut(BaseModel):
     proportion_covered: Optional[float] = None
 
 
+class NiptTargetDetailOut(NiptTargetOut):
+    """A target and whether it is weak: a mean below the critical depth, or a base without
+    coverage (``TargetCoverageRow.is_weak``)."""
+
+    weak: bool
+
+
+class NiptGeneTargetsOut(BaseModel):
+    """Every capture target of one gene in the plasma's target table, for the coverage page
+    (REQ-NIPT-006); empty without a target table or for a gene the panel does not capture."""
+
+    family_id: str
+    gene: str
+    critical_mean_depth: float
+    targets: List[NiptTargetDetailOut] = Field(default_factory=list)
+
+
 class NiptTargetCoverageOut(BaseModel):
     """The plasma's per-target coverage QC: every target, or a panel's or genes'. A target
     is weak when its mean depth is below ``critical_mean_depth`` or a base has no coverage."""

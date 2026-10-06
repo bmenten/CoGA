@@ -292,7 +292,7 @@ const AdminVariantTagsPage: React.FC = () => {
           <div className="page-header">
             <div className="space-y-2">
               <p className="page-kicker">Selected Context</p>
-              <h2 className="section-title text-[1.9rem]!">
+              <h2 className="section-title">
                 {selectedProjectId ? projectNameById.get(selectedProjectId) || selectedProjectId : 'All projects'}
               </h2>
               <p className="catalog-card-copy">

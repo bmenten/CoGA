@@ -80,7 +80,7 @@ interface ChromosomeViewWorkspaceProps {
   assembly: string;
   assemblyId?: string;
   projectId?: string;
-  trackAreaRef: React.RefObject<HTMLElement | null>;
+  trackAreaRef: React.Ref<HTMLElement>;
   region: { start: number; end: number };
   trackWidth: number;
   backDest: string;
@@ -491,7 +491,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
         {jumpError && <p className="status-note status-note--error mt-4">{jumpError}</p>}
       </section>
 
-      <section ref={trackAreaRef as React.RefObject<HTMLElement>} className="surface-card chromosome-visualization-panel space-y-6">
+      <section ref={trackAreaRef} className="surface-card chromosome-visualization-panel space-y-6">
         <section className="viz-panel">
           <div className="overflow-x-auto">
             <ViewerTrackBlock
@@ -735,7 +735,12 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
           ))}
           {membersWithData.length === 0 && showViewerLoading && (
             <div className="viz-panel">
-              <div className="viz-frame relative h-[120px]" style={{ width: trackWidth }}>
+              <div
+                className="viz-frame relative h-[120px]"
+                // The tracks' width, but never wider than the panel: the placeholder has no
+                // scroller of its own, so a wider frame pushed the page into a sideways scroll.
+                style={{ width: trackWidth, maxWidth: '100%' }}
+              >
                 <VizLoadingOverlay message="Loading selected tracks" />
               </div>
             </div>

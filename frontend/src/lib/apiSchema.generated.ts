@@ -1734,6 +1734,17 @@ export interface NiptFetalSexOut {
 }
 
 /**
+ * Every capture target of one gene in the plasma's target table, for the coverage page
+ * (REQ-NIPT-006); empty without a target table or for a gene the panel does not capture.
+ */
+export interface NiptGeneTargetsOut {
+  family_id: string;
+  gene: string;
+  critical_mean_depth: number;
+  targets: NiptTargetDetailOut[];
+}
+
+/**
  * The model the analysis ran with: its validation, the cfDNA quality filter and the
  * paternal genotype classes.
  */
@@ -1836,6 +1847,23 @@ export interface NiptTargetCoverageOut {
   critical_mean_depth: number;
   advisory_mean_depth: number;
   genes: NiptTargetCoverageGeneOut[];
+}
+
+/**
+ * A target and whether it is weak: a mean below the critical depth, or a base without
+ * coverage (``TargetCoverageRow.is_weak``).
+ */
+export interface NiptTargetDetailOut {
+  chr: string;
+  start: number;
+  end: number;
+  gene: string;
+  attribute: string;
+  mean: number | null;
+  median: number | null;
+  min: number | null;
+  proportion_covered: number | null;
+  weak: boolean;
 }
 
 /** A capture target (an exon of a panel transcript) and its depth. */

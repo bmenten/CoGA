@@ -764,19 +764,19 @@ const FamilyPackageImportPanel: React.FC = () => {
           <div className="grid gap-3 md:grid-cols-4">
             <div className="stat-card">
               <span className="stat-label">Status</span>
-              <span className="stat-value text-[1.35rem]!">{currentJob.status}</span>
+              <span className="stat-value">{currentJob.status}</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Family</span>
-              <span className="stat-value text-[1.35rem]!">{currentJob.family_id || '—'}</span>
+              <span className="stat-value">{currentJob.family_id || '—'}</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Imported</span>
-              <span className="stat-value text-[1.35rem]!">{datasetCounts.imported}</span>
+              <span className="stat-value">{datasetCounts.imported}</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Registered</span>
-              <span className="stat-value text-[1.35rem]!">{datasetCounts.registered}</span>
+              <span className="stat-value">{datasetCounts.registered}</span>
             </div>
           </div>
 

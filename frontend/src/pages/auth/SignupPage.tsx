@@ -54,27 +54,16 @@ const SignupPage: React.FC = () => {
 
   return (
     <div className="auth-shell">
-      <div className="auth-card max-w-[760px]!">
-        <div className="auth-gallery">
-          <div className="auth-gallery-inner">
-            <div>
-              <p className="page-kicker text-[rgba(255,255,255,0.62)]!">Account Access</p>
-              <h2 className="auth-gallery-title">Create a measured, shared review space.</h2>
-              <p className="auth-gallery-copy">
-                New accounts can be used to review families, manage projects, and collaborate on
-                genomic interpretation inside the same workspace.
-              </p>
-            </div>
-          </div>
-        </div>
+      <div className="auth-card">
         <div className="auth-form">
-          <p className="page-kicker">Register</p>
-          <h1 className="mt-2">Create account</h1>
-          <p className="page-subtitle mt-3">
-            Use your professional details so administrators can assign the right access.
-          </p>
+          <div className="auth-form-intro">
+            <h1>Create account</h1>
+            <p className="page-subtitle">
+              Use your professional details so administrators can assign the right access.
+            </p>
+          </div>
           {acknowledgement ? (
-            <div className="space-y-4 mt-6" role="status">
+            <div className="space-y-4" role="status">
               <p className="status-note status-note--success">{acknowledgement}</p>
               <p className="page-subtitle">
                 You can sign in once your account has been activated.
@@ -141,7 +130,7 @@ const SignupPage: React.FC = () => {
             </p>
             <button
               type="submit"
-              className="form-button w-full justify-center"
+              className="form-button"
               disabled={submitting}
             >
               {submitting ? 'Signing up…' : 'Sign Up'}
@@ -153,11 +142,8 @@ const SignupPage: React.FC = () => {
             )}
           </form>
           )}
-          <p className="mt-6 text-center text-sm text-(--color-text-muted)">
-            Already registered?{' '}
-            <Link to="/login" className="subtle-link inline-flex!">
-              Return to login
-            </Link>
+          <p className="auth-form-switch">
+            Already registered? <Link to="/login">Return to login</Link>
           </p>
         </div>
       </div>

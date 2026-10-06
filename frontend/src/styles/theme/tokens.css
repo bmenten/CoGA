@@ -1,24 +1,53 @@
-/* Design tokens: layout widths, fonts, and the colours of the UI, the status palette, the tracks and the ideogram. */
+/* Design tokens: layout widths, the type and control scale, and the colours of the UI, the
+   status palette, the tracks and the ideogram.
+
+   The UI is compact and quiet: small type on a white page, thin borders instead of shadows,
+   sentence case, and colour kept for links, state and clinical meaning. Size things from the
+   scale below rather than with new literals. */
 
 :root {
-  --layout-max-width: 124rem;
-  --page-max-width: 104rem;
-  --workspace-max-width: 120rem;
-  --layout-gutter: 1.25rem;
-  --layout-gutter-mobile: 0.95rem;
-  --font-sans: 'Avenir Next', 'Helvetica Neue', 'Segoe UI', sans-serif;
-  --font-display: 'Avenir Next', 'Helvetica Neue', 'Segoe UI', sans-serif;
-  --font-mono: 'SFMono-Regular', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', monospace;
+  --layout-max-width: 150rem;
+  --page-max-width: none;
+  --workspace-max-width: none;
+  --layout-gutter: 1rem;
+  --layout-gutter-mobile: 0.625rem;
+  --header-height: 2.5rem;
+  /* Where sticky panels stop: below the header and the breadcrumb bar. */
+  --sticky-offset: calc(var(--header-height) + 2.375rem);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', monospace;
 
-  --color-bg: #f4f6f8;
+  /* Type scale: 11, 12, 13 (body), 14, 16, 18 and 22 px. */
+  --fs-2xs: 0.6875rem;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.875rem;
+  --fs-lg: 1rem;
+  --fs-xl: 1.125rem;
+  --fs-2xl: 1.375rem;
+
+  /* Buttons, inputs and selects share one height; the small one is for controls in a table row. */
+  --control-height: 1.75rem;
+  --control-height-sm: 1.375rem;
+  --radius-control: 3px;
+  --radius-card: 4px;
+
+  --color-bg: #ffffff;
   --color-surface: #ffffff;
-  --color-text: #141517;
-  --color-heading: #0b0c0d;
+  --color-surface-muted: #f6f8fa;
+  --color-surface-hover: #f1f3f5;
+  --color-text: #1f2328;
+  --color-heading: #1f2328;
   --color-text-muted: #5c6670;
-  --color-primary: #0a0b0c;
+  --color-primary: #1f2328;
+  --color-primary-hover: #353b42;
   --color-secondary: #4e5b67;
   --color-accent: #8293a3;
   --color-accent-soft: #e6ecf1;
+  --color-link: #0b5cba;
+  --color-link-hover: #084a96;
+  --color-focus-ring: rgba(11, 92, 186, 0.22);
   --color-signature-red: #c61f2d;
   --color-signature-red-dark: #9d1623;
   --color-signature-red-soft: rgba(198, 31, 45, 0.08);
@@ -32,9 +61,9 @@
   --color-gray: #7c8186;
   --color-grid: rgba(10, 11, 12, 0.06);
   --color-axis: #95a0aa;
-  --color-border: rgba(10, 11, 12, 0.08);
-  --color-border-strong: rgba(10, 11, 12, 0.14);
-  --shadow-card: 0 16px 34px rgba(10, 12, 14, 0.03);
+  --color-border: #dfe3e8;
+  --color-border-strong: #c9d0d7;
+  --color-row-rule: #edf0f2;
 
   --color-variant-default: var(--color-gray);
   --color-variant-del: #8d3f44;

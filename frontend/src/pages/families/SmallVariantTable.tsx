@@ -111,22 +111,6 @@ export default function SmallVariantTable({
   return (
     <div className="analysis-results-card overflow-x-auto">
       <table className="analysis-table table-sticky small-variant-table">
-        <colgroup>
-          {hasPriority && <col className="small-variant-col-impact" />}
-          {hasNipt && <col className="small-variant-col-effect" />}
-          <col className="small-variant-col-chr" />
-          <col className="small-variant-col-position" />
-          <col className="small-variant-col-position" />
-          <col className="small-variant-col-gene" />
-          <col className="small-variant-col-allele" />
-          <col className="small-variant-col-allele" />
-          <col className="small-variant-col-impact" />
-          <col className="small-variant-col-effect" />
-          <col className="small-variant-col-review" />
-          <col className="small-variant-col-genotypes" />
-          <col className="small-variant-col-action" />
-          <col className="small-variant-col-view" />
-        </colgroup>
         <thead>
           <tr>
             {hasPriority && (
@@ -186,7 +170,7 @@ export default function SmallVariantTable({
               >
                 {hasPriority && <VariantScoreCell variant={variant} />}
                 {hasNipt && (
-                  <td>
+                  <td className="table-wrap-cell">
                     {variant.nipt ? (
                       <div className="nipt-table-cell">
                         <span className="nipt-table-category">
@@ -238,8 +222,8 @@ export default function SmallVariantTable({
                   <AlleleCell value={variant.alt} />
                 </td>
                 <td>{variant.impact || '—'}</td>
-                <td>{variant.effect || '—'}</td>
-                <td>
+                <td className="table-wrap-cell">{variant.effect || '—'}</td>
+                <td className="table-wrap-cell">
                   <div className="variant-table-review">
                     <div className="variant-table-review-actions">
                       <button

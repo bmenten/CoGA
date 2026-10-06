@@ -205,6 +205,7 @@ async def fetch_interval_track_rows(
     end: int | None = None,
     limit: int | None = None,
     include_metadata: bool = False,
+    record_ids: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     await ensure_clickhouse_interval_table(assembly_name)
     clauses = ["track_type = %(track_type)s"]
@@ -232,6 +233,11 @@ async def fetch_interval_track_rows(
     if origins:
         clauses.append("origin IN %(origins)s")
         params["origins"] = tuple(str(value) for value in origins)
+    if record_ids:
+        # Case-insensitive, as a gene symbol is typed: a per-target coverage table's
+        # record_id is the target's gene.
+        clauses.append("upper(record_id) IN %(record_ids)s")
+        params["record_ids"] = tuple(str(value).upper() for value in record_ids)
     if start is not None and end is not None:
         clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
         params["window_start"] = int(start)

@@ -70,6 +70,9 @@ const FamilyNiptPage = lazy(
 const FamilyNiptReportPage = lazy(
   () => import('./pages/families/FamilyNiptReportPage')
 );
+const FamilyNiptCoveragePage = lazy(
+  () => import('./pages/families/FamilyNiptCoveragePage')
+);
 const GeneInfoPage = lazy(() => import('./pages/genes/GeneInfoPage'));
 const GlobalSmallVariantExplorerPage = lazy(
   () => import('./pages/variant-explorer/GlobalSmallVariantExplorerPage'),
@@ -219,6 +222,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               <Route
                 path="/families/:familyId/nipt/report"
                 element={routeElement(<FamilyNiptReportPage />)}
+              />
+              <Route
+                path="/families/:familyId/nipt/coverage"
+                element={routeElement(<FamilyNiptCoveragePage />)}
               />
               <Route
                 path="/families/:familyId/igv"

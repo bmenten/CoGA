@@ -92,7 +92,11 @@ type LayoutBlock = {
   generation: number;
   members: string[];
   orderedMembers: string[];
-  width: number;
+  // Each ordered member's offset from the block's centre (the midpoint of its ends).
+  offsets: number[];
+  // How far the block reaches left and right of its centre, labels included.
+  left: number;
+  right: number;
   initialOrder: number;
 };
 
@@ -130,6 +134,63 @@ const CHILD_HORIZONTAL_GAP = 44;
 const COUPLE_GAP = 54;
 const BLOCK_HORIZONTAL_GAP = 42;
 const SIBLING_LINE_OFFSET = 24;
+// Sample IDs are drawn under their symbols, an embryo's a size smaller. Neighbouring
+// symbols are spaced so that their labels never touch: a long ID (FATHER_NIPT beside
+// CFDNA_NIPT) used to run into the next one.
+const LABEL_FONT_SIZE = 8;
+const EMBRYO_LABEL_FONT_SIZE = 7;
+// The least room between two neighbours' labels.
+const LABEL_GAP = 6;
+
+const labelFontSize = (member?: PedigreeMember): number =>
+  member?.role === 'embryo' ? EMBRYO_LABEL_FONT_SIZE : LABEL_FONT_SIZE;
+
+/**
+ * A label's width in drawing units, estimated from its characters with generous widths
+ * (capitals and digits are wide in every UI font), so the estimate is never short of what
+ * a browser draws. Deterministic: the layout does not wait on fonts, and tests lay out as
+ * browsers do.
+ */
+export const estimateLabelWidth = (text: string, fontSize: number): number => {
+  let ems = 0;
+  for (const char of text) {
+    if ('MW'.includes(char)) ems += 1;
+    else if ('mw'.includes(char)) ems += 0.92;
+    else if ("Iijl.,:;!'".includes(char)) ems += 0.34;
+    else if ('CDGHNOQU'.includes(char)) ems += 0.82;
+    else if (/[A-Z]/.test(char)) ems += 0.74;
+    else if (/[0-9]/.test(char)) ems += 0.66;
+    else ems += 0.62;
+  }
+  // Whole units, rounded up: the positions stay round numbers.
+  return Math.ceil(ems * fontSize);
+};
+
+// Half of each member's label: how far it reaches either side of the symbol's centre.
+type LabelHalves = Map<string, number>;
+
+// Spacing set by labels is rounded up to whole, even units, as the fixed gaps are: a
+// couple's midpoint, where the line to its children drops, then stays on a whole unit
+// and the line is drawn crisp instead of blurred across two pixels.
+const evenUnits = (value: number): number => 2 * Math.ceil(value / 2);
+
+/** Two partners' centre distance: the couple gap, or more when their labels would touch. */
+const partnerGap = (left: string, right: string, halves: LabelHalves): number =>
+  Math.max(
+    COUPLE_GAP,
+    evenUnits((halves.get(left) ?? 0) + (halves.get(right) ?? 0) + LABEL_GAP)
+  );
+
+/**
+ * How far a block's end member reaches outward when blocks are spaced apart: its symbol,
+ * or its label less the part that the gap between blocks already keeps clear. Short labels
+ * keep the symbols' spacing; a long one pushes the next block away until the labels clear.
+ */
+const blockEndReach = (member: string, halves: LabelHalves): number =>
+  Math.max(
+    NODE_SIZE / 2,
+    Math.ceil((halves.get(member) ?? 0) + (LABEL_GAP - BLOCK_HORIZONTAL_GAP) / 2)
+  );
 
 const isAffectedPhenotype = (phenotype: string): boolean => phenotype === '2';
 
@@ -661,7 +722,8 @@ const relatedBlockOrder = (
 
 const buildBlocksByGeneration = (
   normalized: NormalizedPedigree,
-  generations: Map<string, number>
+  generations: Map<string, number>,
+  labelHalves: LabelHalves
 ): Map<number, LayoutBlock[]> => {
   const idsByGeneration = new Map<number, string[]>();
   normalized.rows.forEach((row) => {
@@ -707,15 +769,24 @@ const buildBlocksByGeneration = (
         normalized.rowOrder
       );
       const key = `${generation}:${[...members].sort().join('|')}`;
+      const gaps = orderedMembers
+        .slice(1)
+        .map((member, index) => partnerGap(orderedMembers[index], member, labelHalves));
+      const span = gaps.reduce((sum, gap) => sum + gap, 0);
+      const offsets: number[] = [];
+      let offset = -span / 2;
+      orderedMembers.forEach((_, index) => {
+        if (index > 0) offset += gaps[index - 1];
+        offsets.push(offset);
+      });
       return {
         key,
         generation,
         members,
         orderedMembers,
-        width: Math.max(
-          NODE_SIZE,
-          (orderedMembers.length - 1) * COUPLE_GAP + NODE_SIZE
-        ),
+        offsets,
+        left: span / 2 + blockEndReach(orderedMembers[0], labelHalves),
+        right: span / 2 + blockEndReach(orderedMembers[orderedMembers.length - 1], labelHalves),
         initialOrder:
           relatedBlockOrder(members, normalized, generations) ??
           Math.min(
@@ -868,7 +939,13 @@ const layoutPedigree = (
       0,
       ...normalized.rows.map((row) => generations.get(row.iid) ?? 0)
     ) + 1;
-  const blocksByGeneration = buildBlocksByGeneration(normalized, generations);
+  const labelHalves: LabelHalves = new Map(
+    normalized.rows.map((row) => [
+      row.iid,
+      estimateLabelWidth(row.iid, labelFontSize(normalized.memberMap.get(row.iid))) / 2,
+    ])
+  );
+  const blocksByGeneration = buildBlocksByGeneration(normalized, generations, labelHalves);
   const memberToBlock = new Map<string, LayoutBlock>();
   blocksByGeneration.forEach((blocks) => {
     blocks.forEach((block) => {
@@ -931,26 +1008,26 @@ const layoutPedigree = (
     let cursor = 0;
     blocks.forEach((block) => {
       const desiredCenter = average(desiredCenters.get(block.key) || []);
-      const minimumCenter = cursor + block.width / 2;
+      const minimumCenter = cursor + block.left;
       const center = Math.max(desiredCenter ?? minimumCenter, minimumCenter);
       block.orderedMembers.forEach((member, index) => {
-        const offset =
-          (index - (block.orderedMembers.length - 1) / 2) * COUPLE_GAP;
         positions.set(member, {
-          x: center + offset,
+          x: center + block.offsets[index],
           y: generation * GEN_VERTICAL_GAP + SVG_PADDING_TOP,
           generation,
         });
       });
-      cursor = center + block.width / 2 + BLOCK_HORIZONTAL_GAP;
+      cursor = center + block.right + BLOCK_HORIZONTAL_GAP;
     });
   }
 
+  // The midpoint of the block's ends, which its reach is measured from (with partners
+  // spaced unevenly by their labels, the mean of its members is not).
   const positionedBlockCenter = (block: LayoutBlock): number | undefined => {
     const xs = block.orderedMembers
       .map((member) => positions.get(member)?.x)
       .filter(isFiniteNumber);
-    return average(xs);
+    return xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : undefined;
   };
 
   const shiftBlock = (block: LayoutBlock, delta: number) => {
@@ -1011,19 +1088,24 @@ const layoutPedigree = (
       const minimumCenter =
         previousRight === undefined
           ? targetCenter
-          : previousRight + BLOCK_HORIZONTAL_GAP + block.width / 2;
+          : previousRight + BLOCK_HORIZONTAL_GAP + block.left;
       const nextCenter = Math.max(targetCenter, minimumCenter);
       shiftBlock(block, nextCenter - currentCenter);
-      previousRight = nextCenter + block.width / 2;
+      previousRight = nextCenter + block.right;
     });
   }
 
   let minX = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  positions.forEach((position) => {
-    minX = Math.min(minX, position.x - NODE_SIZE / 2);
-    maxX = Math.max(maxX, position.x + NODE_SIZE / 2);
+  positions.forEach((position, sampleId) => {
+    // A label longer than the side padding leaves room for would be cut off at the edge.
+    const reach = Math.max(
+      NODE_SIZE / 2,
+      Math.ceil((labelHalves.get(sampleId) ?? 0) - SVG_PADDING_X + LABEL_GAP)
+    );
+    minX = Math.min(minX, position.x - reach);
+    maxX = Math.max(maxX, position.x + reach);
     maxY = Math.max(maxY, position.y);
   });
   if (!Number.isFinite(minX)) {
@@ -1521,10 +1603,11 @@ const Pedigree: React.FC<Props> = ({
 
       group
         .append('text')
+        .attr('data-pedigree-label', row.iid)
         .attr('x', 0)
         .attr('y', NODE_SIZE)
         .attr('text-anchor', 'middle')
-        .attr('font-size', member?.role === 'embryo' ? 7 : 8)
+        .attr('font-size', labelFontSize(member))
         .text(row.iid);
     });
   }, [layout, inheritanceModel, phenotypeSampleIds, highlightedSampleIds, qcStatusBySample]);
