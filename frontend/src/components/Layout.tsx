@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Breadcrumbs from './Breadcrumbs';
 import ErrorBoundary from './ErrorBoundary';
+import HeaderMenu from './HeaderMenu';
 import ModalDialog from './ModalDialog';
 import PageState from './PageState';
 import { formatBuild, useAppVersion } from '../lib/appVersion';
@@ -106,6 +107,7 @@ const Layout: React.FC = () => {
               >
                 Logout
               </button>
+              <HeaderMenu />
             </div>
           )}
         </div>

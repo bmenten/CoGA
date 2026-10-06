@@ -687,7 +687,7 @@ const FamilyIntakePanel: React.FC = () => {
         <div className="space-y-3">
           <p className="page-kicker">Pedigree Intake</p>
           <h2 className="section-title">Family Builder</h2>
-          <p className="page-subtitle max-w-3xl text-[0.96rem]!">
+          <p className="page-subtitle">
             Build a pedigree manually. The workspace keeps parent assignments consistent, shows the
             PED rows that will be saved, and draws the family structure as you edit.
           </p>
@@ -696,17 +696,17 @@ const FamilyIntakePanel: React.FC = () => {
           <div className="intake-summary-grid">
             <div className="stat-card">
               <span className="stat-label">Mode</span>
-              <span className="stat-value text-[1.5rem]!">
+              <span className="stat-value">
                 {mode === 'manual' ? 'Manual' : 'PED upload'}
               </span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Members</span>
-              <span className="stat-value text-[1.5rem]!">{namedMembersCount}</span>
+              <span className="stat-value">{namedMembersCount}</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Affected</span>
-              <span className="stat-value text-[1.5rem]!">{affectedCount}</span>
+              <span className="stat-value">{affectedCount}</span>
             </div>
           </div>
           <div className="mt-5 flex flex-wrap gap-3">
@@ -939,7 +939,7 @@ const FamilyIntakePanel: React.FC = () => {
                   <article key={member.localId} className="surface-card-flat member-card">
                     <div className="member-card-header">
                       <div className="space-y-1">
-                        <h3 className="section-title text-[1.35rem]!">{memberTitle}</h3>
+                        <h3 className="section-title">{memberTitle}</h3>
                         <p className="text-sm text-(--color-text-muted)">
                           Role preview: {rolePreviewFor(member, members)}
                         </p>
@@ -954,7 +954,7 @@ const FamilyIntakePanel: React.FC = () => {
                           )}
                         </div>
                         {children.length > 0 && (
-                          <p className="text-xs uppercase tracking-[0.12em] text-(--color-text-muted)">
+                          <p className="text-xs text-(--color-text-muted)">
                             Children: {children.map((child) => child.sampleId || 'Unnamed').join(', ')}
                           </p>
                         )}
@@ -1093,7 +1093,7 @@ const FamilyIntakePanel: React.FC = () => {
             <div className="surface-card-muted space-y-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-1">
-                  <h3 className="section-title text-[1.25rem]!">Couple relationships</h3>
+                  <h3 className="section-title">Couple relationships</h3>
                   <p className="text-sm leading-7 text-(--color-text-muted)">
                     Link two partners directly, also when they do not have children in this family.
                   </p>
@@ -1221,7 +1221,7 @@ const FamilyIntakePanel: React.FC = () => {
             <div className="surface-card-muted">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="eyebrow-label">Pedigree Sketch</h3>
-                <span className="text-xs uppercase tracking-[0.12em] text-(--color-text-muted)">
+                <span className="text-xs text-(--color-text-muted)">
                   Black fill = affected
                 </span>
               </div>

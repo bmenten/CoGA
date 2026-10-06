@@ -1,5 +1,5 @@
-Administrator tools sit behind admin access. **Admin** on the dashboard opens the
-[admin dashboard](/admin), grouped in six areas.
+Administrator tools sit behind admin access. **Admin**, in the top-bar menu or on the dashboard, opens
+the [admin dashboard](/admin), grouped in six areas.
 
 ### Reference Data
 

@@ -1,8 +1,10 @@
 ### Getting started
 
 To get an account, choose **Sign up** on the sign-in page and fill in **Create account**. You can sign
-in once an administrator has activated the account and given you access to your projects. **Settings**
-in the page header holds your display preferences.
+in once an administrator has activated the account and given you access to your projects. The arrow at
+the right of the top bar opens a menu of the main sections: the projects, the explorers, the gene panels,
+this guide and, for administrators, **Admin**. **Settings** in the same bar holds your display
+preferences.
 
 CoGA keeps the pedigree, the assay data and your interpretation together, so a case is reviewed as a
 whole:

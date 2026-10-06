@@ -81,6 +81,7 @@ from .nipt_analysis import (
     run_nipt_analysis,
 )
 from .nipt_target_coverage import (
+    CRITICAL_MEAN_DEPTH,
     TARGET_COVERAGE_TRACK_TYPE,
     SexChromosomeCoverage,
     TargetCoverageRow,
@@ -592,9 +593,14 @@ async def _load_listed_artifacts(
 
 
 async def _load_target_rows(
-    context: FamilyMetadataContext, sample_id: str, *, with_metadata: bool
+    context: FamilyMetadataContext,
+    sample_id: str,
+    *,
+    with_metadata: bool,
+    genes: Sequence[str] | None = None,
 ) -> list[TargetCoverageRow]:
-    """A sample's per-target coverage (its ``target_coverage`` track); [] without one."""
+    """A sample's per-target coverage (its ``target_coverage`` track), or only the targets of
+    ``genes`` (case-insensitive); [] without one."""
     sample_uuid = context.sample_name_to_uuid.get(sample_id)
     if not sample_uuid or not context.assembly_name:
         return []
@@ -604,6 +610,7 @@ async def _load_target_rows(
         track_type=TARGET_COVERAGE_TRACK_TYPE,
         chromosomes=[],
         include_metadata=with_metadata,
+        record_ids=genes,
     )
     return [target_row_from_track(row) for row in rows]
 
@@ -1235,6 +1242,7 @@ async def get_family_nipt_coverage(
     gene: str | None = None,
     panel_id: str | None = None,
     min_depth: float = DEFAULT_MIN_DEPTH,
+    all_genes: bool = False,
 ) -> NiptCoverageResult:
     family = await get_family_record(session, family_id, user)
     trio = resolve_nipt_trio(family)
@@ -1257,7 +1265,7 @@ async def get_family_nipt_coverage(
             genes.extend(constraints.genes)
         return NiptCoverageResult(
             regions=NiptCoverageSummary(overall_median_on_target=None, target_region_count=0, min_depth=min_depth),
-            targets=summarize_target_coverage(target_rows, genes=genes or None),
+            targets=summarize_target_coverage(target_rows, genes=genes or None, include_passing=all_genes),
         )
     target_regions = await _resolve_nipt_target_regions(
         session, family=family, context=context, gene=gene, panel_id=panel_id
@@ -1271,3 +1279,40 @@ async def get_family_nipt_coverage(
     return NiptCoverageResult(
         regions=summarize_on_target_coverage(target_regions, coverage, min_depth=min_depth)
     )
+
+
+@dataclass(slots=True)
+class NiptGeneTargets:
+    """Every capture target of one gene in the plasma's target table, in genomic order."""
+
+    gene: str
+    critical_mean_depth: float
+    rows: list[TargetCoverageRow]
+
+
+async def get_family_nipt_gene_targets(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+    gene: str,
+    project_id: str | None = None,
+) -> NiptGeneTargets:
+    """One gene's targets with their depth, for the coverage page; none without a target
+    table, or for a gene the panel does not capture."""
+    family = await get_family_record(session, family_id, user)
+    trio = resolve_nipt_trio(family)
+    if trio is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Family is not configured for monogenic NIPT analysis",
+        )
+    context = await build_family_metadata_context(
+        session, family_identifier=family_id, user=user, project_id=project_id
+    )
+    # This gene's rows alone: a panel's table holds tens of thousands of targets.
+    target_rows = await _load_target_rows(
+        context, trio.cfdna_sample_id, with_metadata=True, genes=[gene.strip()]
+    )
+    rows = sorted(target_rows, key=lambda row: (row.chrom, row.start, row.end))
+    return NiptGeneTargets(gene=gene.strip(), critical_mean_depth=CRITICAL_MEAN_DEPTH, rows=rows)

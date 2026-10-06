@@ -1,4 +1,6 @@
 // Logout — #521: it cleared the session but left the previous user's query cache.
+// Main menu — the main sections behind the arrow at the right of the header; Admin only for an
+// admin.
 // Footer — the device label (TF-15 §1): the running build, the in-house IVD status and the
 // manufacturer, and a problem report that goes to the CMGG route, not to GitHub.
 
@@ -59,6 +61,95 @@ describe('Layout logout', () => {
     expect(queryClient.getQueryData(['family', 'F1'])).toBeUndefined();
     expect(localStorage.getItem('token')).toBeNull();
     expect(screen.getByText('Login page')).toBeInTheDocument();
+  });
+});
+
+describe('Layout main menu', () => {
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  const signIn = (role: string) => {
+    localStorage.setItem('token', 'token-1');
+    localStorage.setItem('username', 'alice@example.org');
+    localStorage.setItem('role', role);
+  };
+
+  it('keeps the main sections behind the arrow until it is opened', () => {
+    signIn('viewer');
+    renderLayout();
+
+    const toggle = screen.getByRole('button', { name: 'Main menu' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('navigation', { name: 'Main' })).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    const projects = within(nav).getByRole('link', { name: 'Projects' });
+    expect(projects).toHaveAttribute('href', '/dashboard');
+    expect(projects).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('link', { name: 'Variant explorer' })).toHaveAttribute(
+      'href',
+      '/variant-explorer',
+    );
+    expect(within(nav).getByRole('link', { name: 'Gene explorer' })).toHaveAttribute(
+      'href',
+      '/genes',
+    );
+    expect(within(nav).getByRole('link', { name: 'CNV explorer' })).toHaveAttribute(
+      'href',
+      '/cnv-explorer',
+    );
+    expect(within(nav).getByRole('link', { name: 'Panels' })).toHaveAttribute('href', '/panels');
+    expect(within(nav).getByRole('link', { name: 'User guide' })).toHaveAttribute('href', '/docs');
+    // Not an admin: no way into the admin pages from the menu.
+    expect(within(nav).queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
+  });
+
+  it('adds Admin for an admin', () => {
+    signIn('admin');
+    renderLayout();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Main menu' }));
+
+    const nav = screen.getByRole('navigation', { name: 'Main' });
+    expect(within(nav).getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin');
+  });
+
+  it('closes on Escape, back to the arrow, and on a click elsewhere', () => {
+    signIn('viewer');
+    renderLayout();
+    const toggle = screen.getByRole('button', { name: 'Main menu' });
+
+    fireEvent.click(toggle);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveFocus();
+
+    fireEvent.click(toggle);
+    fireEvent.pointerDown(document.body);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('navigation', { name: 'Main' })).not.toBeInTheDocument();
+  });
+
+  it('closes when a section is chosen', () => {
+    signIn('viewer');
+    renderLayout();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Main menu' }));
+    fireEvent.click(
+      within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', { name: 'Projects' }),
+    );
+
+    expect(screen.queryByRole('navigation', { name: 'Main' })).not.toBeInTheDocument();
+  });
+
+  it('shows no menu before sign-in', () => {
+    renderLayout();
+
+    expect(screen.queryByRole('button', { name: 'Main menu' })).not.toBeInTheDocument();
   });
 });
 

@@ -8,10 +8,10 @@ import FamilyPageHeader from './FamilyPageHeader';
 import { useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
-import LoadingBar from '../../components/LoadingBar';
 import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
+import VariantResultsLoading from './VariantResultsLoading';
 import {
   buildPresetPayload,
   hasLocationProblems,
@@ -432,28 +432,11 @@ const FamilySmallVariantsPage: React.FC = () => {
       ) : null}
 
       <div className="variant-results-region">
-        {isFetching ? <LoadingBar label="Loading variants" /> : null}
         {isFetching ? (
-          <>
-            <div className="variant-results-overlay" aria-hidden="true" />
-            <div
-              className="variant-results-loading-card"
-              role="status"
-              aria-live="polite"
-              aria-busy="true"
-            >
-              <span
-                className="viz-loading-spinner viz-loading-spinner--lg"
-                aria-hidden="true"
-              />
-              <div className="variant-results-overlay-text">
-                <span className="variant-results-overlay-title">Loading variants…</span>
-                <span className="variant-results-overlay-sub">
-                  Applying your filters to this family’s small-variant calls.
-                </span>
-              </div>
-            </div>
-          </>
+          <VariantResultsLoading
+            title="Loading variants"
+            message="Applying your filters to this family’s small-variant calls."
+          />
         ) : null}
         <div className={isFetching ? 'variant-results-fetching' : undefined} aria-busy={isFetching}>
       <SmallVariantResults

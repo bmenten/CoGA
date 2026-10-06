@@ -1,6 +1,10 @@
-// The plasma's per-target coverage QC (REQ-NIPT-006): where a fetal variant can be missed.
+// The plasma's per-target coverage QC on the NIPT page (REQ-NIPT-006): how many genes have a
+// weak target, where a fetal variant can be missed, and the way to the coverage page that
+// names them.
 
 import { render, screen } from '@testing-library/react';
+import type { ComponentProps } from 'react';
+import { MemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
 
 import NiptTargetCoverage from '../NiptTargetCoverage';
@@ -34,20 +38,39 @@ const coverage = {
   ],
 };
 
+const renderCoverage = (props: Partial<ComponentProps<typeof NiptTargetCoverage>> = {}) =>
+  render(
+    <MemoryRouter>
+      <NiptTargetCoverage
+        coverage={coverage}
+        scoped
+        detailsHref="/families/NIPT001/nipt/coverage?panel_id=panel-1"
+        {...props}
+      />
+    </MemoryRouter>,
+  );
+
 describe('NiptTargetCoverage', () => {
-  it('names the genes where a fetal variant can be missed', () => {
-    render(<NiptTargetCoverage coverage={coverage} scoped />);
+  it('counts the genes where a fetal variant can be missed and links to the coverage page', () => {
+    renderCoverage();
     expect(screen.getByText('950x')).toBeInTheDocument();
     expect(screen.getByText(/of the selected genes/)).toBeInTheDocument();
-    expect(screen.getByText(/2 genes with a weak target/)).toBeInTheDocument();
-    expect(screen.getByText('GENEA · 1 of 10 targets weak')).toBeInTheDocument();
-    expect(screen.getByTitle('GENEA exon 3: mean 250x')).toBeInTheDocument();
-    expect(screen.getByText('GENEZ · not a target')).toBeInTheDocument();
-    expect(screen.queryByText(/GENEB ·/)).not.toBeInTheDocument();
+    // GENEA's weak target and GENEZ, selected but not captured.
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '2 genes with a weak target (mean below 300x or a base without coverage): a fetal variant there can be missed. 1 of them is not a target of the panel.',
+    );
+    expect(screen.getByRole('link', { name: 'Coverage details' })).toHaveAttribute(
+      'href',
+      '/families/NIPT001/nipt/coverage?panel_id=panel-1',
+    );
+    // The genes are named on the coverage page, not listed here.
+    expect(screen.queryByText(/GENEA/)).not.toBeInTheDocument();
   });
 
   it('says when every target in scope is covered', () => {
-    render(<NiptTargetCoverage coverage={{ ...coverage, genes: [coverage.genes[1]] }} scoped={false} />);
+    renderCoverage({ coverage: { ...coverage, genes: [coverage.genes[1]] }, scoped: false });
     expect(screen.getByText(/Every target reaches 300x/)).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Coverage details' })).toBeInTheDocument();
   });
 });

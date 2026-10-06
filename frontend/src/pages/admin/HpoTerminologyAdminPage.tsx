@@ -451,13 +451,13 @@ const HpoTerminologyAdminPage: React.FC = () => {
                   ) : null}
                 </div>
                 <div className="space-y-2">
-                  <h4 className="table-subtle uppercase">Synonyms</h4>
+                  <h4 className="table-subtle">Synonyms</h4>
                   <p className="section-copy">
                     {selectedTerm.synonyms.length ? selectedTerm.synonyms.join(', ') : 'No synonyms stored.'}
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <h4 className="table-subtle uppercase">Parent terms</h4>
+                  <h4 className="table-subtle">Parent terms</h4>
                   <ul className="space-y-1 text-sm">
                     {selectedTerm.parents.length ? (
                       selectedTerm.parents.map((parent) => (
@@ -471,7 +471,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
                   </ul>
                 </div>
                 <div className="space-y-2">
-                  <h4 className="table-subtle uppercase">Child terms</h4>
+                  <h4 className="table-subtle">Child terms</h4>
                   <ul className="space-y-1 text-sm">
                     {selectedTerm.children.length ? (
                       selectedTerm.children.slice(0, 20).map((child) => (

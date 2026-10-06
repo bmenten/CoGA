@@ -138,6 +138,31 @@ def test_the_target_qc_flags_critical_and_incomplete_targets() -> None:
     assert [(gene.gene, gene.targets) for gene in scoped.genes] == [("GENEC", 1), ("GENEZ", 0)]
 
 
+def test_the_coverage_page_lists_the_genes_whose_targets_all_pass_too() -> None:
+    rows = [
+        _target("7", 0, 100, 1500.0, gene="GENEA"),
+        _target("7", 200, 300, 250.0, gene="GENEA"),  # critical
+        _target("7", 600, 700, 900.0, gene="GENEC"),  # advisory only: passes
+        _target("8", 0, 100, 1600.0, gene="GENEE"),  # passes
+    ]
+    summary = summarize_target_coverage(rows, include_passing=True)
+    # Every gene in scope, the weak one with its weak target, the passing ones without.
+    assert {gene.gene: (gene.targets, gene.weak_targets) for gene in summary.genes} == {
+        "GENEA": (2, 1),
+        "GENEC": (1, 0),
+        "GENEE": (1, 0),
+    }
+    assert [len(gene.weak) for gene in summary.genes if gene.gene == "GENEA"] == [1]
+    # The counts do not change with the list: the same targets are summarised.
+    plain = summarize_target_coverage(rows)
+    assert (summary.targets, summary.below_critical, summary.below_advisory) == (
+        plain.targets,
+        plain.below_critical,
+        plain.below_advisory,
+    )
+    assert [gene.gene for gene in plain.genes] == ["GENEA"]
+
+
 def test_the_sex_profile_of_maternal_plasma() -> None:
     autosomes = [_target(str(chrom), 0, 100, 1000.0) for chrom in range(1, 23)]
     female_fetus = sex_chromosome_coverage([*autosomes, _target("X", 0, 100, 1300.0), _target("Y", 0, 100, 0.0)])

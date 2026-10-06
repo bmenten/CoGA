@@ -194,7 +194,7 @@ export default function StructuralVariantCards({
 
             <div className="variant-card-cols">
               <section className="variant-card-col">
-                <p className="variant-card-col-title">Variant &amp; genotypes</p>
+                <p className="variant-card-col-title">Variant</p>
                 <div className="variant-card-chip-row">
                   <span className="variant-card-chip variant-card-chip--neutral">
                     Source {variant.source || '—'}
@@ -232,7 +232,11 @@ export default function StructuralVariantCards({
                     </dd>
                   </div>
                 </dl>
-                {gtMembers.length ? (
+              </section>
+
+              {gtMembers.length ? (
+                <section className="variant-card-col">
+                  <p className="variant-card-col-title">Genotypes</p>
                   <div className="variant-card-gtlist">
                     <div className="variant-card-gthead">
                       <span>Sample</span>
@@ -279,8 +283,8 @@ export default function StructuralVariantCards({
                       );
                     })}
                   </div>
-                ) : null}
-              </section>
+                </section>
+              ) : null}
 
               <section className="variant-card-col">
                 {/* gnomAD has no id matching a caller's SV, so this is its region view:

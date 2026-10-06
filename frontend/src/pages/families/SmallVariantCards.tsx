@@ -799,7 +799,7 @@ export default function SmallVariantCards({
 
             <div className="variant-card-cols">
               <section className="variant-card-col">
-                <p className="variant-card-col-title">Variant &amp; genotypes</p>
+                <p className="variant-card-col-title">Variant</p>
                 {transcripts.length || variant.mane_select || variant.canonical ? (
                   // MANE and Canonical describe this transcript, so they ride with the
                   // accession rather than sitting up with the consequence.
@@ -874,7 +874,13 @@ export default function SmallVariantCards({
                     </div>
                   ) : null}
                 </dl>
-                {members.length ? (
+              </section>
+
+              {/* Genotypes take a column of their own, as in seqr: the call per member is
+                  read across the same row as the variant, not under it. */}
+              {members.length ? (
+                <section className="variant-card-col">
+                  <p className="variant-card-col-title">Genotypes</p>
                   <div className="variant-card-gtlist">
                     <div className="variant-card-gthead">
                       <span>Sample</span>
@@ -949,8 +955,8 @@ export default function SmallVariantCards({
                       );
                     })}
                   </div>
-                ) : null}
-              </section>
+                </section>
+              ) : null}
 
               <section className="variant-card-col">
                 {/* The heading is the way to the population data behind these numbers. */}

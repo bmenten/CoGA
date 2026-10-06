@@ -11,7 +11,8 @@ from backend.app.routers import families_nipt as families_nipt_router
 from backend.app.routers import lookups as lookups_router
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.nipt_analysis import FetalFractionEstimate
-from backend.app.services.nipt_service import NiptVariantsResult
+from backend.app.services.nipt_service import NiptGeneTargets, NiptVariantsResult
+from backend.app.services.nipt_target_coverage import TargetCoverageRow
 
 
 class _FakeSession:
@@ -270,3 +271,47 @@ def test_the_nipt_variant_page_says_when_its_list_is_capped(
     body = response.json()
     assert body["total"] == 1234
     assert (body["total_is_estimated"], body["count_limit"]) == expected
+
+
+def test_the_coverage_page_opens_a_gene_s_targets(family_metadata_client) -> None:
+    # A row of the NIPT coverage page, opened: every target of the gene, each saying whether
+    # it is weak by the rule the NIPT page counts with (REQ-NIPT-006).
+    client, monkeypatch = family_metadata_client
+    seen: dict[str, object] = {}
+
+    async def fake_gene_targets(_session, *, family_id, user, gene, project_id=None):
+        seen.update(family_id=family_id, gene=gene, project_id=project_id)
+        return NiptGeneTargets(
+            gene=gene,
+            critical_mean_depth=300.0,
+            rows=[
+                TargetCoverageRow(chrom="7", start=0, end=100, gene="GENEA", attribute="GENEA;NM_1;1", mean=1500.0,
+                                  proportion_covered=100.0),
+                TargetCoverageRow(chrom="7", start=200, end=300, gene="GENEA", attribute="GENEA;NM_1;2", mean=250.0,
+                                  proportion_covered=100.0),
+                TargetCoverageRow(chrom="7", start=400, end=500, gene="GENEA", attribute="GENEA;NM_1;3", mean=1200.0,
+                                  proportion_covered=97.5),
+            ],
+        )
+
+    monkeypatch.setattr(families_nipt_router, "get_family_nipt_gene_targets", fake_gene_targets)
+
+    response = client.get("/api/families/FAM1/nipt/coverage/targets", params={"gene": "GENEA", "project_id": "p1"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert seen == {"family_id": "FAM1", "gene": "GENEA", "project_id": "p1"}
+    assert body["critical_mean_depth"] == 300.0
+    assert [(target["start"], target["weak"]) for target in body["targets"]] == [
+        (0, False),
+        (200, True),  # mean below 300x
+        (400, True),  # a base without coverage
+    ]
+
+
+def test_the_gene_targets_need_a_gene(family_metadata_client) -> None:
+    client, _monkeypatch = family_metadata_client
+
+    response = client.get("/api/families/FAM1/nipt/coverage/targets")
+
+    assert response.status_code == 422

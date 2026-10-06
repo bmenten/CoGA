@@ -177,10 +177,14 @@ describe('FamilyNiptPage', () => {
     expect(await screen.findByText('120x')).toBeInTheDocument();
     expect(screen.getByText('On-target coverage')).toBeInTheDocument();
 
-    // Per-gene coverage QC flags the one panel gene below the depth threshold
-    // (a compact list, not the full per-region table).
-    expect(screen.getByText(/1 of 2 panel genes below QC/)).toBeInTheDocument();
-    expect(screen.getByText(/ARID1B · 8x median/)).toBeInTheDocument();
+    // The coverage QC counts the panel genes below the depth threshold; the coverage page
+    // the link opens names them.
+    expect(screen.getByText(/1 of 2 panel genes below QC/)).toHaveAttribute('role', 'status');
+    expect(screen.queryByText(/ARID1B/)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Coverage details' })).toHaveAttribute(
+      'href',
+      '/families/NIPT001/nipt/coverage',
+    );
 
     // The variant renders through the reused small-variant card (≤100 results →
     // cards view), with the NIPT classification block layered on. (BRCA1 appears
@@ -270,6 +274,43 @@ describe('FamilyNiptPage', () => {
           'with a gene panel, a gene or a region.',
       ),
     ).toHaveAttribute('role', 'status');
+  });
+
+  it('shows a loader until the analysis has loaded', async () => {
+    let resolveSummary: (value: unknown) => void = () => undefined;
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: { family_id: 'NIPT001', members: [], metadata: { analysis_type: 'monogenic_nipt' } },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/summary') {
+        return new Promise((resolve) => {
+          resolveSummary = resolve;
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({ data: { family_id: 'NIPT001', total: 0, variants: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderPage('NIPT001');
+
+    // Not an empty page while the fetal fraction is estimated.
+    expect(await screen.findByRole('heading', { name: 'Loading the NIPT analysis' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /family NIPT001/i })).not.toBeInTheDocument();
+
+    resolveSummary({
+      data: {
+        family_id: 'NIPT001',
+        fetal_fraction: FETAL_FRACTION,
+        category_counts: { '1': 1 },
+        filter_counts: { total_in: 100, failed_quality: 5, failed_artifact: 3, passed: 92 },
+      },
+    });
+    expect(await screen.findByRole('heading', { name: /family NIPT001/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Loading the NIPT analysis' })).not.toBeInTheDocument();
   });
 
   it('shows a not-configured message for a non-NIPT family', async () => {

@@ -2,98 +2,100 @@
 
 .admin-data-layout {
   display: grid;
-  gap: 1.5rem;
+  /* One shrinkable column on a narrow screen (two from 1024px): a wide table scrolls in
+     its card instead of widening the page. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
 }
 
 .admin-data-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.3125rem;
   align-items: stretch;
-  padding: 0.65rem 0.75rem;
+  padding: 0.375rem 0.4375rem;
 }
 
 .admin-data-summary-item {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.38rem 0.6rem;
-  border-radius: 999px;
+  gap: 0.3125rem;
+  padding: 0.0625rem 0.375rem;
+  border-radius: var(--radius-control);
   border: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--color-surface);
 }
 
 .admin-data-summary-label {
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
   color: var(--color-text-muted);
   white-space: nowrap;
 }
 
 .admin-data-summary-value {
   font-family: var(--font-mono);
-  font-size: 0.9rem;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: 600;
   color: var(--color-heading);
   white-space: nowrap;
 }
 
 .admin-variant-ops-grid {
   display: grid;
-  gap: 1rem;
+  gap: 0.625rem;
 }
 
 .admin-variant-card {
   display: grid;
-  gap: 1rem;
-  padding: 1rem 1.1rem;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid var(--color-border);
-  background: rgba(248, 250, 252, 0.94);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
 }
 
 .admin-variant-card-header {
   display: grid;
-  gap: 1rem;
+  gap: 0.625rem;
 }
 
 .admin-variant-card h3 {
-  font-size: 1.08rem;
+  font-size: var(--fs-md);
 }
 
 .admin-variant-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.25rem;
 }
 
 .admin-variant-missing {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.375rem;
 }
 
 .admin-variant-integrity {
   display: grid;
-  gap: 0.5rem;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 0.6rem;
-  background: rgba(148, 163, 184, 0.08);
+  gap: 0.3125rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
 }
 
 .admin-variant-integrity-notes {
   margin: 0;
-  padding-left: 1.1rem;
+  padding-left: 0.6875rem;
   display: grid;
-  gap: 0.3rem;
-  font-size: 0.85rem;
-  color: #64748b;
+  gap: 0.25rem;
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
 }
 
 .admin-variant-table-list {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.3125rem;
 }
 
 .admin-variant-table-row {
@@ -101,95 +103,98 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.72rem 0.82rem;
+  gap: 0.4375rem;
+  padding: 0.3125rem 0.5rem;
   border: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.9);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
 }
 
 .admin-variant-table-row--missing {
   border-color: rgba(198, 31, 45, 0.22);
-  background: rgba(255, 244, 245, 0.9);
+  background: var(--color-danger-surface);
 }
 
 .admin-variant-table-copy {
   display: grid;
-  gap: 0.16rem;
+  gap: 0.125rem;
 }
 
 .admin-variant-table-copy strong {
-  font-size: 0.88rem;
+  font-size: var(--fs-sm);
   color: var(--color-heading);
 }
 
 .admin-variant-table-copy span {
-  font-size: 0.76rem;
+  font-size: var(--fs-xs);
   color: var(--color-text-muted);
 }
 
 .admin-variant-table-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 0.4375rem;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
 }
 
 .admin-data-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.75rem;
   align-self: start;
 }
 
 .admin-family-list {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.5rem;
 }
 
 .admin-family-card {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 0.375rem;
   width: 100%;
+  min-height: auto;
   border: 1px solid var(--color-border);
-  background: rgba(248, 250, 252, 0.96);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
   color: var(--color-heading);
-  padding: 1rem 1.05rem;
+  padding: 0.5rem 0.625rem;
+  font-weight: 400;
   text-align: left;
-  box-shadow: none;
 }
 
 .admin-family-card:hover {
-  border-color: rgba(173, 31, 45, 0.2);
-  background: rgba(255, 255, 255, 0.98);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+  color: var(--color-heading);
 }
 
 .admin-family-card--active {
-  border-color: rgba(173, 31, 45, 0.32);
-  background: rgba(255, 255, 255, 0.99);
-  box-shadow: 0 12px 28px rgba(18, 22, 27, 0.08);
+  border-color: var(--color-link);
+  background: var(--color-surface);
 }
 
 .admin-family-card-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.625rem;
 }
 
 .admin-family-card h3 {
   margin: 0;
-  font-size: 1.08rem;
+  font-size: var(--fs-md);
   color: var(--color-heading);
 }
 
 .admin-family-card p {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: 0.92rem;
+  font-size: var(--fs-sm);
 }
 
 .admin-data-detail {
@@ -198,39 +203,37 @@
 
 .admin-project-access-card {
   display: grid;
-  gap: 1.25rem;
-  padding: 1.25rem 1.35rem;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
 }
 
 .admin-project-access-layout {
   display: grid;
-  gap: 1rem;
+  gap: 0.625rem;
 }
 
 .admin-project-access-summary,
 .admin-project-access-group {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.4375rem;
 }
 
 .admin-project-access-label {
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--color-text-muted);
 }
 
 .admin-project-access-chip-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.25rem;
 }
 
 .admin-project-access-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  gap: 0.375rem;
 }
 
 .admin-sample-table th,
@@ -240,100 +243,96 @@
 }
 
 .admin-sample-table td {
-  padding-top: 0.72rem;
-  padding-bottom: 0.72rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
 }
 
 .admin-project-matrix {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.25rem;
   min-width: 18rem;
 }
 
 .admin-project-matrix--editor {
-  gap: 0.55rem;
+  gap: 0.3125rem;
 }
 
 .admin-project-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.25rem;
   border: 1px solid var(--color-border);
-  background: rgba(247, 249, 252, 0.9);
-  padding: 0.38rem 0.56rem;
-  font-size: 0.75rem;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-muted);
+  padding: 0.125rem 0.375rem;
+  font-size: var(--fs-xs);
   color: var(--color-heading);
 }
 
 .admin-project-chip input {
-  accent-color: var(--color-signature-red);
+  accent-color: var(--color-primary);
 }
 
 .admin-project-chip--toggle {
   cursor: pointer;
   transition:
-    border-color 180ms ease,
-    background-color 180ms ease,
-    transform 180ms ease,
-    box-shadow 180ms ease;
+    border-color 120ms ease,
+    background-color 120ms ease;
 }
 
 .admin-project-chip--toggle:hover {
-  transform: translateY(-1px);
-  border-color: rgba(173, 31, 45, 0.24);
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 10px 20px rgba(18, 22, 27, 0.05);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
 }
 
 .admin-project-chip--selected {
-  border-color: rgba(173, 31, 45, 0.28);
-  background: rgba(255, 244, 245, 0.92);
+  border-color: var(--color-link);
+  background: var(--color-surface);
 }
 
 .admin-count-cell {
-  font-size: 0.82rem;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--color-heading);
 }
 
 .admin-sample-id-cell strong {
-  font-size: 0.94rem;
+  font-size: var(--fs-sm);
   color: var(--color-heading);
 }
 
 .admin-sample-context-cell {
   color: var(--color-text-muted);
-  font-size: 0.84rem;
+  font-size: var(--fs-sm);
 }
 
 .admin-track-inline {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.3125rem;
 }
 
 .admin-track-inline-count {
   min-width: 3.25rem;
-  font-size: 0.84rem;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: 600;
   color: var(--color-heading);
 }
 
 .admin-track-inline-action,
 .admin-sample-delete-action {
-  min-height: auto;
-  padding: 0.4rem 0.65rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
+  min-height: var(--control-height-sm);
+  padding: 0 0.5rem;
+  font-size: var(--fs-xs);
 }
 
 .status-note,
 .form-status {
-  margin-top: 1rem;
-  border-radius: 4px;
-  padding: 0.9rem 1rem;
-  font-size: 0.88rem;
+  margin-top: 0.5rem;
+  border-radius: var(--radius-card);
+  padding: 0.375rem 0.625rem;
+  font-size: var(--fs-sm);
 }
 
 .status-note--success,
@@ -370,27 +369,27 @@
 .error-detail summary {
   cursor: pointer;
   color: var(--color-text-muted);
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: 600;
 }
 
 .error-detail pre {
-  margin: 0.75rem 0 0;
+  margin: 0.4375rem 0 0;
   max-height: 12rem;
   overflow: auto;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: rgba(247, 249, 252, 0.96);
-  padding: 0.85rem;
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+  padding: 0.5rem;
   color: var(--color-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
 }
 
 .mono-panel {
-  border-radius: 4px;
+  border-radius: var(--radius-card);
   border: 1px solid var(--color-border);
-  background: rgba(247, 249, 252, 0.96);
-  padding: 1rem;
+  background: var(--color-surface-muted);
+  padding: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
 }

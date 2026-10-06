@@ -12,6 +12,7 @@ from ..schemas import (
     NiptDeNovoWindowOut,
     NiptFetalFractionOut,
     NiptFetalSexOut,
+    NiptGeneTargetsOut,
     NiptModelOut,
     NiptPaternityOut,
     NiptQcOut,
@@ -21,6 +22,7 @@ from ..schemas import (
     NiptClassificationOut,
     NiptTargetCoverageGeneOut,
     NiptTargetCoverageOut,
+    NiptTargetDetailOut,
     NiptTargetOut,
     NiptVariantOut,
     NiptVariantPage,
@@ -41,6 +43,7 @@ from ..services.nipt_service import (
     NiptClassifiedVariant,
     NiptFamilySummary,
     get_family_nipt_coverage,
+    get_family_nipt_gene_targets,
     get_family_nipt_summary as load_family_nipt_summary,
     get_family_nipt_variants,
 )
@@ -409,6 +412,9 @@ async def get_family_nipt_coverage_summary(
     gene: str | None = None,
     panel_id: str | None = None,
     min_depth: float = Query(DEFAULT_MIN_DEPTH, gt=0),
+    # The coverage page lists every gene in scope, the ones whose targets all pass too;
+    # the NIPT page only the weak ones.
+    all_genes: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptCoverageSummaryOut:
@@ -420,6 +426,7 @@ async def get_family_nipt_coverage_summary(
         gene=gene,
         panel_id=panel_id,
         min_depth=min_depth,
+        all_genes=all_genes,
     )
     summary = coverage.regions
     return NiptCoverageSummaryOut(
@@ -451,4 +458,30 @@ async def get_family_nipt_coverage_summary(
             for region in summary.low_coverage_regions
         ],
         targets=_target_coverage_out(coverage.targets) if coverage.targets is not None else None,
+    )
+
+
+@router.get("/{family_id}/nipt/coverage/targets", response_model=NiptGeneTargetsOut)
+async def get_family_nipt_gene_coverage(
+    family_id: str,
+    gene: str = Query(..., min_length=1, max_length=64),
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptGeneTargetsOut:
+    """One gene's capture targets and their depth: a row of the coverage page, opened."""
+    result = await get_family_nipt_gene_targets(
+        session, family_id=family_id, user=user, gene=gene, project_id=project_id
+    )
+    return NiptGeneTargetsOut(
+        family_id=family_id,
+        gene=result.gene,
+        critical_mean_depth=result.critical_mean_depth,
+        targets=[
+            NiptTargetDetailOut(
+                **_target_out(row).model_dump(),
+                weak=row.is_weak(result.critical_mean_depth),
+            )
+            for row in result.rows
+        ],
     )

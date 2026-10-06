@@ -3,6 +3,39 @@ import { Link, useLocation } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { ApiClinicalCnv } from '../lib/apiTypes';
 
+/** Words a route spells in lower case that read as acronyms or brand names. */
+const ROUTE_WORDS: Record<string, string> = {
+  acmg: 'ACMG',
+  clickhouse: 'ClickHouse',
+  cnv: 'CNV',
+  dna: 'DNA',
+  hpo: 'HPO',
+  igv: 'IGV',
+  nipt: 'NIPT',
+  qc: 'QC',
+  roi: 'ROI',
+  sv: 'SV',
+};
+
+/** The segments whose next segment is an identifier (a family, chromosome, panel or CNV). */
+const ID_PARENTS = new Set(['families', 'chromosome', 'panels', 'cnv-details']);
+
+/** A route word in sentence case: `small-variants` reads "Small variants". */
+const routeLabel = (segment: string): string => {
+  const words = segment.split('-').map((word) => ROUTE_WORDS[word] ?? word);
+  const label = words.join(' ');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+};
+
+/** An identifier as it is stored: case is part of it ("1q21.1", "demo_family"). */
+const idLabel = (segment: string): string => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+};
+
 /**
  * Renders a breadcrumb trail based on the current route.
  * Always begins with a link back to the dashboard and
@@ -33,7 +66,7 @@ const Breadcrumbs: React.FC = () => {
       to="/dashboard"
       className="subtle-link breadcrumb-link"
     >
-      DASHBOARD
+      Dashboard
     </Link>,
   ];
 
@@ -42,15 +75,12 @@ const Breadcrumbs: React.FC = () => {
   let path = '';
   others.forEach((segment, index) => {
     path += `/${segment}`;
-    let label = segment
-      .split('-')
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ')
-      .toUpperCase();
+    const isId = index > 0 && ID_PARENTS.has(others[index - 1]);
+    let label = isId ? idLabel(segment) : routeLabel(segment);
     if (segment === 'cnv-details') {
-      label = 'CNV EXPLORER';
+      label = 'CNV explorer';
     } else if (segment === cnvDetailId && cnvCrumb?.label) {
-      label = cnvCrumb.label.toUpperCase();
+      label = cnvCrumb.label;
     }
     const isLast = index === others.length - 1;
     let to = path;
@@ -61,6 +91,16 @@ const Breadcrumbs: React.FC = () => {
 
     if (segment === 'cnv-details') {
       to = '/cnv-explorer';
+    }
+
+    // Families are listed on the dashboard: there is no /families page of its own.
+    if (path === '/families') {
+      to = '/dashboard';
+    }
+
+    // The reference docs are reached from the user guide: there is no /docs/reference page.
+    if (path === '/docs/reference') {
+      to = '/docs';
     }
 
     if (isAdminPath) {

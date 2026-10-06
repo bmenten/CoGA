@@ -250,7 +250,7 @@ const GenePanelsPage: React.FC = () => {
                 onChange={(e) => setDescription(e.target.value)}
               />
             </label>
-            <button type="submit" className="form-button w-full justify-center">
+            <button type="submit" className="form-button">
               Create Panel
             </button>
           </form>

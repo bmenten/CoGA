@@ -260,7 +260,7 @@ const SampleUpload: FC = () => {
             </label>
             <button
               type="submit"
-              className="form-button w-full justify-center"
+              className="form-button"
               disabled={familyLoading}
             >
               Upload Family Variants
@@ -307,7 +307,7 @@ const SampleUpload: FC = () => {
             </label>
             <button
               type="submit"
-              className="form-button w-full justify-center"
+              className="form-button"
               disabled={variantLoading}
             >
               Upload Structural Variants
@@ -353,7 +353,7 @@ const SampleUpload: FC = () => {
             </label>
             <button
               type="submit"
-              className="form-button w-full justify-center"
+              className="form-button"
               disabled={bedLoading}
             >
               Upload BED Track
@@ -391,7 +391,7 @@ const SampleUpload: FC = () => {
             </label>
             <button
               type="submit"
-              className="form-button w-full justify-center"
+              className="form-button"
               disabled={repeatLoading}
             >
               Upload TRGT

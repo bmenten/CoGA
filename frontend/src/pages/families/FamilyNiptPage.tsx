@@ -10,8 +10,6 @@ import {
   CATEGORY_LABELS,
   MONOGENIC_NIPT_ANALYSIS_TYPE,
   depth,
-  lowCoverageChipClass,
-  lowCoverageDetail,
   pct,
 } from './niptClassification';
 import { parseCommaSeparatedValues } from '../../lib/sampleFilterState';
@@ -46,6 +44,7 @@ import SmallVariantResults from './SmallVariantResults';
 import NiptQcPanel from './NiptQcPanel';
 import NiptRecessiveGenes from './NiptRecessiveGenes';
 import NiptTargetCoverage from './NiptTargetCoverage';
+import VariantResultsLoading from './VariantResultsLoading';
 import { apiPath } from '../../lib/apiPath';
 
 const PAGE_SIZE = 50;
@@ -379,7 +378,7 @@ const FamilyNiptPage: React.FC = () => {
   const categoryCounts = summaryFailed ? null : (summary?.category_counts ?? {});
 
   if (familyLoading) {
-    return <PageState kicker="Monogenic NIPT" title="Loading family…" />;
+    return <PageState loading kicker="Monogenic NIPT" title="Loading family" />;
   }
   if (familyFailed) {
     return (
@@ -418,6 +417,20 @@ const FamilyNiptPage: React.FC = () => {
     );
   }
 
+  // Until the fetal fraction and the first classified variants are in, the page waits as
+  // the small-variant page does: no candidate is shown without the quality checks it rests
+  // on (TF-12 U1).
+  if ((!summary && !summaryFailed) || (!variantPage && !variantsFailed)) {
+    return (
+      <PageState
+        loading
+        kicker="Monogenic NIPT"
+        title="Loading the NIPT analysis"
+        message="Estimating the fetal fraction and classifying the plasma's calls against the parents."
+      />
+    );
+  }
+
   const ff = summary?.fetal_fraction;
   const totalVariants = variantPage?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(totalVariants / PAGE_SIZE));
@@ -432,6 +445,10 @@ const FamilyNiptPage: React.FC = () => {
     const query = params.toString();
     return query ? `?${query}` : '';
   })();
+  // The coverage page reads the same genes; its way back returns to this page as it is
+  // now, filters and all (they live in the URL).
+  const coverageHref = `/families/${familyId}/nipt/coverage${niptReportQuerySuffix}`;
+  const coverageLinkState = { from: `${location.pathname}${location.search}` };
 
   return (
     <div className="page-shell analysis-shell">
@@ -564,6 +581,13 @@ const FamilyNiptPage: React.FC = () => {
       ) : null}
 
       <div className="variant-results-region">
+        {variantsFetching ? (
+          <VariantResultsLoading
+            title="Loading NIPT variants"
+            message="Classifying the plasma's calls against the parents for this search."
+          />
+        ) : null}
+        <div className={variantsFetching ? 'variant-results-fetching' : undefined} aria-busy={variantsFetching}>
         {/* The list classifies the first variants of the search, in genomic order, up to a
             limit. Past it the list stops part-way through the genome: said, not shown as
             complete. */}
@@ -633,11 +657,17 @@ const FamilyNiptPage: React.FC = () => {
           }}
         />
         )}
+        </div>
 
         <section className="surface-card space-y-2" aria-label="On-target coverage">
           <h2 className="section-title">On-target coverage</h2>
           {coverage?.targets ? (
-            <NiptTargetCoverage coverage={coverage.targets} scoped={Boolean(filters.panel_id || filters.gene.trim())} />
+            <NiptTargetCoverage
+              coverage={coverage.targets}
+              scoped={Boolean(filters.panel_id || filters.gene.trim())}
+              detailsHref={coverageHref}
+              detailsState={coverageLinkState}
+            />
           ) : coverage ? (
             coverage.target_region_count === 0 ? (
               <p className="table-subtle">
@@ -654,29 +684,23 @@ const FamilyNiptPage: React.FC = () => {
                     </span>
                   </div>
                 </div>
+                {/* The regions themselves are named on the coverage page: here, how many. */}
                 {coverage.low_coverage_regions && coverage.low_coverage_regions.length > 0 ? (
-                  <div className="nipt-coverage-qc" role="status">
-                    <p className="table-subtle">
-                      {coverage.low_coverage_regions.length} of {coverage.target_region_count} panel gene
-                      {coverage.target_region_count === 1 ? '' : 's'} below QC (median &lt;{' '}
-                      {depth(coverage.min_depth)} or incomplete coverage):
-                    </p>
-                    <div className="table-chip-list">
-                      {coverage.low_coverage_regions.map((region) => (
-                        <span
-                          key={`${region.label}:${region.chr}`}
-                          className={lowCoverageChipClass(region.reason)}
-                          title={`${region.label}: ${lowCoverageDetail(region)}`}
-                        >
-                          {region.label} · {lowCoverageDetail(region)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
+                  <p className="status-note status-note--warning nipt-coverage-verdict" role="status">
+                    {coverage.low_coverage_regions.length} of {coverage.target_region_count} panel gene
+                    {coverage.target_region_count === 1 ? '' : 's'} below QC (median &lt; {depth(coverage.min_depth)}{' '}
+                    or incomplete coverage).{' '}
+                    <Link to={coverageHref} state={coverageLinkState}>
+                      Coverage details
+                    </Link>
+                  </p>
                 ) : (
-                  <p className="table-subtle">
+                  <p className="table-subtle nipt-coverage-verdict">
                     All {coverage.target_region_count} panel gene
-                    {coverage.target_region_count === 1 ? '' : 's'} adequately covered (≥ {depth(coverage.min_depth)}).
+                    {coverage.target_region_count === 1 ? '' : 's'} adequately covered (≥ {depth(coverage.min_depth)}).{' '}
+                    <Link to={coverageHref} state={coverageLinkState}>
+                      Coverage details
+                    </Link>
                   </p>
                 )}
               </>
@@ -685,7 +709,9 @@ const FamilyNiptPage: React.FC = () => {
             // It stayed at "Loading coverage…" for good (#606).
             <QueryFailure what="the coverage QC" error={coverageError} onRetry={() => void refetchCoverage()} />
           ) : (
-            <p className="table-subtle">Loading coverage…</p>
+            <p className="table-subtle" role="status">
+              <span className="viz-loading-spinner" aria-hidden="true" /> Loading coverage…
+            </p>
           )}
         </section>
       </div>

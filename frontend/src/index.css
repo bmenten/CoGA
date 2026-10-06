@@ -1,2 +1,17 @@
 @import 'tailwindcss';
 @config '../tailwind.config.js';
+
+/* Tailwind's scale, compacted to the theme's (styles/theme/tokens.css): a spacing step of
+   3px instead of 4px, and text sizes that sit on the 11/12/13/15 px steps, so the utility
+   classes in the components keep their relative meaning on the smaller page. */
+@theme {
+  --spacing: 0.1875rem;
+  --text-xs: 0.6875rem;
+  --text-xs--line-height: 1.4;
+  --text-sm: 0.75rem;
+  --text-sm--line-height: 1.45;
+  --text-base: 0.8125rem;
+  --text-base--line-height: 1.45;
+  --text-lg: 0.9375rem;
+  --text-lg--line-height: 1.4;
+}

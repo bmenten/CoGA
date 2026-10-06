@@ -2,42 +2,39 @@
 
 .user-guide-page {
   align-items: stretch;
-  gap: 2.75rem;
+  gap: 1rem;
 }
 
 .user-guide-eyebrow {
-  margin: 0 0 0.9rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  margin: 0 0 0.25rem;
+  font-size: var(--fs-xs);
+  font-weight: 500;
   color: var(--color-text-muted);
 }
 
 .user-guide-hero {
-  padding-bottom: 1.75rem;
+  padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--color-border);
 }
 
 .user-guide-title {
-  margin: 0.45rem 0 0;
-  font-size: clamp(1.75rem, 3vw, 2.25rem);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  margin: 0.125rem 0 0;
+  font-size: var(--fs-2xl);
+  font-weight: 600;
   color: var(--color-heading);
 }
 
 .user-guide-lede {
-  margin: 0.75rem 0 0;
+  margin: 0.4375rem 0 0;
   max-width: 54rem;
-  font-size: 1.02rem;
-  line-height: 1.72;
+  font-size: var(--fs-md);
+  line-height: 1.55;
   color: var(--color-secondary);
 }
 
 .user-guide-layout {
   display: grid;
-  gap: 2.75rem;
+  gap: 1rem;
   align-items: start;
   grid-template-columns: minmax(0, 1fr);
 }
@@ -45,14 +42,14 @@
 @media (min-width: 992px) {
   .user-guide-layout {
     grid-template-columns: 13rem minmax(0, 1fr);
-    gap: 3.25rem;
+    gap: 1.5rem;
   }
 }
 
 /* Sticky text-link contents: no card, no boxes. */
 .user-guide-toc {
   position: sticky;
-  top: 5.5rem;
+  top: var(--sticky-offset);
   align-self: start;
 }
 
@@ -66,13 +63,13 @@
 .user-guide-toc-link {
   display: flex;
   align-items: baseline;
-  gap: 0.55rem;
+  gap: 0.3125rem;
   margin-left: -1px;
-  padding: 0.32rem 0 0.32rem 0.85rem;
+  padding: 0.25rem 0 0.25rem 0.5rem;
   border-left: 2px solid transparent;
   color: var(--color-secondary);
   text-decoration: none;
-  font-size: 0.88rem;
+  font-size: var(--fs-sm);
   line-height: 1.4;
   transition:
     color 0.15s ease,
@@ -80,13 +77,13 @@
 }
 
 .user-guide-toc-link:hover {
-  color: var(--color-signature-red-dark);
-  border-left-color: var(--color-signature-red);
+  color: var(--color-link);
+  border-left-color: var(--color-link);
 }
 
 .user-guide-toc-index {
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
 }
@@ -101,9 +98,9 @@
 
 /* Reading column: sections divided by hairlines, not cards. */
 .user-guide-section {
-  padding: 2.5rem 0;
+  padding: 1rem 0;
   border-top: 1px solid var(--color-border);
-  scroll-margin-top: 5.75rem;
+  scroll-margin-top: var(--sticky-offset);
 }
 
 .user-guide-section:first-child {
@@ -112,31 +109,29 @@
 }
 
 .user-guide-section-header {
-  margin-bottom: 1.1rem;
+  margin-bottom: 0.5rem;
 }
 
 .user-guide-section-index {
   display: block;
-  margin-bottom: 0.5rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  margin-bottom: 0.3125rem;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--color-signature-red);
 }
 
 .user-guide-section-title {
   margin: 0;
-  font-size: 1.4rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: var(--fs-xl);
+  font-weight: 600;
   color: var(--color-heading);
 }
 
 .user-guide-section-summary {
-  margin: 0.5rem 0 0;
+  margin: 0.3125rem 0 0;
   max-width: 50rem;
-  font-size: 0.96rem;
-  line-height: 1.72;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
   color: var(--color-secondary);
 }
 
@@ -144,19 +139,19 @@
 .user-guide-link-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem 1.4rem;
-  margin: 1rem 0 1.4rem;
+  gap: 0.25rem 0.875rem;
+  margin: 0.625rem 0 0.875rem;
 }
 
 .user-guide-link-chip {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.45rem;
+  gap: 0.25rem;
   padding: 0;
   border: 0;
   background: none;
-  color: var(--color-signature-red-dark);
-  font-size: 0.85rem;
+  color: var(--color-link);
+  font-size: var(--fs-sm);
   font-weight: 600;
   text-decoration: none;
 }
@@ -168,30 +163,29 @@
 }
 
 .user-guide-link-chip:hover {
-  color: var(--color-signature-red);
+  color: var(--color-link-hover);
   text-decoration: underline;
 }
 
 .user-guide-link-note {
-  font-size: 0.64rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
   color: var(--color-text-muted);
 }
 
 .user-guide-section-prose {
-  gap: 0.95rem;
+  gap: 0.5625rem;
   max-width: 52rem;
 }
 
-/* Callout: left-accent note, no rounded box. */
+/* Callout: a caution the reader must not skim past ("Screening, not diagnosis"), so it keeps
+   a tinted block with a left accent. */
 .user-guide-callout {
-  margin: 0.4rem 0;
-  padding: 0.35rem 0 0.35rem 1.1rem;
-  border-left: 3px solid var(--color-signature-red);
-  background: none;
-  color: var(--color-secondary);
+  margin: 0.25rem 0;
+  padding: 0.375rem 0.625rem;
+  border-left: 3px solid var(--color-warning-border);
+  background: var(--color-warning-surface);
+  color: var(--color-text);
 }
 
 /* The guide's Markdown writes a callout as a blockquote, which holds a paragraph (#528):
@@ -206,16 +200,14 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.6rem;
-  margin: 0.9rem 0 0;
-  padding-top: 0.7rem;
-  border-top: 1px solid var(--color-border, #eef2f7);
+  gap: 0.375rem;
+  margin: 0.5625rem 0 0;
+  padding-top: 0.4375rem;
+  border-top: 1px solid var(--color-border);
 }
 .user-guide-further-reading-label {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-muted, #64748b);
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
 }
 .user-guide-doc-link {
   font-weight: 600;
@@ -224,12 +216,12 @@
 /* In-app reference doc (rendered from Markdown). */
 .reference-doc-page {
   display: grid;
-  gap: 1rem;
+  gap: 0.625rem;
 }
 .reference-doc-breadcrumb {
   display: flex;
   align-items: baseline;
-  gap: 0.85rem;
+  gap: 0.5rem;
 }
 .reference-doc-prose h1 {
   margin-top: 0;
@@ -238,34 +230,34 @@
 /* Mini grid: flat hairline-topped blocks, no boxes. */
 .user-guide-mini-grid {
   display: grid;
-  gap: 1.1rem 2.5rem;
+  gap: 0.5rem 1rem;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  margin: 0.4rem 0;
+  margin: 0.25rem 0;
 }
 
 .user-guide-mini-card {
-  padding-top: 0.8rem;
+  padding-top: 0.5rem;
   border-top: 1px solid var(--color-border);
   background: none;
 }
 
 .user-guide-mini-card-title {
-  margin: 0 0 0.28rem;
-  font-size: 0.92rem;
-  font-weight: 700;
+  margin: 0 0 0.1875rem;
+  font-size: var(--fs-sm);
+  font-weight: 600;
   color: var(--color-heading);
 }
 
 .user-guide-mini-card-copy {
   margin: 0;
-  font-size: 0.88rem;
-  line-height: 1.66;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
   color: var(--color-text-muted);
 }
 
 .user-guide-backlink {
   display: inline-block;
-  margin-top: 1.5rem;
+  margin-top: 0.625rem;
 }
 
 .release-history-page {
@@ -274,13 +266,13 @@
 
 .release-history-hero {
   display: grid;
-  gap: 1rem;
+  gap: 0.625rem;
 }
 
 .release-history-summary-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.3125rem;
 }
 
 .release-history-actions {
@@ -288,21 +280,21 @@
 }
 
 .release-history-callout {
-  border-left: 4px solid rgba(190, 52, 85, 0.7);
+  border-left: 3px solid var(--color-border-strong);
 }
 
 .release-history-list {
   display: grid;
-  gap: 1rem;
+  gap: 0.625rem;
 }
 
 .release-history-card {
   display: grid;
-  gap: 0.95rem;
-  padding: 1.05rem 1.1rem;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 1rem;
-  background: rgba(247, 249, 252, 0.86);
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
 }
 
 .release-history-card-header {
@@ -310,41 +302,38 @@
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.85rem;
+  gap: 0.5rem;
 }
 
 .release-history-version-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.3125rem;
 }
 
 .release-history-version {
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--color-text-muted);
 }
 
 .release-history-title {
   margin: 0;
-  font-size: 1.08rem;
-  letter-spacing: -0.02em;
+  font-size: var(--fs-md);
   color: var(--color-heading);
 }
 
 .release-history-date {
-  font-size: 0.82rem;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: 500;
   color: var(--color-text-muted);
 }
 
 .release-history-summary {
   margin: 0;
   white-space: pre-line;
-  line-height: 1.8;
+  line-height: 1.55;
   color: var(--color-text);
 }
 
@@ -354,9 +343,9 @@
 
 .content-html {
   display: grid;
-  gap: 1rem;
+  gap: 0.625rem;
   color: var(--color-text);
-  line-height: 1.78;
+  line-height: 1.6;
 }
 
 .content-html h1,
@@ -377,7 +366,7 @@
 }
 
 .content-html a {
-  color: var(--color-primary);
+  color: var(--color-link);
 }
 
 .content-html table {
@@ -388,5 +377,5 @@
 .content-html th,
 .content-html td {
   border: 1px solid var(--color-border);
-  padding: 0.8rem;
+  padding: 0.25rem 0.5rem;
 }

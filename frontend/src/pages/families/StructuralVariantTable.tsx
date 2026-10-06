@@ -247,12 +247,16 @@ export default function StructuralVariantTable({
                     {variant.source || <span className="table-empty">—</span>}
                   </td>
                 )}
-                {visible.gene && <td>{variant.gene || '—'}</td>}
+                {visible.gene && (
+                  <td className="table-wrap-cell">
+                    <span className="sv-gene-list">{variant.gene || '—'}</span>
+                  </td>
+                )}
                 {visible.cytoband && (
                   <td className="whitespace-nowrap">{variant.annotation_extra?.cytoband || '—'}</td>
                 )}
                 {visible.inheritance && (
-                  <td>
+                  <td className="table-wrap-cell">
                     {variant.annotation_extra?.inheritance || <span className="table-empty">—</span>}
                   </td>
                 )}
@@ -274,7 +278,7 @@ export default function StructuralVariantTable({
                   </td>
                 )}
                 {visible.region_flags && (
-                  <td>
+                  <td className="table-wrap-cell">
                     {[
                       ...(variant.annotation_extra?.region_flags || []),
                       ...(isFiniteNumber(variant.gene_pli) ? [`pLI ${variant.gene_pli.toFixed(3)}`] : []),

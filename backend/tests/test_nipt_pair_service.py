@@ -18,6 +18,7 @@ from backend.app.services.nipt_service import (
     derive_father_state,
     family_artifact_ids,
     get_family_nipt_coverage,
+    get_family_nipt_gene_targets,
     get_family_nipt_summary,
     get_family_nipt_variants,
     restored_site_depths,
@@ -298,11 +299,17 @@ def _wire(
     async def fake_fetch(_context, filters, *, limit=None, **_kwargs):
         return cohort if filters.gene is None else (filtered if limit is None else filtered[:limit])
 
-    async def fake_tracks(_assembly, *, sample_uuid=None, track_type=None, include_metadata=False, **_kwargs):
+    async def fake_tracks(
+        _assembly, *, sample_uuid=None, track_type=None, include_metadata=False, record_ids=None, **_kwargs
+    ):
         assert track_type == "target_coverage"
         rows = targets if targets is not None else _plasma_targets()
         if sample_uuid != "cfdna-uuid":
             return []
+        if record_ids:
+            # As ClickHouse filters: the record_id (the target's gene), case-insensitive.
+            wanted = {value.upper() for value in record_ids}
+            rows = [row for row in rows if row.gene.upper() in wanted]
         return [
             {"chr": row.chrom, "start": row.start, "end": row.end, "record_id": row.gene, "value": row.mean,
              "metadata_json": '{"median": %s, "proportion_covered": %s}' % (
@@ -517,6 +524,61 @@ async def test_the_quality_checks_payload(monkeypatch: pytest.MonkeyPatch) -> No
     male = _qc_out(await get_family_nipt_summary(session=None, family_id="NIPTFAM1", user=None))  # type: ignore[arg-type]
     assert male.plasma_profile_status == "fail"
     assert male.fetal_sex.chry_profile == "male_like_not_maternal_plasma"
+
+
+@pytest.mark.asyncio
+async def test_the_coverage_page_reads_every_gene_and_a_gene_s_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wire(monkeypatch, filtered=[])
+    fetch = nipt_service.fetch_interval_track_rows
+    asked: list[object] = []
+
+    async def recording_fetch(*args, **kwargs):
+        asked.append(kwargs.get("record_ids"))
+        return await fetch(*args, **kwargs)
+
+    monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", recording_fetch)
+    coverage = await get_family_nipt_coverage(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPTFAM1",
+        user=None,  # type: ignore[arg-type]
+        all_genes=True,
+    )
+    assert coverage.targets is not None
+    # The weak GENEA and the passing GENEB and GENEZ alike.
+    assert {gene.gene: gene.weak_targets for gene in coverage.targets.genes} == {
+        "GENEA": 1,
+        "GENEB": 0,
+        "GENEZ": 0,
+    }
+
+    weak = await get_family_nipt_gene_targets(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPTFAM1",
+        user=None,  # type: ignore[arg-type]
+        gene="genea",
+    )
+    [target] = weak.rows
+    assert (target.gene, target.chrom, target.start, target.end) == ("GENEA", "7", 0, 120)
+    assert target.is_weak(weak.critical_mean_depth)  # mean 250x, below 300x
+    # Only that gene's rows are read, not the panel's whole table.
+    assert asked[-1] == ["genea"]
+    passing = await get_family_nipt_gene_targets(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPTFAM1",
+        user=None,  # type: ignore[arg-type]
+        gene="GENEB",
+    )
+    assert [row.is_weak(passing.critical_mean_depth) for row in passing.rows] == [False]
+    # A gene the panel does not capture has no target.
+    absent = await get_family_nipt_gene_targets(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPTFAM1",
+        user=None,  # type: ignore[arg-type]
+        gene="NOTAGENE",
+    )
+    assert absent.rows == []
 
 
 @pytest.mark.asyncio

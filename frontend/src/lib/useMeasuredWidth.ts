@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * The observed element's content width.
@@ -11,13 +11,19 @@ import { useEffect, useRef, useState } from 'react';
  * notification either. Without the visibility check the caller keeps whatever fallback
  * it started with — for the genome and chromosome viewers a fixed 1200px, well under the
  * real width on a wide screen.
+ *
+ * The ref is a callback, so an element that mounts after the first render is measured as
+ * well. A viewer opened from a variant list starts in a new tab with nothing cached: it
+ * shows "Loading…" while it fetches the family and the project catalogue and mounts its
+ * track panel only then, and a ref object's effect had already run, found nothing and
+ * never looked again.
  */
 export const useMeasuredWidth = <T extends HTMLElement>() => {
-  const ref = useRef<T | null>(null);
+  const [node, setNode] = useState<T | null>(null);
   const [width, setWidth] = useState(0);
+  const ref = useCallback((element: T | null) => setNode(element), []);
 
   useEffect(() => {
-    const node = ref.current;
     if (!node) return;
 
     const update = () => {
@@ -49,7 +55,7 @@ export const useMeasuredWidth = <T extends HTMLElement>() => {
       observer?.disconnect();
       if (!observer) window.removeEventListener('resize', update);
     };
-  }, []);
+  }, [node]);
 
   return [ref, width] as const;
 };

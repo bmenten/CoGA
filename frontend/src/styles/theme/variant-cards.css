@@ -4,10 +4,10 @@
 .sv-second-hit-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
-  padding: 0.05rem 0.4rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
+  gap: 0.125rem;
+  padding: 0.0625rem 0.25rem;
+  border-radius: var(--radius-control);
+  font-size: var(--fs-xs);
   font-weight: 600;
   white-space: nowrap;
   vertical-align: middle;
@@ -48,18 +48,15 @@
 }
 
 /* Without a link the badge is a <button>, so keyboard users can reach its explanation.
-   Undo the shared button rule: its 3rem height, uppercase tracking, and a hover (dark
-   fill, red text, lift) that would replace the tone. */
+   Undo the shared button rule: its control height, and a dark hover fill that would
+   replace the tone. */
 button.sv-second-hit-badge {
   min-height: auto;
-  letter-spacing: normal;
-  text-transform: none;
 }
 
 button.sv-second-hit-badge:hover {
   color: var(--color-warning-strong);
   background: var(--color-warning-surface);
-  transform: none;
 }
 
 button.sv-second-hit-badge--del:hover {
@@ -70,17 +67,15 @@ button.sv-second-hit-badge--del:hover {
 /* A deletion in trans with a het SNV (effectively biallelic) — strongest emphasis. */
 .sv-second-hit-badge--unmasked {
   box-shadow: 0 0 0 1px var(--color-signature-red);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .sv-second-hit-phase {
-  margin-left: 0.25rem;
-  padding: 0 0.28rem;
-  border-radius: 999px;
-  font-size: 0.66rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+  margin-left: 0.1875rem;
+  padding: 0 0.1875rem;
+  border-radius: var(--radius-control);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
   background: rgba(0, 0, 0, 0.08);
 }
 
@@ -97,11 +92,11 @@ button.sv-second-hit-badge--del:hover {
   z-index: 70;
   width: 260px;
   max-width: calc(100vw - 1rem);
-  padding: 0.45rem 0.6rem;
-  border-radius: 7px;
+  padding: 0.25rem 0.375rem;
+  border-radius: var(--radius-card);
   background: var(--color-text, #141517);
   color: var(--color-white);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 500;
   line-height: 1.4;
   white-space: normal;
@@ -110,63 +105,55 @@ button.sv-second-hit-badge--del:hover {
 }
 
 .variant-card-subtitle {
+  /* The HGVS beside the gene: a long-read insertion spells out its inserted bases, so the
+     line breaks anywhere rather than widening the card past the page. */
   margin: 0;
-  font-size: 0.92rem;
+  min-width: 0;
+  font-size: var(--fs-xs);
   color: var(--color-text-muted);
+  overflow-wrap: anywhere;
 }
 
 .variant-card-body {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.5rem;
   grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr) minmax(240px, 0.78fr);
   align-items: start;
 }
 
 .variant-card-column {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.4375rem;
   min-width: 0;
 }
 
 .variant-card-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
-}
-
-.variant-card-actions .button-secondary {
-  min-height: 2.2rem;
-  padding: 0.56rem 0.8rem;
-  font-size: 0.62rem;
-  letter-spacing: 0.12em;
+  gap: 0.3125rem;
 }
 
 .variant-card-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.25rem;
 }
 
 .variant-card-chip {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--color-border);
-  padding: 0.2rem 0.52rem;
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.variant-card-chip--tag {
-  letter-spacing: 0.01em;
-  text-transform: none;
+  padding: 0 0.375rem;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  line-height: 1.125rem;
+  overflow-wrap: anywhere;
 }
 
 .variant-card-chip--neutral {
   border-color: var(--color-border);
-  background: rgba(247, 249, 252, 0.98);
+  background: var(--color-surface-muted);
   color: var(--color-text-muted);
 }
 
@@ -218,7 +205,6 @@ button.sv-second-hit-badge--del:hover {
 }
 
 .variant-card-chip--link:hover {
-  filter: brightness(0.94);
   text-decoration: underline;
 }
 
@@ -228,41 +214,43 @@ button.sv-second-hit-badge--del:hover {
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.35rem 0.9rem;
+  gap: 0.25rem 0.75rem;
+  overflow-wrap: anywhere;
 }
 
+/* The priority breakdown reads as one line under the gene: score, rank, the four parts
+   and the inheritance it rests on. */
 .variant-card-priority {
-  display: grid;
-  /* Constrain the single column to the container so long lines wrap instead of
-     forcing the block (and the popover) wider than its box. */
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.3rem;
-  border: 1px solid rgba(37, 99, 235, 0.18);
-  border-radius: 8px;
-  background: rgba(37, 99, 235, 0.05);
-  padding: 0.5rem 0.62rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.75rem;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
 }
 
 .variant-card-priority-head {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: baseline;
+  gap: 0.375rem;
 }
 
 .variant-card-priority-score {
-  font-weight: 700;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  color: var(--color-text);
 }
 
 .variant-card-priority-rank {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: rgba(10, 11, 12, 0.55);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
 }
 
 .variant-card-priority-pheno {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: #b45309;
 }
@@ -270,32 +258,31 @@ button.sv-second-hit-badge--del:hover {
 .variant-card-priority-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem 0.9rem;
+  gap: 0.125rem 0.625rem;
   min-width: 0;
 }
 
 .variant-card-priority-metric {
   display: inline-flex;
-  gap: 0.3rem;
+  gap: 0.25rem;
   align-items: baseline;
 }
 
 .variant-card-priority-metric-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  color: rgba(10, 11, 12, 0.5);
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
 }
 
 .variant-card-priority-metric-value {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+  color: var(--color-text);
 }
 
 .variant-card-priority-note {
   margin: 0;
-  font-size: 0.78rem;
-  color: rgba(10, 11, 12, 0.66);
+  font-size: var(--fs-xs);
+  color: var(--color-text-muted);
   overflow-wrap: anywhere;
 }
 
@@ -303,43 +290,48 @@ button.sv-second-hit-badge--del:hover {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.55rem;
+  gap: 0.375rem;
   min-width: 0;
 }
 
 .variant-card-gene {
-  font-size: 1.02rem;
-  font-weight: 700;
+  font-size: var(--fs-md);
+  font-weight: 600;
   color: var(--color-heading);
   text-decoration: none;
 }
 
-.variant-card-gene:hover {
-  color: var(--color-signature-red-dark);
+a.variant-card-gene {
+  color: var(--color-link);
+}
+
+a.variant-card-gene:hover {
+  color: var(--color-link-hover);
+  text-decoration: underline;
 }
 
 .variant-card-headtags {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.25rem;
 }
 
 .variant-card-chip-key {
-  margin-right: 0.32rem;
-  font-weight: 700;
+  margin-right: 0.25rem;
+  font-weight: 600;
   opacity: 0.7;
 }
 
 .variant-card-resources {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 0.2rem 0.7rem;
+  gap: 0.125rem 0.625rem;
 }
 
 .variant-card-resource {
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--color-link);
   text-decoration: none;
 }
 
@@ -348,7 +340,7 @@ button.sv-second-hit-badge--del:hover {
 }
 
 .variant-card-resource--clinical {
-  color: var(--color-signature-red-dark);
+  color: var(--color-link);
 }
 
 .variant-card-footer {
@@ -356,33 +348,31 @@ button.sv-second-hit-badge--del:hover {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.375rem;
 }
 
 .variant-card-quick {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.25rem 0.375rem;
 }
 
 .variant-card-nav {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 0.2rem 0.9rem;
+  gap: 0.125rem 0.75rem;
 }
 
 .variant-card-more {
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--color-border);
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--color-row-rule);
 }
 
 .variant-card-more > summary {
   cursor: pointer;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: 500;
   color: var(--color-text-muted);
   list-style: none;
 }
@@ -396,7 +386,7 @@ button.sv-second-hit-badge--del:hover {
 }
 
 .variant-card-more[open] > summary {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.375rem;
 }
 
 .variant-card-more[open] > summary::before {
@@ -405,32 +395,30 @@ button.sv-second-hit-badge--del:hover {
 
 .variant-card-more-grid {
   display: grid;
-  gap: 0.8rem 1.5rem;
+  gap: 0.5rem 1.25rem;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  margin-bottom: 0.8rem;
+  margin-bottom: 0.5rem;
 }
 
 /* --- Multi-column card body --- */
 .variant-card-tag-row {
-  gap: 0.4rem;
+  gap: 0.25rem;
 }
 
+/* Variant, genotypes, frequencies and predictions side by side, as many to a row as fit. */
 .variant-card-cols {
   display: grid;
-  gap: 0.7rem 1.6rem;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.95fr);
+  gap: 0.375rem 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   align-items: start;
-}
-
-@media (max-width: 900px) {
-  .variant-card-cols {
-    grid-template-columns: 1fr;
-  }
 }
 
 .variant-card-col {
   display: grid;
-  gap: 0.4rem;
+  /* A shrinkable column: the genotype table and long values fit the card's column instead
+     of sizing the column to themselves. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.1875rem;
   align-content: start;
   min-width: 0;
 }
@@ -445,20 +433,18 @@ button.sv-second-hit-badge--del:hover {
 
 .variant-card-col-title-link:hover,
 .variant-card-col-title-link:focus-visible {
-  color: var(--color-signature-red);
+  color: var(--color-link);
   border-bottom-style: solid;
 }
 
-/* A shade larger and more widely tracked than the field names below it, so the column
-   and section headers read as headers rather than as another key. */
+/* Darker and heavier than the field names below it, so the column and section headers
+   read as headers rather than as another key. */
 .variant-card-col-title,
 .variant-card-section-title {
   margin: 0;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-text);
 }
 
 /* One grid for the whole list rather than a grid per row, so the key column is sized by
@@ -469,7 +455,7 @@ button.sv-second-hit-badge--del:hover {
 .variant-card-stat-list {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 0.16rem 0.7rem;
+  gap: 0.0625rem 0.625rem;
   margin: 0;
   align-items: baseline;
 }
@@ -484,10 +470,8 @@ button.sv-second-hit-badge--del:hover {
 .variant-card-mini-dl dt,
 .variant-card-detail-row dt,
 .variant-card-stat-row dt {
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: 400;
   color: var(--color-text-muted);
 }
 
@@ -495,49 +479,46 @@ button.sv-second-hit-badge--del:hover {
 .variant-card-detail-row dd,
 .variant-card-stat-row dd {
   margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.45;
-  color: var(--color-secondary);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--color-text);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
 .variant-card-cytoband {
-  margin-left: 0.4rem;
+  margin-left: 0.25rem;
   color: var(--color-text-muted);
 }
 
 .variant-card-col .variant-transcript-trigger {
   width: auto;
   justify-content: flex-start;
-  min-height: 1.6rem;
-  margin-top: 0.15rem;
+  min-height: auto;
   /* No horizontal padding, so the frameless accession lines up with the rows below it. */
-  padding: 0.12rem 0;
-  font-size: 0.72rem;
+  padding: 0;
+  font-size: var(--fs-xs);
 }
 
 .variant-card-coga {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.4rem;
-  margin-top: 0.15rem;
-  padding-top: 0.32rem;
+  gap: 0.25rem;
+  margin-top: 0.125rem;
+  padding-top: 0.1875rem;
   border-top: 1px dashed var(--color-border);
-  font-size: 0.8rem;
+  font-size: var(--fs-xs);
 }
 
 .variant-card-col-key {
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-signature-red-dark);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
 }
 
 .variant-card-coga-value {
-  color: var(--color-secondary);
+  color: var(--color-text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -545,9 +526,10 @@ button.sv-second-hit-badge--del:hover {
 .variant-card-gtlist {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
-  gap: 0.14rem 0.7rem;
-  margin-top: 0.25rem;
-  font-size: 0.75rem;
+  gap: 0 0.625rem;
+  margin-top: 0;
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
 }
 
 .variant-card-gthead,
@@ -559,24 +541,23 @@ button.sv-second-hit-badge--del:hover {
 }
 
 .variant-card-gthead {
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
   color: var(--color-text-muted);
 }
 
 .variant-card-gtline-sample {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.3rem;
+  gap: 0.25rem;
   min-width: 0;
   font-weight: 600;
-  color: var(--color-secondary);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
 }
 
 .variant-card-gtline-sex {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .variant-card-gtline-sex--male {
@@ -592,16 +573,13 @@ button.sv-second-hit-badge--del:hover {
 }
 
 .variant-card-gtline-role {
-  font-size: 0.64rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-secondary);
+  font-size: var(--fs-2xs);
+  color: var(--color-text-muted);
 }
 
 .variant-card-gtline-gt {
   font-family: var(--font-mono);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--color-heading);
 }
 
@@ -632,20 +610,16 @@ button.sv-second-hit-badge--del:hover {
 }
 
 .variant-card-gtline.is-proband .variant-card-gtline-role {
-  color: var(--color-signature-red-dark);
+  color: var(--color-text);
+  font-weight: 600;
 }
 
 .variant-card-inline-link {
   display: inline-flex;
   align-items: center;
-  min-height: 1.9rem;
-  border-radius: 999px;
-  padding: 0.22rem 0.62rem;
-  border: 1px solid rgba(10, 11, 12, 0.07);
-  background: rgba(246, 249, 252, 0.88);
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--color-secondary);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--color-link);
 }
 
 /* The transcript accession and the flags that describe it, on one line. */
@@ -653,47 +627,46 @@ button.sv-second-hit-badge--del:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.25rem;
 }
 
 .variant-card-idlist {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.15rem 0.5rem;
+  gap: 0.125rem 0.3125rem;
 }
 
 /* A plain link, not a chip: the VCF ID column can hold several accessions and a row
    of pills reads as tags rather than as the identifiers they are. */
 .variant-card-id-link {
-  color: var(--color-secondary);
+  color: var(--color-link);
   text-decoration: none;
-  border-bottom: 1px solid rgba(10, 11, 12, 0.18);
 }
 
 .variant-card-id-link:hover,
 .variant-card-id-link:focus-visible {
-  color: var(--color-signature-red-dark);
-  border-bottom-color: var(--color-signature-red);
+  color: var(--color-link-hover);
+  text-decoration: underline;
 }
 
 .variant-card-inline-link:hover {
-  border-color: rgba(198, 31, 45, 0.14);
-  background: rgba(198, 31, 45, 0.05);
-  color: var(--color-signature-red-dark);
+  color: var(--color-link-hover);
+  text-decoration: underline;
 }
 
 .variant-transcript-trigger {
   width: 100%;
   justify-content: space-between;
-  gap: 0.5rem;
-  border-radius: 4px;
+  gap: 0.3125rem;
+  border-radius: 0;
   text-align: left;
   /* Reads as the variant's transcript identity rather than a heavy action button, so it
      drops both the filled background and the frame, and carries the accession in the
-     signature colour. */
+     link colour. */
   background: transparent;
   border: 1px solid transparent;
-  padding: 0.25rem 0;
+  padding: 0;
+  min-height: auto;
 }
 
 .variant-transcript-trigger:hover,
@@ -704,12 +677,12 @@ button.sv-second-hit-badge--del:hover {
 
 .variant-transcript-trigger:hover .variant-transcript-trigger-id,
 .variant-transcript-trigger:focus-visible .variant-transcript-trigger-id {
-  color: var(--color-signature-red-dark);
+  color: var(--color-link-hover);
   text-decoration: underline;
 }
 
 .variant-transcript-trigger-id {
-  color: var(--color-signature-red);
+  color: var(--color-link);
   font-family: var(--font-mono);
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -718,15 +691,13 @@ button.sv-second-hit-badge--del:hover {
 .variant-transcript-trigger-count {
   flex: 0 0 auto;
   color: var(--color-text-muted);
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
 }
 
 .variant-card-section {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.375rem;
   /* Grid cells stretch to the tallest section in the row, and auto rows stretch with
      them — which floated a short list (population frequencies especially) into the
      vertical middle of its cell. Pack the rows to the top instead. */
@@ -735,27 +706,27 @@ button.sv-second-hit-badge--del:hover {
 
 .variant-card-note-box {
   display: grid;
-  gap: 0.7rem;
-  border: 1px solid rgba(10, 11, 12, 0.06);
-  border-radius: 4px;
-  background: rgba(247, 249, 252, 0.92);
-  padding: 0.82rem 0.9rem;
+  gap: 0.375rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+  padding: 0.375rem 0.5rem;
 }
 
 .variant-card-empty-note {
   margin: 0;
-  font-size: 0.84rem;
-  line-height: 1.5;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
   color: var(--color-text-muted);
 }
 
 .variant-card-review-panel {
   display: grid;
-  gap: 0.42rem;
-  border: 1px solid rgba(159, 34, 57, 0.1);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(252, 247, 248, 0.94) 0%, rgba(255, 255, 255, 1) 100%);
-  padding: 0.5rem 0.58rem;
+  gap: 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+  padding: 0.375rem 0.5rem;
 }
 
 .variant-card-review-header {
@@ -763,35 +734,41 @@ button.sv-second-hit-badge--del:hover {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.3125rem;
 }
 
 .variant-table-review-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.28rem;
+  gap: 0.25rem;
   align-items: center;
 }
 
+/* Review, Exclude and Report: small toggles. Tags & notes and ACMG classify open a dialog,
+   so they read as links beside them. */
 .variant-quick-toggle,
 .variant-review-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 1.45rem;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: rgba(255, 255, 255, 0.92);
-  padding: 0.1rem 0.42rem;
-  font-size: 0.56rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
+  min-height: var(--control-height-sm);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  padding: 0 0.4375rem;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  color: var(--color-text);
 }
 
-.variant-quick-toggle--active {
-  border-color: rgba(173, 31, 45, 0.18);
+.variant-quick-toggle:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.variant-quick-toggle--active,
+.variant-quick-toggle--active:hover {
+  border-color: rgba(173, 31, 45, 0.3);
   background: rgba(173, 31, 45, 0.08);
   color: var(--color-signature-red-dark);
 }
@@ -804,25 +781,34 @@ button.sv-second-hit-badge--del:hover {
 }
 
 .variant-review-link {
+  border-color: transparent;
   background: transparent;
-  color: var(--color-secondary);
+  padding: 0 0.125rem;
+  color: var(--color-link);
+}
+
+.variant-review-link:hover {
+  background: transparent;
+  color: var(--color-link-hover);
+  text-decoration: underline;
 }
 
 .variant-card-review-note {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: var(--fs-xs);
   line-height: 1.45;
   color: var(--color-heading);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .variant-compound-het-summary {
   display: grid;
-  gap: 0.42rem;
-  border: 1px solid rgba(82, 111, 161, 0.14);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(242, 247, 253, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
-  padding: 0.56rem 0.64rem;
+  gap: 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+  padding: 0.375rem 0.5rem;
 }
 
 .variant-compound-het-summary-row {
@@ -830,7 +816,7 @@ button.sv-second-hit-badge--del:hover {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.45rem;
+  gap: 0.25rem;
   min-width: 0;
 }
 
@@ -841,12 +827,12 @@ button.sv-second-hit-badge--del:hover {
 
 .variant-transcript-modal {
   display: grid;
-  gap: 0.62rem;
+  gap: 0.375rem;
   width: min(1760px, calc(100vw - 0.75rem));
   max-height: 90vh;
   overflow: hidden;
   grid-template-rows: auto auto minmax(0, 1fr);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
 }
 
 .modal-surface.variant-transcript-modal {
@@ -855,41 +841,39 @@ button.sv-second-hit-badge--del:hover {
 }
 
 .variant-transcript-modal .catalog-card-title {
-  font-size: 1rem;
+  font-size: var(--fs-md);
   line-height: 1.2;
 }
 
 .variant-transcript-modal .variant-review-modal-subtitle {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
 }
 
 .variant-transcript-summary-grid {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.3125rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .variant-transcript-summary-grid > div {
   display: grid;
-  gap: 0.15rem;
-  border: 1px solid rgba(10, 11, 12, 0.06);
-  border-radius: 4px;
-  background: rgba(247, 249, 252, 0.92);
-  padding: 0.52rem 0.62rem;
+  gap: 0.125rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+  padding: 0.3125rem 0.5rem;
   min-width: 0;
 }
 
 .variant-transcript-summary-grid span {
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
   color: var(--color-text-muted);
 }
 
 .variant-transcript-summary-grid strong {
   min-width: 0;
-  font-size: 0.82rem;
+  font-size: var(--fs-xs);
   color: var(--color-heading);
   overflow-wrap: anywhere;
 }
@@ -901,44 +885,43 @@ button.sv-second-hit-badge--del:hover {
 
 .variant-transcript-table {
   min-width: 1060px;
-  font-size: 0.77rem;
+  font-size: var(--fs-xs);
 }
 
 .variant-transcript-table th {
-  font-size: 0.64rem;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-2xs);
 }
 
 .variant-transcript-table th,
 .variant-transcript-table td {
   vertical-align: top;
-  padding-top: 0.34rem;
-  padding-bottom: 0.34rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
 }
 
 .variant-transcript-id,
 .variant-transcript-hgvs {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.125rem;
 }
 
 .variant-transcript-id strong,
 .variant-transcript-hgvs span {
   font-family: var(--font-mono);
-  font-size: 0.73rem;
+  font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
 
 .variant-transcript-id span,
 .variant-transcript-hgvs span:last-child {
   color: var(--color-text-muted);
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
 }
 
 .variant-transcript-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
 /* RefSeq accessions the annotation maps onto a transcript the VCF named by its Ensembl
@@ -947,19 +930,19 @@ button.sv-second-hit-badge--del:hover {
    table: they are for orientation, with the Gene Explorer holding the full set. */
 .variant-card-disease-groups {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.375rem;
 }
 
 .variant-card-disease-heading {
-  font-size: 0.7rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--color-text-muted);
-  margin: 0 0 0.25rem;
+  margin: 0 0 0.1875rem;
 }
 
 .variant-card-disease-list {
   display: grid;
-  gap: 0.3rem;
+  gap: 0.25rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -969,25 +952,25 @@ button.sv-second-hit-badge--del:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.73rem;
+  gap: 0.25rem;
+  font-size: var(--fs-xs);
 }
 
 .variant-card-disease-source {
-  font-size: 0.66rem;
+  font-size: var(--fs-2xs);
   color: var(--color-text-muted);
 }
 
 .variant-transcript-refseq {
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
 }
 
 /* Which annotation version the CCDS/RefSeq came from, or why they are withheld (#536). */
 .variant-transcript-xref-note {
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   font-style: italic;
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
@@ -1002,8 +985,8 @@ button.sv-second-hit-badge--del:hover {
   .app-main-inner,
   .app-footer-inner,
   .breadcrumb-inner {
-    padding-left: 1.1rem;
-    padding-right: 1.1rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
   }
 }
 
@@ -1017,7 +1000,7 @@ button.sv-second-hit-badge--del:hover {
   }
 
   .variant-card {
-    padding: 0.95rem;
+    padding: 0.5625rem;
   }
 
   /* Narrow enough that a key column costs more than it buys: stack key over value.
@@ -1026,7 +1009,7 @@ button.sv-second-hit-badge--del:hover {
   .variant-card-detail-list,
   .variant-card-stat-list {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.18rem;
+    gap: 0.125rem;
   }
 
   .variant-transcript-summary-grid {

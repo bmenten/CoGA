@@ -37,6 +37,11 @@ must carry FORMAT/AD.
 - **Each variant** carries its category, the plasma reads, the father's genotype, the probabilities
   that the fetus inherited the paternal or maternal allele or is homozygous, a de novo candidate's
   priority and any flags, next to the usual annotation, tags and ACMG classification.
+- **On-target coverage**, under the variants, gives the median depth over the capture targets of the
+  panel and genes you selected (every target without a selection) and how many genes have a weak
+  target: a mean below 300× or a base without coverage, where a fetal variant can be missed.
+  **Coverage details** opens the coverage page: the genes below target and above it, each opening to
+  its targets and their depth. **Back to NIPT** returns to the NIPT page with your filters.
 
 The built-in presets **De novo**, **Paternal, inherited** and **Recessive (both parents carrier)** set a
 view with high or moderate impact and a gnomAD frequency of 1% or less (a ClinVar pathogenic record
