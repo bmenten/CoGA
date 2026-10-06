@@ -462,7 +462,9 @@ def _mt_genes_overlapping(start: int, end: int) -> list[str]:
     return genes
 
 
-def _iter_mito_sv_records(text_value: str, *, sample_id: str) -> list[StructuralVariantRecord]:
+def _iter_mito_sv_records(
+    text_value: str, *, sample_id: str, sample_column: int = 0
+) -> list[StructuralVariantRecord]:
     """Parse one sample's chrM SV VCF (Sniffles2 ``--mosaic -c chrM``) into SV records.
 
     A large mtDNA deletion is heteroplasmic, so the caller's ``INFO/VAF`` -- the fraction
@@ -473,7 +475,8 @@ def _iter_mito_sv_records(text_value: str, *, sample_id: str) -> list[Structural
 
     The id is built from the coordinates, not Sniffles' own (``Sniffles2.DEL.3M0`` repeats
     across samples and runs), so the same event called in a mother and her child is one
-    SV with both calls once the importer merges the samples' records.
+    SV with both calls once the importer merges the samples' records. ``sample_column`` is
+    the column the importer checked holds that sample (``per_sample_vcf_column``).
     """
     records: list[StructuralVariantRecord] = []
     for line in text_value.splitlines():
@@ -494,7 +497,9 @@ def _iter_mito_sv_records(text_value: str, *, sample_id: str) -> list[Structural
         end = _coerce_int(_first_info_value(info, "END"))
         if end is None:
             end = start + abs(sv_len or 0)
-        fmt_vals = _parse_format(parts[8], parts[9]) if len(parts) >= 10 else {}
+        fmt_vals = (
+            _parse_format(parts[8], parts[9 + sample_column]) if len(parts) > 9 + sample_column else {}
+        )
         gt = fmt_vals.get("GT") or "./."
         alleles = gt.replace("|", "/").split("/")
         if not any(allele not in {"0", "."} for allele in alleles):

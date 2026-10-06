@@ -1637,10 +1637,11 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     read them. Discovery and validation always accepted the file, but nothing read it:
     a large heteroplasmic mtDNA deletion was dropped without a word.
 
-    Only the sample's own column is read (``per_sample_vcf_column``): a file whose column
-    names another sample -- a family member, or another family's -- fails the dataset
-    unless the entry's ``vcf_sample`` confirms it, and a joint chrM VCF gives each
-    member's entry that member's calls only.
+    Only the sample's own column is read (``per_sample_vcf_column``), in the chrM VCF and
+    in the chrM SV VCF alike: a file whose column names another sample -- a family member,
+    or another family's -- fails the dataset before anything of it is written, unless the
+    entry's ``vcf_sample`` confirms it, and a joint chrM VCF gives each member's entry that
+    member's calls only.
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
@@ -1665,6 +1666,10 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                 }
             )
 
+    # Every file's sample column -- the chrM calls and the chrM SVs of every sample -- is
+    # checked before anything is written, so a refused file fails the dataset with none
+    # of it stored (it used to be checked file by file, after the earlier files' writes).
+    columns = await _mito_sample_columns(job)
     sample_results: dict[str, Any] = {}
     imported_any = False
     for sample_id, raw_entry in dataset.per_sample.items():
@@ -1674,21 +1679,7 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
         vcf_path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
         if vcf_path is None:
             continue
-        vcf_columns = read_vcf_sample_columns(vcf_path)
-        sample_column = vcf_columns[
-            per_sample_vcf_column(
-                vcf_columns,
-                target_sample_id=sample_id,
-                known_sample_ids=await known_vcf_sample_ids(
-                    session,
-                    family_uuid=family_context.family_uuid,
-                    header_samples=vcf_columns,
-                ),
-                declared=raw_entry.get("vcf_sample") or raw_entry.get("sample_name"),
-                label=f"Mito VCF of {sample_id}",
-                remedy=_PER_SAMPLE_COLUMN_REMEDY,
-            )
-        ]
+        sample_column = str(columns[sample_id]["vcf"])
         aliases = {sample_column: sample_id}
         # The annotation is an SQLite file in the temporary directory, which on Cloud Run is
         # memory. The upload leaves it open for the haplogroup read below, and the finally
@@ -1740,7 +1731,12 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
             if mutserve_annotations is not None:
                 mutserve_annotations.close()
 
-    sv_summary = await _import_mito_structural_variants(job)
+    sv_summary = await _import_mito_structural_variants(
+        job,
+        sv_columns={
+            sample_id: int(entry["sv_vcf"]) for sample_id, entry in columns.items() if "sv_vcf" in entry
+        },
+    )
     if sv_summary is not None:
         sample_results = {**sample_results, "structural_variants": sv_summary}
     sv_count = int(sv_summary["processed"]) if sv_summary else 0
@@ -1762,7 +1758,49 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     )
 
 
-async def _import_mito_structural_variants(job: DatasetImportJob) -> dict[str, Any] | None:
+async def _mito_sample_columns(job: DatasetImportJob) -> dict[str, dict[str, str | int]]:
+    """Each mito entry's sample column, checked by ``per_sample_vcf_column``: the chrM
+    VCF's column name (``vcf``) and the chrM SV VCF's column index (``sv_vcf``).
+
+    The entry's ``vcf_sample`` confirms the SV file only where it names that file's column
+    or the entry's own sample; it was written for the chrM VCF, whose column the SV caller
+    may name differently."""
+    bundle, family_context = job.bundle, job.family_context
+    columns: dict[str, dict[str, str | int]] = {}
+    for sample_id, raw_entry in (job.dataset.per_sample or {}).items():
+        if sample_id not in job.sample_contexts or not isinstance(raw_entry, dict):
+            continue
+        declared = raw_entry.get("vcf_sample") or raw_entry.get("sample_name")
+        entry: dict[str, str | int] = {}
+        for role, label in (("vcf", "Mito VCF"), ("sv_vcf", "Mito SV VCF")):
+            value = raw_entry.get(role) or (raw_entry.get("file") if role == "vcf" else None)
+            path = _resolve_package_path(bundle.root, value)
+            if path is None:
+                continue
+            header = read_vcf_sample_columns(path)
+            confirmed = declared if role == "vcf" or (declared and (declared in header or declared == sample_id)) else None
+            index = per_sample_vcf_column(
+                header,
+                target_sample_id=sample_id,
+                known_sample_ids=await known_vcf_sample_ids(
+                    job.session,
+                    family_uuid=family_context.family_uuid,
+                    header_samples=header,
+                ),
+                declared=confirmed,
+                label=f"{label} of {sample_id}",
+                remedy=_PER_SAMPLE_COLUMN_REMEDY,
+            )
+            entry[role] = header[index] if role == "vcf" else index
+        columns[sample_id] = entry
+    return columns
+
+
+async def _import_mito_structural_variants(
+    job: DatasetImportJob,
+    *,
+    sv_columns: dict[str, int] | None = None,
+) -> dict[str, Any] | None:
     """Each sample's chrM SV VCF into the SV store under the ``mito_sv`` source.
 
     None when no sample declares one. Only the samples with a file are replaced; the
@@ -1783,7 +1821,9 @@ async def _import_mito_structural_variants(job: DatasetImportJob) -> dict[str, A
         if sv_path is None:
             continue
         text_value = _read_package_text(sv_path)
-        sample_records = _iter_mito_sv_records(text_value, sample_id=sample_id)
+        sample_records = _iter_mito_sv_records(
+            text_value, sample_id=sample_id, sample_column=(sv_columns or {}).get(sample_id, 0)
+        )
         records.extend(sample_records)
         per_sample[sample_id] = {"calls": len(sample_records), "filename": sv_path.name}
         if not sv_lines:

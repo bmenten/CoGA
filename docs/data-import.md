@@ -662,8 +662,9 @@ page asks before it sends that.
 | Interval tracks (BED) | `POST /bed/upload/{sample_id}/{bed_type}` | ClickHouse |
 
 A file stored as one sample's -- a TRGT upload, and a package's per-sample `repeats_trgt`,
-`mito` and `cnv` (HiFiCNV) files -- is read from that sample's own column
-(`per_sample_vcf_column`):
+`mito` (its chrM VCF and its chrM SV VCF) and `cnv` (HiFiCNV) files -- is read from that
+sample's own column (`per_sample_vcf_column`; a `mito` dataset checks all its files before it
+writes any):
 
 - the column the shared sample-name rules resolve to the sample (`<sample>_sort`,
   `<sample>_sv_phased`) is read, at any position, so a family TRGT or chrM VCF can serve each

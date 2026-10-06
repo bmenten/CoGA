@@ -618,6 +618,94 @@ def test_mito_sv_reimport_replaces_only_the_samples_it_brings() -> None:
     assert all(row.project_id == "p1" for row in rows)
 
 
+
+def test_mito_sv_records_read_the_column_the_importer_checked() -> None:
+    from app.services.family_package_variants import _iter_mito_sv_records
+
+    two_columns = (_MITO_SV_HEADER + _mito_sv_line(8470, 13447, "0/1", 0.35, 140)).replace(
+        "FORMAT\tSample0", "FORMAT\tMOTHER\tCHILD"
+    ).replace("GT:GQ:DR:DV\t0/1:60:260:140", "GT:GQ:DR:DV\t0/0:60:400:0\t0/1:60:260:140")
+
+    # Column 0 (the mother's 0/0) would be no call at all.
+    assert _iter_mito_sv_records(two_columns, sample_id="CHILD", sample_column=0) == []
+    [record] = _iter_mito_sv_records(two_columns, sample_id="CHILD", sample_column=1)
+    assert [(call.sample, call.gt, call.read_support) for call in record.calls] == [("CHILD", "0/1", 140)]
+
+
+@pytest.mark.asyncio
+async def test_the_mothers_chrm_sv_file_under_the_childs_entry_fails_before_any_write(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from types import SimpleNamespace
+
+    from app.schemas import FamilyImportDatasetSummary
+    from app.services import family_package_datasets
+    from app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+    from app.services.family_package_common import VcfSampleColumnError
+
+    (tmp_path / "CHILD.vcf").write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tCHILD\n"
+        "chrM\t3243\t.\tA\tG\t30\tPASS\t.\tGT:DP:AD:VAF\t0/1:500:400,100:0.2\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "MOTHER_sv.vcf").write_text(
+        (_MITO_SV_HEADER + _mito_sv_line(8470, 13447, "0/1", 0.05, 20)).replace("Sample0", "MOTHER"),
+        encoding="utf-8",
+    )
+    writes: list[str] = []
+
+    async def known(_session, **_kwargs) -> set[str]:
+        return {"MOTHER", "CHILD"}
+
+    async def must_not_write(*_args, **_kwargs):
+        writes.append("write")
+        raise AssertionError("nothing may be written for a refused mito dataset")
+
+    for name, fn in {
+        "known_vcf_sample_ids": known,
+        "upload_family_small_variant_file": must_not_write,
+        "lock_family_variant_writes": must_not_write,
+        "rewrite_family_structural_variants": must_not_write,
+    }.items():
+        monkeypatch.setattr(family_package_datasets, name, fn)
+    contexts = {
+        name: SampleMetadataContext(
+            sample_uuid=f"{name.lower()}-uuid",
+            sample_id=name,
+            family_uuid="family-uuid",
+            family_id="FAM",
+            sex="female",
+            project_ids=["p1"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+        for name in ("MOTHER", "CHILD")
+    }
+    job = family_package_datasets.DatasetImportJob(
+        session=SimpleNamespace(),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=tmp_path),  # type: ignore[arg-type]
+        dataset=ManifestDataset(per_sample={"CHILD": {"vcf": "CHILD.vcf", "sv_vcf": "MOTHER_sv.vcf"}}),
+        summary=FamilyImportDatasetSummary(dataset_type="mito", status="valid"),
+        family_context=FamilyMetadataContext(
+            family_uuid="family-uuid",
+            family_id="FAM",
+            project_ids=["p1"],
+            sample_rows=[],
+            sample_uuid_to_name={},
+            sample_name_to_uuid={},
+            affected_sample_names=[],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        ),
+        sample_contexts=contexts,
+    )
+
+    with pytest.raises(VcfSampleColumnError, match="Mito SV VCF of CHILD has no sample column for CHILD: 'MOTHER' is MOTHER"):
+        await family_package_datasets._import_mito_dataset(job)
+
+    # Refused before the child's own chrM calls were written.
+    assert writes == []
+
 # ---- per-sample files: which column holds the entry's sample ----------------------------
 # A per-sample file used to be bound to its entry's sample whatever its one column named,
 # so another member's -- or another patient's -- file was stored as this sample's.
