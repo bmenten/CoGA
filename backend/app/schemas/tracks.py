@@ -191,6 +191,9 @@ class RepeatExpansionSampleCallOut(BaseModel):
     allele_count: int = 0
     alleles: List[RepeatExpansionAlleleOut] = Field(default_factory=list)
     status: Literal["normal", "review", "intermediate", "pathogenic", "unknown"] = "unknown"
+    # Why the call needs a second look beyond its allele sizes (a male with two
+    # different chrX alleles), or None.
+    note: Optional[str] = None
 
 
 class RepeatExpansionRowOut(BaseModel):

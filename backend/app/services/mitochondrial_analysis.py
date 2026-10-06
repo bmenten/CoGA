@@ -456,6 +456,8 @@ class _MemberWithRole(Protocol):
 MaternalTransmission = Literal[
     "maternal_shared",
     "maternal_not_observed",
+    "mother_not_assessed",
+    "no_proband",
     "maternal_only",
     "father_only",
     "family_private",
@@ -467,6 +469,7 @@ def _maternal_transmission(
     calls: dict[str, MitoDNAVariantSampleCallOut],
     samples: Sequence[_MemberWithRole],
     parent_links: Sequence[tuple[str, str, str]],
+    mtdna_samples: set[str] | None = None,
 ) -> MaternalTransmission:
     """How the variant sits in the proband's maternal line.
 
@@ -476,8 +479,14 @@ def _maternal_transmission(
     proband (``parent_links``, read by ``_parent_child_links`` as the de novo mode reads them),
     not the members with the role "mother" or "father": a PED import gives everyone with a
     child that role, so a paternal grandmother who carried the variant read as a carrier
-    mother. Without a proband (role "proband") or without their parents in the pedigree,
-    those sets are empty.
+    mother.
+
+    "Not seen in mother" needs a mother who was looked at: one the pedigree links to the
+    proband, with mtDNA data (``mtdna_samples``: members with coverage or call depth; None
+    trusts every member) and not a no-call at this site. Without one -- a singleton, a
+    father-child duo, a mother whose mtDNA was not sequenced -- the proband's variant is
+    ``mother_not_assessed``; it used to read as not seen in her. Without a proband (a couple
+    in carrier screening) there is no maternal line to read: ``no_proband``.
     """
     proband = next((sample.sample_id for sample in samples if sample.role == "proband"), None)
     mothers = {parent for child, parent, role in parent_links if child == proband and role == "mother"}
@@ -490,10 +499,17 @@ def _maternal_transmission(
     any_alt = any(_has_alt_call(call) for call in calls.values())
     if not any_alt:
         return "no_alt_calls"
+    if proband is None:
+        return "no_proband"
     if child_alt and mother_alt:
         return "maternal_shared"
     if child_alt and not mother_alt:
-        return "maternal_not_observed"
+        mother_assessed = any(
+            (mtdna_samples is None or mother in mtdna_samples)
+            and (calls.get(mother) is None or calls[mother].zygosity != "no_call")
+            for mother in mothers
+        )
+        return "maternal_not_observed" if mother_assessed else "mother_not_assessed"
     if mother_alt and not child_alt:
         return "maternal_only"
     if father_alt and not mother_alt and not child_alt:
@@ -507,6 +523,7 @@ def _variant_out(
     member_by_sample: dict[str, dict[str, Any]],
     samples: Sequence[_MemberWithRole],
     parent_links: Sequence[tuple[str, str, str]],
+    mtdna_samples: set[str] | None = None,
 ) -> MitoDNAVariantOut:
     calls = {
         call.sample: _call_out(call, member_by_sample=member_by_sample)
@@ -524,7 +541,7 @@ def _variant_out(
         rsid=record.rsid,
         annotation=_annotation_for_record(record),
         calls=calls,
-        maternal_transmission=_maternal_transmission(calls, samples, parent_links),
+        maternal_transmission=_maternal_transmission(calls, samples, parent_links, mtdna_samples),
     )
 
 
@@ -948,8 +965,20 @@ async def get_family_mitochondrial_analysis_response(
         for sample in samples
     )
     parent_links = _parent_child_links(context)
+    # Members with any mtDNA data: a coverage track or call depth on some MT record.
+    mtdna_samples = {
+        sample.sample_id
+        for sample in samples
+        if sample.coverage.source is not None or sample.coverage.mean_depth is not None
+    }
     variant_rows = [
-        _variant_out(record, member_by_sample=member_by_sample, samples=samples, parent_links=parent_links)
+        _variant_out(
+            record,
+            member_by_sample=member_by_sample,
+            samples=samples,
+            parent_links=parent_links,
+            mtdna_samples=mtdna_samples,
+        )
         for record in records
     ]
     await _attach_reviews(session, context=context, variants=variant_rows)

@@ -94,6 +94,8 @@ class MitoDNAVariantOut(BaseModel):
     maternal_transmission: Literal[
         "maternal_shared",
         "maternal_not_observed",
+        "mother_not_assessed",
+        "no_proband",
         "maternal_only",
         "father_only",
         "family_private",

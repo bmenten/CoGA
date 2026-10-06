@@ -699,6 +699,8 @@ export interface ApiRepeatExpansionSampleCall {
   allele_count: number;
   alleles: ApiRepeatExpansionAllele[];
   status: 'normal' | 'review' | 'intermediate' | 'pathogenic' | 'unknown';
+  // Why the call needs a second look (a male with two different chrX alleles).
+  note?: string | null;
 }
 
 export interface ApiRepeatExpansionRow {
@@ -905,6 +907,8 @@ export interface ApiMitoDNAVariant {
   maternal_transmission:
     | 'maternal_shared'
     | 'maternal_not_observed'
+    | 'mother_not_assessed'
+    | 'no_proband'
     | 'maternal_only'
     | 'father_only'
     | 'family_private'

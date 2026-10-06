@@ -452,6 +452,9 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                                       {label}
                                     </div>
                                   ))}
+                                  {call.note && (
+                                    <div className="family-repeat-table-call-motifs">{call.note}</div>
+                                  )}
                                 </div>
                               ) : (
                                 <span className="table-subtle">No data</span>
