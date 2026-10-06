@@ -248,3 +248,134 @@ async def test_ingest_family_trgt_text_imports_all_matching_header_samples() -> 
         "samples": 2,
         "source_format": "trgt_family",
     }
+
+
+_FMR1_LOCUS = {
+    "locus_id": "FXS_FMR1",
+    "gene": "FMR1",
+    "display_name": "FMR1",
+    "disease": "Fragile X syndrome",
+    "inheritance": "XL",
+    "motif": "CGG",
+    "motif_index": 0,
+    "warning_min": 55,
+    "pathogenic_min": 200,
+    "metadata": {},
+}
+
+
+def _fmr1_insert_params(*, sex: str, sample_field: str, chrom: str = "chrX", pos: str = "147912051") -> dict:
+    return repeat_expansion_pg._build_trgt_insert_params(
+        sample_context=SampleMetadataContext(
+            sample_uuid="sample-uuid",
+            sample_id="sample",
+            family_uuid="family-uuid",
+            family_id="demo_family",
+            sex=sex,
+            project_ids=["project-uuid"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        ),
+        locus_lookup={"fxs_fmr1": _FMR1_LOCUS},
+        chrom=chrom,
+        pos=pos,
+        ref="CGG",
+        info_field="TRID=FXS_FMR1;END=147912110;MOTIFS=CGG",
+        format_field="GT:AL:MC",
+        sample_field=sample_field,
+        header_sample="sample",
+        metadata={},
+    )
+
+
+def test_male_chrx_two_different_alleles_keep_the_expansion() -> None:
+    """TRGT orders alleles shortest first. A male's chrX call with two sizes (TRGT run
+    without --karyotype XY on a mosaic full mutation) used to keep only the first, so
+    the full mutation was dropped and FMR1 read normal."""
+    params = _fmr1_insert_params(sex="male", sample_field="1/2:90,900:30,300")
+
+    alleles = json.loads(params["alleles_json"])
+    assert [allele["repeat_count"] for allele in alleles] == [30, 300]
+    assert params["allele_count"] == 2
+    assert params["status"] == "pathogenic"
+
+
+def test_male_chrx_two_different_normal_alleles_are_flagged_for_review() -> None:
+    params = _fmr1_insert_params(sex="male", sample_field="1/2:90,96:30,32")
+
+    assert params["allele_count"] == 2
+    assert params["status"] == "review"
+
+
+def test_male_chrx_duplicated_allele_collapses_to_one() -> None:
+    """TRGT genotyped as XX writes a male's single allele twice: that pair is one allele."""
+    params = _fmr1_insert_params(sex="male", sample_field="1/1:90,90:30,30")
+
+    assert params["allele_count"] == 1
+    assert params["status"] == "normal"
+
+
+def test_male_chrx_par_locus_and_females_stay_diploid() -> None:
+    par = _fmr1_insert_params(sex="male", sample_field="1/2:90,96:30,32", pos="1500000")
+    female = _fmr1_insert_params(sex="female", sample_field="1/2:90,180:30,60")
+
+    assert par["allele_count"] == 2
+    assert par["status"] == "normal"
+    assert female["allele_count"] == 2
+    assert female["status"] == "intermediate"
+
+
+@pytest.mark.asyncio
+async def test_repeat_table_notes_a_male_with_two_chrx_alleles() -> None:
+    from backend.app.services.family_metadata_context import FamilyMetadataContext
+
+    class _TableSession:
+        async def execute(self, statement, params=None):
+            return _FakeQueryResult(
+                [
+                    {
+                        "sample_uuid": "00000000-0000-4000-8000-000000000001",
+                        "locus_id": "FXS_FMR1",
+                        "gene": "FMR1",
+                        "display_name": "FMR1",
+                        "disease": "Fragile X syndrome",
+                        "inheritance": "XL",
+                        "chr": "X",
+                        "start": 147912051,
+                        "end": 147912110,
+                        "motif": "CGG",
+                        "genotype": "1/2",
+                        "allele_count": 2,
+                        "alleles": [
+                            {"repeat_count": 30, "status": "normal"},
+                            {"repeat_count": 32, "status": "normal"},
+                        ],
+                        "warning_min": 55,
+                        "pathogenic_min": 200,
+                        "status": "normal",
+                    }
+                ]
+            )
+
+    context = FamilyMetadataContext(
+        family_uuid="00000000-0000-4000-8000-0000000000f1",
+        family_id="demo_family",
+        project_ids=["project-uuid"],
+        sample_rows=[
+            {"sample_uuid": "00000000-0000-4000-8000-000000000001", "sample_id": "SON", "role": "proband", "affected": True, "sex": "male"}
+        ],
+        sample_uuid_to_name={"00000000-0000-4000-8000-000000000001": "SON"},
+        sample_name_to_uuid={"SON": "00000000-0000-4000-8000-000000000001"},
+        affected_sample_names=["SON"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(
+        _TableSession(), context=context
+    )
+
+    call = table.loci[0].calls["SON"]
+    assert call.status == "review"
+    assert call.note == repeat_expansion_pg.MALE_X_DISTINCT_ALLELES_NOTE
+    assert table.loci[0].status == "review"
