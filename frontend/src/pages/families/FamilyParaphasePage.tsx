@@ -26,22 +26,13 @@ const formatNullableNumber = (value?: number | null, digits = 0): string => {
   });
 };
 
-const hasCopyNumberSignal = (call?: ApiParaphaseSampleResult): boolean => {
-  if (!call) return false;
-  if (call.copy_number_signal) return true;
-  if (call.copy_number_metrics?.some((metric) => metric.value !== 2)) {
-    return true;
-  }
-  return [call.total_cn, call.gene_cn, call.highest_total_cn].some(
-    (value) => value != null && value !== 2,
-  );
-};
-
-// A gene shows a copy-number signal if it is flagged at the gene level or any
-// of its sample calls does. Shared by the filter and the badge count.
+// The backend decides what a copy-number change is: the normal copy number depends on
+// the region (NEB 6, a gene + pseudogene pair 4, ...) and, on chrX, on the sample's sex.
+// Re-deriving it here against a flat 2 flagged nearly every region, so the
+// "Copy-number changes only" filter hid nothing. Shared by the filter and the count.
 const geneHasCopyNumberSignal = (gene: ApiParaphaseGeneResult): boolean =>
   Boolean(gene.has_copy_number_signal) ||
-  Object.values(gene.samples).some((call) => hasCopyNumberSignal(call));
+  Object.values(gene.samples).some((call) => Boolean(call?.copy_number_signal));
 
 const formatMetricValue = (value?: number | null, digits = 0): string =>
   value == null ? 'no-call' : formatNullableNumber(value, digits);
