@@ -29,7 +29,9 @@ from .clickhouse_variant_storage import (
     count_family_small_variants,
     count_family_structural_variants,
     delete_family_small_variants,
+    fetch_family_structural_variant_rows,
     replace_family_structural_variants,
+    rewrite_family_structural_variants,
 )
 from .family_metadata_context import (
     FamilyMetadataContext,
@@ -54,7 +56,7 @@ from .variant_upload_service import (
 )
 
 from .family_package_bigwig import autosomal_median, open_bigwig
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map
 from .family_package_manifest import _ped_embryo_sample_ids
 from .family_package_nipt import (
     nipt_import_order,
@@ -91,7 +93,7 @@ from .family_package_qc import (
 from .family_package_registration import _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count
 from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track
 from .family_package_validation import _manifest_hpo_rows, _pcf_role_path
-from .family_package_variants import _iter_cnv_structural_records, _iter_needlr_structural_records, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata
+from .family_package_variants import _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata
 from .import_progress import FilesReadInTurn
 
 
@@ -1599,6 +1601,11 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     Each sample's file replaces that sample's calls only: every other sample's stay as
     stored, one row per variant holding every sample's call, which is what the maternal
     transmission reads. A file with no chrM variant removes the sample's earlier calls.
+
+    The chrM SV calls (``sv_vcf``, Sniffles2 ``--mosaic``) go into the structural-variant
+    store under their own ``mito_sv`` source, where the mtDNA workspace and the SV views
+    read them. Discovery and validation always accepted the file, but nothing read it:
+    a large heteroplasmic mtDNA deletion was dropped without a word.
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
@@ -1693,7 +1700,11 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
             if mutserve_annotations is not None:
                 mutserve_annotations.close()
 
-    if not imported_any:
+    sv_summary = await _import_mito_structural_variants(job)
+    if sv_summary is not None:
+        sample_results = {**sample_results, "structural_variants": sv_summary}
+    sv_count = int(sv_summary["processed"]) if sv_summary else 0
+    if not imported_any and not sv_count:
         return summary.model_copy(
             update={
                 "status": "imported",
@@ -1701,13 +1712,92 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                 "summary": sample_results,
             }
         )
-    return summary.model_copy(
-        update={
-            "status": "imported",
-            "message": "Imported mitochondrial variants into small-variant storage",
-            "summary": sample_results,
-        }
+    message = "Imported mitochondrial variants into small-variant storage" if imported_any else (
+        "No mitochondrial small variants were called for this family"
     )
+    if sv_count:
+        message += f"; {sv_count} chrM structural variant(s) into structural-variant storage"
+    return summary.model_copy(
+        update={"status": "imported", "message": message, "summary": sample_results}
+    )
+
+
+async def _import_mito_structural_variants(job: DatasetImportJob) -> dict[str, Any] | None:
+    """Each sample's chrM SV VCF into the SV store under the ``mito_sv`` source.
+
+    None when no sample declares one. Only the samples with a file are replaced; the
+    others' calls stay as stored. A declared file with no call removes that sample's
+    earlier chrM SVs, as the SNV path does.
+    """
+    session, bundle, dataset = job.session, job.bundle, job.dataset
+    family_context, sample_contexts = job.family_context, job.sample_contexts
+    if not family_context.assembly_name:
+        return None
+    records: list[Any] = []
+    per_sample: dict[str, Any] = {}
+    sv_lines: list[str] = []
+    for sample_id, raw_entry in (dataset.per_sample or {}).items():
+        if sample_id not in sample_contexts or not isinstance(raw_entry, dict):
+            continue
+        sv_path = _resolve_package_path(bundle.root, raw_entry.get("sv_vcf"))
+        if sv_path is None:
+            continue
+        text_value = _read_package_text(sv_path)
+        sample_records = _iter_mito_sv_records(text_value, sample_id=sample_id)
+        records.extend(sample_records)
+        per_sample[sample_id] = {"calls": len(sample_records), "filename": sv_path.name}
+        if not sv_lines:
+            sv_lines = [line for line in text_value.splitlines() if line.startswith("#")]
+    if not per_sample:
+        return None
+    merged = _merge_sv_records_by_id(records)
+    # Held from the read below until the commit that records the SV files (the import
+    # holds it for its whole run), so no other SV write falls between read and rewrite.
+    await lock_family_variant_writes(
+        session,
+        family_context.family_uuid,
+        [STRUCTURAL_VARIANTS],
+        samples=[sample.sample_uuid for sample in sample_contexts.values()],
+    )
+    stored_rows = await fetch_family_structural_variant_rows(
+        family_context.assembly_name,
+        family_context.family_uuid,
+        source=MITO_SV_SOURCE,
+    )
+    replaced_samples = {
+        value
+        for sample_id in per_sample
+        for value in (sample_id, sample_contexts[sample_id].sample_uuid)
+        if value
+    }
+    await rewrite_family_structural_variants(
+        family_context.assembly_name,
+        family_context.family_uuid,
+        _mito_sv_rows_after_import(
+            stored_rows,
+            merged,
+            replaced_samples=replaced_samples,
+            project_ids=list(family_context.project_ids),
+        ),
+        source=MITO_SV_SOURCE,
+    )
+    await _update_sv_file_metadata(
+        session,
+        sample_contexts={sample_id: sample_contexts[sample_id] for sample_id in per_sample},
+        source=MITO_SV_SOURCE,
+        filename=", ".join(str(entry["filename"]) for entry in per_sample.values()),
+    )
+    from .annotation_manifest_service import merge_vcf_header_provenance
+    from .vcf_header_provenance import extract_header_provenance
+
+    await merge_vcf_header_provenance(
+        session,
+        family_uuid=family_context.family_uuid,
+        assembly_id=getattr(family_context, "assembly_id", None),
+        modules=extract_header_provenance(sv_lines, modality="sv").as_modules(),
+        modality="sv",
+    )
+    return {"processed": len(merged), "source": MITO_SV_SOURCE, "samples": per_sample}
 
 
 @_dataset_importer("qc")

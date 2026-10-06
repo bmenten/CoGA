@@ -83,6 +83,7 @@ Eerst registreert de import de familie en de herkomst, daarna volgen de datasets
 | `snv`, `mito`, `haplotypes` (VCF) | Small variants (bij `haplotypes` ook haplotypeblokken als interval-track) | ClickHouse |
 | `snv` van een NIPT-paar (één VCF per sample) | Small variants, callset `nipt`: één rij per variant met de call van elk sample, met de FILTER-waarden en callermetrieken van die call | ClickHouse |
 | `sv_needlr`, `cnv` (VCF) | Structurele varianten; bij `cnv` ook dekking, kopieaantal en allelfractie als interval-tracks | ClickHouse |
+| `mito` `sv_vcf` (Sniffles2, chrM) | Structurele varianten, callset `mito_sv`, met de heteroplasmie per sample; per sample vervangen | ClickHouse |
 | `wisecondorx`, `qdnaseq`, `apcad`, `pcf`, `coverage` | Interval-tracks | ClickHouse |
 | `coverage` met `target_table` (NIPT) | Interval-track `target_coverage`: per capture-target de gemiddelde diepte, het gen en de overige kolommen van de tabel | ClickHouse |
 | Bron van elke interval-track | `sample_interval_track_sources` | Postgres |

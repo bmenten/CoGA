@@ -529,3 +529,90 @@ def test_a_mutserve_parse_that_fails_leaves_no_temporary_database(
     with pytest.raises(OSError, match="read failed"):
         parse_mutserve_annotation_lines(unreadable())
     assert list(tmp_path.iterdir()) == []
+
+
+# ---- chrM structural variants (Sniffles2 --mosaic -c chrM) ----------------------------
+
+_MITO_SV_HEADER = (
+    "##fileformat=VCFv4.2\n"
+    "##source=Sniffles2_2.7.3\n"
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample0\n"
+)
+
+
+def _mito_sv_line(start: int, end: int, gt: str, vaf: float, dv: int, *, chrom: str = "chrM") -> str:
+    return (
+        f"{chrom}\t{start}\tSniffles2.DEL.1M0\tN\t<DEL>\t60\tPASS\t"
+        f"PRECISE;SVTYPE=DEL;SVLEN=-{end - start};END={end};SUPPORT={dv};VAF={vaf}\t"
+        f"GT:GQ:DR:DV\t{gt}:60:{400 - dv}:{dv}\n"
+    )
+
+
+def test_mito_sv_records_keep_the_deletion_its_heteroplasmy_and_genes() -> None:
+    """The common 4977 bp deletion (m.8470-13447) at 35% heteroplasmy."""
+    from app.services.family_package_variants import _iter_mito_sv_records
+
+    text_value = _MITO_SV_HEADER + (
+        _mito_sv_line(8470, 13447, "0/1", 0.35, 140)
+        # Genotyped, no support: not a call.
+        + _mito_sv_line(3000, 3400, "0/0", 0.0, 0)
+        # Not chrM.
+        + _mito_sv_line(1000, 5000, "0/1", 0.5, 20, chrom="chr1")
+    )
+
+    records = _iter_mito_sv_records(text_value, sample_id="PROBAND")
+
+    assert len(records) == 1
+    record = records[0]
+    assert (record.chr, record.start, record.end, record.sv_type, record.source) == ("M", 8470, 13447, "DEL", "mito_sv")
+    assert record.sv_len == -4977
+    assert record.variant_id != "Sniffles2.DEL.1M0"
+    assert ["MT-ATP8", "MT-ND5"] == [gene for gene in record.gene_symbols if gene in {"MT-ATP8", "MT-ND5"}]
+    assert "MT-ND1" not in record.gene_symbols
+    assert [(call.sample, call.gt, call.read_support) for call in record.calls] == [("PROBAND", "0/1", 140)]
+    assert record.annotations[0]["sample"] == "PROBAND"
+    assert record.annotations[0]["heteroplasmy"] == 0.35
+
+
+def test_mito_sv_records_of_two_samples_merge_into_one_sv() -> None:
+    from app.services.family_package_variants import _iter_mito_sv_records, _merge_sv_records_by_id
+
+    mother = _iter_mito_sv_records(_MITO_SV_HEADER + _mito_sv_line(8470, 13447, "0/1", 0.05, 20), sample_id="MOTHER")
+    child = _iter_mito_sv_records(_MITO_SV_HEADER + _mito_sv_line(8470, 13447, "0/1", 0.35, 140), sample_id="CHILD")
+
+    merged = _merge_sv_records_by_id([*mother, *child])
+
+    assert len(merged) == 1
+    assert [call.sample for call in merged[0].calls] == ["MOTHER", "CHILD"]
+    assert {a["sample"]: a["heteroplasmy"] for a in merged[0].annotations} == {"MOTHER": 0.05, "CHILD": 0.35}
+
+
+def test_mito_sv_reimport_replaces_only_the_samples_it_brings() -> None:
+    from app.services.clickhouse_variant_records import StoredStructuralVariantRow
+    from app.services.family_package_variants import _iter_mito_sv_records, _mito_sv_rows_after_import
+
+    deletion = _mito_sv_line(8470, 13447, "0/1", 0.05, 20)
+    stored = _iter_mito_sv_records(_MITO_SV_HEADER + deletion, sample_id="MOTHER")[0]
+    child_old = _iter_mito_sv_records(_MITO_SV_HEADER + deletion, sample_id="CHILD")[0]
+    stored.calls.extend(child_old.calls)
+    stored.annotations.extend(child_old.annotations)
+    only_child = _iter_mito_sv_records(_MITO_SV_HEADER + _mito_sv_line(5000, 6000, "0/1", 0.2, 50), sample_id="CHILD")[0]
+    stored_only_child = StoredStructuralVariantRow(project_id="p1", record=only_child)
+
+    # The child's new file has a different deletion and lacks the shared one.
+    new = _iter_mito_sv_records(_MITO_SV_HEADER + _mito_sv_line(10000, 12000, "0/1", 0.4, 160), sample_id="CHILD")
+
+    rows = _mito_sv_rows_after_import(
+        [StoredStructuralVariantRow(project_id="p1", record=stored), stored_only_child],
+        new,
+        replaced_samples={"CHILD", "child-uuid"},
+        project_ids=["p1"],
+    )
+
+    by_start = {row.record.start: row.record for row in rows}
+    # The mother's call and heteroplasmy stay; the child's old calls are gone.
+    assert sorted(by_start) == [8470, 10000]
+    assert [call.sample for call in by_start[8470].calls] == ["MOTHER"]
+    assert [a["sample"] for a in by_start[8470].annotations] == ["MOTHER"]
+    assert [call.sample for call in by_start[10000].calls] == ["CHILD"]
+    assert all(row.project_id == "p1" for row in rows)

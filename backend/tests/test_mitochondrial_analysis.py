@@ -9,6 +9,18 @@ from backend.app.services.family_metadata_context import FamilyMetadataContext
 
 
 @pytest.fixture(autouse=True)
+def _no_mt_structural_variants(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The response also reads the chrM SVs from ClickHouse; these tests have none."""
+
+    async def fake_fetch_mt_structural_variants(_context):
+        return []
+
+    monkeypatch.setattr(
+        mitochondrial_analysis, "_fetch_mt_structural_variants", fake_fetch_mt_structural_variants
+    )
+
+
+@pytest.fixture(autouse=True)
 def _stub_review_map(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     """MT variants share the small-variant review store; isolate tests from PG.
 
@@ -411,3 +423,68 @@ async def test_maternal_transmission_follows_the_mother_the_pedigree_links_to_th
     )
 
     assert response.variants[0].maternal_transmission == expected
+
+
+@pytest.mark.asyncio
+async def test_mtdna_response_lists_chrm_structural_variants_with_each_samples_heteroplasmy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The chrM SV callset was found but never imported or shown: a large heteroplasmic
+    deletion went unseen."""
+    from backend.app.services.clickhouse_variant_records import StructuralVariantCall, StructuralVariantRecord
+
+    context = _three_generation_context()
+    deletion = StructuralVariantRecord(
+        variant_key=1,
+        variant_id="SV-M-8470-13447-DEL",
+        chr="M",
+        start=8470,
+        end=13447,
+        sv_type="DEL",
+        source="mito_sv",
+        remote_chr=None,
+        remote_start=None,
+        remote_end=None,
+        sv_len=-4977,
+        filters=[],
+        gene_symbols=["MT-ATP8", "MT-ND5"],
+        annotations=[
+            {"source": "mito_sv", "sample": "MOM", "heteroplasmy": 0.05},
+            {"source": "mito_sv", "sample": "PROBAND", "heteroplasmy": 0.35},
+        ],
+        calls=[
+            StructuralVariantCall(sample="MOM", gt="0/1", qual=60.0, read_support=20, filter=None),
+            StructuralVariantCall(sample="PROBAND", gt="0/1", qual=60.0, read_support=140, filter=None),
+        ],
+    )
+
+    async def fake_fetch_mt_structural_variants(_context):
+        return [deletion]
+
+    monkeypatch.setattr(
+        mitochondrial_analysis, "_fetch_mt_structural_variants", fake_fetch_mt_structural_variants
+    )
+
+    async def fake_fetch_mt_records(_context):
+        return []
+
+    async def fake_coverage_by_sample(_context):
+        return {}
+
+    async def fake_thresholds(_session, *, family_uuid):
+        return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
+
+    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
+    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
+    monkeypatch.setattr(mitochondrial_analysis, "resolve_family_qc_thresholds", fake_thresholds)
+    response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
+        None,  # type: ignore[arg-type]
+        context=context,
+    )
+
+    [sv] = response.structural_variants
+    assert (sv.sv_type, sv.start, sv.end, sv.length) == ("DEL", 8470, 13447, 4977)
+    assert sv.genes == ["MT-ATP8", "MT-ND5"]
+    assert {sample: call.heteroplasmy for sample, call in sv.calls.items()} == {"MOM": 0.05, "PROBAND": 0.35}
+    assert sv.calls["PROBAND"].role == "proband"
+    assert sv.calls["PROBAND"].read_support == 140

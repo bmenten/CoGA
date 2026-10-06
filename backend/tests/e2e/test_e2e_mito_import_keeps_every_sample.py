@@ -97,8 +97,35 @@ _PROBAND_ANNOTATION = _annotation((73, "A", "G", "U5a1,H1"), (3243, "A", "G", ".
 _FATHER_ANNOTATION = _annotation((73, "A", "G", "U5a1,H1"), (263, "A", "G", "H1"))
 
 
+_SV_HEADER = (
+    "##fileformat=VCFv4.2\n"
+    "##source=Sniffles2_2.7.3\n"
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample0\n"
+)
+
+
+def _sv_record(start: int, end: int, vaf: float, support: int) -> str:
+    return (
+        f"chrM\t{start}\tSniffles2.DEL.1M0\tN\t<DEL>\t60\tPASS\t"
+        f"PRECISE;SVTYPE=DEL;SVLEN=-{end - start};END={end};SUPPORT={support};VAF={vaf}\t"
+        f"GT:GQ:DR:DV\t0/1:60:{400 - support}:{support}\n"
+    )
+
+
+# The common 4977 bp deletion: 5% in the mother, 35% in the proband; none in the father.
+_MOTHER_SV = _SV_HEADER + _sv_record(8470, 13447, 0.05, 20)
+_PROBAND_SV = _SV_HEADER + _sv_record(8470, 13447, 0.35, 140)
+_FATHER_SV = _SV_HEADER
+# The re-import: the proband's file now holds another deletion only.
+_PROBAND_SV_V2 = _SV_HEADER + _sv_record(10000, 12000, 0.4, 160)
+
+
 def _write_package(
-    root: Path, family_id: str, files: dict[str, str], annotations: dict[str, str] | None = None
+    root: Path,
+    family_id: str,
+    files: dict[str, str],
+    annotations: dict[str, str] | None = None,
+    sv_files: dict[str, str] | None = None,
 ) -> None:
     """A package with the trio's PED and a ``mito`` dataset of ``files`` (sample -> VCF),
     with the mutserve ``annotations`` given (sample -> TSV)."""
@@ -125,6 +152,9 @@ def _write_package(
         if annotations and sample_id in annotations:
             (root / "mito" / f"{sample_id}_snv_annot.txt").write_text(annotations[sample_id], encoding="utf-8")
             entry += f", annotation_tsv: mito/{sample_id}_snv_annot.txt"
+        if sv_files and sample_id in sv_files:
+            (root / "mito" / f"{sample_id}_sv.vcf").write_text(sv_files[sample_id], encoding="utf-8")
+            entry += f", sv_vcf: mito/{sample_id}_sv.vcf"
         lines.append(f"      {sample_id}: {{{entry}}}")
     (root / "manifest.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -153,6 +183,20 @@ async def _mito_rows(family_uuid: str) -> list[dict]:
         }
         for variant_id, key, sample_ids, gts, afs in rows
     ]
+
+
+async def _mito_sv_calls(family_uuid: str) -> dict[tuple[int, int], set[str]]:
+    """The family's live ``mito_sv`` SVs as stored: (start, end) -> the samples called."""
+    from backend.app.services.clickhouse_variant_storage import fetch_family_structural_variant_rows
+    from backend.tests.e2e import _harness
+
+    rows = await fetch_family_structural_variant_rows(_harness.ASSEMBLY, family_uuid, source="mito_sv")
+    calls: dict[tuple[int, int], set[str]] = {}
+    for row in rows:
+        calls.setdefault((row.record.start, row.record.end), set()).update(
+            call.sample for call in row.record.calls
+        )
+    return calls
 
 
 async def _merge_parts() -> None:
@@ -212,6 +256,7 @@ async def _exercise(base: Path, family_id: str) -> dict:
         family_id,
         {mother: _MOTHER, proband: _PROBAND, father: _FATHER},
         {mother: _MOTHER_ANNOTATION, proband: _PROBAND_ANNOTATION, father: _FATHER_ANNOTATION},
+        {mother: _MOTHER_SV, proband: _PROBAND_SV, father: _FATHER_SV},
     )
     out["first"] = await run_import(first, "cancel")
 
@@ -222,6 +267,7 @@ async def _exercise(base: Path, family_id: str) -> dict:
             )
         ).scalar_one()
     out["rows_after_first"] = await _mito_rows(family_uuid)
+    out["sv_after_first"] = await _mito_sv_calls(family_uuid)
     await _merge_parts()
     out["rows_after_first_merge"] = await _mito_rows(family_uuid)
 
@@ -235,9 +281,12 @@ async def _exercise(base: Path, family_id: str) -> dict:
             out["mtdna"]["json"] = response.json()
 
     second = base / "second" / family_id
-    _write_package(second, family_id, {proband: _PROBAND_V2, father: _EMPTY})
+    _write_package(
+        second, family_id, {proband: _PROBAND_V2, father: _EMPTY}, sv_files={proband: _PROBAND_SV_V2}
+    )
     out["second"] = await run_import(second, "overwrite")
     out["rows_after_second"] = await _mito_rows(family_uuid)
+    out["sv_after_second"] = await _mito_sv_calls(family_uuid)
     await _merge_parts()
     out["rows_after_second_merge"] = await _mito_rows(family_uuid)
     return out
@@ -340,3 +389,29 @@ def test_reimport_replaces_only_the_imported_samples_calls(run) -> None:
     for rows in (run["rows_after_second"], run["rows_after_second_merge"]):
         assert _duplicate_keys(rows) == []
         assert _calls(rows) == expected
+
+
+# The chrM SV files were found and validated but never read: a large heteroplasmic mtDNA
+# deletion was dropped without a word.
+def test_the_chrm_deletion_is_stored_once_with_both_carriers(run) -> None:
+    mother, proband = run["samples"]["mother"], run["samples"]["proband"]
+    assert run["sv_after_first"] == {(8470, 13447): {mother, proband}}
+    assert run["first"]["mito_summary"]["structural_variants"]["processed"] == 1
+
+
+def test_mtdna_workspace_shows_the_chrm_deletion_with_each_heteroplasmy(run) -> None:
+    mtdna = run["mtdna"]
+    assert mtdna["status"] == 200, mtdna["text"]
+    mother, proband = run["samples"]["mother"], run["samples"]["proband"]
+    [deletion] = mtdna["json"]["structural_variants"]
+    assert (deletion["sv_type"], deletion["start"], deletion["end"], deletion["length"]) == ("DEL", 8470, 13447, 4977)
+    assert {"MT-ATP8", "MT-ND5"} <= set(deletion["genes"])
+    assert {sample: call["heteroplasmy"] for sample, call in deletion["calls"].items()} == {
+        mother: 0.05,
+        proband: 0.35,
+    }
+
+
+def test_a_chrm_sv_reimport_replaces_only_the_samples_it_brings(run) -> None:
+    mother, proband = run["samples"]["mother"], run["samples"]["proband"]
+    assert run["sv_after_second"] == {(8470, 13447): {mother}, (10000, 12000): {proband}}

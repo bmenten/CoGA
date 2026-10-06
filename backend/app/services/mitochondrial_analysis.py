@@ -12,20 +12,23 @@ from ..schemas import (
     MitoDNACoverageOut,
     MitoDNAQcOut,
     MitoDNASampleOut,
+    MitoDNAStructuralVariantCallOut,
+    MitoDNAStructuralVariantOut,
     MitoDNAVariantAnnotationOut,
     MitoDNAVariantOut,
     MitoDNAVariantSampleCallOut,
 )
-from .clickhouse_family_variants import _fetch_small_variant_rows
+from .clickhouse_family_variants import _fetch_small_variant_rows, _fetch_structural_variant_rows
 from .clickhouse_variant_records import (
     PanelFilterConstraints,
     SmallVariantCall,
     SmallVariantRecord,
+    StructuralVariantRecord,
 )
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .clickhouse_variant_queries import _parent_child_links
 from .family_metadata_context import FamilyMetadataContext
-from .family_variant_filters import SmallVariantQueryFilters
+from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype, genotype_has_alt
 from .qc_threshold_service import evaluate_metric, resolve_family_qc_thresholds
 from .small_variant_review_pg import get_small_variant_review_map
@@ -552,6 +555,52 @@ async def _fetch_mt_records(context: FamilyMetadataContext) -> list[SmallVariant
     return _dedupe_records(fetched)
 
 
+async def _fetch_mt_structural_variants(context: FamilyMetadataContext) -> list[StructuralVariantRecord]:
+    """The family's chrM SVs through the SV view's project- and member-scoped read."""
+    if not context.assembly_name:
+        return []
+    return await _fetch_structural_variant_rows(
+        context,
+        StructuralVariantQueryFilters(page=1, page_size=MAX_MTDNA_VARIANTS, chromosome="MT"),
+        limit=MAX_MTDNA_VARIANTS,
+    )
+
+
+def _structural_variant_out(
+    record: StructuralVariantRecord,
+    *,
+    member_by_sample: dict[str, dict[str, Any]],
+) -> MitoDNAStructuralVariantOut:
+    heteroplasmy_by_sample = {
+        str(annotation.get("sample")): _float(annotation.get("heteroplasmy"))
+        for annotation in record.annotations
+        if annotation.get("sample")
+    }
+    length = abs(record.sv_len) if record.sv_len is not None else None
+    if length is None and record.end > record.start:
+        length = record.end - record.start
+    return MitoDNAStructuralVariantOut(
+        variant_id=record.variant_id,
+        sv_type=record.sv_type,
+        start=record.start,
+        end=record.end,
+        length=length,
+        genes=list(record.gene_symbols),
+        source=record.source,
+        filters=list(record.filters),
+        calls={
+            call.sample: MitoDNAStructuralVariantCallOut(
+                sample=call.sample,
+                role=member_by_sample.get(call.sample, {}).get("role"),
+                genotype=call.gt,
+                heteroplasmy=heteroplasmy_by_sample.get(call.sample),
+                read_support=call.read_support,
+            )
+            for call in record.calls
+        },
+    )
+
+
 def _coverage_from_rows(rows: Sequence[dict[str, Any]]) -> MitoDNACoverageOut:
     if not rows:
         return MitoDNACoverageOut()
@@ -904,9 +953,14 @@ async def get_family_mitochondrial_analysis_response(
         for record in records
     ]
     await _attach_reviews(session, context=context, variants=variant_rows)
+    structural_variants = [
+        _structural_variant_out(record, member_by_sample=member_by_sample)
+        for record in await _fetch_mt_structural_variants(context)
+    ]
     return FamilyMitoDNAAnalysisOut(
         samples=samples,
         variants=variant_rows,
+        structural_variants=structural_variants,
         variant_count=len(variant_rows),
         has_coverage=has_coverage,
         qc_notes=_family_qc_notes(samples, variant_rows),

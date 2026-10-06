@@ -822,6 +822,65 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
         </div>
       </section>
 
+      {(mtDNA.structural_variants?.length ?? 0) > 0 && (
+        <section className="surface-card space-y-4">
+          <div className="page-header">
+            <div className="space-y-1">
+              <h2 className="section-title">Mitochondrial structural variants</h2>
+              <p className="catalog-card-copy">
+                Large deletions and duplications on chrM, with each member&apos;s heteroplasmy (the fraction of reads that
+                carry the event).
+              </p>
+            </div>
+          </div>
+          <div className="data-table-shell overflow-x-auto">
+            <table className="analysis-table family-mtdna-table">
+              <thead>
+                <tr>
+                  <th>Structural variant</th>
+                  <th>Genes</th>
+                  <th>Heteroplasmy per member</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(mtDNA.structural_variants ?? []).map((sv) => (
+                  <tr key={sv.variant_id} className="family-mtdna-row">
+                    <td>
+                      <div className="font-semibold">
+                        {sv.sv_type} m.{sv.start.toLocaleString()}-{sv.end.toLocaleString()}
+                      </div>
+                      <div className="table-subtle">
+                        {sv.length != null ? `${sv.length.toLocaleString()} bp` : 'length n/a'}
+                        {sv.filters.length > 0 && ` · ${sv.filters.join(', ')}`}
+                      </div>
+                      <Link
+                        to={`/families/${family.family_id}/chromosome/MT?start=${Math.max(0, sv.start - 100)}&end=${sv.end + 100}${
+                          resolvedProjectId ? `&project_id=${resolvedProjectId}` : ''
+                        }`}
+                        className="variant-card-resource variant-card-resource--clinical"
+                      >
+                        Chromosome view
+                      </Link>
+                    </td>
+                    <td>{sv.genes.length ? sv.genes.join(', ') : <span className="table-subtle">None</span>}</td>
+                    <td>
+                      <div className="family-mtdna-call-grid">
+                        {Object.values(sv.calls).map((call) => (
+                          <span key={call.sample} className="table-chip">
+                            {call.sample}: {formatPercent(call.heteroplasmy)}
+                            {call.read_support != null && ` (${call.read_support} reads)`}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {acmgVariant && (
         <AcmgClassificationModal
           familyId={family.family_id}

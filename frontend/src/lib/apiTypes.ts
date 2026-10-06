@@ -912,9 +912,32 @@ export interface ApiMitoDNAVariant {
     | 'unknown';
 }
 
+export interface ApiMitoDNAStructuralVariantCall {
+  sample: string;
+  role?: string | null;
+  genotype: string;
+  // Fraction of reads carrying the event (Sniffles VAF): its heteroplasmy.
+  heteroplasmy?: number | null;
+  read_support?: number | null;
+}
+
+export interface ApiMitoDNAStructuralVariant {
+  variant_id: string;
+  sv_type: string;
+  start: number;
+  end: number;
+  length?: number | null;
+  genes: string[];
+  source?: string | null;
+  filters: string[];
+  calls: Record<string, ApiMitoDNAStructuralVariantCall>;
+}
+
 export interface ApiFamilyMitoDNAAnalysis {
   samples: ApiMitoDNASample[];
   variants: ApiMitoDNAVariant[];
+  // chrM large deletions and duplications; absent from older responses.
+  structural_variants?: ApiMitoDNAStructuralVariant[];
   qc_notes: string[];
   heteroplasmy_threshold: number;
   homoplasmy_threshold: number;
