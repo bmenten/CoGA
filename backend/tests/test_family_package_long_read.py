@@ -531,6 +531,169 @@ def test_a_mutserve_parse_that_fails_leaves_no_temporary_database(
     assert list(tmp_path.iterdir()) == []
 
 
+# ---- per-sample files: which column holds the entry's sample ----------------------------
+# A per-sample file used to be bound to its entry's sample whatever its one column named,
+# so another member's -- or another patient's -- file was stored as this sample's.
+
+_FAMILY = {"MOTHER", "CHILD", "FATHER"}
+
+
+@pytest.mark.parametrize(
+    ("columns", "declared", "expected"),
+    [
+        # HiFiCNV's own sample slot belongs to the entry's sample.
+        (["Sample0"], None, 0),
+        (["CHILD_sv_phased"], None, 0),
+        # A joint file: the child's own column, wherever it is.
+        (["MOTHER_sort", "CHILD_sort"], None, 1),
+        # The operator's recorded word (the entry's vcf_sample): the column it names ...
+        (["OTHER_TUBE"], "OTHER_TUBE", 0),
+        # ... or, as the entry's own sample, the file's one column.
+        (["MOTHER"], "CHILD", 0),
+    ],
+)
+def test_per_sample_vcf_column_reads_the_entrys_sample(
+    columns: list[str], declared: str | None, expected: int
+) -> None:
+    from app.services.family_package_common import per_sample_vcf_column
+
+    assert (
+        per_sample_vcf_column(
+            columns, target_sample_id="CHILD", known_sample_ids=_FAMILY | {"OTHER_TUBE"}, declared=declared
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("columns", "declared", "message"),
+    [
+        (["MOTHER"], None, "'MOTHER' is MOTHER"),
+        # Another family's sample (sample ids are unique across CoGA).
+        (["OTHER_PATIENT_sort"], None, "'OTHER_PATIENT_sort' is OTHER_PATIENT"),
+        (["CHILD", "CHILD_sort"], None, "more than one sample column for CHILD"),
+        (["Sample0", "Sample1"], None, "name no known sample"),
+        ([], None, "has no sample column"),
+        (["Sample0"], "BOGUS", "vcf_sample 'BOGUS'"),
+    ],
+)
+def test_per_sample_vcf_column_refuses_a_file_without_one_column_for_the_entrys_sample(
+    columns: list[str], declared: str | None, message: str
+) -> None:
+    from app.services.family_package_common import VcfSampleColumnError, per_sample_vcf_column
+
+    with pytest.raises(VcfSampleColumnError, match=message):
+        per_sample_vcf_column(
+            columns,
+            target_sample_id="CHILD",
+            known_sample_ids=_FAMILY | {"OTHER_PATIENT"},
+            declared=declared,
+            label="CNV VCF of CHILD",
+        )
+
+
+@pytest.mark.asyncio
+async def test_known_vcf_sample_ids_never_look_a_caller_slot_up_as_a_sample() -> None:
+    from types import SimpleNamespace
+
+    from app.services.family_package_common import known_vcf_sample_ids
+
+    seen: dict = {}
+
+    class _Session:
+        async def execute(self, statement, params=None):
+            seen.update(params or {})
+            rows = [{"sample_id": "CHILD"}, {"sample_id": "MOTHER"}]
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
+
+    known = await known_vcf_sample_ids(
+        _Session(), family_uuid="family-uuid", header_samples=["Sample0", "CHILD_sort"]
+    )
+
+    assert known == {"CHILD", "MOTHER"}
+    assert seen["family_uuid"] == "family-uuid"
+    # A sample someone named "Sample0" must not turn every HiFiCNV file into theirs.
+    assert "Sample0" not in seen["names"]
+    assert {"CHILD_sort", "CHILD"} <= set(seen["names"])
+
+
+def test_cnv_records_read_the_column_the_importer_checked() -> None:
+    two_columns = CNV_VCF.replace("FORMAT\tSample0", "FORMAT\tMOTHER\tSample0").replace(
+        "GT:CN\t0/1:1", "GT:CN\t0/0:2\t0/1:1"
+    ).replace("GT:CN\t1/1:4", "GT:CN\t0/0:2\t1/1:4")
+
+    deletion, duplication = _iter_cnv_structural_records(two_columns, sample_id="HG002", sample_column=1)
+
+    assert [(call.sample, call.gt, call.copy_number) for call in deletion.calls] == [("HG002", "0/1", 1)]
+    assert [(call.sample, call.gt, call.copy_number) for call in duplication.calls] == [("HG002", "1/1", 4)]
+
+
+@pytest.mark.asyncio
+async def test_the_cnv_import_refuses_another_members_file_before_any_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from app.schemas import FamilyImportDatasetSummary
+    from app.services import family_package_datasets
+    from app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+    from app.services.family_package_common import VcfSampleColumnError
+
+    writes: list[str] = []
+
+    async def known(_session, **_kwargs) -> set[str]:
+        return set(_FAMILY)
+
+    async def must_not_write(*_args, **_kwargs):
+        writes.append("write")
+
+    for name, fn in {
+        "_resolve_package_path": lambda _root, value: Path(value) if value else None,
+        # The mother's HiFiCNV file, renamed by hand after her, under the child's entry.
+        "_read_package_text": lambda _path: CNV_VCF.replace("FORMAT\tSample0", "FORMAT\tMOTHER"),
+        "known_vcf_sample_ids": known,
+        "lock_family_variant_writes": must_not_write,
+        "replace_family_structural_variants": must_not_write,
+    }.items():
+        monkeypatch.setattr(family_package_datasets, name, fn)
+    contexts = {
+        name: SampleMetadataContext(
+            sample_uuid=f"{name.lower()}-uuid",
+            sample_id=name,
+            family_uuid="family-uuid",
+            family_id="FAM",
+            sex="female",
+            project_ids=["p1"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+        for name in _FAMILY
+    }
+    job = family_package_datasets.DatasetImportJob(
+        session=SimpleNamespace(),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=Path("/package")),  # type: ignore[arg-type]
+        dataset=ManifestDataset(per_sample={"CHILD": {"vcf": "cnv/CHILD.vcf"}}),
+        summary=FamilyImportDatasetSummary(dataset_type="cnv", status="valid"),
+        family_context=FamilyMetadataContext(
+            family_uuid="family-uuid",
+            family_id="FAM",
+            project_ids=["p1"],
+            sample_rows=[],
+            sample_uuid_to_name={},
+            sample_name_to_uuid={},
+            affected_sample_names=[],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        ),
+        sample_contexts=contexts,
+    )
+
+    with pytest.raises(VcfSampleColumnError, match="'MOTHER' is MOTHER"):
+        await family_package_datasets._import_cnv_dataset(job)
+
+    assert writes == []
+
+
 @pytest.mark.parametrize(
     ("query_id", "expected"),
     [

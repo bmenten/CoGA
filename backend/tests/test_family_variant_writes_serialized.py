@@ -751,6 +751,10 @@ async def test_each_admin_delete_holds_its_familys_locks_from_its_first_read_unt
         assert not postgres.lock(_key(variant_type)).locked()
 
 
+async def _no_known_samples(_session, **_kwargs) -> set[str]:
+    return set()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("importer", "dataset"),
@@ -772,7 +776,9 @@ async def test_the_package_sv_datasets_hold_the_lock_until_their_sv_files_are_re
 
     for name, fn in {
         "_resolve_package_path": lambda _root, value: Path(value) if value else None,
-        "_read_package_text": lambda _path: "",
+        # A HiFiCNV file's one column is its sample slot, which binds to the entry's sample.
+        "_read_package_text": lambda _path: "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample0\n",
+        "known_vcf_sample_ids": _no_known_samples,
         "_iter_needlr_structural_records": lambda *_args, **_kwargs: records,
         "_iter_cnv_structural_records": lambda *_args, **_kwargs: records,
         "replace_family_structural_variants": _recorder(postgres, "replace SVs"),

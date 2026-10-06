@@ -21,7 +21,12 @@ from ..schemas import (
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .upload_safety import decode_upload_text
-from .family_package_common import resolve_vcf_sample_id
+from .family_package_common import (
+    VcfSampleColumnError,
+    known_vcf_sample_ids,
+    per_sample_vcf_column,
+    resolve_vcf_sample_id,
+)
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
 from .sex_chromosomes import hemizygous_chromosome
 from .vcf_header_provenance import extract_header_provenance
@@ -889,6 +894,7 @@ def _build_trgt_insert_params(
                 **metadata,
                 "trid": trid,
                 "motifs": motifs,
+                "vcf_sample": header_sample,
                 "raw_format": sample_values,
             }
         ),
@@ -928,9 +934,17 @@ async def ingest_trgt_text(
     sample_context: SampleMetadataContext,
     text_value: str,
     metadata: dict[str, Any],
+    declared: str | None = None,
 ) -> dict[str, int | str]:
+    """One sample's TRGT calls, read from that sample's column of ``text_value``.
+
+    The column is chosen by ``per_sample_vcf_column`` (``declared`` is a package entry's
+    ``vcf_sample``) before any row is written; a file with no column for the sample, or
+    whose column names another sample, is refused (400) and the stored calls stay.
+    """
     lines = text_value.splitlines()
     header_samples: list[str] = []
+    sample_column = 0
     inserted = 0
     processed = 0
     locus_lookup = await _build_repeat_locus_lookup(session)
@@ -939,6 +953,24 @@ async def ingest_trgt_text(
     for line in lines:
         if line.startswith("#CHROM"):
             header_samples = line.strip().split("\t")[9:]
+            if header_samples:
+                # Decided before any row is written: a refused file leaves the stored
+                # calls as they were (the caller's delete is rolled back with it).
+                try:
+                    sample_column = per_sample_vcf_column(
+                        header_samples,
+                        target_sample_id=sample_context.sample_id,
+                        known_sample_ids=await known_vcf_sample_ids(
+                            session,
+                            family_uuid=sample_context.family_uuid,
+                            header_samples=header_samples,
+                        ),
+                        declared=declared,
+                        label="TRGT VCF",
+                        remedy="Upload this sample's own file.",
+                    )
+                except VcfSampleColumnError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
             continue
         if not line or line.startswith("#"):
             continue
@@ -949,9 +981,11 @@ async def ingest_trgt_text(
         if not header_samples:
             raise HTTPException(status_code=400, detail="TRGT VCF header is missing a sample column")
 
+        sample_fields = fields[9:]
+        if sample_column >= len(sample_fields):
+            continue
         processed += 1
         chrom, pos, _vid, ref, _alt, _qual, _filter, info_field, format_field = fields[:9]
-        sample_fields = fields[9:]
         insert_records.append(
             _build_trgt_insert_params(
                 sample_context=sample_context,
@@ -961,8 +995,8 @@ async def ingest_trgt_text(
                 ref=ref,
                 info_field=info_field,
                 format_field=format_field,
-                sample_field=sample_fields[0],
-                header_sample=header_samples[0],
+                sample_field=sample_fields[sample_column],
+                header_sample=header_samples[sample_column],
                 metadata=metadata,
             )
         )

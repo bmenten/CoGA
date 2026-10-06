@@ -34,7 +34,7 @@ from backend.app.services.clickhouse_variant_storage import (
     small_variant_entry_without_samples,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services.family_package_common import ManifestDataset
+from backend.app.services.family_package_common import ManifestDataset, VcfSampleColumnError
 from backend.app.services.family_package_datasets import DatasetImportJob
 from backend.app.services.variant_upload_service import _entries_with_uploaded_calls
 
@@ -152,6 +152,13 @@ def test_uploaded_calls_join_their_variants_row_and_every_other_call_stays() -> 
 
 
 class _FakeSession:
+    """Answers the per-sample column check's lookup of the family's sample ids."""
+
+    async def execute(self, statement, params=None):
+        assert "OR sample_id IN" in str(statement), str(statement)
+        rows = [{"sample_id": name} for name in ("MOTHER", "PROBAND")]
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
+
     async def commit(self) -> None:
         return None
 
@@ -540,16 +547,42 @@ async def test_a_failed_mito_upload_leaves_no_lookup(storage, scratch: Path, rec
 
 
 @pytest.mark.asyncio
-async def test_a_file_naming_an_unknown_sample_is_refused_before_its_annotation_is_read(
+async def test_a_file_naming_another_sample_is_refused_before_its_annotation_is_read(
     storage, scratch: Path, recorded_mtdna, tmp_path: Path
 ) -> None:
-    lines = _PROBAND_VCF.splitlines()
-    two_samples = "\n".join(
-        [lines[0], lines[1] + "\tSTRANGER"] + [line + "\t1/1:500:0,500:1" for line in lines[2:]]
-    ) + "\n"
+    # The mother's file under the proband's entry: it used to be bound to the proband,
+    # because a one-column file was taken as its entry's sample whatever it named.
+    mothers_file = _PROBAND_VCF.replace("FORMAT\tPROBAND", "FORMAT\tMOTHER")
 
-    with pytest.raises(RuntimeError, match="match no family sample"):
-        await family_package_datasets._import_mito_dataset(_mito_job(tmp_path / "package", two_samples))
+    with pytest.raises(VcfSampleColumnError, match="'MOTHER' is MOTHER"):
+        await family_package_datasets._import_mito_dataset(_mito_job(tmp_path / "package", mothers_file))
 
     assert storage["rewrites"] == [] and recorded_mtdna == {}
     assert list(scratch.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_a_per_sample_mito_file_gives_its_sample_its_own_column_only(
+    storage, scratch: Path, recorded_mtdna, tmp_path: Path
+) -> None:
+    # A file with a second column under the proband's entry: only the proband's calls are
+    # read; the other column's (here a stranger's) are not stored under anyone.
+    lines = _PROBAND_VCF.splitlines()
+    two_samples = "\n".join(
+        [lines[0], lines[1] + "\tSTRANGER"] + [line + "\t0/1:500:400,100:0.2" for line in lines[2:]]
+    ) + "\n"
+
+    summary = await family_package_datasets._import_mito_dataset(_mito_job(tmp_path / "package", two_samples))
+
+    assert summary.status == "imported"
+    assert summary.summary["PROBAND"]["inserted"] == 2
+    [(_source, rows)] = storage["rewrites"]
+    calls = {
+        (row["pos"], str(sample)): (gt, afs)
+        for row in rows
+        for sample, gt, afs in zip(row["calls.sampleId"], row["calls.gt"], row["calls.af"])
+    }
+    # The proband's own column (1/1 at 73, 50% at 3243), not the stranger's (20% at both).
+    proband = [key for key in calls if key[0] == 3243 and key[1] in {"PROBAND", "proband-uuid"}]
+    assert len(proband) == 1 and calls[proband[0]] == ("0/1", [0.5])
+    assert not any("STRANGER" in sample for _pos, sample in calls)
