@@ -1279,14 +1279,64 @@ async def test_a_large_trio_vcf_goes_in_as_few_large_inserts(
 
 
 @pytest.mark.asyncio
+async def test_an_apcad_vcf_reports_the_bytes_of_it_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Millions of sites per embryo: the import reports how far into the file it is, from
+    # which the job estimates the time left (import_progress).
+    async def discard(_session: Any, _rows: list[dict[str, Any]]) -> None:
+        return None
+
+    monkeypatch.setattr(family_package_tracks, "_insert_interval_track_rows", discard)
+    monkeypatch.setattr(family_package_tracks, "APCAD_PROGRESS_RECORDS", 1_000)
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    job = _job(root, "apcad")
+    body = "".join(
+        f"chr1\t{100 + index}\t.\tA\tG\t50\tPASS\t.\tGT:AD\t0|0:.\t1|1:.\t0/1:6,4\n" for index in range(5_000)
+    )
+    vcf = _write(
+        tmp_path / "EMB1.trio_filtered.vcf",
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tFATHER1\tMOTHER1\tEMB1\n" + body,
+    )
+    reports: list[dict[str, Any]] = []
+
+    async def progress(stats: dict[str, Any]) -> None:
+        reports.append(stats)
+
+    await family_package_tracks._import_apcad_vcf_file(
+        object(),  # type: ignore[arg-type]
+        path=vcf,
+        sample_contexts=job.sample_contexts,
+        ped=job.bundle.ped,
+        selected_sample_id="EMB1",
+        progress=progress,
+    )
+
+    size = vcf.stat().st_size
+    read = [report["bytes_read"] for report in reports]
+    assert len(reports) == 5
+    assert {report["bytes_total"] for report in reports} == {size}
+    assert read == sorted(read) and read[0] < size / 2 and read[-1] <= size
+
+
+@pytest.mark.asyncio
 async def test_the_apcad_import_reads_each_embryos_trio_vcf_and_reports_progress(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     calls: list[tuple[str | None, str]] = []
     reports: list[FamilyImportDatasetSummary] = []
 
-    async def fake_track_file(_session: Any, *, path: Path, selected_sample_id: str | None = None, **_kwargs: Any) -> dict[str, Any]:
+    async def fake_track_file(
+        _session: Any,
+        *,
+        path: Path,
+        selected_sample_id: str | None = None,
+        progress: Any = None,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
         calls.append((selected_sample_id, path.name))
+        # Halfway through the embryo's file.
+        await progress({"bytes_read": path.stat().st_size // 2})
         return {selected_sample_id: {"processed": 4, "inserted": 3, "skipped": 1}}
 
     async def no_tracks(*_args: Any, **_kwargs: Any) -> int:
@@ -1307,9 +1357,26 @@ async def test_the_apcad_import_reads_each_embryos_trio_vcf_and_reports_progress
         "EMB1": {"processed": 4, "inserted": 3, "skipped": 1},
         "EMB2": {"processed": 4, "inserted": 3, "skipped": 1},
     }
-    # One report after each embryo, so a long APCAD import keeps the job's heartbeat.
-    assert [sorted(report.summary) for report in reports] == [["EMB1"], ["EMB1", "EMB2"]]
+    # Halfway through each embryo's file, then one report after each embryo, so a long
+    # APCAD import keeps the job's heartbeat.
+    assert [sorted(report.summary) for report in reports] == [
+        ["bytes_read", "bytes_total"],
+        ["EMB1"],
+        ["EMB1", "bytes_read", "bytes_total"],
+        ["EMB1", "EMB2"],
+    ]
     assert {report.status for report in reports} == {"running"}
+    # The bytes read are of both embryos' files: the second's count from the end of the first.
+    first, second = (root / "split_trio/filter_trio" / f"{embryo}.trio_filtered.vcf.gz" for embryo in ("EMB1", "EMB2"))
+    total = first.stat().st_size + second.stat().st_size
+    assert [
+        (report.summary["bytes_read"], report.summary["bytes_total"])
+        for report in reports
+        if "bytes_read" in report.summary
+    ] == [
+        (first.stat().st_size // 2, total),
+        (first.stat().st_size + second.stat().st_size // 2, total),
+    ]
 
 
 @pytest.mark.asyncio

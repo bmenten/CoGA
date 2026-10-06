@@ -186,6 +186,89 @@ describe('PackageImportPage', () => {
     }
   });
 
+  it('shows a running import’s progress and time left', async () => {
+    const now = Date.now();
+    const runningJob = {
+      _id: 'job-run',
+      submitted_path: '/data/FAM-200',
+      family_id: 'FAM-200',
+      status: 'running',
+      dry_run: false,
+      requested_by: 'admin@example.com',
+      requested_at: new Date(now - 3_600_000).toISOString(),
+      heartbeat_at: new Date(now - 5_000).toISOString(),
+      validation_errors: [],
+      validation_warnings: [],
+      logs: [],
+      metadata: {},
+      datasets: [
+        {
+          dataset_type: 'qc',
+          enabled: true,
+          status: 'imported',
+          files: [],
+          samples: [],
+          summary: {},
+          progress: {
+            started_at: new Date(now - 3_600_000).toISOString(),
+            finished_at: new Date(now - 3_480_000).toISOString(),
+          },
+        },
+        {
+          dataset_type: 'snv',
+          enabled: true,
+          status: 'running',
+          files: [],
+          samples: [],
+          message: 'Importing SNV VCF and VEP annotations',
+          summary: {},
+          progress: {
+            started_at: new Date(now - 3_480_000).toISOString(),
+            measured_at: new Date(now - 5_000).toISOString(),
+            fraction_read: 0.4837,
+            seconds_left: 85 * 60,
+          },
+        },
+        {
+          dataset_type: 'sv_needlr',
+          enabled: true,
+          status: 'valid',
+          files: [],
+          samples: [],
+          summary: {},
+        },
+      ],
+    };
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation((url: string, config?: unknown) => {
+      if (url === '/family-imports') return Promise.resolve({ data: [runningJob] });
+      if (url === '/family-imports/job-run') return Promise.resolve({ data: runningJob });
+      return working(url, config);
+    });
+    try {
+      renderPage();
+
+      // The jobs table: the running dataset, its share read and its time left.
+      expect(await screen.findByText('snv: 48% read, about 1 h 25 min left')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'View' }));
+
+      expect(
+        await screen.findByText(
+          /^snv: 48% read, about 1 h 25 min left \(done around .+\)\. 1 more dataset to follow\.$/
+        )
+      ).toBeInTheDocument();
+      const rows = screen.getAllByRole('row');
+      const row = (dataset: string) => rows.find((item) => item.textContent?.startsWith(dataset));
+      expect(row('qc')).toHaveTextContent('took 2 min');
+      expect(row('snv')).toHaveTextContent('48% read, about 1 h 25 min left');
+      expect(row('sv_needlr')).toHaveTextContent('—');
+    } finally {
+      get.mockImplementation(working);
+    }
+  });
+
   it('discovers and writes a manifest draft for admins', async () => {
     (api.post as unknown as Mock).mockImplementation((url: string, payload: unknown) => {
       if (url === '/family-imports/manifest/discover') {

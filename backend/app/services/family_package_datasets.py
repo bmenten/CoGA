@@ -92,6 +92,7 @@ from .family_package_registration import _interval_track_count, _paraphase_count
 from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track
 from .family_package_validation import _manifest_hpo_rows, _pcf_role_path
 from .family_package_variants import _iter_cnv_structural_records, _iter_needlr_structural_records, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata
+from .import_progress import FilesReadInTurn
 
 
 logger = logging.getLogger(__name__)
@@ -719,12 +720,18 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                     "summary": {"existing": existing_by_sample},
                 }
             )
+        family_vcf_read = FilesReadInTurn([vcf_path])
+
+        async def report_family_vcf_read(stats: dict[str, Any]) -> None:
+            await report_apcad_progress(family_vcf_read.stats(stats))
+
         sample_results = await _run_with_periodic_progress(
             _import_apcad_track_file(
                 session,
                 sample_contexts=target_sample_contexts,
                 path=vcf_path,
                 ped=bundle.ped,
+                progress=report_family_vcf_read if reporter is not None else None,
             ),
             report=reporter,
             stats={"family_vcf": _display_path(bundle.root, vcf_path)},
@@ -741,6 +748,9 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
             summary,
             "Registered only; this manifest uses a family-level APCAD BED and existing loaders are sample-scoped",
         )
+    # The files to read, known before the first is, so their bytes add up to the dataset's
+    # progress.
+    sample_files: list[tuple[str, dict[str, Any], Path]] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
@@ -759,6 +769,14 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
         if conflict_mode == "update" and existing_count:
             sample_results[sample_id] = {"skipped": True, "existing": existing_count}
             continue
+        sample_files.append((sample_id, raw_entry, bed_path))
+    files_read = FilesReadInTurn(path for _sample_id, _entry, path in sample_files)
+
+    async def report_file_read(stats: dict[str, Any]) -> None:
+        await report_apcad_progress(files_read.stats(stats))
+
+    for sample_id, raw_entry, bed_path in sample_files:
+        sample_context = sample_contexts[sample_id]
         # A per-embryo trio VCF (nf-cmgg/copgtm) carries the embryo's column beside the
         # parents' columns, which give each site its parental origin.
         import_result = await _run_with_periodic_progress(
@@ -769,10 +787,12 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                 ped=bundle.ped,
                 selected_sample_id=sample_id,
                 selected_vcf_sample=raw_entry.get("sample_name") or raw_entry.get("vcf_sample"),
+                progress=report_file_read if reporter is not None else None,
             ),
             report=reporter,
             stats={"importing": sample_id, "file": _display_path(bundle.root, bed_path)},
         )
+        files_read.next_file()
         sample_results[sample_id] = (
             import_result.get(sample_id, import_result)
             if isinstance(import_result, dict)
@@ -839,14 +859,31 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
     cfdna_sample_id = nipt_package_cfdna_sample(bundle)
     plasma_positions: set[tuple[str, int]] = set()
     sample_results: dict[str, Any] = {}
+    sample_files: list[tuple[str, Path]] = []
     for sample_id in nipt_import_order(cfdna_sample_id, dataset.per_sample):
         raw_entry = dataset.per_sample.get(sample_id)
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
             continue
         vcf_path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
-        if vcf_path is None:
-            continue
+        if vcf_path is not None:
+            sample_files.append((sample_id, vcf_path))
+    files_read = FilesReadInTurn(path for _sample_id, path in sample_files)
+
+    async def report_file_progress(stats: dict[str, Any], *, sample_id: str) -> None:
+        if job.progress is None:
+            return
+        await job.progress(
+            summary.model_copy(
+                update={
+                    "status": "running",
+                    "message": "Importing the NIPT per-sample SNV files",
+                    "summary": {"importing": sample_id, **stats, **files_read.stats(stats)},
+                }
+            )
+        )
+
+    for sample_id, vcf_path in sample_files:
         vcf_columns = read_vcf_sample_columns(vcf_path)
         if len(vcf_columns) != 1:
             raise RuntimeError(
@@ -869,7 +906,13 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
                 sample_aliases=aliases,
                 overwrite_scope="samples",
                 record_filter=None if is_plasma else paternal_record_filter(plasma_positions),
+                progress=(
+                    partial(report_file_progress, sample_id=sample_id)
+                    if job.progress is not None
+                    else None
+                ),
             )
+        files_read.next_file()
         sample_results[sample_id] = {
             **result,
             "role": "cfdna" if is_plasma else "paired_sample",

@@ -171,7 +171,9 @@ dropped silently.
 6. **Validate, then import.** With **Dry run** ticked, **Validate package** checks everything without
    writing anything. When it is clean, untick it and press **Start import**.
 7. **Follow the job** under *Recent family imports*: status, log, validation errors, warnings and a
-   summary per dataset.
+   summary per dataset. While a dataset imports, the page shows how much of its files has been read
+   and about how long it should still take, at the pace so far; a finished dataset shows how long it
+   took. The estimate is of the running dataset only, and the page says how many datasets follow.
 
 | Existing data policy | What happens when the family or a sample already exists |
 | --- | --- |

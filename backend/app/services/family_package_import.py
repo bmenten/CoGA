@@ -83,6 +83,7 @@ from .family_package_registration import (
     pending_datasets,
 )
 from .family_package_datasets import _import_dataset
+from .import_progress import DatasetTimer
 
 logger = logging.getLogger(__name__)
 
@@ -438,18 +439,28 @@ async def _import_family_datasets(
         )
         if index is None:
             continue
-        datasets[index] = datasets[index].model_copy(update={"status": "running"})
+        # When the dataset began and ended, and while it runs how far it has read and the
+        # time it should still take (import_progress).
+        timer = DatasetTimer()
+        datasets[index] = datasets[index].model_copy(
+            update={"status": "running", "progress": timer.progress}
+        )
         if progress is not None:
             await progress(validation, datasets, logs, family_context.family_id)
         try:
             async def dataset_progress(
-                partial_summary: FamilyImportDatasetSummary, *, index: int = index
+                partial_summary: FamilyImportDatasetSummary,
+                *,
+                index: int = index,
+                timer: DatasetTimer = timer,
             ) -> None:
-                datasets[index] = partial_summary
+                datasets[index] = partial_summary.model_copy(
+                    update={"progress": timer.observe(partial_summary.summary)}
+                )
                 if progress is not None:
                     await progress(validation, datasets, logs, family_context.family_id)
 
-            datasets[index] = await _import_dataset(
+            imported = await _import_dataset(
                 session,
                 bundle=bundle,
                 summary=summary,
@@ -458,6 +469,7 @@ async def _import_family_datasets(
                 conflict_mode=conflict_mode,
                 progress=dataset_progress,
             )
+            datasets[index] = imported.model_copy(update={"progress": timer.finish()})
             logs.append(f"Dataset {summary.dataset_type}: {datasets[index].status}.")
         except Exception as exc:  # noqa: BLE001 - the dataset is recorded as failed and fails the import
             await session.rollback()
@@ -465,6 +477,7 @@ async def _import_family_datasets(
                 update={
                     "status": "failed",
                     "message": str(exc),
+                    "progress": timer.finish(),
                 }
             )
             logs.append(f"Dataset {summary.dataset_type} failed: {exc}")

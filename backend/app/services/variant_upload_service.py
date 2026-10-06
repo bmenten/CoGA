@@ -56,6 +56,7 @@ from .family_variant_write_lock import (
 )
 from .haplotype_block_builder import HaplotypeBlockBuilder
 from .haplotype_phase_correction import FAMILY_METADATA_KEY as PHASE_CORRECTIONS_KEY, PhaseCorrection
+from .import_progress import bytes_read_on_disk, read_stats
 from .structural_variant_ingest import (
     ParsedStructuralVariant,
     StructuralVariantRecordFormat,
@@ -154,6 +155,18 @@ def _iter_bounded_lines(handle, *, kind: str):
                 detail=f"{kind} file contains a line exceeding the maximum allowed length",
             )
         yield line
+
+
+def _upload_size(file: UploadFile) -> int | None:
+    """The upload's size in bytes, told before it is read: of a gzip file, the compressed
+    bytes. None when the file cannot seek."""
+    raw = file.file
+    try:
+        size = raw.seek(0, io.SEEK_END)
+        raw.seek(0)
+    except (AttributeError, OSError, ValueError):
+        return None
+    return int(size)
 
 
 def _iter_upload_text_lines(file: UploadFile, *, kind: str):
@@ -654,6 +667,11 @@ async def upload_family_small_variant_file(
 
     When the VCF holds one sample, its record's FILTER values and caller metrics (TLOD,
     FS, ...) are that call's own, and are kept with the call (``vcf_call_metrics``).
+
+    ``progress`` is told, every ``SMALL_VARIANT_PROGRESS_INTERVAL`` records read, the
+    records read (``processed``, the ones left out included), those stored so far
+    (``inserted``) and the bytes of the file read (``bytes_read`` of ``bytes_total``),
+    from which a package import estimates the time left (import_progress).
     """
     if not context.assembly_name:
         raise HTTPException(
@@ -760,7 +778,9 @@ async def upload_family_small_variant_file(
         provenance_header_lines: list[str] = []
         inserted = 0
         skipped_malformed = 0
+        records_read = 0
         last_reported = 0
+        bytes_total = _upload_size(file) if progress is not None else None
         variant_batch: list[SmallVariantRecord] = []
         metadata_json = _upload_metadata(resolved_format, file)
         # Haplotype blocks come only from the imputed glimpse2 genotypes.
@@ -775,8 +795,21 @@ async def upload_family_small_variant_file(
             else None
         )
 
-        async def flush_variant_batch() -> None:
+        async def report_read_progress() -> None:
             nonlocal last_reported
+            last_reported = records_read
+            if progress is None:
+                return
+            await progress(
+                {
+                    "processed": records_read,
+                    "inserted": inserted - len(variant_batch),
+                    "annotation_rows": vep_annotations.row_count if vep_annotations else 0,
+                    **read_stats(bytes_read_on_disk(file.file), bytes_total),
+                }
+            )
+
+        async def flush_variant_batch() -> None:
             if not variant_batch:
                 return
             await insert_small_variant_records(
@@ -798,15 +831,6 @@ async def upload_family_small_variant_file(
                     )
                 )
             variant_batch.clear()
-            if progress is not None and inserted - last_reported >= SMALL_VARIANT_PROGRESS_INTERVAL:
-                last_reported = inserted
-                await progress(
-                    {
-                        "processed": inserted,
-                        "inserted": inserted,
-                        "annotation_rows": vep_annotations.row_count if vep_annotations else 0,
-                    }
-                )
 
         for line in _iter_upload_text_lines(file, kind="VCF"):
             if line.startswith("##INFO"):
@@ -845,6 +869,11 @@ async def upload_family_small_variant_file(
                 continue
             if not line or line.startswith("#"):
                 continue
+            records_read += 1
+            # Counted before any is left out, so a file whose records mostly are (RefCall
+            # blocks, a NIPT father's noise) still reports as it goes.
+            if progress is not None and records_read - last_reported >= SMALL_VARIANT_PROGRESS_INTERVAL:
+                await report_read_progress()
             fields = line.strip().split("\t")
             if len(fields) < 10:
                 continue
