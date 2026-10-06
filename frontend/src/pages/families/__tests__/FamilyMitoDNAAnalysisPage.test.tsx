@@ -385,6 +385,104 @@ describe('FamilyMitoDNAAnalysisPage', () => {
       expect(within(dialog).getByText('ACMG classification')).toBeInTheDocument();
     });
   });
+
+  it('labels a variant with no mother to compare as not assessed and keeps it out of maternal review', async () => {
+    const variant = (label: string, position: number, transmission: string) => ({
+      variant_id: label,
+      position,
+      ref: 'A',
+      alt: 'G',
+      label,
+      type: 'SNV',
+      maternal_transmission: transmission,
+      annotation: {
+        region: 'MT-ND1',
+        gene: 'MT-ND1',
+        consequence: 'missense_variant',
+        consequence_terms: ['missense_variant'],
+        gnomad_af: null,
+        category: 'protein coding',
+        clinical_significance: 'unknown',
+        disorders: [],
+        polymorphism_notes: [],
+        mitomap_query: label,
+        mitomap_url: `https://www.mitomap.org/cgi-bin/search_allele?variant=${position}A%3EG`,
+        source_keys: [],
+      },
+      calls: {
+        PROBAND: {
+          sample: 'PROBAND',
+          role: 'proband',
+          affected: true,
+          sex: 'male',
+          genotype: '0/1',
+          allele_fraction: 0.4,
+          depth: 400,
+          alt_depth: 160,
+          zygosity: 'heteroplasmic',
+          display: '40.0%',
+        },
+      },
+    });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            pedigree: '',
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
+            projects: [],
+            metadata: {},
+          },
+        });
+      }
+      if (url === '/families/F1/hpo') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/families/F1/mitochondrial-dna') {
+        return Promise.resolve({
+          data: {
+            heteroplasmy_threshold: 0.02,
+            homoplasmy_threshold: 0.95,
+            qc_notes: [],
+            samples: [
+              {
+                sample_id: 'PROBAND',
+                role: 'proband',
+                affected: true,
+                sex: 'male',
+                haplogroup: 'H1',
+                coverage: { mean_depth: 400, min_depth: 350, max_depth: 450, breadth: 0.98, source: 'coverage', regions: 10 },
+                qc: { status: 'pass', notes: [], contamination: 0.001, mean_depth: 400, min_mean_depth: 350 },
+              },
+            ],
+            variants: [
+              variant('m.3460G>A', 3460, 'mother_not_assessed'),
+              variant('m.4216T>C', 4216, 'maternal_not_observed'),
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/mitochondrial-dna']}>
+          <Routes>
+            <Route path="/families/:familyId/mitochondrial-dna" element={<FamilyMitoDNAAnalysisPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const row = await screen.findByRole('row', { name: /m\.3460G>A/i });
+    expect(within(row).getByText('Mother not assessed')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Maternal review' }));
+    expect(screen.getByText(/1 of 2 variants/)).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /m\.3460G>A/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /m\.4216T>C/i })).toBeInTheDocument();
+  });
 });
 
 // #610 — any failure read "Family not found", a server error included.

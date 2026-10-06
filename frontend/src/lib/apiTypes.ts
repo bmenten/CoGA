@@ -907,6 +907,8 @@ export interface ApiMitoDNAVariant {
   maternal_transmission:
     | 'maternal_shared'
     | 'maternal_not_observed'
+    | 'mother_not_assessed'
+    | 'no_proband'
     | 'maternal_only'
     | 'father_only'
     | 'family_private'
