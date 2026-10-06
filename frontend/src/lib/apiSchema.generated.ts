@@ -2456,6 +2456,7 @@ export interface RepeatExpansionSampleCallOut {
   allele_count: number;
   alleles: RepeatExpansionAlleleOut[];
   status: "normal" | "review" | "intermediate" | "pathogenic" | "unknown";
+  note: string | null;
 }
 
 export interface RepeatExpansionTrackItemOut {
