@@ -303,6 +303,76 @@ describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
     expect(screen.getByText('1 of 1 loci')).toBeInTheDocument();
     expect(screen.getByRole('row', { name: /VWA1/ })).toBeInTheDocument();
   });
+
+  it("shows both of a male's chrX alleles and the backend's review note", async () => {
+    const note =
+      'Two different chrX alleles in a male: size mosaicism, TRGT run without --karyotype XY, ' +
+      'a recorded sex that does not match the sample, or 47,XXY. Both alleles are shown; review.';
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            members: [{ sample_id: 'SON', role: 'proband', affected: true, sex: 'male' }],
+            projects: [],
+          },
+        });
+      }
+      if (url === '/families/F1/repeat-expansions') {
+        return Promise.resolve({
+          data: {
+            samples: [{ sample_id: 'SON', role: 'proband', affected: true, sex: 'male' }],
+            loci: [
+              {
+                locus_id: 'FXS_FMR1',
+                gene: 'FMR1',
+                display_name: 'FMR1',
+                disease: 'Fragile X syndrome',
+                chr: 'X',
+                start: 147912051,
+                end: 147912110,
+                motif: 'CGG',
+                warning_min: 55,
+                pathogenic_min: 200,
+                // A mosaic male: the premutation-sized and full-mutation alleles.
+                status: 'pathogenic',
+                calls: {
+                  SON: {
+                    sample: 'SON',
+                    role: 'proband',
+                    affected: true,
+                    sex: 'male',
+                    genotype: '1/2',
+                    allele_count: 2,
+                    status: 'pathogenic',
+                    note,
+                    alleles: [
+                      { repeat_count: 90, status: 'intermediate' },
+                      { repeat_count: 300, status: 'pathogenic' },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
+          <Routes>
+            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('90 / 300')).toBeInTheDocument();
+    expect(screen.getByText(note)).toBeInTheDocument();
+  });
 });
 
 describe('repeat cutoff labels', () => {
