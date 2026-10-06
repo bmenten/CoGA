@@ -13,6 +13,8 @@ from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import String, bindparam, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
     FamilyImportDatasetSummary,
@@ -314,6 +316,112 @@ def resolve_vcf_sample_id(
         if name.startswith(f"{sample_id}_") or name.startswith(f"{sample_id}."):
             return sample_id
     return None
+
+
+# A caller's slot for an unnamed sample (HiFiCNV writes ``Sample0``), never a sample id: it
+# is not looked up among the stored samples, so a sample someone named "Sample0" does not
+# turn every HiFiCNV file into another sample's.
+_CALLER_SLOT_COLUMN = re.compile(r"^sample\d*$", re.IGNORECASE)
+
+_KNOWN_SAMPLE_IDS_SQL = text(
+    """
+    SELECT sample_id
+    FROM samples
+    WHERE family_id = CAST(:family_uuid AS uuid)
+       OR sample_id IN :names
+    """
+).bindparams(bindparam("names", expanding=True, type_=String()))
+
+
+class VcfSampleColumnError(ValueError):
+    """A per-sample VCF has no column for its sample, or its column names another sample."""
+
+
+async def known_vcf_sample_ids(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    header_samples: list[str],
+) -> set[str]:
+    """The sample ids a per-sample file's columns are checked against: every member of the
+    target's family, and any stored sample a column is named after (as is, or with a tool
+    suffix stripped). Sample ids are unique across CoGA, so a column naming a sample of
+    another family is recognised too."""
+    names = sorted(
+        {
+            candidate
+            for column in header_samples
+            if not _CALLER_SLOT_COLUMN.match(column.strip())
+            for candidate in vcf_sample_name_candidates(column)
+        }
+    ) or [""]
+    result = await session.execute(
+        _KNOWN_SAMPLE_IDS_SQL,
+        {"family_uuid": family_uuid, "names": names},
+    )
+    return {str(row["sample_id"]) for row in result.mappings().all() if row.get("sample_id")}
+
+
+def per_sample_vcf_column(
+    header_samples: list[str],
+    *,
+    target_sample_id: str,
+    known_sample_ids: set[str],
+    declared: str | None = None,
+    label: str = "VCF",
+    remedy: str = "",
+) -> int:
+    """The index of the ``#CHROM`` sample column that holds ``target_sample_id``'s calls,
+    in a file stored as that one sample's (a per-sample package file, an admin upload).
+
+    Such files used to be bound to their sample whatever their column named, so another
+    member's file -- or another patient's -- was stored as this sample's without a word.
+
+    * ``declared`` (the entry's ``vcf_sample``) is the operator's recorded word: the column
+      it names is read, or, when it is the target's own id, the file's single column.
+    * Otherwise the column the shared alias rules resolve to the target is read
+      (``<sample>_sort``, ``<sample>_sv_phased``), whichever position it has.
+    * A single column that names no known sample (a caller's placeholder, as HiFiCNV's
+      ``Sample0``) belongs to the target by construction.
+    * A column naming another sample -- a family member, or a sample elsewhere in CoGA --
+      with no column for the target is refused, as is a file with two columns for it.
+    """
+    if not header_samples:
+        raise VcfSampleColumnError(f"{label} has no sample column")
+    if declared:
+        if declared in header_samples:
+            return header_samples.index(declared)
+        if declared == target_sample_id and len(header_samples) == 1:
+            return 0
+        if declared != target_sample_id:
+            raise VcfSampleColumnError(
+                f"{label}: vcf_sample '{declared}' is neither a column of the file "
+                f"{header_samples} nor {target_sample_id}"
+            )
+    resolved = [
+        resolve_vcf_sample_id(column, known_sample_ids | {target_sample_id})
+        for column in header_samples
+    ]
+    target_columns = [index for index, sample in enumerate(resolved) if sample == target_sample_id]
+    if len(target_columns) == 1:
+        return target_columns[0]
+    if len(target_columns) > 1:
+        raise VcfSampleColumnError(
+            f"{label} has more than one sample column for {target_sample_id}: "
+            f"{[header_samples[index] for index in target_columns]}"
+        )
+    if len(header_samples) == 1 and resolved[0] is None:
+        return 0
+    named = {column: sample for column, sample in zip(header_samples, resolved) if sample is not None}
+    if named:
+        described = ", ".join(f"'{column}' is {sample}" for column, sample in named.items())
+        message = f"{label} has no sample column for {target_sample_id}: {described}."
+    else:
+        message = (
+            f"{label} has no sample column for {target_sample_id}: its columns "
+            f"{header_samples} name no known sample."
+        )
+    raise VcfSampleColumnError(f"{message} {remedy}".strip())
 
 
 def vcf_sample_alias_map(

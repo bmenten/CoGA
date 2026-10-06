@@ -634,6 +634,7 @@ async def upload_family_small_variant_file(
     vep_annotations: VepAnnotationLookup | None = None,
     overwrite_scope: Literal["source", "samples"] = "source",
     record_filter: SmallVariantRecordFilter | None = None,
+    sample_column: str | None = None,
 ) -> dict[str, Any]:
     """Load a family's small-variant VCF into ClickHouse.
 
@@ -660,6 +661,10 @@ async def upload_family_small_variant_file(
     other call of the callset is written back as stored, and each variant stays one row
     holding every sample's call. The conflict (409) is then about those samples' calls,
     and the file's rows are merged into the stored ones at its end, in one rewrite.
+
+    ``sample_column`` reads that one ``#CHROM`` column and ignores the others: a file stored
+    as one sample's (the per-sample mitochondrial files), whose sample the caller chose with
+    ``per_sample_vcf_column``. Without it every column is read.
 
     ``record_filter`` decides, per parsed record, whether it is stored; the records it
     drops are counted (``skipped_by_filter``). The NIPT import uses it to leave out the
@@ -774,6 +779,10 @@ async def upload_family_small_variant_file(
         # every other sample's calls.
         mutation_started = not samples_scope
         sample_names: list[str] = []
+        # The #CHROM line's sample-column count, and the one column read when the upload
+        # reads a single column of the file (``sample_column``).
+        header_column_count = 0
+        selected_column: int | None = None
         annotation_state = AnnotationHeaderState()
         provenance_header_lines: list[str] = []
         inserted = 0
@@ -843,10 +852,20 @@ async def upload_family_small_variant_file(
                 provenance_header_lines.append(line.rstrip())
             if line.startswith("#CHROM"):
                 header = line.strip().split("\t")
+                header_columns = header[9:]
+                header_column_count = len(header_columns)
+                if sample_column is not None:
+                    if sample_column not in header_columns:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"The VCF has no sample column '{sample_column}'",
+                        )
+                    selected_column = header_columns.index(sample_column)
+                    header_columns = [sample_column]
                 # Rewrite each VCF sample column to its family sample id up front, so
                 # every downstream lookup (calls, haplotype state, parent roles) works
                 # in family-sample-id space and never has to know about the alias.
-                sample_names = [alias_map.get(name, name) for name in header[9:]]
+                sample_names = [alias_map.get(name, name) for name in header_columns]
                 unique_names = list(dict.fromkeys(sample_names))
                 for name in unique_names:
                     if name not in sample_contexts:
@@ -898,9 +917,11 @@ async def upload_family_small_variant_file(
             # A data row whose sample-column count doesn't match the #CHROM header is
             # malformed: a bare zip() would silently truncate to the shorter side and
             # attach genotype calls to the wrong samples. Skip it (counted) instead.
-            if sample_names and len(sample_fields) != len(sample_names):
+            if sample_names and len(sample_fields) != header_column_count:
                 skipped_malformed += 1
                 continue
+            if selected_column is not None:
+                sample_fields = [sample_fields[selected_column]]
             chrom = normalize_chromosome(chrom)
             # A malformed POS can't position the variant. Skip the row (counted +
             # reported below) rather than aborting the whole ingest with a 500 and
@@ -916,7 +937,8 @@ async def upload_family_small_variant_file(
             calls_by_sample: dict[str, SmallVariantCall] = {}
             # A one-sample VCF's record is that call's own: its FILTER and caller metrics
             # go with the call (a Mutect2 tumour-only call's quality is TLOD; it has no QUAL).
-            single_sample = len(sample_names) == 1
+            # One column read from a multi-sample file is not: its record is every sample's.
+            single_sample = header_column_count == 1
             for sample_name, sample_field in zip(sample_names, sample_fields):
                 fmt_vals = _parse_format(fmt, sample_field)
                 gt_val = fmt_vals.get("GT", "./.")

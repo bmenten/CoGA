@@ -378,3 +378,41 @@ def test_vcf_sample_name_candidates_strip_known_tool_suffixes() -> None:
     assert set(candidates[1:]) == {"S1", "S1_sv"}
     assert vcf_sample_name_candidates("Sample0") == ["Sample0"]
     assert vcf_sample_name_candidates("  ") == []
+
+
+@pytest.mark.parametrize("declared", ["OTHER_TUBE_sort", "CHILD"])
+@pytest.mark.asyncio
+async def test_a_package_entrys_vcf_sample_confirms_a_column_named_after_another_sample(declared: str) -> None:
+    """A lab that verified the tubes maps a sample to a file named after another tube; the
+    entry's vcf_sample (the column, or the sample itself) is its recorded word for it."""
+    session = _UploadSession(["MOTHER", "CHILD", "FATHER", "OTHER_TUBE"])
+
+    await repeat_expansion_pg.ingest_trgt_text(
+        session,
+        sample_context=_child_context(),
+        text_value=_trgt_vcf(["OTHER_TUBE_sort"], [33]),
+        metadata={"filename": "other_tube.trgt.vcf", "source": "trgt"},
+        declared=declared,
+    )
+
+    assert _stored_counts(session) == [([33], "OTHER_TUBE_sort")]
+
+
+@pytest.mark.asyncio
+async def test_a_vcf_sample_naming_neither_a_column_nor_the_sample_is_refused() -> None:
+    from fastapi import HTTPException
+
+    session = _UploadSession(["MOTHER", "CHILD", "FATHER"])
+
+    with pytest.raises(HTTPException) as raised:
+        await repeat_expansion_pg.ingest_trgt_text(
+            session,
+            sample_context=_child_context(),
+            text_value=_trgt_vcf(["CHILD_sort"], [45]),
+            metadata={"filename": "child.trgt.vcf", "source": "trgt"},
+            declared="CHLD",
+        )
+
+    assert raised.value.status_code == 400
+    assert "vcf_sample 'CHLD'" in str(raised.value.detail)
+    assert _stored_counts(session) == []

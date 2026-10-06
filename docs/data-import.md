@@ -659,13 +659,23 @@ page asks before it sends that.
 | Repeat expansions (TRGT VCF) | `POST /repeat-expansions/upload/{sample_id}` | Postgres |
 | Interval tracks (BED) | `POST /bed/upload/{sample_id}/{bed_type}` | ClickHouse |
 
-A TRGT upload (and a package's per-sample TRGT file) reads the column the shared sample-name
-rules resolve to the target sample (`<sample>_sort`), at any position, so a family TRGT VCF can be
-uploaded member by member. A single column that names no stored sample (a caller's placeholder,
-such as `Sample0`) belongs to the target. A file with no column for the target whose columns name
-other samples (a family member, or a sample of another family: sample ids are unique) is refused
-(400) before anything is written, as is a file with two columns for it. Each stored call records
-its column (`metadata.vcf_sample`).
+A file stored as one sample's -- a TRGT upload, and a package's per-sample `repeats_trgt`,
+`mito` and `cnv` (HiFiCNV) files -- is read from that sample's own column
+(`per_sample_vcf_column`):
+
+- the column the shared sample-name rules resolve to the sample (`<sample>_sort`,
+  `<sample>_sv_phased`) is read, at any position, so a family TRGT or chrM VCF can serve each
+  member in turn;
+- a single column that names no stored sample (a caller's placeholder, such as HiFiCNV's
+  `Sample0`) belongs to the sample;
+- a file whose columns name other samples and none this one (a family member, or a sample
+  of another family: sample ids are unique) is refused before anything is written, as is a
+  file with two columns for it: the upload with 400, a package dataset as failed;
+- a package entry's `vcf_sample` is the operator's recorded word: the column it names is
+  read, or, set to the entry's own sample, the file's one column. A lab that verified its
+  tubes and maps a sample to a file named after another tube sets it.
+
+Each stored TRGT call records its column (`metadata.vcf_sample`).
 
 `bed_type` is `coverage`, `segments`, `apcad` or `apcad_pcf`. Haplotype blocks cannot be
 uploaded as a BED; they come from a GLIMPSE2 small-variant upload (`source_format=glimpse2`)
@@ -751,6 +761,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
+| "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. |
 | `nipt_pair_detected` (warning) | Discover took the folder for a monogenic NIPT pair. Check the sample it took for the maternal plasma and the one it took for the father. |
 | `dataset_per_sample_unsupported` | `snv.per_sample` in a family that is not `analysis_type: monogenic_nipt`; give a joint VCF as `snv.family_vcf`. |
 | `dataset_vcf_not_single_sample` | A VCF of a NIPT pair holds no sample column or more than one. |

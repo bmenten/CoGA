@@ -217,6 +217,7 @@ def _iter_cnv_structural_records(
     *,
     sample_id: str,
     source: str = "hificnv",
+    sample_column: int = 0,
 ) -> list[StructuralVariantRecord]:
     """Parse a depth-based CNV caller's VCF (HiFiCNV) into structural-variant records.
 
@@ -231,7 +232,8 @@ def _iter_cnv_structural_records(
       (``Sample0``), not the sample. The record is bound to ``sample_id`` -- the sample
       the manifest declares this file for -- so the calls stay visible. Copying the
       caller's name through would store rows that the project-scoped read path filters
-      out again, an import that "succeeds" and shows nothing.
+      out again, an import that "succeeds" and shows nothing. ``sample_column`` is the
+      column the importer checked holds that sample (``per_sample_vcf_column``).
     """
     annotation_state = AnnotationHeaderState()
     records: list[StructuralVariantRecord] = []
@@ -258,8 +260,8 @@ def _iter_cnv_structural_records(
         filt = None if filt_raw in {"", "."} else filt_raw
         copy_number: int | None = None
         gt = "./."
-        if len(parts) >= 10:
-            fmt_vals = _parse_format(parts[8], parts[9])
+        if len(parts) > 9 + sample_column:
+            fmt_vals = _parse_format(parts[8], parts[9 + sample_column])
             gt = fmt_vals.get("GT") or "./."
             copy_number = _coerce_int(fmt_vals.get("CN"))
         annotations = extract_small_variant_annotations(info, annotation_state)
