@@ -262,6 +262,22 @@ _VCF_SAMPLE_SUFFIXES = (
 )
 
 
+def vcf_sample_name_candidates(header_sample: str) -> list[str]:
+    """The sample ids a VCF column could be named after: the name itself first, then the
+    name with each known tool suffix stripped (``HG002_sort`` -> ``HG002``)."""
+    name = header_sample.strip()
+    if not name:
+        return []
+    candidates = [name]
+    lowered = name.lower()
+    for suffix in _VCF_SAMPLE_SUFFIXES:
+        if lowered.endswith(suffix) and len(name) > len(suffix):
+            stripped = name[: -len(suffix)]
+            if stripped not in candidates:
+                candidates.append(stripped)
+    return candidates
+
+
 def resolve_vcf_sample_id(
     header_sample: str,
     family_sample_ids: set[str] | dict[str, Any],

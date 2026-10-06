@@ -659,6 +659,14 @@ page asks before it sends that.
 | Repeat expansions (TRGT VCF) | `POST /repeat-expansions/upload/{sample_id}` | Postgres |
 | Interval tracks (BED) | `POST /bed/upload/{sample_id}/{bed_type}` | ClickHouse |
 
+A TRGT upload (and a package's per-sample TRGT file) reads the column the shared sample-name
+rules resolve to the target sample (`<sample>_sort`), at any position, so a family TRGT VCF can be
+uploaded member by member. A single column that names no stored sample (a caller's placeholder,
+such as `Sample0`) belongs to the target. A file with no column for the target whose columns name
+other samples (a family member, or a sample of another family: sample ids are unique) is refused
+(400) before anything is written, as is a file with two columns for it. Each stored call records
+its column (`metadata.vcf_sample`).
+
 `bed_type` is `coverage`, `segments`, `apcad` or `apcad_pcf`. Haplotype blocks cannot be
 uploaded as a BED; they come from a GLIMPSE2 small-variant upload (`source_format=glimpse2`)
 or package.

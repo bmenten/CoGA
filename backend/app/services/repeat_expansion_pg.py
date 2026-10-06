@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import bindparam, text
+from sqlalchemy import String, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
@@ -21,7 +21,7 @@ from ..schemas import (
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .upload_safety import decode_upload_text
-from .family_package_common import resolve_vcf_sample_id
+from .family_package_common import resolve_vcf_sample_id, vcf_sample_name_candidates
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
 from .vcf_header_provenance import extract_header_provenance
 
@@ -819,6 +819,7 @@ def _build_trgt_insert_params(
                 **metadata,
                 "trid": trid,
                 "motifs": motifs,
+                "vcf_sample": header_sample,
                 "raw_format": sample_values,
             }
         ),
@@ -852,6 +853,91 @@ async def _update_sample_repeat_file(
     )
 
 
+_KNOWN_SAMPLE_IDS_SQL = text(
+    """
+    SELECT sample_id
+    FROM samples
+    WHERE family_id = CAST(:family_uuid AS uuid)
+       OR sample_id IN :names
+    """
+).bindparams(bindparam("names", expanding=True, type_=String()))
+
+
+async def _known_sample_ids(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    header_samples: list[str],
+) -> set[str]:
+    """The sample ids a per-sample TRGT file's columns are checked against: every member
+    of the target's family, and any stored sample a column is named after (as is, or with
+    a tool suffix stripped) -- sample ids are unique across CoGA, so a column naming a
+    sample of another family is recognised too."""
+    names = sorted(
+        {candidate for column in header_samples for candidate in vcf_sample_name_candidates(column)}
+    )
+    if not names:
+        names = [""]
+    result = await session.execute(
+        _KNOWN_SAMPLE_IDS_SQL,
+        {"family_uuid": family_uuid, "names": names},
+    )
+    return {str(row["sample_id"]) for row in result.mappings().all() if row.get("sample_id")}
+
+
+def _trgt_sample_column(
+    header_samples: list[str],
+    *,
+    target_sample_id: str,
+    known_sample_ids: set[str],
+) -> int:
+    """The index of the ``#CHROM`` sample column that holds ``target_sample_id``'s calls.
+
+    A per-sample upload used to read the first column whatever it was named, so a family
+    TRGT VCF uploaded for the child stored the mother's repeat sizes as the child's, and
+    another sample's file uploaded by mistake was taken as this sample's. Now:
+
+    * the column the shared alias rules resolve to the target is read (TRGT names it after
+      the sorted BAM, ``<sample>_sort``), whichever position it has;
+    * a single column that names no known sample (a caller's placeholder, as HiFiCNV's
+      ``Sample0``) belongs to the target by construction, as for the other per-sample files;
+    * a column naming another sample -- a family member, or a sample elsewhere in CoGA --
+      with no column for the target is refused, as is a file with two columns for it.
+    """
+    resolved = [
+        resolve_vcf_sample_id(column, known_sample_ids | {target_sample_id})
+        for column in header_samples
+    ]
+    target_columns = [index for index, sample in enumerate(resolved) if sample == target_sample_id]
+    if len(target_columns) == 1:
+        return target_columns[0]
+    if len(target_columns) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"TRGT VCF has more than one sample column for {target_sample_id}: "
+                f"{[header_samples[index] for index in target_columns]}"
+            ),
+        )
+    if len(header_samples) == 1 and resolved[0] is None:
+        return 0
+    named = {
+        column: sample for column, sample in zip(header_samples, resolved) if sample is not None
+    }
+    if named:
+        described = ", ".join(f"'{column}' is {sample}" for column, sample in named.items())
+        detail = (
+            f"TRGT VCF has no sample column for {target_sample_id}: {described}. "
+            "Upload this sample's own file."
+        )
+    else:
+        detail = (
+            f"TRGT VCF has no sample column for {target_sample_id}: its columns "
+            f"{header_samples} name no known sample"
+        )
+    raise HTTPException(status_code=400, detail=detail)
+
+
 async def ingest_trgt_text(
     session: AsyncSession,
     *,
@@ -861,6 +947,7 @@ async def ingest_trgt_text(
 ) -> dict[str, int | str]:
     lines = text_value.splitlines()
     header_samples: list[str] = []
+    sample_column = 0
     inserted = 0
     processed = 0
     locus_lookup = await _build_repeat_locus_lookup(session)
@@ -869,6 +956,18 @@ async def ingest_trgt_text(
     for line in lines:
         if line.startswith("#CHROM"):
             header_samples = line.strip().split("\t")[9:]
+            if header_samples:
+                # Decided before any row is written: a refused file leaves the stored
+                # calls as they were (the caller's delete is rolled back with it).
+                sample_column = _trgt_sample_column(
+                    header_samples,
+                    target_sample_id=sample_context.sample_id,
+                    known_sample_ids=await _known_sample_ids(
+                        session,
+                        family_uuid=sample_context.family_uuid,
+                        header_samples=header_samples,
+                    ),
+                )
             continue
         if not line or line.startswith("#"):
             continue
@@ -879,9 +978,11 @@ async def ingest_trgt_text(
         if not header_samples:
             raise HTTPException(status_code=400, detail="TRGT VCF header is missing a sample column")
 
+        sample_fields = fields[9:]
+        if sample_column >= len(sample_fields):
+            continue
         processed += 1
         chrom, pos, _vid, ref, _alt, _qual, _filter, info_field, format_field = fields[:9]
-        sample_fields = fields[9:]
         insert_records.append(
             _build_trgt_insert_params(
                 sample_context=sample_context,
@@ -891,8 +992,8 @@ async def ingest_trgt_text(
                 ref=ref,
                 info_field=info_field,
                 format_field=format_field,
-                sample_field=sample_fields[0],
-                header_sample=header_samples[0],
+                sample_field=sample_fields[sample_column],
+                header_sample=header_samples[sample_column],
                 metadata=metadata,
             )
         )

@@ -247,6 +247,12 @@ calls apart:
   call: the SV list shows the SV once per caller, with that caller's genotypes, and both rows share
   the SV's review, tags and note.
 
+A repeat-expansion (TRGT) file is read for the sample you upload it for: CoGA takes the column named
+after that sample (TRGT writes `<sample>_sort`), wherever it is in the file, so a family TRGT VCF can be
+uploaded member by member. A file with one column that names no sample (such as `Sample0`) is taken
+as that sample's. A file whose column names another sample, of this family or another, is refused, and
+nothing is replaced.
+
 Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
 source. The upload and this delete leave every other call as it was, with its phase, including the calls
 of a member removed from the family.
