@@ -37,7 +37,7 @@ react-router 8 (#389).
 | --- | --- |
 | Exposure | **Build and test tools only** — nothing in this tree ships in the deployed frontend. |
 | Mechanism | A non-blocking `npm audit --audit-level=high` step in `security.yml` shows any advisory as a CI `::warning::`. |
-| Status (2026-09-29) | `npm audit` over the full tree reports **no advisories**. The last known finding, `brace-expansion` GHSA-mh99-v99m-4gvg, was fixed by the non-breaking update to 1.1.18 (#442). `minimatch@3` is still pulled in by `eslint-plugin-react@7.37.5`. |
+| Status (2026-10-06) | `npm audit` over the full tree reports **no advisories**. The last known finding, `source-map-js` GHSA-68fv-2mgg-jv7q, which postcss, Tailwind, jsdom and the coverage tool pull in, was fixed by the non-breaking update to 1.2.2 (#755), as `brace-expansion` GHSA-q2hr-2g5m-vwhr was by 1.1.21 (#722). `minimatch@3` is still pulled in by `eslint-plugin-react@7.37.5`. |
 | Flip action | Make the step blocking. Nothing in the tree prevents it today; **🔲 owner decision**. |
 
 ---
