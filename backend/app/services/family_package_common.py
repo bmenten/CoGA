@@ -100,6 +100,9 @@ CNV_SOURCE = "hificnv"
 
 
 MITO_SOURCE = "mito"
+# chrM structural variants (Sniffles2 --mosaic on chrM): their own SV source, so a nuclear
+# SV re-import never removes them, nor they it.
+MITO_SV_SOURCE = "mito_sv"
 
 
 class ManifestDataset(BaseModel):

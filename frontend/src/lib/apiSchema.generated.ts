@@ -576,6 +576,7 @@ export interface FamilyMetadataUpdate {
 export interface FamilyMitoDNAAnalysisOut {
   samples: MitoDNASampleOut[];
   variants: MitoDNAVariantOut[];
+  structural_variants: MitoDNAStructuralVariantOut[];
   variant_count: number;
   has_coverage: boolean;
   qc_notes: string[];
@@ -1447,6 +1448,26 @@ export interface MitoDNASampleOut {
   haplogroup: string | null;
   coverage: MitoDNACoverageOut;
   qc: MitoDNAQcOut;
+}
+
+export interface MitoDNAStructuralVariantCallOut {
+  sample: string;
+  role: string | null;
+  genotype: string;
+  heteroplasmy: number | null;
+  read_support: number | null;
+}
+
+export interface MitoDNAStructuralVariantOut {
+  variant_id: string;
+  sv_type: string;
+  start: number;
+  end: number;
+  length: number | null;
+  genes: string[];
+  source: string | null;
+  filters: string[];
+  calls: Record<string, MitoDNAStructuralVariantCallOut>;
 }
 
 export interface MitoDNAVariantAnnotationOut {

@@ -514,7 +514,7 @@ The `snv` dataset takes three optional settings:
 | `haplotypes` | a phased family VCF (GLIMPSE2, or SHAPEIT5 from the PGT pipeline) becomes small variants plus haplotype blocks, with a switch in a parent's phasing undone where the couple's children all switch together (kept in `families.metadata.haplotype_phase_corrections`); a per-sample BCF is only registered, not imported. The PGT pipeline's haplotype-origin files (`haplotype_origin`, `haplotype_conclusion`) are kept on the family as its reading of the affected haplotype; CoGA's own risk call does not use them |
 | `paraphase` | Paraphase results (Postgres), shown on the family's Paraphase page |
 | `cnv` (HiFiCNV) | structural variants, source `hificnv`; the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers), and the MAF bigWig as `apcad` |
-| `mito` | chrM small variants, source `mito`, annotated from the mutserve table, and each sample's mtDNA haplogroup, the one most of its annotated variants name |
+| `mito` | chrM small variants, source `mito`, annotated from the mutserve table, and each sample's mtDNA haplogroup, the one most of its annotated variants name; the chrM SV file (`sv_vcf`, Sniffles2 `--mosaic`) as structural variants, source `mito_sv`, with each sample's heteroplasmy (`INFO/VAF`) and the mtDNA genes it overlaps, shown on the mtDNA page |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table: NanoPlot and mosdepth, or the PGT pipeline's mean coverage, Qualimap summary and report, and ngs-bits sex. The PGT pipeline's family tables (`ado_adi`, `concordance`, `imputed_concordance`) go onto each embryo, its KING table (`kinship`) onto the family |
 | `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI |
 | `pipeline_info` | tool versions in the annotation manifest; run parameters on the family (for the PGT pipeline also the affected parent, the ROI, the QDNAseq bin size, and the callset and phasing panel it started from) |
@@ -525,6 +525,8 @@ another, and two callers' rows of one variant stay two rows in storage
 each file replaces only that sample's calls. The other samples' mitochondrial calls stay as
 they are, one row per variant with every sample's call, so the mtDNA analysis can set the
 mother's calls beside the children's. A file without chrM variants removes that sample's calls.
+The chrM SV files follow the same rule: one deletion called in the mother and the child is one
+SV with both calls, and a sample's new SV file replaces only that sample's calls.
 
 The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
 lists them). The three HiFiCNV files are also served unchanged to the genome browser (IGV),
@@ -660,8 +662,9 @@ page asks before it sends that.
 | Interval tracks (BED) | `POST /bed/upload/{sample_id}/{bed_type}` | ClickHouse |
 
 A file stored as one sample's -- a TRGT upload, and a package's per-sample `repeats_trgt`,
-`mito` and `cnv` (HiFiCNV) files -- is read from that sample's own column
-(`per_sample_vcf_column`):
+`mito` (its chrM VCF and its chrM SV VCF) and `cnv` (HiFiCNV) files -- is read from that
+sample's own column (`per_sample_vcf_column`; a `mito` dataset checks all its files before it
+writes any):
 
 - the column the shared sample-name rules resolve to the sample (`<sample>_sort`,
   `<sample>_sv_phased`) is read, at any position, so a family TRGT or chrM VCF can serve each

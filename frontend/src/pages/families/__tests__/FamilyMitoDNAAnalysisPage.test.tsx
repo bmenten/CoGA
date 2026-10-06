@@ -341,6 +341,21 @@ describe('FamilyMitoDNAAnalysisPage', () => {
               variant('m.73A>G', 73, 0.85, []),
               variant('m.8860A>G', 8860, 0.97, ['synonymous_variant']),
             ],
+            structural_variants: [
+              {
+                variant_id: 'SV-M-8470-13447-DEL',
+                sv_type: 'DEL',
+                start: 8470,
+                end: 13447,
+                length: 4977,
+                genes: ['MT-ATP8', 'MT-ND5'],
+                source: 'mito_sv',
+                filters: [],
+                calls: {
+                  PROBAND: { sample: 'PROBAND', role: 'proband', genotype: '0/1', heteroplasmy: 0.35, read_support: 140 },
+                },
+              },
+            ],
           },
         });
       }
@@ -361,6 +376,13 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/3 of 3 variants/)).toBeInTheDocument();
     });
+
+    // The chrM deletion and its heteroplasmy, which used to be dropped at import.
+    expect(screen.getByRole('heading', { name: 'Mitochondrial structural variants' })).toBeInTheDocument();
+    const svRow = screen.getByRole('row', { name: /DEL m\.8,470-13,447/ });
+    expect(within(svRow).getByText('4,977 bp')).toBeInTheDocument();
+    expect(within(svRow).getByText('MT-ATP8, MT-ND5')).toBeInTheDocument();
+    expect(within(svRow).getByText('PROBAND: 35.0% (140 reads)')).toBeInTheDocument();
 
     // gnomAD frequency: ≤5% removes both common variants, keeps the rare one
     // (no annotated frequency is treated as not-common, so it stays).

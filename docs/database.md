@@ -222,7 +222,8 @@ hold several callsets side by side. Small variants: `clair3` (the primary callse
 caller made it), `glimpse2` (imputed; hidden from the diagnostic lists by default), `mito`
 (chrM) and `nipt` (a monogenic NIPT pair: the plasma's and the father's single-sample VCFs, each
 merged into the callset for its own sample, so a variant is one row holding each sample's call
-where its file has one). Structural variants: `needlr` and `hificnv` from packages, and
+where its file has one). Structural variants: `needlr`, `hificnv` and `mito_sv` (chrM deletions and duplications, each
+sample's heteroplasmy in the record's annotations) from packages, and
 `manual_upload`, `sniffles` or `spectre` from a direct upload.
 
 Deleting a sample (`DELETE /admin/samples/{sample_id}`) rewrites the family's

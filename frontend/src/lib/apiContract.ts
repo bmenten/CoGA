@@ -91,6 +91,8 @@ export type ApiContract = [
   Check<Fits<Api.ApiMitoDNASample, Schema.MitoDNASampleOut>>,
   Check<Fits<Api.ApiMitoDNAVariantSampleCall, Schema.MitoDNAVariantSampleCallOut>>,
   Check<Fits<Api.ApiMitoDNAVariantAnnotation, Schema.MitoDNAVariantAnnotationOut>>,
+  Check<Fits<Api.ApiMitoDNAStructuralVariantCall, Schema.MitoDNAStructuralVariantCallOut>>,
+  Check<Fits<Api.ApiMitoDNAStructuralVariant, Schema.MitoDNAStructuralVariantOut>>,
   Check<Fits<Api.ApiRepeatExpansionTrackItem, Schema.RepeatExpansionTrackItemOut>>,
   Check<Fits<Api.ApiRepeatExpansionTrackResponse, Schema.RepeatExpansionTrackResponse>>,
   Check<Fits<Api.ApiGithubRelease, Schema.GithubReleaseOut>>,

@@ -107,9 +107,34 @@ class MitoDNAVariantOut(BaseModel):
     review: Optional[SmallVariantReviewOut] = None
 
 
+class MitoDNAStructuralVariantCallOut(BaseModel):
+    sample: str
+    role: Optional[str] = None
+    genotype: str
+    # The caller's fraction of reads carrying the event (Sniffles INFO/VAF): its
+    # heteroplasmy level.
+    heteroplasmy: Optional[float] = None
+    read_support: Optional[int] = None
+
+
+class MitoDNAStructuralVariantOut(BaseModel):
+    variant_id: str
+    sv_type: str
+    start: int
+    end: int
+    length: Optional[int] = None
+    genes: List[str] = Field(default_factory=list)
+    source: Optional[str] = None
+    filters: List[str] = Field(default_factory=list)
+    calls: Dict[str, MitoDNAStructuralVariantCallOut] = Field(default_factory=dict)
+
+
 class FamilyMitoDNAAnalysisOut(BaseModel):
     samples: List[MitoDNASampleOut] = Field(default_factory=list)
     variants: List[MitoDNAVariantOut] = Field(default_factory=list)
+    # chrM structural variants (large deletions and duplications), with each sample's
+    # heteroplasmy.
+    structural_variants: List[MitoDNAStructuralVariantOut] = Field(default_factory=list)
     # Presence summary; with ``count_only`` the heavy ``variants``/``samples``
     # payload is skipped and only these two fields are returned.
     variant_count: int = 0

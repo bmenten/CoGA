@@ -70,7 +70,7 @@ Each layer is optional and switches on part of CoGA.
 | **Structural variants** | the structural-variant page, its review, CNV classification and the variant summary |
 | **Repeat expansions (TRGT)** | the repeat-expansion page, scored against the STRchive loci |
 | **Paraphase** | resolution of paralogous genes and segmental duplications |
-| **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy) |
+| **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy, and chrM deletions and duplications) |
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
 
 Several of these also feed the [Sample-integrity QC](/docs/reference/sample-qc) and the versions
@@ -113,7 +113,7 @@ pacbio/
   snv/        HG002/annotation/HG002_annot.vcf.gz (+ .tbi)  VEP-annotated
   sv/         HG002/annotation/HG002_sv_phased.needLR.4.0.vcf.gz
   cnv/        HG002/annotation/HG002_annot.vcf.gz + HG002.*.copynum.bedgraph
-  mito/       HG002/HG002.vcf.gz + annotation/HG002/HG002_snv_annot.txt
+  mito/       HG002/HG002.vcf.gz + annotation/HG002/HG002_snv_annot.txt, HG002/HG002_sv.vcf.gz
   repeats/    HG002/HG002_tr.vcf.gz (+ .csi)
   paraphase/  HG002/HG002.paraphase.json
   qc/         nanoplot/HG002/*NanoPlot-report.html + *NanoStats.txt, depth/HG002/*.mosdepth.summary.txt
@@ -184,7 +184,9 @@ dropped silently.
 **Mitochondrial calls are replaced per sample.** A package holds one mitochondrial file per sample,
 and each file replaces only that sample's calls. The other family members' calls stay as they are, so
 the mtDNA analysis keeps the mother's calls beside the children's for the maternal transmission. A file
-without chrM variants removes that sample's calls.
+without chrM variants removes that sample's calls. The chrM structural-variant files (large deletions and
+duplications) are replaced per sample the same way, and the mtDNA analysis lists them with each member's
+heteroplasmy.
 
 ### What validation checks
 

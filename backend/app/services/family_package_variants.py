@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import logging
 from pathlib import Path
@@ -8,7 +9,11 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .clickhouse_variant_records import StructuralVariantCall, StructuralVariantRecord
+from .clickhouse_variant_records import (
+    StoredStructuralVariantRow,
+    StructuralVariantCall,
+    StructuralVariantRecord,
+)
 from .clickhouse_variant_ids import build_structural_variant_id
 from .data_scope import normalize_chromosome
 from .family_metadata_context import (
@@ -21,7 +26,7 @@ from .variant_annotation_parser import (
     update_annotation_header_state,
 )
 
-from .family_package_common import ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
+from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
 
 
 logger = logging.getLogger(__name__)
@@ -442,3 +447,163 @@ async def _replace_sample_paraphase_rows(
             rows[index : index + 1000],
         )
     await session.commit()
+
+
+def _mt_genes_overlapping(start: int, end: int) -> list[str]:
+    # Imported here: the mtDNA analysis module sits above the package importers.
+    from .mitochondrial_analysis import MT_LOCI
+
+    low, high = min(start, end), max(start, end)
+    genes: list[str] = []
+    for locus in MT_LOCI:
+        gene = str(locus["gene"])
+        if int(locus["start"]) <= high and int(locus["end"]) >= low and gene not in genes:
+            genes.append(gene)
+    return genes
+
+
+def _iter_mito_sv_records(
+    text_value: str, *, sample_id: str, sample_column: int = 0
+) -> list[StructuralVariantRecord]:
+    """Parse one sample's chrM SV VCF (Sniffles2 ``--mosaic -c chrM``) into SV records.
+
+    A large mtDNA deletion is heteroplasmic, so the caller's ``INFO/VAF`` -- the fraction
+    of reads that carry the event, i.e. its heteroplasmy -- is what a reader needs; it is
+    kept per sample in the record's annotations, beside the read support (``FORMAT/DV``,
+    else ``INFO/SUPPORT``). The record is bound to ``sample_id``, the sample the manifest
+    declares the file for, as the HiFiCNV path does: these files carry one call.
+
+    The id is built from the coordinates, not Sniffles' own (``Sniffles2.DEL.3M0`` repeats
+    across samples and runs), so the same event called in a mother and her child is one
+    SV with both calls once the importer merges the samples' records. ``sample_column`` is
+    the column the importer checked holds that sample (``per_sample_vcf_column``).
+    """
+    records: list[StructuralVariantRecord] = []
+    for line in text_value.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        parts = line.rstrip("\n\r").split("\t")
+        if len(parts) < 8:
+            continue
+        chrom, pos_raw, _record_id, ref, alt, qual_raw, filt_raw, info_raw = parts[:8]
+        if normalize_chromosome(chrom).upper() not in {"M", "MT"}:
+            continue
+        start = _coerce_int(pos_raw)
+        if start is None:
+            continue
+        info = _parse_vcf_info(info_raw)
+        sv_type = (_first_info_value(info, "SVTYPE") or alt.strip("<>") or "SV").upper()
+        sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
+        end = _coerce_int(_first_info_value(info, "END"))
+        if end is None:
+            end = start + abs(sv_len or 0)
+        fmt_vals = (
+            _parse_format(parts[8], parts[9 + sample_column]) if len(parts) > 9 + sample_column else {}
+        )
+        gt = fmt_vals.get("GT") or "./."
+        alleles = gt.replace("|", "/").split("/")
+        if not any(allele not in {"0", "."} for allele in alleles):
+            # Sniffles writes 0/0 for a site it genotyped and found no support for.
+            continue
+        filt = None if filt_raw in {"", ".", "PASS"} else filt_raw
+        read_support = _coerce_int(fmt_vals.get("DV")) or _coerce_int(_first_info_value(info, "SUPPORT"))
+        heteroplasmy = _coerce_finite_float(_first_info_value(info, "VAF"))
+        variant_id = build_structural_variant_id(chrom, start, end, sv_type, source=MITO_SV_SOURCE)
+        records.append(
+            StructuralVariantRecord(
+                variant_key=None,
+                variant_id=variant_id,
+                chr=normalize_chromosome(chrom),
+                start=start,
+                end=end,
+                sv_type=sv_type,
+                source=MITO_SV_SOURCE,
+                remote_chr=None,
+                remote_start=None,
+                remote_end=None,
+                sv_len=sv_len,
+                filters=[] if filt is None else filt.split(";"),
+                gene_symbols=_mt_genes_overlapping(start, end),
+                annotations=[
+                    {
+                        "source": MITO_SV_SOURCE,
+                        "sample": sample_id,
+                        "heteroplasmy": heteroplasmy,
+                        "ref": ref,
+                        "alt": alt,
+                        "info": info,
+                    }
+                ],
+                calls=[
+                    StructuralVariantCall(
+                        sample=sample_id,
+                        gt=gt,
+                        qual=_coerce_finite_float(qual_raw),
+                        read_support=read_support,
+                        filter=filt,
+                    )
+                ],
+            )
+        )
+    return records
+
+
+def _merge_sv_records_by_id(records: list[StructuralVariantRecord]) -> list[StructuralVariantRecord]:
+    """One record per SV id holding every sample's call and annotation; per-sample files
+    call the same event once per sample."""
+    merged: dict[str, StructuralVariantRecord] = {}
+    for record in records:
+        existing = merged.get(record.variant_id)
+        if existing is None:
+            merged[record.variant_id] = record
+            continue
+        known = {call.sample for call in existing.calls}
+        existing.calls.extend(call for call in record.calls if call.sample not in known)
+        existing.annotations.extend(record.annotations)
+    return list(merged.values())
+
+
+def _mito_sv_rows_after_import(
+    stored_rows: list[StoredStructuralVariantRow],
+    new_records: list[StructuralVariantRecord],
+    *,
+    replaced_samples: set[str],
+    project_ids: list[str],
+) -> list[StoredStructuralVariantRow]:
+    """The family's ``mito_sv`` rows once ``replaced_samples`` have their new calls.
+
+    As the SNV path does, an import replaces the samples it brings a file for and nothing
+    else: every other sample's calls -- and their heteroplasmy annotations -- are written
+    back as stored, under their own project; a row left with no call goes. A new SV joins
+    the stored row of the same id, or gets a row in each of the family's projects.
+    ``replaced_samples`` holds each sample's id and uuid: a stored call names either.
+    """
+    rows: list[StoredStructuralVariantRow] = []
+    for row in stored_rows:
+        calls = [call for call in row.record.calls if call.sample not in replaced_samples]
+        if not calls:
+            continue
+        annotations = [
+            annotation
+            for annotation in row.record.annotations
+            if str(annotation.get("sample") or "") not in replaced_samples
+        ]
+        rows.append(replace(row, record=replace(row.record, calls=calls, annotations=annotations)))
+    by_identity = {(row.project_id, row.record.variant_id): row for row in rows}
+    for record in new_records:
+        for project_id in project_ids:
+            existing = by_identity.get((project_id, record.variant_id))
+            if existing is None:
+                fresh = StoredStructuralVariantRow(
+                    project_id=project_id,
+                    record=replace(record, calls=list(record.calls), annotations=list(record.annotations)),
+                )
+                by_identity[(project_id, record.variant_id)] = fresh
+                rows.append(fresh)
+                continue
+            existing.record.calls.extend(record.calls)
+            existing.record.annotations.extend(record.annotations)
+            existing.record.gene_symbols = list(
+                dict.fromkeys([*existing.record.gene_symbols, *record.gene_symbols])
+            )
+    return rows

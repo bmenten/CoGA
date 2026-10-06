@@ -531,6 +531,181 @@ def test_a_mutserve_parse_that_fails_leaves_no_temporary_database(
     assert list(tmp_path.iterdir()) == []
 
 
+# ---- chrM structural variants (Sniffles2 --mosaic -c chrM) ----------------------------
+
+_MITO_SV_HEADER = (
+    "##fileformat=VCFv4.2\n"
+    "##source=Sniffles2_2.7.3\n"
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample0\n"
+)
+
+
+def _mito_sv_line(start: int, end: int, gt: str, vaf: float, dv: int, *, chrom: str = "chrM") -> str:
+    return (
+        f"{chrom}\t{start}\tSniffles2.DEL.1M0\tN\t<DEL>\t60\tPASS\t"
+        f"PRECISE;SVTYPE=DEL;SVLEN=-{end - start};END={end};SUPPORT={dv};VAF={vaf}\t"
+        f"GT:GQ:DR:DV\t{gt}:60:{400 - dv}:{dv}\n"
+    )
+
+
+def test_mito_sv_records_keep_the_deletion_its_heteroplasmy_and_genes() -> None:
+    """The common 4977 bp deletion (m.8470-13447) at 35% heteroplasmy."""
+    from app.services.family_package_variants import _iter_mito_sv_records
+
+    text_value = _MITO_SV_HEADER + (
+        _mito_sv_line(8470, 13447, "0/1", 0.35, 140)
+        # Genotyped, no support: not a call.
+        + _mito_sv_line(3000, 3400, "0/0", 0.0, 0)
+        # Not chrM.
+        + _mito_sv_line(1000, 5000, "0/1", 0.5, 20, chrom="chr1")
+    )
+
+    records = _iter_mito_sv_records(text_value, sample_id="PROBAND")
+
+    assert len(records) == 1
+    record = records[0]
+    assert (record.chr, record.start, record.end, record.sv_type, record.source) == ("M", 8470, 13447, "DEL", "mito_sv")
+    assert record.sv_len == -4977
+    assert record.variant_id != "Sniffles2.DEL.1M0"
+    assert ["MT-ATP8", "MT-ND5"] == [gene for gene in record.gene_symbols if gene in {"MT-ATP8", "MT-ND5"}]
+    assert "MT-ND1" not in record.gene_symbols
+    assert [(call.sample, call.gt, call.read_support) for call in record.calls] == [("PROBAND", "0/1", 140)]
+    assert record.annotations[0]["sample"] == "PROBAND"
+    assert record.annotations[0]["heteroplasmy"] == 0.35
+
+
+def test_mito_sv_records_of_two_samples_merge_into_one_sv() -> None:
+    from app.services.family_package_variants import _iter_mito_sv_records, _merge_sv_records_by_id
+
+    mother = _iter_mito_sv_records(_MITO_SV_HEADER + _mito_sv_line(8470, 13447, "0/1", 0.05, 20), sample_id="MOTHER")
+    child = _iter_mito_sv_records(_MITO_SV_HEADER + _mito_sv_line(8470, 13447, "0/1", 0.35, 140), sample_id="CHILD")
+
+    merged = _merge_sv_records_by_id([*mother, *child])
+
+    assert len(merged) == 1
+    assert [call.sample for call in merged[0].calls] == ["MOTHER", "CHILD"]
+    assert {a["sample"]: a["heteroplasmy"] for a in merged[0].annotations} == {"MOTHER": 0.05, "CHILD": 0.35}
+
+
+def test_mito_sv_reimport_replaces_only_the_samples_it_brings() -> None:
+    from app.services.clickhouse_variant_records import StoredStructuralVariantRow
+    from app.services.family_package_variants import _iter_mito_sv_records, _mito_sv_rows_after_import
+
+    deletion = _mito_sv_line(8470, 13447, "0/1", 0.05, 20)
+    stored = _iter_mito_sv_records(_MITO_SV_HEADER + deletion, sample_id="MOTHER")[0]
+    child_old = _iter_mito_sv_records(_MITO_SV_HEADER + deletion, sample_id="CHILD")[0]
+    stored.calls.extend(child_old.calls)
+    stored.annotations.extend(child_old.annotations)
+    only_child = _iter_mito_sv_records(_MITO_SV_HEADER + _mito_sv_line(5000, 6000, "0/1", 0.2, 50), sample_id="CHILD")[0]
+    stored_only_child = StoredStructuralVariantRow(project_id="p1", record=only_child)
+
+    # The child's new file has a different deletion and lacks the shared one.
+    new = _iter_mito_sv_records(_MITO_SV_HEADER + _mito_sv_line(10000, 12000, "0/1", 0.4, 160), sample_id="CHILD")
+
+    rows = _mito_sv_rows_after_import(
+        [StoredStructuralVariantRow(project_id="p1", record=stored), stored_only_child],
+        new,
+        replaced_samples={"CHILD", "child-uuid"},
+        project_ids=["p1"],
+    )
+
+    by_start = {row.record.start: row.record for row in rows}
+    # The mother's call and heteroplasmy stay; the child's old calls are gone.
+    assert sorted(by_start) == [8470, 10000]
+    assert [call.sample for call in by_start[8470].calls] == ["MOTHER"]
+    assert [a["sample"] for a in by_start[8470].annotations] == ["MOTHER"]
+    assert [call.sample for call in by_start[10000].calls] == ["CHILD"]
+    assert all(row.project_id == "p1" for row in rows)
+
+
+
+def test_mito_sv_records_read_the_column_the_importer_checked() -> None:
+    from app.services.family_package_variants import _iter_mito_sv_records
+
+    two_columns = (_MITO_SV_HEADER + _mito_sv_line(8470, 13447, "0/1", 0.35, 140)).replace(
+        "FORMAT\tSample0", "FORMAT\tMOTHER\tCHILD"
+    ).replace("GT:GQ:DR:DV\t0/1:60:260:140", "GT:GQ:DR:DV\t0/0:60:400:0\t0/1:60:260:140")
+
+    # Column 0 (the mother's 0/0) would be no call at all.
+    assert _iter_mito_sv_records(two_columns, sample_id="CHILD", sample_column=0) == []
+    [record] = _iter_mito_sv_records(two_columns, sample_id="CHILD", sample_column=1)
+    assert [(call.sample, call.gt, call.read_support) for call in record.calls] == [("CHILD", "0/1", 140)]
+
+
+@pytest.mark.asyncio
+async def test_the_mothers_chrm_sv_file_under_the_childs_entry_fails_before_any_write(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from types import SimpleNamespace
+
+    from app.schemas import FamilyImportDatasetSummary
+    from app.services import family_package_datasets
+    from app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+    from app.services.family_package_common import VcfSampleColumnError
+
+    (tmp_path / "CHILD.vcf").write_text(
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tCHILD\n"
+        "chrM\t3243\t.\tA\tG\t30\tPASS\t.\tGT:DP:AD:VAF\t0/1:500:400,100:0.2\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "MOTHER_sv.vcf").write_text(
+        (_MITO_SV_HEADER + _mito_sv_line(8470, 13447, "0/1", 0.05, 20)).replace("Sample0", "MOTHER"),
+        encoding="utf-8",
+    )
+    writes: list[str] = []
+
+    async def known(_session, **_kwargs) -> set[str]:
+        return {"MOTHER", "CHILD"}
+
+    async def must_not_write(*_args, **_kwargs):
+        writes.append("write")
+        raise AssertionError("nothing may be written for a refused mito dataset")
+
+    for name, fn in {
+        "known_vcf_sample_ids": known,
+        "upload_family_small_variant_file": must_not_write,
+        "lock_family_variant_writes": must_not_write,
+        "rewrite_family_structural_variants": must_not_write,
+    }.items():
+        monkeypatch.setattr(family_package_datasets, name, fn)
+    contexts = {
+        name: SampleMetadataContext(
+            sample_uuid=f"{name.lower()}-uuid",
+            sample_id=name,
+            family_uuid="family-uuid",
+            family_id="FAM",
+            sex="female",
+            project_ids=["p1"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+        for name in ("MOTHER", "CHILD")
+    }
+    job = family_package_datasets.DatasetImportJob(
+        session=SimpleNamespace(),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=tmp_path),  # type: ignore[arg-type]
+        dataset=ManifestDataset(per_sample={"CHILD": {"vcf": "CHILD.vcf", "sv_vcf": "MOTHER_sv.vcf"}}),
+        summary=FamilyImportDatasetSummary(dataset_type="mito", status="valid"),
+        family_context=FamilyMetadataContext(
+            family_uuid="family-uuid",
+            family_id="FAM",
+            project_ids=["p1"],
+            sample_rows=[],
+            sample_uuid_to_name={},
+            sample_name_to_uuid={},
+            affected_sample_names=[],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        ),
+        sample_contexts=contexts,
+    )
+
+    with pytest.raises(VcfSampleColumnError, match="Mito SV VCF of CHILD has no sample column for CHILD: 'MOTHER' is MOTHER"):
+        await family_package_datasets._import_mito_dataset(job)
+
+    # Refused before the child's own chrM calls were written.
+    assert writes == []
+
 # ---- per-sample files: which column holds the entry's sample ----------------------------
 # A per-sample file used to be bound to its entry's sample whatever its one column named,
 # so another member's -- or another patient's -- file was stored as this sample's.

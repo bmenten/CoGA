@@ -183,6 +183,8 @@ from .mito import (
     MitoDNAVariantSampleCallOut,
     MitoDNAVariantAnnotationOut,
     MitoDNAVariantOut,
+    MitoDNAStructuralVariantCallOut,
+    MitoDNAStructuralVariantOut,
     FamilyMitoDNAAnalysisOut,
 )
 from .variants import (
@@ -495,6 +497,8 @@ __all__ = [
     "MitoDNAVariantSampleCallOut",
     "MitoDNAVariantAnnotationOut",
     "MitoDNAVariantOut",
+    "MitoDNAStructuralVariantCallOut",
+    "MitoDNAStructuralVariantOut",
     "FamilyMitoDNAAnalysisOut",
     "GenotypeOut",
     "SmallVariantTranscriptOut",
