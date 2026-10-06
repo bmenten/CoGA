@@ -272,7 +272,7 @@ clean-up of #712: no element rendered differently.
 ### Variant prioritization & explorer
 | Test file | Purpose |
 | --- | --- |
-| [backend/tests/test_variant_prioritization.py](../backend/tests/test_variant_prioritization.py) | Exomiser-style scoring (pathogenicity, frequency, segregation, mode combinations), and the ClinVar reading that keeps P/LP and conflicting variants off the NIPT artifact list. |
+| [backend/tests/test_variant_prioritization.py](../backend/tests/test_variant_prioritization.py) | Exomiser-style scoring (pathogenicity, frequency, segregation, mode combinations; an inherited SV supports dominance only from an affected parent to an affected child), and the ClinVar reading that keeps P/LP and conflicting variants off the NIPT artifact list. |
 | [backend/tests/test_variant_ranking_cache.py](../backend/tests/test_variant_ranking_cache.py) | Ranking-cache invalidation keyed by family/filters, the family's variant-data version and the scoring reference releases (HPO, gene_info) (#509); the HPO part is the loaded ontology as the signed record reads it, with its import time, so a re-import without a release is a miss, as is a ranking cached under the earlier key. |
 | [backend/tests/test_variant_explorer_service.py](../backend/tests/test_variant_explorer_service.py) | Cross-project variant aggregation, ranking, carrier pagination. The ClinVar P/LP rescue lifts the frequency ceilings on the family search's terms, and adds nothing without a ceiling (#580). |
 | [backend/tests/test_variant_explorer_router.py](../backend/tests/test_variant_explorer_router.py) | Variant-explorer export column formatting. Sample genotype values whose sample id contains `:` (#580). |
