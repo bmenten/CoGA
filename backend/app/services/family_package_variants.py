@@ -26,25 +26,26 @@ from .variant_annotation_parser import (
     update_annotation_header_state,
 )
 
-from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols
+from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
 
 
 logger = logging.getLogger(__name__)
 
 
 def _needlr_query_sample_id(info: dict[str, str], sample_ids: set[str]) -> str | None:
+    """The family sample NeedlR's query (``Query_ID``) names, by the shared VCF-sample rule.
+
+    NeedlR names the query after its input file (``HG002_sv_phased``). This used its own
+    copy of the rule: fewer tool suffixes (``_sv_phased`` and ``_sort`` fell through to
+    the prefix match), and a prefix match over an unordered set, so with samples ``S1``
+    and ``S1_A`` the query ``S1_A_sv_phased`` could be read as ``S1`` -- the SV calls then
+    landed on the wrong member. ``resolve_vcf_sample_id`` strips the known suffixes first
+    and tries the longest sample id first.
+    """
     query_id = _first_info_value(info, "Query_ID", "QueryId", "Sample", "SAMPLE")
     if query_id is None:
         return None
-    if query_id in sample_ids:
-        return query_id
-    for suffix in ("_sv", ".sv", "-sv"):
-        if query_id.endswith(suffix) and query_id[: -len(suffix)] in sample_ids:
-            return query_id[: -len(suffix)]
-    for sample_id in sample_ids:
-        if query_id.startswith(f"{sample_id}_") or query_id.startswith(f"{sample_id}."):
-            return sample_id
-    return None
+    return resolve_vcf_sample_id(query_id, sample_ids)
 
 
 def _needlr_call(

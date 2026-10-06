@@ -616,3 +616,26 @@ def test_mito_sv_reimport_replaces_only_the_samples_it_brings() -> None:
     assert [a["sample"] for a in by_start[8470].annotations] == ["MOTHER"]
     assert [call.sample for call in by_start[10000].calls] == ["CHILD"]
     assert all(row.project_id == "p1" for row in rows)
+
+
+@pytest.mark.parametrize(
+    ("query_id", "expected"),
+    [
+        ("S1_A", "S1_A"),
+        # longphase / NeedlR name the query after the input file.
+        ("S1_A_sv_phased", "S1_A"),
+        ("S1_A_sort", "S1_A"),
+        ("S1_sv", "S1"),
+        ("S1-sv", "S1"),
+        ("S10.sv", "S10"),
+        # A prefix match takes the longest sample id: S1 must not shadow S1_A or S10.
+        ("S1_A_run3", "S1_A"),
+        ("S10_run3", "S10"),
+        ("S2_sv_phased", None),
+    ],
+)
+def test_needlr_query_resolves_to_the_family_sample_by_the_shared_rule(query_id: str, expected: str | None) -> None:
+    from app.services.family_package_variants import _needlr_query_sample_id
+
+    samples = {"S1", "S1_A", "S10"}
+    assert _needlr_query_sample_id({"Query_ID": query_id}, samples) == expected
