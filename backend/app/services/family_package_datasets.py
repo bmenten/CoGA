@@ -56,7 +56,7 @@ from .variant_upload_service import (
 )
 
 from .family_package_bigwig import autosomal_median, open_bigwig
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, read_vcf_sample_columns, vcf_sample_alias_map
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, vcf_sample_alias_map
 from .family_package_manifest import _ped_embryo_sample_ids
 from .family_package_nipt import (
     nipt_import_order,
@@ -98,6 +98,12 @@ from .import_progress import FilesReadInTurn
 
 
 logger = logging.getLogger(__name__)
+
+# What a per-sample file refused by ``per_sample_vcf_column`` asks of the operator.
+_PER_SAMPLE_COLUMN_REMEDY = (
+    "Point the manifest entry at this sample's own file, or set vcf_sample on the entry "
+    "to confirm the column."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1174,6 +1180,7 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
                     "filename": vcf_path.name,
                     "uploaded_from": "family_package",
                 },
+                declared=raw_entry.get("vcf_sample") or raw_entry.get("sample_name"),
             )
     return summary.model_copy(
         update={
@@ -1430,10 +1437,33 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         if vcf_path is None:
             continue
         text_value = _read_package_text(vcf_path)
+        vcf_columns = next(
+            (
+                line.rstrip("\r").split("\t")[9:]
+                for line in text_value.splitlines()
+                if line.startswith("#CHROM")
+            ),
+            [],
+        )
+        # HiFiCNV names its column after its own sample slot (``Sample0``), which binds to
+        # the entry's sample; a column naming another sample fails the dataset.
+        sample_column = per_sample_vcf_column(
+            vcf_columns,
+            target_sample_id=sample_id,
+            known_sample_ids=await known_vcf_sample_ids(
+                session,
+                family_uuid=family_context.family_uuid,
+                header_samples=vcf_columns,
+            ),
+            declared=raw_entry.get("vcf_sample") or raw_entry.get("sample_name"),
+            label=f"CNV VCF of {sample_id}",
+            remedy=_PER_SAMPLE_COLUMN_REMEDY,
+        )
         sample_records = _iter_cnv_structural_records(
             text_value,
             sample_id=sample_id,
             source=CNV_SOURCE,
+            sample_column=sample_column,
         )
         records.extend(sample_records)
         sample_results[sample_id] = {
@@ -1606,6 +1636,11 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     store under their own ``mito_sv`` source, where the mtDNA workspace and the SV views
     read them. Discovery and validation always accepted the file, but nothing read it:
     a large heteroplasmic mtDNA deletion was dropped without a word.
+
+    Only the sample's own column is read (``per_sample_vcf_column``): a file whose column
+    names another sample -- a family member, or another family's -- fails the dataset
+    unless the entry's ``vcf_sample`` confirms it, and a joint chrM VCF gives each
+    member's entry that member's calls only.
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
@@ -1640,16 +1675,21 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
         if vcf_path is None:
             continue
         vcf_columns = read_vcf_sample_columns(vcf_path)
-        aliases, unresolved = vcf_sample_alias_map(
-            vcf_columns,
-            set(sample_contexts),
-            declared=raw_entry.get("vcf_sample") or raw_entry.get("sample_name"),
-            target_sample_id=sample_id,
-        )
-        if unresolved:
-            raise RuntimeError(
-                f"Mito VCF for {sample_id} has sample column(s) {unresolved} that match no family sample"
+        sample_column = vcf_columns[
+            per_sample_vcf_column(
+                vcf_columns,
+                target_sample_id=sample_id,
+                known_sample_ids=await known_vcf_sample_ids(
+                    session,
+                    family_uuid=family_context.family_uuid,
+                    header_samples=vcf_columns,
+                ),
+                declared=raw_entry.get("vcf_sample") or raw_entry.get("sample_name"),
+                label=f"Mito VCF of {sample_id}",
+                remedy=_PER_SAMPLE_COLUMN_REMEDY,
             )
+        ]
+        aliases = {sample_column: sample_id}
         # The annotation is an SQLite file in the temporary directory, which on Cloud Run is
         # memory. The upload leaves it open for the haplogroup read below, and the finally
         # removes it whatever happens.
@@ -1667,6 +1707,7 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                     overwrite=True,
                     format_hint=MITO_SOURCE,  # type: ignore[arg-type]
                     sample_aliases=aliases,
+                    sample_column=sample_column,
                     vep_annotations=mutserve_annotations,
                     overwrite_scope="samples",
                 )
@@ -1674,11 +1715,10 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
             # A run with no chrM variant is a normal outcome, not a dataset failure. The
             # file's samples then have no mitochondrial call: their earlier ones go.
             if exc.status_code == 400 and "No valid small-variant records" in str(exc.detail):
-                file_samples = dict.fromkeys(aliases.get(column, column) for column in vcf_columns)
                 removed = await remove_family_small_variant_sample_calls(
                     session,
                     family_context,
-                    [sample_contexts[name] for name in file_samples if name in sample_contexts],
+                    [sample_context],
                     source=MITO_SOURCE,
                 )
                 sample_results[sample_id] = {

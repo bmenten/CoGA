@@ -97,6 +97,8 @@ Eerst registreert de import de familie en de herkomst, daarna volgen de datasets
 | Tool- en databankversies | `family_annotation_manifest` | Postgres |
 | De importjob zelf | `family_import_jobs` | Postgres |
 
+**Een bestand per sample** (`repeats_trgt`, `mito` en `cnv` onder `per_sample`, en een losse TRGT-upload) wordt gelezen uit de kolom van dat sample (`per_sample_vcf_column`): de kolom die naar het sample genoemd is (`<sample>_sort`), waar ze ook staat; een enkele kolom zonder samplenaam (HiFiCNV's `Sample0`) hoort bij het sample. Noemt de kolom een ander sample, van deze familie of een andere, en geen kolom dit sample, dan faalt de dataset voor er iets geschreven is. `vcf_sample` op de entry is het uitdrukkelijke woord van de beheerder: de kolom die het noemt wordt gelezen. Zo kan een labo dat zijn buisjes nagekeken heeft, een sample aan een bestand koppelen dat naar een ander buisje genoemd is.
+
 Elke datasetsoort heeft een eigen importfunctie in een register. Een soort zonder importfunctie is een fout: een test bewaakt dat, en de import faalt er luid op.
 
 **NIPT-artefacten** (de lijst van terugkerende artefacten per assay) worden niet door de pakketimport gevuld; ze hebben een eigen beheer (hoofdstuk 15). De import neemt wel een gedeclareerd analysetype (bv. `monogenic_nipt`), een assay per sample (bv. `nipt_cfdna`) en het capturepanel van een sample (`assay_panel`, dat de artefactenlijst afbakent) over in de metadata, zodat de NIPT-context later wordt herkend (hoofdstuk 8).
