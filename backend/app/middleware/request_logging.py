@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import json
 import time
-import traceback
 from typing import Any
 from urllib.parse import parse_qsl
 from urllib.parse import urlencode
 
 from fastapi import Request, Response
 
-from ..core.coga_logging import CoGALogger, describe_error
+from ..core.coga_logging import CoGALogger, describe_error, describe_traceback
 from ..core.config import API_PATH_PREFIX, settings
 from ..services.audit_log_pg import (
     AUDIT_PIPELINE_NAME,
@@ -233,8 +232,7 @@ async def log_request_response(request: Request, call_next) -> Response:
 
     response: Response | None = None
     status_code = 500
-    error_message: str | None = None
-    tb_text: str | None = None
+    failure: Exception | None = None
     response_size: int | None = None
 
     try:
@@ -242,8 +240,7 @@ async def log_request_response(request: Request, call_next) -> Response:
         status_code = response.status_code
         response_size = int(response.headers.get("content-length", "0") or 0)
     except Exception as exc:
-        error_message = str(exc)
-        tb_text = traceback.format_exc()
+        failure = exc
         raise
     finally:
         elapsed = time.perf_counter() - start
@@ -267,25 +264,31 @@ async def log_request_response(request: Request, call_next) -> Response:
             "protocol": request.scope.get("http_version"),
         }
 
-        # NOTE: request_body (clinical PHI, up to 25KB) is intentionally NOT
-        # emitted to the stdout application log. It is persisted only to the
-        # access-controlled audit DB (audit_log_events.request_body) via the
-        # write_audit_log_event call below. The one exception is a row the audit DB
-        # cannot store: that row is logged at ERROR with its payload, body included,
-        # so it can be restored (event_pipeline.record_unpersisted, TF-13 S-5).
-        log_kwargs: dict[str, Any] = {
-            "http_request_json": http_request_json,
-            "detail": {"durationMs": duration_ms},
-        }
+        # NOTE: neither request_body (clinical PHI, up to 25KB) nor an exception's
+        # text is emitted to the application log: a failed statement's text quotes
+        # its SQL and parameters, values from the request or read for it. Both are
+        # persisted only to the access-controlled audit DB (audit_log_events
+        # .request_body and .error) via the write_audit_log_event call below. The one
+        # exception is a row the audit DB cannot store: that row is logged at ERROR
+        # with its payload, both included, so it can be restored
+        # (event_pipeline.record_unpersisted, TF-13 S-5).
+        detail: dict[str, Any] = {"durationMs": duration_ms}
+        log_kwargs: dict[str, Any] = {"http_request_json": http_request_json, "detail": detail}
         if db_update:
             log_kwargs["db_update"] = db_update
-        if error_message:
-            log_kwargs["traceback"] = tb_text
 
-        if error_message or status_code >= 500:
-            logger.error(error_message or "Unhandled server error", user=user, **log_kwargs)
+        if failure is not None or status_code >= 500:
+            if route_path:
+                detail["route"] = route_path
+            message = "Unhandled server error"
+            if failure is not None:
+                # Named by its kind (exception type, SQLSTATE or ClickHouse code), with
+                # the frames of every exception in its chain but none of their messages.
+                message += f": {describe_error(failure)}"
+                log_kwargs["traceback"] = describe_traceback(failure)
+            logger.error(message, user=user, **log_kwargs)
         elif status_code >= 400:
-            logger.warning(error_message or "Request returned warning status", user=user, **log_kwargs)
+            logger.warning("Request returned warning status", user=user, **log_kwargs)
         else:
             logger.info("", user=user, **log_kwargs)
 
@@ -295,31 +298,33 @@ async def log_request_response(request: Request, call_next) -> Response:
                 "accept": request.headers.get("accept"),
             }
         }
-        audit_event = AuditLogEventPayload(
-            user_id=user.get("id") if user else None,
-            user_email=user.get("email") if user else None,
-            user_role=user.get("role") if user else None,
-            method=request.method.upper(),
-            route_path=route_path,
-            path=request.url.path,
-            query_string=query_string,
-            status_code=status_code,
-            duration_ms=duration_ms,
-            remote_ip=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent"),
-            referer=request.headers.get("referer"),
-            protocol=request.scope.get("http_version"),
-            request_body=request_body,
-            request_meta=request_meta,
-            db_update=db_update,
-            error=error_message,
-        )
+        audit_event: AuditLogEventPayload | None = None
         try:
+            audit_event = AuditLogEventPayload(
+                user_id=user.get("id") if user else None,
+                user_email=user.get("email") if user else None,
+                user_role=user.get("role") if user else None,
+                method=request.method.upper(),
+                route_path=route_path,
+                path=request.url.path,
+                query_string=query_string,
+                status_code=status_code,
+                duration_ms=duration_ms,
+                remote_ip=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+                referer=request.headers.get("referer"),
+                protocol=request.scope.get("http_version"),
+                request_body=request_body,
+                request_meta=request_meta,
+                db_update=db_update,
+                error=str(failure) if failure is not None else None,
+            )
             await write_audit_log_event(audit_event)
         except Exception as exc:  # noqa: BLE001 - a lost audit row never fails the request
             # write_audit_log_event records a failed write itself (TF-13 S-5). Should anything
-            # else raise, the row is lost all the same, and recorded the same way: counted and
-            # logged with its payload, the error by its kind, as its text may quote the row.
+            # else raise here, building the row included, the row is lost all the same and
+            # recorded the same way: counted and logged with what was built of it, the error
+            # by its kind, as its text may quote the row.
             record_unpersisted(
                 AUDIT_PIPELINE_NAME, audit_event, f"audit write raised: {describe_error(exc)}"
             )

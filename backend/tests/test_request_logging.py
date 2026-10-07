@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import types
 
 import pytest
 from sqlalchemy.exc import DBAPIError
@@ -403,3 +404,102 @@ def test_an_audit_write_that_raises_is_recorded_and_never_fails_the_request(
 
     assert status == 200
     _assert_lost_row_recorded(messages, "audit write raised")
+
+
+def test_an_unhandled_error_is_logged_by_kind_and_frames_not_by_its_text(monkeypatch, caplog) -> None:
+    # A failed statement's text quotes its SQL and parameters, here a value from the request
+    # body. The 500 line used to carry that text twice (message and traceback); it now names
+    # the error, its route and its frames, and only the audit row keeps the text.
+    class _AsyncpgError(Exception):
+        pass
+
+    class _AdaptedError(Exception):
+        sqlstate = "22021"
+
+    orig = _AdaptedError('invalid byte sequence for encoding "UTF8": 0x00')
+    orig.__cause__ = _AsyncpgError('invalid byte sequence for encoding "UTF8": 0x00')
+    failure = DBAPIError("UPDATE notes SET text = $1 WHERE family_id = $2", ("Jane Doe", "F1"), orig)
+    captured_audit: list = []
+
+    async def _fake_write(payload):
+        captured_audit.append(payload)
+
+    async def call_next(request):
+        request.scope["route"] = types.SimpleNamespace(path="/api/families/{family_id}/notes")
+        raise failure
+
+    monkeypatch.setattr(rl, "write_audit_log_event", _fake_write)
+    caplog.set_level(logging.INFO, logger=rl.logger._logger.name)
+    body = json.dumps({"text": "Jane Doe"}).encode()
+
+    with pytest.raises(DBAPIError):
+        asyncio.run(rl.log_request_response(_json_post("/api/families/F1/notes", body), call_next))
+
+    errors = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert len(errors) == 1
+    line = json.loads(JsonLogFormatter().format(errors[0]))
+    assert line["message"] == "Unhandled server error: DBAPIError (_AsyncpgError, SQLSTATE 22021)"
+    assert line["httpRequest"]["status"] == 500
+    assert line["detail"]["route"] == "/api/families/{family_id}/notes"
+    assert line["traceback"].startswith("Traceback (most recent call last):\n")
+    assert ", in call_next\n" in line["traceback"]
+    assert line["traceback"].endswith("\nDBAPIError (_AsyncpgError, SQLSTATE 22021)")
+    assert "Jane Doe" not in json.dumps(line)
+    # The access-controlled audit row keeps the error's full text, the body beside it.
+    assert captured_audit[-1].status_code == 500
+    assert captured_audit[-1].error == str(failure)
+    assert "Jane Doe" in captured_audit[-1].error
+
+
+def test_a_server_error_response_is_logged_with_its_route(monkeypatch, caplog) -> None:
+    # A route that answers 5xx itself raised nothing: the line names the route, no traceback.
+    async def _fake_write(_payload):
+        return None
+
+    async def call_next(request):
+        request.scope["route"] = types.SimpleNamespace(path="/api/monarch/semsim")
+        return JSONResponse({"detail": "Monarch is unavailable"}, status_code=503)
+
+    monkeypatch.setattr(rl, "write_audit_log_event", _fake_write)
+    caplog.set_level(logging.INFO, logger=rl.logger._logger.name)
+
+    response = asyncio.run(rl.log_request_response(_build_request("GET", "/api/monarch/semsim"), call_next))
+
+    assert response.status_code == 503
+    errors = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert len(errors) == 1
+    line = json.loads(JsonLogFormatter().format(errors[0]))
+    assert line["message"] == "Unhandled server error"
+    assert line["detail"]["route"] == "/api/monarch/semsim"
+    assert "traceback" not in line
+
+
+def test_a_row_that_cannot_be_built_is_still_counted(monkeypatch, caplog) -> None:
+    # The row carries the text of the exception that failed the request. If that text cannot
+    # be read, the row is lost before any write: the guard counts it all the same, and the
+    # request's own exception still propagates.
+    class _Unprintable(Exception):
+        def __str__(self) -> str:
+            raise RuntimeError("no text")
+
+    written: list = []
+
+    async def _write(payload):
+        written.append(payload)
+
+    async def call_next(_request):
+        raise _Unprintable()
+
+    monkeypatch.setattr(rl, "write_audit_log_event", _write)
+    monkeypatch.setattr(event_pipeline, "_dropped_counts", {})
+    caplog.set_level(logging.WARNING)
+
+    with pytest.raises(_Unprintable):
+        asyncio.run(rl.log_request_response(_json_post("/api/families/F1/notes", b"{}"), call_next))
+
+    assert written == []
+    assert dropped_event_count(AUDIT_PIPELINE_NAME) == 1
+    assert [r.getMessage() for r in caplog.records if "event not persisted" in r.getMessage()] == [
+        "Audit pipeline audit_log: event not persisted (audit write raised: RuntimeError); "
+        "dropped_total=1 payload=None"
+    ]
