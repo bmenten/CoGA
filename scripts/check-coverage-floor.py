@@ -19,43 +19,44 @@ import json
 import sys
 import tomllib
 
-# Floors are set 3 points under the coverage CI measured at 92bb6d1e (in brackets), rounded
-# down: the unit job's coverage.json and the `coverage` job's combined report (#678).
+# Floors are set 3 points under the coverage the CI jobs measure at 02a7f73b with greenlets
+# followed (in brackets), rounded down and never lowered: the unit job's coverage.json and
+# the `coverage` job's combined report (#678).
 
 # Global floor for the whole backend/app package. Keep in step with --cov-fail-under in ci.yml.
-GLOBAL_FLOOR = 70.0  # (73.0)
+GLOBAL_FLOOR = 74.0  # (77.6)
 
 # Per-module floors (percent of lines covered) for clinical-critical modules. Every module
 # the type-check gate lists ([tool.mypy] files in pyproject.toml) needs a floor here or in
 # COMBINED_FLOORS; main() fails when one has neither.
 MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/acmg_points.py": 97.0,  # (100.0)
-    "backend/app/services/annotation_manifest_service.py": 90.0,  # (93.4)
+    "backend/app/services/annotation_manifest_service.py": 91.0,  # (94.5)
     "backend/app/services/assembly_scope.py": 97.0,  # (100.0)
     "backend/app/services/classification_drift_service.py": 95.0,  # (98.4)
     "backend/app/services/clinical_audit_service.py": 92.0,  # (95.8)
-    "backend/app/services/clinical_cnv_kb_jobs.py": 93.0,  # (96.9)
+    "backend/app/services/clinical_cnv_kb_jobs.py": 94.0,  # (97.1)
     "backend/app/services/cnv_acmg_points.py": 94.0,  # (97.7)
     "backend/app/services/compound_het_phase.py": 95.0,  # (98.7)
-    "backend/app/services/family_identifiers.py": 97.0,  # (100.0, unit tests at the change)
-    "backend/app/services/family_variant_filters.py": 88.0,  # (91.7)
+    "backend/app/services/family_identifiers.py": 97.0,  # (100.0)
+    "backend/app/services/family_variant_filters.py": 96.0,  # (99.3)
     "backend/app/services/family_variant_write_lock.py": 97.0,  # (100.0)
     "backend/app/services/genotypes.py": 97.0,  # (100.0)
-    "backend/app/services/haplotype_lineage_service.py": 89.0,  # (92.5)
+    "backend/app/services/haplotype_lineage_service.py": 89.0,  # (92.7)
     "backend/app/services/hash_chain.py": 94.0,  # (97.7)
-    "backend/app/services/mitochondrial_analysis.py": 68.0,  # (71.5)
+    "backend/app/services/mitochondrial_analysis.py": 72.0,  # (75.4)
     "backend/app/services/monarch_semsim.py": 65.0,  # (68.8)
-    "backend/app/services/nipt_analysis.py": 92.0,  # (95.5)
-    "backend/app/services/nipt_service.py": 88.0,  # (91.7)
-    "backend/app/services/nipt_target_coverage.py": 93.0,  # (96.0, unit tests at the change)
-    "backend/app/services/nipt_triage.py": 93.0,  # (96.0, unit tests at the change)
+    "backend/app/services/nipt_analysis.py": 94.0,  # (97.7)
+    "backend/app/services/nipt_service.py": 92.0,  # (95.9)
+    "backend/app/services/nipt_target_coverage.py": 93.0,  # (95.6)
+    "backend/app/services/nipt_triage.py": 93.0,  # (96.8)
     "backend/app/services/qc_threshold_service.py": 83.0,  # (86.2)
-    "backend/app/services/report_signout_service.py": 91.0,  # (94.8)
+    "backend/app/services/report_signout_service.py": 92.0,  # (95.7)
     "backend/app/services/review_pg_utils.py": 87.0,  # (90.2)
-    "backend/app/services/sample_integrity_qc.py": 87.0,  # (90.5)
-    "backend/app/services/sample_integrity_service.py": 87.0,  # (90.2) feeds the sign-out gate
+    "backend/app/services/sample_integrity_qc.py": 90.0,  # (93.4)
+    "backend/app/services/sample_integrity_service.py": 91.0,  # (94.4) feeds the sign-out gate
     "backend/app/services/small_variant_review_tags.py": 63.0,  # (66.5)
-    "backend/app/services/structural_variant_evidence.py": 74.0,  # (77.6)
+    "backend/app/services/structural_variant_evidence.py": 74.0,  # (77.8)
     "backend/app/services/structural_variant_review_pg.py": 59.0,  # (62.2) CNV ACMG persistence
     "backend/app/services/sv_gene_index_service.py": 82.0,  # (85.0)
     "backend/app/services/variant_ranking_cache.py": 63.0,  # (66.7)
@@ -63,21 +64,23 @@ MODULE_FLOORS: dict[str, float] = {
 
 # The combined unit + smoke + e2e report (the ``coverage`` CI job), for the modules the unit
 # job alone under-reports because real datastores exercise them.
-COMBINED_GLOBAL_FLOOR = 75.0  # (78.6)
+COMBINED_GLOBAL_FLOOR = 80.0  # (83.4)
 COMBINED_FLOORS: dict[str, float] = {
-    "backend/app/services/annotation_manifest_service.py": 91.0,  # (94.5)
-    "backend/app/services/clickhouse_family_variants.py": 80.0,  # (83.1)
-    "backend/app/services/clickhouse_variant_storage.py": 92.0,  # (95.4)
-    "backend/app/services/clinical_audit_service.py": 94.0,  # (97.4)
-    "backend/app/services/family_package_datasets.py": 60.0,  # (63.1)
-    "backend/app/services/family_package_import.py": 87.0,  # (90.0)
-    "backend/app/services/family_package_jobs.py": 94.0,  # (97.6)
-    "backend/app/services/family_package_registration.py": 76.0,  # (79.9)
+    "backend/app/services/annotation_manifest_service.py": 92.0,  # (95.6)
+    "backend/app/services/clickhouse_family_variants.py": 82.0,  # (85.7)
+    "backend/app/services/clickhouse_variant_storage.py": 92.0,  # (94.7)
+    "backend/app/services/clinical_audit_service.py": 95.0,  # (98.4)
+    "backend/app/services/family_package_datasets.py": 72.0,  # (75.8)
+    "backend/app/services/family_package_import.py": 93.0,  # (96.0)
+    "backend/app/services/family_package_jobs.py": 94.0,  # (97.2)
+    "backend/app/services/family_package_registration.py": 81.0,  # (84.2)
     "backend/app/services/integrity_anchor_service.py": 79.0,  # (82.3)
-    "backend/app/services/report_signout_service.py": 96.0,  # (99.0)
-    "backend/app/services/structural_variant_evidence.py": 92.0,  # (95.9)
+    "backend/app/services/report_signout_service.py": 96.0,  # (99.5)
+    "backend/app/services/small_variant_review_tags.py": 90.0,  # (93.1)
+    "backend/app/services/structural_variant_evidence.py": 93.0,  # (96.0)
+    "backend/app/services/structural_variant_review_pg.py": 69.0,  # (72.4) CNV ACMG persistence
     "backend/app/services/sv_gene_index_service.py": 92.0,  # (95.5)
-    "backend/app/services/variant_ranking_cache.py": 74.0,  # (77.8)
+    "backend/app/services/variant_ranking_cache.py": 84.0,  # (87.3)
 }
 
 

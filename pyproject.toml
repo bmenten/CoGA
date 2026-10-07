@@ -72,5 +72,15 @@ markers = [
 
 # Record file paths relative to the repository root, so the coverage data of the unit,
 # smoke and e2e CI jobs combines into one report (#526).
+#
+# Follow greenlets as well as threads. SQLAlchemy's asyncio layer runs each query in a
+# greenlet; without `greenlet`, coverage loses track of the calling function at the switch,
+# so the lines after its first awaited query read as never run, and lines run elsewhere can
+# be credited to the wrong file. `thread` is the default that this list replaces: the
+# TestClient runs the app in a thread of its own. Only the C tracer follows greenlets. It is
+# coverage's default core up to Python 3.13, and from 3.14 this setting keeps coverage on it
+# instead of sys.monitoring. Without the C tracer, coverage stops with an error rather than
+# measuring less.
 [tool.coverage.run]
 relative_files = true
+concurrency = ["greenlet", "thread"]
