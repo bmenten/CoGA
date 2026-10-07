@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import types
 
 import pytest
@@ -704,6 +705,36 @@ async def test_execute_clickhouse_maps_heavy_query_error_to_422(
 
     assert excinfo.value.status_code == 422
     assert "Narrow the search" in excinfo.value.detail
+
+
+@pytest.mark.asyncio
+async def test_execute_clickhouse_logs_a_failed_query_by_its_code_not_its_text(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # ClickHouse's text quotes the value it could not convert, a filter value from the request:
+    # the line names the error by its code, the parameters by name, the query by placeholder.
+    async def fake_execute_clickhouse(_query: str, _params: dict[str, object]):
+        raise DatabaseError(
+            "Received ClickHouse exception, code: 6, server response: Code: 6. DB::Exception: "
+            "Cannot parse string 'Jane Doe' as UInt32. (CANNOT_PARSE_TEXT)",
+            code=6,
+            name="CANNOT_PARSE_TEXT",
+        )
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    logger_name = "backend.app.services.clickhouse_family_variants"
+    caplog.set_level(logging.ERROR, logger=logger_name)
+
+    with pytest.raises(DatabaseError):
+        await _execute_clickhouse("SELECT count()\n WHERE pos = {pos:UInt32}", {"pos": "Jane Doe"})
+
+    assert [record.getMessage() for record in caplog.records if record.name == logger_name] == [
+        "ClickHouse variant query failed: DatabaseError (ClickHouse 6 CANNOT_PARSE_TEXT) "
+        "| params=['pos'] | query=SELECT count() WHERE pos = {pos:UInt32}"
+    ]
 
 
 @pytest.mark.asyncio
