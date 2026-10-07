@@ -204,7 +204,7 @@ The API behind the page:
 | `POST /family-imports/manifest/discover` | reads the PED, looks for the expected files and returns a draft manifest |
 | `POST /family-imports/manifest/write` | saves the manifest into the folder |
 | `POST /family-imports/validate` | validates at once, without creating a job |
-| `POST /family-imports` | queues a job: `folder_path`, `project_id`, `dry_run`, `family_id` (for an existing family), `conflict_mode` |
+| `POST /family-imports` | queues a job: `folder_path`, `project_id`, `dry_run`, `family_id` (for an existing family; one that is not an ID is refused with 400 before the job is written), `conflict_mode` |
 | `GET /family-imports`, `GET /family-imports/{job_id}` | job status, logs, validation errors and warnings, and a summary per dataset |
 
 `conflict_mode` decides what happens when the family or its samples already exist:
@@ -619,7 +619,9 @@ PED, or the pipeline's per-sample folders (`snv/<sample>/`, `sv/<sample>/`, `rep
 sample).
 
 **Discover without a PED.** The members are those per-sample folders, named under
-`family.add_members`, so the manifest needs no `ped`. Each member's sex is the karyotype TRGT
+`family.add_members`, so the manifest needs no `ped`. A folder whose name cannot be a sample ID
+(with a space or a control character) is listed too, and Discover refuses it
+(`sample_id_invalid`) rather than leave a member out. Each member's sex is the karyotype TRGT
 genotyped its repeats with (`--karyotype XX` or `XY` in the TRGT VCF's `##trgtCommand`): the
 pipeline sets it from its samplesheet, so it is the recorded sex, which the Sample QC checks
 against the reads. Two members of opposite sex are proposed as a couple
@@ -670,6 +672,16 @@ the entry's. One SV called in both partners with the same alleles is one SV with
 Discover, dry run and import check that:
 
 - the folder and the manifest exist, and `schema_version` is 1;
+- the family ID (the manifest's `family_id`, else the folder name; for Discover, the request's
+  `family_id` first) and every sample ID (in the PED, under `family.add_members` as a member or
+  a parent, a long-read package's per-sample folder) is printable text without spaces. The
+  whitespace around an ID is stripped. An ID that holds a control character (C0, `\x00`–`\x1f`:
+  a line break, a tab, an escape; or DEL, `\x7f`) or whitespace is refused (`family_id_invalid`,
+  `sample_id_invalid`), and nothing else of the package is read until it is corrected: Discover
+  drafts no manifest. Such an ID would reach the pedigree, the report, the audit trail, the logs
+  and file paths, and a NUL cannot be stored at all. The message writes the character as an
+  escape (`\n`, `\x1b`) and says where the ID comes from
+  ([family_identifiers.py](../backend/app/services/family_identifiers.py));
 - the PED parses as six-column PED, holds one family and matches `family_id`; sample IDs are
   unique and every parent is in the PED. For an import into an existing family the PED file
   may be missing: the family's stored pedigree is used. A manifest without `ped` must name its
@@ -700,6 +712,9 @@ skipped and never blocks the import.
 - `POST /ped/upload`: admins upload a PED file, with an optional region of interest,
   inheritance model and carrier lists.
 - Only admins can replace an existing family or sample (`overwrite=true`).
+- Both refuse (400), before anything is written, a family or sample ID (a PED's parent IDs
+  too) that is not printable text without spaces, as a package import does
+  ([Validation](#validation)); the whitespace around a typed-in ID is stripped.
 
 PED column 6 is the phenotype: `0` or `-9` unknown, `1` unaffected, `2` affected. CoGA stores it
 as the member's clinical status and keeps carrier state apart (`carrier_status`: unknown,
@@ -832,6 +847,8 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | Message or symptom | Cause |
 | --- | --- |
 | `package_folder_not_allowed` | The folder is not under `FAMILY_IMPORT_ROOTS`. |
+| `family_id_invalid` | The family ID holds a control character or whitespace, or is empty. The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
+| `sample_id_invalid` | A sample ID holds a control character or whitespace. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
 | `manifest_missing` | The folder has no `manifest.yaml`, `.yml` or `.json`. Run Discover and Write manifest (local folders only). |
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
 | `ped_family_mismatch`, `ped_multiple_families` | The PED's family ID differs from `family_id`, or it holds more than one family. |

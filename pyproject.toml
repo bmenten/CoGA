@@ -38,6 +38,7 @@ files = [
     "backend/app/services/clinical_audit_service.py",
     "backend/app/services/cnv_acmg_points.py",
     "backend/app/services/compound_het_phase.py",
+    "backend/app/services/family_identifiers.py",
     "backend/app/services/family_variant_filters.py",
     "backend/app/services/family_variant_write_lock.py",
     "backend/app/services/genotypes.py",

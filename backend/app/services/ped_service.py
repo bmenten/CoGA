@@ -11,11 +11,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.sql import require_uuid
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
 from .clickhouse_variant_storage import delete_family_small_variants, delete_family_structural_variants
+from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .upload_safety import decode_upload_text
 from .access_control import CurrentUser, is_admin_user
 
 INHERITANCE_MODELS = {"AD", "AR", "XLD", "XLR", "mitochondrial"}
+
+
+def _require_storable_id(value: str, *, kind: str) -> None:
+    """Refuse (400) a family or sample ID that CoGA cannot store (see family_identifiers)."""
+    problem = identifier_problem(value)
+    if problem is not None:
+        raise HTTPException(status_code=400, detail=f"{kind} '{visible(value)}' {problem}. {IDENTIFIER_RULE}")
 
 
 def _parse_ped_text(text_value: str) -> dict[str, list[dict[str, str]]]:
@@ -37,6 +45,14 @@ def _parse_ped_text(text_value: str) -> dict[str, list[dict[str, str]]]:
                 "phen": phenotype,
             }
         )
+    # A PED field holds no whitespace, but it can hold another control character.
+    for family_id, members in families.items():
+        _require_storable_id(family_id, kind="Family ID")
+        for member in members:
+            _require_storable_id(member["iid"], kind="Sample ID")
+            for parent_id in (member["pid"], member["mid"]):
+                if parent_id not in {"", "0"}:
+                    _require_storable_id(parent_id, kind="Parent ID")
     return families
 
 
@@ -298,12 +314,14 @@ def _resolve_manual_family_roles(
 
 
 def _validate_manual_family(family: ManualPedFamilyCreate) -> list[ManualPedMemberCreate]:
+    _require_storable_id(family.family_id, kind="Family ID")
     normalized_members: list[ManualPedMemberCreate] = []
     sample_ids: list[str] = []
     for member in family.members:
         sample_id = member.sample_id.strip()
         if not sample_id:
             raise HTTPException(status_code=400, detail="Sample id is required for every member")
+        _require_storable_id(sample_id, kind="Sample ID")
         clinical_status = _manual_clinical_status(member)
         carrier_status = _normalize_carrier_status(member.carrier_status, member.carrier_type)
         normalized_members.append(
@@ -977,6 +995,8 @@ async def create_manual_family_data(
     overwrite: bool,
     user: CurrentUser,
 ) -> PedUploadResult:
+    # The family ID, read as its members' IDs are: without the whitespace around it.
+    family = family.model_copy(update={"family_id": family.family_id.strip()})
     resolved_project_id = await _resolve_accessible_project_id(session, user, family.project_id)
     normalized_members = _validate_manual_family(family)
     await _replace_existing_families(session, [family.family_id], overwrite, user)
