@@ -10,11 +10,11 @@ from ..core.csv_export import csv_safe_cell, export_response_headers
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import (
-    SmallVariantFilterPresetCreate,
-    SmallVariantFilterPresetOut,
     SmallVariantReviewOut,
     SmallVariantReviewSummaryOut,
     SmallVariantReviewUpdate,
+    StructuralVariantFilterPresetCreate,
+    StructuralVariantFilterPresetOut,
     VariantOut,
     VariantPage,
 )
@@ -301,13 +301,13 @@ async def export_family_structural_variants_csv(
 
 @router.get(
     "/{family_id}/structural-variant-filter-presets",
-    response_model=List[SmallVariantFilterPresetOut],
+    response_model=List[StructuralVariantFilterPresetOut],
 )
 async def list_structural_variant_filter_presets(
     family_id: str,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
-) -> List[SmallVariantFilterPresetOut]:
+) -> List[StructuralVariantFilterPresetOut]:
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,
@@ -322,14 +322,14 @@ async def list_structural_variant_filter_presets(
 
 @router.post(
     "/{family_id}/structural-variant-filter-presets",
-    response_model=SmallVariantFilterPresetOut,
+    response_model=StructuralVariantFilterPresetOut,
 )
 async def save_structural_variant_filter_preset(
     family_id: str,
-    payload: SmallVariantFilterPresetCreate,
+    payload: StructuralVariantFilterPresetCreate,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
-) -> SmallVariantFilterPresetOut:
+) -> StructuralVariantFilterPresetOut:
     context = await build_family_metadata_context(
         session,
         family_identifier=family_id,
