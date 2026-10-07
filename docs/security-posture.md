@@ -130,6 +130,17 @@ are colleagues, so there is no tenant boundary to protect.
 - ✅ **A failed audit write is logged by its kind.** The log line gives the exception type and
   SQLSTATE (`describe_error` in `core/coga_logging.py`), never the error's text, which quotes
   the row it could not insert, request body included.
+- ✅ **No request body and no error text in the application log.** The request body is written
+  only to `audit_log_events`, and so is the text of an error, which for a failed statement
+  quotes its SQL and parameters: values from the request, or read for it. An unhandled error's
+  500 line gives the error's kind (`describe_error`: the exception type with the driver's error
+  and SQLSTATE, or ClickHouse's error code and name), the route template and the frames of
+  every exception in its chain, without their messages (`describe_traceback`). Starlette raises
+  the error again to uvicorn once it has answered the 500, and uvicorn logs it with its
+  traceback; a filter writes that traceback the same way (`RedactServerErrorFilter`, installed
+  by `main.py`). The full text stays in the request's audit row (`audit_log_events.error`),
+  which only an admin reads. The other lines that log a failed query on a request path (Sample
+  QC, the ClickHouse variant query and its retry) name it the same way.
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the

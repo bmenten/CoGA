@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
+from clickhouse_connect.driver.exceptions import OperationalError
 
 from backend.app.core import clickhouse
 
@@ -210,6 +212,46 @@ async def test_execute_clickhouse_retries_query_after_session_lock(
     assert rows == [("client-2", "SELECT 1", {"side": "left"})]
     assert len(created) == 2
     assert created[0].closed is True
+
+
+@pytest.mark.asyncio
+async def test_execute_clickhouse_logs_a_transient_error_by_its_kind_not_its_text(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A transport error's text can hold the request URL, whose query string carries the bound
+    # parameters: the retry warning names the error instead.
+    class _DisconnectedClient(_RecordingAsyncClient):
+        async def query(self, query: str, parameters=None):
+            self.queries.append((query, parameters))
+            raise OperationalError(
+                "Network Error: Server disconnected, url='http://ch:8123/?param_note=Jane+Doe'"
+            )
+
+    created: list[_RecordingAsyncClient] = []
+
+    async def fake_create_clickhouse_client():
+        client_type = _DisconnectedClient if not created else _RecordingAsyncClient
+        client = client_type(f"client-{len(created) + 1}")
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(clickhouse, "_async_client", None)
+    monkeypatch.setattr(clickhouse, "_client_lock", None)
+    monkeypatch.setattr(clickhouse, "_create_clickhouse_client", fake_create_clickhouse_client)
+    monkeypatch.setattr(clickhouse.asyncio, "sleep", _no_sleep)
+    caplog.set_level(logging.WARNING, logger=clickhouse.logger.name)
+
+    rows = await clickhouse.execute_clickhouse("SELECT {note:String}", {"note": "Jane Doe"})
+
+    assert rows == [("client-2", "SELECT {note:String}", {"note": "Jane Doe"})]
+    assert [record.getMessage() for record in caplog.records if record.name == clickhouse.logger.name] == [
+        "ClickHouse query failed with a transient error; resetting client and retrying once: "
+        "OperationalError"
+    ]
+
+
+async def _no_sleep(_seconds: float) -> None:
+    return None
 
 
 @pytest.mark.asyncio
