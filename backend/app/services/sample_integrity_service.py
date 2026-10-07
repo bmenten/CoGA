@@ -151,29 +151,52 @@ def _build_pedigree_spec(context: FamilyMetadataContext) -> PedigreeSpec:
 
 
 async def _nipt_parent_sex_checks(
-    context: FamilyMetadataContext, *, parents: list[str]
+    context: FamilyMetadataContext, *, parents: list[str], notes: list[str]
 ) -> list[SexCheck]:
     """Sex the NIPT parents from X-SNV zygosity (father hemizygous → male; the
     cfDNA maternal-plasma sample is ~all maternal so reads female-het).
 
-    Best-effort: returns [] (rather than raising) when genotypes are unavailable,
-    so a family with partial/mock data degrades to a warning instead of erroring.
+    Without an assembly or a genotype callset there is nothing to read, and no check: the
+    cfDNA checks lack data then too, and gate sign-out themselves. When the genotypes
+    cannot be read, the error is logged by its kind, each parent's sex reads
+    "indeterminate", as for a parent without chrX calls, and ``notes`` is given the fixed
+    note. No relatedness check anchors a NIPT parent, so the sign-out gate asks for a
+    reason (report_signout_service._unverifiable_swap_checks).
     """
     present = [p for p in parents if p and p in context.sample_name_to_uuid]
     if not present or not context.assembly_name:
-        return []
-    try:
-        source = _choose_genotype_source(await fetch_family_variant_sources(context))
-        if not source:
-            return []
-        x_genotypes = await _load_genotype_sample(context, "chrX", QC_X_SITES, present, source)
-    except Exception:  # noqa: BLE001 — missing/mock genotypes shouldn't fail the page
         return []
     recorded = {
         str(row["sample_id"]): str(row.get("sex") or "")
         for row in context.sample_rows
         if row.get("sample_id")
     }
+    try:
+        source = _choose_genotype_source(await fetch_family_variant_sources(context))
+        if not source:
+            return []
+        x_genotypes = await _load_genotype_sample(context, "chrX", QC_X_SITES, present, source)
+    except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
+        # Named, not quoted: a failed query's text holds its parameters. The note and the
+        # checks are frozen into the signed report, so they are fixed sentences.
+        logger.warning(
+            "NIPT parents' sex could not be checked for family %s: %s",
+            scrub_log(context.family_id),
+            describe_error(exc),
+        )
+        notes.append("The NIPT parents' sex could not be checked.")
+        return [
+            SexCheck(
+                sample_id=pid,
+                recorded_sex=_norm_sex(recorded.get(pid)),
+                inferred_sex="indeterminate",
+                x_het_rate=None,
+                x_sites=0,
+                status="skip",
+                message="Sex could not be checked: the genotypes could not be loaded.",
+            )
+            for pid in present
+        ]
     return [
         _evaluate_sex(pid, _norm_sex(recorded.get(pid)), x_genotypes.get(pid)) for pid in present
     ]
@@ -187,9 +210,11 @@ async def _nipt_checks(
     user: CurrentUser,
     project_id: str | None,
     context: FamilyMetadataContext,
+    notes: list[str],
 ) -> tuple[PaternityCheck | None, FetalSexCheck | None, NiptCategoryQc | None, list[SexCheck]]:
     """NIPT cfDNA integrity: paternity (cat 7/8), fetal sex (paternal X), category
-    distribution QC, and germline parent sex (X zygosity)."""
+    distribution QC, and germline parent sex (X zygosity). ``notes`` is given the note
+    of a parent sex check that could not run."""
     trio = resolve_nipt_trio(family)
     if trio is None:
         return None, None, None, []
@@ -217,7 +242,7 @@ async def _nipt_checks(
     # The cfDNA sample is the maternal-plasma (mostly maternal) — sex it as the
     # mother; there is no separate maternal germline sample in the NIPT model.
     parent_sex = await _nipt_parent_sex_checks(
-        context, parents=[trio.father_sample_id, trio.cfdna_sample_id]
+        context, parents=[trio.father_sample_id, trio.cfdna_sample_id], notes=notes
     )
     return paternity, fetal_sex, category_qc, parent_sex
 
@@ -266,6 +291,7 @@ async def get_family_sample_integrity_qc(
                     user=user,
                     project_id=project_id,
                     context=context,
+                    notes=service_notes,
                 )
             )
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page

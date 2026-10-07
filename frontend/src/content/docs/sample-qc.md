@@ -158,6 +158,10 @@ The father and the cfDNA sample are sexed from X heterozygosity, as above. The c
 DNA, so it should read female. Because it is a mixture, this catches a gross problem (plasma not from a
 woman) but can end up indeterminate on sparse data.
 
+No relatedness check covers either sample, so a parent whose sex is indeterminate stops sign-out until
+someone records a reason. If their genotypes cannot be loaded, both parents read indeterminate and the
+page notes that the parents' sex could not be checked.
+
 ### cfDNA category check
 
 A sanity check on the shape of the category counts:

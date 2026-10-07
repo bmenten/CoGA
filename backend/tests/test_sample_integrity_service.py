@@ -285,6 +285,87 @@ def test_service_logs_a_failed_check_by_its_kind_not_its_text(monkeypatch, caplo
     assert _warnings(caplog) == ["Genotypes could not be loaded for family FAM1: RuntimeError"]
 
 
+def _patch_passing_nipt(monkeypatch) -> None:
+    """A monogenic NIPT family, FATHER and MOTHER's plasma, whose cfDNA checks all pass."""
+    import backend.app.services.nipt_service as nipt_service
+
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(
+        sample_integrity_service, "resolve_nipt_trio",
+        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
+    )
+
+    async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
+        return types.SimpleNamespace(
+            category_counts={2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
+            paternal_transmission=PaternalTransmissionEvidence(
+                hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
+            ),
+            fetal_sex=types.SimpleNamespace(
+                inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
+            ),
+        )
+
+    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
+
+
+async def _unreadable_value(*args, **kwargs):
+    raise DatabaseError(
+        f"Code: 6. DB::Exception: Cannot parse string '{_QUOTED_VALUE}' as UInt32. (CANNOT_PARSE_TEXT)"
+    )
+
+
+@pytest.mark.parametrize("failing", ["fetch_family_variant_sources", "fetch_genotype_site_sample"])
+def test_service_nipt_parent_sex_that_could_not_be_read_warns_and_gates_sign_out(
+    monkeypatch, caplog, failing
+) -> None:
+    # The callset lookup or the chrX load fails. The parents' sex checks used to vanish
+    # without a log line or a note: the QC passed, and sign-out went ahead with nothing
+    # checking either parent's sample against its record. Each parent's sex now reads
+    # indeterminate, as for a parent without chrX calls, which the sign-out gate holds.
+    from backend.app.services.report_signout_service import _unverifiable_swap_checks
+
+    caplog.set_level(logging.WARNING, logger=sample_integrity_service.logger.name)
+    _patch_passing_nipt(monkeypatch)
+    monkeypatch.setattr(sample_integrity_service, failing, _unreadable_value)
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="FAM1", user=None)
+    )
+
+    assert report.paternity_check is not None and report.paternity_check.status == "pass"
+    assert report.overall_status == "warn"
+    assert report.notes == ["The NIPT parents' sex could not be checked."]
+    not_checked = "Sex could not be checked: the genotypes could not be loaded."
+    assert [
+        (c.sample_id, c.recorded_sex, c.inferred_sex, c.x_sites, c.status, c.message)
+        for c in report.sex_checks
+    ] == [
+        ("FATHER", "male", "indeterminate", 0, "skip", not_checked),
+        ("MOTHER", "female", "indeterminate", 0, "skip", not_checked),
+    ]
+    assert _warnings(caplog) == ["NIPT parents' sex could not be checked for family FAM1: DatabaseError"]
+    assert _QUOTED_VALUE not in _frozen(report)
+    assert "DB::Exception" not in _frozen(report)
+    assert _unverifiable_swap_checks(_canonical_sample_qc(report)) == [not_checked, not_checked]
+
+
+def test_service_nipt_parent_sex_without_a_callset_adds_nothing(monkeypatch) -> None:
+    # Without a genotype callset there is no chrX to read: no check and no note. The cfDNA
+    # checks lack data then too, and gate sign-out themselves.
+    _patch_passing_nipt(monkeypatch)
+
+    async def _no_callset(context):
+        return []
+
+    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _no_callset)
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="FAM1", user=None)
+    )
+    assert report.sex_checks == []
+    assert report.notes == []
+
+
 def _nipt_site(variant_id: str, *, father_state: str, father_dp: int | None, present: bool):
     from backend.app.services.nipt_analysis import NiptSiteObservation
 
