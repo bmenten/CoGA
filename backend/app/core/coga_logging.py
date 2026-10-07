@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import functools
+import inspect
 import json
 import logging
 import re
+import sys
 import textwrap
 import traceback
 from datetime import datetime, timezone
@@ -243,6 +248,156 @@ def install_server_error_redaction() -> None:
     error_logger = logging.getLogger("uvicorn.error")
     if not any(isinstance(existing, RedactServerErrorFilter) for existing in error_logger.filters):
         error_logger.addFilter(RedactServerErrorFilter())
+
+
+_ASYNCIO_LOGGER = logging.getLogger("asyncio")
+
+# What asyncio, uvloop and the libraries the backend runs give an event loop's exception handler
+# as its message, up to the first object it quotes. A line writes the longest of these that the
+# message starts with: the message itself when it is fixed text, its fixed part when it goes on
+# to quote the callback with its arguments, an asynchronous generator, a file object by its name
+# or a connection.
+_EVENT_LOOP_MESSAGES = (
+    # asyncio and uvloop
+    "Task exception was never retrieved",
+    "Future exception was never retrieved",
+    "Task was destroyed but it is pending!",
+    "Exception in callback",
+    "unhandled exception during asyncio.run() shutdown",  # uvicorn's, anyio's and aiohttp's too
+    "an error occurred during closing of asynchronous generator",
+    "socket.accept() out of system resource",
+    "Error on transport creation for incoming connection",
+    "Unhandled exception in client_connected_cb",
+    "An open stream was garbage collected prior to establishing network connection; "
+    'call "stream.close()" explicitly.',
+    "Fatal error on transport",  # uvloop's goes on with the transport's class and a reason
+    "Fatal error on server",  # uvloop's, likewise
+    "Fatal read error on socket transport",
+    "Fatal write error on socket transport",
+    "Fatal read error on datagram transport",
+    "Fatal write error on datagram transport",
+    "Fatal error on pipe transport",
+    "Fatal read error on pipe transport",
+    "Fatal write error on pipe transport",
+    "Fatal error: protocol.data_received() call failed.",
+    "Fatal error: protocol.eof_received() call failed.",
+    "Fatal error: protocol.get_buffer() call failed.",
+    "Fatal error: protocol.buffer_updated() call failed.",
+    "Fatal error on SSL protocol",
+    "SSL handshake failed",
+    "SSL handshake failed on verifying the certificate",
+    "Error calling eof_received()",
+    "Error occurred during shutdown",
+    "protocol.pause_writing() failed",
+    "protocol.resume_writing() failed",
+    "Unknown exception in SIGCHLD handler",
+    "could not close attached file object",  # uvloop's
+    "exception in Task.__repr__",  # uvloop's
+    # asyncpg's (under SQLAlchemy) and aiohttp's (under clickhouse-connect)
+    "Resetting connection with an active transaction",
+    "Unclosed client session",
+    "Unclosed connector",
+    "Unclosed connection",
+    "Unclosed response",
+)
+
+
+def _event_loop_message(context: dict[str, Any]) -> str:
+    """The message of an event loop's exception context as fixed text (see
+    :data:`_EVENT_LOOP_MESSAGES`); one it does not know is not written."""
+    message = context.get("message")
+    if not isinstance(message, str) or not message:
+        return "Unhandled exception in event loop"  # asyncio's words for a context without one
+    known = [text for text in _EVENT_LOOP_MESSAGES if message.startswith(text)]
+    if known:
+        return max(known, key=len)
+    if message.endswith(" exception was never retrieved"):
+        # Named after the class of the future that held it, a subclass of Future.
+        return "Future exception was never retrieved"
+    if message.startswith("Task ") and " has errored out but its parent task " in message:
+        # A task group's, which quotes both tasks by their reprs: the first with its exception.
+        return "Task has errored out but its parent task is already completed"
+    return "Event loop error (message not written)"
+
+
+def _code_name(value: Any) -> str:
+    """The qualified name of a function, coroutine or asynchronous generator (of the function a
+    partial calls), or else of its type: code, never a value."""
+    while isinstance(value, functools.partial):
+        value = value.func
+    name = getattr(value, "__qualname__", None)
+    if not isinstance(name, str) or not name:
+        name = type(value).__qualname__
+    return scrub_log(name, max_len=256)
+
+
+def _event_loop_detail(context: dict[str, Any]) -> dict[str, str]:
+    """The objects of an event loop's exception context by name, never by repr: a task by its
+    name and coroutine, a callback and an asynchronous generator by their qualified names, the
+    frames where an object was created (in debug mode) as frames, anything else by its type."""
+    detail: dict[str, str] = {}
+    for key, value in context.items():
+        if key in ("message", "exception") or not isinstance(key, str):
+            continue
+        if isinstance(value, asyncio.Task):
+            detail["task"] = scrub_log(value.get_name(), max_len=256)
+            detail["coroutine"] = _code_name(value.get_coro())
+        elif inspect.isasyncgen(value):
+            detail[key] = _code_name(value)
+        elif isinstance(value, traceback.StackSummary):
+            # Each frame by file, line, function and source line; any locals it captured are left out.
+            frames = [(frame.filename, frame.lineno, frame.name, frame.line) for frame in value]
+            detail[key] = "".join(traceback.format_list(frames)).rstrip("\n")
+        else:
+            detail[key] = type(value).__qualname__
+            # asyncio's handle names its callback; uvloop's does not, but the traceback has its frame.
+            callback = getattr(value, "_callback", None) if isinstance(value, asyncio.Handle) else None
+            if callback is not None:
+                detail["callback"] = _code_name(callback)
+    return detail
+
+
+def log_event_loop_exception(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+    """An event loop's exception handler that logs what the loop reports without the values in
+    it: a task's exception that nobody retrieved, a callback that raised, a transport's error.
+
+    asyncio's default handler, and uvloop's, write the context's message and the repr of each
+    object in it on the ``asyncio`` logger. A task's repr holds its exception's message
+    (``exception=ValueError('...')``), a callback's its arguments, and the message itself quotes
+    them: "Exception in callback" names the callback with its arguments (uvloop; asyncio before
+    3.13). This one writes the message as fixed text (:func:`_event_loop_message`), the objects
+    by name (:func:`_event_loop_detail`) in ``detail``, and the exception as ``exc_info``, which
+    the JSON formatter writes by its kind and frames.
+
+    It may not raise: the loop would then log the context with its default handler, reprs and
+    all ("Unhandled error in exception handler")."""
+    exception = context.get("exception")
+    exc_info = (
+        (type(exception), exception, exception.__traceback__)
+        if isinstance(exception, BaseException)
+        else None
+    )
+    try:
+        message, detail = _event_loop_message(context), _event_loop_detail(context)
+    except Exception as problem:  # noqa: BLE001 - a handler that raises logs the reprs; see above
+        message, detail = f"Event loop error not described ({type(problem).__name__})", {}
+    try:
+        _ASYNCIO_LOGGER.error(message, exc_info=exc_info, extra={"detail": detail})
+    except Exception as problem:  # noqa: BLE001 - a logger's filter or a RecursionError
+        with contextlib.suppress(Exception):
+            sys.stderr.write(f"Event loop error not logged ({type(problem).__name__})\n")
+
+
+def install_event_loop_exception_handler(loop: asyncio.AbstractEventLoop | None = None) -> None:
+    """Have the running event loop, or ``loop``, log what it reports value-free
+    (:func:`log_event_loop_exception`).
+
+    uvicorn creates the loop the app runs on, so the lifespan installs this as it starts. It is
+    not taken off at shutdown: tasks are still reported as they are destroyed, and as
+    ``asyncio.run`` closes the loop."""
+    (loop if loop is not None else asyncio.get_running_loop()).set_exception_handler(
+        log_event_loop_exception
+    )
 
 
 def configure_json_logging(level: int = logging.INFO) -> None:

@@ -1,18 +1,27 @@
 """scrub_log control-character neutralization (CWE-117 log forging); describe_error and
 describe_traceback, which name an exception and give its frames without quoting the values in
 its text; the JSON formatter, which writes every log line that carries an exception that way;
-and the filter that does the same for uvicorn's traceback of an unhandled error."""
+the filter that does the same for uvicorn's traceback of an unhandled error; and the event loop
+exception handler, which logs what asyncio reports without the values its reprs quote."""
 from __future__ import annotations
 
+import asyncio
+import functools
+import gc
 import io
 import json
 import logging
+import sys
+import threading
+import time
 import traceback
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from contextlib import contextmanager
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import uvloop
 from clickhouse_connect.driver.exceptions import DatabaseError as ClickHouseDatabaseError
 from clickhouse_connect.driver.exceptions import OperationalError as ClickHouseOperationalError
 from sqlalchemy.exc import DBAPIError
@@ -24,7 +33,9 @@ from backend.app.core.coga_logging import (
     RedactServerErrorFilter,
     describe_error,
     describe_traceback,
+    install_event_loop_exception_handler,
     install_server_error_redaction,
+    log_event_loop_exception,
     scrub_log,
 )
 
@@ -414,3 +425,391 @@ def test_a_line_is_written_and_nothing_raised_when_its_traceback_cannot_be(monke
     assert record.exc_info is None
     assert record.exc_text == line["traceback"]
     assert "Jane Doe" not in capsys.readouterr().err
+
+
+# What an event loop reports to its exception handler. uvicorn runs the app on uvloop
+# (uvicorn[standard]); asyncio's own loop runs the scripts and the tests.
+_EVENT_LOOPS = [
+    pytest.param(asyncio.new_event_loop, id="asyncio"),
+    pytest.param(uvloop.new_event_loop, id="uvloop"),
+]
+
+
+async def _fail(value: str) -> None:
+    raise ValueError(value)
+
+
+async def _fail_when_cancelled(value: str) -> None:
+    try:
+        await asyncio.Event().wait()
+    except asyncio.CancelledError as cancelled:
+        raise ValueError(value) from cancelled
+
+
+def _fail_now(value: str) -> None:
+    raise ValueError(value)
+
+
+async def _task_nobody_awaits() -> None:
+    task = asyncio.get_running_loop().create_task(_fail(_VALUE), name="family import")
+    await asyncio.sleep(0)
+    assert task.done()
+    del task  # the loop reports the exception as the task is destroyed
+
+
+async def _future_nobody_awaits() -> None:
+    future = asyncio.get_running_loop().create_future()
+    future.set_exception(ValueError(_VALUE))
+    del future
+
+
+async def _gather_nobody_awaits() -> None:
+    gathered = asyncio.gather(_fail(_VALUE))
+    await asyncio.sleep(0)  # the task fails
+    await asyncio.sleep(0)  # and gather takes its exception
+    assert gathered.done()
+    del gathered
+
+
+async def _task_left_at_shutdown() -> asyncio.Task[None]:
+    # Returned so that it outlives the run: closing the loop cancels it, and it fails.
+    task = asyncio.get_running_loop().create_task(
+        _fail_when_cancelled(_VALUE), name="integrity monitor"
+    )
+    await asyncio.sleep(0)
+    return task
+
+
+async def _failing_callback() -> None:
+    asyncio.get_running_loop().call_soon(_fail_now, _VALUE)
+    await asyncio.sleep(0)
+
+
+async def _failing_partial_callback() -> None:
+    asyncio.get_running_loop().call_soon(functools.partial(_fail_now, _VALUE))
+    await asyncio.sleep(0)
+
+
+def _report(
+    scenario: Callable[[], Coroutine[Any, Any, Any]],
+    new_loop: Callable[[], asyncio.AbstractEventLoop],
+    *,
+    handler: bool = True,
+) -> _JsonLog:
+    """Run ``scenario`` on a new loop, with the handler the app installs unless told otherwise,
+    and give what the ``asyncio`` logger wrote, through the JSON formatter."""
+    gc.collect()  # what an earlier test left is reported now, not among this test's lines
+    with _json_log("asyncio") as (_logger, log):
+        with asyncio.Runner(loop_factory=new_loop) as runner:
+            if handler:
+                install_event_loop_exception_handler(runner.get_loop())
+            kept = runner.run(scenario())
+        del kept
+        gc.collect()
+    return log
+
+
+@pytest.mark.parametrize("new_loop", _EVENT_LOOPS)
+def test_asyncio_writes_the_value_in_its_message_without_the_handler(new_loop) -> None:
+    # The finding: asyncio's default handler, and uvloop's, write the task's repr, which holds
+    # its exception's message, into the line's message. The formatter cannot tell it apart.
+    log = _report(_task_nobody_awaits, new_loop, handler=False)
+
+    (line,) = log.lines()
+    assert line["message"].startswith("Task exception was never retrieved\n")
+    assert "exception=ValueError('Jane Doe')" in line["message"]
+
+
+@pytest.mark.parametrize("new_loop", _EVENT_LOOPS)
+@pytest.mark.parametrize(
+    ("scenario", "message", "detail"),
+    [
+        (
+            _task_nobody_awaits,
+            "Task exception was never retrieved",
+            {"task": "family import", "coroutine": "_fail"},
+        ),
+        (_future_nobody_awaits, "Future exception was never retrieved", {"future": "Future"}),
+        # asyncio names it after the class of the future: "_GatheringFuture exception ...".
+        (_gather_nobody_awaits, "Future exception was never retrieved", {"future": "_GatheringFuture"}),
+        (
+            _task_left_at_shutdown,
+            "unhandled exception during asyncio.run() shutdown",
+            {"task": "integrity monitor", "coroutine": "_fail_when_cancelled"},
+        ),
+    ],
+    ids=["task", "future", "gather", "shutdown"],
+)
+def test_an_exception_nobody_retrieved_is_logged_by_name_kind_and_frames(
+    scenario, message: str, detail: dict[str, str], new_loop
+) -> None:
+    log = _report(scenario, new_loop)
+
+    (line,) = log.lines()
+    assert line["severity"] == "ERROR"
+    assert line["message"] == message
+    assert line["detail"] == detail
+    assert line["error"] == "ValueError"
+    if scenario is _future_nobody_awaits:
+        assert line["traceback"] == "ValueError"  # set, never raised: no frames
+    else:
+        assert ", in _fail" in line["traceback"]
+        assert line["traceback"].endswith("\nValueError")
+    assert "Jane Doe" not in log.text
+
+
+@pytest.mark.parametrize("new_loop", _EVENT_LOOPS)
+@pytest.mark.parametrize("scenario", [_failing_callback, _failing_partial_callback], ids=["call", "partial"])
+def test_a_failing_callback_is_logged_without_its_arguments(scenario, new_loop) -> None:
+    # The message itself quotes the arguments: asyncio's on Python 3.12 ("Exception in callback
+    # _fail_now('...')"), uvloop's for a partial ("functools.partial(<function ...>, '...')").
+    log = _report(scenario, new_loop)
+
+    (line,) = log.lines()
+    assert line["message"] == "Exception in callback"
+    # asyncio's handle names its callback; uvloop's does not, and the frames show it.
+    if new_loop is asyncio.new_event_loop:
+        assert line["detail"] == {"handle": "Handle", "callback": "_fail_now"}
+    else:
+        assert line["detail"] == {"handle": "Handle"}
+    assert line["error"] == "ValueError"
+    assert ", in _fail_now\n" in line["traceback"]
+    assert "Jane Doe" not in log.text
+
+
+class _Quoting:
+    """Stands in for an object whose repr quotes a value: an aiohttp response its URL with the
+    query's parameters, a transport, a connection, a file object its name."""
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def __repr__(self) -> str:
+        return f"<_Quoting {self.value}>"
+
+
+def _call_handler(new_loop: Callable[[], asyncio.AbstractEventLoop], context: dict[str, Any]) -> _JsonLog:
+    loop = new_loop()
+    try:
+        install_event_loop_exception_handler(loop)
+        with _json_log("asyncio") as (_logger, log):
+            loop.call_exception_handler(context)
+    finally:
+        loop.close()
+    return log
+
+
+_QUOTED = _Quoting(_VALUE)
+
+
+@pytest.mark.parametrize("new_loop", _EVENT_LOOPS)
+@pytest.mark.parametrize(
+    ("message", "written"),
+    [
+        # Fixed text, written as it is.
+        ("Task was destroyed but it is pending!", "Task was destroyed but it is pending!"),
+        ("Unclosed response", "Unclosed response"),  # aiohttp's
+        (
+            "SSL handshake failed on verifying the certificate",
+            "SSL handshake failed on verifying the certificate",
+        ),
+        # Fixed text that goes on with what it quotes: written up to it.
+        (
+            "Fatal error on transport TCPTransport (error status in uv_stream_t.read callback)",
+            "Fatal error on transport",
+        ),
+        (f"could not close attached file object {_QUOTED!r}", "could not close attached file object"),
+        (
+            f"Resetting connection with an active transaction {_QUOTED!r}",
+            "Resetting connection with an active transaction",
+        ),
+        (
+            f"an error occurred during closing of asynchronous generator {_QUOTED!r}",
+            "an error occurred during closing of asynchronous generator",
+        ),
+        (
+            f"Task {_QUOTED!r} has errored out but its parent task {_QUOTED} is already completed",
+            "Task has errored out but its parent task is already completed",
+        ),
+        # A message it does not know is not written; nor is there one to write.
+        (f"Listener for {_VALUE} failed", "Event loop error (message not written)"),
+        ("", "Unhandled exception in event loop"),
+    ],
+    ids=[
+        "destroyed-pending",
+        "unclosed-response",
+        "ssl-certificate",
+        "uvloop-transport",
+        "file-object",
+        "asyncpg-transaction",
+        "asyncgen",
+        "task-group",
+        "unknown",
+        "none",
+    ],
+)
+def test_the_message_is_written_as_fixed_text_up_to_what_it_quotes(
+    message: str, written: str, new_loop
+) -> None:
+    log = _call_handler(
+        new_loop,
+        {"message": message, "exception": ValueError(_VALUE), "transport": _QUOTED, "protocol": _QUOTED},
+    )
+
+    (line,) = log.lines()
+    assert line["message"] == written
+    assert line["detail"] == {"transport": "_Quoting", "protocol": "_Quoting"}
+    assert line["error"] == "ValueError"
+    assert "Jane Doe" not in log.text
+
+
+async def _rows(value: str) -> AsyncIterator[str]:
+    yield value
+
+
+def _created_here(value: str) -> traceback.StackSummary:
+    # Where, in debug mode, asyncio says an object was created; this frame kept its locals.
+    frames = traceback.walk_stack(sys._getframe())
+    return traceback.StackSummary.extract(frames, limit=1, capture_locals=True)
+
+
+@pytest.mark.parametrize("new_loop", _EVENT_LOOPS)
+def test_the_objects_a_report_holds_are_named_never_quoted(new_loop) -> None:
+    async def finished_task() -> asyncio.Task[None]:
+        task = asyncio.get_running_loop().create_task(_fail(_VALUE), name="sample QC")
+        await asyncio.sleep(0)
+        assert isinstance(task.exception(), ValueError)
+        return task
+
+    with asyncio.Runner(loop_factory=new_loop) as runner:
+        task = runner.run(finished_task())
+    rows = _rows(_VALUE)
+    created = _created_here(_VALUE)
+    with asyncio.Runner() as runner:
+        handle = asyncio.Handle(functools.partial(_fail_now, _VALUE), (), runner.get_loop())
+    context = {
+        "message": "Unhandled exception in client_connected_cb",
+        "exception": task.exception(),
+        "task": task,
+        "asyncgen": rows,
+        "source_traceback": created,
+        "handle": handle,
+        "client_response": _QUOTED,
+    }
+    assert "Jane Doe" in repr(task) and "Jane Doe" in "".join(created.format())
+
+    log = _call_handler(new_loop, context)
+
+    (line,) = log.lines()
+    assert line["message"] == "Unhandled exception in client_connected_cb"
+    assert line["detail"]["task"] == "sample QC"
+    assert line["detail"]["coroutine"] == "_fail"
+    assert line["detail"]["asyncgen"] == "_rows"
+    assert line["detail"]["source_traceback"].startswith('  File "')
+    assert line["detail"]["source_traceback"].endswith(
+        ", in _created_here\n    return traceback.StackSummary.extract(frames, limit=1, capture_locals=True)"
+    )
+    assert line["detail"]["handle"] == "Handle"
+    assert line["detail"]["callback"] == "_fail_now"
+    assert line["detail"]["client_response"] == "_Quoting"
+    assert "Jane Doe" not in log.text
+
+
+@pytest.mark.parametrize("new_loop", _EVENT_LOOPS)
+def test_the_loop_never_falls_back_on_its_own_handler(new_loop, monkeypatch, capsys) -> None:
+    # A handler that raises makes the loop log "Unhandled error in exception handler" with the
+    # whole context, reprs and all.
+    def _cannot(_context: dict[str, Any]) -> dict[str, str]:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(coga_logging, "_event_loop_detail", _cannot)
+    log = _report(_task_nobody_awaits, new_loop)
+
+    (line,) = log.lines()
+    assert line["message"] == "Event loop error not described (RecursionError)"
+    assert line["error"] == "ValueError"
+    assert "detail" not in line
+    assert "Jane Doe" not in log.text
+    assert "Jane Doe" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("new_loop", _EVENT_LOOPS)
+def test_a_report_that_cannot_be_logged_leaves_a_line_without_values(new_loop, capsys) -> None:
+    class _Refusing(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            raise RuntimeError(record.getMessage())
+
+    refusing = _Refusing()
+    logging.getLogger("asyncio").addFilter(refusing)
+    try:
+        log = _report(_task_nobody_awaits, new_loop)
+    finally:
+        logging.getLogger("asyncio").removeFilter(refusing)
+
+    assert log.lines() == []
+    assert capsys.readouterr().err == "Event loop error not logged (RuntimeError)\n"
+
+
+@pytest.mark.parametrize("new_loop", _EVENT_LOOPS)
+def test_the_lifespan_installs_the_handler_on_the_loop_it_runs_on(new_loop) -> None:
+    from backend.app.main import lifespan
+
+    app = SimpleNamespace(state=SimpleNamespace(skip_startup_tasks=True))
+
+    async def handler_while_serving() -> object:
+        async with lifespan(app):
+            return asyncio.get_running_loop().get_exception_handler()
+
+    with asyncio.Runner(loop_factory=new_loop) as runner:
+        assert runner.run(handler_while_serving()) is log_event_loop_exception
+        # Left in place: tasks are still reported as the loop is closed.
+        assert runner.get_loop().get_exception_handler() is log_event_loop_exception
+
+
+def test_a_background_tasks_exception_on_uvicorns_own_loop_is_logged_without_its_value() -> None:
+    # The app's lifespan, on the uvloop event loop uvicorn creates: a task a request started and
+    # nobody awaits, as a knowledgebase rebuild is started, fails.
+    import httpx
+    import uvicorn
+    from fastapi import FastAPI
+
+    from backend.app.main import lifespan
+
+    app = FastAPI(lifespan=lifespan)
+    app.state.skip_startup_tasks = True  # no database: only what the lifespan does first
+
+    @app.post("/rebuild")
+    async def rebuild() -> dict[str, str]:
+        asyncio.get_running_loop().create_task(_fail(_VALUE), name="knowledgebase rebuild")
+        return {}
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app, host="127.0.0.1", port=0, loop="uvloop", lifespan="on", log_config=None, access_log=False
+        )
+    )
+    gc.collect()
+    with _json_log("asyncio") as (_logger, log):
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        try:
+            deadline = time.monotonic() + 20
+            while not server.started:
+                assert thread.is_alive() and time.monotonic() < deadline
+                time.sleep(0.01)
+            port = server.servers[0].sockets[0].getsockname()[1]
+            assert httpx.post(f"http://127.0.0.1:{port}/rebuild").status_code == 200
+            while not log.text:
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+        finally:
+            server.should_exit = True
+            thread.join(timeout=20)
+    assert not thread.is_alive()
+
+    (line,) = log.lines()
+    assert line["message"] == "Task exception was never retrieved"
+    assert line["detail"] == {"task": "knowledgebase rebuild", "coroutine": "_fail"}
+    assert line["error"] == "ValueError"
+    assert ", in _fail\n" in line["traceback"]
+    assert "Jane Doe" not in log.text

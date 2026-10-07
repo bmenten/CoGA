@@ -22,6 +22,7 @@ from .core.postgres import (
 from .core.coga_logging import (
     configure_json_logging,
     install_access_log_redaction,
+    install_event_loop_exception_handler,
     install_server_error_redaction,
 )
 from .core.csv_export import EXPORT_HEADERS
@@ -61,6 +62,10 @@ from .services.ui_event_pg import start_ui_event_worker, stop_ui_event_worker
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # uvicorn creates the event loop, and every background worker below runs on it as a task.
+    # What the loop reports, such as a task's exception nobody retrieved, is logged without the
+    # values asyncio's own handler quotes.
+    install_event_loop_exception_handler()
     if getattr(app.state, "skip_startup_tasks", False):
         yield
         return
