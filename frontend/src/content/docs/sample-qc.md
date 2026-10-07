@@ -60,6 +60,7 @@ heterozygotes, a woman many.
   no-call or a half call (`./1`) is left out.
 - A recorded sex that differs from the genetic sex is a **fail** — most often a sample swap or a
   mislabelled tube. No recorded sex is a **warn**.
+- A sample with no X genotypes at all is **not run**: its sex is indeterminate.
 
 ### Relatedness against the pedigree
 
@@ -158,6 +159,10 @@ The father and the cfDNA sample are sexed from X heterozygosity, as above. The c
 DNA, so it should read female. Because it is a mixture, this catches a gross problem (plasma not from a
 woman) but can end up indeterminate on sparse data.
 
+No relatedness check covers either sample, so a parent whose sex is indeterminate stops sign-out until
+someone records a reason. If their genotypes cannot be loaded, both parents read indeterminate and the
+page notes that the parents' sex could not be checked.
+
 ### cfDNA category check
 
 A sanity check on the shape of the category counts:
@@ -187,7 +192,14 @@ symbol keeps its clinical meaning (black for affected, the carrier half-fill in 
 Hover a symbol for the reason.
 
 **Per-sample table.** Recorded sex against genetic sex, and the Mendelian-error rate, coloured by
-status. Hover a cell for the explanation.
+status. Hover a cell for the explanation. The genetic sex carries a mark for its verdict:
+
+| Verdict | Mark | Meaning |
+| --- | --- | --- |
+| Pass | ✓, green | matches the recorded sex |
+| Warn | !, amber | not confirmed: indeterminate, or no recorded sex to compare with |
+| Fail | ✗, red | contradicts the recorded sex — a possible swap or mislabelled tube |
+| Not run | ?, grey | not checked: no X genotypes for the sample |
 
 **Relatedness matrix.** A sample × sample grid (lower half only; it is symmetric). Each cell shows the
 inferred relationship, the kinship φ and the IBS0. A pair that contradicts the pedigree — including

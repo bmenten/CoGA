@@ -11,6 +11,7 @@ from app.services.event_pipeline import (
     enqueue_event,
     reset_dropped_event_counts,
     write_event_batch_with_retry,
+    write_event_now,
 )
 
 NAME = "test_pipe"
@@ -97,9 +98,10 @@ async def test_backpressure_enqueues_when_space_frees(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_synchronous_fallback_failure_is_recorded_not_raised(monkeypatch):
+async def test_synchronous_fallback_failure_is_recorded_not_raised(monkeypatch, caplog):
     monkeypatch.setattr(settings, "audit_log_drop_allowed", False)
     monkeypatch.setattr(settings, "audit_log_backpressure_timeout_seconds", 0.05)
+    caplog.set_level(logging.ERROR, logger="app.services.event_pipeline")
     queue: asyncio.Queue = asyncio.Queue(maxsize=1)
     queue.put_nowait("first")
 
@@ -110,6 +112,40 @@ async def test_synchronous_fallback_failure_is_recorded_not_raised(monkeypatch):
     await enqueue_event(queue, "second", name=NAME, write_batch=failing_write)
 
     assert dropped_event_count(NAME) == 1
+    assert [record.getMessage() for record in caplog.records] == [
+        f"Audit pipeline {NAME}: event not persisted (synchronous fallback failed: RuntimeError); "
+        "dropped_total=1 payload='second'"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_event_written_at_once_skips_the_queue_and_is_not_counted():
+    # AUDIT_LOG_MODE=sync, or no worker running: the request writes its own event.
+    calls, write_batch = _recorder()
+
+    await write_event_now("evt", name=NAME, write_batch=write_batch)
+
+    assert calls == [["evt"]]
+    assert dropped_event_count(NAME) == 0
+
+
+@pytest.mark.asyncio
+async def test_an_event_that_cannot_be_written_at_once_is_recorded_not_raised(caplog):
+    # Such a loss used to raise into the request and stay out of the count, so the alert on
+    # coga_audit_events_not_persisted_total missed it. It is now recorded as the worker
+    # records one: counted, and logged once with its payload, the error by its kind.
+    caplog.set_level(logging.ERROR, logger="app.services.event_pipeline")
+
+    async def failing(_batch):
+        raise RuntimeError("INSERT failed [parameters: ('row-a',)]")
+
+    await write_event_now("row-a", name=NAME, write_batch=failing)
+
+    assert dropped_event_count(NAME) == 1
+    assert [record.getMessage() for record in caplog.records] == [
+        f"Audit pipeline {NAME}: event not persisted (synchronous write failed: RuntimeError); "
+        "dropped_total=1 payload='row-a'"
+    ]
 
 
 @pytest.mark.asyncio
