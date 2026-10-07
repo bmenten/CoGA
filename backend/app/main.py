@@ -17,7 +17,11 @@ from .core.postgres import (
     init_postgres_schema,
     wait_for_postgres,
 )
-from .core.coga_logging import configure_json_logging, install_access_log_redaction
+from .core.coga_logging import (
+    configure_json_logging,
+    install_access_log_redaction,
+    install_server_error_redaction,
+)
 from .core.csv_export import EXPORT_HEADERS
 from .db_migrate import init_postgres_admin_user
 from .middleware.client_ip import TrustedProxyClientMiddleware
@@ -140,6 +144,7 @@ app = FastAPI(
 )
 configure_json_logging()
 install_access_log_redaction()
+install_server_error_redaction()
 
 app.add_middleware(
     CORSMiddleware,

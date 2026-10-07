@@ -13,6 +13,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import execute_clickhouse
+from ..core.coga_logging import describe_error
 from ..core.csv_export import TRUNCATED_BY_CANDIDATE_LIMIT, TRUNCATED_BY_ROW_LIMIT
 from ..schemas import (
     MonarchPhenotypeMatchOut,
@@ -861,9 +862,11 @@ async def _execute_clickhouse(query: str, params: dict[str, Any]) -> list[tuple[
         message = str(exc)
         if "UNKNOWN_TABLE" in message or "doesn't exist" in message:
             return []
+        # The error is named by its code, not quoted: ClickHouse's text can hold a value it
+        # could not convert, a filter value from the request. The parameters are named only.
         logger.error(
             "ClickHouse variant query failed: %s | params=%s | query=%s",
-            message,
+            describe_error(exc),
             sorted(params.keys()),
             " ".join(query.split()),
         )

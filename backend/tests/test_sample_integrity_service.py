@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import types
 
@@ -199,6 +200,47 @@ def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> No
     assert report.overall_status == "warn"
     assert any("NIPT cfDNA analysis could not run" in note for note in report.notes)
     assert report.paternity_check is None
+
+
+async def _failed_query(*args, **kwargs):
+    raise RuntimeError("SELECT ... [parameters: ('Jane Doe',)]")
+
+
+def _warnings(caplog) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == sample_integrity_service.logger.name
+    ]
+
+
+def test_service_logs_a_failed_check_by_its_kind_not_its_text(monkeypatch, caplog) -> None:
+    # A failed query's text holds its parameters: the warnings name the error instead.
+    import backend.app.services.nipt_service as nipt_service
+
+    caplog.set_level(logging.WARNING, logger=sample_integrity_service.logger.name)
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(
+        sample_integrity_service, "resolve_nipt_trio",
+        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
+    )
+    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _failed_query)
+    asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=None, family_id="FAM1", user=None
+        )
+    )
+    assert _warnings(caplog) == ["NIPT cfDNA QC could not run for family FAM1: RuntimeError"]
+
+    caplog.clear()
+    _patch(monkeypatch, swap_child=False)
+    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _failed_query)
+    asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=None, family_id="FAM1", user=None
+        )
+    )
+    assert _warnings(caplog) == ["Genotypes could not be loaded for family FAM1: RuntimeError"]
 
 
 def _nipt_site(variant_id: str, *, father_state: str, father_dp: int | None, present: bool):

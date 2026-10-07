@@ -3,12 +3,20 @@ from __future__ import annotations
 import json
 import logging
 import re
+import textwrap
+import traceback
 from datetime import datetime, timezone
 from typing import Any
 
 # C0 control characters + DEL. CR/LF here are what let an attacker forge extra log
 # lines (CWE-117); tab/other control chars can corrupt log parsing too.
 _LOG_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+# A ClickHouse error name, as clickhouse-connect reads it from the server's reply.
+_CLICKHOUSE_ERROR_NAME_RE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+
+_CAUSE_LINK = "\nThe above exception was the direct cause of the following exception:\n\n"
+_CONTEXT_LINK = "\nDuring handling of the above exception, another exception occurred:\n\n"
 
 
 def scrub_log(value: Any, *, max_len: int = 512) -> str:
@@ -24,23 +32,73 @@ def scrub_log(value: Any, *, max_len: int = 512) -> str:
 
 def describe_error(exc: BaseException) -> str:
     """Name an exception for a log line without its message, e.g. ``DBAPIError
-    (UntranslatableCharacterError, SQLSTATE 22P05)``: its type and, for a database error,
-    the driver's error type and SQLSTATE.
+    (UntranslatableCharacterError, SQLSTATE 22P05)`` or ``DatabaseError (ClickHouse 241
+    MEMORY_LIMIT_EXCEEDED)``: its type and, for a database error, the driver's error type and
+    SQLSTATE, or ClickHouse's error code and name.
 
     A failed statement's message quotes the values it was given (SQLAlchemy appends the
-    parameters, Postgres quotes the JSON it could not read). For the audit writers those are
-    the request's user, path and body, which the log must not copy."""
+    parameters, Postgres quotes the JSON it could not read, ClickHouse a value it could not
+    convert). Those are the request's values: its user, path and body for the audit writers,
+    whatever a handler bound for a request that fails. The log must not copy them."""
     name = type(exc).__name__
     orig = getattr(exc, "orig", None)
-    if not isinstance(orig, BaseException):
-        return name
-    # SQLAlchemy's asyncpg adapter raises its own error from asyncpg's, which names the kind.
-    driver_error = orig.__cause__ if orig.__cause__ is not None else orig
-    detail = type(driver_error).__name__
-    sqlstate = getattr(orig, "sqlstate", None)
-    if isinstance(sqlstate, str) and sqlstate:
-        detail += f", SQLSTATE {scrub_log(sqlstate, max_len=16)}"
-    return f"{name} ({detail})"
+    if isinstance(orig, BaseException):
+        # SQLAlchemy's asyncpg adapter raises its own error from asyncpg's, which names the kind.
+        driver_error = orig.__cause__ if orig.__cause__ is not None else orig
+        detail = type(driver_error).__name__
+        sqlstate = getattr(orig, "sqlstate", None)
+        if isinstance(sqlstate, str) and sqlstate:
+            detail += f", SQLSTATE {scrub_log(sqlstate, max_len=16)}"
+        return f"{name} ({detail})"
+    if type(exc).__module__.startswith("clickhouse_connect."):
+        # The driver's errors carry the server's error code and name; a transport error has
+        # neither. Matched by module, so that this module need not import the driver.
+        code = getattr(exc, "code", None)
+        error_name = getattr(exc, "name", None)
+        parts = [str(code)] if isinstance(code, int) and not isinstance(code, bool) else []
+        if isinstance(error_name, str) and _CLICKHOUSE_ERROR_NAME_RE.fullmatch(error_name):
+            parts.append(error_name)
+        if parts:
+            return f"{name} (ClickHouse {' '.join(parts)})"
+    return name
+
+
+def describe_traceback(exc: BaseException) -> str:
+    """A traceback of ``exc`` for a log line without any exception's message: each exception
+    of its chain, oldest first as Python prints them, with its frames (file, line, function and
+    source line) and its :func:`describe_error` name.
+
+    The frames are code. The messages, and any notes, are where a failed statement's values
+    are, and are left out."""
+    chain = [exc]  # newest first
+    links: list[str] = []  # links[i] stands between chain[i + 1] and chain[i]
+    while True:
+        newest = chain[-1]
+        if newest.__cause__ is not None:
+            earlier, link = newest.__cause__, _CAUSE_LINK
+        elif newest.__context__ is not None and not newest.__suppress_context__:
+            earlier, link = newest.__context__, _CONTEXT_LINK
+        else:
+            break
+        if any(earlier is seen for seen in chain):
+            break
+        chain.append(earlier)
+        links.append(link)
+
+    parts: list[str] = []
+    for index in range(len(chain) - 1, -1, -1):
+        error = chain[index]
+        if error.__traceback__ is not None:
+            parts.append("Traceback (most recent call last):\n")
+            parts.extend(traceback.format_tb(error.__traceback__))
+        parts.append(f"{describe_error(error)}\n")
+        if isinstance(error, BaseExceptionGroup):
+            for number, member in enumerate(error.exceptions, start=1):
+                parts.append(f"Sub-exception {number} of {len(error.exceptions)}:\n")
+                parts.append(textwrap.indent(describe_traceback(member), "    ") + "\n")
+        if index:
+            parts.append(links[index - 1])
+    return "".join(parts).rstrip("\n")
 
 
 class JsonLogFormatter(logging.Formatter):
@@ -128,6 +186,28 @@ def install_access_log_redaction() -> None:
     access_logger = logging.getLogger("uvicorn.access")
     if not any(isinstance(existing, RedactQueryTokenFilter) for existing in access_logger.filters):
         access_logger.addFilter(RedactQueryTokenFilter())
+
+
+class RedactServerErrorFilter(logging.Filter):
+    """Write the traceback a log record carries by its frames and kinds only
+    (:func:`describe_traceback`).
+
+    An exception that escapes a request is answered by Starlette with a 500 and raised again,
+    and uvicorn logs it ("Exception in ASGI application") with its full traceback, whose
+    messages quote a failed statement's SQL and parameters: values from the request."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.exc_info and record.exc_info[1] is not None:
+            record.exc_text = describe_traceback(record.exc_info[1])
+            record.exc_info = None
+        return True
+
+
+def install_server_error_redaction() -> None:
+    """Keep request values out of uvicorn's traceback of an unhandled exception."""
+    error_logger = logging.getLogger("uvicorn.error")
+    if not any(isinstance(existing, RedactServerErrorFilter) for existing in error_logger.filters):
+        error_logger.addFilter(RedactServerErrorFilter())
 
 
 def configure_json_logging(level: int = logging.INFO) -> None:
