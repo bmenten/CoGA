@@ -201,6 +201,7 @@ const FamilyNiptPage: React.FC = () => {
     removeActiveFilterChip,
     sampleDraftFilters,
     sampleFilters,
+    searchReady,
     setDraftFilterValue,
     toggleDraftFilterListValue,
   } = useSmallVariantSearchState({
@@ -208,9 +209,9 @@ const FamilyNiptPage: React.FC = () => {
     locationSearch: location.search,
     navigate,
     resolvedProjectId: projectId,
-    // Opens unfiltered: the small-variant page's Phenotype-priority default rests on
-    // genotype and phenotype filters that do not apply to cfDNA.
-    freshOpenPreset: null,
+    // Opens on the De novo preset: the small-variant page's Phenotype-priority default
+    // rests on genotype and phenotype filters that do not apply to cfDNA.
+    freshOpenPreset: 'nipt_de_novo',
   });
 
   const {
@@ -314,7 +315,8 @@ const FamilyNiptPage: React.FC = () => {
     refetch: refetchVariants,
   } = useQuery<SmallVariantPage>({
     queryKey: [...niptVariantsKey, JSON.stringify(filters), page],
-    enabled: Boolean(familyId && isMonogenicNipt),
+    // Wait for the De novo default (or the URL's search), so no unfiltered search goes out.
+    enabled: Boolean(familyId && isMonogenicNipt && searchReady),
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/nipt/variants`, {
         params: buildVariantParams(filters, page),

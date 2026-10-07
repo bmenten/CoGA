@@ -314,7 +314,7 @@ below the table holds every carrier variant of the listed genes.
 The presets combine the views with the usual filters: **De novo** (the de novo view, HIGH or MODERATE
 impact, gnomAD 1% or below, a ClinVar pathogenic record overriding the frequency), **Paternal, inherited**
 (the paternal view with the same filters) and **Recessive (both parents carrier)** (the recessive view
-with the same filters).
+with the same filters). The page opens on **De novo** unless its link carries a search of its own.
 
 ---
 
