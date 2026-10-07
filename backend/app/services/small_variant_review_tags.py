@@ -3,12 +3,12 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from typing import Any, Iterable
-from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import require_uuid
 from ..schemas import (
     SmallVariantTagDefinitionCreate,
     SmallVariantTagDefinitionOut,
@@ -219,12 +219,9 @@ def _normalize_project_scope_ids(project_ids: Iterable[str] | None) -> list[str]
         candidate = str(project_id).strip()
         if not candidate:
             continue
-        try:
-            UUID(candidate)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"Invalid project id: {candidate}") from exc
-        if candidate not in normalized:
-            normalized.append(candidate)
+        canonical = require_uuid(candidate, f"Invalid project id: {candidate}")
+        if canonical not in normalized:
+            normalized.append(canonical)
     return normalized
 
 

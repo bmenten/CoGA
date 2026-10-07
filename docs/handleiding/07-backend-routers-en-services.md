@@ -47,10 +47,11 @@ Waarden gaan nooit als tekst in een query, altijd als losse parameter.
 
 - **Postgres:** SQLAlchemy met benoemde parameters (`:naam`). Voor een lijst UUID's (bv. `IN :project_ids`) bestaat een hulpfunctie die een veilige, variabele lijst oplevert zonder tekst te plakken.
 - **ClickHouse:** parameters in de vorm `%(naam)s`, die de client bij de server bindt. De querytekst bevat de waarde nooit letterlijk.
+- **Een UUID uit het verzoek:** een UUID in het pad of de querystring (een bestand, een importjob, een HPO-annotatie, een panel, een project, …) wordt één keer gelezen, daar waar het record wordt opgezocht en dus ná de toegangscontroles. Een waarde die geen UUID is, krijgt hetzelfde antwoord als een UUID zonder record (de 404 van de route, of de 400 die de route voor een ongeldige id geeft) en komt nooit in een query. Een UUID wordt in zijn canonieke vorm gebonden (kleine letters, met koppeltekens), zodat `{…}` of `urn:uuid:…` hetzelfde record vindt. Voordien liep zo'n verzoek uit op een 500.
 
 Het enige dat wél in de tekst staat, zijn tabelnamen; die worden afgeleid van de assemblynaam via één functie die alleen veilige tekens toelaat (hoofdstuk 3).
 
-**Waar in de code:** `backend/app/core/sql.py` (`uuid_list_bindparam`) en `execute_clickhouse` in `backend/app/core/clickhouse.py`.
+**Waar in de code:** `backend/app/core/sql.py` (`uuid_list_bindparam`, `canonical_uuid`, `require_uuid`) en `execute_clickhouse` in `backend/app/core/clickhouse.py`.
 
 ### 2. `ORDER BY` komt uit een vaste lijst
 

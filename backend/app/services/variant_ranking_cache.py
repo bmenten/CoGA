@@ -32,6 +32,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import canonical_uuid
 from .hpo_service import get_loaded_hpo_release
 
 # Bump when the scoring/ranking logic changes so old cached rankings are ignored. A change
@@ -96,12 +97,13 @@ async def _pedigree_signature(session: AsyncSession, context: Any) -> Any:
 
 
 async def _panel_version(session: AsyncSession, panel_id: str | None) -> str | None:
-    if not panel_id:
+    panel_uuid = canonical_uuid(panel_id)
+    if panel_uuid is None:
         return None
     row = (
         await session.execute(
             text("SELECT version, external_version FROM gene_panels WHERE id = CAST(:id AS uuid)"),
-            {"id": panel_id},
+            {"id": panel_uuid},
         )
     ).mappings().first()
     if not row:

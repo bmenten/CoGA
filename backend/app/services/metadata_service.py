@@ -4,13 +4,12 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Iterable
-from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.sql import uuid_list_bindparam, uuid_values
+from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
 from ..schemas import (
     AssemblyOut,
     FamilyMemberOut,
@@ -35,16 +34,6 @@ from .access_control import (
 from .assembly_scope import is_validated_assembly
 
 logger = logging.getLogger(__name__)
-
-def _is_uuid(value: str | None) -> bool:
-    if not value:
-        return False
-    try:
-        UUID(str(value))
-    except (TypeError, ValueError):
-        return False
-    return True
-
 
 def _string_list(values: Iterable[Any] | None) -> list[str]:
     result: list[str] = []
@@ -1273,12 +1262,11 @@ async def _attach_sequencing_qc_verdicts(
 
 
 async def _validate_project_ids(session: AsyncSession, project_ids: list[str]) -> list[str]:
-    deduped = list(dict.fromkeys(project_ids))
+    deduped = list(
+        dict.fromkeys(require_uuid(project_id, f"Invalid project id: {project_id}") for project_id in project_ids)
+    )
     if not deduped:
         return []
-    for project_id in deduped:
-        if not _is_uuid(project_id):
-            raise HTTPException(status_code=400, detail=f"Invalid project id: {project_id}")
     existing = await _fetch_project_mappings(session, project_ids=deduped)
     if len(existing) != len(deduped):
         raise HTTPException(status_code=404, detail="One or more projects were not found")
@@ -1430,9 +1418,7 @@ async def update_family_roi_record(
 
     roi_assembly_id = None
     if roi and roi.get("assembly_id") is not None:
-        roi_assembly_id = str(roi["assembly_id"])
-        if not _is_uuid(roi_assembly_id):
-            raise HTTPException(status_code=400, detail="ROI assembly is invalid")
+        roi_assembly_id = require_uuid(str(roi["assembly_id"]), "ROI assembly is invalid")
         await get_assembly_mapping(session, roi_assembly_id)
 
     await session.execute(

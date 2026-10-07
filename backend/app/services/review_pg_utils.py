@@ -10,7 +10,6 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Sequence
-from uuid import UUID
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -20,14 +19,6 @@ from sqlalchemy import text
 from ..core.coga_logging import scrub_log
 
 logger = logging.getLogger(__name__)
-
-
-def _require_uuid(value: str, detail: str) -> str:
-    try:
-        UUID(value)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=detail) from exc
-    return value
 
 
 def _normalize_tags(tags: Iterable[str]) -> list[str]:
