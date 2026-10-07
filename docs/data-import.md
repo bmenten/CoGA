@@ -722,6 +722,9 @@ compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
 - Both refuse (400), before anything is written, a family or sample ID (a PED's parent IDs
   too) that is not printable text without spaces, as a package import does
   ([Validation](#validation)); the whitespace around a typed-in ID is stripped.
+- The edits of an existing family refuse such an ID the same way: a member's new sample ID,
+  the father or mother a member edit names, and a member the structure edit adds
+  ([family-member-management.md](family-member-management.md)).
 
 PED column 6 is the phenotype: `0` or `-9` unknown, `1` unaffected, `2` affected. CoGA stores it
 as the member's clinical status and keeps carrier state apart (`carrier_status`: unknown,

@@ -16,7 +16,7 @@ import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import scrub_log
+from ..core.coga_logging import describe_error, scrub_log
 from .clickhouse_family_variants import (
     GenotypeSampleScope,
     fetch_family_variant_sources,
@@ -247,6 +247,10 @@ async def get_family_sample_integrity_qc(
     )
     profile = profile_for(application)
 
+    # The notes are frozen into the signed report snapshot with the rest of the report. A
+    # check that could not run says so in a fixed sentence, never with the error's text: a
+    # failed query's text quotes its SQL and parameters. The warning logged beside it names
+    # the error.
     service_notes: list[str] = []
     paternity_check: PaternityCheck | None = None
     fetal_sex_check: FetalSexCheck | None = None
@@ -265,8 +269,11 @@ async def get_family_sample_integrity_qc(
                 )
             )
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
-            logger.warning("NIPT cfDNA QC could not run for family %s: %s", scrub_log(family_id), scrub_log(exc))
-            service_notes.append(f"NIPT cfDNA analysis could not run ({exc}).")
+            # Named, not quoted: a failed query's text holds its parameters.
+            logger.warning(
+                "NIPT cfDNA QC could not run for family %s: %s", scrub_log(family_id), describe_error(exc)
+            )
+            service_notes.append("NIPT cfDNA analysis could not run.")
 
     autosomal: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
     x_genotypes: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
@@ -293,8 +300,10 @@ async def get_family_sample_integrity_qc(
                 if note is not None and profile.run_relatedness:
                     service_notes.append(note)
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
-            logger.warning("Genotypes could not be loaded for family %s: %s", scrub_log(family_id), scrub_log(exc))
-            service_notes.append(f"Genotypes could not be loaded ({exc}).")
+            logger.warning(
+                "Genotypes could not be loaded for family %s: %s", scrub_log(family_id), describe_error(exc)
+            )
+            service_notes.append("Genotypes could not be loaded.")
             autosomal = {sample: [] for sample in samples}
             x_genotypes = {sample: [] for sample in samples}
 

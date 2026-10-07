@@ -13,6 +13,7 @@ from typing import Any
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError, StreamClosedError, StreamFailureError
 
+from .coga_logging import describe_error
 from .config import settings
 
 logger = logging.getLogger(__name__)
@@ -286,10 +287,12 @@ async def execute_clickhouse(query: str, parameters: Any = None) -> Any:
             return await client.command(query, parameters=parameters or {})
         except Exception as exc:
             if attempt == 0 and _is_retryable_query_error(exc):
+                # Named, not quoted: a transport error's text can hold the request URL,
+                # whose query string carries the query's bound parameters.
                 logger.warning(
                     "ClickHouse query failed with a transient error; resetting "
                     "client and retrying once: %s",
-                    exc,
+                    describe_error(exc),
                 )
                 await reset_clickhouse_client(client)
                 await asyncio.sleep(0.25)

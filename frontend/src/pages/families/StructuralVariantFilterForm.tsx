@@ -18,7 +18,9 @@ import {
 } from './structuralVariantSearch';
 import {
   ACMG_CLASSIFICATION_TAGS,
+  addableTagDefinitions,
   countPresetRules,
+  heldTagOptions,
   sortTagDefinitions,
 } from './smallVariantSearch';
 import { GENOTYPE_GROUP_HINTS } from '../../lib/genotypes';
@@ -195,10 +197,22 @@ const StructuralVariantFilterForm = ({
     parseCommaSeparatedValues(draftFilters.review_tags).length +
     parseCommaSeparatedValues(draftFilters.exclude_review_tags).length +
     (draftFilters.has_notes === 'true' ? 1 : 0);
-  const sortedTags = sortTagDefinitions(tags);
+  const sortedTags = sortTagDefinitions(addableTagDefinitions(tags));
   const nonClassificationTags = sortedTags.filter(
     (tag) => !ACMG_CLASSIFICATION_TAGS.some((option) => option.key === tag.key),
   );
+  // The tags offered, then any selected one they leave out (a deleted tag a preset or a
+  // link still filters on), marked, so it can be unticked.
+  const tagOptionsWith = (selected: string) => [
+    ...nonClassificationTags.map((tag) => ({ value: tag.key, label: tag.label })),
+    ...heldTagOptions(
+      parseCommaSeparatedValues(selected),
+      tags,
+      nonClassificationTags.map((tag) => tag.key),
+    ),
+  ];
+  const reviewTagOptions = tagOptionsWith(draftFilters.review_tags);
+  const excludeReviewTagOptions = tagOptionsWith(draftFilters.exclude_review_tags);
 
   const summarizeSection = (count: number, emptyLabel = 'No filters') =>
     count > 0 ? `${count} active` : emptyLabel;
@@ -771,14 +785,14 @@ const StructuralVariantFilterForm = ({
               <div className="variant-filter-choice-group">
                 <p className="variant-filter-choice-title">Tags</p>
                 <div className="variant-checkbox-grid variant-checkbox-grid--small">
-                  {nonClassificationTags.map((tag) => (
-                    <label key={tag.key} className="analysis-checkbox variant-compact-checkbox">
+                  {reviewTagOptions.map((option) => (
+                    <label key={option.value} className="analysis-checkbox variant-compact-checkbox">
                       <input
                         type="checkbox"
-                        checked={parseCommaSeparatedValues(draftFilters.review_tags).includes(tag.key)}
-                        onChange={() => toggleDraftFilterListValue('review_tags', tag.key)}
+                        checked={parseCommaSeparatedValues(draftFilters.review_tags).includes(option.value)}
+                        onChange={() => toggleDraftFilterListValue('review_tags', option.value)}
                       />
-                      {tag.label}
+                      {option.label}
                     </label>
                   ))}
                 </div>
@@ -786,14 +800,14 @@ const StructuralVariantFilterForm = ({
               <div className="variant-filter-choice-group">
                 <p className="variant-filter-choice-title">Exclude tags</p>
                 <div className="variant-checkbox-grid variant-checkbox-grid--small">
-                  {nonClassificationTags.map((tag) => (
-                    <label key={tag.key} className="analysis-checkbox variant-compact-checkbox">
+                  {excludeReviewTagOptions.map((option) => (
+                    <label key={option.value} className="analysis-checkbox variant-compact-checkbox">
                       <input
                         type="checkbox"
-                        checked={parseCommaSeparatedValues(draftFilters.exclude_review_tags).includes(tag.key)}
-                        onChange={() => toggleDraftFilterListValue('exclude_review_tags', tag.key)}
+                        checked={parseCommaSeparatedValues(draftFilters.exclude_review_tags).includes(option.value)}
+                        onChange={() => toggleDraftFilterListValue('exclude_review_tags', option.value)}
                       />
-                      {tag.label}
+                      {option.label}
                     </label>
                   ))}
                 </div>

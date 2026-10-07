@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 
-import type { SmallVariantTagDefinition } from '../families/smallVariantSearch';
+import { tagDefinitionLabel, type SmallVariantTagDefinition } from '../families/smallVariantSearch';
 import type { CarrierModalMode, GlobalVariantRow } from './types';
 import type { GlobalVariantSort } from './globalSmallVariantSearch';
 
@@ -24,7 +24,10 @@ const GlobalSmallVariantTable = ({
   onSort,
   onOpenCarriers,
 }: GlobalSmallVariantTableProps) => {
-  const tagLabel = (key: string) => tagDefinitions.find((tag) => tag.key === key)?.label || key;
+  const tagLabel = (key: string) => {
+    const tag = tagDefinitions.find((definition) => definition.key === key);
+    return tag ? tagDefinitionLabel(tag) : key;
+  };
   const tagColor = (key: string) =>
     tagDefinitions.find((tag) => tag.key === key)?.color || '#5b6b79';
 

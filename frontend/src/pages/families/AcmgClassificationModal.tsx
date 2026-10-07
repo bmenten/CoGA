@@ -32,6 +32,7 @@ import {
   getTagDefinitionMap,
   normalizeTagKeys,
   sortTagDefinitions,
+  tagDefinitionLabel,
   type AcmgReviewPayload,
   type FamilyMember,
   type SmallVariant,
@@ -148,11 +149,16 @@ export default function AcmgClassificationModal({
 
   const tagMap = useMemo(() => getTagDefinitionMap(tagDefinitions), [tagDefinitions]);
   // Tags the analyst can toggle by hand — everything except the auto-managed
-  // ACMG class tags, which the selected criteria own.
+  // ACMG class tags, which the selected criteria own. A deleted tag is listed only for a
+  // review that holds it, marked, so it can be removed; it is added to no review.
+  const heldTags = variant.review?.tags;
   const editableTagDefinitions = useMemo(() => {
     const autoKeys = ACMG_AUTO_MANAGED_TAG_KEYS as readonly string[];
-    return sortTagDefinitions(tagDefinitions).filter((def) => !autoKeys.includes(def.key));
-  }, [tagDefinitions]);
+    const held = new Set(heldTags ?? []);
+    return sortTagDefinitions(tagDefinitions).filter(
+      (def) => !autoKeys.includes(def.key) && (def.is_active !== false || held.has(def.key)),
+    );
+  }, [tagDefinitions, heldTags]);
   const toggleReviewTag = (tagKey: string) => {
     markEdited();
     setReviewTags((current) =>
@@ -494,7 +500,7 @@ export default function AcmgClassificationModal({
                       title={def.description ?? undefined}
                       onClick={() => toggleReviewTag(def.key)}
                     >
-                      {def.label}
+                      {tagDefinitionLabel(def)}
                     </button>
                   );
                 })}

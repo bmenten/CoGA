@@ -29,7 +29,7 @@ from .clickhouse_variant_storage import (
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .metadata_service import get_accessible_family_mapping, get_family_record
 from .access_control import CurrentUser
-from .ped_service import _record_family_structure_version
+from .ped_service import _record_family_structure_version, _require_storable_id
 
 CLINICAL_STATUS_VALUES = {"unknown", "unaffected", "affected"}
 CARRIER_STATUS_VALUES = {"unknown", "not_carrier", "carrier"}
@@ -319,10 +319,14 @@ def _member_payload(
         member.carrier_status,
         member.carrier_type,
     )
+    # The ID the new member is stored under, refused (400) before it is looked up or
+    # written if CoGA cannot store it.
+    sample_id = _clean_sample_id(member.sample_id)
+    _require_storable_id(sample_id, kind="Sample ID")
     return {
         "family_uuid": family_uuid,
         "sample_uuid": None,
-        "sample_id": _clean_sample_id(member.sample_id),
+        "sample_id": sample_id,
         "sex": member.sex,
         "role": member.role,
         "clinical_status": member.clinical_status,
