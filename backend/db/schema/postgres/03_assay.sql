@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS repeat_expansions (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     uploaded_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT repeat_expansions_pkey PRIMARY KEY (id),
-    CONSTRAINT repeat_expansions_status_check CHECK ((status = ANY (ARRAY['normal'::text, 'intermediate'::text, 'pathogenic'::text, 'unknown'::text]))),
+    CONSTRAINT repeat_expansions_status_check CHECK ((status = ANY (ARRAY['normal'::text, 'review'::text, 'intermediate'::text, 'premutation'::text, 'pathogenic'::text, 'unknown'::text]))),
     CONSTRAINT repeat_expansions_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE SET NULL,
     CONSTRAINT repeat_expansions_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
     CONSTRAINT repeat_expansions_sample_id_fkey FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE

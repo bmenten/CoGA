@@ -113,6 +113,11 @@ const activeStatuses = new Set<ImportStatus>(['queued', 'validating', 'running']
 const issueLabel = (issue: ValidationIssue) =>
   [issue.dataset, issue.sample_id, issue.path].filter(Boolean).join(' · ');
 
+// What Discover proposed and asks to be checked (a couple taken from a long-read package's
+// folders, a NIPT pair, a PGT index's link). A dataset it did not find is in the table above.
+const discoveryNotices = (result: ManifestBuildResult | null) =>
+  (result?.warnings ?? []).filter((issue) => issue.code !== 'dataset_not_detected');
+
 /** A running job's dataset in the jobs table: its share read and its time left. */
 const RunningDatasetNote: React.FC<{ job: FamilyImportJob; now: number }> = ({ job, now }) => {
   const text = job.status === 'running' ? runningDatasetText(job.datasets, now) : null;
@@ -631,6 +636,20 @@ const FamilyPackageImportPanel: React.FC = () => {
               </li>
             ))}
           </ul>
+        ) : null}
+
+        {discoveryNotices(manifestResult).length ? (
+          <div>
+            <h3 className="eyebrow-label">Check before writing the manifest</h3>
+            <ul className="mt-2 space-y-2 text-sm text-(--color-text-muted)">
+              {discoveryNotices(manifestResult).map((issue, index) => (
+                <li key={`${issue.code}-${index}`}>
+                  {issue.message}
+                  {issueLabel(issue) ? ` (${issueLabel(issue)})` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
 
         {manifestYaml ? (

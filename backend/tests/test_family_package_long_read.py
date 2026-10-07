@@ -129,7 +129,8 @@ def test_multi_sample_family_does_not_present_one_sample_as_the_family_callset(
     tmp_path: Path,
 ) -> None:
     # Two samples: the per-sample annotated VCFs must NOT be picked as the family
-    # callset, which would silently present one member's genotypes as the family's.
+    # callset, which would silently present one member's genotypes as the family's. They
+    # are proposed as one VCF per sample instead, and a sample without one is named.
     _touch(tmp_path / "snv/S1/annotation/S1_annot.vcf.gz")
     _touch(tmp_path / "snv/S1/annotation/S1_annot.vcf.gz.tbi")
     _touch(tmp_path / "family.ped", "F1 S1 0 0 1 2\nF1 S2 0 0 2 1\n")
@@ -145,8 +146,17 @@ def test_multi_sample_family_does_not_present_one_sample_as_the_family_callset(
     )
 
     snv = next(item for item in availability if item.dataset_type == "snv")
-    assert snv.complete is False
-    assert payload["datasets"]["snv"]["enabled"] is False
+    block = payload["datasets"]["snv"]
+    assert "family_vcf" not in block
+    assert block["per_sample"] == {
+        "S1": {
+            "vcf": "snv/S1/annotation/S1_annot.vcf.gz",
+            "index": "snv/S1/annotation/S1_annot.vcf.gz.tbi",
+        }
+    }
+    assert block["source_format"] == "clair3"
+    assert snv.samples == ["S1"]
+    assert snv.message is not None and "none for S2, which would have no calls" in snv.message
 
 
 # ---------------------------------------------------------------------------

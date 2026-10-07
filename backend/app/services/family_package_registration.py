@@ -364,7 +364,7 @@ async def _register_package_provenance(
         # URI, since the staging copy is deleted after the import.
         "folder_path": bundle.source_uri or str(bundle.root),
         "manifest_path": _display_path(bundle.root, bundle.manifest_path),
-        "ped_path": _display_path(bundle.root, bundle.ped_path),
+        "ped_path": _display_path(bundle.root, bundle.ped_path) if bundle.ped_path is not None else None,
         "schema_version": bundle.manifest.schema_version,
         "family_id": validation.family_id,
         "metadata": bundle.manifest.metadata,

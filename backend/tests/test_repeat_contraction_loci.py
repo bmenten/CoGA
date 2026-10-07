@@ -133,7 +133,7 @@ class TestReviewStatusSurfaces:
         assert summarize_repeat_status([classify(2, VWA1), classify(5, VWA1)]) == "review"
 
     def test_ranking_order(self) -> None:
-        order = ["unknown", "normal", "review", "intermediate", "pathogenic"]
+        order = ["unknown", "normal", "review", "intermediate", "premutation", "pathogenic"]
         assert sorted(REPEAT_STATUS_RANK, key=REPEAT_STATUS_RANK.get) == order
         assert summarize_repeat_status(["review", "intermediate"]) == "intermediate"
         assert summarize_repeat_status(["review", "pathogenic"]) == "pathogenic"

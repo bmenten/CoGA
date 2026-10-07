@@ -34,6 +34,7 @@ export const formatCutoff = (row: {
   benign_min?: number | null;
   benign_max?: number | null;
   pathogenic_max?: number | null;
+  premutation_min?: number | null;
 }): string => {
   const { warning_min: warningMin, pathogenic_min: pathogenicMin } = row;
   const { benign_min: benignMin, benign_max: benignMax, pathogenic_max: pathogenicMax } = row;
@@ -48,8 +49,10 @@ export const formatCutoff = (row: {
     return `normal ${normal} · red ${abnormal}`;
   }
 
+  // A premutation range (FMR1) splits the grey zone from the alleles that can expand.
+  const premutation = row.premutation_min != null ? ` · premutation ≥ ${row.premutation_min}` : '';
   if (warningMin != null && pathogenicMin != null) {
-    return `orange ≥ ${warningMin} · red ≥ ${pathogenicMin}`;
+    return `orange ≥ ${warningMin}${premutation} · red ≥ ${pathogenicMin}`;
   }
   if (pathogenicMin != null) {
     return `red ≥ ${pathogenicMin}`;
@@ -78,7 +81,8 @@ const formatAlleleMotifLabels = (alleles: ApiRepeatExpansionAllele[]): string[] 
 
 const isAbnormalStatus = (
   status: ApiRepeatExpansionRow['status'] | ApiRepeatExpansionSampleCall['status'],
-): boolean => status === 'review' || status === 'intermediate' || status === 'pathogenic';
+): boolean =>
+  status === 'review' || status === 'intermediate' || status === 'premutation' || status === 'pathogenic';
 
 const repeatStatusLabel = (
   status: ApiRepeatExpansionRow['status'] | ApiRepeatExpansionSampleCall['status'],
@@ -90,6 +94,9 @@ const repeatStatusLabel = (
       return 'Review: outside catalogued ranges';
     case 'intermediate':
       return 'Grey zone';
+    case 'premutation':
+      // FMR1 55-200: not affected, but the allele can expand to a full mutation in a child.
+      return 'Premutation';
     case 'pathogenic':
       return 'Pathogenic';
     case 'unknown':
@@ -302,7 +309,8 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
           <div className="space-y-1">
             <h2 className="section-title">TRGT repeat table</h2>
             <p className="catalog-card-copy">
-              Grey marks normal loci, orange marks grey-zone or premutation-sized alleles, and red marks pathogenic expansions.
+              Grey marks normal loci, orange grey-zone alleles, deep orange a premutation (an FMR1 allele of 55–200 repeats, which
+              can expand in a child), and red pathogenic expansions.
             </p>
           </div>
         </div>

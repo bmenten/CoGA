@@ -687,7 +687,7 @@ export interface ApiRepeatExpansionAllele {
   motif_spans?: string | null;
   interrupted?: boolean;
   interruption_label?: string | null;
-  status: 'normal' | 'review' | 'intermediate' | 'pathogenic' | 'unknown';
+  status: 'normal' | 'review' | 'intermediate' | 'premutation' | 'pathogenic' | 'unknown';
 }
 
 export interface ApiRepeatExpansionSampleCall {
@@ -698,7 +698,7 @@ export interface ApiRepeatExpansionSampleCall {
   genotype: string;
   allele_count: number;
   alleles: ApiRepeatExpansionAllele[];
-  status: 'normal' | 'review' | 'intermediate' | 'pathogenic' | 'unknown';
+  status: 'normal' | 'review' | 'intermediate' | 'premutation' | 'pathogenic' | 'unknown';
   // Why the call needs a second look (a male with two different chrX alleles).
   note?: string | null;
 }
@@ -718,7 +718,10 @@ export interface ApiRepeatExpansionRow {
   benign_min?: number | null;
   benign_max?: number | null;
   pathogenic_max?: number | null;
-  status: 'normal' | 'review' | 'intermediate' | 'pathogenic' | 'unknown';
+  // The first count of a premutation (FMR1 55), between the grey zone and the pathogenic
+  // threshold; absent for a locus without one.
+  premutation_min?: number | null;
+  status: 'normal' | 'review' | 'intermediate' | 'premutation' | 'pathogenic' | 'unknown';
   calls: Record<string, ApiRepeatExpansionSampleCall>;
 }
 
@@ -959,7 +962,7 @@ export interface ApiRepeatExpansionTrackItem {
   motif?: string | null;
   warning_min?: number | null;
   pathogenic_min?: number | null;
-  status: 'normal' | 'review' | 'intermediate' | 'pathogenic' | 'unknown';
+  status: 'normal' | 'review' | 'intermediate' | 'premutation' | 'pathogenic' | 'unknown';
   allele_repeat_counts: number[];
   allele_bp_lengths: number[];
 }

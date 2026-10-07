@@ -123,6 +123,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
       normal: STATUS_COLORS.normal(),
       review: STATUS_COLORS.review(),
       intermediate: STATUS_COLORS.intermediate(),
+      premutation: STATUS_COLORS.premutation(),
       pathogenic: STATUS_COLORS.pathogenic(),
       unknown: STATUS_COLORS.unknown(),
       grid: cssVar('--color-grid'),

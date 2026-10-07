@@ -546,7 +546,7 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'expanded_carrier_screening',
     label: 'Expanded carrier screening',
     description:
-      'Couple-only screen for genes where both partners carry a rare variant, and for X-linked variants a female partner carries.',
+      'Couple-only screen for genes where both partners carry a rare high- or moderate-impact variant (ClinVar pathogenic overrides the frequency cut-off), and for X-linked variants a female partner carries.',
   },
   {
     value: 'compound_het',
@@ -979,8 +979,16 @@ const buildPresetState = (
     if (!couple) {
       return { filters, sampleFilters };
     }
+    // The genes both partners carry a rare, high- or moderate-impact variant in, and the
+    // female partner's X-linked variants, as the NIPT recessive screen reads a couple.
+    // Without an impact filter a long-read genome holds hundreds of thousands of rare
+    // variants: the search stopped at its candidate cap long before chrX. A ClinVar
+    // pathogenic or likely pathogenic call overrides the frequency cut-off, so a common
+    // founder allele (CFTR p.Phe508del, above 1% in some populations) stays in.
     filters.expanded_carrier_screening = 'true';
+    filters.impact = 'HIGH, MODERATE';
     setFrequencyCeiling('0.01');
+    filters.clinvar_overrides_frequency = 'true';
   } else if (preset === 'phenotype_priority') {
     // Exomiser-style: rare candidate set ranked by gene-phenotype match. gnomAD
     // <1% + H/H <=10, but ClinVar P/LP overrules the frequency cut-off; ClinVar

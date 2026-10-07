@@ -1355,6 +1355,10 @@ async def test_fetch_small_variant_rows_prefilters_expanded_carrier_candidates(
     assert "carrier_screen_partner_alt_1_gts" in params
     assert "length(e.gene_symbols) > 0" in query
     assert " OR " in query
+    # Mitochondrial variants are not part of the couple rule: they never take a place in
+    # the candidate window.
+    assert "e.chrom NOT IN %(carrier_screen_mito_chromosomes)s" in query
+    assert set(params["carrier_screen_mito_chromosomes"]) >= {"M", "MT", "chrM"}
 
 
 def test_compound_het_pairs_require_family_consistent_pairs() -> None:

@@ -32,7 +32,8 @@ const STATUS_DRAW_RANK: Record<string, number> = {
   normal: 1,
   review: 2,
   intermediate: 3,
-  pathogenic: 4,
+  premutation: 4,
+  pathogenic: 5,
 };
 
 const GenomeRepeatExpansionTrack: React.FC<Props> = ({
@@ -71,6 +72,7 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
       normal: STATUS_COLORS.normal(),
       review: STATUS_COLORS.review(),
       intermediate: STATUS_COLORS.intermediate(),
+      premutation: STATUS_COLORS.premutation(),
       pathogenic: STATUS_COLORS.pathogenic(),
       unknown: STATUS_COLORS.unknown(),
       grid: cssVar('--color-grid'),

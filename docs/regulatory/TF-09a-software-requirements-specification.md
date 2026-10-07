@@ -62,7 +62,7 @@
 | ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
 | REQ-CARR-001 | Filter and present carrier variants scoped to a defined gene panel (BeGECS gene set). | C | H1, H12 |
-| REQ-CARR-002 | Support couple-level at-risk determination (both partners carrying a variant in the same recessive gene / relevant X-linked finding). An X-linked finding is a variant a female partner carries on chrX outside the pseudo-autosomal regions, on its own; a partner without a recorded sex counts as female, and X-linked dominant genes are included (both confirmed by QA, the kwaliteitsbeheerder, on 2026-10-01; recorded by the owner). | C | H2 |
+| REQ-CARR-002 | Support couple-level at-risk determination (both partners carrying a variant in the same recessive gene / relevant X-linked finding). An X-linked finding is a variant a female partner carries on chrX outside the pseudo-autosomal regions, on its own; a partner without a recorded sex counts as female, and X-linked dominant genes are included (both confirmed by QA, the kwaliteitsbeheerder, on 2026-10-01; recorded by the owner). Mitochondrial (chrM) variants are not part of the couple rule: mtDNA passes from the mother alone (owner's decision, 2026-10-07). | C | H2 |
 | REQ-CARR-003 | Capture and track the gene-panel version used for a screen. | B | H8, H12 |
 | REQ-CARR-004 | Apply a gene panel to a family with coordinates of the family's own reference assembly only: store panel coordinates per assembly, never apply another assembly's, and narrow by gene alone when no assembly is resolved. | C | H12 |
 
@@ -91,7 +91,7 @@
 | REQ-DIAG-001 | Apply pedigree/trio inheritance filtering (de-novo, dominant, recessive, compound-het) over observed genotypes. | C | H2 |
 | REQ-DIAG-002 | Flag de-novo only when no parent who could have passed the allele on carries it: on autosomes, in the pseudo-autosomal regions and in a daughter, a full trio with both parents confidently hom-ref at the site; in a son on chrX/chrY outside the PARs (hemizygous), the parent who transmits that chromosome (the mother for X, the father for Y) confidently hom-ref and the other parent not carrying the ALT (#545). | C | H1, H2 |
 | REQ-DIAG-003 | Detect compound-heterozygous and SV second-hit (SNV + SV in the same gene). | C | H2 |
-| REQ-DIAG-004 | Ingest repeat-expansion (TRGT) calls and classify normal/intermediate/pathogenic against a locus catalog. | C | — |
+| REQ-DIAG-004 | Ingest repeat-expansion (TRGT) calls and classify normal/intermediate/premutation/pathogenic against a locus catalog; premutation where the locus has a premutation range (FMR1 55–200 repeats, told from the 45–54 grey zone; owner's decision, 2026-10-07). | C | — |
 | REQ-DIAG-005 | Analyse Paraphase medical regions (e.g. SMN) for copy-number/haplotype. | C | — |
 | REQ-DIAG-006 | Analyse mtDNA with maternal-transmission logic and heteroplasmy/homoplasmy inference. | C | H13 |
 | REQ-DIAG-007 | Prioritize candidate variants by combined pathogenicity, rarity, segregation and phenotype evidence. | B | H1 |

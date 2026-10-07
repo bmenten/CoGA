@@ -19,6 +19,10 @@
   color: #a16207;
 }
 
+.repeat-status--premutation {
+  color: #9a3412;
+}
+
 .repeat-status--pathogenic {
   color: #991b1b;
 }
@@ -99,6 +103,15 @@
   border-left: 3px solid var(--color-repeat-intermediate);
 }
 
+/* A premutation (FMR1 55-200): deeper than the grey zone, short of a full mutation. */
+.family-repeat-table tbody tr.family-repeat-table-row--premutation > td {
+  border-top: 2px solid var(--color-repeat-premutation);
+}
+
+.family-repeat-table tbody tr.family-repeat-table-row--premutation > td:first-child {
+  border-left: 3px solid var(--color-repeat-premutation);
+}
+
 /* An allele the catalog cannot classify (#535): its own rail colour, so it reads as
    "needs a look" rather than as grey zone or pathogenic. */
 .family-repeat-table tbody tr.family-repeat-table-row--review > td {
@@ -145,6 +158,12 @@
   border-color: rgba(180, 125, 45, 0.24);
   background: rgba(180, 125, 45, 0.12);
   color: #8d6020;
+}
+
+.family-repeat-table-locus-flag--premutation {
+  border-color: rgba(234, 88, 12, 0.26);
+  background: rgba(234, 88, 12, 0.12);
+  color: #9a3412;
 }
 
 .family-repeat-table-locus-flag--pathogenic {
@@ -220,6 +239,11 @@
   background: rgba(180, 125, 45, 0.12);
 }
 
+.family-repeat-table-call-chip--premutation {
+  border-color: rgba(234, 88, 12, 0.24);
+  background: rgba(234, 88, 12, 0.12);
+}
+
 .family-repeat-table-call-chip--pathogenic {
   border-color: rgba(173, 31, 45, 0.24);
   background: rgba(173, 31, 45, 0.12);
@@ -231,6 +255,7 @@
 }
 
 .family-repeat-table-call-chip--pathogenic .repeat-status,
+.family-repeat-table-call-chip--premutation .repeat-status,
 .family-repeat-table-call-chip--intermediate .repeat-status {
   font-size: var(--fs-sm);
 }
