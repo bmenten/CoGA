@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
+from ..core.pg_storable import ESCAPED_KEY, storable_columns
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import UiEventOut, UiEventPageOut
 from .event_pipeline import enqueue_event, write_event_batch_with_retry
@@ -87,24 +88,34 @@ def _to_jsonb_text(value: Any) -> str:
 
 
 def _ui_event_insert_params(payload: UiEventPayload) -> dict[str, Any]:
-    return {
-        "occurred_at": payload.occurred_at,
-        "user_id": payload.user_id,
-        "user_email": payload.user_email,
-        "user_role": payload.user_role,
-        "event_type": payload.event_type,
-        "category": payload.category,
-        "label": payload.label,
-        "target_id": payload.target_id,
-        "path": payload.path,
-        "to_path": payload.to_path,
-        "href": payload.href,
-        "component": payload.component,
-        "session_id": payload.session_id,
-        "detail": _to_jsonb_text(payload.detail),
-        "remote_ip": payload.remote_ip,
-        "user_agent": payload.user_agent,
-    }
+    # As in the request audit (audit_log_pg.py): a value Postgres refuses is escaped rather
+    # than failing the INSERT, and detail names the columns where that happened. That key is
+    # the writer's: the client's detail cannot set it.
+    detail = {key: value for key, value in (payload.detail or {}).items() if key != ESCAPED_KEY}
+    params, escaped = storable_columns(
+        {
+            "occurred_at": payload.occurred_at,
+            "user_id": payload.user_id,
+            "user_email": payload.user_email,
+            "user_role": payload.user_role,
+            "event_type": payload.event_type,
+            "category": payload.category,
+            "label": payload.label,
+            "target_id": payload.target_id,
+            "path": payload.path,
+            "to_path": payload.to_path,
+            "href": payload.href,
+            "component": payload.component,
+            "session_id": payload.session_id,
+            "detail": detail,
+            "remote_ip": payload.remote_ip,
+            "user_agent": payload.user_agent,
+        }
+    )
+    if escaped:
+        params["detail"] = {**params["detail"], ESCAPED_KEY: escaped}
+    params["detail"] = _to_jsonb_text(params["detail"])
+    return params
 
 
 async def _write_ui_event_batch(payloads: list[UiEventPayload]) -> None:

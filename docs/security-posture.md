@@ -121,6 +121,15 @@ are colleagues, so there is no tenant boundary to protect.
   development the backend refuses to start with `AUDIT_LOG_DROP_ALLOWED=true`, which drops
   events (`services/event_pipeline.py`), or with `AUDIT_LOG_MODE=off`, which writes no
   request or UI-event log at all (`core/config.py`).
+- ✅ **No request escapes the audit table.** Postgres refuses a NUL, half a surrogate pair,
+  `NaN` and `Infinity` in TEXT or JSONB. A signed-in user could put one in a JSON field the
+  endpoint ignores, or `%00` in the URL: the action was carried out, and its row, with every
+  other row of its async batch, reached only the log. Such a value is now stored as a visible
+  escape, with the columns named in `request_meta._escaped` ([database.md](database.md)); the
+  UI-event log does the same.
+- ✅ **A failed audit write is logged by its kind.** The log line gives the exception type and
+  SQLSTATE (`describe_error` in `core/coga_logging.py`), never the error's text, which quotes
+  the row it could not insert, request body included.
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the
