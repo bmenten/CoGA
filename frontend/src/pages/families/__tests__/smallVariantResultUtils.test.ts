@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildGnomadSvRegionHref,
+  buildReviewTagTooltip,
   buildSvSecondHitHref,
   formatGenomicChange,
   formatPredictionScore,
+  formatReviewTagLabel,
   formatVariantTotal,
+  getReviewTagStyle,
+  isDeletedReviewTag,
   parseVariantIds,
   visibleReviewTagKeys,
 } from '../smallVariantResultUtils';
+import type { SmallVariantTagDefinition } from '../smallVariantSearch';
 
 const variant = (chr: string, start: number, ref: string, alt: string) =>
   ({ chr, start, ref, alt }) as Parameters<typeof formatGenomicChange>[0];
@@ -337,5 +342,57 @@ describe('visibleReviewTagKeys', () => {
       'not_excluded',
     ]);
     expect(visibleReviewTagKeys([])).toEqual([]);
+  });
+});
+
+describe('review tag chips', () => {
+  // A deleted custom tag stays on the reviews that hold it: its chip keeps the label and
+  // colour, marked, so it is not taken for a tag that can still be added.
+  const tag = (key: string, label: string, isActive?: boolean): SmallVariantTagDefinition => ({
+    key,
+    label,
+    group: 'custom',
+    color: '#336699',
+    sort_order: 500,
+    scope: 'global',
+    is_custom: true,
+    ...(isActive === undefined ? {} : { is_active: isActive }),
+  });
+  const tagMap = {
+    needs_segregation: tag('needs_segregation', 'Needs segregation', true),
+    probe_x: tag('probe_x', 'Probe X', false),
+    review: tag('review', 'Review'),
+  };
+
+  it('reads a deleted tag by its label, marked', () => {
+    expect(formatReviewTagLabel('probe_x', tagMap)).toBe('Probe X (deleted)');
+    expect(isDeletedReviewTag('probe_x', tagMap)).toBe(true);
+  });
+
+  it('reads an active tag, or one listed without the flag, by its label alone', () => {
+    expect(formatReviewTagLabel('needs_segregation', tagMap)).toBe('Needs segregation');
+    expect(formatReviewTagLabel('review', tagMap)).toBe('Review');
+    expect(isDeletedReviewTag('review', tagMap)).toBe(false);
+  });
+
+  it('reads a key the tag list does not hold as the bare key', () => {
+    expect(formatReviewTagLabel('legacy_key', tagMap)).toBe('legacy_key');
+    expect(isDeletedReviewTag('legacy_key', tagMap)).toBe(false);
+  });
+
+  it('dashes the border of a deleted tag only', () => {
+    expect(getReviewTagStyle('probe_x', tagMap)).toHaveProperty('borderStyle', 'dashed');
+    expect(getReviewTagStyle('needs_segregation', tagMap)).not.toHaveProperty('borderStyle');
+    expect(getReviewTagStyle('legacy_key', tagMap)).not.toHaveProperty('borderStyle');
+  });
+
+  it('marks a deleted tag in its tooltip too', () => {
+    expect(
+      buildReviewTagTooltip({
+        tagKey: 'probe_x',
+        tagMap,
+        tagMetadata: { probe_x: { updated_by: 'reviewer', updated_at: null } },
+      }),
+    ).toBe('Probe X (deleted) · reviewer');
   });
 });

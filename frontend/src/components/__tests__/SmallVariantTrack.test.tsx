@@ -503,7 +503,14 @@ test('shows a hover tooltip with the gene and variant', async () => {
 test('names the review tags in the tooltip, since a ring gives only a colour (#529)', async () => {
   useQueryMock.mockImplementation(({ queryKey }) =>
     queryKey[0] === 'small-variant-track-tags'
-      ? { data: [{ key: 'priority', label: 'Priority', color: '#123456' }], isLoading: false }
+      ? {
+          data: [
+            { key: 'priority', label: 'Priority', color: '#123456' },
+            // A deleted tag the review still holds: named, marked.
+            { key: 'probe_x', label: 'Probe X', color: '#336699', is_active: false },
+          ],
+          isLoading: false,
+        }
       : {
           data: {
             total: 1,
@@ -515,7 +522,7 @@ test('names the review tags in the tooltip, since a ring gives only a colour (#5
                 type: 'SNV',
                 gene: 'BRCA2',
                 genotypes: [{ sample: 'S1', gt: '0/1' }],
-                review: { tags: ['priority', 'unknown_tag'] },
+                review: { tags: ['priority', 'unknown_tag', 'probe_x'] },
               },
             ],
           },
@@ -538,7 +545,7 @@ test('names the review tags in the tooltip, since a ring gives only a colour (#5
   await waitFor(() => expect(container.querySelectorAll('rect').length).toBeGreaterThan(0));
   fireEvent.mouseMove(container.querySelector('rect') as Element, { clientX: 40, clientY: 12 });
   expect(document.body.querySelector('.viz-tooltip')?.textContent).toContain(
-    'Tags: Priority, unknown_tag',
+    'Tags: Priority, unknown_tag, Probe X (deleted)',
   );
 });
 

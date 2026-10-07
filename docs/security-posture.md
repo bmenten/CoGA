@@ -159,7 +159,13 @@ are colleagues, so there is no tenant boundary to protect.
   traceback; a filter writes that traceback the same way (`RedactServerErrorFilter`, installed
   by `main.py`). The full text stays in the request's audit row (`audit_log_events.error`),
   which only an admin reads. The other lines that log a failed query on a request path (Sample
-  QC, the ClickHouse variant query and its retry) name it the same way.
+  QC, the ClickHouse variant query and its retry) name it the same way. Every other line that
+  carries an exception (`logger.exception()`, `exc_info=True`), from any logger, CoGA's or a
+  library's, and at any level, is written the same way by the JSON formatter
+  (`JsonLogFormatter`): the exception's kind in `error`, the frames of its chain in
+  `traceback`, never its message. If the traceback cannot be written, the line still goes out
+  with the kind, because a formatter that fails makes `logging` print the logged exception's
+  full text to stderr.
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the

@@ -13,6 +13,7 @@ import {
   formatCompoundHetPhaseStatus,
   formatFrequency,
   formatLocus,
+  formatReviewTagLabel,
   formatTokenLabel,
   getImpactTone,
   getReviewClassificationTone,
@@ -156,7 +157,7 @@ export default function SmallVariantPairCards({
                             tagMetadata: group.review?.tag_metadata,
                           })}
                         >
-                          {tagMap[tagKey]?.label || tagKey}
+                          {formatReviewTagLabel(tagKey, tagMap)}
                         </span>
                       ))}
                     </div>

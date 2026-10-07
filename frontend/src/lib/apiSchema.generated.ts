@@ -2877,6 +2877,7 @@ export interface SmallVariantTagDefinitionOut {
   project_id: string | null;
   shared_project_ids: string[];
   is_custom: boolean;
+  is_active: boolean;
 }
 
 export interface SmallVariantTagDefinitionUpdate {

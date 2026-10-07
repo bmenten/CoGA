@@ -25,6 +25,18 @@ def _normalize_tags(tags: Iterable[str]) -> list[str]:
     return sorted({str(tag).strip() for tag in tags if str(tag).strip()})
 
 
+def _added_tags(tags: Iterable[str], held: Iterable[str] | None) -> list[str]:
+    """The tags a save adds to those the stored review already holds.
+
+    A review save checks only these against the tags the family may use. A tag the review
+    holds stays whatever became of its definition: the quick tag toggle and the review
+    dialog send the stored tags back, so a deleted tag would otherwise refuse every later
+    save of the review, the one removing it included.
+    """
+    kept = set(_normalize_tags(held or []))
+    return [tag for tag in _normalize_tags(tags) if tag not in kept]
+
+
 def _json_payload(value: Any) -> str:
     return json.dumps(jsonable_encoder(value if value is not None else {}))
 

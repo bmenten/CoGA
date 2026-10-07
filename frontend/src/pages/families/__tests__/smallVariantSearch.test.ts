@@ -3,17 +3,21 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ALL_GT_GROUPS,
   HET_GT_GROUP,
+  addableTagDefinitions,
   buildSmallVariantQueryParams,
   buildPresetPayload,
   createEmptySmallFilters,
   hasLocationProblems,
+  heldTagOptions,
   resolveSampleFiltersFromPreset,
   smallVariantLocationProblems,
+  tagDefinitionLabel,
   useSmallVariantSearchState,
   type FamilyMember,
   type SmallPreset,
   type SmallVariantFilterPreset,
   type SmallVariantSampleFilter,
+  type SmallVariantTagDefinition,
 } from '../smallVariantSearch';
 
 const members: FamilyMember[] = [
@@ -428,5 +432,44 @@ describe('location filters that cannot be read', () => {
     act(() => result.current.handleApply({ preventDefault: () => {} } as never));
     expect(result.current.draftLocationProblems).toBeNull();
     expect(result.current.filters.intervals).toBe('chr17:43044296-43125482');
+  });
+});
+
+describe('deleted tags', () => {
+  // A deleted custom tag is listed (inactive) only for the reviews that still hold it: it is
+  // never offered, and is listed where a review or a filter holds it, so it can be unticked.
+  const tag = (key: string, label: string, isActive?: boolean): SmallVariantTagDefinition => ({
+    key,
+    label,
+    group: 'custom',
+    color: '#336699',
+    sort_order: 500,
+    scope: 'global',
+    is_custom: true,
+    ...(isActive === undefined ? {} : { is_active: isActive }),
+  });
+  const tags = [
+    tag('review', 'Review'),
+    tag('needs_segregation', 'Needs segregation', true),
+    tag('probe_x', 'Probe X', false),
+  ];
+
+  it('offers the active tags only', () => {
+    expect(addableTagDefinitions(tags).map((entry) => entry.key)).toEqual(['review', 'needs_segregation']);
+  });
+
+  it('marks a deleted tag\'s label', () => {
+    expect(tags.map(tagDefinitionLabel)).toEqual(['Review', 'Needs segregation', 'Probe X (deleted)']);
+  });
+
+  it('lists the held keys no option offers, a deleted tag by its marked label', () => {
+    expect(heldTagOptions(['review', 'probe_x', 'legacy_key'], tags, ['review', 'needs_segregation'])).toEqual([
+      { value: 'legacy_key', label: 'legacy_key' },
+      { value: 'probe_x', label: 'Probe X (deleted)' },
+    ]);
+  });
+
+  it('lists none while the tag list is still loading', () => {
+    expect(heldTagOptions(['probe_x'], [], [])).toEqual([]);
   });
 });

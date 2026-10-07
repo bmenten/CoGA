@@ -36,7 +36,9 @@ the [admin dashboard](/admin), grouped in six areas.
 ### Variant Configuration
 
 - **Variant Tags** — create, rename, recolour or remove custom review tags, for one project or for
-  everyone. The built-in and ACMG tags are listed for reference.
+  everyone. A renamed tag stays on every review and saved filter that uses it; a removed tag stays on
+  the reviews that hold it, marked deleted, and can no longer be added. The built-in and ACMG tags are
+  listed for reference.
 - **Preset Filters** — the catalogue of the small-variant presets the team uses. Presets are saved on the
   small-variant page.
 

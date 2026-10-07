@@ -5,7 +5,11 @@ import type {
   ApiHpoAnnotation,
   ApiHpoTerm,
 } from '../../lib/apiTypes';
-import { sortTagDefinitions, type SmallVariantTagDefinition } from './smallVariantSearch';
+import {
+  sortTagDefinitions,
+  tagDefinitionLabel,
+  type SmallVariantTagDefinition,
+} from './smallVariantSearch';
 import type {
   CarrierStatus,
   ClinicalStatus,
@@ -295,7 +299,8 @@ export const getReviewSummaryTags = (
       activeKeys.add(tag.key);
       return {
         key: tag.key,
-        label: tag.label,
+        // A deleted tag the reviews still hold is counted, marked.
+        label: tagDefinitionLabel(tag),
         count,
       };
     })

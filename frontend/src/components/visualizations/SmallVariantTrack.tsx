@@ -55,6 +55,8 @@ interface TagDefinition {
   key: string;
   label?: string | null;
   color?: string | null;
+  // False for a deleted tag, listed so the reviews that still hold it can show it.
+  is_active?: boolean | null;
 }
 
 interface Props {
@@ -243,7 +245,9 @@ const SmallVariantTrack: React.FC<Props> = ({
   const { data: tagDefinitions = [] } = useQuery<TagDefinition[]>({
     queryKey: ['small-variant-track-tags', familyId],
     queryFn: async () => {
-      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`);
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
+        params: { include_inactive: true },
+      });
       return res.data as TagDefinition[];
     },
     enabled: canRequestSmallVariants,
@@ -468,7 +472,11 @@ const SmallVariantTrack: React.FC<Props> = ({
             <div>
               Tags:{' '}
               {tooltip.variant.review.tags
-                .map((tagKey) => tagByKey.get(tagKey)?.label || tagKey)
+                .map((tagKey) => {
+                  const tag = tagByKey.get(tagKey);
+                  const label = tag?.label || tagKey;
+                  return tag?.is_active === false ? `${label} (deleted)` : label;
+                })
                 .join(', ')}
             </div>
           ) : null}

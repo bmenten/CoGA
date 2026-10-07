@@ -246,8 +246,9 @@ const FamilyNiptPage: React.FC = () => {
     queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
+      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
       const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: projectId ? { project_id: projectId } : undefined,
+        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
       });
       return res.data as SmallVariantTagDefinition[];
     },

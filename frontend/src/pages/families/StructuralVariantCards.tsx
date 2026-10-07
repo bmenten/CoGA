@@ -4,6 +4,7 @@ import {
   buildGnomadSvRegionHref,
   buildReviewTagTooltip,
   formatFrequency,
+  formatReviewTagLabel,
   formatScore,
   getReviewClassificationTone,
   getReviewTagStyle,
@@ -186,7 +187,7 @@ export default function StructuralVariantCards({
                       tagMetadata: variant.review?.tag_metadata,
                     })}
                   >
-                    {tagMap[tagKey]?.label || tagKey}
+                    {formatReviewTagLabel(tagKey, tagMap)}
                   </span>
                 ))}
               </div>

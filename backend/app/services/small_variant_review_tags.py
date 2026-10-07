@@ -152,11 +152,84 @@ DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
 DEFAULT_SMALL_VARIANT_TAG_KEYS = {entry["key"] for entry in DEFAULT_SMALL_VARIANT_TAGS}
 
 
+def _label_slug(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_")
+
+
 def _slugify_tag(label: str) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_")
+    cleaned = _label_slug(label)
     if not cleaned:
         raise HTTPException(status_code=400, detail="Tag label does not contain usable characters")
     return cleaned
+
+
+# A custom tag must not read as a built-in one, by the built-in's key ("acmg_class_5") or by
+# its label ("Pathogenic - class 5").
+_BUILT_IN_TAG_SLUGS = DEFAULT_SMALL_VARIANT_TAG_KEYS | {
+    _label_slug(entry["label"]) for entry in DEFAULT_SMALL_VARIANT_TAGS
+}
+
+
+def _refuse_a_built_in_label(slug: str) -> None:
+    if slug in _BUILT_IN_TAG_SLUGS:
+        raise HTTPException(status_code=409, detail="That tag label conflicts with a built-in variant tag")
+
+
+async def _lock_tag_definitions(session: AsyncSession) -> None:
+    """One write of the tag definitions at a time, until this transaction ends.
+
+    The label and key checks of a create or an edit then see every earlier write: two
+    admins creating one label at once get one tag and a 409, not two tags that read alike.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": "small_variant_tag_definitions"},
+    )
+
+
+async def _refuse_a_label_in_use(session: AsyncSession, *, slug: str, tag_id: str | None = None) -> None:
+    """Refuse a label that reads as another active tag's: the two could not be told apart.
+
+    Labels compare by their slug, so case, spacing and punctuation do not make them differ.
+    A deleted tag's label may be used again; the new tag gets a key of its own.
+    """
+    result = await session.execute(
+        text(
+            """
+            SELECT id::text AS id, label
+            FROM small_variant_tag_definitions
+            WHERE is_active = TRUE
+            """
+        )
+    )
+    for row in result.mappings().all():
+        if row["id"] != tag_id and _label_slug(str(row["label"])) == slug:
+            raise HTTPException(status_code=409, detail="A variant tag with that label already exists")
+
+
+async def _free_tag_key(session: AsyncSession, slug: str) -> str:
+    """The key of a new tag: its label's slug, numbered when another tag holds that key.
+
+    A tag keeps its key for good (an edit changes its label only, a delete deactivates it),
+    so the slug of a new label can be the key of a tag since renamed or deleted. The new tag
+    then gets the first free numbered key: it never takes over the other tag's reviews.
+    """
+    result = await session.execute(
+        text(
+            """
+            SELECT key
+            FROM small_variant_tag_definitions
+            WHERE key = :slug OR starts_with(key, :prefix)
+            """
+        ),
+        {"slug": slug, "prefix": f"{slug}_"},
+    )
+    taken = {str(row["key"]) for row in result.mappings().all()} | DEFAULT_SMALL_VARIANT_TAG_KEYS
+    key, number = slug, 2
+    while key in taken:
+        key = f"{slug}_{number}"
+        number += 1
+    return key
 
 
 def _normalize_hex_color(color: str | None) -> str:
@@ -199,6 +272,7 @@ def _serialize_custom_tag_definition_row(row: dict[str, Any]) -> SmallVariantTag
         project_id=project_id,
         shared_project_ids=shared_project_ids,
         is_custom=True,
+        is_active=bool(row.get("is_active", True)),
     )
 
 
@@ -265,8 +339,16 @@ async def list_small_variant_tag_definitions(
     project_ids: list[str],
     project_id: str | None = None,
     include_all_project_tags: bool = False,
+    include_inactive: bool = False,
 ) -> list[SmallVariantTagDefinitionOut]:
+    """The built-in tags, then the custom tags the given projects may use.
+
+    ``include_inactive`` adds the deleted custom tags of the same scope, flagged inactive, so
+    the reviews that still hold one can show it by its label. A review save checks the tags
+    it adds against the active tags only: a deleted tag is never added again.
+    """
     del family_uuid
+    activity = {"include_inactive": include_inactive}
     if include_all_project_tags:
         result = await session.execute(
             text(
@@ -280,17 +362,19 @@ async def list_small_variant_tag_definitions(
                     d."group",
                     d.color,
                     d.sort_order,
+                    d.is_active,
                     COALESCE(
                         ARRAY_AGG(DISTINCT l.project_id::text) FILTER (WHERE l.project_id IS NOT NULL),
                         '{}'::text[]
                     ) AS shared_project_ids
                 FROM small_variant_tag_definitions d
                 LEFT JOIN small_variant_tag_definition_project_links l ON l.tag_id = d.id
-                WHERE d.is_active = TRUE
+                WHERE (d.is_active OR CAST(:include_inactive AS boolean))
                 GROUP BY d.id
                 ORDER BY d."group", d.sort_order, lower(d.label)
                 """
-            )
+            ),
+            activity,
         )
         custom_tags = [_serialize_custom_tag_definition_row(dict(row)) for row in result.mappings().all()]
         return _preset_tag_definitions() + custom_tags
@@ -309,13 +393,14 @@ async def list_small_variant_tag_definitions(
                     d."group",
                     d.color,
                     d.sort_order,
+                    d.is_active,
                     COALESCE(
                         ARRAY_AGG(DISTINCT l.project_id::text) FILTER (WHERE l.project_id IS NOT NULL),
                         '{}'::text[]
                     ) AS shared_project_ids
                 FROM small_variant_tag_definitions d
                 LEFT JOIN small_variant_tag_definition_project_links l ON l.tag_id = d.id
-                WHERE d.is_active = TRUE
+                WHERE (d.is_active OR CAST(:include_inactive AS boolean))
                   AND (
                     d.scope = 'global'
                     OR (
@@ -335,7 +420,7 @@ async def list_small_variant_tag_definitions(
                 ORDER BY d."group", d.sort_order, lower(d.label)
                 """
             ).bindparams(bindparam("project_ids", expanding=True)),
-            {"project_ids": target_project_ids},
+            {"project_ids": target_project_ids, **activity},
         )
     else:
         result = await session.execute(
@@ -350,13 +435,15 @@ async def list_small_variant_tag_definitions(
                     d."group",
                     d.color,
                     d.sort_order,
+                    d.is_active,
                     '{}'::text[] AS shared_project_ids
                 FROM small_variant_tag_definitions d
-                WHERE d.is_active = TRUE
+                WHERE (d.is_active OR CAST(:include_inactive AS boolean))
                   AND d.scope = 'global'
                 ORDER BY d."group", d.sort_order, lower(d.label)
                 """
-            )
+            ),
+            activity,
         )
     custom_tags = [_serialize_custom_tag_definition_row(dict(row)) for row in result.mappings().all()]
     return _preset_tag_definitions() + custom_tags
@@ -373,22 +460,12 @@ async def create_small_variant_tag_definition(
     del family_uuid
     if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Only admins can create variant tags")
-    key = _slugify_tag(payload.label)
-    if key in DEFAULT_SMALL_VARIANT_TAG_KEYS:
-        raise HTTPException(status_code=409, detail="That tag label conflicts with a built-in variant tag")
+    slug = _slugify_tag(payload.label)
+    _refuse_a_built_in_label(slug)
 
-    existing = await session.execute(
-        text(
-            """
-            SELECT id
-            FROM small_variant_tag_definitions
-            WHERE key = :key
-            """
-        ),
-        {"key": key},
-    )
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=409, detail="A variant tag with that label already exists")
+    await _lock_tag_definitions(session)
+    await _refuse_a_label_in_use(session, slug=slug)
+    key = await _free_tag_key(session, slug)
 
     scope = payload.scope
     primary_project_id = payload.project_id or default_project_id
@@ -500,6 +577,7 @@ async def update_small_variant_tag_definition(
     if normalized_tag_key in DEFAULT_SMALL_VARIANT_TAG_KEYS:
         raise HTTPException(status_code=400, detail="Built-in variant tags cannot be edited")
 
+    await _lock_tag_definitions(session)
     # Every column is qualified: the links table has a project_id too, and Postgres refuses
     # an unqualified one as ambiguous, which failed every edit with a 500.
     result = await session.execute(
@@ -537,31 +615,17 @@ async def update_small_variant_tag_definition(
     if not payload.model_fields_set:
         raise HTTPException(status_code=400, detail="No tag fields were provided")
 
+    # The key is the tag's identity and never changes: reviews, saved filter presets, search
+    # URLs and the clinical audit trail hold it, so an edit of the label renames the tag
+    # everywhere at once. A label that reads as another tag's is refused.
     next_label = existing["label"]
-    next_key = existing["key"]
     if "label" in payload.model_fields_set:
         next_label = (payload.label or "").strip()
         if not next_label:
             raise HTTPException(status_code=400, detail="Tag label cannot be blank")
-        next_key = _slugify_tag(next_label)
-        if next_key in DEFAULT_SMALL_VARIANT_TAG_KEYS:
-            raise HTTPException(status_code=409, detail="That tag label conflicts with a built-in variant tag")
-
-    if next_key != existing["key"]:
-        duplicate = await session.execute(
-            text(
-                """
-                SELECT id
-                FROM small_variant_tag_definitions
-                WHERE key = :key
-                  AND is_active = TRUE
-                  AND id <> CAST(:tag_id AS uuid)
-                """
-            ),
-            {"key": next_key, "tag_id": existing["id"]},
-        )
-        if duplicate.scalar_one_or_none() is not None:
-            raise HTTPException(status_code=409, detail="A variant tag with that label already exists")
+        next_slug = _slugify_tag(next_label)
+        _refuse_a_built_in_label(next_slug)
+        await _refuse_a_label_in_use(session, slug=next_slug, tag_id=existing["id"])
 
     next_description = existing.get("description")
     if "description" in payload.model_fields_set:
@@ -611,7 +675,6 @@ async def update_small_variant_tag_definition(
             """
             UPDATE small_variant_tag_definitions
             SET
-                key = :key,
                 label = :label,
                 description = :description,
                 scope = :scope,
@@ -624,7 +687,6 @@ async def update_small_variant_tag_definition(
         ),
         {
             "tag_id": existing["id"],
-            "key": next_key,
             "label": next_label,
             "description": next_description,
             "scope": next_scope,
@@ -657,7 +719,6 @@ async def update_small_variant_tag_definition(
     return _serialize_custom_tag_definition_row(
         {
             **existing,
-            "key": next_key,
             "label": next_label,
             "description": next_description,
             "scope": next_scope,
@@ -686,6 +747,7 @@ async def delete_small_variant_tag_definition(
     if normalized_tag_key in DEFAULT_SMALL_VARIANT_TAG_KEYS:
         raise HTTPException(status_code=400, detail="Built-in variant tags cannot be deleted")
 
+    await _lock_tag_definitions(session)
     result = await session.execute(
         text(
             """
@@ -703,6 +765,9 @@ async def delete_small_variant_tag_definition(
 
     row_data = dict(row)
 
+    # Deactivated, not removed, and its project links kept: the reviews that hold the tag
+    # keep it and still show it by its label, in every project it was shared with. It can
+    # no longer be added to a review.
     await session.execute(
         text(
             """
@@ -712,14 +777,5 @@ async def delete_small_variant_tag_definition(
             """
         ),
         {"tag_id": row_data["id"], "updated_at": datetime.now(timezone.utc)},
-    )
-    await session.execute(
-        text(
-            """
-            DELETE FROM small_variant_tag_definition_project_links
-            WHERE tag_id = CAST(:tag_id AS uuid)
-            """
-        ),
-        {"tag_id": row_data["id"]},
     )
     await session.commit()

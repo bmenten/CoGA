@@ -21,10 +21,10 @@ detail (file formats, manifest fields, configuration) is kept by the bioinformat
 replacing an existing family, editing an existing family's members or structure, adding HPO terms,
 setting the region of interest, and loading or replacing data are for administrators.
 
-**Family and sample IDs** are printable text without spaces, whichever way a family comes in. The
-spaces around an ID are dropped. An ID with a space or a control character inside (a line break, a tab,
-an escape: characters a copied ID can carry without showing them) is refused before anything is saved;
-it would otherwise reach the pedigree, the report and the audit trail.
+**Family and sample IDs** are printable text without spaces, whichever way a family comes in or is
+edited. The spaces around an ID are dropped. An ID with a space or a control character inside (a line
+break, a tab, an escape: characters a copied ID can carry without showing them) is refused before
+anything is saved; it would otherwise reach the pedigree, the report and the audit trail.
 
 The PED carries only affected or unaffected. Detailed phenotypes are HPO terms on each person, added in
 the family member dialog.
