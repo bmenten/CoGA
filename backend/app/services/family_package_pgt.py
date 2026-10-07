@@ -25,6 +25,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from ..core.coga_logging import scrub_log
 from ..schemas import FamilyImportValidationIssue
 from .family_package_common import ParsedPed, _issue, _resolve_package_path
 from .family_package_qc import _csv_rows, parse_king_kin0_text, parse_ngsbits_sample_gender_text
@@ -58,7 +59,8 @@ def _read_package_file(root: Path, relative_path: str, *, kind: str) -> str | No
     try:
         return read_path_text_bounded(path, kind=kind)
     except (HTTPException, OSError, UnicodeDecodeError):
-        logger.warning("Could not read %s from the package", relative_path)
+        # The path can hold the family ID the Discover request names (the KING table's).
+        logger.warning("Could not read %s from the package", scrub_log(relative_path))
         return None
 
 

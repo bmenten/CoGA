@@ -15,6 +15,7 @@ Every identifier and number here is synthetic.
 from __future__ import annotations
 
 import gzip
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,7 @@ import yaml
 from backend.app.core.config import settings
 from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageManifestBuildRequest
 from backend.app.services import family_package_datasets, family_package_discovery, family_package_registration
-from backend.app.services import family_package_source
+from backend.app.services import family_package_pgt, family_package_source
 from backend.app.services import family_package_tracks, family_package_validation
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.family_package_common import FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed
@@ -452,6 +453,24 @@ def test_an_index_nothing_links_is_added_without_a_link(tmp_path: Path) -> None:
     assert "relationships" not in family
     index_warning = next(warning for warning in result.warnings if warning.code == "pgt_index_added")
     assert "Declare how it is related under family.relationships" in index_warning.message
+
+
+def test_a_family_id_with_a_line_break_cannot_forge_a_log_line(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Discover reads the KING table named after the family ID its request gives, and logs
+    # the path of one it cannot read. A line break in that ID must not start a new log line.
+    forged = f"{FAMILY}\nERROR forged entry"
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    (root / f"king/{forged}.kin0").write_bytes(b"\xff not UTF-8")
+
+    with caplog.at_level(logging.WARNING, logger=family_package_pgt.__name__):
+        family_package_discovery.discover_family_package_manifest(
+            FamilyPackageManifestBuildRequest(folder_path=str(root), naming_scheme="standard_v1", family_id=forged)
+        )
+
+    messages = {record.getMessage() for record in caplog.records if record.name == family_package_pgt.__name__}
+    assert messages == {f"Could not read king/{FAMILY} ERROR forged entry.kin0 from the package"}
 
 
 @pytest.mark.parametrize(
